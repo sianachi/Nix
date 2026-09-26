@@ -66,6 +66,72 @@ describe('companion work approvals', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
   });
+  it('passes the complete approved source fingerprint for template saving', async () => {
+    const fingerprint = 'a'.repeat(64);
+    const saveRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({
+          operation: 'save_as_template',
+          itemId: '33333333-3333-4333-8333-333333333333',
+          parentId: '',
+          title: 'Job hunt',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: '{}',
+        }),
+      })),
+    };
+    client.query.mockImplementation((endpoint: { operation: string; path: string }) => {
+      if (endpoint.operation !== 'templates.capture.preview')
+        throw new Error(`Unexpected preview query: ${endpoint.operation}`);
+      const excluded = endpoint.path.includes('excludeSampleDescendants=true');
+      return Promise.resolve({
+        fingerprint,
+        captureFingerprint: excluded ? 'b'.repeat(64) : fingerprint,
+        sourceTitle: 'Applications',
+        itemCount: excluded ? 2 : 3,
+      });
+    });
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string } }) =>
+        Promise.resolve({
+          ...saveRuntime,
+          tools: saveRuntime.tools.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+            claimId: endpoint.body.requestId,
+          })),
+        }),
+    );
+    runWorkspaceToolSpy.mockResolvedValueOnce({
+      text: 'saved',
+      readOnly: false,
+      touchedParents: [],
+    });
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={saveRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        mode="consult"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    expect(await screen.findByText(/I will save “Applications” and 1 children/)).toBeVisible();
+    await approveRequest();
+    await waitFor(() => {
+      expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+    });
+    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+      mode: 'consult',
+      fence: fingerprint,
+    });
+  });
   it('never executes when the server claim is uncertain', async () => {
     client.execute.mockRejectedValue(new Error('lost claim response'));
     show();

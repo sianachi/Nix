@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { items } from '@nix/api-client';
+import { items, templates } from '@nix/api-client';
 import {
   createCompanionBodies,
   defaultClock,
@@ -18,6 +18,7 @@ import {
   validateBlueprint,
   type Blueprint,
   type PreviewModel,
+  type SaveSpec,
   type ValidationReport,
 } from '@nix/structure-spec';
 import type { BuildResult } from '@nix/companion';
@@ -237,13 +238,42 @@ export async function blueprintSave(
     );
   const spec = saveSpecSchema.parse(parseBlueprint(await readFile(specFile, 'utf8')));
   const session = await resolveSession(profile, deps);
-  const root = await session.client.query(items.itemById(rootId), { forceRefresh: true });
+  const approval = await prepareBlueprintSave(session, rootId, spec);
   const result = await saveAsTemplate(
     portsFor(session),
-    root.workspaceId,
-    { itemId: rootId, title: root.title, spec },
-    { toolId: 'nixctl-blueprint-save', claimId: options.idempotencyKey },
+    approval.workspaceId,
+    { itemId: rootId, title: approval.title, spec },
+    {
+      toolId: 'nixctl-blueprint-save',
+      claimId: options.idempotencyKey,
+      approvedFingerprint: approval.fingerprint,
+      captureFingerprint: approval.captureFingerprint,
+    },
     AbortSignal.timeout(90_000),
   );
   printResult(result, output);
+}
+
+/** Pins the exact authorized source just before the explicitly confirmed CLI save. */
+export async function prepareBlueprintSave(
+  session: Session,
+  rootId: string,
+  spec: SaveSpec,
+): Promise<{
+  workspaceId: string;
+  title: string;
+  fingerprint: string;
+  captureFingerprint: string;
+}> {
+  const root = await session.client.query(items.itemById(rootId), { forceRefresh: true });
+  const preview = await session.client.query(
+    templates.previewTemplateCapture(root.workspaceId, rootId, true, !spec.includeSamples),
+    { forceRefresh: true },
+  );
+  return {
+    workspaceId: root.workspaceId,
+    title: preview.sourceTitle,
+    fingerprint: preview.fingerprint,
+    captureFingerprint: preview.captureFingerprint,
+  };
 }

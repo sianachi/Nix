@@ -13,7 +13,6 @@ import { checkItem, structureFingerprint, type StructureFingerprint } from './gu
 import { WorkspaceToolRefusal } from './tool-args.js';
 import { validateBlueprint } from '@nix/structure-spec';
 import { findSandbox } from './blueprint/sandbox.js';
-import { readSourceTree } from './templates/save.js';
 
 /** How far up the tree the destination path is walked before it is simply truncated: enough for
  * a preview to read as a breadcrumb, never a full-workspace crawl. */
@@ -49,6 +48,7 @@ export interface PreviewContext {
   sourceItemCount?: number;
   sampleCount?: number;
   sourceTitle?: string;
+  captureFingerprint?: string;
 }
 
 const formConditionSchema = z.object({
@@ -183,26 +183,32 @@ export async function loadPreviewContext(
 
   if (args.operation === 'save_as_template') {
     const spec = saveSpecSchema.parse(JSON.parse(args.specJson));
-    const source = await readSourceTree(ports, workspaceId, args.itemId, signal);
-    const nodes: (typeof source)[] = [source];
-    for (const node of nodes) nodes.push(...node.children);
-    const excluded = new Set<string>();
-    function markSamples(node: typeof source, underSample = false): void {
-      const isSample = underSample || (node !== source && node.item.title.startsWith('Sample: '));
-      if (isSample) excluded.add(node.item.id);
-      node.children.forEach((child) => {
-        markSamples(child, isSample);
-      });
-    }
-    markSamples(source);
+    // Core hashes the complete source for the approval fence and the projected tree for
+    // capture after Sample: descendants are temporarily trashed. Read both projections so
+    // the card's count and sample note come from the same authoritative source snapshot.
+    const projected = await ports.core.query(
+      templates.previewTemplateCapture(workspaceId, args.itemId, true, true),
+      requestOptions,
+    );
+    const full = await ports.core.query(
+      templates.previewTemplateCapture(workspaceId, args.itemId, true, false),
+      requestOptions,
+    );
+    if (projected.fingerprint !== full.fingerprint)
+      throw new WorkspaceToolRefusal(
+        'The source changed while preparing the preview. Refresh and try again.',
+      );
     return {
-      destination: { title: source.item.title, path: [source.item.title] },
+      destination: { title: full.sourceTitle, path: [full.sourceTitle] },
       inheritedFields: [],
-      fingerprint: structureFingerprint({ declared: [] }, []),
+      fingerprint: full.fingerprint,
+      captureFingerprint: spec.includeSamples
+        ? full.captureFingerprint
+        : projected.captureFingerprint,
       problems: [],
-      sourceTitle: source.item.title,
-      sourceItemCount: spec.includeSamples ? nodes.length : nodes.length - excluded.size,
-      sampleCount: excluded.size,
+      sourceTitle: full.sourceTitle,
+      sourceItemCount: spec.includeSamples ? full.itemCount : projected.itemCount,
+      sampleCount: full.itemCount - projected.itemCount,
     };
   }
 

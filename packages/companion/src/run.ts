@@ -368,11 +368,26 @@ export async function runWorkspaceTool(
     }
     case 'save_as_template': {
       const spec = saveSpecSchema.parse(rawSpec);
+      const context = await loadPreviewContext(ports, workspaceId, args, signal);
+      if (
+        options.fence === undefined ||
+        context.fingerprint !== options.fence ||
+        context.captureFingerprint === undefined
+      )
+        throw new WorkspaceToolRefusal(
+          'The source changed since you approved this. Review it again before saving.',
+        );
       result = await saveAsTemplate(
         ports,
         workspaceId,
         { itemId: args.itemId, title: args.title, spec },
-        { toolId: options.toolId, claimId: options.claimId, buildLedger: options.buildLedger },
+        {
+          toolId: options.toolId,
+          claimId: options.claimId,
+          approvedFingerprint: options.fence,
+          captureFingerprint: context.captureFingerprint,
+          buildLedger: options.buildLedger,
+        },
         signal,
       );
       break;

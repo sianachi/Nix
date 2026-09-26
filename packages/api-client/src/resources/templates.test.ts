@@ -93,6 +93,7 @@ describe('the templates resource', () => {
       includeBody: true,
       includeChildren: true,
       idempotencyKey: OPERATION_ID,
+      expectedFingerprint: 'a'.repeat(64),
     });
     const beginDraft = beginTemplateDraft(TEMPLATE_ID, OPERATION_ID);
     const readDraft = templateDraftById(TEMPLATE_ID, OPERATION_ID);
@@ -104,6 +105,7 @@ describe('the templates resource', () => {
     });
 
     expect(capture.path).toBe('/collab/templates/captures');
+    expect(capture.body).toMatchObject({ expectedFingerprint: 'a'.repeat(64) });
     expect(beginDraft.path).toBe(`/collab/templates/${TEMPLATE_ID}/drafts`);
     expect(readDraft.path).toBe(`/collab/templates/${TEMPLATE_ID}/drafts/${OPERATION_ID}`);
     expect(updateDraft.body).toEqual({

@@ -23,6 +23,8 @@ const MAX_PAGES = 3;
 export interface SaveAsTemplateClaim {
   toolId: string | undefined;
   claimId: string | undefined;
+  approvedFingerprint: string;
+  captureFingerprint: string;
   buildLedger?: readonly { nodeId: string; itemId?: string; status?: string }[] | undefined;
 }
 
@@ -100,6 +102,8 @@ export async function saveAsTemplate(
   signal: AbortSignal,
 ): Promise<SaveAsTemplateResult> {
   if (!claim.toolId || !claim.claimId) throw new Error('A claimed tool id is required.');
+  if (!claim.approvedFingerprint || !claim.captureFingerprint)
+    throw new WorkspaceToolRefusal('Review the current source before saving it as a template.');
   const requestOptions = { signal, forceRefresh: true };
   const source = await readSourceTree(ports, workspaceId, input.itemId, signal);
   const excludedIds = input.spec.includeSamples ? new Set<string>() : sampleSubtreeIds(source);
@@ -122,6 +126,19 @@ export async function saveAsTemplate(
           'This item or something under it is locked. Remove the lock before saving it as a template.',
         );
     }
+    // Check the complete approved source immediately before changing sample rows. Core then
+    // enforces the projected fingerprint after those rows have been temporarily trashed.
+    const current = await ports.core.query(
+      templates.previewTemplateCapture(workspaceId, input.itemId, true, !input.spec.includeSamples),
+      requestOptions,
+    );
+    if (
+      current.fingerprint !== claim.approvedFingerprint ||
+      current.captureFingerprint !== claim.captureFingerprint
+    )
+      throw new WorkspaceToolRefusal(
+        'The source changed since you approved this. Review it again before saving.',
+      );
     for (const node of excludedNodes.slice().sort((left, right) => right.depth - left.depth)) {
       attemptedTrash.push(node.item.id);
       await ports.core.execute(items.deleteItem(workspaceId, node.item.id), requestOptions);
@@ -136,6 +153,7 @@ export async function saveAsTemplate(
       includeBody: true,
       includeChildren: true,
       idempotencyKey,
+      expectedFingerprint: claim.captureFingerprint,
     };
     const initial = await ports.collab.execute(
       templates.captureTemplate(captureRequest),
@@ -236,6 +254,8 @@ export async function saveAsTemplate(
         `${message} These sample items could not be restored: ${restoreFailures.join(', ')}.`,
       );
     if (isNixApiError(operationFailure) && operationFailure.code === 'templates.source_locked')
+      throw new WorkspaceToolRefusal(operationFailure.message);
+    if (isNixApiError(operationFailure) && operationFailure.code === 'templates.conflict')
       throw new WorkspaceToolRefusal(operationFailure.message);
     throw operationFailure instanceof Error ? operationFailure : new Error(message);
   }

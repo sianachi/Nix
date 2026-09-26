@@ -272,6 +272,33 @@ describe('workspace-scoped companion tools', () => {
     expect(query).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });
+  it.each([undefined, 'a'.repeat(64)])(
+    'refuses template saving when the complete approval fence is missing or stale (%s)',
+    async (fence) => {
+      const { ports, query, execute, signal } = setup();
+      query.mockImplementation((endpoint: { operation: string; path?: string }) => {
+        if (endpoint.operation !== 'templates.capture.preview')
+          throw new Error(`unexpected query ${endpoint.operation}`);
+        const excluded = endpoint.path?.includes('excludeSampleDescendants=true');
+        return Promise.resolve({
+          fingerprint: 'c'.repeat(64),
+          captureFingerprint: excluded ? 'd'.repeat(64) : 'c'.repeat(64),
+          sourceTitle: 'Plan',
+          itemCount: excluded ? 2 : 3,
+        });
+      });
+      await expect(
+        runWorkspaceTool(
+          ports,
+          workspace,
+          input('save_as_template', { itemId, title: 'Saved', specJson: '{}' }),
+          signal,
+          { mode: 'consult', toolId: 'tool', claimId: 'claim', ...(fence ? { fence } : {}) },
+        ),
+      ).rejects.toThrow('source changed');
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
   it('refuses a blueprint build with a stale or missing approval fence before writing', async () => {
     const { ports, execute, signal } = setup();
     const raw = input('build_blueprint', {

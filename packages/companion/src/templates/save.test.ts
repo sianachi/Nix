@@ -12,6 +12,18 @@ const regularId = '33333333-3333-4333-8333-333333333333';
 const sampleId = '44444444-4444-4444-8444-444444444444';
 const sampleChildId = '55555555-5555-4555-8555-555555555555';
 const templateId = '66666666-6666-4666-8666-666666666666';
+const fullFingerprint = 'a'.repeat(64);
+const projectedFingerprint = 'b'.repeat(64);
+
+function capturePreview(endpoint: { path?: string }) {
+  const excluded = endpoint.path?.includes('excludeSampleDescendants=true') ?? false;
+  return {
+    fingerprint: fullFingerprint,
+    captureFingerprint: excluded ? projectedFingerprint : fullFingerprint,
+    sourceTitle: 'Plan',
+    itemCount: excluded ? 2 : 4,
+  };
+}
 
 function item(id: string, title: string, parentId: string | null, seq: string) {
   return { id, workspaceId: workspace, title, parentId, seq, type: 'note', hasChildren: false };
@@ -62,7 +74,9 @@ function detail(): TemplateDetail {
   };
 }
 
-function setup() {
+function setup(
+  preview: (endpoint: { path?: string }) => ReturnType<typeof capturePreview> = capturePreview,
+) {
   const fake = createFakePorts();
   const rows = new Map([
     [rootId, item(rootId, 'Plan', null, '1')],
@@ -73,6 +87,8 @@ function setup() {
   const calls: string[] = [];
   let captureBody: unknown;
   fake.query.mockImplementation((endpoint: { operation: string; path?: string }) => {
+    if (endpoint.operation === 'templates.capture.preview')
+      return Promise.resolve(preview(endpoint));
     if (endpoint.operation === 'items.get')
       return Promise.resolve(
         [...rows.values()].find((row) => endpoint.path?.includes(row.id)) ?? rows.get(rootId),
@@ -142,6 +158,35 @@ describe('save_as_template', () => {
     );
     expect(preview.sourceItemCount).toBe(expected);
     expect(preview.sampleCount).toBe(2);
+    expect(preview.fingerprint).toBe(fullFingerprint);
+    expect(preview.captureFingerprint).toBe(
+      'includeSamples' in spec && spec.includeSamples ? fullFingerprint : projectedFingerprint,
+    );
+  });
+  it('refuses a preview assembled from two different source snapshots', async () => {
+    const fake = setup((endpoint) => ({
+      ...capturePreview(endpoint),
+      fingerprint: endpoint.path?.includes('excludeSampleDescendants=true')
+        ? 'c'.repeat(64)
+        : fullFingerprint,
+    }));
+    await expect(
+      loadPreviewContext(
+        fake.ports,
+        workspace,
+        workspaceToolSchema.parse({
+          operation: 'save_as_template',
+          itemId: rootId,
+          parentId: '',
+          title: 'Captured plan',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: '{}',
+        }),
+        fake.signal,
+      ),
+    ).rejects.toThrow('source changed');
   });
   it('trashes sample descendants before capture, restores parent first, and uses the pet key', async () => {
     const fake = setup();
@@ -149,7 +194,12 @@ describe('save_as_template', () => {
       fake.ports,
       workspace,
       { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
-      { toolId: 'tool-1', claimId: 'claim-1' },
+      {
+        toolId: 'tool-1',
+        claimId: 'claim-1',
+        approvedFingerprint: fullFingerprint,
+        captureFingerprint: projectedFingerprint,
+      },
       fake.signal,
     );
     const captureIndex = fake.calls.indexOf('templates.capture');
@@ -164,12 +214,80 @@ describe('save_as_template', () => {
     expect((fake.getCaptureBody() as { idempotencyKey: string }).idempotencyKey).toBe(
       'pet:tool-1:claim-1',
     );
+    expect(fake.getCaptureBody()).toMatchObject({ expectedFingerprint: projectedFingerprint });
     expect(result).toMatchObject({
       templateId,
       itemCount: 2,
       includedSamples: false,
       savedWithInputs: false,
     });
+  });
+
+  it('refuses a changed Sample descendant before trash or capture', async () => {
+    const fake = setup((endpoint) => ({
+      ...capturePreview(endpoint),
+      fingerprint: 'c'.repeat(64),
+    }));
+    await expect(
+      saveAsTemplate(
+        fake.ports,
+        workspace,
+        { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
+        {
+          toolId: 'tool-1',
+          claimId: 'claim-1',
+          approvedFingerprint: fullFingerprint,
+          captureFingerprint: projectedFingerprint,
+        },
+        fake.signal,
+      ),
+    ).rejects.toThrow('source changed');
+    expect(fake.execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a changed projected capture before trash or capture', async () => {
+    const fake = setup((endpoint) => ({
+      ...capturePreview(endpoint),
+      captureFingerprint: 'c'.repeat(64),
+    }));
+    await expect(
+      saveAsTemplate(
+        fake.ports,
+        workspace,
+        { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
+        {
+          toolId: 'tool-1',
+          claimId: 'claim-1',
+          approvedFingerprint: fullFingerprint,
+          captureFingerprint: projectedFingerprint,
+        },
+        fake.signal,
+      ),
+    ).rejects.toThrow('source changed');
+    expect(fake.execute).not.toHaveBeenCalled();
+  });
+
+  it('includes samples when approved and pins the full capture fingerprint', async () => {
+    const fake = setup();
+    const result = await saveAsTemplate(
+      fake.ports,
+      workspace,
+      {
+        itemId: rootId,
+        title: 'Captured plan',
+        spec: saveSpecSchema.parse({ includeSamples: true }),
+      },
+      {
+        toolId: 'tool-1',
+        claimId: 'claim-1',
+        approvedFingerprint: fullFingerprint,
+        captureFingerprint: fullFingerprint,
+      },
+      fake.signal,
+    );
+    expect(fake.calls).not.toContain('items.delete');
+    expect(fake.getCaptureBody()).toMatchObject({ expectedFingerprint: fullFingerprint });
+    expect(result).toMatchObject({ includedSamples: true });
   });
 
   it('reports failed restorations and never retries them', async () => {
@@ -197,7 +315,12 @@ describe('save_as_template', () => {
       fake.ports,
       workspace,
       { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
-      { toolId: 'tool-1', claimId: 'claim-1' },
+      {
+        toolId: 'tool-1',
+        claimId: 'claim-1',
+        approvedFingerprint: fullFingerprint,
+        captureFingerprint: projectedFingerprint,
+      },
       fake.signal,
     );
     expect(result.restoreFailures).toEqual([sampleId]);
@@ -219,7 +342,12 @@ describe('save_as_template', () => {
         fake.ports,
         workspace,
         { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
-        { toolId: 'tool-1', claimId: 'claim-1' },
+        {
+          toolId: 'tool-1',
+          claimId: 'claim-1',
+          approvedFingerprint: fullFingerprint,
+          captureFingerprint: projectedFingerprint,
+        },
         fake.signal,
       ),
     ).rejects.toBe(deleteFailure);
@@ -246,15 +374,53 @@ describe('save_as_template', () => {
         fake.ports,
         workspace,
         { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
-        { toolId: 'tool-1', claimId: 'claim-1' },
+        {
+          toolId: 'tool-1',
+          claimId: 'claim-1',
+          approvedFingerprint: fullFingerprint,
+          captureFingerprint: projectedFingerprint,
+        },
         fake.signal,
       ),
     ).rejects.toThrow(locked.message);
   });
 
+  it('reports a pinned snapshot conflict after restoring excluded samples', async () => {
+    const fake = setup();
+    const conflict = NixApiError.operation(
+      'templates.conflict',
+      'The approved source snapshot changed. No template was saved.',
+      false,
+    );
+    fake.execute.mockImplementation((endpoint: { operation: string }) => {
+      fake.calls.push(endpoint.operation);
+      if (endpoint.operation === 'items.delete' || endpoint.operation === 'items.restore')
+        return Promise.resolve({});
+      if (endpoint.operation === 'templates.capture') throw conflict;
+      throw new Error(`unexpected execute ${endpoint.operation}`);
+    });
+    await expect(
+      saveAsTemplate(
+        fake.ports,
+        workspace,
+        { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
+        {
+          toolId: 'tool-1',
+          claimId: 'claim-1',
+          approvedFingerprint: fullFingerprint,
+          captureFingerprint: projectedFingerprint,
+        },
+        fake.signal,
+      ),
+    ).rejects.toThrow(conflict.message);
+    expect(fake.calls.filter((call) => call === 'items.restore')).toHaveLength(2);
+  });
+
   it('refuses a locked Sample subtree before temporary trash can hide it from Core', async () => {
     const fake = setup();
     fake.query.mockImplementation((endpoint: { operation: string; path?: string }) => {
+      if (endpoint.operation === 'templates.capture.preview')
+        return Promise.resolve(capturePreview(endpoint));
       if (endpoint.operation === 'items.get')
         return Promise.resolve(
           endpoint.path?.includes(rootId)
@@ -275,7 +441,12 @@ describe('save_as_template', () => {
         fake.ports,
         workspace,
         { itemId: rootId, title: 'Captured plan', spec: saveSpecSchema.parse({}) },
-        { toolId: 'tool-1', claimId: 'claim-1' },
+        {
+          toolId: 'tool-1',
+          claimId: 'claim-1',
+          approvedFingerprint: fullFingerprint,
+          captureFingerprint: projectedFingerprint,
+        },
         fake.signal,
       ),
     ).rejects.toThrow(
@@ -317,6 +488,8 @@ describe('save_as_template', () => {
       inherit: true,
     };
     fake.query.mockImplementation((endpoint: { operation: string; path?: string }) => {
+      if (endpoint.operation === 'templates.capture.preview')
+        return Promise.resolve(capturePreview(endpoint));
       if (endpoint.operation === 'items.get')
         return Promise.resolve(item(rootId, 'Plan', null, '1'));
       if (endpoint.operation === 'locks.get')
@@ -356,6 +529,8 @@ describe('save_as_template', () => {
       {
         toolId: 'tool-1',
         claimId: 'claim-1',
+        approvedFingerprint: fullFingerprint,
+        captureFingerprint: projectedFingerprint,
         buildLedger: [{ nodeId: 'task', itemId: regularId, status: 'created' }],
       },
       fake.signal,
@@ -378,6 +553,8 @@ describe('save_as_template', () => {
     if (firstChild === undefined) throw new Error('missing test child');
     firstChild.title = 'Different position';
     fake.query.mockImplementation((endpoint: { operation: string; path?: string }) => {
+      if (endpoint.operation === 'templates.capture.preview')
+        return Promise.resolve(capturePreview(endpoint));
       if (endpoint.operation === 'items.get')
         return Promise.resolve(item(rootId, 'Plan', null, '1'));
       if (endpoint.operation === 'locks.get')
@@ -411,7 +588,12 @@ describe('save_as_template', () => {
         title: 'Captured plan',
         spec: saveSpecSchema.parse({ inputs: [{ key: 'due', label: 'Due date', type: 'date' }] }),
       },
-      { toolId: 'tool-1', claimId: 'claim-1' },
+      {
+        toolId: 'tool-1',
+        claimId: 'claim-1',
+        approvedFingerprint: fullFingerprint,
+        captureFingerprint: projectedFingerprint,
+      },
       fake.signal,
     );
     expect(operations).toContain('templates.drafts.discard');

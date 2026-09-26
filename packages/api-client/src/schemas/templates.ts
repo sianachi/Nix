@@ -203,6 +203,10 @@ export const templateCaptureRequestSchema = z.object({
   includeBody: z.boolean(),
   includeChildren: z.boolean(),
   idempotencyKey: z.string().min(1).max(200),
+  expectedFingerprint: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
 });
 
 export const templateCapturePreviewSchema = z.object({

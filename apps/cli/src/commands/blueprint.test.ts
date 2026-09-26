@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { outputOptions } from '../output.ts';
+import { saveSpecSchema } from '@nix/structure-spec';
 import type { Session } from '../session.ts';
 import {
   blueprintBuild,
@@ -12,6 +13,7 @@ import {
   blueprintValidate,
   evaluateBlueprint,
   executeBlueprintBuild,
+  prepareBlueprintSave,
 } from './blueprint.ts';
 
 const fixture = fileURLToPath(
@@ -81,6 +83,47 @@ describe('blueprint commands', () => {
       '--idempotency-key',
     );
   });
+
+  it.each([
+    [false, true, 'b'.repeat(64)],
+    [true, false, 'a'.repeat(64)],
+  ])(
+    'pins a Core capture preview for includeSamples=%s',
+    async (includeSamples, excludeSamples, expectedCapture) => {
+      const rootId = '11111111-1111-4111-8111-111111111111';
+      const workspaceId = '22222222-2222-4222-8222-222222222222';
+      const queries: { operation: string; path: string }[] = [];
+      const session = {
+        client: {
+          query: vi.fn((endpoint: { operation: string; path: string }) => {
+            queries.push(endpoint);
+            if (endpoint.operation === 'items.get')
+              return Promise.resolve({ id: rootId, workspaceId, title: 'Old title' });
+            if (endpoint.operation === 'templates.capture.preview')
+              return Promise.resolve({
+                fingerprint: 'a'.repeat(64),
+                captureFingerprint: expectedCapture,
+                sourceTitle: 'Current title',
+                itemCount: includeSamples ? 4 : 2,
+              });
+            throw new Error(`Unexpected query ${endpoint.operation}`);
+          }),
+        },
+      } as unknown as Session;
+      const approval = await prepareBlueprintSave(
+        session,
+        rootId,
+        saveSpecSchema.parse({ includeSamples }),
+      );
+      expect(queries[1]?.path).toContain(`excludeSampleDescendants=${String(excludeSamples)}`);
+      expect(approval).toEqual({
+        workspaceId,
+        title: 'Current title',
+        fingerprint: 'a'.repeat(64),
+        captureFingerprint: expectedCapture,
+      });
+    },
+  );
 
   it('validates the reading-log fixture and describes its board', async () => {
     const raw: unknown = JSON.parse(readFileSync(fixture, 'utf8'));
