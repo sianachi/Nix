@@ -9,3 +9,4 @@ export type { Blueprint, InitRuleSpec, Node, TemplateInputSpec } from './schema.
 export { containerNodes, effectiveSchemaPerNode } from './effective.js';
 
 export { validateBlueprint, validateFormulas } from './validate.js';
+export { collectWarnings } from './warnings.js';

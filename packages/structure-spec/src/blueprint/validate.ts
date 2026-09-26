@@ -1,4 +1,10 @@
 import type { z } from 'zod';
+import {
+  formulaFieldNames,
+  planPropertyFormulas,
+  PROPERTY_FORMULA_HELP,
+  PROPERTY_FORMULA_LIMITS,
+} from '@nix/sheet';
 
 import { LIMITS } from '../catalog/index.js';
 import type { Cond, FormSpec } from '../spec/form.js';
@@ -20,22 +26,56 @@ import { validateValue } from '../validate/values.js';
 import type { Problem, ValidationContext, ValidationReport } from '../validate/report.js';
 import { effectiveSchemaPerNode } from './effective.js';
 import { blueprintSchema, type Blueprint, type Node } from './schema.js';
+import { collectWarnings } from './warnings.js';
 
-/**
- * Where a blueprint's own formula checks (architecture 4 check 8) will hook in once C.2b lands:
- * cross-node cycle detection and `@nix/sheet` parse errors, over the whole effective schema of
- * every node, which is a bigger job than this task's other checks and depends on A.1d's
- * `describeBlueprint` groundwork. `validateBlueprint` calls this and folds its result in, so C.2b
- * only has to fill the body in - every other check in this module is already wired to see whatever
- * it eventually returns.
- */
+/** Architecture 4 check 8: validate references and formula plans in each node's effective schema. */
 export function validateFormulas(
   bp: Blueprint,
   effective: ReadonlyMap<string, readonly StructureProperty[]>,
 ): Problem[] {
-  void bp;
-  void effective;
-  return [];
+  const problems: Problem[] = [];
+
+  function visit(node: Node, path: string): void {
+    const fields = effective.get(node.id) ?? [];
+    const fieldByKey = new Map(fields.map((field) => [field.key, field]));
+    const formulas = fields
+      .filter((field) => field.type === 'formula' && field.expression !== null)
+      .map((field) => ({ key: field.key, expression: field.expression ?? '' }));
+
+    for (const formula of formulas) {
+      const names = formulaFieldNames(formula.expression);
+      if (names === null) continue;
+      for (const name of names) {
+        if (!fieldByKey.has(name)) {
+          problems.push({
+            path: `${path}.fields`,
+            code: 'formula.unknown_field',
+            message: `${PROPERTY_FORMULA_HELP['#NAME?']} Formula '${formula.key}' refers to '${name}'.`,
+          });
+        }
+      }
+    }
+
+    const plan = planPropertyFormulas(formulas, PROPERTY_FORMULA_LIMITS);
+    for (const [key, result] of plan.fixed) {
+      if (typeof result !== 'object' || result === null || !('error' in result)) continue;
+      if (result.error !== '#PARSE!' && result.error !== '#LIMIT!' && result.error !== '#CYCLE!') {
+        continue;
+      }
+      problems.push({
+        path: `${path}.fields`,
+        code: `formula.${result.error === '#PARSE!' ? 'parse' : result.error === '#LIMIT!' ? 'limit' : 'cycle'}`,
+        message: `Formula '${key}': ${PROPERTY_FORMULA_HELP[result.error]}`,
+      });
+    }
+
+    (node.children ?? []).forEach((child, index) => {
+      visit(child, `${path}.children[${String(index)}]`);
+    });
+  }
+
+  visit(bp.root, 'root');
+  return problems;
 }
 
 function formatPath(path: readonly PropertyKey[]): string {
@@ -665,8 +705,7 @@ function pushLimitProblem(problems: Problem[], code: string, message: string): v
  * children, values, recurrence/habit, samples, template inputs and rules, and the tree-wide
  * limits (architecture 2.4).
  *
- * Check 8 (formulas) is deliberately left to `validateFormulas`, C.2b's hook; its result (empty
- * today) is folded in here so nothing downstream has to know it grew.
+ * Formula validation and non-blocking blueprint design warnings are folded into the same report.
  */
 export function validateBlueprint(bp: unknown, context: ValidationContext): ValidationReport {
   const parsed = blueprintSchema.safeParse(bp);
@@ -681,11 +720,13 @@ export function validateBlueprint(bp: unknown, context: ValidationContext): Vali
 
   const blueprint = parsed.data;
   const problems: Problem[] = [];
+  const warnings: Problem[] = [];
 
   const effectiveMap = effectiveSchemaPerNode(blueprint, context.inheritedFields);
   const stats = walkTree(blueprint, effectiveMap, problems);
   checkTemplateInputsAndRules(blueprint, effectiveMap, problems);
   problems.push(...validateFormulas(blueprint, effectiveMap));
+  warnings.push(...collectWarnings(blueprint, effectiveMap));
 
   if (stats.totalNodes > LIMITS.blueprintNodes) {
     pushLimitProblem(
@@ -745,7 +786,7 @@ export function validateBlueprint(bp: unknown, context: ValidationContext): Vali
   return {
     ok: problems.length === 0,
     problems,
-    warnings: [],
+    warnings,
     stats: { fields: stats.totalFields, views: stats.totalViews, entries: stats.sampleNodes },
   };
 }

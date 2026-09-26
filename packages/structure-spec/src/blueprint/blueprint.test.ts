@@ -34,6 +34,179 @@ function findProblem(problems: readonly Problem[], code: string): Problem | unde
 }
 
 describe('validateBlueprint', () => {
+  it('unknown formula reference is explained with the NAME help', () => {
+    const report = validateBlueprint(
+      blueprint({
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Total', type: 'formula', formula: '[missing] + 1' }],
+      }),
+      context(),
+    );
+    const problem = findProblem(report.problems, 'formula.unknown_field');
+    expect(problem?.message).toContain('nothing here declares');
+    expect(problem?.message).toContain("refers to 'missing'");
+  });
+
+  it('cross-node cycle through inherited fields is refused', () => {
+    const report = validateBlueprint(
+      blueprint({
+        id: 'root',
+        title: 'Root',
+        fields: [
+          { label: 'A', key: 'a', type: 'formula', formula: '[b] + 1' },
+          { label: 'B', key: 'b', type: 'formula', formula: '[a] + 1' },
+        ],
+        children: [{ id: 'child', title: 'Child', inherit: true }],
+      }),
+      context(),
+    );
+    expect(findProblem(report.problems, 'formula.cycle')).toBeDefined();
+  });
+
+  const warningCases: { code: string; title: string; trigger: Node; clear: Node }[] = [
+    {
+      code: 'warn.sibling_containers_same_fields',
+      title: 'sibling containers with equal fields',
+      trigger: {
+        id: 'root',
+        title: 'Root',
+        children: [
+          {
+            id: 'one',
+            title: 'One',
+            fields: [{ label: 'Name', type: 'text' }],
+            views: [{ kind: 'list' }],
+          },
+          {
+            id: 'two',
+            title: 'Two',
+            fields: [{ label: 'Name', type: 'text' }],
+            views: [{ kind: 'board', groupBy: 'name' }],
+          },
+        ],
+      },
+      clear: {
+        id: 'root',
+        title: 'Root',
+        children: [
+          {
+            id: 'one',
+            title: 'One',
+            fields: [{ label: 'Name', type: 'text' }],
+            views: [{ kind: 'list' }],
+          },
+          {
+            id: 'two',
+            title: 'Two',
+            fields: [{ label: 'Status', type: 'select', options: ['New'] }],
+            views: [{ kind: 'board', groupBy: 'status' }],
+          },
+        ],
+      },
+    },
+    {
+      code: 'warn.fields_repeated_on_children',
+      title: 'fields declared on each child',
+      trigger: {
+        id: 'root',
+        title: 'Root',
+        children: [
+          { id: 'one', title: 'One', fields: [{ label: 'Status', type: 'text' }] },
+          { id: 'two', title: 'Two', fields: [{ label: 'Status', type: 'text' }] },
+        ],
+      },
+      clear: {
+        id: 'root',
+        title: 'Root',
+        children: [
+          { id: 'one', title: 'One', fields: [{ label: 'Status', type: 'text' }] },
+          { id: 'two', title: 'Two', fields: [{ label: 'Notes', type: 'text' }] },
+        ],
+      },
+    },
+    {
+      code: 'warn.number_could_be_rollup',
+      title: 'number field that could be a rollup',
+      trigger: {
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Hours', key: 'hours', type: 'number' }],
+        children: [
+          {
+            id: 'child',
+            title: 'Child',
+            fields: [{ label: 'Hours', key: 'hours', type: 'number' }],
+          },
+        ],
+      },
+      clear: {
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Hours', type: 'number' }],
+        children: [
+          {
+            id: 'child',
+            title: 'Child',
+            inherit: false,
+            fields: [{ label: 'Notes', type: 'number' }],
+          },
+        ],
+      },
+    },
+    {
+      code: 'warn.repeating_title_without_recurrence',
+      title: 'repeating title without recurrence',
+      trigger: { id: 'root', title: 'Weekly review' },
+      clear: {
+        id: 'root',
+        title: 'Weekly review',
+        recurrence: { frequency: 'weekly', interval: 1 },
+      },
+    },
+    {
+      code: 'warn.list_only_many_fields',
+      title: 'list only with more than five fields',
+      trigger: {
+        id: 'root',
+        title: 'Root',
+        fields: ['A', 'B', 'C', 'D', 'E', 'F'].map((label) => ({ label, type: 'text' })),
+        views: [{ kind: 'list' }],
+      },
+      clear: {
+        id: 'root',
+        title: 'Root',
+        fields: ['A', 'B', 'C', 'D', 'E'].map((label) => ({ label, type: 'text' })),
+        views: [{ kind: 'list' }],
+      },
+    },
+    {
+      code: 'warn.query_duplicates_smart_list',
+      title: 'query duplicating a smart list preset',
+      trigger: {
+        id: 'root',
+        title: 'Root',
+        views: [{ kind: 'query', filters: [{ field: 'due_date', op: 'on', value: 'today' }] }],
+      },
+      clear: {
+        id: 'root',
+        title: 'Root',
+        views: [{ kind: 'query', filters: [{ field: 'due_date', op: 'before', value: 'today' }] }],
+      },
+    },
+  ];
+
+  for (const warningCase of warningCases) {
+    it(`${warningCase.title}: emits its warning for a triggering blueprint`, () => {
+      const report = validateBlueprint(blueprint(warningCase.trigger), context());
+      expect(findProblem(report.warnings, warningCase.code)).toBeDefined();
+    });
+    it(`${warningCase.title}: stays quiet for a non-triggering blueprint`, () => {
+      const report = validateBlueprint(blueprint(warningCase.clear), context());
+      expect(findProblem(report.warnings, warningCase.code)).toBeUndefined();
+    });
+  }
+
   it('accepts the reading-log sample blueprint clean', () => {
     const report = validateBlueprint(fixture('reading-log.json'), context());
     expect(report.problems).toEqual([]);
