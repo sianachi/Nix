@@ -70,7 +70,7 @@ export async function runWorkspaceTool(
   const requestOptions = { signal, forceRefresh: true };
   let result: unknown;
   const check = (id: string) => checkItem(ports, workspaceId, id, signal);
-  const rawSpec: unknown = args.specJson ? JSON.parse(args.specJson) : {};
+  const rawSpec: unknown = args.specJson.trim() ? JSON.parse(args.specJson) : {};
   if (args.operation === 'validate_blueprint') {
     const report = validateBlueprint(rawSpec, { inheritedFields: [], today: '' });
     return { text: JSON.stringify(report), readOnly: true, touchedParents: [] };

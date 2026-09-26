@@ -207,6 +207,20 @@ func TestConsultOnlyOperationsAreRefusedInChat(t *testing.T) {
 	}
 }
 
+func TestConsultSaveDescriptionMatchesCaptureContract(t *testing.T) {
+	tools := workspaceTools("consult")
+	tool := tools[0].(map[string]any)
+	description := tool["description"].(string)
+	for _, required := range []string{"save_as_template", "specJson may be empty for defaults", "Sample:"} {
+		if !strings.Contains(description, required) {
+			t.Fatalf("consult tool description does not explain %q", required)
+		}
+	}
+	if !strings.Contains(consultRules, "Title every fictional sample node and sample container with the prefix Sample:") {
+		t.Fatal("consult instructions omit the capture exclusion naming rule")
+	}
+}
+
 // TestEnumAndValidatorAgree proves the operation enum in workspaceTools("chat") and the
 // switch in validateToolArguments never drift apart: every enum entry must have a minimal
 // valid argument set below that validateToolArguments accepts, and any string outside the

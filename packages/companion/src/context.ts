@@ -182,7 +182,7 @@ export async function loadPreviewContext(
   const requestOptions = { signal, forceRefresh: true };
 
   if (args.operation === 'save_as_template') {
-    const spec = saveSpecSchema.parse(JSON.parse(args.specJson));
+    const spec = saveSpecSchema.parse(args.specJson.trim() ? JSON.parse(args.specJson) : {});
     // Core hashes the complete source for the approval fence and the projected tree for
     // capture after Sample: descendants are temporarily trashed. Read both projections so
     // the card's count and sample note come from the same authoritative source snapshot.

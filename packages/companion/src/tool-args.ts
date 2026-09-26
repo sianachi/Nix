@@ -58,7 +58,6 @@ export const workspaceToolSchema = z
       'create_entries',
       'validate_blueprint',
       'build_blueprint',
-      'save_as_template',
     ];
     if (!NO_ITEM_ID_REQUIRED.includes(args.operation)) required('itemId');
     if (
@@ -105,8 +104,8 @@ export const workspaceToolSchema = z
       args.operation === 'build_blueprint' ||
       args.operation === 'save_as_template'
     ) {
-      if (!args.specJson.trim()) required('specJson');
-      else {
+      if (!args.specJson.trim() && args.operation !== 'save_as_template') required('specJson');
+      else if (args.specJson.trim()) {
         try {
           const parsed: unknown = JSON.parse(args.specJson);
           if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))

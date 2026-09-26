@@ -4,6 +4,7 @@ import { saveSpecSchema } from '@nix/structure-spec';
 import { createFakePorts } from '../testing/fake-ports.js';
 import { saveAsTemplate } from './save.js';
 import { loadPreviewContext } from '../context.js';
+import { describeToolCall } from '../preview.js';
 import { workspaceToolSchema } from '../tool-args.js';
 
 const workspace = '11111111-1111-4111-8111-111111111111';
@@ -136,6 +137,26 @@ function setup(
 }
 
 describe('save_as_template', () => {
+  it('accepts an empty specJson and previews default sample exclusion', async () => {
+    const fake = setup();
+    const args = workspaceToolSchema.parse({
+      operation: 'save_as_template',
+      itemId: rootId,
+      parentId: '',
+      title: 'Captured plan',
+      markdown: '',
+      query: '',
+      propertiesJson: '',
+      specJson: '',
+    });
+    const preview = await loadPreviewContext(fake.ports, workspace, args, fake.signal);
+    expect(preview.sourceItemCount).toBe(2);
+    expect(preview.sampleCount).toBe(2);
+    expect(preview.captureFingerprint).toBe(projectedFingerprint);
+    expect(describeToolCall(args, preview).headline).toContain('2 example entries are left out');
+    expect(() => workspaceToolSchema.parse({ ...args, itemId: '' })).toThrow();
+  });
+
   it.each([
     [{}, 2],
     [{ includeSamples: true }, 4],

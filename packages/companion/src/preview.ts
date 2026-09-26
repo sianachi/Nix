@@ -290,7 +290,7 @@ function describeLegacyOperation(args: PreviewToolArgs, context: PreviewContext)
  */
 export function describeToolCall(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
   if (args.operation === 'save_as_template') {
-    const spec = JSON.parse(args.specJson) as {
+    const spec = (args.specJson.trim() ? JSON.parse(args.specJson) : {}) as {
       includeSamples?: boolean;
       inputs?: { label: string }[];
     };
