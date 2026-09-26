@@ -2,10 +2,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { DB_TESTS_ENABLED, TENANTS, clearContent, collabPool, seedTenants } from '../db/testing.ts';
 import { findDocByItem } from '../db/documents.ts';
+import { appendUpdate } from '../db/documents.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { strategyFor } from '../documents/body-kinds.ts';
 import { loadDocument } from '../documents/service.ts';
 import { copyBodies, writeArchiveBodies } from './bodies.ts';
+import * as Y from 'yjs';
 
 describe.runIf(DB_TESTS_ENABLED)('bulk template bodies, against Postgres', () => {
   const pool = collabPool();
@@ -50,6 +52,13 @@ describe.runIf(DB_TESTS_ENABLED)('bulk template bodies, against Postgres', () =>
       new Map(),
     );
 
+    const source = await withTenantScope(
+      pool,
+      { tenantId: tenant.tenantId, principalId: tenant.principalId },
+      (sql) => findDocByItem(sql, tenant.tenantId, tenant.itemId),
+    );
+    if (source === null) throw new Error('The source body is missing.');
+
     await copyBodies(
       pool,
       authorization,
@@ -58,6 +67,9 @@ describe.runIf(DB_TESTS_ENABLED)('bulk template bodies, against Postgres', () =>
           sourceItemId: tenant.itemId,
           targetItemId: tenant.targetItemId,
           itemType: 'note',
+          checkHead: true,
+          expectedDocId: source.doc_id,
+          expectedHeadSeq: Number(source.head_seq),
         },
       ],
       new Map([[tenant.itemId, tenant.targetItemId]]),
@@ -81,5 +93,41 @@ describe.runIf(DB_TESTS_ENABLED)('bulk template bodies, against Postgres', () =>
     expect(materialized).toMatchObject({
       content: [{ content: [{ text: 'Bulk body.' }] }],
     });
+
+    const changed = new Y.Doc();
+    changed.getText('body').insert(0, 'changed');
+    try {
+      await withTenantScope(
+        pool,
+        { tenantId: tenant.tenantId, principalId: tenant.principalId },
+        (sql) =>
+          appendUpdate(sql, {
+            tenantId: tenant.tenantId,
+            docId: source.doc_id,
+            updateBytes: Y.encodeStateAsUpdate(changed),
+            actorId: tenant.principalId,
+            clientId: 'template-pin-test',
+          }),
+      );
+    } finally {
+      changed.destroy();
+    }
+    await expect(
+      copyBodies(
+        pool,
+        authorization,
+        [
+          {
+            sourceItemId: tenant.itemId,
+            targetItemId: tenant.targetItemId,
+            itemType: 'note',
+            checkHead: true,
+            expectedDocId: source.doc_id,
+            expectedHeadSeq: Number(source.head_seq),
+          },
+        ],
+        new Map([[tenant.itemId, tenant.targetItemId]]),
+      ),
+    ).rejects.toMatchObject({ code: 'templates.conflict' });
   });
 });

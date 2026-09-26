@@ -7,6 +7,7 @@ import type { CoreClient } from '../core/client.ts';
 import type { ImportBodyService } from '../imports/bodies.ts';
 import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
 import type { TemplateService } from '../templates/service.ts';
+import { TemplateBodyError } from '../templates/bodies.ts';
 import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
 
@@ -91,6 +92,61 @@ afterEach(async () => {
 });
 
 describe('the collaboration service HTTP surface', () => {
+  it('forwards an approved capture fingerprint to the template service', async () => {
+    let captured: unknown;
+    const templates = {
+      capture: (_token: string, request: unknown) => {
+        captured = request;
+        return Promise.resolve({ templateId: ITEM });
+      },
+    } as unknown as TemplateService;
+    const app = track(server({ templates }));
+    const response = await app.inject({
+      method: 'POST',
+      url: '/templates/captures',
+      headers: { authorization: 'Bearer test-token' },
+      payload: {
+        workspaceId: GRANTED.workspaceId,
+        sourceItemId: ITEM,
+        title: 'Pinned capture',
+        includeBody: true,
+        includeChildren: true,
+        idempotencyKey: 'pinned-capture',
+        expectedFingerprint: 'approved-snapshot',
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(captured).toMatchObject({ expectedFingerprint: 'approved-snapshot' });
+  });
+
+  it('returns a conflict when a pinned capture source body changed', async () => {
+    const templates = {
+      capture: () =>
+        Promise.reject(
+          new TemplateBodyError(
+            'templates.conflict',
+            'The source body changed since capture began.',
+          ),
+        ),
+    } as unknown as TemplateService;
+    const app = track(server({ templates }));
+    const response = await app.inject({
+      method: 'POST',
+      url: '/templates/captures',
+      headers: { authorization: 'Bearer valid' },
+      payload: {
+        workspaceId: GRANTED.workspaceId,
+        sourceItemId: ITEM,
+        title: 'Pinned capture',
+        includeBody: true,
+        includeChildren: false,
+        idempotencyKey: 'pinned-capture',
+      },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: 'templates.conflict' });
+  });
+
   it('reports its schema version on the health endpoint', async () => {
     const app = track(server({}));
 

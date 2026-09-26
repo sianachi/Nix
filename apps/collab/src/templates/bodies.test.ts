@@ -420,6 +420,120 @@ describe('template body text binding', () => {
 });
 
 describe('template body materialization', () => {
+  const DOC_ID = '73000000-0000-4000-8000-000000000001';
+  it('refuses a changed source head before writing a staged capture body', async () => {
+    const sourceId = '74000000-0000-4000-8000-000000000001';
+    const targetId = '74000000-0000-4000-8000-000000000002';
+    const pool = sourceBodyPool(sourceId, noteBody('Pinned source'), { headSeq: '2' });
+    await expect(
+      copyBodies(
+        pool,
+        writableAuthorization(),
+        [
+          {
+            sourceItemId: sourceId,
+            targetItemId: targetId,
+            itemType: 'note',
+            checkHead: true,
+            expectedDocId: DOC_ID,
+            expectedHeadSeq: 1,
+          },
+        ],
+        new Map(),
+      ),
+    ).rejects.toMatchObject({ code: 'templates.conflict' });
+  });
+
+  it('refuses a source body that appeared after an absent head was pinned', async () => {
+    const sourceId = '74000000-0000-4000-8000-000000000003';
+    const targetId = '74000000-0000-4000-8000-000000000004';
+    await expect(
+      copyBodies(
+        sourceBodyPool(sourceId, noteBody('New source')),
+        writableAuthorization(),
+        [
+          {
+            sourceItemId: sourceId,
+            targetItemId: targetId,
+            itemType: 'note',
+            checkHead: true,
+            expectedDocId: null,
+            expectedHeadSeq: null,
+          },
+        ],
+        new Map(),
+      ),
+    ).rejects.toMatchObject({ code: 'templates.conflict' });
+  });
+
+  it('refuses a replaced source document even when its head sequence matches', async () => {
+    const sourceId = '74000000-0000-4000-8000-000000000009';
+    const targetId = '74000000-0000-4000-8000-000000000010';
+    await expect(
+      copyBodies(
+        sourceBodyPool(sourceId, noteBody('Replacement'), {
+          docId: '73000000-0000-4000-8000-000000000009',
+        }),
+        writableAuthorization(),
+        [
+          {
+            sourceItemId: sourceId,
+            targetItemId: targetId,
+            itemType: 'note',
+            checkHead: true,
+            expectedDocId: DOC_ID,
+            expectedHeadSeq: 1,
+          },
+        ],
+        new Map(),
+      ),
+    ).rejects.toMatchObject({ code: 'templates.conflict' });
+  });
+
+  it('copies an unchanged pinned source body', async () => {
+    const sourceId = '74000000-0000-4000-8000-000000000005';
+    const targetId = '74000000-0000-4000-8000-000000000006';
+    await expect(
+      copyBodies(
+        sourceBodyPool(sourceId, noteBody('Unchanged')),
+        writableAuthorization(),
+        [
+          {
+            sourceItemId: sourceId,
+            targetItemId: targetId,
+            itemType: 'note',
+            checkHead: true,
+            expectedDocId: DOC_ID,
+            expectedHeadSeq: 1,
+          },
+        ],
+        new Map(),
+      ),
+    ).resolves.toEqual([targetId]);
+  });
+
+  it('checks the pinned source again on replay even when the staged target already has a body', async () => {
+    const sourceId = '74000000-0000-4000-8000-000000000007';
+    const targetId = '74000000-0000-4000-8000-000000000008';
+    await expect(
+      copyBodies(
+        sourceBodyPool(sourceId, noteBody('Changed'), { headSeq: '2', stagedTargetId: targetId }),
+        writableAuthorization(),
+        [
+          {
+            sourceItemId: sourceId,
+            targetItemId: targetId,
+            itemType: 'note',
+            checkHead: true,
+            expectedDocId: DOC_ID,
+            expectedHeadSeq: 1,
+          },
+        ],
+        new Map(),
+      ),
+    ).rejects.toMatchObject({ code: 'templates.conflict' });
+  });
+
   it('preserves unresolved placeholders while capture and draft copies are materialized', async () => {
     const sourceId = '71000000-0000-4000-8000-000000000001';
     const targetId = '71000000-0000-4000-8000-000000000002';
@@ -730,26 +844,47 @@ function emptyWritePool(): Pool {
   return { connect: () => Promise.resolve(client) } as unknown as Pool;
 }
 
-function sourceBodyPool(sourceId: string, body: ItemBody): Pool {
+function noteBody(text: string): ItemBody {
+  return {
+    schemaVersion: 2,
+    prosemirror: {
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text }] }],
+    },
+  };
+}
+
+function sourceBodyPool(
+  sourceId: string,
+  body: ItemBody,
+  options: { headSeq?: string; docId?: string; stagedTargetId?: string } = {},
+): Pool {
   const source = documentFromArchiveBody('note', body);
   const yjsState = Buffer.from(Y.encodeStateAsUpdate(source));
   source.destroy();
   const client = {
     query: (text: string, values?: readonly unknown[]) => {
       if (text.includes('snapshot.seq AS snapshot_seq')) {
+        const sourceRow = {
+          doc_id: options.docId ?? '73000000-0000-4000-8000-000000000001',
+          item_id: sourceId,
+          workspace_id: '20000000-0000-4000-8000-000000000003',
+          schema_version: 2,
+          head_seq: options.headSeq ?? '1',
+          snapshot_seq: '1',
+          yjs_state: yjsState,
+        };
+        const rows = [sourceRow];
+        if (options.stagedTargetId)
+          rows.push({
+            ...sourceRow,
+            doc_id: '73000000-0000-4000-8000-000000000002',
+            item_id: options.stagedTargetId,
+            head_seq: '1',
+          });
         return Promise.resolve({
-          rows: [
-            {
-              doc_id: '73000000-0000-4000-8000-000000000001',
-              item_id: sourceId,
-              workspace_id: '20000000-0000-4000-8000-000000000003',
-              schema_version: 2,
-              head_seq: '1',
-              snapshot_seq: '1',
-              yjs_state: yjsState,
-            },
-          ],
-          rowCount: 1,
+          rows,
+          rowCount: rows.length,
         });
       }
       const rows = text.includes('RETURNING item_id')

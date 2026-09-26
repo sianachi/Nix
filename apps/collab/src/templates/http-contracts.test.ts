@@ -59,6 +59,36 @@ describe('the collaboration template HTTP contracts', () => {
     ).toMatchObject({ status: 400, code: 'template.capture_invalid' });
   });
 
+  it('preserves an approved capture fingerprint for the Core request', () => {
+    expect(
+      parseCaptureRequest({
+        workspaceId: WORKSPACE,
+        sourceItemId: ITEM,
+        title: 'Project',
+        includeBody: true,
+        includeChildren: true,
+        idempotencyKey: 'capture-one',
+        expectedFingerprint: 'approved-snapshot',
+      }),
+    ).toMatchObject({ expectedFingerprint: 'approved-snapshot' });
+  });
+
+  it.each([null, '', 42])('refuses an invalid capture fingerprint %s', (fingerprint) => {
+    expect(
+      caught(() =>
+        parseCaptureRequest({
+          workspaceId: WORKSPACE,
+          sourceItemId: ITEM,
+          title: 'Project',
+          includeBody: true,
+          includeChildren: true,
+          idempotencyKey: 'capture-one',
+          expectedFingerprint: fingerprint,
+        }),
+      ),
+    ).toMatchObject({ status: 400, code: 'template.capture_invalid' });
+  });
+
   it.each([
     { field: 'description', value: 42 },
     { field: 'description', value: { text: 'Project' } },

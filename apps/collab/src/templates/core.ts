@@ -237,8 +237,17 @@ export interface CaptureBegin {
   readonly templateId: string;
   readonly fileTransferJobId: string | null;
   readonly fileTransferPending: boolean;
-  readonly bodyCopies: readonly { sourceItemId: string; targetItemId: string; itemType: string }[];
+  readonly bodyCopies: readonly CaptureBodyCopy[];
   readonly itemMappings: readonly ItemMapping[];
+}
+
+export interface CaptureBodyCopy {
+  readonly sourceItemId: string;
+  readonly targetItemId: string;
+  readonly itemType: string;
+  readonly checkHead: boolean;
+  readonly expectedDocId: string | null;
+  readonly expectedHeadSeq: number | null;
 }
 
 export interface ImportBegin {
@@ -510,7 +519,7 @@ function parseCaptureBegin(value: unknown): CaptureBegin {
     fileTransferJobId: nullableUuid(body.fileTransferJobId),
     fileTransferPending: requiredBoolean(body.fileTransferPending),
     itemMappings: requiredArray(body.itemMappings, parseItemMapping),
-    bodyCopies: requiredArray(body.bodyCopies, parseBodyCopy),
+    bodyCopies: requiredArray(body.bodyCopies, parseCaptureBodyCopy),
   };
 }
 
@@ -788,6 +797,24 @@ function parseBodyCopy(value: unknown): {
     sourceItemId: requiredUuid(body.sourceItemId),
     targetItemId: requiredUuid(body.targetItemId),
     itemType: requiredText(body.itemType),
+  };
+}
+
+function parseCaptureBodyCopy(value: unknown): CaptureBodyCopy {
+  const body = requiredRecord(value);
+  const expected = body.expectedHeadSeq;
+  if (
+    expected !== null &&
+    (typeof expected !== 'number' || !Number.isSafeInteger(expected) || expected < 0)
+  )
+    throw new Error('expected head sequence');
+  const expectedDocId = nullableUuid(body.expectedDocId);
+  if ((expectedDocId === null) !== (expected === null)) throw new Error('source body pin');
+  return {
+    ...parseBodyCopy(body),
+    checkHead: requiredBoolean(body.checkHead),
+    expectedDocId,
+    expectedHeadSeq: expected,
   };
 }
 

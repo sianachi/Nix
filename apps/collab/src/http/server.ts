@@ -1140,7 +1140,12 @@ function templateProblem(reply: FastifyReply, error: unknown): FastifyReply {
     return problem(reply, error.status, error.code, error.message);
   }
   if (error instanceof TemplateBodyError) {
-    return problem(reply, 422, error.code, error.message);
+    return problem(
+      reply,
+      error.code === 'templates.conflict' ? 409 : 422,
+      error.code,
+      error.message,
+    );
   }
   throw error;
 }
