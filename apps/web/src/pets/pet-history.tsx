@@ -1,6 +1,7 @@
 import { pets, type PetConnection, type PetMessage, type NixClient } from '@nix/api-client';
 import { Button, Select, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
+import type { PetConversationMode } from './device-preferences';
 
 export function exportPetMessages(messages: readonly PetMessage[], name: string): void {
   const text = messages
@@ -20,11 +21,13 @@ export function PetHistory({
   petId,
   name,
   client,
+  mode = 'chat',
 }: {
   readonly workspaceId: string;
   readonly petId: string;
   readonly name: string;
   readonly client: Pick<NixClient, 'execute'>;
+  readonly mode?: PetConversationMode;
 }): ReactElement {
   const [history, setHistory] = useState<NonNullable<PetConnection['history']>>([]);
   const [selected, setSelected] = useState('');
@@ -48,7 +51,7 @@ export function PetHistory({
       const signal = lifetime.current?.signal;
       if (!signal || signal.aborted) return;
       const result = await client.execute(
-        pets.runtime({ operation, workspaceId, petId, ...(historyId ? { historyId } : {}) }),
+        pets.runtime({ operation, workspaceId, petId, mode, ...(historyId ? { historyId } : {}) }),
         { signal },
       );
       if (isAborted(signal)) return;

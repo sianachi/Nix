@@ -1,4 +1,5 @@
 export type PetPlacement = 'left' | 'right';
+export type PetConversationMode = 'chat' | 'consult';
 
 export interface PetPosition {
   x: number;
@@ -36,18 +37,38 @@ export function writePetPosition(position: PetPosition): void {
   window.dispatchEvent(new Event('nix-pet-device-changed'));
 }
 
-export function readConversationModel(workspaceId: string, petId: string): string {
+function conversationModelKey(
+  workspaceId: string,
+  petId: string,
+  mode: PetConversationMode,
+): string {
+  return `nix.pet.model.${workspaceId}.${petId}.${mode}`;
+}
+
+export function readConversationModel(
+  workspaceId: string,
+  petId: string,
+  mode: PetConversationMode,
+): string {
   try {
-    const model = sessionStorage.getItem(`nix.pet.model.${workspaceId}.${petId}`) ?? '';
+    const model =
+      localStorage.getItem(conversationModelKey(workspaceId, petId, mode)) ??
+      (mode === 'chat' ? sessionStorage.getItem(`nix.pet.model.${workspaceId}.${petId}`) : null) ??
+      '';
     return model.length <= 160 ? model : '';
   } catch {
     return '';
   }
 }
 
-export function writeConversationModel(workspaceId: string, petId: string, model: string): void {
+export function writeConversationModel(
+  workspaceId: string,
+  petId: string,
+  mode: PetConversationMode,
+  model: string,
+): void {
   try {
-    sessionStorage.setItem(`nix.pet.model.${workspaceId}.${petId}`, model);
+    localStorage.setItem(conversationModelKey(workspaceId, petId, mode), model);
   } catch {
     /* The open conversation retains the selection when storage is unavailable. */
   }

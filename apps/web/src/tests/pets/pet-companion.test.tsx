@@ -125,9 +125,103 @@ describe('companion workflow', () => {
       ([endpoint]) => (endpoint as { body?: { operation?: string } }).body?.operation === 'send',
     );
     expect(call?.[0]).toMatchObject({
-      body: { sharedText: '' },
+      body: { sharedText: '', mode: 'chat' },
     });
     view.unmount();
+  });
+
+  it('switches to Design with its own messages and sends mode on every runtime call', async () => {
+    client.execute.mockImplementation(
+      (endpoint: { body?: { operation?: string; mode?: string } }) => {
+        if (endpoint.body?.operation === 'read')
+          return Promise.resolve({
+            ...connected,
+            messages:
+              endpoint.body.mode === 'consult'
+                ? [
+                    {
+                      id: 'design-reply',
+                      role: 'assistant',
+                      text: 'Design conversation',
+                      actions: [],
+                    },
+                  ]
+                : [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation', actions: [] }],
+          });
+        return Promise.resolve(connected);
+      },
+    );
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    expect(await screen.findByText('Chat conversation')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Design' }));
+    expect(await screen.findByText('Design conversation')).toBeVisible();
+    expect(screen.queryByText('Chat conversation')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Chat' }));
+    expect(await screen.findByText('Chat conversation')).toBeVisible();
+    const scopedCalls = client.execute.mock.calls.filter(([endpoint]) =>
+      ['read', 'models'].includes(
+        (endpoint as { body?: { operation?: string } }).body?.operation ?? '',
+      ),
+    );
+    expect(scopedCalls.length).toBeGreaterThan(0);
+    expect(
+      scopedCalls.every(([endpoint]) =>
+        ['chat', 'consult'].includes((endpoint as { body: { mode: string } }).body.mode),
+      ),
+    ).toBe(true);
+    expect(
+      scopedCalls.some(
+        ([endpoint]) => (endpoint as { body: { mode: string } }).body.mode === 'consult',
+      ),
+    ).toBe(true);
+  });
+
+  it('opens in Design from the template library entry point', async () => {
+    render(
+      <MemoryRouter initialEntries={['/w/33333333-3333-4333-8333-333333333333?pet=design']}>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(/Describe what you want to keep track of/)).toBeVisible();
+  });
+
+  it('remembers model choices separately for Chat and Design', async () => {
+    client.execute.mockResolvedValue({
+      ...connected,
+      models: [
+        { id: 'chat-model', name: 'Chat model', default: false },
+        { id: 'design-model', name: 'Design model', default: false },
+      ],
+    });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    await user.click(screen.getByText('Chat options and connection'));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Codex model' }), 'chat-model');
+    await user.click(screen.getByRole('button', { name: 'Design' }));
+    await user.click(screen.getByText('Chat options and connection'));
+    expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue('');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Codex model' }), 'design-model');
+    await user.click(screen.getByRole('button', { name: 'Chat' }));
+    await user.click(screen.getByText('Chat options and connection'));
+    expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue('chat-model');
+    expect(
+      localStorage.getItem(
+        'nix.pet.model.33333333-3333-4333-8333-333333333333.44444444-4444-4444-8444-444444444444.consult',
+      ),
+    ).toBe('design-model');
   });
 
   it('prioritises replies and keeps secondary controls collapsed', async () => {

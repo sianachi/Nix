@@ -457,7 +457,13 @@ function stubNarrowMatchMedia(): () => void {
  * companion tree's own first render already sees the phone layout rather than painting wide and
  * then jumping.
  */
-function PhoneFrame({ children }: { readonly children: ReactNode }): ReactElement {
+function PhoneFrame({
+  children,
+  initialEntry = `/w/${PHONE_WORKSPACE}`,
+}: {
+  readonly children: ReactNode;
+  readonly initialEntry?: string;
+}): ReactElement {
   const restore = useRef<(() => void) | null>(null);
   restore.current ??= stubNarrowMatchMedia();
   useEffect(
@@ -472,7 +478,7 @@ function PhoneFrame({ children }: { readonly children: ReactNode }): ReactElemen
       style={{ width: 390, height: 844, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
       className="relative overflow-hidden rounded-lg border border-divider"
     >
-      <MemoryRouter initialEntries={[`/w/${PHONE_WORKSPACE}`]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route
             path="/w/:workspaceId"
@@ -496,6 +502,18 @@ export const CompanionPhone = {
   ),
 };
 export const DarkCompanionPhone = { ...CompanionPhone, globals: { ground: 'dark' } };
+
+export const DesignConversationPhone = {
+  render: (): ReactElement => (
+    <PhoneFrame initialEntry={`/w/${PHONE_WORKSPACE}?pet=design`}>
+      <PetCompanion />
+    </PhoneFrame>
+  ),
+};
+export const DarkDesignConversationPhone = {
+  ...DesignConversationPhone,
+  globals: { ground: 'dark' },
+};
 
 /**
  * Opens the launcher with a native click (no test-only dependency) so `ConversationPhone` below

@@ -406,6 +406,7 @@ describe('companion work approvals', () => {
         runtime={structuredRuntime}
         workspaceId="11111111-1111-4111-8111-111111111111"
         petId="22222222-2222-4222-8222-222222222222"
+        mode="consult"
         onChange={vi.fn()}
       />,
       { wrapper: MemoryRouter },
@@ -414,7 +415,13 @@ describe('companion work approvals', () => {
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
-    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ mode: 'chat', fence: '|' });
+    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ mode: 'consult', fence: '|' });
+    expect(client.execute.mock.calls[0]?.[0]).toMatchObject({
+      body: { mode: 'consult', operation: 'tool_claim' },
+    });
+    expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
+      body: { mode: 'consult', operation: 'tool_result' },
+    });
     expect(changed.mock.calls).toEqual([
       [
         {

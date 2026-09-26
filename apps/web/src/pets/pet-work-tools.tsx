@@ -13,6 +13,7 @@ import { readActionReceipt, writeActionReceipt } from './action-receipts';
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { PetStructurePreview } from './pet-structure-preview';
 import type { StructureFingerprint } from '@nix/companion';
+import type { PetConversationMode } from './device-preferences';
 
 interface PreparedPreview {
   model: PreviewModel;
@@ -30,12 +31,14 @@ export function PetWorkTools({
   runtime,
   workspaceId,
   petId,
+  mode = 'chat',
   onChange,
   client,
 }: {
   readonly runtime: PetConnection;
   readonly workspaceId: string;
   readonly petId: string;
+  readonly mode?: PetConversationMode;
   readonly onChange: (value: PetConnection) => void;
   readonly client: NixClient;
 }): ReactElement {
@@ -45,7 +48,7 @@ export function PetWorkTools({
   const [decisions, setDecisions] = useState<Record<string, string>>({});
 
   function decisionKey(tool: PetToolCall) {
-    return `tool:${workspaceId}:${petId}:${tool.id}`;
+    return `tool:${workspaceId}:${petId}:${mode}:${tool.id}`;
   }
 
   async function resolve(
@@ -72,7 +75,14 @@ export function PetWorkTools({
     try {
       // Claim on the server BEFORE any write. A lost claim response must never lead to execution.
       const claimed = await client.execute(
-        pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId: tool.id, requestId }),
+        pets.runtime({
+          operation: 'tool_claim',
+          workspaceId,
+          petId,
+          mode,
+          toolId: tool.id,
+          requestId,
+        }),
         { signal },
       );
       onChange(claimed);
@@ -98,7 +108,7 @@ export function PetWorkTools({
             tool.arguments,
             signal,
             {
-              mode: 'chat',
+              mode,
               toolId: tool.id,
               claimId: requestId,
               ...(fence === undefined ? {} : { fence }),
@@ -125,6 +135,7 @@ export function PetWorkTools({
           operation: 'tool_result',
           workspaceId,
           petId,
+          mode,
           toolId: tool.id,
           requestId,
           toolResult,
