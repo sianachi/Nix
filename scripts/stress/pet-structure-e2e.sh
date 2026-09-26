@@ -82,7 +82,7 @@ pet_cmd send --workspace-tools --message \
 structure_tool="$(poll_tool create_structured)"
 preview_and_approve "$structure_tool" "$tmpdir/structure-preview.json"
 
-nixctl_cmd --json item ls --workspace "$WORKSPACE" "${parent_option[@]}" > "$tmpdir/roots.json"
+nixctl_cmd item ls --workspace "$WORKSPACE" "${parent_option[@]}" > "$tmpdir/roots.json"
 board_id="$(node -e '
   const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
   const board = result.items?.find((item) => item.title === "Reading log");
@@ -90,8 +90,8 @@ board_id="$(node -e '
   process.stdout.write(board.id);
 ' "$tmpdir/roots.json")"
 
-nixctl_cmd --json views get "$board_id" > "$tmpdir/views.json"
-nixctl_cmd --json schema get "$board_id" > "$tmpdir/schema.json"
+nixctl_cmd views get "$board_id" > "$tmpdir/views.json"
+nixctl_cmd schema get "$board_id" > "$tmpdir/schema.json"
 node -e '
   const fs = require("node:fs");
   const views = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
@@ -111,7 +111,7 @@ pet_cmd send --workspace-tools --message \
 entries_tool="$(poll_tool create_entries)"
 preview_and_approve "$entries_tool" "$tmpdir/entries-preview.json"
 
-nixctl_cmd --json item ls --workspace "$WORKSPACE" --parent "$board_id" > "$tmpdir/entries.json"
+nixctl_cmd item ls --workspace "$WORKSPACE" --parent "$board_id" > "$tmpdir/entries.json"
 node -e '
   const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
   const names = new Set(result.items?.map((item) => item.title) ?? []);
@@ -119,7 +119,7 @@ node -e '
   process.stdout.write("Verified both created entries.\n");
 ' "$tmpdir/entries.json"
 
-nixctl_cmd --json structure read "$board_id" > "$tmpdir/structure.json"
+nixctl_cmd structure read "$board_id" > "$tmpdir/structure.json"
 node -e '
   const result = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
   if (result.childCount !== 2) throw new Error(`Expected childCount 2, received ${String(result.childCount)}.`);

@@ -25,6 +25,13 @@ export async function resolveSession(
   deps: SessionDeps = {},
 ): Promise<Session> {
   const env = deps.env ?? process.env;
+  if (profileName === undefined && env.NIX_SESSION_TOKEN && env.NIX_API_URL) {
+    return openSession({
+      profile: { apiUrl: env.NIX_API_URL, token: '' },
+      bearerToken: env.NIX_SESSION_TOKEN,
+      ...(deps.fetchImpl !== undefined ? { fetchImpl: deps.fetchImpl } : {}),
+    });
+  }
   const resolved = await resolveProfile(profileName, env);
   if (resolved === null) {
     throw new Error(
