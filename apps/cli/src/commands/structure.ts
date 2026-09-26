@@ -13,10 +13,23 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { structure, propertyDefinitionSchema, type PropertyDefinition } from '@nix/api-client';
+import {
+  items,
+  structure,
+  propertyDefinitionSchema,
+  type PropertyDefinition,
+} from '@nix/api-client';
+import {
+  createCompanionBodies,
+  defaultClock,
+  defaultIds,
+  readStructure,
+  type ReadStructureResult,
+} from '@nix/companion';
 // The light subpath: `parseScalar` is the shared value rule for `props set` and import's front
 // matter, and pulling it must not load the Markdown mapping into every command.
 import { parseScalar } from '@nix/markdown/front-matter';
+import type { Session } from '../session.ts';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
@@ -38,6 +51,46 @@ export async function getSchema(
       count: answer.properties.length,
     },
     output,
+  );
+}
+
+/** Reads the same bounded structure outline that `read_structure` exposes to the pet. */
+export async function readStructureOutline(
+  profileName: string | undefined,
+  itemId: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  printResult(await readStructureData(profileName, itemId, deps), output);
+}
+
+/** Shared data adapter for the CLI command and its MCP mirror. */
+export async function readStructureData(
+  profileName: string | undefined,
+  itemId: string,
+  deps: SessionDeps = {},
+): Promise<ReadStructureResult> {
+  const session = await resolveSession(profileName, deps);
+  return readStructureForSession(session, itemId);
+}
+
+/** Executes the shared outline reader with a previously resolved authenticated session. */
+export async function readStructureForSession(
+  session: Session,
+  itemId: string,
+): Promise<ReadStructureResult> {
+  const item = await session.client.query(items.itemById(itemId), { forceRefresh: true });
+  return readStructure(
+    {
+      core: session.client,
+      collab: session.client,
+      bodies: createCompanionBodies(session.client),
+      clock: defaultClock(),
+      ids: defaultIds(),
+    },
+    item.workspaceId,
+    itemId,
+    AbortSignal.timeout(90_000),
   );
 }
 

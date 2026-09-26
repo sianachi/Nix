@@ -3,9 +3,13 @@ import {
   createCompanionBodies,
   defaultClock,
   defaultIds,
+  describeToolCall,
+  loadPreviewContext,
   runWorkspaceTool,
   workspaceToolSchema,
   WorkspaceToolRefusal,
+  type PreviewContext,
+  type PreviewModel,
 } from '@nix/companion';
 import { printResult, type OutputOptions } from '../output.ts';
 import { openSession, type Session } from '../session.ts';
@@ -186,9 +190,31 @@ export async function executePetToolRun(
   } catch {
     parsed = workspaceToolSchema.safeParse(null);
   }
-  const preview = parsed.success
-    ? describeWorkspaceAction(parsed.data)
-    : 'This request is unsupported. Decline it so the companion can try a supported operation.';
+  const signal = AbortSignal.timeout(90_000);
+  const ports = {
+    core: session.client,
+    collab: collabClientFor(session),
+    bodies: createCompanionBodies(session.client),
+    clock: defaultClock(),
+    ids: defaultIds(),
+  };
+  let previewContext: PreviewContext | undefined;
+  let preview: PreviewModel | string;
+  if (!parsed.success) {
+    preview =
+      'This request is unsupported. Decline it so the companion can try a supported operation.';
+  } else {
+    try {
+      previewContext = await loadPreviewContext(ports, workspaceId, parsed.data, signal);
+      preview = describeToolCall(parsed.data, previewContext);
+    } catch (reason) {
+      const message =
+        reason instanceof WorkspaceToolRefusal
+          ? reason.message
+          : 'The workspace context could not be read. Refresh and inspect Nix before approving.';
+      preview = contextFailurePreview(message);
+    }
+  }
 
   if (decision === 'preview') {
     return { toolId, status: tool.status, preview, arguments: tool.arguments };
@@ -217,7 +243,7 @@ export async function executePetToolRun(
         workspaceId,
         tool.arguments,
         AbortSignal.timeout(90000),
-        { mode, toolId, claimId: requestId },
+        { mode, toolId, claimId: requestId, ...(previewContext ? { fence: previewContext.fingerprint } : {}) },
       );
       toolResult = outcome.text;
       toolSuccess = true;
@@ -252,6 +278,24 @@ export async function executePetToolRun(
   }
 }
 
+function contextFailurePreview(message: string): PreviewModel {
+  return {
+    headline: 'I cannot run this request as written.',
+    destination: { title: 'Workspace root', path: [] },
+    counts: { items: 0, fields: 0, views: 0, entries: 0, writes: 0 },
+    tree: [],
+    notes: [],
+    warnings: [],
+    problems: [{ path: 'workspace', code: 'context_unavailable', message }],
+    neverDoes: [
+      'Publish a public link',
+      'Delete anything permanently',
+      'Remove or retype a field',
+      'Delete a view',
+    ],
+  };
+}
+
 /**
  * `nixctl pet tools run`: resolves the profile's session, then delegates to
  * {@link executePetToolRun} for the claim-before-write flow, printing its outcome.
@@ -276,17 +320,16 @@ export async function petToolRun(
       : 'preview';
   if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
     throw new Error('--mode must be chat or consult.');
-  printResult(
-    await executePetToolRun(
-      session,
-      options.workspace,
-      options.pet,
-      toolId,
-      decision,
-      options.mode,
-    ),
-    output,
+  const result = await executePetToolRun(
+    session, options.workspace, options.pet, toolId, decision, options.mode,
   );
+  if (decision === 'preview' && hasPreviewModel(result)) {
+    if (output.json) printResult(result.preview, output);
+    else if (output.isTty) process.stdout.write(`${formatPreview(result.preview)}\n`);
+    else printResult(result, output);
+    return;
+  }
+  printResult(result, output);
 }
 
 /** Matches `pet-work-tools.tsx:225-260`: the same first-person sentence the web approval card
@@ -344,4 +387,44 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
     case 'build_blueprint':
       return `I will build the approved design${action.parentId ? ' inside the linked destination' : ' in Pet drafts'}.`;
   }
+}
+
+function hasPreviewModel(value: unknown): value is { preview: PreviewModel } {
+  if (typeof value !== 'object' || value === null || !('preview' in value)) return false;
+  const preview = value.preview;
+  return (
+    typeof preview === 'object' &&
+    preview !== null &&
+    'headline' in preview &&
+    'destination' in preview &&
+    'counts' in preview &&
+    'tree' in preview &&
+    'warnings' in preview &&
+    'problems' in preview
+  );
+}
+
+function formatPreview(model: PreviewModel): string {
+  const destination = [...model.destination.path, model.destination.title]
+    .filter((part, index, all) => index === 0 || part !== all[index - 1])
+    .join(' / ');
+  const lines = [
+    model.headline,
+    `Destination: ${destination}`,
+    `Counts: ${String(model.counts.items)} items, ${String(model.counts.fields)} fields, ${String(model.counts.views)} views, ${String(model.counts.entries)} entries, ${String(model.counts.writes)} writes`,
+  ];
+  const appendNodes = (nodes: PreviewModel['tree'], depth: number): void => {
+    for (const node of nodes) {
+      lines.push(`${'  '.repeat(depth)}- ${node.label}`);
+      for (const detail of node.detail) lines.push(`${'  '.repeat(depth + 1)}${detail}`);
+      if (node.why) lines.push(`${'  '.repeat(depth + 1)}Why: ${node.why}`);
+      appendNodes(node.children, depth + 1);
+    }
+  };
+  appendNodes(model.tree, 0);
+  for (const note of model.notes) lines.push(`Note: ${note}`);
+  for (const warning of model.warnings) lines.push(`Warning: ${warning.path}: ${warning.message}`);
+  for (const problem of model.problems) lines.push(`Problem: ${problem.path}: ${problem.message}`);
+  if (model.neverDoes.length > 0) lines.push(`Never: ${model.neverDoes.join('; ')}`);
+  return lines.join('\n');
 }

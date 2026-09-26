@@ -37,6 +37,7 @@ import {
   executeTemplateInitializationUpdate,
 } from './commands/templates.ts';
 import { executePetRuntime, executePetToolRun, petSessionFor } from './commands/pets.ts';
+import { readStructureForSession } from './commands/structure.ts';
 import { resolveSession, type SessionDeps } from './commands/shared.ts';
 import type { Session } from './session.ts';
 
@@ -1300,6 +1301,15 @@ export async function createWorkspaceMcpServer(
           mode,
         ),
       ),
+  );
+
+  server.registerTool(
+    'structure_read',
+    {
+      description: "Read an item's effective fields, views and bounded child count.",
+      inputSchema: { itemId: identifier },
+    },
+    ({ itemId }) => toolResult(async () => readStructureForSession(await session(), itemId)),
   );
 
   return server;

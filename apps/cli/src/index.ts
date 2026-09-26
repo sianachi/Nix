@@ -61,7 +61,7 @@ import {
 } from './commands/history.ts';
 import { runQuery } from './commands/query.ts';
 import { getViews, inspectViews, setViews } from './commands/views.ts';
-import { getSchema, setProps, setSchema } from './commands/structure.ts';
+import { getSchema, readStructureOutline, setProps, setSchema } from './commands/structure.ts';
 import {
   clearRecurrence,
   completeRecurrence,
@@ -1057,6 +1057,18 @@ export function buildProgram(): Command {
     });
 
   const schema = program.command('schema').description("An item's declared property schema.");
+
+  const structureRead = program
+    .command('structure')
+    .description("An item's fields, views and child count as the pet sees them.");
+
+  structureRead
+    .command('read <itemId>')
+    .description('Read an item’s effective fields, views and bounded child count.')
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readStructureOutline(flags.profile, itemId, outputOptions(flags.json)));
+    });
 
   schema
     .command('get <itemId>')

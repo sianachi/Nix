@@ -86,6 +86,7 @@ describe('nixctl mcp workspace tools', () => {
         'resume_template_file_copy',
         'pet_runtime',
         'pet_tool_run',
+        'structure_read',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
@@ -873,7 +874,10 @@ describe('nixctl mcp workspace tools', () => {
       expect(JSON.parse(content[0]?.text ?? '')).toMatchObject({
         toolId,
         status: 'pending',
-        preview: 'I will list the top-level items in this workspace to find what to work on.',
+        preview: {
+          headline: 'I will list the top-level items in this workspace to find what to work on.',
+          counts: { writes: 0 },
+        },
       });
     } finally {
       await connected.close();
