@@ -16,6 +16,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@nix/api-client": "workspace:*",
+    "@nix/companion": "workspace:*",
     "@nix/editor-schema": "workspace:*",
     "@nix/markdown": "workspace:*",
     "commander": "^14.0.2",

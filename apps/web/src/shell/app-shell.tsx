@@ -237,6 +237,43 @@ export function AppShell(): ReactNode {
   useRevealOpenPanes(tree, panes);
   useShellSearchShortcut(setSearchOpen);
 
+  // The pet launcher (`pet-companion.tsx`) reads `--mobile-nav-height` to sit above the bottom
+  // navigation rather than under it. No token names the nav's rendered height - it depends on the
+  // PWA install/update banner above it (see `bottomChromeRef` below) as much as on the nav
+  // itself - so it is measured here, where both live, rather than guessed at in the launcher.
+  // Removed rather than left stale whenever the nav is not rendered (a wide screen, or the
+  // software keyboard covering it), so a leftover value from before a resize never survives past
+  // the layout it was measured for.
+  const bottomChromeRef = useRef<HTMLDivElement | null>(null);
+  const navRendered = narrow && !keyboardVisible;
+  useEffect(() => {
+    const node = bottomChromeRef.current;
+    if (!navRendered || !node) {
+      document.documentElement.style.removeProperty('--mobile-nav-height');
+      // Told, not just left to notice on its own next measurement: the pet launcher's dragged or
+      // clamped position (`pet-companion.tsx`) reads this property once per resize rather than on
+      // every render, so a value that goes stale without the nav resizing itself - the launcher's
+      // own home going away entirely - needs its own signal to be picked up promptly.
+      window.dispatchEvent(new Event('nix-mobile-nav-resized'));
+      return;
+    }
+    const publish = (): void => {
+      document.documentElement.style.setProperty(
+        '--mobile-nav-height',
+        `${String(node.getBoundingClientRect().height)}px`,
+      );
+      window.dispatchEvent(new Event('nix-mobile-nav-resized'));
+    };
+    publish();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publish);
+    observer?.observe(node);
+    return () => {
+      observer?.disconnect();
+      document.documentElement.style.removeProperty('--mobile-nav-height');
+      window.dispatchEvent(new Event('nix-mobile-nav-resized'));
+    };
+  }, [navRendered]);
+
   return (
     // design-token-exempt: device safe-area inset protects the header in standalone mode.
     <div className="flex h-dvh flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] font-body text-foreground">
@@ -426,22 +463,27 @@ export function AppShell(): ReactNode {
         </div>
       </div>
 
-      <PwaControls compact={keyboardVisible} />
-      {narrow && !keyboardVisible ? (
-        <MobileNavigation
-          workspaceId={workspaceId}
-          treeOpen={sidebar.visible}
-          creating={tree.isCreating}
-          onTree={sidebar.toggle}
-          onSearch={() => {
-            setSearchOpen(true);
-          }}
-          onCreate={() => {
-            if (sidebar.visible) sidebar.toggle();
-            setCaptureOpen(true);
-          }}
-        />
-      ) : null}
+      {/* The region `bottomChromeRef` measures for `--mobile-nav-height`: the PWA banner sits
+          above the nav in normal block flow, so a single ref around both is what lets the
+          launcher clear whichever of them is actually showing above it. */}
+      <div ref={bottomChromeRef}>
+        <PwaControls compact={keyboardVisible} />
+        {navRendered ? (
+          <MobileNavigation
+            workspaceId={workspaceId}
+            treeOpen={sidebar.visible}
+            creating={tree.isCreating}
+            onTree={sidebar.toggle}
+            onSearch={() => {
+              setSearchOpen(true);
+            }}
+            onCreate={() => {
+              if (sidebar.visible) sidebar.toggle();
+              setCaptureOpen(true);
+            }}
+          />
+        ) : null}
+      </div>
 
       <MobileNoteCapture
         key={`capture:${workspaceId}`}

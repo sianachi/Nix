@@ -454,6 +454,12 @@ export type TemplateItem = Omit<StoredTemplateItemFields, 'schema' | 'views'> & 
   children: TemplateItem[];
 };
 
+/**
+ * `packages/structure-spec/src/vocabulary/merge-properties.ts` keeps its own copy of this same
+ * merge rule (api-client cannot depend on sibling packages, and structure-spec cannot depend on
+ * api-client's Zod-tied types). A change to the rule here must be made there too; nothing
+ * automated compares the two, so this is a review-time obligation, not an enforced one.
+ */
 function mergeProperties(
   farther: readonly z.infer<typeof templatePropertyDefinitionSchema>[],
   nearer: readonly z.infer<typeof templatePropertyDefinitionSchema>[],

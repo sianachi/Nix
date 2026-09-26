@@ -209,6 +209,26 @@ describe('cursor pagination', () => {
     expect(titles).toEqual(['One', 'Two', 'Three']);
   });
 
+  it('stops at the requested page limit when later cursors remain', async () => {
+    const cursors: (string | null)[] = [];
+    server.use(
+      http.get(testUrl(`/items/${ITEM_ID}/children`), ({ request }) => {
+        const cursor = new URL(request.url).searchParams.get('cursor');
+        cursors.push(cursor);
+        return HttpResponse.json({
+          items: [itemPayload(cursor ?? 'First')],
+          nextCursor: cursor === 'page-2' ? 'page-3' : 'page-2',
+        });
+      }),
+    );
+    const titles: string[] = [];
+
+    for await (const child of client.paginate(children, { maxPages: 2 })) titles.push(child.title);
+
+    expect(titles).toEqual(['First', 'page-2']);
+    expect(cursors).toEqual([null, 'page-2']);
+  });
+
   it('sends the page size and stops requesting pages when the consumer stops iterating', async () => {
     const searches: string[] = [];
     server.use(

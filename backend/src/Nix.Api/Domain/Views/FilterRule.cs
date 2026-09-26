@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Globalization;
 
 namespace Nix.Domain.Views;
@@ -93,6 +94,13 @@ public static class QueryOperators
     /// </remarks>
     public const string Me = "me";
 
+    /// <summary>
+    /// Every operator a rule's <c>Operator</c> may hold - not <see cref="Today"/> or
+    /// <see cref="Me"/>, which are value tokens, never an operator.
+    /// </summary>
+    public static readonly ImmutableArray<string> All =
+        [EqualTo, NotEqualTo, On, Before, OnOrAfter, WithinNext];
+
     /// <summary>The most days <see cref="WithinNext"/> may look ahead.</summary>
     public const int MaximumWithinDays = 365;
 
@@ -105,8 +113,7 @@ public static class QueryOperators
     /// <summary>Whether the operator is one this build defines.</summary>
     /// <param name="operator">The operator text.</param>
     /// <returns><see langword="true"/> when it selects a compilation arm.</returns>
-    public static bool IsKnown(string @operator) =>
-        @operator is EqualTo or NotEqualTo or On or Before or OnOrAfter or WithinNext;
+    public static bool IsKnown(string @operator) => All.Contains(@operator);
 
     /// <summary>Whether the operator reads its value as a day.</summary>
     /// <param name="operator">The operator text.</param>

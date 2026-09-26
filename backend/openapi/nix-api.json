@@ -12603,6 +12603,10 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "mode": {
+            "type": "string",
+            "default": ""
           }
         }
       },

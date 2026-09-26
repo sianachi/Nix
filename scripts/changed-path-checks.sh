@@ -76,6 +76,7 @@ has_backend_guard=false
 has_sensitive_backend=false
 has_workflow_script=false
 has_compose=false
+has_catalog=false
 frontend_packages=()
 
 add_frontend_package() {
@@ -117,6 +118,9 @@ for path in "${paths[@]}"; do
       ;;
     scripts/changed-path-checks.sh|scripts/changed-path-checks.test.sh|scripts/validate-changed.sh|scripts/validate-changed.test.sh|scripts/new-goal-worktree.sh)
       has_workflow_script=true
+      ;;
+    packages/structure-spec/*|apps/go-workers/internal/companion/catalog/*)
+      has_catalog=true
       ;;
     backend/*Authentication*|backend/*Authorization*|backend/*Permission*|backend/*Migration*|backend/*Persistence*|backend/*/Sql/*|backend/*/Domain/Identity/*)
       has_sensitive_backend=true
@@ -166,6 +170,10 @@ if [ "$has_openapi" = true ]; then
   emit 'dotnet build backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true'
   emit 'pnpm --filter @nix/api-client generate'
   emit 'git diff --exit-code -- backend/openapi packages/api-client/src/generated'
+fi
+
+if [ "$has_catalog" = true ]; then
+  emit 'pnpm --filter @nix/structure-spec catalog && git diff --exit-code -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog'
 fi
 
 if [ "$has_sensitive_backend" = true ]; then

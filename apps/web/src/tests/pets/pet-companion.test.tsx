@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -201,7 +201,35 @@ describe('companion workflow', () => {
     expect(screen.getByRole('alert')).toBeVisible();
   });
 
-  it('never executes a proposal until approved and remembers the receipt when reopened', async () => {
+  it('renders a system notice without an author or approval controls', async () => {
+    client.execute.mockResolvedValue({
+      ...connected,
+      messages: [
+        {
+          id: 'notice',
+          role: 'system',
+          text: 'Your pet was updated and starts a fresh conversation.',
+          actions: [],
+        },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    expect(
+      await screen.findByText('Your pet was updated and starts a fresh conversation.'),
+    ).toBeVisible();
+    const log = within(screen.getByRole('log', { name: 'Conversation messages' }));
+    expect(log.queryByText('You')).not.toBeInTheDocument();
+    expect(log.queryByText('Cat')).not.toBeInTheDocument();
+    expect(log.queryByRole('button', { name: 'Read aloud' })).not.toBeInTheDocument();
+    expect(log.queryByRole('button', { name: 'Approve change' })).not.toBeInTheDocument();
+  });
+
+  it('approval state derives only from pending tool calls', async () => {
     client.execute.mockResolvedValue({
       ...connected,
       messages: [
@@ -212,6 +240,7 @@ describe('companion workflow', () => {
           actions: [{ kind: 'create_item', itemId: '', title: 'Plan' }],
         },
       ],
+      tools: [],
     });
     const user = userEvent.setup();
     render(
@@ -220,52 +249,32 @@ describe('companion workflow', () => {
       </MemoryRouter>,
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await screen.findByRole('button', { name: 'Approve change' });
-    expect(client.execute).not.toHaveBeenCalledWith(
-      expect.objectContaining({ operation: 'items.create' }),
-      expect.anything(),
-    );
-    await user.click(screen.getByRole('button', { name: 'Approve change' }));
-    await screen.findByText('Applied');
-    expect(client.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        operation: 'items.create',
-        body: expect.objectContaining({ title: 'Plan' }) as unknown,
-      }),
-      expect.anything(),
-    );
-    await user.click(screen.getByRole('button', { name: 'Close' }));
-    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await screen.findByText('Applied');
+    await screen.findByText('I can create this note.');
     expect(screen.queryByRole('button', { name: 'Approve change' })).not.toBeInTheDocument();
-  });
+    expect(screen.getByRole('status')).not.toHaveTextContent('Needs approval');
 
-  it('rejects a rename outside the active workspace', async () => {
     client.execute.mockResolvedValue({
       ...connected,
       messages: [
         {
-          id: 'message-two',
+          id: 'message-one',
           role: 'assistant',
-          text: 'Rename?',
-          actions: [{ kind: 'rename_item', itemId: 'other-item', title: 'Changed' }],
+          text: 'I can create this note.',
+          actions: [],
+        },
+      ],
+      tools: [
+        {
+          id: 'tool-one',
+          arguments: '{}',
+          status: 'pending',
+          result: '',
+          claimId: '',
         },
       ],
     });
-    client.query.mockResolvedValue({ workspaceId: 'another-workspace' });
-    const user = userEvent.setup();
-    render(
-      <MemoryRouter>
-        <PetCompanion />
-      </MemoryRouter>,
-    );
-    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await user.click(await screen.findByRole('button', { name: 'Approve change' }));
-    await screen.findByText(/Not confirmed/);
-    expect(client.execute).not.toHaveBeenCalledWith(
-      expect.objectContaining({ operation: 'items.rename' }),
-      expect.anything(),
-    );
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    expect(await screen.findByText('Needs approval')).toBeVisible();
   });
 
   it('offers device sign-in and cancellation without handling credentials in the browser', async () => {

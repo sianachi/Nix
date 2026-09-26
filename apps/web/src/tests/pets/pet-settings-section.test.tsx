@@ -33,23 +33,20 @@ describe('pet configuration', () => {
     });
   });
 
-  it.each(['eye-of-ra', 'demiurge', 'fox', 'cat'])(
-    'offers and saves %s',
-    async (appearance) => {
-      const save = vi.fn().mockResolvedValue(true);
-      const user = userEvent.setup();
-      render(<PetSettingsEditor initial={initial} saving={false} onSave={save} />);
-      await user.click(screen.getByRole('button', { name: 'Add pet' }));
-      await user.selectOptions(screen.getByRole('combobox', { name: 'Appearance' }), appearance);
-      await user.click(screen.getByRole('button', { name: 'Save pet settings' }));
-      await waitFor(() => {
-        expect(save).toHaveBeenCalledOnce();
-      });
-      expect(save.mock.calls[0]?.[0]).toMatchObject({
-        profiles: [expect.objectContaining({ appearance })],
-      });
-    },
-  );
+  it.each(['eye-of-ra', 'demiurge', 'fox', 'cat'])('offers and saves %s', async (appearance) => {
+    const save = vi.fn().mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<PetSettingsEditor initial={initial} saving={false} onSave={save} />);
+    await user.click(screen.getByRole('button', { name: 'Add pet' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Appearance' }), appearance);
+    await user.click(screen.getByRole('button', { name: 'Save pet settings' }));
+    await waitFor(() => {
+      expect(save).toHaveBeenCalledOnce();
+    });
+    expect(save.mock.calls[0]?.[0]).toMatchObject({
+      profiles: [expect.objectContaining({ appearance })],
+    });
+  });
 
   it('duplicates with a distinct identity and clears active references when the last pet is removed', async () => {
     const save = vi.fn().mockResolvedValue(true);

@@ -1,0 +1,36 @@
+Section: Structure operations
+create_structured, add_view, create_entries, add_fields, edit_form, set_recurrence
+
+Section: Property types
+text (Text), number (Number), select (Select (one of a list)), multi_select (Multi-select (any of a list)), date (Date), timestamp (Date and time), checkbox (Checkbox), url (Link), image (Picture), due_date (Due date), start_date (Start date), completion (Completion), priority (Priority (1 to 4)), estimate (Estimate), formula (Formula), rollup (Rollup (across children))
+
+Section: View kinds
+- List (list): no required field. Rows and columns, one row per child.
+- Board (board): needs a select property. Cards grouped into columns by a single select property.
+- Calendar (calendar): needs a date-shaped property. Items placed on a day, week or month by a date property.
+- Timeline (timeline): needs a date-shaped property; optional: endDate (date-shaped). Bars across a time axis; without an end date an item is a milestone.
+- Gallery (gallery): no required field; optional: cover (image). Children as cards, each optionally showing a picture property.
+- Spreadsheet (sheet): no required field. Children as an editable grid, one row per child and one column per property.
+- Form (form): no required field. A single-page fillable form over the schema; each submission is a new child.
+- Interactive form (interactive_form): no required field. A multi-page, conditional form whose answers create a child item.
+- Smart list (query): no required field. A saved cross-container query, run server-side from stored filters.
+- Chart (chart): needs a select property; optional: measureField (number). Children summarised into bars, counted or totalled by a number property.
+- Habit tracker (habit_tracker): no required field. Habit children arranged by local date with recorded progress.
+
+Section: Recipes
+board: Board - Arrange items in columns defined by a select field.
+timeline: Timeline - Plan work across start and optional end dates.
+gallery: Gallery - Show child items as visual cards with optional covers.
+sheet: Spreadsheet view - Edit child items in a property-backed grid.
+form: Quick form - Collect authenticated responses in one straightforward page.
+interactive-form: Interactive form - Build a multi-page form with branching and an optional public link.
+query: Smart list - Find matching items across the workspace with reusable rules.
+calendar: Calendar - Place child items on a day, week, or month calendar.
+list: List - Show child items and their fields in an ordered list.
+habit-tracker: Habit tracker - Track daily or weekday habits with a simple weekly check-in grid.
+
+Section: Never
+- Publish a public link
+- Delete anything permanently
+- Remove or retype a field
+- Delete a view

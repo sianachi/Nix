@@ -1,0 +1,66 @@
+{
+  "version": 1,
+  "title": "Reading Log",
+  "summary": "Track books being read, keep notes, set a yearly goal and log daily reading as a habit.",
+  "root": {
+    "id": "reading-log",
+    "title": "Reading Log",
+    "why": "A container for every book, with a board to see what is being read at a glance.",
+    "fields": [
+      { "label": "Status", "type": "select", "options": ["To read", "Reading", "Done"] },
+      { "label": "Rating", "type": "number" }
+    ],
+    "views": [{ "kind": "list" }, { "kind": "board", "groupBy": "status" }],
+    "children": [
+      {
+        "id": "book-a",
+        "title": "The Hobbit",
+        "sample": true,
+        "values": { "status": "Done", "rating": 5 }
+      },
+      {
+        "id": "book-b",
+        "title": "Dune",
+        "sample": true,
+        "values": { "status": "Reading" }
+      },
+      {
+        "id": "notes",
+        "title": "Reading notes",
+        "markdown": "Keep track of quotes and thoughts here as you read."
+      },
+      {
+        "id": "goals",
+        "title": "Goals",
+        "why": "A place to set how many books to read this year.",
+        "fields": [{ "label": "Target books", "type": "number" }],
+        "views": [{ "kind": "list" }],
+        "children": [
+          {
+            "id": "goal-2026",
+            "title": "2026 goal",
+            "values": { "target_books": 24 }
+          }
+        ]
+      },
+      {
+        "id": "habits",
+        "title": "Reading habits",
+        "why": "A habit tracker for a daily reading streak.",
+        "views": [{ "kind": "habit_tracker" }],
+        "children": [
+          {
+            "id": "daily-reading",
+            "title": "Daily reading",
+            "habit": { "frequency": "daily", "target": 20, "unit": "minutes" }
+          }
+        ]
+      }
+    ]
+  },
+  "inputs": [{ "key": "reader_name", "label": "Reader name", "type": "text" }],
+  "rules": [
+    { "node": "reading-log", "field": "status", "kind": "set", "value": "To read" },
+    { "node": "goals", "field": "target_books", "kind": "input", "input": "reader_name" }
+  ]
+}

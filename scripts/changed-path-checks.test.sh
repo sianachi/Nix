@@ -39,6 +39,12 @@ esac
 workflow_output=$("$planner" scripts/validate-changed.sh)
 assert_contains "$workflow_output" 'validate-changed.test.sh'
 
+catalog_output=$("$planner" packages/structure-spec/src/catalog/tables.ts)
+assert_contains "$catalog_output" 'pnpm --filter @nix/structure-spec catalog && git diff --exit-code -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog'
+
+catalog_go_output=$("$planner" apps/go-workers/internal/companion/catalog/chat.txt)
+assert_contains "$catalog_go_output" 'pnpm --filter @nix/structure-spec catalog'
+
 compose_output=$("$planner" deploy/compose.prod.yml)
 assert_contains "$compose_output" 'bash deploy/compose/check.test.sh'
 

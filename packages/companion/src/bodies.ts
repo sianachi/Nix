@@ -1,8 +1,9 @@
-import { companionBodies, type CompanionBodies, type NixClient } from '@nix/api-client';
+import { companionBodies, type NixClient } from '@nix/api-client';
 import { nixSchema } from '@nix/editor-schema';
 import { documentToMarkdown, markdownToDocument } from '@nix/markdown';
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import * as Y from 'yjs';
+import type { CompanionBodies } from './ports.js';
 
 export function createCompanionBodies(client: NixClient): CompanionBodies {
   async function load(itemId: string, signal: AbortSignal) {

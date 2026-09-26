@@ -1,8 +1,6 @@
 import {
   isCanceledError,
-  items,
   pets,
-  type PetAction,
   type PetConnection,
   type PetProfile,
   type PetSettings,
@@ -12,6 +10,9 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactElement } fr
 import { Link, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
+import { useNarrowViewport } from '../layout/viewport';
+import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
+import { useBackDismiss } from '../layout/use-back-dismiss';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
 import { usePetSettings } from './use-pet-settings';
 import { usePetVoice } from './use-pet-voice';
@@ -22,12 +23,24 @@ import {
   writePetPosition,
   writeConversationModel,
 } from './device-preferences';
-import { readActionReceipt, writeActionReceipt } from './action-receipts';
 import { PetWorkTools } from './pet-work-tools';
 import { PetConnectionPanel } from './pet-connection-panel';
 import { PetHistory } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
+
+/** How much of the viewport's bottom edge the mobile navigation currently occupies, read from
+ * the shell's own measurement (`app-shell.tsx` publishes `--mobile-nav-height`) rather than
+ * guessed at here. Zero whenever the nav is not rendered - a wide screen, or the software
+ * keyboard covering it - because the shell removes the property then. Used to keep a dragged or
+ * clamped launcher position clear of the nav, the same clearance `narrowOffset` below gives the
+ * launcher's own default position. */
+function mobileNavClearance(): number {
+  const parsed = Number.parseFloat(
+    document.documentElement.style.getPropertyValue('--mobile-nav-height'),
+  );
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 export function PetCompanion(): ReactElement | null {
   const { workspaceId } = useWorkspace();
@@ -63,9 +76,25 @@ function Companion({
     pointerId: number;
     offsetX: number;
     offsetY: number;
+    startX: number;
+    startY: number;
     moved: boolean;
   } | null>(null);
   const suppressClick = useRef(false);
+  const returnFocus = useRef(false);
+  const narrow = useNarrowViewport();
+  const keyboardVisible = useMobileKeyboard(narrow);
+  const launcherHidden = open || (narrow && keyboardVisible);
+  // Close (or the back gesture) may fire while the keyboard still occludes the page, which
+  // keeps the launcher `hidden`; a hidden button cannot take focus, so waiting for
+  // `launcherHidden` to clear - rather than focusing right on close - is what makes focus land
+  // on it once it is actually visible again, on a phone or a desktop alike.
+  useEffect(() => {
+    if (returnFocus.current && !launcherHidden) {
+      returnFocus.current = false;
+      launcher.current?.focus();
+    }
+  }, [launcherHidden]);
   useEffect(() => {
     const changed = () => {
       setPlacement(readDevicePreference('placement'));
@@ -76,10 +105,69 @@ function Companion({
       window.removeEventListener('nix-pet-device-changed', changed);
     };
   }, []);
+  // A saved position can sit off-screen, or over the bottom navigation, at a width or clearance
+  // different from the one it was saved at - a desktop position visited on a phone, a phone
+  // rotated to landscape crossing back past the phone breakpoint, a tablet, or a placement
+  // changed from the settings page in this same tab. This keeps what is *rendered* inside the
+  // viewport and clear of the nav on load, resize, orientation change, a placement change, and a
+  // change in the nav's own measured height (a PWA banner appearing above it); it never writes
+  // back, so the saved position itself is untouched and a width that fits it again renders it
+  // exactly as saved. Only a user drag (`onPointerMove` below) calls `writePetPosition`.
+  useEffect(() => {
+    const recompute = () => {
+      const saved = readPetPosition();
+      if (!saved) return;
+      const rect = launcher.current?.getBoundingClientRect();
+      // A `hidden` launcher (the keyboard is up) measures 0x0; clamping to that would pin the
+      // button flush with the far edge instead of leaving it where it actually is. Skipping
+      // then is safe: `keyboardVisible` is also a dependency below, so this re-runs, with a real
+      // rect, the moment the launcher is visible again.
+      if (!rect || rect.width === 0 || rect.height === 0) return;
+      const next = {
+        x: Math.min(Math.max(8, saved.x), Math.max(8, window.innerWidth - rect.width - 8)),
+        y: Math.min(
+          Math.max(8, saved.y),
+          Math.max(8, window.innerHeight - rect.height - 8 - mobileNavClearance()),
+        ),
+      };
+      setPosition((current) => {
+        const unchanged = current !== null && current.x === next.x && current.y === next.y;
+        return unchanged ? current : next;
+      });
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('orientationchange', recompute);
+    // A placement change from the settings page (the effect above, listening for the same event)
+    // sets the raw saved value first; registered after it, this listener always runs second for
+    // the same dispatch and reclamps whatever it just set.
+    window.addEventListener('nix-pet-device-changed', recompute);
+    // The shell's own measurement of the nav's height (`app-shell.tsx`) can change without the
+    // window resizing at all - a PWA install or update banner appearing above the nav grows it -
+    // so the shell announces every change to it rather than leaving this to notice only on the
+    // next resize.
+    window.addEventListener('nix-mobile-nav-resized', recompute);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('orientationchange', recompute);
+      window.removeEventListener('nix-pet-device-changed', recompute);
+      window.removeEventListener('nix-mobile-nav-resized', recompute);
+    };
+  }, [keyboardVisible]);
+  // No token names the mobile navigation's rendered height (mobile-navigation.tsx has no fixed
+  // height of its own, and includes the PWA banner above it when shown); 3.5rem plus the safe-area
+  // inset is the fallback so a phone launcher never sits under it before the shell has measured
+  // one, or once the nav is not rendered at all. The measured value already includes the inset
+  // (`mobile-navigation.tsx` pads itself with it), so only the fallback adds it. Cleared at `lg:`
+  // (1024px, `WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR` in `layout/regions.ts`) rather than `sm:`: the
+  // bottom navigation this offset clears renders across the whole drawer-nav range
+  // (`useDrawerNavigation`, below 1024px), a tablet included, not only below the phone breakpoint
+  // (`useNarrowViewport`, 640px) that `narrow` itself tracks.
+  const narrowOffset = 'bottom-[var(--mobile-nav-height,calc(3.5rem+env(safe-area-inset-bottom)))]'; // design-token-exempt: no token for the mobile nav's rendered height.
   return (
     <aside
       aria-label={`${pet.name} companion`}
-      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
+      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `${narrowOffset} lg:bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
       style={
         position
           ? open && openAnchor
@@ -93,17 +181,18 @@ function Companion({
           workspaceId={workspaceId}
           pet={pet}
           settings={settings}
+          narrow={narrow}
           onClose={() => {
             setOpen(false);
             setOpenAnchor(null);
-            requestAnimationFrame(() => launcher.current?.focus());
+            returnFocus.current = true;
           }}
         />
       ) : null}
       <Button
         ref={launcher}
         variant="ghost"
-        className={`h-auto touch-none p-1 ${open ? 'hidden' : ''}`}
+        className={`h-auto touch-none p-1 ${launcherHidden ? 'hidden' : ''}`}
         aria-expanded={open}
         aria-label={open ? `Close ${pet.name}` : `Talk with ${pet.name}`}
         onMouseEnter={() => {
@@ -137,11 +226,18 @@ function Companion({
         }}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          // A drag that ends past the tap slop, on touch, dispatches no `click` at all: the flag
+          // `onClick` would otherwise clear stays set, and the very next real tap is swallowed
+          // silently. Starting every new pointer-down clean is what keeps a stale flag from a
+          // prior drag from ever eating a later tap.
+          suppressClick.current = false;
           const rect = event.currentTarget.getBoundingClientRect();
           drag.current = {
             pointerId: event.pointerId,
             offsetX: event.clientX - rect.left,
             offsetY: event.clientY - rect.top,
+            startX: event.clientX,
+            startY: event.clientY,
             moved: false,
           };
           if (typeof event.currentTarget.setPointerCapture === 'function')
@@ -150,7 +246,12 @@ function Companion({
         onPointerMove={(event) => {
           const active = drag.current;
           if (active?.pointerId !== event.pointerId) return;
-          const moved = active.moved || Math.hypot(event.movementX, event.movementY) > 2;
+          // Cumulative distance from where the pointer went down, rather than the per-event
+          // `movementX`/`movementY` delta: some engines never populate a non-zero delta for a
+          // touch pointer, which would otherwise make a drag never register as one at all.
+          const moved =
+            active.moved ||
+            Math.hypot(event.clientX - active.startX, event.clientY - active.startY) > 2;
           active.moved = moved;
           if (!moved) return;
           suppressClick.current = true;
@@ -161,7 +262,7 @@ function Companion({
           );
           const y = Math.min(
             Math.max(8, event.clientY - active.offsetY),
-            window.innerHeight - rect.height - 8,
+            Math.max(8, window.innerHeight - rect.height - 8 - mobileNavClearance()),
           );
           const next = { x, y };
           setPosition(next);
@@ -180,6 +281,7 @@ function Companion({
           state={hover ? 'hover' : 'idle'}
           motion={settings.motion}
           label={pet.name}
+          size={narrow ? 'compact' : 'regular'}
         />
       </Button>
     </aside>
@@ -190,11 +292,13 @@ function Conversation({
   workspaceId,
   pet,
   settings,
+  narrow,
   onClose,
 }: {
   readonly workspaceId: string;
   readonly pet: PetProfile;
   readonly settings: PetSettings;
+  readonly narrow: boolean;
   readonly onClose: () => void;
 }) {
   const client = useApiClient();
@@ -205,8 +309,6 @@ function Conversation({
   const [shared, setShared] = useState<{ itemId: string; text: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [working, setWorking] = useState(false);
-  const [outcomes, setOutcomes] = useState<Record<string, string>>({});
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id));
   const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
@@ -220,32 +322,20 @@ function Conversation({
   });
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
-  const approvalPending =
-    (runtime?.tools?.some((tool) => tool.status === 'pending') ?? false) ||
-    messages.some((message) =>
-      message.actions.some(
-        (_, actionIndex) =>
-          !(
-            outcomes[`${message.id}:${String(actionIndex)}`] ??
-            readActionReceipt(`${message.id}:${String(actionIndex)}`)
-          ),
-      ),
-    );
+  const approvalPending = runtime?.tools?.some((tool) => tool.status === 'pending') ?? false;
   const animation: PetAnimationState = voice.listening
     ? 'listening'
     : voice.speaking
       ? 'speaking'
-      : working
-        ? 'working'
-        : approvalPending
-          ? 'awaiting-approval'
-          : running || busy
-            ? 'thinking'
-            : error || runtime?.state === 'error'
-              ? 'error'
-              : runtime?.state === 'success'
-                ? 'success'
-                : 'idle';
+      : approvalPending
+        ? 'awaiting-approval'
+        : running || busy
+          ? 'thinking'
+          : error || runtime?.state === 'error'
+            ? 'error'
+            : runtime?.state === 'success'
+              ? 'success'
+              : 'idle';
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -260,11 +350,85 @@ function Conversation({
     };
   }, [onClose]);
 
+  // Mounted only while the conversation is open (the caller renders it conditionally), so the
+  // browser Back gesture dismisses the full-screen phone dialog for as long as it is showing.
+  useBackDismiss(narrow, onClose);
+
+  useEffect(() => {
+    if (!narrow) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [narrow]);
+
+  // A full-screen phone dialog has no page underneath it to fall back on, so Tab is kept from
+  // ever walking out of it and onto the shell painted below.
+  useEffect(() => {
+    if (!narrow) return;
+    const node = dialog.current;
+    if (!node) return;
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const focusable = node.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    node.addEventListener('keydown', trap);
+    return () => {
+      node.removeEventListener('keydown', trap);
+    };
+  }, [narrow]);
+
+  // `100dvh` does not always shrink for the software keyboard (it depends on the browser's
+  // virtual-keyboard resize mode), so the phone dialog's own height is measured from
+  // `visualViewport` instead - the same approach `mobile-note-toolbar.tsx` uses - and written
+  // onto the element so the composer at its bottom edge stays above the keyboard rather than
+  // being covered by it.
+  useEffect(() => {
+    if (!narrow) return;
+    const node = dialog.current;
+    const viewport = window.visualViewport;
+    if (!node) return;
+    let frame = 0;
+    const measure = (): void => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const height = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+        node.style.setProperty('--phone-dialog-height', `${String(height)}px`);
+      });
+    };
+    measure();
+    viewport?.addEventListener('resize', measure);
+    viewport?.addEventListener('scroll', measure);
+    window.addEventListener('resize', measure);
+    return () => {
+      cancelAnimationFrame(frame);
+      viewport?.removeEventListener('resize', measure);
+      viewport?.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+    };
+  }, [narrow]);
+
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
     let timer: ReturnType<typeof setTimeout>;
-    input.current?.focus();
+    // On a phone the dialog itself takes focus first (its name is announced, and Tab starts
+    // from a known place); on a wide screen the composer keeps taking it directly, as before.
+    if (narrow) dialog.current?.focus();
+    else input.current?.focus();
     void client
       .execute(pets.runtime({ operation: 'models' }), { signal: controller.signal })
       .then((value) => {
@@ -294,7 +458,7 @@ function Conversation({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [client, workspaceId, pet.id]);
+  }, [client, workspaceId, pet.id, narrow]);
 
   useEffect(() => {
     if (!narrationPending.current || runtime?.state !== 'success') return;
@@ -334,7 +498,6 @@ function Conversation({
         setShared(null);
         setRequestId(crypto.randomUUID());
       }
-      if (operation === 'reset') setOutcomes({});
     } catch (cause) {
       if (!isCanceledError(cause) && !isAborted(controller.signal))
         setError(
@@ -355,60 +518,18 @@ function Conversation({
     setError('');
   }
 
-  async function approve(action: PetAction, key: string) {
-    const controller = lifetime.current;
-    if (
-      working ||
-      outcomes[key] ||
-      readActionReceipt(key) ||
-      !controller ||
-      isAborted(controller.signal)
-    )
-      return;
-    setWorking(true);
-    setError('');
-    // A write is never retried automatically, including after an ambiguous network response.
-    writeActionReceipt(
-      key,
-      'Not confirmed. Check the workspace before attempting this change again.',
-    );
-    setOutcomes((old) => ({ ...old, [key]: 'Applying…' }));
-    try {
-      if (action.kind === 'rename_item') {
-        const item = await client.query(items.itemById(action.itemId), {
-          signal: controller.signal,
-          forceRefresh: true,
-        });
-        if (item.workspaceId !== workspaceId) throw new Error('Action is outside this workspace.');
-        await client.execute(items.renameItem(workspaceId, action.itemId, action.title), {
-          signal: controller.signal,
-        });
-      } else {
-        await client.execute(items.createItem(workspaceId, { type: 'note', title: action.title }), {
-          signal: controller.signal,
-        });
-      }
-      writeActionReceipt(key, 'Applied');
-      if (!isAborted(controller.signal)) setOutcomes((old) => ({ ...old, [key]: 'Applied' }));
-    } catch {
-      if (!isAborted(controller.signal))
-        setOutcomes((old) => ({
-          ...old,
-          [key]: 'Not confirmed. Check the workspace before attempting this change again.',
-        }));
-    } finally {
-      if (!isAborted(controller.signal)) setWorking(false);
-    }
-  }
-
   return (
     <div
       ref={dialog}
       role="dialog"
       tabIndex={-1}
-      aria-modal={false}
+      aria-modal={narrow}
       aria-label={`Conversation with ${pet.name}`}
-      className="flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg"
+      className={
+        narrow
+          ? 'fixed inset-0 z-40 flex h-[var(--phone-dialog-height,100dvh)] w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground'
+          : 'flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg'
+      }
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
@@ -503,66 +624,28 @@ function Conversation({
               data-pet-latest-message={index === messages.length - 1 ? '' : undefined}
               className={`flex shrink-0 flex-col gap-2 ${message.role === 'user' ? 'rounded-lg bg-surface p-3' : ''}`}
             >
-              <Text variant="note" tone="muted">
-                {message.role === 'user' ? 'You' : pet.name}
-              </Text>
-              <PetMessageText text={message.text} workspaceId={workspaceId} />
-              {message.role === 'assistant' && voice.canSpeak ? (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    voice.speak(message.text);
-                  }}
-                >
-                  Read aloud
-                </Button>
-              ) : null}
-              {message.actions.map((action, actionIndex) => {
-                const key = `${message.id}:${String(actionIndex)}`;
-                const outcome = outcomes[key] ?? readActionReceipt(key);
-                return (
-                  <div key={key} className="flex flex-col gap-2 border border-divider p-3">
-                    <Text variant="note">
-                      {action.kind === 'create_item' ? 'Create a blank note' : 'Rename item'}:{' '}
-                      {action.title}
-                    </Text>
-                    {action.kind === 'rename_item' ? (
-                      <Link
-                        to={`/w/${workspaceId}/?item=${encodeURIComponent(action.itemId)}`}
-                        className="underline"
-                      >
-                        Inspect target item
-                      </Link>
-                    ) : null}
-                    {outcome ? (
-                      <Text role="status" variant="note">
-                        {outcome}
-                      </Text>
-                    ) : (
-                      <div className="flex gap-2">
-                        <Button
-                          variant="secondary"
-                          disabled={working || running}
-                          onClick={() => {
-                            void approve(action, key);
-                          }}
-                        >
-                          Approve change
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            writeActionReceipt(key, 'Declined');
-                            setOutcomes((old) => ({ ...old, [key]: 'Declined' }));
-                          }}
-                        >
-                          Decline
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {message.role === 'system' ? (
+                <Text variant="note" tone="muted">
+                  {message.text}
+                </Text>
+              ) : (
+                <>
+                  <Text variant="note" tone="muted">
+                    {message.role === 'user' ? 'You' : pet.name}
+                  </Text>
+                  <PetMessageText text={message.text} workspaceId={workspaceId} />
+                  {message.role === 'assistant' && voice.canSpeak ? (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        voice.speak(message.text);
+                      }}
+                    >
+                      Read aloud
+                    </Button>
+                  ) : null}
+                </>
+              )}
             </div>
           ))
         )}
@@ -701,6 +784,7 @@ function Conversation({
               disabled={!messages.length}
               onClick={() => {
                 const text = messages
+                  .filter((message) => message.role !== 'system')
                   .map(
                     (message) => `${message.role === 'user' ? 'You' : pet.name}\n\n${message.text}`,
                   )

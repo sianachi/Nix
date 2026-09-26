@@ -24,7 +24,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             || request.Text is null || request.SharedText is null || request.Text.Length > 8000 || request.SharedText.Length > 16000
             || request.Model is null || request.Model.Length > 160 || request.ToolId is null || request.ToolId.Length > 200
             || request.ToolResult is null || request.ToolResult.Length > 32000
-            || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0))
+            || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0)
+            || request.Mode is null || request.Mode is not ("" or "chat" or "consult"))
         {
             return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Check the message and try again."));
         }
@@ -95,7 +96,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         outgoing.Content = JsonContent.Create(new PetWorkerRequest(context.TenantId.Value.ToString(), context.PrincipalId.Value.ToString(),
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
-            request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? ""), PetJsonContext.Default.PetWorkerRequest);
+            request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
+            request.Mode), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

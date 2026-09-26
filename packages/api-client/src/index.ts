@@ -23,6 +23,7 @@ export type {
   CallOptions,
   NixClient,
   NixClientConfig,
+  PaginateOptions,
   QueryResult,
 } from './client.js';
 
@@ -214,9 +215,12 @@ export type {
  * `pnpm --filter @nix/api-client generate` and is not an editable surface.
  */
 export type {
+  AppendViewSetupRequestContract,
   CanvasLibraryContract,
   ChangeWorkspaceMemberRoleRequestContract,
   ContainerViewsContract,
+  CreateItemRequestContract,
+  CreateStructuredItemRequestContract,
   CreateWorkspaceInvitationRequestContract,
   CreateWorkspaceRequestContract,
   DailyNoteContract,
@@ -328,12 +332,6 @@ export {
   exportSchema,
   exportStatusSchema,
 } from './schemas/exports.js';
-export {
-  runWorkspaceTool,
-  workspaceToolSchema,
-  WorkspaceToolRefusal,
-  type CompanionBodies,
-} from './companion-tools.js';
 export * as companionBodies from './resources/companion-bodies.js';
 export type { PetToolCall } from './schemas/pets.js';
 

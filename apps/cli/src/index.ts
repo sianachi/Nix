@@ -81,7 +81,12 @@ import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
-import { petCommand, type PetOptions } from './commands/pets.ts';
+import {
+  petCommand,
+  petToolRun,
+  type PetOptions,
+  type PetToolRunOptions,
+} from './commands/pets.ts';
 import { checkIn, readHabit, setHabit, setHabitStatus, undoCheckIn } from './commands/habits.ts';
 import * as financeCommands from './commands/finance.ts';
 import {
@@ -147,7 +152,7 @@ export function buildProgram(): Command {
     });
 
   const auth = program.command('auth').description('Sign in, check who you are, and sign out.');
-  program
+  const pet = program
     .command('pet <operation>')
     .description(
       'Inspect or drive companions. Runtime calls require an interactive NIX_SESSION_TOKEN and --api-url; PAT permissions are not expanded.',
@@ -162,9 +167,35 @@ export function buildProgram(): Command {
       'offer workspace tools; approve requests in the Nix companion panel',
       false,
     )
+    .option('--tool-id <id>', 'the pending tool call to claim or resolve')
+    .option('--request-id <id>', 'the claim request identity, shared by tool_claim and tool_result')
+    .option('--tool-result <text>', 'the outcome text to post with tool_result')
+    .option('--tool-success', 'mark the posted tool_result a success')
+    .option('--mode <mode>', 'chat or consult')
     .action(async (operation: string, options: PetOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() => petCommand(flags.profile, operation, options, outputOptions(flags.json)));
+    });
+
+  // `--workspace`, `--pet` and `--api-url` are already declared on `pet` above and are read
+  // back here through `optsWithGlobals()`: declaring them again on this nested command would
+  // let `pet` consume them from anywhere in the argument list before this subcommand's own
+  // parser ever sees them, so a redeclared `requiredOption` here would fail even when the
+  // flag was given (commander extracts a command's own options wherever they appear in argv,
+  // ahead of dispatching to subcommands).
+  pet
+    .command('tools')
+    .description('Preview and resolve a companion’s pending workspace tool calls.')
+    .command('run <toolId>')
+    .description(
+      'Preview a pending tool call; with --approve, claim and run it exactly as the web companion panel does, then post its outcome.',
+    )
+    .option('--approve', 'claim, run and post the outcome', false)
+    .option('--decline', 'claim and post a declined outcome without running it', false)
+    .action(async (toolId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      const options: PetToolRunOptions = command.optsWithGlobals();
+      await run(() => petToolRun(flags.profile, toolId, options, outputOptions(flags.json)));
     });
 
   auth

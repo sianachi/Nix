@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 
 export function exportPetMessages(messages: readonly PetMessage[], name: string): void {
   const text = messages
+    .filter((message) => message.role !== 'system')
     .map((message) => `${message.role === 'user' ? 'You' : name}\n\n${message.text}`)
     .join('\n\n---\n\n');
   const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
@@ -109,7 +110,9 @@ export function PetHistory({
               <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
                 {messages.map((message) => (
                   <Text key={message.id} variant="note" className="whitespace-pre-wrap break-words">
-                    {message.role === 'user' ? 'You' : name}: {message.text}
+                    {message.role === 'system'
+                      ? message.text
+                      : `${message.role === 'user' ? 'You' : name}: ${message.text}`}
                   </Text>
                 ))}
               </div>

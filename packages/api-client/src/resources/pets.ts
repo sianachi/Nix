@@ -74,6 +74,7 @@ export interface RuntimeInput {
   readonly toolResult?: string;
   readonly toolSuccess?: boolean;
   readonly historyId?: string;
+  readonly mode?: 'chat' | 'consult';
 }
 
 export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
@@ -91,6 +92,7 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       toolId: input.toolId ?? '',
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
+      mode: input.mode ?? '',
     } satisfies components['schemas']['PetRuntimeRequest'],
     invalidates: [['me', 'pets', 'connection']],
   });

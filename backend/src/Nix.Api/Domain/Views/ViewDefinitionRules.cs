@@ -8,6 +8,13 @@ public static class ViewDefinitionRules
     /// <summary>The most filter rules one view may carry.</summary>
     public const int MaximumFilters = 8;
 
+    /// <summary>The block kinds an interactive form page may declare.</summary>
+    public static readonly ImmutableArray<string> FormBlockKinds = ["field", "heading", "paragraph"];
+
+    /// <summary>The operators a form condition's <c>visibleWhen</c> may use.</summary>
+    public static readonly ImmutableArray<string> FormConditionOperators =
+        ["equals", "not_equals", "contains", "checked", "not_checked"];
+
     /// <summary>Returns the first reason a complete view set cannot be stored, or null.</summary>
     public static string? Refuse(ImmutableArray<ViewDefinition> views, string? defaultView)
     {
@@ -190,7 +197,7 @@ public static class ViewDefinitionRules
                     return $"field '{block.Id}' needs a property";
                 }
 
-                if (block.Kind is not ("field" or "heading" or "paragraph"))
+                if (!FormBlockKinds.Contains(block.Kind))
                 {
                     return $"'{block.Kind}' is not a form block kind";
                 }
@@ -246,7 +253,7 @@ public static class ViewDefinitionRules
                 return "has a condition that does not reference an earlier field";
             }
 
-            if (condition.Operator is not ("equals" or "not_equals" or "contains" or "checked" or "not_checked"))
+            if (!FormConditionOperators.Contains(condition.Operator))
             {
                 return $"uses unknown condition operator '{condition.Operator}'";
             }

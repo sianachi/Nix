@@ -62,6 +62,12 @@ export interface CallOptions {
   readonly forceRefresh?: boolean | undefined;
 }
 
+/** Options for walking cursor-paginated queries. */
+export interface PaginateOptions extends CallOptions {
+  /** Stop after this many network pages, even when a cursor remains. */
+  readonly maxPages?: number | undefined;
+}
+
 export interface QueryResult<TData> {
   readonly data: TData;
   readonly servedFromCache: boolean;
@@ -95,7 +101,7 @@ export interface NixClient {
   /** Walks a cursor-paginated collection item by item. */
   paginate<TItem>(
     endpoint: PagedQueryEndpoint<TItem>,
-    options?: CallOptions,
+    options?: PaginateOptions,
   ): AsyncGenerator<TItem, void, undefined>;
   /** Marks every cache entry under this key prefix stale. */
   invalidate(prefix: CacheKey): void;
@@ -228,13 +234,15 @@ export function createNixClient(config: NixClientConfig): NixClient {
 
     async *paginate<TItem>(
       endpoint: PagedQueryEndpoint<TItem>,
-      options: CallOptions = {},
+      options: PaginateOptions = {},
     ): AsyncGenerator<TItem, void, undefined> {
       const pageSchema = cursorPageSchema(endpoint.itemSchema) as unknown as z.ZodType<
         CursorPage<TItem>
       >;
       let cursor: string | null = null;
-      do {
+      let pageCount = 0;
+      while (pageCount === 0 || cursor !== null) {
+        if (options.maxPages !== undefined && pageCount >= options.maxPages) return;
         const page: CursorPage<TItem> = await sendAndParse(
           'GET',
           endpoint.path,
@@ -249,9 +257,10 @@ export function createNixClient(config: NixClientConfig): NixClient {
           options.signal,
           undefined,
         );
+        pageCount += 1;
         yield* page.items;
         cursor = page.nextCursor;
-      } while (cursor !== null);
+      }
     },
 
     invalidate(prefix: CacheKey): void {

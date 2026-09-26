@@ -2,6 +2,17 @@ import { type FormulaNode } from './ast.js';
 import { type Argument, type EvaluationContext, MAX_TEXT_LENGTH } from './eval-types.js';
 import { SHEET_FUNCTIONS } from './functions.js';
 import { normalizeRange } from './refs.js';
+
+/**
+ * Every function name a formula may call: `SHEET_FUNCTIONS`'s keys plus `IF`, which is not in
+ * that map because it is lazy (only its taken branch evaluates) and is dispatched by name below
+ * instead. Exported, sorted, so a consumer that only needs the names - the pet's capability
+ * catalog (`@nix/structure-spec`) is the first one - does not need to know about `IF`'s special
+ * case or import the function implementations themselves.
+ */
+export const FORMULA_FUNCTION_NAMES: readonly string[] = [...SHEET_FUNCTIONS.keys(), 'IF'].sort(
+  (a, b) => a.localeCompare(b),
+);
 import {
   type CellValue,
   compareValues,

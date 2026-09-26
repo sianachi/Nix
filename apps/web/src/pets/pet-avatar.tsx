@@ -27,20 +27,29 @@ export const petAnimationStates = [
 ] as const;
 export type PetAnimationState = (typeof petAnimationStates)[number];
 
+/** The launcher's two CSS boxes; the canvas backing store never changes size. */
+export type PetAvatarSize = 'regular' | 'compact';
+const avatarBox: Readonly<Record<PetAvatarSize, string>> = {
+  regular: 'size-24',
+  compact: 'size-14',
+};
+
 /** Playback state is supplied by the caller; animation never starts work or audio. */
 export function PetAvatar({
   appearance = 'owl',
   state = 'idle',
   motion = 'system',
   label = 'Owl companion',
+  size = 'regular',
 }: {
   readonly appearance?: PetProfile['appearance'];
   readonly state?: PetAnimationState;
   readonly motion?: PetSettings['motion'];
   readonly label?: string;
+  readonly size?: PetAvatarSize;
 }): ReactElement {
   return appearance === 'owl' ? (
-    <OwlAvatar state={state} motion={motion} label={label} />
+    <OwlAvatar state={state} motion={motion} label={label} size={size} />
   ) : (
     <AtlasAvatar
       key={appearance}
@@ -48,6 +57,7 @@ export function PetAvatar({
       state={state}
       motion={motion}
       label={label}
+      size={size}
     />
   );
 }
@@ -69,11 +79,13 @@ function AtlasAvatar({
   state,
   motion,
   label,
+  size,
 }: {
   readonly atlas: SpriteAtlas;
   readonly state: PetAnimationState;
   readonly motion: PetSettings['motion'];
   readonly label: string;
+  readonly size: PetAvatarSize;
 }): ReactElement {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
@@ -169,7 +181,7 @@ function AtlasAvatar({
       height={spriteAtlas.cellHeight}
       role="img"
       aria-label={label}
-      className="size-24 shrink-0 object-contain"
+      className={`${avatarBox[size]} shrink-0 object-contain`}
     />
   );
 }
@@ -178,10 +190,12 @@ function OwlAvatar({
   state,
   motion,
   label,
+  size,
 }: {
   readonly state: PetAnimationState;
   readonly motion: PetSettings['motion'];
   readonly label: string;
+  readonly size: PetAvatarSize;
 }): ReactElement {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [failed, setFailed] = useState(false);
@@ -278,7 +292,7 @@ function OwlAvatar({
       height={192}
       role="img"
       aria-label={label}
-      className="size-24 shrink-0"
+      className={`${avatarBox[size]} shrink-0`}
     />
   );
 }
