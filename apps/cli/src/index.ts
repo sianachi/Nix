@@ -88,6 +88,7 @@ import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
+import { petEval } from './commands/pet-eval.ts';
 import {
   petCommand,
   petToolRun,
@@ -203,6 +204,27 @@ export function buildProgram(): Command {
       const flags = globalFlags(command);
       const options: PetToolRunOptions = command.optsWithGlobals();
       await run(() => petToolRun(flags.profile, toolId, options, outputOptions(flags.json)));
+    });
+
+  pet
+    .command('eval')
+    .description('Run a scripted companion evaluation against the connected provider.')
+    .requiredOption('--suite <name>', 'evaluation suite; consult is available')
+    .option('--scenario <id>', 'run one scenario')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      const options: {
+        suite: string;
+        scenario?: string;
+        model?: string;
+        apiUrl?: string;
+        workspace?: string;
+        pet?: string;
+      } = command.optsWithGlobals();
+      if (options.suite !== 'consult') throw new Error('Only the consult eval suite is available.');
+      await run(() =>
+        petEval(flags.profile, { ...options, suite: 'consult' }, outputOptions(flags.json)),
+      );
     });
 
   auth
