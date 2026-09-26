@@ -71,3 +71,4 @@ export type {
   ViewKindRequirement,
   ViewKindRule,
 } from './catalog/index.js';
+export * from './compile/index.js';
