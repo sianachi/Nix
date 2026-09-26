@@ -106,6 +106,27 @@ describe('planBuild', () => {
     );
   });
 
+  it('does not double-prefix a sample title supplied by a validated blueprint', () => {
+    const result = plan({
+      id: 'root',
+      title: 'Root',
+      children: [
+        { id: 'plain', title: 'Sample: Example book', sample: true },
+        { id: 'structured', title: 'Sample: Example board', sample: true, views: [{ kind: 'list' }] },
+      ],
+    });
+    expect(result.steps).toContainEqual(
+      expect.objectContaining({ kind: 'createItem', nodeId: 'plain', title: 'Sample: Example book' }),
+    );
+    expect(result.steps).toContainEqual(
+      expect.objectContaining({
+        kind: 'createStructuredItem',
+        nodeId: 'structured',
+        title: 'Sample: Example board',
+      }),
+    );
+  });
+
   it('produces the same plan for the same blueprint and clock', () => {
     const bp = blueprint({
       id: 'root',

@@ -73,7 +73,7 @@ export function planBuild(bp: Blueprint, options: PlanBuildOptions): BuildPlan {
         title:
           node.id === bp.root.id
             ? bp.title
-            : node.sample === true
+            : node.sample === true && !node.title.startsWith('Sample: ')
               ? `Sample: ${node.title}`
               : node.title,
         schema: { properties: compiledFields.properties, inherit: node.inherit ?? true },
@@ -83,7 +83,10 @@ export function planBuild(bp: Blueprint, options: PlanBuildOptions): BuildPlan {
         ...(node.sample === true ? { sample: true } : {}),
       });
     } else {
-      const title = node.sample === true ? `Sample: ${node.title}` : node.title;
+      const title =
+        node.sample === true && !node.title.startsWith('Sample: ')
+          ? `Sample: ${node.title}`
+          : node.title;
       steps.push({
         kind: 'createItem',
         parentId: parentNodeId === undefined ? options.parentId : null,
