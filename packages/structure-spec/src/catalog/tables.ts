@@ -262,6 +262,6 @@ export interface StructureOperationsByMode {
  * consult-only tool enum (`validate_blueprint`, `build_blueprint`, `save_as_template`).
  */
 export const STRUCTURE_OPERATIONS = {
-  chat: ['create_structured', 'add_view', 'create_entries'],
-  consult: ['create_structured', 'add_view', 'create_entries'],
+  chat: ['create_structured', 'add_view', 'create_entries', 'add_fields', 'edit_form', 'set_recurrence'],
+  consult: ['create_structured', 'add_view', 'create_entries', 'add_fields', 'edit_form', 'set_recurrence'],
 } as const satisfies StructureOperationsByMode;

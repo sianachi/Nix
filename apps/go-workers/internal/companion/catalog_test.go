@@ -15,7 +15,7 @@ import (
 // with - a structure operation added to workspaceTools() and forgotten here would not fail
 // this test. Nothing in the schema marks an operation as "structure-shaped", so there is no
 // enum to derive the other direction from without inventing one.
-var structureOperationsInChatMode = []string{"create_structured", "add_view", "create_entries"}
+var structureOperationsInChatMode = []string{"create_structured", "add_view", "create_entries", "add_fields", "edit_form", "set_recurrence"}
 
 func TestCatalogsAreEmbeddedAndBounded(t *testing.T) {
 	if chatCatalog == "" {

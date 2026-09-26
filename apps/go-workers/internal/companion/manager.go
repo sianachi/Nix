@@ -18,7 +18,7 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-const toolVersion = 2
+const toolVersion = 3
 
 type Request struct {
 	TenantID        string `json:"tenantId"`

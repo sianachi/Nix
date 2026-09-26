@@ -325,31 +325,31 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 	}
 }
 
-// The Phase A tool version bump (specJson and the structure operations) must restart any
+// The Phase B tool version bump (add_fields, edit_form, set_recurrence) must restart any
 // thread that still carries the old schema. TestToolVersionChangeStartsFreshThreadAndKeepsMessages
 // proves the mechanism generically, relative to toolVersion; this pins the constant itself
-// to 2, so a future bump that forgets to change it would not silently pass either test.
-func TestToolVersionTwoRestartsThreads(t *testing.T) {
-	if toolVersion != 2 {
-		t.Fatalf("Phase A expects toolVersion 2, got %d", toolVersion)
+// to 3, so a future bump that forgets to change it would not silently pass either test.
+func TestToolVersionThreeRestartsThreads(t *testing.T) {
+	if toolVersion != 3 {
+		t.Fatalf("Phase B expects toolVersion 3, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	a.conversations[key] = &conversation{ToolVersion: 1, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	a.conversations[key] = &conversation{ToolVersion: 2, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 1 conversation should start a fresh thread on the version 2 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 2 conversation should start a fresh thread on the version 3 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 2 bump: %+v", got.Messages)
+		t.Fatalf("no system notice appended on the version 3 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 2 {
-		t.Fatalf("conversation not recorded at tool version 2: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 3 {
+		t.Fatalf("conversation not recorded at tool version 3: %d", a.conversations[key].ToolVersion)
 	}
 }
 

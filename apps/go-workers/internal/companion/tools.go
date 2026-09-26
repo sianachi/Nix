@@ -35,8 +35,8 @@ func workspaceTools() []any {
 	for _, key := range []string{"itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"} {
 		properties[key] = map[string]string{"type": "string"}
 	}
-	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "create_structured", "add_view", "create_entries", "list_templates", "read_template", "apply_template"}}
-	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. Reads: list_items (parentId, empty for roots); search (query); read_item, read_note and read_structure (itemId; read_structure returns fields, views and child count); list_templates (optional query); read_template (itemId is the template id). Writes: create_note (title, markdown, optional parentId); append_note (itemId, markdown; never replaces content); rename_item (itemId, title); move_item (itemId, parentId); set_properties (itemId, propertiesJson; read_structure first); trash_item is recoverable; restore_item. Structure: create_structured (parentId, title, specJson {recipe, fields, views}); add_view (itemId, specJson {fields, views}); create_entries (parentId, specJson {entries}); apply_template (itemId is the template id, parentId, title, specJson {inputs}). specJson is a JSON string; the field types, view kinds and their requirements are in your instructions. Not available: publishing, permanent deletion, removing or retyping fields, deleting views, workspace administration.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"}, "properties": properties}}}
+	properties["operation"] = map[string]any{"type": "string", "enum": []string{"list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "create_structured", "add_view", "create_entries", "add_fields", "edit_form", "set_recurrence", "list_templates", "read_template", "apply_template"}}
+	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. Reads: list_items (parentId, empty for roots); search (query); read_item, read_note and read_structure (itemId; read_structure returns fields, views and child count); list_templates (optional query); read_template (itemId is the template id). Writes: create_note (title, markdown, optional parentId); append_note (itemId, markdown; never replaces content); rename_item (itemId, title); move_item (itemId, parentId); set_properties (itemId, propertiesJson; read_structure first); trash_item is recoverable; restore_item. Structure: create_structured (parentId, title, specJson {recipe, fields, views}); add_view (itemId, specJson {fields, views}); create_entries (parentId, specJson {entries}); apply_template (itemId is the template id, parentId, title, specJson {inputs}). specJson is a JSON string; the field types, view kinds and their requirements are in your instructions. add_fields (itemId, specJson {fields}; never removes a field); edit_form (itemId, specJson {viewId, form}); set_recurrence (itemId, specJson {frequency, interval, weekdays, until}). Not available: publishing, permanent deletion, removing or retyping fields, deleting views, workspace administration.", "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"}, "properties": properties}}}
 }
 
 func (a *account) listModels(ctx context.Context) error {
@@ -265,6 +265,27 @@ func validateToolArguments(raw json.RawMessage) string {
 		}
 		if !isJSONObject(p.Spec) {
 			return "create_entries requires a JSON object in specJson."
+		}
+	case "add_fields":
+		if !uuid.MatchString(p.ItemID) {
+			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if !isJSONObject(p.Spec) {
+			return "add_fields requires a JSON object in specJson."
+		}
+	case "edit_form":
+		if !uuid.MatchString(p.ItemID) {
+			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if !isJSONObject(p.Spec) {
+			return "edit_form requires a JSON object in specJson."
+		}
+	case "set_recurrence":
+		if !uuid.MatchString(p.ItemID) {
+			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+		}
+		if !isJSONObject(p.Spec) {
+			return "set_recurrence requires a JSON object in specJson."
 		}
 	case "apply_template":
 		if !uuid.MatchString(p.ItemID) {

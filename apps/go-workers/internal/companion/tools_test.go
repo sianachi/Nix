@@ -95,6 +95,12 @@ func TestInvalidToolArgumentsNeverReachApproval(t *testing.T) {
 		`{"operation":"create_structured","title":"Plan","specJson":"1"}`,
 		`{"operation":"add_view","itemId":"not-a-uuid","specJson":"{}"}`,
 		`{"operation":"create_entries","parentId":"","specJson":"{}"}`,
+		`{"operation":"add_fields","itemId":"not-a-uuid","specJson":"{}"}`,
+		`{"operation":"add_fields","itemId":"11111111-1111-4111-8111-111111111111","specJson":"[]"}`,
+		`{"operation":"edit_form","itemId":"","specJson":"{}"}`,
+		`{"operation":"edit_form","itemId":"11111111-1111-4111-8111-111111111111","specJson":"1"}`,
+		`{"operation":"set_recurrence","itemId":"not-a-uuid","specJson":"{}"}`,
+		`{"operation":"set_recurrence","itemId":"11111111-1111-4111-8111-111111111111","specJson":""}`,
 		`{"operation":"apply_template","itemId":"11111111-1111-4111-8111-111111111111","title":""}`,
 	} {
 		peer := &toolPeer{}
@@ -161,6 +167,62 @@ func TestNewOperationsAcceptValidArguments(t *testing.T) {
 	}
 }
 
+// TestEnumAndValidatorAgree proves the operation enum in workspaceTools() and the switch in
+// validateToolArguments never drift apart: every enum entry must have a minimal valid argument
+// set below that validateToolArguments accepts, and any string outside the enum (including a
+// retired operation such as read_schema) must be refused as unsupported.
+func TestEnumAndValidatorAgree(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	minimalArguments := map[string]string{
+		"list_items":        `{"operation":"list_items"}`,
+		"search":            `{"operation":"search","query":"a"}`,
+		"read_item":         fmt.Sprintf(`{"operation":"read_item","itemId":%q}`, itemID),
+		"read_note":         fmt.Sprintf(`{"operation":"read_note","itemId":%q}`, itemID),
+		"read_structure":    fmt.Sprintf(`{"operation":"read_structure","itemId":%q}`, itemID),
+		"create_note":       `{"operation":"create_note","title":"Plan"}`,
+		"append_note":       fmt.Sprintf(`{"operation":"append_note","itemId":%q,"markdown":"more"}`, itemID),
+		"rename_item":       fmt.Sprintf(`{"operation":"rename_item","itemId":%q,"title":"Plan"}`, itemID),
+		"move_item":         fmt.Sprintf(`{"operation":"move_item","itemId":%q}`, itemID),
+		"set_properties":    fmt.Sprintf(`{"operation":"set_properties","itemId":%q,"propertiesJson":"{}"}`, itemID),
+		"trash_item":        fmt.Sprintf(`{"operation":"trash_item","itemId":%q}`, itemID),
+		"restore_item":      fmt.Sprintf(`{"operation":"restore_item","itemId":%q}`, itemID),
+		"create_structured": `{"operation":"create_structured","title":"Plan","specJson":"{}"}`,
+		"add_view":          fmt.Sprintf(`{"operation":"add_view","itemId":%q,"specJson":"{}"}`, itemID),
+		"create_entries":    fmt.Sprintf(`{"operation":"create_entries","parentId":%q,"specJson":"{}"}`, itemID),
+		"add_fields":        fmt.Sprintf(`{"operation":"add_fields","itemId":%q,"specJson":"{}"}`, itemID),
+		"edit_form":         fmt.Sprintf(`{"operation":"edit_form","itemId":%q,"specJson":"{}"}`, itemID),
+		"set_recurrence":    fmt.Sprintf(`{"operation":"set_recurrence","itemId":%q,"specJson":"{}"}`, itemID),
+		"list_templates":    `{"operation":"list_templates"}`,
+		"read_template":     fmt.Sprintf(`{"operation":"read_template","itemId":%q}`, itemID),
+		"apply_template":    fmt.Sprintf(`{"operation":"apply_template","itemId":%q,"title":"Plan"}`, itemID),
+	}
+
+	enum := workspaceOperationEnum(t)
+	if len(enum) != len(minimalArguments) {
+		t.Fatalf("workspaceTools() enum has %d operations, minimalArguments covers %d; the fixture is stale", len(enum), len(minimalArguments))
+	}
+	for _, operation := range enum {
+		raw, ok := minimalArguments[operation]
+		if !ok {
+			t.Fatalf("no minimal arguments fixture for enum operation %q", operation)
+		}
+		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
+			t.Fatalf("enum operation %q refused with minimal valid arguments: %s -> %q", operation, raw, got)
+		}
+	}
+
+	for _, raw := range []string{
+		`{"operation":"read_schema"}`,
+		`{"operation":"shell"}`,
+		`{"operation":"delete_item_permanently"}`,
+		`{"operation":""}`,
+	} {
+		if got := validateToolArguments(json.RawMessage(raw)); got != "Unsupported workspace operation." {
+			t.Fatalf("non-enum operation not refused as unsupported: %s -> %q", raw, got)
+		}
+	}
+}
+
 func TestReadSchemaIsNoLongerAnOperation(t *testing.T) {
 	itemID := "11111111-1111-4111-8111-111111111111"
 	got := validateToolArguments(json.RawMessage(fmt.Sprintf(`{"operation":"read_schema","itemId":%q}`, itemID)))
@@ -192,6 +254,9 @@ func TestNewReadOperationsAreReadOnly(t *testing.T) {
 		`{"operation":"create_structured"}`,
 		`{"operation":"add_view"}`,
 		`{"operation":"create_entries"}`,
+		`{"operation":"add_fields"}`,
+		`{"operation":"edit_form"}`,
+		`{"operation":"set_recurrence"}`,
 		`{"operation":"apply_template"}`,
 	} {
 		_, readOnly := toolIdentity(raw)

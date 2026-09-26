@@ -334,8 +334,22 @@
     "titleModes": ["generated", "field"]
   },
   "structureOperations": {
-    "chat": ["create_structured", "add_view", "create_entries"],
-    "consult": ["create_structured", "add_view", "create_entries"]
+    "chat": [
+      "create_structured",
+      "add_view",
+      "create_entries",
+      "add_fields",
+      "edit_form",
+      "set_recurrence"
+    ],
+    "consult": [
+      "create_structured",
+      "add_view",
+      "create_entries",
+      "add_fields",
+      "edit_form",
+      "set_recurrence"
+    ]
   },
   "limits": {
     "rawToolCallBytes": 40000,
