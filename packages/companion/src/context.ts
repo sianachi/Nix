@@ -202,7 +202,12 @@ export async function loadPreviewContext(
     return {
       destination,
       inheritedFields: schema.properties,
-      fingerprint: structureFingerprint({ declared: schema.properties }, []),
+      // A same-title sandbox can be deleted and replaced between preview and approval.
+      // Bind the fence to its item identity as well as the destination's schema.
+      fingerprint: JSON.stringify([
+        parent?.id ?? sandbox?.id ?? null,
+        structureFingerprint({ declared: schema.properties }, []),
+      ]),
       problems: report.problems,
       warnings: report.warnings,
       blueprintReport: report,

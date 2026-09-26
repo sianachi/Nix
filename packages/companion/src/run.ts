@@ -73,6 +73,10 @@ export async function runWorkspaceTool(
   }
   if (args.operation === 'build_blueprint') {
     const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    if (options.fence === undefined || context.fingerprint !== options.fence)
+      throw new WorkspaceToolRefusal(
+        'The destination changed since you approved this. Review the design again before building.',
+      );
     const blueprint = blueprintSchema.parse(rawSpec);
     const report =
       context.blueprintReport ??

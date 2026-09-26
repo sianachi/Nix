@@ -3,6 +3,7 @@ import { createFakePorts } from './testing/fake-ports.js';
 import { runWorkspaceTool } from './run.js';
 import { loadPreviewContext } from './context.js';
 import { readStructure } from './structure/read-structure.js';
+import { workspaceToolSchema } from './tool-args.js';
 
 const workspace = '11111111-1111-4111-8111-111111111111';
 const itemId = '22222222-2222-4222-8222-222222222222';
@@ -269,6 +270,89 @@ describe('workspace-scoped companion tools', () => {
       }),
     ).rejects.toThrow('only available in Design mode');
     expect(query).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('refuses a blueprint build with a stale or missing approval fence before writing', async () => {
+    const { ports, execute, signal } = setup();
+    const raw = input('build_blueprint', {
+      parentId: itemId,
+      specJson: JSON.stringify({
+        version: 1,
+        title: 'Reading log',
+        summary: 'Track books.',
+        root: { id: 'reading-log', title: 'Reading log' },
+      }),
+    });
+    for (const options of [
+      { mode: 'consult' as const },
+      { mode: 'consult' as const, fence: 'stale' },
+    ]) {
+      await expect(runWorkspaceTool(ports, workspace, raw, signal, options)).rejects.toThrow(
+        'destination changed since you approved',
+      );
+    }
+    expect(execute).not.toHaveBeenCalled();
+  });
+  it('builds a blueprint when the approved destination fingerprint is current', async () => {
+    const { ports, execute, signal } = setup();
+    const raw = input('build_blueprint', {
+      parentId: itemId,
+      specJson: JSON.stringify({
+        version: 1,
+        title: 'Reading log',
+        summary: 'Track books.',
+        root: { id: 'reading-log', title: 'Reading log' },
+      }),
+    });
+    const preview = await loadPreviewContext(
+      ports,
+      workspace,
+      workspaceToolSchema.parse(JSON.parse(raw)),
+      signal,
+    );
+    const outcome = await runWorkspaceTool(ports, workspace, raw, signal, {
+      mode: 'consult',
+      fence: preview.fingerprint,
+    });
+    expect(JSON.parse(outcome.text)).toMatchObject({ complete: true });
+    expect(execute).toHaveBeenCalledOnce();
+  });
+  it('refuses a blueprint build when Pet drafts is replaced after preview', async () => {
+    const { ports, execute, paginate, signal } = setup();
+    const firstSandbox = '33333333-3333-4333-8333-333333333333';
+    const replacement = '44444444-4444-4444-8444-444444444444';
+    let sandboxId = firstSandbox;
+    paginate.mockImplementation(async function* () {
+      await Promise.resolve();
+      yield {
+        id: sandboxId,
+        workspaceId: workspace,
+        parentId: null,
+        title: 'Pet drafts',
+        type: 'note',
+      };
+    });
+    const raw = input('build_blueprint', {
+      specJson: JSON.stringify({
+        version: 1,
+        title: 'Reading log',
+        summary: 'Track books.',
+        root: { id: 'reading-log', title: 'Reading log' },
+      }),
+    });
+    const preview = await loadPreviewContext(
+      ports,
+      workspace,
+      workspaceToolSchema.parse(JSON.parse(raw)),
+      signal,
+    );
+    sandboxId = replacement;
+    await expect(
+      runWorkspaceTool(ports, workspace, raw, signal, {
+        mode: 'consult',
+        fence: preview.fingerprint,
+      }),
+    ).rejects.toThrow('destination changed since you approved');
     expect(execute).not.toHaveBeenCalled();
   });
   it('names the destination of a create_note in touchedParents', async () => {

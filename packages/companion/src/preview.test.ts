@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { describeToolCall, type PreviewContext, type PreviewToolArgs } from './preview.js';
+import {
+  describeToolCall,
+  planBlueprintPreview,
+  type PreviewContext,
+  type PreviewToolArgs,
+} from './preview.js';
 
 function args(overrides: Partial<PreviewToolArgs>): PreviewToolArgs {
   return {
@@ -173,6 +178,19 @@ describe('describeToolCall - new template copy and read_structure', () => {
 });
 
 describe('describeToolCall - spec operations', () => {
+  it('keeps an explicit build destination when a Pet drafts sandbox already exists', () => {
+    const plan = planBlueprintPreview(
+      {
+        version: 1,
+        title: 'Reading log',
+        summary: 'Track books.',
+        root: { id: 'reading-log', title: 'Reading log' },
+      },
+      'chosen-parent',
+      context({ sandboxExists: true }),
+    );
+    expect(plan.steps[0]).toMatchObject({ kind: 'createItem', parentId: 'chosen-parent' });
+  });
   it('an invalid specJson yields problems and no steps', () => {
     const model = describeToolCall(
       args({

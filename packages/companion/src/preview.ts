@@ -17,6 +17,7 @@ import {
   blueprintSchema,
   validateBlueprint,
   describeBlueprint,
+  type Blueprint,
   type DescribeContext,
   type PreviewModel,
   type Step,
@@ -328,12 +329,7 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
         problems: report.problems,
         neverDoes: NEVER_DOES.slice(),
       };
-    const plan = planBuild(blueprint, {
-      parentId: context.sandboxExists ? null : args.parentId || null,
-      sandboxExists: context.sandboxExists ?? false,
-      clock: { today: () => '', timeZone: () => 'UTC', now: () => new Date(0) },
-      inheritedFields: context.inheritedFields,
-    });
+    const plan = planBlueprintPreview(blueprint, args.parentId, context);
     const model = describeBlueprint(blueprint, report, { destination: context.destination });
     return {
       ...model,
@@ -352,4 +348,17 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
     default:
       return describeLegacyOperation(args, context);
   }
+}
+
+export function planBlueprintPreview(
+  blueprint: Blueprint,
+  parentId: string,
+  context: PreviewContext,
+): ReturnType<typeof planBuild> {
+  return planBuild(blueprint, {
+    parentId: parentId || null,
+    sandboxExists: context.sandboxExists ?? false,
+    clock: { today: () => '', timeZone: () => 'UTC', now: () => new Date(0) },
+    inheritedFields: context.inheritedFields,
+  });
 }
