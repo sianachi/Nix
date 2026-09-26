@@ -96,20 +96,8 @@ export async function executePetRuntime(
   operation: string,
   options: PetOptions,
 ): Promise<unknown> {
-  if (!RUNTIME_OPERATIONS.includes(operation as RuntimeOperation))
-    throw new Error(`Choose a pet operation: ${RUNTIME_OPERATIONS.join(', ')}.`);
-  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
-    throw new Error('--mode must be chat or consult.');
+  validatePetRuntimeRequest(operation, options);
   if (operation === 'settings') return client.query(pets.settings());
-  if (operation === 'send' && !options.message?.trim()) throw new Error('Provide --message.');
-  if (
-    ['read', 'send', 'interrupt', 'reset', 'tool_claim', 'tool_result'].includes(operation) &&
-    (!options.workspace || !options.pet)
-  )
-    throw new Error('Provide --workspace and --pet.');
-  if (operation === 'tool_claim' && !options.toolId) throw new Error('Provide --tool-id.');
-  if (operation === 'tool_result' && (!options.toolId || options.toolResult === undefined))
-    throw new Error('Provide --tool-id and --tool-result.');
   return client.execute(
     pets.runtime({
       operation: operation as Exclude<RuntimeOperation, 'settings'>,
@@ -131,6 +119,25 @@ export async function executePetRuntime(
   );
 }
 
+function validatePetRuntimeRequest(
+  operation: string,
+  options: PetOptions,
+): asserts options is PetOptions & { readonly mode?: 'chat' | 'consult' } {
+  if (!RUNTIME_OPERATIONS.includes(operation as RuntimeOperation))
+    throw new Error(`Choose a pet operation: ${RUNTIME_OPERATIONS.join(', ')}.`);
+  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
+    throw new Error('--mode must be chat or consult.');
+  if (operation === 'send' && !options.message?.trim()) throw new Error('Provide --message.');
+  if (
+    ['read', 'send', 'interrupt', 'reset', 'tool_claim', 'tool_result'].includes(operation) &&
+    (!options.workspace || !options.pet)
+  )
+    throw new Error('Provide --workspace and --pet.');
+  if (operation === 'tool_claim' && !options.toolId) throw new Error('Provide --tool-id.');
+  if (operation === 'tool_result' && (!options.toolId || options.toolResult === undefined))
+    throw new Error('Provide --tool-id and --tool-result.');
+}
+
 /** Interactive account operations require a short-lived BFF token, never expanded PAT scopes. */
 export async function petCommand(
   profile: string | undefined,
@@ -139,6 +146,7 @@ export async function petCommand(
   output: OutputOptions,
   deps: SessionDeps = {},
 ): Promise<void> {
+  validatePetRuntimeRequest(operation, options);
   const session = await petSessionFor(options.apiUrl, profile, deps);
   printResult(await executePetRuntime(session.client, operation, options), output);
 }
