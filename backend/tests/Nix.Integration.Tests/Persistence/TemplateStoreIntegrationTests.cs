@@ -44,6 +44,218 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
+    [Fact]
+    public async Task Approved_capture_rejects_changed_metadata_and_replays_pinned_snapshot()
+    {
+        var sourceId = await AddOrdinaryItemAsync("Approved source");
+        string fingerprint;
+        var preview = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (preview.ConfigureAwait(false))
+        {
+            var result = await preview.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(result.IsSuccess);
+            fingerprint = result.Value.Fingerprint;
+            Assert.Equal(1, result.Value.ItemCount);
+        }
+
+        var edit = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (edit.ConfigureAwait(false))
+        {
+            await edit.DbContext.Items.Where(item => item.Id == sourceId)
+                .ExecuteUpdateAsync(update => update.SetProperty(
+                    item => item.Properties, ItemProperties.WithTitle(null, "Changed source")), Cancellation);
+            await edit.CommitAsync(Cancellation);
+        }
+
+        var stale = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (stale.ConfigureAwait(false))
+        {
+            var result = await stale.Resolve<TemplateStore>().BeginCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, "Approved template", null,
+                true, true, "approved-capture", Cancellation, fingerprint);
+            Assert.True(result.IsFailure);
+            Assert.Equal("templates.conflict", result.Error.Code);
+        }
+
+        var fresh = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (fresh.ConfigureAwait(false))
+        {
+            var store = fresh.Resolve<TemplateStore>();
+            var current = await store.PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(current.IsSuccess);
+            Assert.NotEqual(fingerprint, current.Value.Fingerprint);
+            var begun = await store.BeginCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, "Approved template", null,
+                true, true, "approved-capture", Cancellation, current.Value.Fingerprint);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+            await fresh.CommitAsync(Cancellation);
+            fingerprint = current.Value.Fingerprint;
+        }
+
+        var replay = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (replay.ConfigureAwait(false))
+        {
+            var result = await replay.Resolve<TemplateStore>().BeginCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, "Approved template", null,
+                true, true, "approved-capture", Cancellation, fingerprint);
+            Assert.True(result.IsSuccess, result.IsFailure ? result.Error.ToString() : null);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_preview_fingerprint_changes_when_body_is_added()
+    {
+        var sourceId = await AddOrdinaryItemAsync("Body source");
+        var before = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        string fingerprint;
+        await using (before.ConfigureAwait(false))
+        {
+            var snapshot = await before.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(snapshot.IsSuccess);
+            Assert.Null(snapshot.Value.BodyHeads[sourceId]);
+            fingerprint = snapshot.Value.Fingerprint;
+        }
+        var documentId = await AddBodyAsync(sourceId);
+        var after = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (after.ConfigureAwait(false))
+        {
+            var snapshot = await after.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(snapshot.IsSuccess);
+            Assert.Equal(1, snapshot.Value.BodyHeads[sourceId]);
+            Assert.Equal(documentId.Value, snapshot.Value.BodyDocIds[sourceId]);
+            Assert.NotEqual(fingerprint, snapshot.Value.Fingerprint);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_preview_fingerprint_changes_when_file_version_changes()
+    {
+        var sourceId = await AddOrdinaryItemAsync("File source");
+        var firstVersion = FileVersionId.Create();
+        var secondVersion = FileVersionId.Create();
+        var setup = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (setup.ConfigureAwait(false))
+        {
+            setup.DbContext.FileBodies.Add(new FileBody
+            {
+                TenantId = TestTenants.AlphaContext.TenantId,
+                WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                ItemId = sourceId,
+                CurrentVersionId = firstVersion,
+            });
+            foreach (var versionId in new[] { firstVersion, secondVersion })
+            {
+                setup.DbContext.FileVersions.Add(new FileVersion
+                {
+                    Id = versionId,
+                    TenantId = TestTenants.AlphaContext.TenantId,
+                    WorkspaceId = WorkspaceId.From(TestTenants.AlphaWorkspace),
+                    ItemId = sourceId,
+                    Version = versionId == firstVersion ? 1 : 2,
+                    ObjectKey = ObjectStorageKeys.FileVersion(TestTenants.AlphaContext.TenantId, versionId),
+                    FileName = "file.txt",
+                    MediaType = "text/plain",
+                    ByteLength = 0,
+                    Sha256 = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData([])),
+                    ObjectReady = true,
+                    Previewable = false,
+                    CreatedBy = TestTenants.AlphaContext.PrincipalId,
+                    CreatedAt = DateTimeOffset.UtcNow,
+                });
+            }
+            await setup.DbContext.SaveChangesAsync(Cancellation);
+            await setup.CommitAsync(Cancellation);
+        }
+        var before = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        string fingerprint;
+        await using (before.ConfigureAwait(false))
+        {
+            var result = await before.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(result.IsSuccess);
+            fingerprint = result.Value.Fingerprint;
+        }
+        var edit = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (edit.ConfigureAwait(false))
+        {
+            await edit.DbContext.FileBodies.Where(body => body.ItemId == sourceId)
+                .ExecuteUpdateAsync(update => update.SetProperty(body => body.CurrentVersionId, secondVersion), Cancellation);
+            await edit.CommitAsync(Cancellation);
+        }
+        var after = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (after.ConfigureAwait(false))
+        {
+            var result = await after.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(result.IsSuccess);
+            Assert.NotEqual(fingerprint, result.Value.Fingerprint);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_preview_does_not_disclose_another_tenants_source()
+    {
+        var sourceId = await AddOrdinaryItemAsync("Private source");
+        var otherTenant = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.BetaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (otherTenant.ConfigureAwait(false))
+        {
+            var result = await otherTenant.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(result.IsFailure);
+            Assert.Equal("templates.not_found", result.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Approved_capture_rejects_new_descendant()
+    {
+        var sourceId = await AddOrdinaryItemAsync("Tree source");
+        var preview = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        string fingerprint;
+        await using (preview.ConfigureAwait(false))
+        {
+            var result = await preview.Resolve<TemplateStore>().PreviewCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, true, Cancellation);
+            Assert.True(result.IsSuccess);
+            fingerprint = result.Value.Fingerprint;
+        }
+        var edit = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (edit.ConfigureAwait(false))
+        {
+            var child = NewItem("New child", null, sourceId, 1, DateTimeOffset.UtcNow);
+            edit.DbContext.Items.Add(child);
+            await edit.DbContext.SaveChangesAsync(Cancellation);
+            await edit.DbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth) VALUES ({child.TenantId.Value}, {child.WorkspaceId.Value}, {child.Id.Value}, {child.Id.Value}, 0), ({child.TenantId.Value}, {child.WorkspaceId.Value}, {sourceId.Value}, {child.Id.Value}, 1)",
+                Cancellation);
+            await edit.CommitAsync(Cancellation);
+        }
+        var stale = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (stale.ConfigureAwait(false))
+        {
+            var result = await stale.Resolve<TemplateStore>().BeginCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, "Tree template", null,
+                true, true, "changed-tree", Cancellation, fingerprint);
+            Assert.True(result.IsFailure);
+            Assert.Equal("templates.conflict", result.Error.Code);
+        }
+    }
+
     public async ValueTask InitializeAsync()
     {
         await _fixture.ResetAsync();

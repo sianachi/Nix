@@ -197,7 +197,10 @@ internal sealed record BeginTemplateCaptureRequest(
     string? Description,
     bool IncludeBody,
     bool IncludeChildren,
-    string IdempotencyKey);
+    string IdempotencyKey,
+    string? ExpectedFingerprint = null);
+
+internal sealed record TemplateCapturePreviewResponse(string Fingerprint, string SourceTitle, int ItemCount);
 
 internal sealed record ImportTemplateDescriptorRequest(
     string StableKey,
@@ -244,7 +247,13 @@ internal sealed record FinalizeTemplateBodiesRequest(
 
 internal sealed record ItemMappingResponse(Guid SourceId, Guid ItemId, string ItemType);
 
-internal sealed record BodyCopyResponse(Guid SourceItemId, Guid TargetItemId, string ItemType);
+internal sealed record BodyCopyResponse(
+    Guid SourceItemId,
+    Guid TargetItemId,
+    string ItemType,
+    bool CheckHead = false,
+    long? ExpectedHeadSeq = null,
+    Guid? ExpectedDocId = null);
 
 internal sealed record BodyWriteResponse(Guid SourceId, Guid TargetItemId, string ItemType);
 

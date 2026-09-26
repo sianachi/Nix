@@ -29,6 +29,10 @@ internal static class TemplateEndpoints
             .WithSummary("Templates available in a workspace")
             .Produces<TemplateCatalogResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
+        workspace.MapGet("/capture-preview/{sourceItemId:guid}", CapturePreview)
+            .WithName("PreviewTemplateCapture")
+            .Produces<TemplateCapturePreviewResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
 
         var templates = endpoints.MapGroup("/api/v1/templates")
             .WithTags("Templates");
@@ -186,6 +190,22 @@ internal static class TemplateEndpoints
             error => Problem(context, error));
     }
 
+    private static async Task<IResult> CapturePreview(
+        Guid workspaceId,
+        Guid sourceItemId,
+        bool includeChildren,
+        HttpContext context,
+        [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.QueryAsync<PreviewTemplateCapture, Result<TemplateCaptureSnapshot>>(
+            new PreviewTemplateCapture(WorkspaceId.From(workspaceId), ItemId.From(sourceItemId), includeChildren),
+            context.RequestAborted).ConfigureAwait(false);
+        return result.Match<IResult>(
+            snapshot => TypedResults.Ok(new TemplateCapturePreviewResponse(
+                snapshot.Fingerprint, snapshot.SourceTitle, snapshot.ItemCount)),
+            error => Problem(context, error));
+    }
+
     private static async Task<IResult> Detail(
         Guid templateId,
         HttpContext context,
@@ -279,7 +299,8 @@ internal static class TemplateEndpoints
                 request.Description,
                 request.IncludeBody,
                 request.IncludeChildren,
-                request.IdempotencyKey),
+                request.IdempotencyKey,
+                request.ExpectedFingerprint),
             context.RequestAborted).ConfigureAwait(false);
         if (result.IsFailure)
         {
@@ -891,7 +912,8 @@ internal static class TemplateEndpoints
         new(mapping.SourceId, mapping.ItemId.Value, mapping.ItemType);
 
     private static BodyCopyResponse Map(TemplateBodyCopy copy) =>
-        new(copy.SourceItemId.Value, copy.TargetItemId.Value, copy.ItemType);
+        new(copy.SourceItemId.Value, copy.TargetItemId.Value, copy.ItemType,
+            copy.CheckHead, copy.ExpectedHeadSeq, copy.ExpectedDocId);
 
     private static BodyWriteResponse Map(TemplateBodyWrite write) =>
         new(write.SourceId, write.TargetItemId.Value, write.ItemType);

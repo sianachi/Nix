@@ -1768,6 +1768,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/templates/capture-preview/{sourceItemId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['PreviewTemplateCapture'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/templates/{templateId}': {
     parameters: {
       query?: never;
@@ -3382,6 +3398,12 @@ export interface components {
       canDelete: boolean;
       canExport: boolean;
       canApply: boolean;
+    };
+    TemplateCapturePreviewResponse: {
+      fingerprint: string;
+      sourceTitle: string;
+      /** Format: int32 */
+      itemCount: number | string;
     };
     TemplateCatalogResponse: {
       templates: components['schemas']['TemplateSummaryResponse'][];
@@ -9232,6 +9254,40 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['TemplateCatalogResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PreviewTemplateCapture: {
+    parameters: {
+      query: {
+        includeChildren: boolean;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+        sourceItemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TemplateCapturePreviewResponse'];
         };
       };
       /** @description Not Found */

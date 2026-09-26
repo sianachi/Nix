@@ -1,3 +1,4 @@
+using System.Data;
 using System.Net;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -351,8 +352,13 @@ public sealed class NixUnitOfWorkMiddleware
                 break;
         }
 
+        var captureSnapshot = context.Request.Path.Value is { } requestPath
+            && (requestPath.Contains("/templates/capture-preview/", StringComparison.OrdinalIgnoreCase)
+                || requestPath.Equals("/internal/templates/captures/begin", StringComparison.OrdinalIgnoreCase));
         var transaction = await dbContext.Database
-            .BeginTransactionAsync(context.RequestAborted)
+            .BeginTransactionAsync(
+                captureSnapshot ? IsolationLevel.RepeatableRead : IsolationLevel.ReadCommitted,
+                context.RequestAborted)
             .ConfigureAwait(false);
 
         await using (transaction.ConfigureAwait(false))

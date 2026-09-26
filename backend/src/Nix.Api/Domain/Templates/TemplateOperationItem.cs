@@ -26,4 +26,13 @@ public sealed class TemplateOperationItem
 
     /// <summary>Gets whether Collab must write this target body before finalization.</summary>
     public required bool BodyRequired { get; init; }
+
+    /// <summary>Whether Collab must verify the source body head before copying.</summary>
+    public bool CheckHead { get; init; }
+
+    /// <summary>Approved source body head; null means no body existed.</summary>
+    public long? ExpectedHeadSeq { get; init; }
+
+    /// <summary>Approved source document identity; null means no body existed.</summary>
+    public Guid? ExpectedDocId { get; init; }
 }

@@ -153,6 +153,15 @@ internal sealed class FakeTemplateDraftStore : TemplateWorkflowFake, ITemplateDr
 
 internal sealed class FakeTemplateStagingStore : TemplateWorkflowFake, ITemplateStagingStore
 {
+    public ValueTask<Result<TemplateCaptureSnapshot>> PreviewCaptureAsync(
+        WorkspaceId workspaceId,
+        ItemId sourceItemId,
+        bool includeChildren,
+        CancellationToken cancellationToken) =>
+        Refuse<TemplateCaptureSnapshot>(
+            new PreviewTemplateCapture(workspaceId, sourceItemId, includeChildren),
+            cancellationToken);
+
     public ValueTask<Result<TemplateCapturePlan>> BeginCaptureAsync(
         WorkspaceId workspaceId,
         ItemId sourceItemId,
@@ -161,7 +170,8 @@ internal sealed class FakeTemplateStagingStore : TemplateWorkflowFake, ITemplate
         bool includeBody,
         bool includeChildren,
         string idempotencyKey,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        string? expectedFingerprint = null) =>
         Refuse<TemplateCapturePlan>(
             new BeginTemplateCapture(
                 workspaceId,
@@ -170,7 +180,8 @@ internal sealed class FakeTemplateStagingStore : TemplateWorkflowFake, ITemplate
                 description,
                 includeBody,
                 includeChildren,
-                idempotencyKey),
+                idempotencyKey,
+                expectedFingerprint),
             cancellationToken);
 
     public ValueTask<Result<TemplateImportPlan>> BeginImportAsync(

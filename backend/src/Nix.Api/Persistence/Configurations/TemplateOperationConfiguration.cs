@@ -25,6 +25,7 @@ internal sealed class TemplateOperationConfiguration : IEntityTypeConfiguration<
             .HasConversion(new EnumConverters.TemplateOperationKindConverter());
         builder.Property(operation => operation.IdempotencyKey).HasColumnName("idempotency_key").HasMaxLength(160);
         builder.Property(operation => operation.SourceItemId).HasColumnName("source_item_id");
+        builder.Property(operation => operation.CaptureFingerprint).HasColumnName("capture_fingerprint").HasMaxLength(64);
         builder.Property(operation => operation.ActorId).HasColumnName("actor_id");
         builder.Property(operation => operation.DraftTitle).HasColumnName("draft_title").HasMaxLength(200);
         builder.Property(operation => operation.DraftDescription).HasColumnName("draft_description").HasMaxLength(1000);

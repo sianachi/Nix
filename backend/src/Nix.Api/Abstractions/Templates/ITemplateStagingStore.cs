@@ -8,6 +8,12 @@ namespace Nix.Abstractions.Templates;
 /// <summary>Coordinates capture and import provisioning stages.</summary>
 public interface ITemplateStagingStore
 {
+    public ValueTask<Result<TemplateCaptureSnapshot>> PreviewCaptureAsync(
+        WorkspaceId workspaceId,
+        ItemId sourceItemId,
+        bool includeChildren,
+        CancellationToken cancellationToken);
+
     public ValueTask<Result<TemplateCapturePlan>> BeginCaptureAsync(
         WorkspaceId workspaceId,
         ItemId sourceItemId,
@@ -16,7 +22,8 @@ public interface ITemplateStagingStore
         bool includeBody,
         bool includeChildren,
         string idempotencyKey,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? expectedFingerprint = null);
 
     public ValueTask<Result<TemplateImportPlan>> BeginImportAsync(
         WorkspaceId workspaceId,

@@ -7356,6 +7356,64 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/templates/capture-preview/{sourceItemId}": {
+      "get": {
+        "tags": [
+          "Templates"
+        ],
+        "operationId": "PreviewTemplateCapture",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sourceItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "includeChildren",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateCapturePreviewResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/templates/{templateId}": {
       "get": {
         "tags": [
@@ -13846,6 +13904,30 @@
           },
           "canApply": {
             "type": "boolean"
+          }
+        }
+      },
+      "TemplateCapturePreviewResponse": {
+        "required": [
+          "fingerprint",
+          "sourceTitle",
+          "itemCount"
+        ],
+        "type": "object",
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "sourceTitle": {
+            "type": "string"
+          },
+          "itemCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
