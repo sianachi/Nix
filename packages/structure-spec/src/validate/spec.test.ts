@@ -76,6 +76,28 @@ describe('validateSpec create_structured', () => {
     expect(report.problems.some((problem) => problem.path === 'views[0]')).toBe(true);
   });
 
+  it('reports an unknown form field at its page and block indices', () => {
+    const report = validateSpec(
+      'create_structured',
+      {
+        recipe: 'form',
+        fields: [{ label: 'Name', type: 'text' }],
+        views: [
+          {
+            kind: 'interactive_form',
+            form: {
+              pages: [{ title: 'Details', blocks: [{ heading: 'About' }, { field: 'missing' }] }],
+            },
+          },
+        ],
+      },
+      context(),
+    );
+    expect(
+      report.problems.some((problem) => problem.path === 'views[0].form.pages[0].blocks[1].field'),
+    ).toBe(true);
+  });
+
   it('reports a problem for every bad view, not just the first', () => {
     const report = validateSpec(
       'create_structured',
@@ -195,7 +217,11 @@ describe('validateSpec create_structured', () => {
       context(),
     );
     expect(report.ok).toBe(false);
-    expect(report.problems.some((problem) => problem.path === 'views[0]')).toBe(true);
+    expect(
+      report.problems.some(
+        (problem) => problem.path === 'views[0].form.pages[0].showWhen[0].field',
+      ),
+    ).toBe(true);
   });
 });
 

@@ -1,4 +1,4 @@
-import { resolveFieldRef, type FieldRefResolution } from '../spec/refs.js';
+import { resolveFieldRef, type FieldRefResolution, type ResolvedField } from '../spec/refs.js';
 import type { StructureProperty } from '../types.js';
 
 /**
@@ -19,29 +19,55 @@ export function describeUnresolvedFieldRef(
 }
 
 /**
- * Resolves a `FieldRef` against the schema a view or a form sees, honouring architecture 2.3's
- * rule that an existing field's label is never matched (`../spec/refs.js`'s own doc comment):
- * only the keys in `addedKeys` are label-searchable, and every key in `effective` - added or not -
- * is exact-match searchable. `addedKeys` is optional so a caller compiling a view or a form outside
- * an operation's own field-compilation step (a direct unit test, for instance) can still resolve by
- * label against everything it is given; every production caller in `operations.ts` passes it.
+ * The `{ existing, added }` scope `resolveFieldRef` takes, built from the same `effective` /
+ * `addedKeys` pair every view and form compiler in this module already accepts: only the keys in
+ * `addedKeys` are label-searchable (architecture 2.3), and every key in `effective` - added or not
+ * - is exact-match searchable. `addedKeys` is optional so a caller resolving outside an operation's
+ * own field-compilation step (a direct unit test, for instance) can still resolve by label against
+ * everything it is given.
+ */
+function refScope(
+  effective: readonly StructureProperty[],
+  addedKeys?: ReadonlySet<string>,
+): { existing: readonly StructureProperty[]; added: readonly ResolvedField[] } {
+  const isAdded = (property: StructureProperty): boolean =>
+    addedKeys === undefined || addedKeys.has(property.key);
+
+  return {
+    existing: effective.filter((property) => !isAdded(property)),
+    added: effective
+      .filter(isAdded)
+      .map((property) => ({ key: property.key, label: property.label })),
+  };
+}
+
+/**
+ * Resolves a `FieldRef` against the schema a view or a form sees, throwing when it does not
+ * resolve - the shape every production compiler in this package wants, since an unresolvable ref
+ * at this point is a caller error (`@nix/structure-spec/validate` has already accepted the spec).
  */
 export function resolveKey(
   ref: string,
   effective: readonly StructureProperty[],
   addedKeys?: ReadonlySet<string>,
 ): string {
-  const isAdded = (property: StructureProperty): boolean =>
-    addedKeys === undefined || addedKeys.has(property.key);
-
-  const scope = {
-    existing: effective.filter((property) => !isAdded(property)),
-    added: effective.filter(isAdded).map((property) => ({ key: property.key, label: property.label })),
-  };
-
-  const resolution = resolveFieldRef(ref, scope);
+  const resolution = resolveFieldRef(ref, refScope(effective, addedKeys));
   if (!resolution.ok) {
     throw new Error(describeUnresolvedFieldRef(ref, resolution));
   }
   return resolution.key;
+}
+
+/**
+ * The same resolution as `resolveKey`, but returned as data instead of thrown - what
+ * `@nix/structure-spec/validate` needs to report *why* a `FieldRef` failed (unknown vs.
+ * ambiguous, and which candidates) at a precise problem path, before it ever tries compiling the
+ * spec for real.
+ */
+export function tryResolveKey(
+  ref: string,
+  effective: readonly StructureProperty[],
+  addedKeys?: ReadonlySet<string>,
+): FieldRefResolution {
+  return resolveFieldRef(ref, refScope(effective, addedKeys));
 }

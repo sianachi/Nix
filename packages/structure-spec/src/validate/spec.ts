@@ -1,14 +1,7 @@
 import type { z } from 'zod';
 
-import type {
-  StructureFormBlock,
-  StructureFormCondition,
-  StructureFormPage,
-  StructureProperty,
-  StructureView,
-} from '../types.js';
+import type { StructureProperty, StructureView } from '../types.js';
 import type { FieldSpec } from '../spec/field.js';
-import { type Cond, type FormSpec } from '../spec/form.js';
 import {
   type EntriesSpec,
   applySpecSchema,
@@ -16,10 +9,12 @@ import {
   structuredSpecSchema,
   viewSetupSpecSchema,
 } from '../spec/operations.js';
-import { keyFor } from '../spec/keys.js';
-import { type FieldRefResolution, type ResolvedField, resolveFieldRef } from '../spec/refs.js';
+import type { FieldRefResolution } from '../spec/refs.js';
 import type { ViewSpec } from '../spec/view.js';
 import { mergeProperties } from '../vocabulary/merge-properties.js';
+import { compileFields } from '../compile/fields.js';
+import { compileView } from '../compile/views.js';
+import { tryResolveKey } from '../compile/resolve.js';
 import { refuseSchema } from './schema-rules.js';
 import { refuseViews } from './view-rules.js';
 import { validateValue } from './values.js';
@@ -27,16 +22,9 @@ import type { Problem, ValidationContext, ValidationReport } from './report.js';
 
 export type SpecOperation = 'create_structured' | 'add_view' | 'create_entries' | 'apply_template';
 
-/**
- * A `FieldRef` resolution scope: fields already in effect before this operation, matched only by
- * their exact key, and fields this operation is itself declaring, matched by key or - because a
- * pet did choose them - by label too. `spec.ts`'s own field, view and form compilation all resolve
- * refs against one of these per operation, so a rollup source, a `groupBy`, or a form field can
- * each name either an inherited property or a field the same request is adding.
- */
 interface RefScope {
   existing: readonly StructureProperty[];
-  added: readonly ResolvedField[];
+  added: readonly StructureProperty[];
 }
 
 function formatPath(path: readonly PropertyKey[]): string {
@@ -92,7 +80,11 @@ function resolveRef(
   if (ref === undefined) {
     return null;
   }
-  const resolution = resolveFieldRef(ref, scope);
+  const resolution = tryResolveKey(
+    ref,
+    [...scope.existing, ...scope.added],
+    new Set(scope.added.map((field) => field.key)),
+  );
   if (!resolution.ok) {
     problems.push({ path, code: resolution.code, message: refFailureMessage(ref, resolution) });
     return null;
@@ -100,212 +92,136 @@ function resolveRef(
   return resolution.key;
 }
 
-/**
- * The field-to-property half of the compiler `packages/structure-spec/src/compile/*`
- * (`docs/plans/pet-structure-consult-plan.md`, task A.1b) will own once it lands. That compiler
- * and this validator are built in the same wave from the same base, so this module carries its
- * own minimal, validation-only version rather than depending on code that does not exist yet in
- * this worktree - once A.1b merges, this function and `compileViewForValidation` /
- * `compileFormForValidation` below should be replaced with calls into it, not kept alongside it.
- */
 function compileFieldSpecs(
   specs: readonly FieldSpec[],
   existing: readonly StructureProperty[],
   path: string,
   problems: Problem[],
 ): StructureProperty[] {
-  const added: ResolvedField[] = specs.map((field) => ({ key: keyFor(field), label: field.label }));
-
-  return specs.map((field, index) => {
-    const key = added[index]?.key ?? keyFor(field);
-    let source: string | null = null;
-
+  const prior: StructureProperty[] = [];
+  const safeSpecs: FieldSpec[] = [];
+  for (const [index, field] of specs.entries()) {
+    let safeField = field;
     if (field.type === 'rollup' && field.rollup?.source !== undefined) {
-      source = resolveRef(
+      const resolution = tryResolveKey(
         field.rollup.source,
-        { existing, added },
-        `${path}[${String(index)}].rollup.source`,
-        problems,
+        [...existing, ...prior],
+        new Set(prior.map((item) => item.key)),
       );
+      if (!resolution.ok) {
+        problems.push({
+          path: `${path}[${String(index)}].rollup.source`,
+          code: resolution.code,
+          message: refFailureMessage(field.rollup.source, resolution),
+        });
+        safeField = { ...field, rollup: { ...field.rollup, source: undefined } };
+      }
     }
-
-    return {
-      key,
-      label: field.label,
-      type: field.type,
-      options: field.options ?? [],
-      required: field.required ?? false,
-      expression: field.type === 'formula' ? (field.formula ?? null) : null,
-      aggregate: field.type === 'rollup' ? (field.rollup?.aggregate ?? null) : null,
-      source,
-    } satisfies StructureProperty;
-  });
+    safeSpecs.push(safeField);
+    prior.splice(0, prior.length, ...compileFields(safeSpecs, { existing }).properties);
+  }
+  // Compile the full list through the same implementation used by execution. Per-field compilation
+  // above only supplies context for rollup FieldRefs and protects reporting from compiler throws.
+  return compileFields(safeSpecs, { existing }).properties;
 }
 
-/**
- * Compiles one form spec into enough of a `StructureForm` for `refuseViews` to check - page and
- * block ids, and each condition's `field` resolved to the id of the earlier field block it means -
- * without assigning the ids the real compiler (A.1b) will eventually store. A block only becomes
- * "earlier" for the conditions after it, matching `ViewDefinitionRules.RefuseForm`'s own
- * sequential pass.
- */
-function compileFormForValidation(
-  form: FormSpec,
-  scope: RefScope,
-  viewPath: string,
-  problems: Problem[],
-): {
-  pages: StructureFormPage[];
-  titleMode: string;
-  titleFieldBlockId: string | null;
-  confirmationTitle: string;
-  confirmationMessage: string;
-} {
-  const fieldBlockIdByKey = new Map<string, string>();
-  let blockCounter = 0;
-  let pageCounter = 0;
-
-  function compileConditions(
-    conditions: readonly Cond[] | undefined,
-    path: string,
-  ): StructureFormCondition[] {
-    return (conditions ?? []).map((condition) => {
-      const key = resolveRef(condition.field, scope, `${path}.showWhen.field`, problems);
-      const fieldBlockId = key !== null ? fieldBlockIdByKey.get(key) : undefined;
-      return {
-        fieldBlockId: fieldBlockId ?? '',
-        operator: condition.op,
-        value: condition.value ?? null,
-      } satisfies StructureFormCondition;
-    });
-  }
-
-  const pages: StructureFormPage[] = form.pages.map((page) => {
-    pageCounter += 1;
-    const pageId = `p${String(pageCounter)}`;
-    const pageVisibleWhen = compileConditions(page.showWhen, `${viewPath}.form.${pageId}`);
-
-    const blocks: StructureFormBlock[] = page.blocks.map((block) => {
-      blockCounter += 1;
-      const blockId = `b${String(blockCounter)}`;
-
-      if ('field' in block) {
-        const key = resolveRef(block.field, scope, `${viewPath}.form.${blockId}.field`, problems);
-        const visibleWhen = compileConditions(block.showWhen, `${viewPath}.form.${blockId}`);
-        if (key !== null) {
-          fieldBlockIdByKey.set(key, blockId);
-        }
-        return {
-          id: blockId,
-          kind: 'field',
-          propertyKey: key,
-          text: '',
-          help: block.help ?? null,
-          required: block.required ?? false,
-          identityRole: block.identity ?? null,
-          visibleWhen,
-        } satisfies StructureFormBlock;
-      }
-
-      if ('heading' in block) {
-        return {
-          id: blockId,
-          kind: 'heading',
-          propertyKey: null,
-          text: block.heading,
-          help: null,
-          required: false,
-          identityRole: null,
-          visibleWhen: [],
-        } satisfies StructureFormBlock;
-      }
-
-      return {
-        id: blockId,
-        kind: 'paragraph',
-        propertyKey: null,
-        text: block.paragraph,
-        help: null,
-        required: false,
-        identityRole: null,
-        visibleWhen: [],
-      } satisfies StructureFormBlock;
-    });
-
-    return {
-      id: pageId,
-      title: page.title,
-      description: page.description ?? null,
-      visibleWhen: pageVisibleWhen,
-      blocks,
-    } satisfies StructureFormPage;
-  });
-
-  const titleMode = form.title?.from ?? 'generated';
-  let titleFieldBlockId: string | null = null;
-  if (form.title?.from === 'field') {
-    const key = resolveRef(form.title.field, scope, `${viewPath}.form.title.field`, problems);
-    titleFieldBlockId = key !== null ? (fieldBlockIdByKey.get(key) ?? null) : null;
-  }
-
-  return {
-    pages,
-    titleMode,
-    titleFieldBlockId,
-    confirmationTitle: form.confirmation?.title ?? '',
-    confirmationMessage: form.confirmation?.message ?? '',
-  };
-}
-
-/** Compiles one view spec into enough of a `StructureView` for `refuseViews` to check. */
-function compileViewForValidation(
+function inspectFormRefs(
   view: ViewSpec,
-  scope: RefScope,
   index: number,
+  scope: RefScope,
   problems: Problem[],
-): StructureView {
-  const path = `views[${String(index)}]`;
-  const groupBy = resolveRef(view.groupBy, scope, `${path}.groupBy`, problems);
-  const dateProperty = resolveRef(view.date, scope, `${path}.date`, problems);
-  const endDateProperty = resolveRef(view.endDate, scope, `${path}.endDate`, problems);
-  const coverProperty = resolveRef(view.cover, scope, `${path}.cover`, problems);
-  const measureProperty = resolveRef(view.measureField, scope, `${path}.measureField`, problems);
-  const sortBy = resolveRef(view.sortBy, scope, `${path}.sortBy`, problems);
-
-  // A filter's property is never resolved against the schema: `FilterRule.cs`'s own comment is
-  // that a query view spans containers and a rule naming a property nothing declares simply
-  // matches nothing, so this mirrors Core by passing the raw field text through unchanged.
-  const filters = (view.filters ?? []).map((filter) => ({
-    property: filter.field,
-    operator: filter.op,
-    value: filter.value,
-  }));
-
-  const interactiveForm =
-    view.kind === 'interactive_form' && view.form !== undefined
-      ? compileFormForValidation(view.form, scope, path, problems)
-      : null;
-
-  return {
-    id: `view-${String(index)}`,
-    name: view.name ?? view.kind,
-    kind: view.kind,
-    columns: view.columns ?? [],
-    groupBy,
-    groupOrder: view.groupOrder ?? [],
-    dateProperty,
-    sortBy,
-    sortDescending: view.sortDescending ?? false,
-    mode: view.mode ?? null,
-    coverProperty,
-    endDateProperty,
-    cardSize: view.cardSize ?? null,
-    layout: null,
-    filters,
-    measure: view.measure ?? null,
-    measureProperty,
-    interactiveForm,
+): boolean {
+  if (view.kind !== 'interactive_form' || view.form === undefined) return true;
+  const form = view.form;
+  const base = `views[${String(index)}].form`;
+  const earlier = new Set<string>();
+  let valid = true;
+  const inspect = (ref: string, path: string, requireEarlier = false): string | null => {
+    const key = resolveRef(ref, scope, path, problems);
+    if (key === null) valid = false;
+    else if (requireEarlier && !earlier.has(key)) {
+      problems.push({
+        path,
+        code: 'form-order',
+        message: `Field '${ref}' must have an earlier field block.`,
+      });
+      valid = false;
+    }
+    return key;
   };
+  form.pages.forEach((page, pageIndex) => {
+    page.showWhen?.forEach((condition, conditionIndex) => {
+      inspect(
+        condition.field,
+        `${base}.pages[${String(pageIndex)}].showWhen[${String(conditionIndex)}].field`,
+        true,
+      );
+    });
+    page.blocks.forEach((block, blockIndex) => {
+      if (!('field' in block)) return;
+      const key = inspect(
+        block.field,
+        `${base}.pages[${String(pageIndex)}].blocks[${String(blockIndex)}].field`,
+      );
+      block.showWhen?.forEach((condition, conditionIndex) => {
+        inspect(
+          condition.field,
+          `${base}.pages[${String(pageIndex)}].blocks[${String(blockIndex)}].showWhen[${String(conditionIndex)}].field`,
+          true,
+        );
+      });
+      if (key !== null) earlier.add(key);
+    });
+  });
+  if (form.title?.from === 'field') {
+    const key = inspect(form.title.field, `${base}.title.field`, true);
+    if (key !== null && !earlier.has(key)) {
+      problems.push({
+        path: `${base}.title.field`,
+        code: 'form-order',
+        message: `Field '${form.title.field}' needs a field block in the form.`,
+      });
+      valid = false;
+    }
+  }
+  return valid;
+}
+
+function compileViews(
+  specs: readonly ViewSpec[],
+  effective: readonly StructureProperty[],
+  addedKeys: ReadonlySet<string>,
+  problems: Problem[],
+): StructureView[] {
+  const usedIds = new Set<string>();
+  const views: StructureView[] = [];
+  specs.forEach((spec, index) => {
+    const path = `views[${String(index)}]`;
+    const scope = {
+      existing: effective.filter((field) => !addedKeys.has(field.key)),
+      added: effective.filter((field) => addedKeys.has(field.key)),
+    };
+    let valid = true;
+    const check = (ref: string | undefined, suffix: string) => {
+      if (ref !== undefined && resolveRef(ref, scope, `${path}.${suffix}`, problems) === null)
+        valid = false;
+    };
+    check(spec.groupBy, 'groupBy');
+    check(spec.date, 'date');
+    check(spec.endDate, 'endDate');
+    check(spec.cover, 'cover');
+    check(spec.measureField, 'measureField');
+    check(spec.sortBy, 'sortBy');
+    spec.columns?.forEach((ref, columnIndex) => {
+      check(ref, `columns[${String(columnIndex)}]`);
+    });
+    spec.filters?.forEach((filter, filterIndex) => {
+      check(filter.field, `filters[${String(filterIndex)}].field`);
+    });
+    valid = inspectFormRefs(spec, index, scope, problems) && valid;
+    if (valid) views.push(compileView(spec, effective, usedIds, addedKeys));
+  });
+  return views;
 }
 
 /**
@@ -350,12 +266,18 @@ function pushViewProblems(
   effective: readonly StructureProperty[],
   problems: Problem[],
 ): void {
+  const localReasons = new Set<string>();
   views.forEach((view, index) => {
     const reason = refuseViews([view], effective, null);
     if (reason !== null) {
+      localReasons.add(reason);
       problems.push({ path: `views[${String(index)}]`, code: 'views', message: reason });
     }
   });
+  const setReason = refuseViews(views, effective, null);
+  if (setReason !== null && !localReasons.has(setReason)) {
+    problems.push({ path: 'views', code: 'views', message: setReason });
+  }
 }
 
 function report(problems: Problem[], stats: ValidationReport['stats']): ValidationReport {
@@ -375,18 +297,15 @@ function validateCreateStructured(raw: unknown, context: ValidationContext): Val
   const declared = compileFieldSpecs(spec.fields, priorFields, 'fields', problems);
   const effective = mergeProperties(priorFields, declared);
 
+  // Core refuses a child's schema when inherited properties are present too; keep that deliberate
+  // stricter check across ancestors, matching the effective schema the operation will compile.
   const schemaProblem = refuseSchema({ properties: effective, inherit: spec.inherit });
   if (schemaProblem !== null) {
     problems.push({ path: 'fields', code: 'schema', message: schemaProblem });
   }
 
-  const scope: RefScope = {
-    existing: priorFields,
-    added: declared.map((property) => ({ key: property.key, label: property.label })),
-  };
-  const views = (spec.views ?? []).map((view, index) =>
-    compileViewForValidation(view, scope, index, problems),
-  );
+  const addedKeys = new Set(declared.map((property) => property.key));
+  const views = compileViews(spec.views ?? [], effective, addedKeys, problems);
   pushViewProblems(views, effective, problems);
 
   return report(problems, { ...stats, fields: spec.fields.length, views: views.length });
@@ -412,13 +331,8 @@ function validateAddView(raw: unknown, context: ValidationContext): ValidationRe
     problems.push({ path: 'fields', code: 'schema', message: schemaProblem });
   }
 
-  const scope: RefScope = {
-    existing: priorEffective,
-    added: declared.map((property) => ({ key: property.key, label: property.label })),
-  };
-  const views = spec.views.map((view, index) =>
-    compileViewForValidation(view, scope, index, problems),
-  );
+  const addedKeys = new Set(declared.map((property) => property.key));
+  const views = compileViews(spec.views, effective, addedKeys, problems);
   pushViewProblems(views, effective, problems);
 
   return report(problems, { ...stats, fields: (spec.fields ?? []).length, views: views.length });

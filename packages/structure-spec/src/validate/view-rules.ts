@@ -2,11 +2,23 @@ import type {
   StructureFilter,
   StructureForm,
   StructureFormCondition,
+  StructureHabitWidget,
   StructureProperty,
   StructureView,
 } from '../types.js';
 import { isComputedType, isDateShaped, valueShapeOf } from '../vocabulary/property-types.js';
 import { isRealCalendarDay } from './values.js';
+
+/** `ViewDefinitionsJson.MaximumViews` (`backend/src/Nix.Api/Domain/Views/ViewDefinitionsJson.cs:79`). */
+const MAXIMUM_VIEWS = 12;
+/** `ViewDefinitionsJson.DocumentView` - reserved for an item's own body, never a stored view. */
+const RESERVED_VIEW_ID = 'document';
+const CARD_SIZES: ReadonlySet<string> = new Set(['small', 'medium', 'large']);
+const LAYOUTS: ReadonlySet<string> = new Set(['list', 'grid']);
+const HABIT_WIDGET_KINDS: ReadonlySet<string> = new Set(['completion', 'quantity', 'heatmap']);
+const MAXIMUM_HABIT_WIDGETS = 12;
+const MAXIMUM_HABIT_RANGE_DAYS = 366;
+const MILLISECONDS_PER_DAY = 86_400_000;
 
 const KNOWN_FILTER_OPERATORS: ReadonlySet<string> = new Set([
   'equals',
@@ -294,24 +306,130 @@ function refuseForm(
 }
 
 /**
- * Ports the view-writing rules a pet's compiled views must satisfy: the kind requirements of
- * `ViewKinds.All`, the filter grammar of `QueryOperators.Refuse`, and the form rules of
- * `ViewDefinitionRules.RefuseForm` - plus the two client-only additions architecture 4 item 5
- * calls for (gallery cover, chart measure) and the computed-field-in-a-form rule item 7 adds.
- * Returns the first reason any view cannot be stored, or `null`.
- *
- * `defaultId` is accepted for the same shape `refuseSchema` and Core's own `Refuse` take, but this
- * task's operations never propose one that is not among `views` - the compiler assigns
- * `makeDefault` from a spec's own `default: true` view - so no rule here reads it yet.
+ * Ports `ViewDefinitionRules.Refuse`'s habit-chart shape check
+ * (`backend/src/Nix.Api/Domain/Views/ViewDefinitionRules.cs:75-91`): unique, bounded identifiers, a
+ * supported chart kind, a habit, and an ordered range of at most 366 days. Dates are compared as
+ * whole days, matching `DayNumber` subtraction there.
+ */
+function refuseHabitWidgets(view: StructureView): string | null {
+  const widgets = view.habitWidgets ?? [];
+  if (widgets.length === 0) {
+    return null;
+  }
+  if (widgets.length > MAXIMUM_HABIT_WIDGETS) {
+    return `A view may contain at most ${String(MAXIMUM_HABIT_WIDGETS)} habit charts.`;
+  }
+
+  const widgetIds = new Set<string>();
+  for (const widget of widgets) {
+    if (isWellFormedHabitWidget(widget, widgetIds)) {
+      widgetIds.add(widget.id);
+      continue;
+    }
+    return 'Habit charts need unique identifiers, a supported chart type, a habit, and an ordered range of at most 366 days.';
+  }
+  return null;
+}
+
+function isWellFormedHabitWidget(
+  widget: StructureHabitWidget,
+  seenIds: ReadonlySet<string>,
+): boolean {
+  if (
+    widget.id.length === 0 ||
+    widget.id.length > 128 ||
+    seenIds.has(widget.id) ||
+    !HABIT_WIDGET_KINDS.has(widget.kind) ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(widget.habitId) ||
+    !isCalendarDay(widget.from) ||
+    !isCalendarDay(widget.to)
+  ) {
+    return false;
+  }
+  const rangeDays = daysBetween(widget.from, widget.to);
+  return rangeDays >= 0 && rangeDays < MAXIMUM_HABIT_RANGE_DAYS;
+}
+
+function isCalendarDay(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && isRealCalendarDay(value);
+}
+
+function daysBetween(from: string, to: string): number {
+  const fromDate = new Date(`${from}T00:00:00Z`).getTime();
+  const toDate = new Date(`${to}T00:00:00Z`).getTime();
+  return Math.round((toDate - fromDate) / MILLISECONDS_PER_DAY);
+}
+
+/**
+ * Ports `ViewDefinitionRules.Refuse`'s companion-view checks
+ * (`backend/src/Nix.Api/Domain/Views/ViewDefinitionRules.cs:110-133`): a companion must name
+ * another view in the same set, must say where it sits, and a companion cannot itself carry a
+ * companion (no nesting).
+ */
+function refuseCompanion(
+  view: StructureView,
+  views: readonly StructureView[],
+  ids: ReadonlySet<string>,
+): string | null {
+  const companion = view.companionViewId ?? null;
+  if (companion === null) {
+    return view.companionPlacement != null
+      ? `'${view.name}': companion placement needs a companion view.`
+      : null;
+  }
+
+  if (!ids.has(companion) || companion === view.id) {
+    return `'${view.name}': its companion must name another view in this item.`;
+  }
+  if (view.companionPlacement !== 'below' && view.companionPlacement !== 'beside') {
+    return `'${view.name}': a companion must be placed 'below' or 'beside'.`;
+  }
+  const target = views.find((candidate) => candidate.id === companion);
+  if (target?.companionViewId != null) {
+    return `'${view.name}': companion views cannot contain another companion.`;
+  }
+  return null;
+}
+
+/**
+ * Ports the view-writing rules a pet's compiled views must satisfy: the whole-set rules of
+ * `ViewDefinitionRules.Refuse` (view count, identifiers, `cardSize`/`layout` vocabulary, habit
+ * chart shape, companion placement, default-view membership - all "now reachable with real ids"
+ * once the compiler, not a synthetic per-view id, produces every `StructureView.id`), the kind
+ * requirements of `ViewKinds.All`, the filter grammar of `QueryOperators.Refuse`, and the form
+ * rules of `ViewDefinitionRules.RefuseForm` - plus the two client-only additions architecture 4
+ * item 5 calls for (gallery cover, chart measure) and the computed-field-in-a-form rule item 7
+ * adds. Returns the first reason any view cannot be stored, or `null`, exactly as Core's own
+ * `Refuse` does for one call over the whole set.
  */
 export function refuseViews(
   views: readonly StructureView[],
   effective: readonly StructureProperty[],
   defaultId: string | null,
 ): string | null {
-  void defaultId;
+  if (views.length > MAXIMUM_VIEWS) {
+    return `A container may offer at most ${String(MAXIMUM_VIEWS)} views.`;
+  }
+
+  const ids = new Set<string>();
 
   for (const view of views) {
+    if (view.id.length === 0) {
+      return 'Every view needs an identifier.';
+    }
+    if (ids.has(view.id)) {
+      return `'${view.id}' is used by more than one view; a shared link names one view.`;
+    }
+    ids.add(view.id);
+
+    if (view.name.length === 0) {
+      return 'Every view needs a name.';
+    }
+
+    if (view.id === RESERVED_VIEW_ID) {
+      return `'${RESERVED_VIEW_ID}' is reserved for the item's own body; give this view another name.`;
+    }
+
     const kindProblem = refuseKindRequirement(view, effective);
     if (kindProblem !== null) {
       return kindProblem;
@@ -320,6 +438,18 @@ export function refuseViews(
     const measureProblem = refuseMeasureAndCover(view, effective);
     if (measureProblem !== null) {
       return measureProblem;
+    }
+
+    if (view.cardSize !== null && !CARD_SIZES.has(view.cardSize)) {
+      return `'${view.name}': '${view.cardSize}' is not a card size; use 'small', 'medium' or 'large'.`;
+    }
+    if (view.layout !== null && !LAYOUTS.has(view.layout)) {
+      return `'${view.name}': '${view.layout}' is not a layout; use 'list' or 'grid'.`;
+    }
+
+    const habitProblem = refuseHabitWidgets(view);
+    if (habitProblem !== null) {
+      return habitProblem;
     }
 
     if (view.filters.length > 0) {
@@ -340,6 +470,22 @@ export function refuseViews(
         return `'${view.name}': ${reason}.`;
       }
     }
+  }
+
+  for (const view of views) {
+    const companionProblem = refuseCompanion(view, views, ids);
+    if (companionProblem !== null) {
+      return companionProblem;
+    }
+  }
+
+  if (
+    defaultId !== null &&
+    defaultId.length > 0 &&
+    defaultId !== RESERVED_VIEW_ID &&
+    !ids.has(defaultId)
+  ) {
+    return `'${defaultId}' is not one of these views, so it cannot be the one that opens.`;
   }
 
   return null;
