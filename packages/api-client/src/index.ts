@@ -328,12 +328,6 @@ export {
   exportSchema,
   exportStatusSchema,
 } from './schemas/exports.js';
-export {
-  runWorkspaceTool,
-  workspaceToolSchema,
-  WorkspaceToolRefusal,
-  type CompanionBodies,
-} from './companion-tools.js';
 export * as companionBodies from './resources/companion-bodies.js';
 export type { PetToolCall } from './schemas/pets.js';
 

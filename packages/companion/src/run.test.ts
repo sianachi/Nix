@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
-import { runWorkspaceTool } from './companion-tools.js';
-import type { NixClient } from './client.js';
+import { describe, expect, it } from 'vitest';
+import { createFakePorts } from './testing/fake-ports.js';
+import { runWorkspaceTool } from './run.js';
 
 const workspace = '11111111-1111-4111-8111-111111111111';
 const itemId = '22222222-2222-4222-8222-222222222222';
@@ -16,23 +16,22 @@ const input = (operation: string, extras = {}) =>
     ...extras,
   });
 function setup() {
-  const query = vi.fn().mockResolvedValue({ id: itemId, workspaceId: workspace, type: 'note' });
-  const execute = vi.fn().mockResolvedValue({ id: itemId, title: 'Plan' });
-  const bodies = { read: vi.fn(), append: vi.fn() };
-  const paginate = vi.fn(async function* () {
+  const fake = createFakePorts();
+  fake.query.mockResolvedValue({ id: itemId, workspaceId: workspace, type: 'note' });
+  fake.execute.mockResolvedValue({ id: itemId, title: 'Plan' });
+  fake.paginate.mockImplementation(async function* () {
     await Promise.resolve();
     yield { id: itemId, workspaceId: workspace, type: 'note', isDeleted: true };
   });
-  const client = { query, execute, paginate } as unknown as NixClient;
-  return { client, query, execute, paginate, bodies, signal: new AbortController().signal };
+  return fake;
 }
-describe('permission-scoped companion tools', () => {
+describe('workspace-scoped companion tools', () => {
   it.each(['list_views', 'query_view', 'create_view', 'update_view', 'delete_view'])(
     'refuses unsupported view operation %s without pretending it was executed',
     async (operation) => {
-      const { client, query, execute, bodies, signal } = setup();
+      const { ports, query, execute, bodies, signal } = setup();
       await expect(
-        runWorkspaceTool(client, workspace, input(operation, { itemId }), bodies, signal),
+        runWorkspaceTool(ports, workspace, input(operation, { itemId }), signal),
       ).rejects.toThrow();
       expect(query).not.toHaveBeenCalled();
       expect(execute).not.toHaveBeenCalled();
@@ -40,10 +39,14 @@ describe('permission-scoped companion tools', () => {
     },
   );
   it('resolves UUID searches directly inside the current workspace', async () => {
-    const { client, query, bodies, signal } = setup();
-    const result = JSON.parse(
-      await runWorkspaceTool(client, workspace, input('search', { query: itemId }), bodies, signal),
-    ) as { results: { id: string }[] };
+    const { ports, query, signal } = setup();
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('search', { query: itemId }),
+      signal,
+    );
+    const result = JSON.parse(outcome.text) as { results: { id: string }[] };
     expect(result.results[0]?.id).toBe(itemId);
     expect(query).toHaveBeenCalledOnce();
     expect(query).toHaveBeenCalledWith(
@@ -59,12 +62,11 @@ describe('permission-scoped companion tools', () => {
     ['set_properties', 'properties.set'],
     ['trash_item', 'items.delete'],
   ])('routes %s through the normal Nix client', async (operation, expected) => {
-    const { client, query, execute, bodies, signal } = setup();
+    const { ports, query, execute, signal } = setup();
     await runWorkspaceTool(
-      client,
+      ports,
       workspace,
       input(operation, { itemId, title: 'Renamed', propertiesJson: '{"status":"Done"}' }),
-      bodies,
       signal,
     );
     expect([...query.mock.calls, ...execute.mock.calls]).toEqual(
@@ -76,75 +78,71 @@ describe('permission-scoped companion tools', () => {
   it.each(['read_note', 'append_note'])(
     'uses bounded note-body access for %s',
     async (operation) => {
-      const { client, bodies, signal } = setup();
+      const { ports, bodies, signal } = setup();
       bodies.read.mockResolvedValue({ markdown: 'Existing', truncated: false });
       bodies.append.mockResolvedValue({ appended: true });
       await runWorkspaceTool(
-        client,
+        ports,
         workspace,
         input(operation, { itemId, markdown: 'Append only' }),
-        bodies,
         signal,
       );
       expect(operation === 'read_note' ? bodies.read : bodies.append).toHaveBeenCalledOnce();
     },
   );
   it('bounds list results and tells the model when they are incomplete', async () => {
-    const { client, paginate, bodies, signal } = setup();
+    const { ports, paginate, signal } = setup();
     paginate.mockImplementation(async function* () {
       await Promise.resolve();
       for (let i = 0; i < 60; i++)
         yield { id: itemId, workspaceId: workspace, type: 'note', isDeleted: false };
     });
-    const result = JSON.parse(
-      await runWorkspaceTool(client, workspace, input('list_items'), bodies, signal),
-    ) as { items: unknown[]; truncated: boolean };
+    const outcome = await runWorkspaceTool(ports, workspace, input('list_items'), signal);
+    const result = JSON.parse(outcome.text) as { items: unknown[]; truncated: boolean };
     expect(result.items).toHaveLength(50);
     expect(result.truncated).toBe(true);
   });
   it('refuses restoration when the target is absent from this workspace trash', async () => {
-    const { client, paginate, execute, bodies, signal } = setup();
+    const { ports, paginate, execute, signal } = setup();
     paginate.mockImplementation(async function* () {
       await Promise.resolve();
       yield { id: itemId, workspaceId: 'another-workspace', type: 'note', isDeleted: true };
     });
     await expect(
-      runWorkspaceTool(client, workspace, input('restore_item', { itemId }), bodies, signal),
+      runWorkspaceTool(ports, workspace, input('restore_item', { itemId }), signal),
     ).rejects.toThrow('not found');
     expect(execute).not.toHaveBeenCalled();
   });
   it('rejects a foreign destination before creating anything', async () => {
-    const { client, query, execute, bodies, signal } = setup();
+    const { ports, query, execute, signal } = setup();
     query.mockResolvedValue({ workspaceId: 'another-workspace' });
     await expect(
       runWorkspaceTool(
-        client,
+        ports,
         workspace,
         input('create_note', { parentId: itemId, title: 'No' }),
-        bodies,
         signal,
       ),
     ).rejects.toThrow('outside');
     expect(execute).not.toHaveBeenCalled();
   });
   it('does not retry a failed mutation', async () => {
-    const { client, execute, bodies, signal } = setup();
+    const { ports, execute, signal } = setup();
     execute.mockRejectedValue(new Error('connection lost'));
     await expect(
       runWorkspaceTool(
-        client,
+        ports,
         workspace,
         input('rename_item', { itemId, title: 'No retry' }),
-        bodies,
         signal,
       ),
     ).rejects.toThrow('connection lost');
     expect(execute).toHaveBeenCalledOnce();
   });
   it('restores an item from workspace trash even though ordinary item reads hide it', async () => {
-    const { client, query, execute, paginate, bodies, signal } = setup();
+    const { ports, query, execute, paginate, signal } = setup();
     query.mockRejectedValue(new Error('not found: deleted items are hidden'));
-    await runWorkspaceTool(client, workspace, input('restore_item', { itemId }), bodies, signal);
+    await runWorkspaceTool(ports, workspace, input('restore_item', { itemId }), signal);
     expect(query).not.toHaveBeenCalled();
     expect(paginate).toHaveBeenCalledWith(
       expect.objectContaining({ operation: 'items.trash' }),
@@ -156,29 +154,27 @@ describe('permission-scoped companion tools', () => {
     );
   });
   it('creates content and returns its identity to the model', async () => {
-    const { client, execute, bodies, signal } = setup();
-    const result = await runWorkspaceTool(
-      client,
+    const { ports, execute, bodies, signal } = setup();
+    const outcome = await runWorkspaceTool(
+      ports,
       workspace,
       input('create_note', { title: 'Plan', markdown: '# Plan\n\n- First task' }),
-      bodies,
       signal,
     );
     expect(execute).toHaveBeenCalledOnce();
     expect(bodies.append).toHaveBeenCalledWith(itemId, '# Plan\n\n- First task', signal);
-    expect(JSON.parse(result)).toMatchObject({ id: itemId, contentConfirmed: true });
+    expect(JSON.parse(outcome.text)).toMatchObject({ id: itemId, contentConfirmed: true });
   });
   it('reports partial creation honestly and never retries the create', async () => {
-    const { client, execute, bodies, signal } = setup();
+    const { ports, execute, bodies, signal } = setup();
     bodies.append.mockRejectedValue(new Error('connection lost'));
-    const result = await runWorkspaceTool(
-      client,
+    const outcome = await runWorkspaceTool(
+      ports,
       workspace,
       input('create_note', { title: 'Plan', markdown: 'Body' }),
-      bodies,
       signal,
     );
-    expect(JSON.parse(result)).toMatchObject({
+    expect(JSON.parse(outcome.text)).toMatchObject({
       id: itemId,
       created: true,
       contentConfirmed: false,
@@ -188,11 +184,11 @@ describe('permission-scoped companion tools', () => {
   it.each(['read_note', 'append_note', 'rename_item', 'move_item', 'set_properties', 'trash_item'])(
     'rejects cross-workspace %s before access or mutation',
     async (operation) => {
-      const { client, query, execute, bodies, signal } = setup();
+      const { ports, query, execute, bodies, signal } = setup();
       query.mockResolvedValue({ workspaceId: 'another-workspace', type: 'note' });
       await expect(
         runWorkspaceTool(
-          client,
+          ports,
           workspace,
           input(operation, {
             itemId,
@@ -200,7 +196,6 @@ describe('permission-scoped companion tools', () => {
             markdown: 'New text',
             propertiesJson: '{}',
           }),
-          bodies,
           signal,
         ),
       ).rejects.toThrow('outside this workspace');
@@ -210,7 +205,7 @@ describe('permission-scoped companion tools', () => {
     },
   );
   it('filters search results before sending data to the model', async () => {
-    const { client, query, bodies, signal } = setup();
+    const { ports, query, signal } = setup();
     query.mockResolvedValue({
       results: [
         { id: 'allowed', workspaceId: workspace },
@@ -218,30 +213,48 @@ describe('permission-scoped companion tools', () => {
       ],
       truncated: true,
     });
-    const result = await runWorkspaceTool(
-      client,
+    const outcome = await runWorkspaceTool(
+      ports,
       workspace,
       input('search', { query: 'plan' }),
-      bodies,
       signal,
     );
-    expect(result).not.toContain('private');
-    expect(JSON.parse(result)).toMatchObject({ truncated: true });
+    expect(outcome.text).not.toContain('private');
+    expect(JSON.parse(outcome.text)).toMatchObject({ truncated: true });
   });
   it('refuses unknown operations and model-provided URLs', async () => {
-    const { client, execute, bodies, signal } = setup();
-    await expect(
-      runWorkspaceTool(client, workspace, input('shell'), bodies, signal),
-    ).rejects.toThrow();
+    const { ports, execute, signal } = setup();
+    await expect(runWorkspaceTool(ports, workspace, input('shell'), signal)).rejects.toThrow();
     await expect(
       runWorkspaceTool(
-        client,
+        ports,
         workspace,
         input('read_note', { itemId: 'https://example.com' }),
-        bodies,
         signal,
       ),
     ).rejects.toThrow();
     expect(execute).not.toHaveBeenCalled();
+  });
+  it('names the destination of a create_note in touchedParents', async () => {
+    const { ports, signal } = setup();
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('create_note', { title: 'Plan', parentId: itemId }),
+      signal,
+    );
+    expect(outcome.touchedParents).toEqual([itemId]);
+    expect(outcome.readOnly).toBe(false);
+  });
+  it('reports no touched parent and read-only for a read operation', async () => {
+    const { ports, signal } = setup();
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('read_item', { itemId }),
+      signal,
+    );
+    expect(outcome.touchedParents).toEqual([]);
+    expect(outcome.readOnly).toBe(true);
   });
 });

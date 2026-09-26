@@ -2,12 +2,24 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { petConnectionSchema, type NixClient } from '@nix/api-client';
+import type * as Companion from '@nix/companion';
 import { PetWorkTools } from '../../pets/pet-work-tools';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { MemoryRouter } from 'react-router';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn(), invalidate: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
+// The executor's own behaviour is covered by packages/companion/src/run.test.ts; here it
+// runs for real against the mocked Nix client above, wrapped in a spy so a test can assert
+// the card forwards this request's toolId and claimId into the run options.
+const runWorkspaceToolSpy = vi.hoisted(() => vi.fn());
+vi.mock('@nix/companion', async () => {
+  const actual = await vi.importActual<typeof Companion>('@nix/companion');
+  runWorkspaceToolSpy.mockImplementation((...args: Parameters<typeof actual.runWorkspaceTool>) =>
+    actual.runWorkspaceTool(...args),
+  );
+  return { ...actual, runWorkspaceTool: runWorkspaceToolSpy };
+});
 const runtime = petConnectionSchema.parse({
   provider: 'chatgpt',
   status: 'connected',
@@ -216,6 +228,16 @@ describe('companion work approvals', () => {
       parentId: null,
     });
     expect(client.invalidate).toHaveBeenCalledWith(['items']);
+    expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+    const claimRequestId = (client.execute.mock.calls[0]?.[0] as { body: { requestId: string } })
+      .body.requestId;
+    expect(runWorkspaceToolSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      '11111111-1111-4111-8111-111111111111',
+      expect.any(String),
+      expect.anything(),
+      { toolId: 'tool-1', claimId: claimRequestId },
+    );
     unsubscribe();
   });
 });

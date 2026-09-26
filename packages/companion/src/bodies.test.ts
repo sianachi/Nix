@@ -3,7 +3,7 @@ import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProseMirrorRootNode } from
 import * as Y from 'yjs';
 import { nixSchema } from '@nix/editor-schema';
 import type { NixClient } from '@nix/api-client';
-import { createCompanionBodies } from '../../pets/companion-bodies';
+import { createCompanionBodies } from './bodies.js';
 
 const itemId = '22222222-2222-4222-8222-222222222222';
 function encode(bytes: Uint8Array) {

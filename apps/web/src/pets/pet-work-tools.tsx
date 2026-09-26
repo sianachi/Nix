@@ -1,12 +1,5 @@
-import {
-  pets,
-  runWorkspaceTool,
-  workspaceToolSchema,
-  WorkspaceToolRefusal,
-  type PetConnection,
-  type PetToolCall,
-  type NixClient,
-} from '@nix/api-client';
+import { pets, type PetConnection, type PetToolCall, type NixClient } from '@nix/api-client';
+import { workspaceToolSchema, WorkspaceToolRefusal } from '@nix/companion/tool-args';
 import { Button, Text } from '@nix/ui';
 import { useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router';
@@ -63,19 +56,24 @@ export function PetWorkTools({
       let toolSuccess = false;
       if (approved) {
         try {
-          const { createCompanionBodies } = await import('./companion-bodies');
-          toolResult = await runWorkspaceTool(
-            client,
+          const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
+            await import('@nix/companion');
+          const outcome = await runWorkspaceTool(
+            {
+              core: client,
+              collab: client,
+              bodies: createCompanionBodies(client),
+              clock: defaultClock(),
+              ids: defaultIds(),
+            },
             workspaceId,
             tool.arguments,
-            createCompanionBodies(client),
             signal,
+            { toolId: tool.id, claimId: requestId },
           );
+          toolResult = outcome.text;
           toolSuccess = true;
-          const operation = workspaceToolSchema.parse(JSON.parse(tool.arguments)).operation;
-          if (
-            !['list_items', 'search', 'read_item', 'read_note', 'read_schema'].includes(operation)
-          ) {
+          if (!outcome.readOnly) {
             client.invalidate(['items']);
             notifyItemChildrenChanged(workspaceId, null);
           }
