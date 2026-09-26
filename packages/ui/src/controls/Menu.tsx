@@ -301,6 +301,7 @@ export function Menu(props: MenuProps): ReactNode {
         panel.style.removeProperty('top');
         panel.style.removeProperty('left');
         panel.style.removeProperty('transform');
+        panel.style.removeProperty('max-height');
         return;
       }
 
@@ -317,6 +318,10 @@ export function Menu(props: MenuProps): ReactNode {
         { minHeight: panelRect.height + margin },
       );
 
+      // A long menu (for example the workspace creator with many templates) can be taller than
+      // either side of its trigger. Cap it to the side we chose before positioning, then let the
+      // panel's existing overflow-y-auto make the entries reachable by scrolling.
+      panel.style.setProperty('max-height', `${String(placement.maxHeight)}px`);
       panel.style.setProperty('left', `${String(placement.left)}px`);
       panel.style.setProperty(
         'top',
@@ -405,7 +410,7 @@ export function Menu(props: MenuProps): ReactNode {
     'min-w-[220px] max-w-[calc(100vw-16px)]',
     // Below `sm` the panel drops the anchored position entirely and becomes a bottom sheet: full
     // width, safe-area padding, same device concession as `Dialog.tsx`'s `presentation="standard"`.
-    'max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto! max-sm:left-0! max-sm:max-h-[70vh] max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none max-sm:pb-[max(var(--spacing)*1,env(safe-area-inset-bottom))]',
+    'max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto! max-sm:left-0! max-sm:max-h-[min(70vh,100dvh)] max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none max-sm:pb-[max(var(--spacing)*1,env(safe-area-inset-bottom))]',
     className,
   );
 
