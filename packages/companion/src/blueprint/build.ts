@@ -3,6 +3,7 @@ import {
   isNixApiError,
   items,
   recurrence,
+  structure,
   type CreateItemRequestContract,
 } from '@nix/api-client';
 import { isWriteStep, type Step } from '@nix/structure-spec';
@@ -139,6 +140,8 @@ export async function executeBuild(
             links.push(`/w/${workspaceId}?item=${result.id}`);
         }
       } else if (
+        raw.kind === 'setNodeSchema' ||
+        raw.kind === 'setNodeProperties' ||
         raw.kind === 'setRecurrence' ||
         raw.kind === 'setHabit' ||
         raw.kind === 'appendBody'
@@ -146,7 +149,29 @@ export async function executeBuild(
         const targetId =
           'target' in raw && 'nodeId' in raw.target ? nodeItems.get(raw.target.nodeId) : undefined;
         if (targetId === undefined) throw new Error('The blueprint node was not created.');
-        if (raw.kind === 'setRecurrence') {
+        if (raw.kind === 'setNodeSchema') {
+          await ports.core.execute(
+            structure.setItemSchema(targetId, {
+              properties: raw.schema.properties.map((property) => ({
+                key: property.key,
+                label: property.label,
+                type: property.type,
+                options: property.options,
+                required: property.required,
+                expression: property.expression ?? null,
+                aggregate: property.aggregate ?? null,
+                source: property.source ?? null,
+              })),
+              inherit: raw.schema.inherit,
+            }),
+            { signal, forceRefresh: true },
+          );
+        } else if (raw.kind === 'setNodeProperties') {
+          await ports.core.execute(structure.setItemProperties(targetId, raw.properties), {
+            signal,
+            forceRefresh: true,
+          });
+        } else if (raw.kind === 'setRecurrence') {
           await ports.core.execute(
             recurrence.setRecurrence(targetId, {
               freq: raw.rule.freq as 'daily' | 'weekly' | 'monthly' | 'yearly',

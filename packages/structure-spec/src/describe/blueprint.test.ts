@@ -36,4 +36,28 @@ describe('describeBlueprint', () => {
     expect(preview.tree[1]?.children[0]?.label).toBe('Example: Dune');
     expect(preview.notes).toContain('Creates a draft in Books. Nothing is published.');
   });
+
+  it('counts plain-node schema and deferred value writes', () => {
+    const blueprint: Blueprint = {
+      version: 1,
+      title: 'Job Hunt',
+      summary: '',
+      root: {
+        id: 'root',
+        title: 'Root',
+        fields: [{ label: 'Stage', type: 'text' }],
+        values: { stage: 'Open' },
+      },
+    };
+    const report: ValidationReport = {
+      ok: true,
+      problems: [],
+      warnings: [],
+      stats: { fields: 1, views: 0, entries: 0 },
+    };
+    const preview = describeBlueprint(blueprint, report, {
+      destination: { title: 'Existing parent', path: ['Existing parent'] },
+    });
+    expect(preview.counts.writes).toBe(3);
+  });
 });

@@ -13,6 +13,73 @@ const item = (id: string, title = 'Node') => ({
 });
 
 describe('blueprint build executor', () => {
+  it('writes a plain parent schema and values before creating its child', async () => {
+    const fake = createFakePorts();
+    fake.query.mockResolvedValue(item('parent'));
+    fake.execute
+      .mockResolvedValueOnce(item('root'))
+      .mockResolvedValueOnce({ properties: [], declared: [], inherit: true })
+      .mockResolvedValueOnce(item('root'))
+      .mockResolvedValueOnce(item('child'));
+    const result = await executeBuild(
+      fake.ports,
+      workspace,
+      {
+        nodeOrder: ['root', 'child'],
+        steps: [
+          { kind: 'createItem', parentId: null, title: 'Root', properties: null, nodeId: 'root' },
+          {
+            kind: 'setNodeSchema',
+            target: { nodeId: 'root' },
+            schema: { properties: [], inherit: false },
+          },
+          { kind: 'setNodeProperties', target: { nodeId: 'root' }, properties: { status: 'Open' } },
+          {
+            kind: 'createItem',
+            parentId: null,
+            parentNodeId: 'root',
+            title: 'Child',
+            properties: null,
+            nodeId: 'child',
+          },
+        ],
+      },
+      fake.signal,
+    );
+    expect(result.complete).toBe(true);
+    expect(result.ledger.map((entry) => entry.step)).toEqual([
+      'createItem',
+      'setNodeSchema',
+      'setNodeProperties',
+      'createItem',
+    ]);
+    expect(
+      fake.execute.mock.calls.map((call) => (call[0] as { operation: string }).operation),
+    ).toEqual(['items.create', 'schema.set', 'properties.set', 'items.create']);
+  });
+
+  it('refuses a schema step aimed at an external item instead of a created node', async () => {
+    const fake = createFakePorts();
+    const result = await executeBuild(
+      fake.ports,
+      workspace,
+      {
+        nodeOrder: ['root'],
+        steps: [
+          {
+            kind: 'setNodeSchema',
+            target: { itemId: 'external' } as unknown as { nodeId: string },
+            schema: { properties: [], inherit: true },
+          },
+        ],
+      },
+      fake.signal,
+    );
+    expect(result.complete).toBe(false);
+    expect(result.ledger[0]).toMatchObject({ step: 'setNodeSchema', status: 'failed' });
+    expect(fake.execute).not.toHaveBeenCalled();
+  });
+
   it('stops after a failure and records the remaining steps as skipped', async () => {
     const fake = createFakePorts();
     fake.query.mockResolvedValue(item('parent'));

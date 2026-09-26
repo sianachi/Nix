@@ -26,6 +26,15 @@ export function describeBlueprint(
     views += node.views?.length ?? 0;
     if (node.sample === true) entries += 1;
     writes += 1 + (node.markdown ? 1 : 0) + (node.recurrence ? 1 : 0) + (node.habit ? 1 : 0);
+    const hasViews = (node.views?.length ?? 0) > 0;
+    const needsOwnSchema = !hasViews && ((node.fields?.length ?? 0) > 0 || node.inherit === false);
+    if (needsOwnSchema) writes += 1;
+    if (
+      node.values !== undefined &&
+      Object.keys(node.values).length > 0 &&
+      (hasViews || needsOwnSchema)
+    )
+      writes += 1;
 
     const detail = (node.fields ?? []).map(
       (field) => `${field.label} (${propertyTypeWord(field.type)})`,

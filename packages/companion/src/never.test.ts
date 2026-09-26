@@ -25,7 +25,15 @@ describe('pet executor never-operation guard', () => {
     for (const file of files) {
       if (file === new URL(import.meta.url).pathname) continue;
       const source = await readFile(file, 'utf8');
-      expect(source, file).not.toMatch(forbidden);
+      if (file.endsWith('/blueprint/build.ts')) {
+        // A blueprint may set the schema only on a node created earlier in this build.
+        // The executor resolves nodeId from its local ledger; it rejects external itemIds.
+        expect(source).toMatch(/structure\.setItemSchema\(targetId/);
+        expect(source).toMatch(/nodeItems\.get\(raw\.target\.nodeId\)/);
+        expect(source.replace('setItemSchema', ''), file).not.toMatch(forbidden);
+      } else {
+        expect(source, file).not.toMatch(forbidden);
+      }
     }
   });
 

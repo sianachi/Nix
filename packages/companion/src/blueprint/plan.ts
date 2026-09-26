@@ -46,6 +46,10 @@ export function planBuild(bp: Blueprint, options: PlanBuildOptions): BuildPlan {
     const compiledFields = compileFields(node.fields ?? [], { existing: inherited });
     const effective = mergeProperties(inherited, compiledFields.properties);
     effectiveByNode.set(node.id, effective);
+    const hasViews = (node.views?.length ?? 0) > 0;
+    const needsOwnSchema =
+      !hasViews && (compiledFields.properties.length > 0 || node.inherit === false);
+    const hasValues = node.values !== undefined && Object.keys(node.values).length > 0;
 
     const parentFields: { parentNodeId?: string; sandboxParent?: true } =
       parentNodeId !== undefined
@@ -54,7 +58,7 @@ export function planBuild(bp: Blueprint, options: PlanBuildOptions): BuildPlan {
           ? { sandboxParent: true }
           : {};
 
-    if (node.views !== undefined && node.views.length > 0) {
+    if (hasViews && node.views !== undefined) {
       const usedIds = new Set<string>();
       const addedKeys = new Set(compiledFields.properties.map((property) => property.key));
       const views = node.views.map((view) => compileView(view, effective, usedIds, addedKeys));
@@ -85,9 +89,24 @@ export function planBuild(bp: Blueprint, options: PlanBuildOptions): BuildPlan {
         parentId: parentNodeId === undefined ? options.parentId : null,
         ...parentFields,
         title: node.id === bp.root.id ? bp.title : title,
-        properties: node.values ?? null,
+        properties: needsOwnSchema ? null : (node.values ?? null),
         nodeId: node.id,
         ...(node.sample === true ? { sample: true } : {}),
+      });
+    }
+
+    if (needsOwnSchema) {
+      steps.push({
+        kind: 'setNodeSchema',
+        target: { nodeId: node.id },
+        schema: { properties: compiledFields.properties, inherit: node.inherit ?? true },
+      });
+    }
+    if (hasValues && (hasViews || needsOwnSchema)) {
+      steps.push({
+        kind: 'setNodeProperties',
+        target: { nodeId: node.id },
+        properties: node.values ?? {},
       });
     }
 

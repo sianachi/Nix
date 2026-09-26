@@ -501,6 +501,8 @@ interface TreeStats {
   markdownWrites: number;
   recurrenceWrites: number;
   habitWrites: number;
+  schemaWrites: number;
+  propertyWrites: number;
 }
 
 /**
@@ -524,6 +526,8 @@ function walkTree(
     markdownWrites: 0,
     recurrenceWrites: 0,
     habitWrites: 0,
+    schemaWrites: 0,
+    propertyWrites: 0,
   };
   const seenIds = new Set<string>();
 
@@ -537,6 +541,16 @@ function walkTree(
     }
     stats.totalFields += node.fields?.length ?? 0;
     stats.totalViews += node.views?.length ?? 0;
+    const hasViews = (node.views?.length ?? 0) > 0;
+    const needsOwnSchema = !hasViews && ((node.fields?.length ?? 0) > 0 || node.inherit === false);
+    if (needsOwnSchema) stats.schemaWrites += 1;
+    if (
+      node.values !== undefined &&
+      Object.keys(node.values).length > 0 &&
+      (hasViews || needsOwnSchema)
+    ) {
+      stats.propertyWrites += 1;
+    }
     if (node.markdown !== undefined && node.markdown.length > 0) {
       stats.markdownWrites += 1;
     }
@@ -771,10 +785,17 @@ export function validateBlueprint(bp: unknown, context: ValidationContext): Vali
     );
   }
 
-  // One planned write per node, plus one for every markdown body, recurrence rule and habit
-  // setting the build has to write separately, plus one for the sandbox itself (architecture 2.4).
+  // A plain node with declared fields or inherit:false needs its own schema write. Structured
+  // nodes and those plain nodes set their values after schema creation. Count every write before
+  // approval, including optional sandbox creation, so the executor's 80-write bound agrees.
   const plannedWrites =
-    stats.totalNodes + stats.markdownWrites + stats.recurrenceWrites + stats.habitWrites + 1;
+    stats.totalNodes +
+    stats.schemaWrites +
+    stats.propertyWrites +
+    stats.markdownWrites +
+    stats.recurrenceWrites +
+    stats.habitWrites +
+    1;
   if (plannedWrites > LIMITS.plannedWritesPerBuild) {
     pushLimitProblem(
       problems,
