@@ -15,7 +15,8 @@ export async function findSandbox(
     items.listItems(workspaceId, { pageSize: PAGE_SIZE }),
     { signal, maxPages: MAX_PAGES },
   )) {
-    if (item.parentId === null && item.title === SANDBOX_TITLE) return { id: item.id };
+    if (item.workspaceId === workspaceId && item.parentId === null && item.title === SANDBOX_TITLE)
+      return { id: item.id };
   }
   return null;
 }

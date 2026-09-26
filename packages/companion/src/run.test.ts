@@ -248,6 +248,29 @@ describe('workspace-scoped companion tools', () => {
     ).rejects.toThrow();
     expect(execute).not.toHaveBeenCalled();
   });
+  it('keeps blueprint validation local and refuses blueprint tools outside consult mode', async () => {
+    const { ports, query, execute, paginate, signal } = setup();
+    const report = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('validate_blueprint', { specJson: '{}' }),
+      signal,
+      { mode: 'consult' },
+    );
+    expect(report.text).toContain('"ok":false');
+    expect(report.text).toContain('"problems":');
+    expect(report.readOnly).toBe(true);
+    expect(query).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(paginate).not.toHaveBeenCalled();
+    await expect(
+      runWorkspaceTool(ports, workspace, input('validate_blueprint', { specJson: '{}' }), signal, {
+        mode: 'chat',
+      }),
+    ).rejects.toThrow('only available in Design mode');
+    expect(query).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
   it('names the destination of a create_note in touchedParents', async () => {
     const { ports, signal } = setup();
     const outcome = await runWorkspaceTool(

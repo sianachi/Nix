@@ -9,8 +9,8 @@ describe('blueprint sandbox', () => {
       (async function* () {
         await Promise.resolve();
         yield { id: 'nested', title: SANDBOX_TITLE, parentId: 'parent' };
-        yield { id: 'first', title: SANDBOX_TITLE, parentId: null };
-        yield { id: 'second', title: SANDBOX_TITLE, parentId: null };
+        yield { id: 'first', workspaceId: 'workspace', title: SANDBOX_TITLE, parentId: null };
+        yield { id: 'second', workspaceId: 'workspace', title: SANDBOX_TITLE, parentId: null };
       })(),
     );
 

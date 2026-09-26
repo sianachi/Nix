@@ -1,11 +1,18 @@
 import { items, structure, templates, views, type TemplatePreflight } from '@nix/api-client';
 import { applySpecSchema } from '@nix/structure-spec';
-import type { Problem, StructureProperty, StructureView } from '@nix/structure-spec';
+import type {
+  Problem,
+  StructureProperty,
+  StructureView,
+  ValidationReport,
+} from '@nix/structure-spec';
 import { z } from 'zod';
 import type { CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
 import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
+import { validateBlueprint } from '@nix/structure-spec';
+import { findSandbox } from './blueprint/sandbox.js';
 
 /** How far up the tree the destination path is walked before it is simply truncated: enough for
  * a preview to read as a breadcrumb, never a full-workspace crawl. */
@@ -36,6 +43,8 @@ export interface PreviewContext {
   preflight?: TemplatePreflight;
   problems: Problem[];
   warnings?: Problem[];
+  blueprintReport?: ValidationReport;
+  sandboxExists?: boolean;
 }
 
 const formConditionSchema = z.object({
@@ -167,6 +176,39 @@ export async function loadPreviewContext(
   signal: AbortSignal,
 ): Promise<PreviewContext> {
   const requestOptions = { signal, forceRefresh: true };
+
+  if (args.operation === 'build_blueprint') {
+    const parent = args.parentId
+      ? await checkItem(ports, workspaceId, args.parentId, signal)
+      : null;
+    const sandbox = parent === null ? await findSandbox(ports, workspaceId, signal) : null;
+    const destination = parent
+      ? await destinationPath(ports, workspaceId, parent.id, signal)
+      : sandbox
+        ? await destinationPath(ports, workspaceId, sandbox.id, signal)
+        : { title: 'Pet drafts', path: ['Pet drafts'] };
+    const schema = parent
+      ? await ports.core.query(structure.effectiveSchema(parent.id), requestOptions)
+      : {
+          properties: [] as StructureProperty[],
+          declared: [] as StructureProperty[],
+          inherit: true,
+        };
+    const spec: unknown = args.specJson ? JSON.parse(args.specJson) : {};
+    const report = validateBlueprint(spec, {
+      inheritedFields: schema.properties,
+      today: ports.clock.today(),
+    });
+    return {
+      destination,
+      inheritedFields: schema.properties,
+      fingerprint: structureFingerprint({ declared: schema.properties }, []),
+      problems: report.problems,
+      warnings: report.warnings,
+      blueprintReport: report,
+      sandboxExists: sandbox !== null,
+    };
+  }
 
   if (args.operation === 'apply_template') {
     // Validate both externally supplied identities before any dependent reads. Template

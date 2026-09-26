@@ -1285,10 +1285,11 @@ export async function createWorkspaceMcpServer(
         petId: identifier,
         toolId: z.string().max(200),
         decision: z.enum(['approve', 'decline', 'preview']),
+        mode: z.enum(['chat', 'consult']).optional(),
         apiUrl: z.string().trim().min(1).optional(),
       },
     },
-    ({ workspaceId, petId, toolId, decision, apiUrl }) =>
+    ({ workspaceId, petId, toolId, decision, mode, apiUrl }) =>
       toolResult(async () =>
         executePetToolRun(
           await petSessionForMcp(apiUrl, options),
@@ -1296,6 +1297,7 @@ export async function createWorkspaceMcpServer(
           petId,
           toolId,
           decision,
+          mode,
         ),
       ),
   );

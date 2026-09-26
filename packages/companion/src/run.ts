@@ -9,6 +9,8 @@ import {
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
+  blueprintSchema,
+  validateBlueprint,
 } from '@nix/structure-spec';
 import type { CompanionPorts } from './ports.js';
 import { applyTemplate } from './templates/apply.js';
@@ -23,7 +25,14 @@ import * as createEntries from './structure/create-entries.js';
 import * as addFields from './structure/add-fields.js';
 import * as editForm from './structure/edit-form.js';
 import * as setRecurrence from './structure/recurrence.js';
-import { READ_ONLY_OPERATIONS, WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
+import {
+  CONSULT_ONLY_OPERATIONS,
+  READ_ONLY_OPERATIONS,
+  WorkspaceToolRefusal,
+  workspaceToolSchema,
+} from './tool-args.js';
+import { planBuild } from './blueprint/plan.js';
+import { executeBuild } from './blueprint/build.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -52,10 +61,42 @@ export async function runWorkspaceTool(
   const bodies = ports.bodies;
   if (raw.length > 40000) throw new Error('Tool arguments are too large.');
   const args = workspaceToolSchema.parse(JSON.parse(raw));
+  if (CONSULT_ONLY_OPERATIONS.has(args.operation) && options.mode !== 'consult')
+    throw new WorkspaceToolRefusal('This operation is only available in Design mode.');
   const requestOptions = { signal, forceRefresh: true };
   let result: unknown;
   const check = (id: string) => checkItem(ports, workspaceId, id, signal);
   const rawSpec: unknown = args.specJson ? JSON.parse(args.specJson) : {};
+  if (args.operation === 'validate_blueprint') {
+    const report = validateBlueprint(rawSpec, { inheritedFields: [], today: '' });
+    return { text: JSON.stringify(report), readOnly: true, touchedParents: [] };
+  }
+  if (args.operation === 'build_blueprint') {
+    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    const blueprint = blueprintSchema.parse(rawSpec);
+    const report =
+      context.blueprintReport ??
+      validateBlueprint(blueprint, {
+        inheritedFields: context.inheritedFields,
+        today: ports.clock.today(),
+      });
+    if (!report.ok)
+      throw new WorkspaceToolRefusal(
+        report.problems.map((problem) => `${problem.path}: ${problem.message}`).join('\n'),
+      );
+    const plan = planBuild(blueprint, {
+      parentId: args.parentId || null,
+      sandboxExists: context.sandboxExists ?? false,
+      clock: ports.clock,
+      inheritedFields: context.inheritedFields,
+    });
+    const result = await executeBuild(ports, workspaceId, plan, signal);
+    return {
+      text: JSON.stringify(result),
+      readOnly: false,
+      touchedParents: [args.parentId || null],
+    };
+  }
   // Scope guards supplement, never replace, permission checks in Core and collab. Check every
   // named item identity before loading schema, views, paths, template preflight, or bodies.
   if (

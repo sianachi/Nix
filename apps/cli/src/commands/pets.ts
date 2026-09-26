@@ -169,9 +169,12 @@ export async function executePetToolRun(
   petId: string,
   toolId: string,
   decision: PetToolDecision,
+  mode: 'chat' | 'consult' = 'chat',
 ): Promise<unknown> {
   const client = session.client;
-  const runtime = await client.execute(pets.runtime({ operation: 'read', workspaceId, petId }));
+  const runtime = await client.execute(
+    pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+  );
   const tool: PetToolCall | undefined = runtime.tools?.find((entry) => entry.id === toolId);
   if (tool?.status !== 'pending') throw new Error(`Tool ${toolId} is not pending.`);
 
@@ -193,7 +196,7 @@ export async function executePetToolRun(
 
   const requestId = crypto.randomUUID();
   const claimed = await client.execute(
-    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId }),
+    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId, mode }),
   );
   const receipt = claimed.tools?.find((entry) => entry.id === toolId);
   if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
@@ -214,7 +217,7 @@ export async function executePetToolRun(
         workspaceId,
         tool.arguments,
         AbortSignal.timeout(90000),
-        { toolId, claimId: requestId },
+        { mode, toolId, claimId: requestId },
       );
       toolResult = outcome.text;
       toolSuccess = true;
@@ -235,6 +238,7 @@ export async function executePetToolRun(
         requestId,
         toolResult,
         toolSuccess,
+        mode,
       }),
     );
   } catch (reason) {
@@ -270,8 +274,17 @@ export async function petToolRun(
     : options.decline
       ? 'decline'
       : 'preview';
+  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
+    throw new Error('--mode must be chat or consult.');
   printResult(
-    await executePetToolRun(session, options.workspace, options.pet, toolId, decision),
+    await executePetToolRun(
+      session,
+      options.workspace,
+      options.pet,
+      toolId,
+      decision,
+      options.mode,
+    ),
     output,
   );
 }
@@ -326,5 +339,9 @@ function describeWorkspaceAction(action: ReturnType<typeof workspaceToolSchema.p
       return 'I will update the linked form as described below, preserving its companion view.';
     case 'set_recurrence':
       return 'I will make the linked item repeat according to the schedule described below.';
+    case 'validate_blueprint':
+      return 'I will validate this design without changing anything.';
+    case 'build_blueprint':
+      return `I will build the approved design${action.parentId ? ' inside the linked destination' : ' in Pet drafts'}.`;
   }
 }

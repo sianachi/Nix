@@ -14,6 +14,9 @@ import {
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
+  blueprintSchema,
+  validateBlueprint,
+  describeBlueprint,
   type DescribeContext,
   type PreviewModel,
   type Step,
@@ -23,6 +26,7 @@ import type { Problem } from '@nix/structure-spec';
 import type { PreviewContext } from './context.js';
 export type { PreviewContext } from './context.js';
 import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
+import { planBuild } from './blueprint/plan.js';
 
 /** `WorkspaceToolArgs` widened to the operations and `specJson` field added by task A.4. */
 export type PreviewToolArgs = Omit<WorkspaceToolArgs, 'operation'> & {
@@ -250,6 +254,8 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'add_fields':
     case 'edit_form':
     case 'set_recurrence':
+    case 'validate_blueprint':
+    case 'build_blueprint':
       throw new Error(`${args.operation} is a spec operation and has no legacy headline.`);
   }
 }
@@ -281,6 +287,60 @@ function describeLegacyOperation(args: PreviewToolArgs, context: PreviewContext)
  * problems are surfaced directly instead.
  */
 export function describeToolCall(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
+  if (args.operation === 'validate_blueprint') {
+    const report = validateBlueprint(JSON.parse(args.specJson), { inheritedFields: [], today: '' });
+    return {
+      headline: report.ok
+        ? 'I will validate this design without changing anything.'
+        : 'I cannot validate this design as written.',
+      destination: { title: 'Local validation', path: [] },
+      counts: {
+        ...emptyCounts(),
+        fields: report.stats.fields,
+        views: report.stats.views,
+        entries: report.stats.entries,
+      },
+      tree: [],
+      notes: [],
+      warnings: report.warnings,
+      problems: report.problems,
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
+  if (args.operation === 'build_blueprint') {
+    const blueprint = blueprintSchema.parse(JSON.parse(args.specJson));
+    const report =
+      context.blueprintReport ??
+      validateBlueprint(blueprint, { inheritedFields: context.inheritedFields, today: '' });
+    if (!report.ok)
+      return {
+        headline: 'I cannot run this request as written.',
+        destination: context.destination,
+        counts: {
+          ...emptyCounts(),
+          fields: report.stats.fields,
+          views: report.stats.views,
+          entries: report.stats.entries,
+        },
+        tree: [],
+        notes: [],
+        warnings: report.warnings,
+        problems: report.problems,
+        neverDoes: NEVER_DOES.slice(),
+      };
+    const plan = planBuild(blueprint, {
+      parentId: context.sandboxExists ? null : args.parentId || null,
+      sandboxExists: context.sandboxExists ?? false,
+      clock: { today: () => '', timeZone: () => 'UTC', now: () => new Date(0) },
+      inheritedFields: context.inheritedFields,
+    });
+    const model = describeBlueprint(blueprint, report, { destination: context.destination });
+    return {
+      ...model,
+      counts: { ...model.counts, writes: plan.writes },
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
   switch (args.operation) {
     case 'create_structured':
     case 'add_view':
