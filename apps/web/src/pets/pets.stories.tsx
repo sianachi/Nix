@@ -13,6 +13,8 @@ import { PetCompanion } from './pet-companion';
 import { PetHistory } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
+import { PetStructurePreview } from './pet-structure-preview';
+import type { PreviewModel } from '@nix/structure-spec';
 
 export default { title: 'Nix/Companions', parameters: { layout: 'padded' } };
 
@@ -134,6 +136,133 @@ export const WorkApproval = {
   ),
 };
 export const DarkWorkApproval = { ...WorkApproval, globals: { ground: 'dark' } };
+
+const structurePreviewModel: PreviewModel = {
+  headline: 'I will create a Reading log with a board view.',
+  destination: { title: 'Books', path: ['Books'] },
+  counts: { items: 3, fields: 7, views: 2, entries: 0, writes: 12 },
+  tree: [
+    {
+      label: 'Reading log',
+      detail: ['Board view grouped by Status'],
+      why: 'Keep the books you are reading together.',
+      children: [
+        {
+          label: 'Fields',
+          detail: [],
+          children: [
+            { label: 'Rating (number)', detail: [], children: [] },
+            { label: 'Finished on (date)', detail: [], children: [] },
+            { label: 'Status (select)', detail: [], children: [] },
+          ],
+        },
+        { label: 'Board view', detail: ['Grouped by Status'], children: [] },
+      ],
+    },
+  ],
+  notes: [],
+  warnings: [],
+  problems: [],
+  neverDoes: ['Publish a public link', 'Delete anything permanently', 'Remove or retype a field'],
+};
+
+export const StructureApproval = {
+  render: (): ReactElement => <PetStructurePreview model={structurePreviewModel} />,
+};
+export const DarkStructureApproval = { ...StructureApproval, globals: { ground: 'dark' } };
+
+const entriesPreviewModel: PreviewModel = {
+  ...structurePreviewModel,
+  headline: 'I will add 3 entries to Reading log.',
+  counts: { items: 0, fields: 3, views: 0, entries: 3, writes: 3 },
+  tree: [
+    {
+      label: 'Entries',
+      detail: [],
+      children: [
+        { label: 'The Left Hand of Darkness', detail: ['Status: To read'], children: [] },
+        { label: 'Kindred', detail: ['Status: Reading'], children: [] },
+        { label: 'Piranesi', detail: ['Status: Finished'], children: [] },
+      ],
+    },
+  ],
+};
+export const EntriesApproval = {
+  render: (): ReactElement => <PetStructurePreview model={entriesPreviewModel} />,
+};
+export const DarkEntriesApproval = { ...EntriesApproval, globals: { ground: 'dark' } };
+
+const problemsPreviewModel: PreviewModel = {
+  ...structurePreviewModel,
+  headline: 'I cannot run this request as written.',
+  tree: [],
+  problems: [
+    {
+      path: 'views[0].groupBy',
+      code: 'unknown_field',
+      message: 'Status is not in the current schema.',
+    },
+  ],
+};
+export const ProblemsApproval = {
+  render: (): ReactElement => <PetStructurePreview model={problemsPreviewModel} />,
+};
+export const DarkProblemsApproval = { ...ProblemsApproval, globals: { ground: 'dark' } };
+
+const structureWorkClient = {
+  query: (endpoint: { operation: string }): Promise<unknown> => {
+    if (endpoint.operation === 'items.get')
+      return Promise.resolve({
+        id: '33333333-3333-4333-8333-333333333333',
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        parentId: null,
+        title: 'Reading log',
+        properties: {},
+      });
+    if (endpoint.operation === 'schema.get')
+      return Promise.resolve({ properties: [], declared: [], inherit: true });
+    if (endpoint.operation === 'views.getConfigurations') return Promise.resolve({ views: [] });
+    return Promise.reject(new Error(`Unexpected preview read: ${endpoint.operation}`));
+  },
+  invalidate: () => undefined,
+} as unknown as NixClient;
+
+export const StructureWorkApproval = {
+  render: (): ReactElement => (
+    <MemoryRouter>
+      <PetWorkTools
+        client={structureWorkClient}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={() => undefined}
+        runtime={petConnectionSchema.parse({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: '',
+          canConnect: false,
+          tools: [
+            {
+              id: 'structure-preview',
+              arguments: JSON.stringify({
+                operation: 'add_fields',
+                itemId: '33333333-3333-4333-8333-333333333333',
+                parentId: '',
+                title: '',
+                markdown: '',
+                query: '',
+                propertiesJson: '',
+                specJson: JSON.stringify({ fields: [{ label: 'Rating', type: 'number' }] }),
+              }),
+              status: 'pending',
+              result: '',
+              claimId: '',
+            },
+          ],
+        })}
+      />
+    </MemoryRouter>
+  ),
+};
 
 export const History = {
   render: (): ReactElement => (

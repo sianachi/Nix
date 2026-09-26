@@ -54,6 +54,13 @@ function show() {
     />,
   );
 }
+async function approveRequest() {
+  const button = screen.getByRole('button', { name: 'Approve request' });
+  await waitFor(() => {
+    expect(button).toBeEnabled();
+  });
+  await userEvent.click(button);
+}
 describe('companion work approvals', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,15 +70,15 @@ describe('companion work approvals', () => {
     client.execute.mockRejectedValue(new Error('lost claim response'));
     show();
     expect(client.execute).not.toHaveBeenCalled();
-    await userEvent.click(screen.getByRole('button', { name: 'Approve request' }));
+    await approveRequest();
     await screen.findByRole('alert');
     expect(client.execute).toHaveBeenCalledTimes(1);
     expect(client.execute.mock.calls[0]?.[0]).toMatchObject({ body: { operation: 'tool_claim' } });
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
-  it('describes the planned action before the permission buttons', () => {
+  it('describes the planned action before the permission buttons', async () => {
     show();
-    const description = screen.getByText(/I will create a note named “Plan”/);
+    const description = await screen.findByText(/I will create a note named “Plan”/);
     const approval = screen.getByRole('button', { name: 'Approve request' });
     expect(
       description.compareDocumentPosition(approval) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -82,15 +89,15 @@ describe('companion work approvals', () => {
   it.each([
     [
       { operation: 'list_templates', query: 'reading' },
-      /I will look through your templates for “reading”/,
+      /I will list the templates this workspace can apply\./,
     ],
     [
       { operation: 'list_templates', query: '' },
-      /I will look through your templates to see what fits/,
+      /I will list the templates this workspace can apply\./,
     ],
     [
       { operation: 'read_template', itemId: '33333333-3333-4333-8333-333333333333' },
-      /I will read the linked template’s outline/,
+      /I will read the outline of the linked template\./,
     ],
     [
       {
@@ -100,7 +107,17 @@ describe('companion work approvals', () => {
       },
       /I will create “Reading log” from the linked template at the top level/,
     ],
-  ])('describes a template operation in plain language: %o', (overrides, pattern) => {
+  ])('describes a template operation in plain language: %o', async (overrides, pattern) => {
+    if ('operation' in overrides && overrides.operation === 'apply_template') {
+      client.query.mockResolvedValue({
+        templates: [{ id: '33333333-3333-4333-8333-333333333333' }],
+      });
+      client.execute.mockResolvedValue({
+        additions: { items: 1, fields: 0, views: 0 },
+        conflicts: [],
+        canApply: true,
+      });
+    }
     render(
       <PetWorkTools
         client={client as unknown as NixClient}
@@ -125,7 +142,7 @@ describe('companion work approvals', () => {
       />,
       { wrapper: MemoryRouter },
     );
-    expect(screen.getByText(pattern)).toBeInTheDocument();
+    expect(await screen.findByText(pattern)).toBeInTheDocument();
   });
 
   it('labels a user refusal as declined rather than a failed operation', () => {
@@ -153,7 +170,7 @@ describe('companion work approvals', () => {
   it('does not ask again after a stale refresh or reopening an uncertain request', async () => {
     client.execute.mockRejectedValue(new Error('lost response'));
     const view = show();
-    await userEvent.click(screen.getByRole('button', { name: 'Approve request' }));
+    await approveRequest();
     await screen.findByRole('alert');
     view.unmount();
     show();
@@ -191,7 +208,7 @@ describe('companion work approvals', () => {
     unsubscribe();
   });
 
-  it('reports a workspace preflight refusal without exposing the target or marking a write uncertain', async () => {
+  it('blocks approval when preview context proves the target is outside this workspace', async () => {
     const scopedRuntime = {
       ...runtime,
       tools:
@@ -232,16 +249,9 @@ describe('companion work approvals', () => {
       />,
       { wrapper: MemoryRouter },
     );
-    await userEvent.click(screen.getByRole('button', { name: 'Approve request' }));
-    await waitFor(() => {
-      expect(client.execute).toHaveBeenCalledTimes(2);
-    });
-    expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
-      body: {
-        toolSuccess: false,
-        toolResult: 'The item is outside this workspace. No action was run.',
-      },
-    });
+    expect(await screen.findByRole('alert')).toHaveTextContent('preview could not be loaded');
+    expect(screen.getByRole('button', { name: 'Approve request' })).toBeDisabled();
+    expect(client.execute).not.toHaveBeenCalled();
     expect(client.invalidate).not.toHaveBeenCalled();
   });
   it('executes once even with a double click and a stale pending snapshot', async () => {
@@ -262,7 +272,9 @@ describe('companion work approvals', () => {
       },
     );
     show();
-    await userEvent.dblClick(screen.getByRole('button', { name: 'Approve request' }));
+    const approval = screen.getByRole('button', { name: 'Approve request' });
+    await waitFor(() => expect(approval).toBeEnabled());
+    await userEvent.dblClick(approval);
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(3);
     });
@@ -285,8 +297,198 @@ describe('companion work approvals', () => {
       '11111111-1111-4111-8111-111111111111',
       expect.any(String),
       expect.anything(),
-      { toolId: 'tool-1', claimId: claimRequestId },
+      { toolId: 'tool-1', claimId: claimRequestId, mode: 'chat', fence: '|' },
     );
     unsubscribe();
+  });
+
+  it('disables approval for preview problems and sends only those problems back to the pet', async () => {
+    const invalidRuntime = {
+      ...runtime,
+      tools:
+        runtime.tools?.map((tool) => ({
+          ...tool,
+          arguments: JSON.stringify({
+            operation: 'create_structured',
+            title: 'Board',
+            itemId: '',
+            parentId: '',
+            markdown: '',
+            query: '',
+            propertiesJson: '',
+            specJson: JSON.stringify({ recipe: 'drive', fields: [], inherit: true }),
+          }),
+        })) ?? [],
+    };
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string } }) =>
+        Promise.resolve({
+          ...invalidRuntime,
+          tools: invalidRuntime.tools.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+            claimId: endpoint.body.requestId,
+          })),
+        }),
+    );
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={invalidRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot run');
+    expect(screen.getByRole('button', { name: 'Approve request' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Send problems to pet' }));
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledTimes(2);
+    });
+    expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    const resultCall: unknown = client.execute.mock.calls[1]?.[0];
+    expect(resultCall).toMatchObject({
+      body: { operation: 'tool_result', toolSuccess: false },
+    });
+    const resultBody = (resultCall as { body: { toolResult: unknown } }).body;
+    expect(resultBody.toolResult).toMatch(/^Declined: the design has problems\./);
+  });
+
+  it('passes the preview fingerprint to execution and notifies every touched parent', async () => {
+    const changed = vi.fn();
+    const unsubscribe = onItemChildrenChanged(changed);
+    const structuredRuntime = {
+      ...runtime,
+      tools:
+        runtime.tools?.map((tool) => ({
+          ...tool,
+          arguments: JSON.stringify({
+            operation: 'create_structured',
+            title: 'Reading log',
+            itemId: '',
+            parentId: '',
+            markdown: '',
+            query: '',
+            propertiesJson: '',
+            specJson: JSON.stringify({
+              recipe: 'board',
+              fields: [{ label: 'Status', type: 'select', options: ['To read', 'Done'] }],
+              views: [{ kind: 'board', groupBy: 'Status' }],
+              inherit: true,
+            }),
+          }),
+        })) ?? [],
+    };
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string } }) =>
+        Promise.resolve({
+          ...structuredRuntime,
+          tools: structuredRuntime.tools.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+            claimId: endpoint.body.requestId,
+          })),
+        }),
+    );
+    runWorkspaceToolSpy.mockResolvedValueOnce({
+      text: 'created',
+      readOnly: false,
+      touchedParents: [
+        '11111111-1111-4111-8111-111111111111',
+        null,
+        '33333333-3333-4333-8333-333333333333',
+      ],
+    });
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={structuredRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    await approveRequest();
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledTimes(2);
+    });
+    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ mode: 'chat', fence: '|' });
+    expect(changed.mock.calls).toEqual([
+      [
+        {
+          workspaceId: '11111111-1111-4111-8111-111111111111',
+          parentId: '11111111-1111-4111-8111-111111111111',
+        },
+      ],
+      [{ workspaceId: '11111111-1111-4111-8111-111111111111', parentId: null }],
+      [
+        {
+          workspaceId: '11111111-1111-4111-8111-111111111111',
+          parentId: '33333333-3333-4333-8333-333333333333',
+        },
+      ],
+    ]);
+    expect(client.invalidate).toHaveBeenCalledWith(['items']);
+    unsubscribe();
+  });
+
+  it('invalidates the template catalog after a successful template application', async () => {
+    const templateId = '33333333-3333-4333-8333-333333333333';
+    const applyRuntime = {
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({
+          operation: 'apply_template',
+          itemId: templateId,
+          parentId: '',
+          title: 'Reading log copy',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: '',
+        }),
+      })),
+    };
+    client.query.mockResolvedValue({ templates: [{ id: templateId }] });
+    client.execute.mockImplementation(
+      (endpoint: { operation: string; body: { operation?: string; requestId?: string } }) => {
+        if (endpoint.operation === 'templates.preflight')
+          return Promise.resolve({
+            additions: { items: 1, fields: 2, views: 1 },
+            conflicts: [],
+            canApply: true,
+          });
+        return Promise.resolve({
+          ...applyRuntime,
+          tools: applyRuntime.tools.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+            claimId: endpoint.body.requestId,
+          })),
+        });
+      },
+    );
+    runWorkspaceToolSpy.mockResolvedValueOnce({
+      text: 'applied',
+      readOnly: false,
+      touchedParents: [null],
+    });
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={applyRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    await approveRequest();
+    await waitFor(() => {
+      expect(client.invalidate).toHaveBeenCalledWith(['templates']);
+    });
   });
 });
