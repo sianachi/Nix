@@ -27,3 +27,5 @@ export {
   type TemplateInputSummary,
   type TemplateOutlineNode,
 } from './templates/read.js';
+export { describeToolCall, type PreviewContext, type PreviewToolArgs } from './preview.js';
+export type { PreviewModel, PreviewNode } from '@nix/structure-spec';

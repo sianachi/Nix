@@ -72,6 +72,7 @@ export type {
   ViewKindRule,
 } from './catalog/index.js';
 export * from './compile/index.js';
+export * from './describe/index.js';
 export type { Problem, ValidationContext, ValidationReport } from './validate/report.js';
 export { refuseSchema } from './validate/schema-rules.js';
 export { refuseViews } from './validate/view-rules.js';
