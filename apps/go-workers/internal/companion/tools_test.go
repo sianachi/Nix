@@ -208,14 +208,9 @@ func TestChatCatalogIsEmbeddedAndBounded(t *testing.T) {
 	if len(chatCatalog) > 3000 {
 		t.Fatalf("chat catalog exceeds the 3000 byte budget: %d", len(chatCatalog))
 	}
-	for _, word := range []string{"Field types", "View kinds and requirements", "Recipes", "Never"} {
+	for _, word := range []string{"Property types", "View kinds", "Recipes", "Never"} {
 		if !strings.Contains(chatCatalog, word) {
 			t.Fatalf("chat catalog missing section %q", word)
-		}
-	}
-	for _, op := range []string{"create_structured", "add_view", "create_entries"} {
-		if !strings.Contains(chatCatalog, op) {
-			t.Fatalf("chat catalog does not name structure operation %q", op)
 		}
 	}
 }

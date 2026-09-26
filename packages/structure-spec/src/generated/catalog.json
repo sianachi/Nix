@@ -1,0 +1,408 @@
+{
+  "propertyTypes": [
+    {
+      "type": "text",
+      "label": "Text",
+      "shape": "text"
+    },
+    {
+      "type": "number",
+      "label": "Number",
+      "shape": "number"
+    },
+    {
+      "type": "select",
+      "label": "Select (one of a list)",
+      "shape": "select"
+    },
+    {
+      "type": "multi_select",
+      "label": "Multi-select (any of a list)",
+      "shape": "multi_select"
+    },
+    {
+      "type": "date",
+      "label": "Date",
+      "shape": "date"
+    },
+    {
+      "type": "timestamp",
+      "label": "Date and time",
+      "shape": "timestamp"
+    },
+    {
+      "type": "checkbox",
+      "label": "Checkbox",
+      "shape": "checkbox"
+    },
+    {
+      "type": "url",
+      "label": "Link",
+      "shape": "url"
+    },
+    {
+      "type": "image",
+      "label": "Picture",
+      "shape": "image"
+    },
+    {
+      "type": "due_date",
+      "label": "Due date",
+      "shape": "date"
+    },
+    {
+      "type": "start_date",
+      "label": "Start date",
+      "shape": "date"
+    },
+    {
+      "type": "completion",
+      "label": "Completion",
+      "shape": "checkbox"
+    },
+    {
+      "type": "priority",
+      "label": "Priority (1 to 4)",
+      "shape": "number"
+    },
+    {
+      "type": "estimate",
+      "label": "Estimate",
+      "shape": "number"
+    },
+    {
+      "type": "formula",
+      "label": "Formula",
+      "shape": "formula"
+    },
+    {
+      "type": "rollup",
+      "label": "Rollup (across children)",
+      "shape": "rollup"
+    }
+  ],
+  "rollupAggregates": [
+    {
+      "value": "count",
+      "label": "How many"
+    },
+    {
+      "value": "sum",
+      "label": "Total"
+    },
+    {
+      "value": "average",
+      "label": "Average"
+    },
+    {
+      "value": "min",
+      "label": "Smallest"
+    },
+    {
+      "value": "max",
+      "label": "Largest"
+    },
+    {
+      "value": "any",
+      "label": "Any of them"
+    },
+    {
+      "value": "all",
+      "label": "All of them"
+    }
+  ],
+  "recipes": [
+    {
+      "id": "board",
+      "label": "Board",
+      "detail": "Arrange items in columns defined by a select field.",
+      "viewKind": "board"
+    },
+    {
+      "id": "timeline",
+      "label": "Timeline",
+      "detail": "Plan work across start and optional end dates.",
+      "viewKind": "timeline"
+    },
+    {
+      "id": "gallery",
+      "label": "Gallery",
+      "detail": "Show child items as visual cards with optional covers.",
+      "viewKind": "gallery"
+    },
+    {
+      "id": "sheet",
+      "label": "Spreadsheet view",
+      "detail": "Edit child items in a property-backed grid.",
+      "viewKind": "sheet"
+    },
+    {
+      "id": "form",
+      "label": "Quick form",
+      "detail": "Collect authenticated responses in one straightforward page.",
+      "viewKind": "form"
+    },
+    {
+      "id": "interactive-form",
+      "label": "Interactive form",
+      "detail": "Build a multi-page form with branching and an optional public link.",
+      "viewKind": "interactive_form"
+    },
+    {
+      "id": "query",
+      "label": "Smart list",
+      "detail": "Find matching items across the workspace with reusable rules.",
+      "viewKind": "query"
+    },
+    {
+      "id": "calendar",
+      "label": "Calendar",
+      "detail": "Place child items on a day, week, or month calendar.",
+      "viewKind": "calendar"
+    },
+    {
+      "id": "list",
+      "label": "List",
+      "detail": "Show child items and their fields in an ordered list.",
+      "viewKind": "list"
+    },
+    {
+      "id": "habit-tracker",
+      "label": "Habit tracker",
+      "detail": "Track daily or weekday habits with a simple weekly check-in grid.",
+      "viewKind": "habit_tracker"
+    }
+  ],
+  "smartLists": [
+    {
+      "id": "today",
+      "label": "Today",
+      "detail": "Everything due today, wherever it lives."
+    },
+    {
+      "id": "next-seven-days",
+      "label": "Next 7 days",
+      "detail": "Everything due within a week, today included."
+    },
+    {
+      "id": "overdue",
+      "label": "Overdue",
+      "detail": "Everything past due and not done."
+    },
+    {
+      "id": "assigned-to-me",
+      "label": "Assigned to me",
+      "detail": "Everything assigned to you, wherever it lives."
+    }
+  ],
+  "viewKinds": [
+    {
+      "kind": "list",
+      "label": "List",
+      "requires": null,
+      "optional": [],
+      "description": "Rows and columns, one row per child."
+    },
+    {
+      "kind": "board",
+      "label": "Board",
+      "requires": {
+        "field": "groupBy",
+        "shape": "select"
+      },
+      "optional": [],
+      "description": "Cards grouped into columns by a single select property."
+    },
+    {
+      "kind": "calendar",
+      "label": "Calendar",
+      "requires": {
+        "field": "date",
+        "shape": "date-shaped"
+      },
+      "optional": [],
+      "description": "Items placed on a day, week or month by a date property."
+    },
+    {
+      "kind": "timeline",
+      "label": "Timeline",
+      "requires": {
+        "field": "date",
+        "shape": "date-shaped"
+      },
+      "optional": [
+        {
+          "field": "endDate",
+          "shape": "date-shaped"
+        }
+      ],
+      "description": "Bars across a time axis; without an end date an item is a milestone."
+    },
+    {
+      "kind": "gallery",
+      "label": "Gallery",
+      "requires": null,
+      "optional": [
+        {
+          "field": "cover",
+          "shape": "image"
+        }
+      ],
+      "description": "Children as cards, each optionally showing a picture property."
+    },
+    {
+      "kind": "sheet",
+      "label": "Spreadsheet",
+      "requires": null,
+      "optional": [],
+      "description": "Children as an editable grid, one row per child and one column per property."
+    },
+    {
+      "kind": "form",
+      "label": "Form",
+      "requires": null,
+      "optional": [],
+      "description": "A single-page fillable form over the schema; each submission is a new child."
+    },
+    {
+      "kind": "interactive_form",
+      "label": "Interactive form",
+      "requires": null,
+      "optional": [],
+      "description": "A multi-page, conditional form whose answers create a child item."
+    },
+    {
+      "kind": "query",
+      "label": "Smart list",
+      "requires": null,
+      "optional": [],
+      "description": "A saved cross-container query, run server-side from stored filters."
+    },
+    {
+      "kind": "chart",
+      "label": "Chart",
+      "requires": {
+        "field": "groupBy",
+        "shape": "select"
+      },
+      "optional": [
+        {
+          "field": "measureField",
+          "shape": "number"
+        }
+      ],
+      "description": "Children summarised into bars, counted or totalled by a number property."
+    },
+    {
+      "kind": "habit_tracker",
+      "label": "Habit tracker",
+      "requires": null,
+      "optional": [],
+      "description": "Habit children arranged by local date with recorded progress."
+    }
+  ],
+  "queryOperators": [
+    {
+      "op": "equals",
+      "grammar": "a literal value, or \"me\" for the calling principal"
+    },
+    {
+      "op": "not-equals",
+      "grammar": "a literal value, or \"me\" for the calling principal"
+    },
+    {
+      "op": "on",
+      "grammar": "\"today\" or a yyyy-MM-dd date"
+    },
+    {
+      "op": "before",
+      "grammar": "\"today\" or a yyyy-MM-dd date"
+    },
+    {
+      "op": "on-or-after",
+      "grammar": "\"today\" or a yyyy-MM-dd date"
+    },
+    {
+      "op": "within-next",
+      "grammar": "a whole number of days"
+    }
+  ],
+  "formRules": {
+    "blockKinds": ["field", "heading", "paragraph"],
+    "conditionOperators": ["equals", "not_equals", "contains", "checked", "not_checked"],
+    "identityRoles": ["name", "email"],
+    "titleModes": ["generated", "field"]
+  },
+  "limits": {
+    "rawToolCallBytes": 40000,
+    "specJsonChars": 24000,
+    "specJsonDepth": 24,
+    "blueprintNodes": 40,
+    "blueprintNonSampleNodes": 15,
+    "blueprintDepth": 4,
+    "fieldsPerNode": 30,
+    "fieldsPerBlueprint": 80,
+    "viewsPerNode": 6,
+    "viewsPerBlueprint": 20,
+    "sampleEntries": 30,
+    "plannedWritesPerBuild": 80,
+    "entriesPerCreateEntries": 25,
+    "inputsPerBlueprint": 10,
+    "initRulesPerBlueprint": 100,
+    "formulaLength": 1024,
+    "toolResultChars": 16000
+  },
+  "templateInputTypes": ["text", "date"],
+  "initRuleKinds": ["keep", "clear", "set", "input", "relativeDate"],
+  "recurrence": {
+    "frequencies": ["daily", "weekly", "monthly", "yearly"],
+    "intervalMin": 1,
+    "intervalMax": 366
+  },
+  "habit": {
+    "frequencies": ["daily", "weekly"]
+  },
+  "neverOperations": [
+    "Publish a public link",
+    "Delete anything permanently",
+    "Remove or retype a field",
+    "Delete a view"
+  ],
+  "formulaFunctions": [
+    "ABS",
+    "AND",
+    "AVERAGE",
+    "CONCATENATE",
+    "COUNT",
+    "COUNTA",
+    "IF",
+    "INT",
+    "LEFT",
+    "LEN",
+    "LOWER",
+    "MAX",
+    "MID",
+    "MIN",
+    "MOD",
+    "NOT",
+    "OR",
+    "POWER",
+    "RIGHT",
+    "ROUND",
+    "ROUNDDOWN",
+    "ROUNDUP",
+    "SQRT",
+    "SUM",
+    "TRIM",
+    "UPPER"
+  ],
+  "formulaHelp": {
+    "#DIV/0!": "This formula divides by zero.",
+    "#REF!": "A formula reads other properties by name in square brackets, as [estimate], and cannot read spreadsheet cells.",
+    "#CYCLE!": "This formula refers to itself, directly or through another formula.",
+    "#VALUE!": "This formula uses a value of the wrong kind, such as text where a number is needed.",
+    "#NAME?": "This formula uses a property name that nothing here declares.",
+    "#LIMIT!": "This formula is too long or too involved to finish evaluating.",
+    "#PARSE!": "This formula isn't written in a way the parser understands."
+  }
+}

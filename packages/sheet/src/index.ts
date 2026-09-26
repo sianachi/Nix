@@ -33,6 +33,7 @@ export {
   writeCell,
 } from './model.js';
 export { parseFormula } from './parser.js';
+export { FORMULA_FUNCTION_NAMES } from './evaluator.js';
 export {
   PROPERTY_FORMULA_HELP,
   PROPERTY_FORMULA_LIMITS,

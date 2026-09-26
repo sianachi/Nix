@@ -39,3 +39,35 @@ export type { SmartListPreset } from './vocabulary/smart-lists.js';
 export { mergeProperties } from './vocabulary/merge-properties.js';
 
 export * from './spec/index.js';
+
+export {
+  buildCatalog,
+  FORM_RULES,
+  HABIT,
+  INIT_RULE_KINDS,
+  LIMITS,
+  NEVER_OPERATIONS,
+  NEVER_PET_PROPERTY_TYPE,
+  NEVER_PET_RECIPES,
+  QUERY_OPERATORS,
+  RECURRENCE,
+  renderChat,
+  renderConsult,
+  TEMPLATE_INPUT_TYPES,
+  VIEW_KIND_RULES,
+} from './catalog/index.js';
+export type {
+  Catalog,
+  CatalogLimits,
+  CatalogPropertyType,
+  CatalogRecipe,
+  CatalogRollupAggregate,
+  CatalogSmartList,
+  FormRules,
+  HabitRules,
+  QueryOperatorRule,
+  RecurrenceRules,
+  ViewKindOptionalField,
+  ViewKindRequirement,
+  ViewKindRule,
+} from './catalog/index.js';
