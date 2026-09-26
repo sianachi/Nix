@@ -2,6 +2,17 @@ import { Button, Text } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 import type { PreviewModel, PreviewNode } from '@nix/structure-spec';
 
+function detailTone(detail: string): 'default' | 'muted' | 'accent' {
+  if (detail.startsWith('Added ') || detail.startsWith('Now shown when ')) return 'accent';
+  if (
+    detail.startsWith('Removed ') ||
+    detail.startsWith('Reworded ') ||
+    detail.startsWith('No longer shown conditionally.')
+  )
+    return 'default';
+  return 'muted';
+}
+
 export function PetStructurePreview({ model }: { readonly model: PreviewModel }): ReactElement {
   return (
     <div className="flex flex-col gap-2">
@@ -86,7 +97,12 @@ function PreviewTreeNode({
     <li className="space-y-1">
       <Text variant="body">{node.label}</Text>
       {node.detail.map((detail, index) => (
-        <Text key={`${detail}:${String(index)}`} variant="note" tone="muted" className="block">
+        <Text
+          key={`${detail}:${String(index)}`}
+          variant="note"
+          tone={detailTone(detail)}
+          className="block"
+        >
           {detail}
         </Text>
       ))}

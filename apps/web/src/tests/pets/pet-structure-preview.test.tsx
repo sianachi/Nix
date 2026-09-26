@@ -94,4 +94,53 @@ describe('PetStructurePreview', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Cannot run');
     expect(screen.getByRole('alert')).toHaveTextContent('fields[0].key: The key is not valid.');
   });
+
+  it('renders a form diff with added and removed questions', () => {
+    render(
+      <PetStructurePreview
+        model={model({
+          headline: 'I will update the interactive form on Reading log.',
+          tree: [
+            {
+              label: 'Page 1: Review',
+              detail: [
+                'Added question: Rating',
+                'Removed question: Old rating',
+                'Reworded question: Notes',
+                'Now shown when Status equals Done.',
+              ],
+              children: [],
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText('Page 1: Review')).toBeVisible();
+    expect(screen.getByText('Added question: Rating')).toBeVisible();
+    expect(screen.getByText('Removed question: Old rating')).toBeVisible();
+    expect(screen.getByText('Reworded question: Notes')).toBeVisible();
+    expect(screen.getByText('Now shown when Status equals Done.')).toBeVisible();
+  });
+
+  it('states the recurrence schedule in words', () => {
+    render(
+      <PetStructurePreview
+        model={model({
+          headline: 'I will make the linked item repeat every 2 weeks on Monday and Friday.',
+          counts: { items: 0, fields: 0, views: 0, entries: 0, writes: 1 },
+          tree: [
+            {
+              label: 'Recurrence',
+              detail: ['every 2 weeks on Monday and Friday'],
+              children: [],
+            },
+          ],
+        })}
+      />,
+    );
+    expect(
+      screen.getByText('I will make the linked item repeat every 2 weeks on Monday and Friday.'),
+    ).toBeVisible();
+    expect(screen.getByText('every 2 weeks on Monday and Friday')).toBeVisible();
+  });
 });

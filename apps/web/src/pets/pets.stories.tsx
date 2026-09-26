@@ -192,6 +192,29 @@ export const EntriesApproval = {
 };
 export const DarkEntriesApproval = { ...EntriesApproval, globals: { ground: 'dark' } };
 
+const formEditPreviewModel: PreviewModel = {
+  ...structurePreviewModel,
+  headline: 'I will update the interactive form on Reading log.',
+  counts: { items: 0, fields: 1, views: 1, entries: 0, writes: 1 },
+  tree: [
+    {
+      label: 'Page 1: Reading review',
+      detail: [
+        'Added field: Rating (number)',
+        'Added question: Rating',
+        'Removed question: Previous rating',
+        'Reworded question: Review notes',
+        'Now shown when Status equals Finished.',
+      ],
+      children: [],
+    },
+  ],
+};
+export const FormEditApproval = {
+  render: (): ReactElement => <PetStructurePreview model={formEditPreviewModel} />,
+};
+export const DarkFormEditApproval = { ...FormEditApproval, globals: { ground: 'dark' } };
+
 const problemsPreviewModel: PreviewModel = {
   ...structurePreviewModel,
   headline: 'I cannot run this request as written.',
