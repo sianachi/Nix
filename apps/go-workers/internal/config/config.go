@@ -12,6 +12,8 @@ type Settings struct {
 	CompanionDataDir       string
 	CompanionBinary        string
 	CompanionConsultModels []string
+	CompanionChatEffort    string
+	CompanionConsultEffort string
 	Address                string
 	InternalSecret         string
 	MaxInputBytes          int64
@@ -103,6 +105,8 @@ func Load(getenv func(string) string) (Settings, error) {
 		CompanionDataDir:       getenv("NIX_COMPANION_DATA_DIR"),
 		CompanionBinary:        valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
 		CompanionConsultModels: parseTrimmedList(getenv("NIX_COMPANION_CONSULT_MODELS")),
+		CompanionChatEffort:    valueOr(getenv("NIX_COMPANION_CHAT_EFFORT"), "low"),
+		CompanionConsultEffort: getenv("NIX_COMPANION_CONSULT_EFFORT"),
 		Address:                valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret:         getenv("NIX_WORKER_INTERNAL_SECRET"),
 		MaxInputBytes:          maxInputBytes,

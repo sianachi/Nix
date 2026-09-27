@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -19,10 +20,10 @@ func TestIdenticalToolCallsShareOneDecision(t *testing.T) {
 			peer := &toolPeer{}
 			a := &account{transport: peer, home: t.TempDir(), conversations: map[string]*conversation{"x": {ThreadID: "thread", State: "thinking", WorkspaceAccess: true}}}
 			call := func(id, args string) bool {
-				raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":"nix_workspace","callId":%q,"arguments":%s}`, id, args))
+				raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":"nix_create_note","callId":%q,"arguments":%s}`, id, args))
 				return a.toolRequest(json.RawMessage(fmt.Sprintf(`%q`, id)), "item/tool/call", raw)
 			}
-			if !call("one", `{"operation":"create_note","title":"Plan"}`) || !call("two", `{"title":"Plan","operation":"create_note"}`) {
+			if !call("one", `{"title":"Plan","markdown":"body"}`) || !call("two", `{"markdown":"body","title":"Plan"}`) {
 				t.Fatal("duplicate request not coalesced")
 			}
 			if len(a.snapshot("x").Tools) != 1 || len(peer.replies) != 0 {
@@ -32,7 +33,7 @@ func TestIdenticalToolCallsShareOneDecision(t *testing.T) {
 			if err := a.resolveTool("x", r); err != nil {
 				t.Fatal(err)
 			}
-			if !call("three", `{"operation":"create_note","title":"Plan"}`) {
+			if !call("three", `{"title":"Plan","markdown":"body"}`) {
 				t.Fatal("claimed duplicate refused")
 			}
 			r.Operation, r.ToolSuccess, r.ToolResult = "tool_result", success, "Existing decision and result"
@@ -42,10 +43,10 @@ func TestIdenticalToolCallsShareOneDecision(t *testing.T) {
 			if len(peer.replies) != 3 {
 				t.Fatal("not all waiting requests received the decision")
 			}
-			if !call("four", `{"operation":"create_note","title":"Plan"}`) || len(peer.replies) != 4 || len(a.snapshot("x").Tools) != 1 {
+			if !call("four", `{"title":"Plan","markdown":"body"}`) || len(peer.replies) != 4 || len(a.snapshot("x").Tools) != 1 {
 				t.Fatal("completed or declined action asked again")
 			}
-			if !call("five", `{"operation":"create_note","title":"Different plan"}`) || len(a.snapshot("x").Tools) != 2 {
+			if !call("five", `{"title":"Different plan","markdown":"body"}`) || len(a.snapshot("x").Tools) != 2 {
 				t.Fatal("changed action reused permission")
 			}
 		})
@@ -61,7 +62,7 @@ func TestReadAfterWriteRequiresFreshResult(t *testing.T) {
 			{ID: "write", Arguments: `{"operation":"append_note","itemId":"11111111-1111-4111-8111-111111111111"}`, Status: "completed", Result: "Appended"},
 		},
 	}}}
-	if !a.toolRequest(json.RawMessage(`1`), "item/tool/call", json.RawMessage(`{"threadId":"thread","tool":"nix_workspace","callId":"fresh","arguments":{"operation":"read_note","itemId":"11111111-1111-4111-8111-111111111111"}}`)) {
+	if !a.toolRequest(json.RawMessage(`1`), "item/tool/call", json.RawMessage(`{"threadId":"thread","tool":"nix_read_note","callId":"fresh","arguments":{"itemId":"11111111-1111-4111-8111-111111111111"}}`)) {
 		t.Fatal("fresh read refused")
 	}
 	if len(peer.replies) != 0 || len(a.snapshot("x").Tools) != 3 {
@@ -82,35 +83,62 @@ func TestToolIdentityPreservesPayloadAndNormalizesObjectKeys(t *testing.T) {
 	}
 }
 
-func TestInvalidToolArgumentsNeverReachApproval(t *testing.T) {
-	for _, raw := range []string{
-		`{"operation":"read_schema"}`,
-		`{"operation":"shell"}`,
-		`{"operation":"create_note","title":""}`,
-		`{"operation":"create_note","title":"Safe","url":"https://example.com"}`,
-		`{"operation":"read_note","itemId":"https://example.com"}`,
-		`{"operation":"search","query":""}`,
-		`{"operation":"create_structured","title":""}`,
-		`{"operation":"create_structured","title":"Plan","specJson":"[]"}`,
-		`{"operation":"create_structured","title":"Plan","specJson":"1"}`,
-		`{"operation":"add_view","itemId":"not-a-uuid","specJson":"{}"}`,
-		`{"operation":"create_entries","parentId":"","specJson":"{}"}`,
-		`{"operation":"add_fields","itemId":"not-a-uuid","specJson":"{}"}`,
-		`{"operation":"add_fields","itemId":"11111111-1111-4111-8111-111111111111","specJson":"[]"}`,
-		`{"operation":"edit_form","itemId":"","specJson":"{}"}`,
-		`{"operation":"edit_form","itemId":"11111111-1111-4111-8111-111111111111","specJson":"1"}`,
-		`{"operation":"set_recurrence","itemId":"not-a-uuid","specJson":"{}"}`,
-		`{"operation":"set_recurrence","itemId":"11111111-1111-4111-8111-111111111111","specJson":""}`,
-		`{"operation":"apply_template","itemId":"11111111-1111-4111-8111-111111111111","title":""}`,
+// TestInvalidTypedToolArgumentsNeverReachApproval covers malformed typed-tool calls that a
+// valid nix_<operation> tool name still reaches: an unknown parameter, a spec/blueprint that is
+// not a JSON object (both refused by flattenToolCall), and a flattened call
+// validateToolArguments itself refuses (an empty title, a non-UUID itemId, and so on) - the same
+// two layers TestUnsupportedToolNamesAreRejectedBeforeFlattening and this test between them
+// cover every rejection path toolRequest has.
+func TestInvalidTypedToolArgumentsNeverReachApproval(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		tool string
+		args string
+	}{
+		{"nix_create_note", `{"title":""}`},
+		{"nix_create_note", `{"title":"Safe","url":"https://example.com"}`},
+		{"nix_read_note", `{"itemId":"https://example.com"}`},
+		{"nix_search", `{"query":""}`},
+		{"nix_create_structured", `{"title":""}`},
+		{"nix_create_structured", `{"title":"Plan","spec":[]}`},
+		{"nix_create_structured", `{"title":"Plan","spec":1}`},
+		{"nix_add_view", `{"itemId":"not-a-uuid","spec":{}}`},
+		{"nix_create_entries", fmt.Sprintf(`{"parentId":"","spec":{"entries":[{"title":%q}]}}`, "x")},
+		{"nix_add_fields", `{"itemId":"not-a-uuid","spec":{}}`},
+		{"nix_add_fields", fmt.Sprintf(`{"itemId":%q,"spec":[]}`, itemID)},
+		{"nix_edit_form", `{"itemId":"","spec":{}}`},
+		{"nix_edit_form", fmt.Sprintf(`{"itemId":%q,"spec":1}`, itemID)},
+		{"nix_set_recurrence", `{"itemId":"not-a-uuid"}`},
+		{"nix_set_recurrence", fmt.Sprintf(`{"itemId":%q}`, itemID)},
+		{"nix_apply_template", fmt.Sprintf(`{"templateId":%q,"title":""}`, itemID)},
 	} {
 		peer := &toolPeer{}
 		a := &account{transport: peer, home: t.TempDir(), conversations: map[string]*conversation{"x": {ThreadID: "thread", State: "thinking", WorkspaceAccess: true}}}
-		request := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":"nix_workspace","callId":"bad","arguments":%s}`, raw))
+		request := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":%q,"callId":"bad","arguments":%s}`, tc.tool, tc.args))
 		if !a.toolRequest(json.RawMessage(`1`), "item/tool/call", request) {
-			t.Fatal("invalid call did not receive a useful failure result")
+			t.Fatalf("invalid call did not receive a useful failure result: %s %s", tc.tool, tc.args)
 		}
 		if len(a.snapshot("x").Tools) != 0 || len(peer.replies) != 1 {
-			t.Fatalf("invalid request reached approval: %s", raw)
+			t.Fatalf("invalid request reached approval: %s %s", tc.tool, tc.args)
+		}
+	}
+}
+
+// TestUnsupportedToolNamesAreRejectedBeforeFlattening covers the routing gate toolRequest runs
+// before flattenToolCall: nix_workspace (retired) and any name that is not one of the
+// conversation mode's own typed tools are refused silently - no reply, no approval, matching how
+// a tool name outside the enum was always refused before dynamicTools carried per-operation
+// tools.
+func TestUnsupportedToolNamesAreRejectedBeforeFlattening(t *testing.T) {
+	for _, tool := range []string{"nix_workspace", "nix_read_schema", "nix_shell", "shell"} {
+		peer := &toolPeer{}
+		a := &account{transport: peer, home: t.TempDir(), conversations: map[string]*conversation{"x": {ThreadID: "thread", State: "thinking", WorkspaceAccess: true}}}
+		request := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":%q,"callId":"bad","arguments":{}}`, tool))
+		if a.toolRequest(json.RawMessage(`1`), "item/tool/call", request) {
+			t.Fatalf("unsupported tool name accepted: %s", tool)
+		}
+		if len(peer.replies) != 0 {
+			t.Fatalf("unsupported tool name received a reply: %s", tool)
 		}
 	}
 }
@@ -119,15 +147,15 @@ func TestOnlyLocalBlueprintValidationCanRunWithoutWorkspaceAccess(t *testing.T) 
 	a := &account{transport: &toolPeer{}, home: t.TempDir(), conversations: map[string]*conversation{"x": {
 		ThreadID: "thread", State: "thinking", Mode: "consult", WorkspaceAccess: false,
 	}}}
-	call := func(id, operation string) bool {
-		args := fmt.Sprintf(`{"operation":%q,"specJson":"{}"}`, operation)
-		raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":"nix_workspace","callId":%q,"arguments":%s}`, id, args))
+	call := func(id, tool string) bool {
+		args := `{"blueprint":{}}`
+		raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":%q,"callId":%q,"arguments":%s}`, tool, id, args))
 		return a.toolRequest(json.RawMessage(`1`), "item/tool/call", raw)
 	}
-	if !call("local", "validate_blueprint") || len(a.snapshot("x").Tools) != 1 {
+	if !call("local", "nix_validate_blueprint") || len(a.snapshot("x").Tools) != 1 {
 		t.Fatal("local blueprint validation was refused without workspace access")
 	}
-	if call("workspace", "build_blueprint") || len(a.snapshot("x").Tools) != 1 {
+	if call("workspace", "nix_build_blueprint") || len(a.snapshot("x").Tools) != 1 {
 		t.Fatal("workspace write reached the approval flow without workspace access")
 	}
 }
@@ -209,62 +237,115 @@ func TestConsultOnlyOperationsAreRefusedInChat(t *testing.T) {
 
 func TestConsultSaveDescriptionMatchesCaptureContract(t *testing.T) {
 	tools := workspaceTools("consult")
-	tool := tools[0].(map[string]any)
-	description := tool["description"].(string)
-	for _, required := range []string{"save_as_template", "specJson may be empty for defaults", "Sample:"} {
-		if !strings.Contains(description, required) {
-			t.Fatalf("consult tool description does not explain %q", required)
+	var saveDescription string
+	for _, entry := range tools {
+		tool := entry.(map[string]any)
+		if tool["name"] == "nix_save_as_template" {
+			saveDescription = tool["description"].(string)
 		}
+	}
+	if saveDescription == "" {
+		t.Fatal("nix_save_as_template is missing from workspaceTools(\"consult\")")
+	}
+	if !strings.Contains(saveDescription, "Sample:") {
+		t.Fatalf("nix_save_as_template's description does not explain the Sample: exclusion: %q", saveDescription)
 	}
 	if !strings.Contains(consultRules, "Title every fictional sample node and sample container with the prefix Sample:") {
 		t.Fatal("consult instructions omit the capture exclusion naming rule")
 	}
+	if !strings.Contains(consultRules, "omit spec for default sample exclusion") {
+		t.Fatal("consult instructions omit how to accept nix_save_as_template's default sample exclusion")
+	}
 }
 
-// TestEnumAndValidatorAgree proves the operation enum in workspaceTools("chat") and the
-// switch in validateToolArguments never drift apart: every enum entry must have a minimal
-// valid argument set below that validateToolArguments accepts, and any string outside the
-// enum (including a retired operation such as read_schema) must be refused as unsupported.
-func TestEnumAndValidatorAgree(t *testing.T) {
-	itemID := "11111111-1111-4111-8111-111111111111"
-	minimalArguments := map[string]string{
-		"list_items":        `{"operation":"list_items"}`,
-		"search":            `{"operation":"search","query":"a"}`,
-		"read_item":         fmt.Sprintf(`{"operation":"read_item","itemId":%q}`, itemID),
-		"read_note":         fmt.Sprintf(`{"operation":"read_note","itemId":%q}`, itemID),
-		"read_structure":    fmt.Sprintf(`{"operation":"read_structure","itemId":%q}`, itemID),
-		"create_note":       `{"operation":"create_note","title":"Plan"}`,
-		"append_note":       fmt.Sprintf(`{"operation":"append_note","itemId":%q,"markdown":"more"}`, itemID),
-		"rename_item":       fmt.Sprintf(`{"operation":"rename_item","itemId":%q,"title":"Plan"}`, itemID),
-		"move_item":         fmt.Sprintf(`{"operation":"move_item","itemId":%q}`, itemID),
-		"set_properties":    fmt.Sprintf(`{"operation":"set_properties","itemId":%q,"propertiesJson":"{}"}`, itemID),
-		"trash_item":        fmt.Sprintf(`{"operation":"trash_item","itemId":%q}`, itemID),
-		"restore_item":      fmt.Sprintf(`{"operation":"restore_item","itemId":%q}`, itemID),
-		"create_structured": `{"operation":"create_structured","title":"Plan","specJson":"{}"}`,
-		"add_view":          fmt.Sprintf(`{"operation":"add_view","itemId":%q,"specJson":"{}"}`, itemID),
-		"create_entries":    fmt.Sprintf(`{"operation":"create_entries","parentId":%q,"specJson":"{}"}`, itemID),
-		"add_fields":        fmt.Sprintf(`{"operation":"add_fields","itemId":%q,"specJson":"{}"}`, itemID),
-		"edit_form":         fmt.Sprintf(`{"operation":"edit_form","itemId":%q,"specJson":"{}"}`, itemID),
-		"set_recurrence":    fmt.Sprintf(`{"operation":"set_recurrence","itemId":%q,"specJson":"{}"}`, itemID),
-		"list_templates":    `{"operation":"list_templates"}`,
-		"read_template":     fmt.Sprintf(`{"operation":"read_template","itemId":%q}`, itemID),
-		"apply_template":    fmt.Sprintf(`{"operation":"apply_template","itemId":%q,"title":"Plan"}`, itemID),
+// TestFlattenToolCallMatchesTSReferenceFixture is the Go half of the round trip
+// packages/structure-spec/src/catalog/tools.test.ts checks from the TS side: for every
+// operation, catalog/tool-examples.json (generated by scripts/build-catalog.ts from
+// @nix/structure-spec's TOOL_EXAMPLES and its TS reference flattenToolExample) carries a valid
+// typed-tool argument object and the flat object flattening it must produce. flattenToolCall
+// must produce exactly that flat object from exactly that argument object - the two languages
+// checked against one fixture, so a mapping added on one side and not the other fails here.
+func TestFlattenToolCallMatchesTSReferenceFixture(t *testing.T) {
+	if len(toolExamples) == 0 {
+		t.Fatal("catalog/tool-examples.json is empty; run pnpm --filter @nix/structure-spec catalog")
 	}
+	for _, fixture := range toolExamples {
+		t.Run(fixture.Operation, func(t *testing.T) {
+			tool := "nix_" + fixture.Operation
+			flat, reason := flattenToolCall(tool, fixture.Arguments)
+			if reason != "" {
+				t.Fatalf("flattenToolCall refused a fixture example: %s", reason)
+			}
+			var got flatToolArgs
+			if err := json.Unmarshal(flat, &got); err != nil {
+				t.Fatalf("flattenToolCall produced invalid JSON: %v", err)
+			}
+			if !flatArgsEqual(got, fixture.Flat) {
+				t.Fatalf("flattenToolCall(%s, %s) = %+v, want %+v", tool, fixture.Arguments, got, fixture.Flat)
+			}
+		})
+	}
+}
 
-	enum := workspaceOperationEnum(t, "chat")
-	if len(enum) != len(minimalArguments) {
-		t.Fatalf("workspaceTools(\"chat\") enum has %d operations, minimalArguments covers %d; the fixture is stale", len(enum), len(minimalArguments))
+// flatArgsEqual compares two flatToolArgs for equal content rather than byte-identical JSON
+// strings in specJson/propertiesJson: Go's json.Marshal of a map always sorts keys
+// alphabetically, while the TS reference implementation's JSON.stringify preserves each
+// object's own key order, so the two languages' canonical strings can differ in key order while
+// still decoding to the same value. The plain string fields (operation, itemId, ...) compare
+// exactly, since flattenToolCall never reorders or reformats them.
+func flatArgsEqual(a, b flatToolArgs) bool {
+	if a.Operation != b.Operation || a.ItemID != b.ItemID || a.ParentID != b.ParentID ||
+		a.Title != b.Title || a.Markdown != b.Markdown || a.Query != b.Query {
+		return false
 	}
-	for _, operation := range enum {
-		raw, ok := minimalArguments[operation]
-		if !ok {
-			t.Fatalf("no minimal arguments fixture for enum operation %q", operation)
-		}
-		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "" {
-			t.Fatalf("enum operation %q refused with minimal valid arguments: %s -> %q", operation, raw, got)
-		}
-	}
+	return jsonEqual(a.PropertiesJSON, b.PropertiesJSON) && jsonEqual(a.SpecJSON, b.SpecJSON)
+}
 
+// jsonEqual reports whether two JSON strings (or two empty strings) decode to the same value,
+// ignoring object key order and formatting.
+func jsonEqual(a, b string) bool {
+	if a == "" || b == "" {
+		return a == b
+	}
+	var aValue, bValue any
+	if json.Unmarshal([]byte(a), &aValue) != nil || json.Unmarshal([]byte(b), &bValue) != nil {
+		return false
+	}
+	return reflect.DeepEqual(aValue, bValue)
+}
+
+// TestFlattenedFixturesAreAcceptedByValidateToolArguments proves every fixture's flattened
+// result also clears the flat-shape checks validateToolArguments has always run (a nonempty
+// title, a real itemId UUID, a JSON object in specJson, and so on): flattening producing the
+// right shape and the flat shape being accepted are two different guarantees, and this is the
+// second one.
+func TestFlattenedFixturesAreAcceptedByValidateToolArguments(t *testing.T) {
+	consultOnly := map[string]bool{}
+	for _, operation := range consultOnlyOperations {
+		consultOnly[operation] = true
+	}
+	for _, fixture := range toolExamples {
+		t.Run(fixture.Operation, func(t *testing.T) {
+			mode := "chat"
+			if consultOnly[fixture.Operation] {
+				mode = "consult"
+			}
+			encoded, err := json.Marshal(fixture.Flat)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := validateToolArguments(json.RawMessage(encoded), mode); got != "" {
+				t.Fatalf("fixture flattened result refused: %s -> %q", encoded, got)
+			}
+		})
+	}
+}
+
+// TestUnknownOperationIsRefusedAsUnsupported proves validateToolArguments's default switch case
+// still refuses an operation string outside the enum (a retired operation such as read_schema,
+// or a flat shape that somehow named one flattenToolCall never produces) as unsupported, the way
+// it always has.
+func TestUnknownOperationIsRefusedAsUnsupported(t *testing.T) {
 	for _, raw := range []string{
 		`{"operation":"read_schema"}`,
 		`{"operation":"shell"}`,
@@ -277,35 +358,52 @@ func TestEnumAndValidatorAgree(t *testing.T) {
 	}
 }
 
-// TestConsultEnumAndValidatorAgree is TestEnumAndValidatorAgree's counterpart for
-// workspaceTools("consult"): the three consult-only operations must also have a minimal
-// valid argument set that validateToolArguments accepts in consult mode.
-func TestConsultEnumAndValidatorAgree(t *testing.T) {
-	itemID := "11111111-1111-4111-8111-111111111111"
-	minimalConsultArguments := map[string]string{
-		"validate_blueprint": `{"operation":"validate_blueprint","specJson":"{}"}`,
-		"build_blueprint":    `{"operation":"build_blueprint","specJson":"{}"}`,
-		"save_as_template":   fmt.Sprintf(`{"operation":"save_as_template","itemId":%q,"title":"Job hunt"}`, itemID),
+// TestFlattenToolCallRejectsUnknownParametersAndWrongShapes covers flattenToolCall's own
+// refusals, independent of the fixture: a parameter no operation declares, a spec/blueprint
+// argument that is not a JSON object, and an unsupported tool name.
+func TestFlattenToolCallRejectsUnknownParametersAndWrongShapes(t *testing.T) {
+	if _, reason := flattenToolCall("nix_create_note", json.RawMessage(`{"title":"Safe","url":"https://example.com"}`)); reason == "" {
+		t.Fatal("unknown parameter accepted")
+	} else if !strings.Contains(reason, "url") || !strings.Contains(reason, "nix_create_note") {
+		t.Fatalf("unknown parameter reason does not name the key and the tool: %q", reason)
 	}
+	if _, reason := flattenToolCall("nix_create_structured", json.RawMessage(`{"title":"Plan","spec":[]}`)); reason == "" {
+		t.Fatal("array spec accepted")
+	}
+	if _, reason := flattenToolCall("nix_create_structured", json.RawMessage(`{"title":"Plan","spec":1}`)); reason == "" {
+		t.Fatal("scalar spec accepted")
+	}
+	if _, reason := flattenToolCall("nix_read_schema", json.RawMessage(`{}`)); reason == "" {
+		t.Fatal("unsupported tool name accepted")
+	}
+	if _, reason := flattenToolCall("nix_read_item", json.RawMessage(`not json`)); reason == "" {
+		t.Fatal("non-JSON arguments accepted")
+	}
+}
 
-	enum := workspaceOperationEnum(t, "consult")
-	for _, operation := range consultOnlyOperations {
-		found := false
-		for _, candidate := range enum {
-			if candidate == operation {
-				found = true
-				break
-			}
+// TestFlattenToolCallMapsTemplateIdToItemId covers L1.1's one deliberate naming difference
+// between a typed tool and the flat shape: nix_read_template and nix_apply_template take
+// templateId, which flattens to the flat shape's itemId field (the id run.ts's apply_template
+// and read_template branches have always read).
+func TestFlattenToolCallMapsTemplateIdToItemId(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		tool string
+		args string
+	}{
+		{"nix_read_template", fmt.Sprintf(`{"templateId":%q}`, itemID)},
+		{"nix_apply_template", fmt.Sprintf(`{"templateId":%q,"title":"Plan"}`, itemID)},
+	} {
+		flat, reason := flattenToolCall(tc.tool, json.RawMessage(tc.args))
+		if reason != "" {
+			t.Fatalf("%s: %s", tc.tool, reason)
 		}
-		if !found {
-			t.Fatalf("%q is not in workspaceTools(\"consult\")'s operation enum", operation)
+		var got flatToolArgs
+		if err := json.Unmarshal(flat, &got); err != nil {
+			t.Fatal(err)
 		}
-		raw, ok := minimalConsultArguments[operation]
-		if !ok {
-			t.Fatalf("no minimal arguments fixture for consult-only operation %q", operation)
-		}
-		if got := validateToolArguments(json.RawMessage(raw), "consult"); got != "" {
-			t.Fatalf("consult-only operation %q refused with minimal valid arguments: %s -> %q", operation, raw, got)
+		if got.ItemID != itemID {
+			t.Fatalf("%s: templateId did not map to itemId: %+v", tc.tool, got)
 		}
 	}
 }
@@ -384,7 +482,7 @@ func TestToolApprovalClaimAndResult(t *testing.T) {
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	raw := json.RawMessage(`{"threadId":"provider-thread","tool":"nix_workspace","callId":"tool-1","arguments":{"operation":"create_note","title":"Plan"}}`)
+	raw := json.RawMessage(`{"threadId":"provider-thread","tool":"nix_create_note","callId":"tool-1","arguments":{"title":"Plan"}}`)
 	if !a.toolRequest(json.RawMessage(`71`), "item/tool/call", raw) {
 		t.Fatal("valid tool request refused")
 	}
@@ -427,7 +525,7 @@ func TestToolApprovalClaimAndResult(t *testing.T) {
 
 func TestToolsRequireWorkspaceConsentAndCorrectConversation(t *testing.T) {
 	a := &account{transport: &toolPeer{}, home: t.TempDir(), conversations: map[string]*conversation{"x": {ThreadID: "thread", State: "thinking"}}}
-	raw := json.RawMessage(`{"threadId":"thread","tool":"nix_workspace","callId":"one","arguments":{}}`)
+	raw := json.RawMessage(`{"threadId":"thread","tool":"nix_list_items","callId":"one","arguments":{}}`)
 	if a.toolRequest(json.RawMessage(`1`), "item/tool/call", raw) {
 		t.Fatal("workspace tool accepted without consent")
 	}
@@ -435,7 +533,7 @@ func TestToolsRequireWorkspaceConsentAndCorrectConversation(t *testing.T) {
 	if a.toolRequest(json.RawMessage(`1`), "item/commandExecution/requestApproval", raw) {
 		t.Fatal("host tool accepted")
 	}
-	if a.toolRequest(json.RawMessage(`1`), "item/tool/call", json.RawMessage(`{"threadId":"other","tool":"nix_workspace","callId":"one","arguments":{}}`)) {
+	if a.toolRequest(json.RawMessage(`1`), "item/tool/call", json.RawMessage(`{"threadId":"other","tool":"nix_list_items","callId":"one","arguments":{}}`)) {
 		t.Fatal("foreign thread tool accepted")
 	}
 }

@@ -123,7 +123,7 @@ func TestWatchReturnsOnDeadlineWithSameRevision(t *testing.T) {
 func TestWatchIsNotBlockedWhileSendHoldsOp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := New(ctx, t.TempDir(), "unused", nil)
+	m, err := New(ctx, t.TempDir(), "unused", nil, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

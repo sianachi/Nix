@@ -1,0 +1,2416 @@
+[
+  {
+    "name": "nix_list_items",
+    "description": "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; runs without an approval card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "parentId": {
+          "type": "string",
+          "description": "The parent item UUID, or omit/empty to use the workspace root."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_search",
+    "description": "Search this workspace by title or content. Read-only; runs without an approval card.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "What to search for."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_read_item",
+    "description": "Read one item's id, title, type and workspace. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        }
+      },
+      "required": ["itemId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_read_note",
+    "description": "Read a note's Markdown body. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        }
+      },
+      "required": ["itemId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_read_structure",
+    "description": "Read an item's declared and effective fields, its views and its child count. Call this before proposing any structure change. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        }
+      },
+      "required": ["itemId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_create_note",
+    "description": "Create a new note with title and markdown, under parentId (omit for the workspace root). Shown for approval before it runs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The new note title."
+        },
+        "markdown": {
+          "type": "string",
+          "description": "Markdown for the note body."
+        },
+        "parentId": {
+          "type": "string",
+          "description": "The parent item UUID, or omit/empty to use the workspace root."
+        }
+      },
+      "required": ["title", "markdown"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_append_note",
+    "description": "Append Markdown to a note's body. Never replaces existing content.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "markdown": {
+          "type": "string",
+          "description": "Markdown to append."
+        }
+      },
+      "required": ["itemId", "markdown"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_rename_item",
+    "description": "Rename an item. Never changes anything else about it.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "title": {
+          "type": "string",
+          "description": "The new title."
+        }
+      },
+      "required": ["itemId", "title"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_move_item",
+    "description": "Move an item under a new parent. Supply an empty parentId to move it to the workspace root.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "parentId": {
+          "type": "string",
+          "description": "The parent item UUID, or omit/empty to use the workspace root."
+        }
+      },
+      "required": ["itemId", "parentId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_set_properties",
+    "description": "Set one or more of an item's property values. Call nix_read_structure first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "properties": {
+          "type": "object",
+          "description": "One or more property values, keyed by field key (see nix_read_structure).",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "required": ["itemId", "properties"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_trash_item",
+    "description": "Move an item to trash. Recoverable with nix_restore_item; never permanent.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        }
+      },
+      "required": ["itemId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_restore_item",
+    "description": "Restore a trashed item.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        }
+      },
+      "required": ["itemId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_create_structured",
+    "description": "Create a new item with a recipe, fields and views, under parentId (omit for the workspace root). Shown for approval before it runs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "The new item title."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "recipe": {
+              "type": "string",
+              "enum": [
+                "form",
+                "interactive-form",
+                "board",
+                "sheet",
+                "list",
+                "calendar",
+                "timeline",
+                "gallery",
+                "habit-tracker",
+                "query"
+              ]
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "number",
+                      "select",
+                      "multi_select",
+                      "date",
+                      "timestamp",
+                      "checkbox",
+                      "url",
+                      "image",
+                      "due_date",
+                      "start_date",
+                      "completion",
+                      "priority",
+                      "estimate",
+                      "formula",
+                      "rollup"
+                    ]
+                  },
+                  "options": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "formula": {
+                    "type": "string"
+                  },
+                  "rollup": {
+                    "type": "object",
+                    "properties": {
+                      "aggregate": {
+                        "type": "string",
+                        "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["aggregate"],
+                    "additionalProperties": false
+                  },
+                  "help": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label", "type"],
+                "additionalProperties": false
+              }
+            },
+            "views": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "list",
+                      "board",
+                      "calendar",
+                      "timeline",
+                      "gallery",
+                      "sheet",
+                      "form",
+                      "interactive_form",
+                      "query",
+                      "chart",
+                      "habit_tracker"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "groupBy": {
+                    "type": "string",
+                    "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                  },
+                  "groupOrder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "endDate": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "quarter"]
+                  },
+                  "cover": {
+                    "type": "string"
+                  },
+                  "cardSize": {
+                    "type": "string",
+                    "enum": ["small", "medium", "large"]
+                  },
+                  "sortBy": {
+                    "type": "string"
+                  },
+                  "sortDescending": {
+                    "type": "boolean"
+                  },
+                  "preset": {
+                    "type": "string",
+                    "enum": ["today", "next-seven-days", "overdue", "assigned-to-me"]
+                  },
+                  "filters": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "string",
+                          "enum": [
+                            "equals",
+                            "not-equals",
+                            "on",
+                            "before",
+                            "on-or-after",
+                            "within-next"
+                          ]
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["field", "op", "value"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "measure": {
+                    "type": "string",
+                    "enum": ["count", "sum"]
+                  },
+                  "measureField": {
+                    "type": "string"
+                  },
+                  "form": {
+                    "type": "object",
+                    "properties": {
+                      "pages": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "showWhen": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "field": {
+                                    "type": "string"
+                                  },
+                                  "op": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "not_equals",
+                                      "contains",
+                                      "checked",
+                                      "not_checked"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["field", "op"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "blocks": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "field": {
+                                        "type": "string"
+                                      },
+                                      "required": {
+                                        "type": "boolean"
+                                      },
+                                      "help": {
+                                        "type": "string"
+                                      },
+                                      "identity": {
+                                        "type": "string",
+                                        "enum": ["name", "email"]
+                                      },
+                                      "showWhen": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "field": {
+                                              "type": "string"
+                                            },
+                                            "op": {
+                                              "type": "string",
+                                              "enum": [
+                                                "equals",
+                                                "not_equals",
+                                                "contains",
+                                                "checked",
+                                                "not_checked"
+                                              ]
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["field", "op"],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "required": ["field"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "heading": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["heading"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "paragraph": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["paragraph"],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "required": ["title", "blocks"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "title": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "from": {
+                                "enum": ["generated"],
+                                "type": "string"
+                              }
+                            },
+                            "required": ["from"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "from": {
+                                "enum": ["field"],
+                                "type": "string"
+                              },
+                              "field": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["from", "field"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "confirmation": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["title", "message"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["pages"],
+                    "additionalProperties": false
+                  },
+                  "default": {
+                    "type": "boolean"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["kind"],
+                "additionalProperties": false
+              }
+            },
+            "inherit": {
+              "type": "boolean"
+            }
+          },
+          "required": ["recipe", "fields"],
+          "additionalProperties": false
+        },
+        "parentId": {
+          "type": "string",
+          "description": "The parent item UUID, or omit/empty to use the workspace root."
+        }
+      },
+      "required": ["title", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_add_view",
+    "description": "Add fields and views to an item's existing schema. Never removes or retypes a field, never deletes an existing view.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "number",
+                      "select",
+                      "multi_select",
+                      "date",
+                      "timestamp",
+                      "checkbox",
+                      "url",
+                      "image",
+                      "due_date",
+                      "start_date",
+                      "completion",
+                      "priority",
+                      "estimate",
+                      "formula",
+                      "rollup"
+                    ]
+                  },
+                  "options": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "formula": {
+                    "type": "string"
+                  },
+                  "rollup": {
+                    "type": "object",
+                    "properties": {
+                      "aggregate": {
+                        "type": "string",
+                        "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["aggregate"],
+                    "additionalProperties": false
+                  },
+                  "help": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label", "type"],
+                "additionalProperties": false
+              }
+            },
+            "views": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "list",
+                      "board",
+                      "calendar",
+                      "timeline",
+                      "gallery",
+                      "sheet",
+                      "form",
+                      "interactive_form",
+                      "query",
+                      "chart",
+                      "habit_tracker"
+                    ]
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "groupBy": {
+                    "type": "string",
+                    "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                  },
+                  "groupOrder": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "endDate": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "quarter"]
+                  },
+                  "cover": {
+                    "type": "string"
+                  },
+                  "cardSize": {
+                    "type": "string",
+                    "enum": ["small", "medium", "large"]
+                  },
+                  "sortBy": {
+                    "type": "string"
+                  },
+                  "sortDescending": {
+                    "type": "boolean"
+                  },
+                  "preset": {
+                    "type": "string",
+                    "enum": ["today", "next-seven-days", "overdue", "assigned-to-me"]
+                  },
+                  "filters": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "string",
+                          "enum": [
+                            "equals",
+                            "not-equals",
+                            "on",
+                            "before",
+                            "on-or-after",
+                            "within-next"
+                          ]
+                        },
+                        "value": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["field", "op", "value"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "measure": {
+                    "type": "string",
+                    "enum": ["count", "sum"]
+                  },
+                  "measureField": {
+                    "type": "string"
+                  },
+                  "form": {
+                    "type": "object",
+                    "properties": {
+                      "pages": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "title": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "showWhen": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "field": {
+                                    "type": "string"
+                                  },
+                                  "op": {
+                                    "type": "string",
+                                    "enum": [
+                                      "equals",
+                                      "not_equals",
+                                      "contains",
+                                      "checked",
+                                      "not_checked"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": ["field", "op"],
+                                "additionalProperties": false
+                              }
+                            },
+                            "blocks": {
+                              "minItems": 1,
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "field": {
+                                        "type": "string"
+                                      },
+                                      "required": {
+                                        "type": "boolean"
+                                      },
+                                      "help": {
+                                        "type": "string"
+                                      },
+                                      "identity": {
+                                        "type": "string",
+                                        "enum": ["name", "email"]
+                                      },
+                                      "showWhen": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "field": {
+                                              "type": "string"
+                                            },
+                                            "op": {
+                                              "type": "string",
+                                              "enum": [
+                                                "equals",
+                                                "not_equals",
+                                                "contains",
+                                                "checked",
+                                                "not_checked"
+                                              ]
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": ["field", "op"],
+                                          "additionalProperties": false
+                                        }
+                                      }
+                                    },
+                                    "required": ["field"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "heading": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["heading"],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "paragraph": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["paragraph"],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "required": ["title", "blocks"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "title": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "from": {
+                                "enum": ["generated"],
+                                "type": "string"
+                              }
+                            },
+                            "required": ["from"],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "from": {
+                                "enum": ["field"],
+                                "type": "string"
+                              },
+                              "field": {
+                                "type": "string"
+                              }
+                            },
+                            "required": ["from", "field"],
+                            "additionalProperties": false
+                          }
+                        ]
+                      },
+                      "confirmation": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["title", "message"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["pages"],
+                    "additionalProperties": false
+                  },
+                  "default": {
+                    "type": "boolean"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["kind"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["views"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_create_entries",
+    "description": "Create up to 25 child entries under parentId in one call.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "parentId": {
+          "type": "string",
+          "description": "The container item's UUID."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "entries": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "$ref": "#/$defs/__schema0"
+                    },
+                    "description": "Values are keyed by field key (see read_structure), never by field label."
+                  },
+                  "markdown": {
+                    "type": "string"
+                  },
+                  "sample": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["title"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["entries"],
+          "additionalProperties": false,
+          "$defs": {
+            "__schema0": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "required": ["parentId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_validate_blueprint",
+    "description": "Check a whole-structure design before building it. Never writes; returns the same problems nix_build_blueprint would refuse on. Design mode only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "blueprint": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "enum": [1],
+              "type": "number"
+            },
+            "title": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "root": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["text", "date"]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "default": {
+                    "type": "string"
+                  }
+                },
+                "required": ["key", "label", "type"],
+                "additionalProperties": false
+              }
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "node": {
+                    "type": "string"
+                  },
+                  "field": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["keep", "clear", "set", "input", "relativeDate"]
+                  },
+                  "value": {
+                    "$ref": "#/$defs/__schema1"
+                  },
+                  "input": {
+                    "type": "string"
+                  },
+                  "offsetDays": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["node", "field", "kind"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["version", "title", "summary", "root"],
+          "additionalProperties": false,
+          "$defs": {
+            "__schema0": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "key": {
+                        "type": "string",
+                        "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "number",
+                          "select",
+                          "multi_select",
+                          "date",
+                          "timestamp",
+                          "checkbox",
+                          "url",
+                          "image",
+                          "due_date",
+                          "start_date",
+                          "completion",
+                          "priority",
+                          "estimate",
+                          "formula",
+                          "rollup"
+                        ]
+                      },
+                      "options": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "formula": {
+                        "type": "string"
+                      },
+                      "rollup": {
+                        "type": "object",
+                        "properties": {
+                          "aggregate": {
+                            "type": "string",
+                            "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["aggregate"],
+                        "additionalProperties": false
+                      },
+                      "help": {
+                        "type": "string"
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["label", "type"],
+                    "additionalProperties": false
+                  }
+                },
+                "inherit": {
+                  "type": "boolean"
+                },
+                "views": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "list",
+                          "board",
+                          "calendar",
+                          "timeline",
+                          "gallery",
+                          "sheet",
+                          "form",
+                          "interactive_form",
+                          "query",
+                          "chart",
+                          "habit_tracker"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "columns": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "groupBy": {
+                        "type": "string",
+                        "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                      },
+                      "groupOrder": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "endDate": {
+                        "type": "string"
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "quarter"]
+                      },
+                      "cover": {
+                        "type": "string"
+                      },
+                      "cardSize": {
+                        "type": "string",
+                        "enum": ["small", "medium", "large"]
+                      },
+                      "sortBy": {
+                        "type": "string"
+                      },
+                      "sortDescending": {
+                        "type": "boolean"
+                      },
+                      "preset": {
+                        "type": "string",
+                        "enum": ["today", "next-seven-days", "overdue", "assigned-to-me"]
+                      },
+                      "filters": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "op": {
+                              "type": "string",
+                              "enum": [
+                                "equals",
+                                "not-equals",
+                                "on",
+                                "before",
+                                "on-or-after",
+                                "within-next"
+                              ]
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["field", "op", "value"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "measure": {
+                        "type": "string",
+                        "enum": ["count", "sum"]
+                      },
+                      "measureField": {
+                        "type": "string"
+                      },
+                      "default": {
+                        "type": "boolean"
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  }
+                },
+                "markdown": {
+                  "type": "string"
+                },
+                "recurrence": {
+                  "type": "object",
+                  "properties": {
+                    "frequency": {
+                      "type": "string",
+                      "enum": ["daily", "weekly", "monthly", "yearly"]
+                    },
+                    "interval": {
+                      "type": "integer"
+                    },
+                    "weekdays": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "until": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["frequency", "interval"],
+                  "additionalProperties": false
+                },
+                "habit": {
+                  "type": "object",
+                  "properties": {
+                    "frequency": {
+                      "type": "string",
+                      "enum": ["daily", "weekly"]
+                    },
+                    "weekdays": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "target": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["frequency", "target", "unit"],
+                  "additionalProperties": false
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/__schema1"
+                  }
+                },
+                "sample": {
+                  "type": "boolean"
+                },
+                "children": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                }
+              },
+              "required": ["id", "title"],
+              "additionalProperties": false
+            },
+            "__schema1": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema1"
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/__schema1"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "required": ["blueprint"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_add_fields",
+    "description": "Add up to 20 new fields to an item's existing schema. Never removes or retypes an existing field.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "fields": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "number",
+                      "select",
+                      "multi_select",
+                      "date",
+                      "timestamp",
+                      "checkbox",
+                      "url",
+                      "image",
+                      "due_date",
+                      "start_date",
+                      "completion",
+                      "priority",
+                      "estimate",
+                      "formula",
+                      "rollup"
+                    ]
+                  },
+                  "options": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "formula": {
+                    "type": "string"
+                  },
+                  "rollup": {
+                    "type": "object",
+                    "properties": {
+                      "aggregate": {
+                        "type": "string",
+                        "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["aggregate"],
+                    "additionalProperties": false
+                  },
+                  "help": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label", "type"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["fields"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_edit_form",
+    "description": "Replace one existing interactive form view, optionally adding new fields to the item at the same time.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "viewId": {
+              "type": "string"
+            },
+            "form": {
+              "type": "object",
+              "properties": {
+                "pages": {
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "title": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "showWhen": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "op": {
+                              "type": "string",
+                              "enum": ["equals", "not_equals", "contains", "checked", "not_checked"]
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["field", "op"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "blocks": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "field": {
+                                  "type": "string"
+                                },
+                                "required": {
+                                  "type": "boolean"
+                                },
+                                "help": {
+                                  "type": "string"
+                                },
+                                "identity": {
+                                  "type": "string",
+                                  "enum": ["name", "email"]
+                                },
+                                "showWhen": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "field": {
+                                        "type": "string"
+                                      },
+                                      "op": {
+                                        "type": "string",
+                                        "enum": [
+                                          "equals",
+                                          "not_equals",
+                                          "contains",
+                                          "checked",
+                                          "not_checked"
+                                        ]
+                                      },
+                                      "value": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "required": ["field", "op"],
+                                    "additionalProperties": false
+                                  }
+                                }
+                              },
+                              "required": ["field"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "heading": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["heading"],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "paragraph": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["paragraph"],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      }
+                    },
+                    "required": ["title", "blocks"],
+                    "additionalProperties": false
+                  }
+                },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "enum": ["generated"],
+                          "type": "string"
+                        }
+                      },
+                      "required": ["from"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "from": {
+                          "enum": ["field"],
+                          "type": "string"
+                        },
+                        "field": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["from", "field"],
+                      "additionalProperties": false
+                    }
+                  ]
+                },
+                "confirmation": {
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["title", "message"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["pages"],
+              "additionalProperties": false
+            },
+            "fields": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "key": {
+                    "type": "string",
+                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text",
+                      "number",
+                      "select",
+                      "multi_select",
+                      "date",
+                      "timestamp",
+                      "checkbox",
+                      "url",
+                      "image",
+                      "due_date",
+                      "start_date",
+                      "completion",
+                      "priority",
+                      "estimate",
+                      "formula",
+                      "rollup"
+                    ]
+                  },
+                  "options": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "formula": {
+                    "type": "string"
+                  },
+                  "rollup": {
+                    "type": "object",
+                    "properties": {
+                      "aggregate": {
+                        "type": "string",
+                        "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                      },
+                      "source": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["aggregate"],
+                    "additionalProperties": false
+                  },
+                  "help": {
+                    "type": "string"
+                  },
+                  "why": {
+                    "type": "string"
+                  }
+                },
+                "required": ["label", "type"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["viewId", "form"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_set_recurrence",
+    "description": "Set or replace a recurring due-date rule on an item.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "frequency": {
+              "type": "string",
+              "enum": ["daily", "weekly", "monthly", "yearly"]
+            },
+            "interval": {
+              "type": "integer"
+            },
+            "weekdays": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              }
+            },
+            "until": {
+              "type": "string"
+            }
+          },
+          "required": ["frequency", "interval"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_list_templates",
+    "description": "List templates available in this workspace, optionally filtered by query. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Optional filter text."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_read_template",
+    "description": "Read one template's details. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "description": "The template item UUID."
+        }
+      },
+      "required": ["templateId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_apply_template",
+    "description": "Apply a template to create a new item under parentId (omit for the workspace root), filling any inputs the template declares. Shown for approval before it runs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "description": "The template item UUID."
+        },
+        "title": {
+          "type": "string",
+          "description": "The new item title."
+        },
+        "parentId": {
+          "type": "string",
+          "description": "The parent item UUID, or omit/empty to use the workspace root."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "inputs": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "required": ["templateId", "title"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_build_blueprint",
+    "description": "Build a validated blueprint under Pet drafts, at parentId (omit for the workspace root). Call nix_validate_blueprint first and fix every problem it reports. Design mode only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "blueprint": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "enum": [1],
+              "type": "number"
+            },
+            "title": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "root": {
+              "$ref": "#/$defs/__schema0"
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["text", "date"]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "default": {
+                    "type": "string"
+                  }
+                },
+                "required": ["key", "label", "type"],
+                "additionalProperties": false
+              }
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "node": {
+                    "type": "string"
+                  },
+                  "field": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["keep", "clear", "set", "input", "relativeDate"]
+                  },
+                  "value": {
+                    "$ref": "#/$defs/__schema1"
+                  },
+                  "input": {
+                    "type": "string"
+                  },
+                  "offsetDays": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["node", "field", "kind"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": ["version", "title", "summary", "root"],
+          "additionalProperties": false,
+          "$defs": {
+            "__schema0": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "label": {
+                        "type": "string"
+                      },
+                      "key": {
+                        "type": "string",
+                        "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "text",
+                          "number",
+                          "select",
+                          "multi_select",
+                          "date",
+                          "timestamp",
+                          "checkbox",
+                          "url",
+                          "image",
+                          "due_date",
+                          "start_date",
+                          "completion",
+                          "priority",
+                          "estimate",
+                          "formula",
+                          "rollup"
+                        ]
+                      },
+                      "options": {
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "required": {
+                        "type": "boolean"
+                      },
+                      "formula": {
+                        "type": "string"
+                      },
+                      "rollup": {
+                        "type": "object",
+                        "properties": {
+                          "aggregate": {
+                            "type": "string",
+                            "enum": ["count", "sum", "average", "min", "max", "any", "all"]
+                          },
+                          "source": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["aggregate"],
+                        "additionalProperties": false
+                      },
+                      "help": {
+                        "type": "string"
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["label", "type"],
+                    "additionalProperties": false
+                  }
+                },
+                "inherit": {
+                  "type": "boolean"
+                },
+                "views": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "list",
+                          "board",
+                          "calendar",
+                          "timeline",
+                          "gallery",
+                          "sheet",
+                          "form",
+                          "interactive_form",
+                          "query",
+                          "chart",
+                          "habit_tracker"
+                        ]
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "columns": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "groupBy": {
+                        "type": "string",
+                        "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                      },
+                      "groupOrder": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "date": {
+                        "type": "string"
+                      },
+                      "endDate": {
+                        "type": "string"
+                      },
+                      "mode": {
+                        "type": "string",
+                        "enum": ["day", "week", "month", "quarter"]
+                      },
+                      "cover": {
+                        "type": "string"
+                      },
+                      "cardSize": {
+                        "type": "string",
+                        "enum": ["small", "medium", "large"]
+                      },
+                      "sortBy": {
+                        "type": "string"
+                      },
+                      "sortDescending": {
+                        "type": "boolean"
+                      },
+                      "preset": {
+                        "type": "string",
+                        "enum": ["today", "next-seven-days", "overdue", "assigned-to-me"]
+                      },
+                      "filters": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "field": {
+                              "type": "string"
+                            },
+                            "op": {
+                              "type": "string",
+                              "enum": [
+                                "equals",
+                                "not-equals",
+                                "on",
+                                "before",
+                                "on-or-after",
+                                "within-next"
+                              ]
+                            },
+                            "value": {
+                              "type": "string"
+                            }
+                          },
+                          "required": ["field", "op", "value"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "measure": {
+                        "type": "string",
+                        "enum": ["count", "sum"]
+                      },
+                      "measureField": {
+                        "type": "string"
+                      },
+                      "default": {
+                        "type": "boolean"
+                      },
+                      "why": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["kind"],
+                    "additionalProperties": false
+                  }
+                },
+                "markdown": {
+                  "type": "string"
+                },
+                "recurrence": {
+                  "type": "object",
+                  "properties": {
+                    "frequency": {
+                      "type": "string",
+                      "enum": ["daily", "weekly", "monthly", "yearly"]
+                    },
+                    "interval": {
+                      "type": "integer"
+                    },
+                    "weekdays": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "until": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["frequency", "interval"],
+                  "additionalProperties": false
+                },
+                "habit": {
+                  "type": "object",
+                  "properties": {
+                    "frequency": {
+                      "type": "string",
+                      "enum": ["daily", "weekly"]
+                    },
+                    "weekdays": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer"
+                      }
+                    },
+                    "target": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["frequency", "target", "unit"],
+                  "additionalProperties": false
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/__schema1"
+                  }
+                },
+                "sample": {
+                  "type": "boolean"
+                },
+                "children": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                }
+              },
+              "required": ["id", "title"],
+              "additionalProperties": false
+            },
+            "__schema1": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema1"
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/__schema1"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "parentId": {
+          "type": "string",
+          "description": "The parent item UUID, or omit/empty to use the workspace root."
+        }
+      },
+      "required": ["blueprint"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_save_as_template",
+    "description": "Save an item and its children as a reusable template named title. Excludes descendants titled \"Sample: ...\" by default. Design mode only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The source item UUID."
+        },
+        "title": {
+          "type": "string",
+          "description": "The template name."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "includeSamples": {
+              "type": "boolean"
+            },
+            "inputs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": ["text", "date"]
+                  },
+                  "required": {
+                    "type": "boolean"
+                  },
+                  "default": {
+                    "type": "string"
+                  }
+                },
+                "required": ["key", "label", "type"],
+                "additionalProperties": false
+              }
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "node": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "field": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["keep", "clear", "set", "input", "relativeDate"]
+                  },
+                  "value": {
+                    "$ref": "#/$defs/__schema0"
+                  },
+                  "input": {
+                    "type": "string"
+                  },
+                  "offsetDays": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["node", "field", "kind"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false,
+          "$defs": {
+            "__schema0": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "required": ["itemId", "title"],
+      "additionalProperties": false
+    }
+  }
+]

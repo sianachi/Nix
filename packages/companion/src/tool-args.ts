@@ -1,34 +1,18 @@
 import { z } from 'zod';
+import {
+  CONSULT_ONLY_OPERATION_NAMES,
+  READ_ONLY_OPERATION_NAMES,
+  WORKSPACE_OPERATIONS,
+} from '@nix/structure-spec';
 
 const optionalId = z.union([z.literal(''), z.uuid()]);
 export const workspaceToolSchema = z
   .object({
-    operation: z.enum([
-      'list_items',
-      'search',
-      'read_item',
-      'read_note',
-      'read_structure',
-      'create_note',
-      'append_note',
-      'rename_item',
-      'move_item',
-      'set_properties',
-      'trash_item',
-      'restore_item',
-      'create_structured',
-      'add_view',
-      'create_entries',
-      'validate_blueprint',
-      'add_fields',
-      'edit_form',
-      'set_recurrence',
-      'list_templates',
-      'read_template',
-      'apply_template',
-      'build_blueprint',
-      'save_as_template',
-    ]),
+    // Sourced from @nix/structure-spec's WORKSPACE_OPERATIONS (packages/structure-spec/src/
+    // catalog/tables.ts), which is also what the pet's typed nix_<operation> tools
+    // (buildPetTools) and the Go worker's generated tools-chat.json/tools-consult.json are built
+    // from, so this flat enum cannot drift out of step with either.
+    operation: z.enum(WORKSPACE_OPERATIONS),
     itemId: optionalId,
     parentId: optionalId,
     title: z.string().max(240),
@@ -145,20 +129,14 @@ export type WorkspaceToolArgs = z.infer<typeof workspaceToolSchema>;
 export class WorkspaceToolRefusal extends Error {}
 
 /** The operations the executor never writes through. `runWorkspaceTool`'s
- * `WorkspaceToolOutcome.readOnly` is derived from this set. */
-export const READ_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
-  'list_items',
-  'search',
-  'read_item',
-  'read_note',
-  'read_structure',
-  'list_templates',
-  'read_template',
-]);
+ * `WorkspaceToolOutcome.readOnly` is derived from this set. Sourced from @nix/structure-spec's
+ * READ_ONLY_OPERATION_NAMES, the same list `buildPetTools`' tool descriptions read. */
+export const READ_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set(
+  READ_ONLY_OPERATION_NAMES,
+);
 
-/** Operations only offered in consult mode. */
-export const CONSULT_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
-  'validate_blueprint',
-  'build_blueprint',
-  'save_as_template',
-]);
+/** Operations only offered in consult mode. Sourced from @nix/structure-spec's
+ * CONSULT_ONLY_OPERATION_NAMES, the same list `buildPetTools` filters chat mode's tools by. */
+export const CONSULT_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set(
+  CONSULT_ONLY_OPERATION_NAMES,
+);

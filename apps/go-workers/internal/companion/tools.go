@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -11,6 +12,13 @@ type Model struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Default bool   `json:"default"`
+	// supportedEfforts and defaultEffort come from model/list's own
+	// supportedReasoningEfforts[].reasoningEffort and defaultReasoningEffort (Codex 0.153.4);
+	// json:"-" keeps the wire Model shape (what the web client already reads) unchanged.
+	// effortFor uses these to decide whether a configured NIX_COMPANION_*_EFFORT value is one
+	// this model actually advertises before sending it on turn/start.
+	supportedEfforts []string `json:"-"`
+	defaultEffort    string   `json:"-"`
 }
 
 // ToolCall is a private, per-conversation approval receipt, not authorization.
@@ -30,24 +38,149 @@ type toolTransport interface {
 	Reply(json.RawMessage, any) error
 }
 
-// consultOnlyOperations are the nix_workspace operations available only in consult
-// (Design mode) conversations: designing and saving a whole structure, as opposed to the
-// additive, one-item-at-a-time operations chat also has.
+// consultOnlyOperations are the operations available only in consult (Design mode)
+// conversations: designing and saving a whole structure, as opposed to the additive,
+// one-item-at-a-time operations chat also has. workspaceTools(mode) (catalog.go) is the real
+// source of truth for which operations each mode offers; this list is only used by
+// validateToolArguments to refuse a consult-only operation's flattened call in chat, and by
+// flattenToolCall's own tests.
 var consultOnlyOperations = []string{"validate_blueprint", "build_blueprint", "save_as_template"}
 
-func workspaceTools(mode string) []any {
-	properties := map[string]any{}
-	for _, key := range []string{"itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"} {
-		properties[key] = map[string]string{"type": "string"}
+// flatToolArgs is the flat shape `@nix/companion`'s workspaceToolSchema and run.ts have always
+// parsed, and the shape `ToolCall.Arguments` stores. flattenToolCall builds one from a typed
+// nix_<operation> call's native-JSON arguments.
+type flatToolArgs struct {
+	Operation      string `json:"operation"`
+	ItemID         string `json:"itemId"`
+	ParentID       string `json:"parentId"`
+	Title          string `json:"title"`
+	Markdown       string `json:"markdown"`
+	Query          string `json:"query"`
+	PropertiesJSON string `json:"propertiesJson"`
+	SpecJSON       string `json:"specJson"`
+}
+
+// argKind says how one typed argument maps onto the flat shape.
+type argKind int
+
+const (
+	argString     argKind = iota // copied verbatim into a flat string field
+	argObjectJSON                // must be a JSON object; marshaled to a canonical JSON string
+)
+
+// argMapping names one typed argument's flat field and kind.
+type argMapping struct {
+	flat string
+	kind argKind
+}
+
+// toolArgSpecs mirrors packages/structure-spec/src/catalog/tools.ts's TOOL_BUILDS mapping table
+// exactly (L1.1): which native-JSON arguments each nix_<operation> tool accepts, and which flat
+// field each maps onto. Every "spec"/"blueprint"/"properties" argument marshals to specJson or
+// propertiesJson; templateId maps to itemId, not a separate flat field, matching how run.ts
+// already reads a template id (apply_template's itemId, read_template's itemId).
+var toolArgSpecs = map[string]map[string]argMapping{
+	"list_items":         {"parentId": {"parentId", argString}},
+	"search":             {"query": {"query", argString}},
+	"read_item":          {"itemId": {"itemId", argString}},
+	"read_note":          {"itemId": {"itemId", argString}},
+	"read_structure":     {"itemId": {"itemId", argString}},
+	"create_note":        {"title": {"title", argString}, "markdown": {"markdown", argString}, "parentId": {"parentId", argString}},
+	"append_note":        {"itemId": {"itemId", argString}, "markdown": {"markdown", argString}},
+	"rename_item":        {"itemId": {"itemId", argString}, "title": {"title", argString}},
+	"move_item":          {"itemId": {"itemId", argString}, "parentId": {"parentId", argString}},
+	"set_properties":     {"itemId": {"itemId", argString}, "properties": {"propertiesJson", argObjectJSON}},
+	"trash_item":         {"itemId": {"itemId", argString}},
+	"restore_item":       {"itemId": {"itemId", argString}},
+	"create_structured":  {"title": {"title", argString}, "spec": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
+	"add_view":           {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"create_entries":     {"parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
+	"validate_blueprint": {"blueprint": {"specJson", argObjectJSON}},
+	"add_fields":         {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"edit_form":          {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"set_recurrence":     {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"list_templates":     {"query": {"query", argString}},
+	"read_template":      {"templateId": {"itemId", argString}},
+	"apply_template":     {"templateId": {"itemId", argString}, "title": {"title", argString}, "parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
+	"build_blueprint":    {"blueprint": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
+	"save_as_template":   {"itemId": {"itemId", argString}, "title": {"title", argString}, "spec": {"specJson", argObjectJSON}},
+}
+
+// flattenToolCall translates one typed nix_<operation> call's native-JSON arguments into the
+// flat {operation, itemId, parentId, title, markdown, query, propertiesJson, specJson} shape
+// @nix/companion/run.ts has always parsed, so Core, the OpenAPI contract, @nix/companion, nixctl
+// and the web executor stay unchanged (L1 goal). tool must already be one of the conversation
+// mode's tool names (toolRequest checks that before calling this). On success it returns the flat
+// arguments, marshaled, and an empty reason; on a malformed call it returns nil and a
+// model-readable reason naming the offending key and tool, to be sent back exactly like a
+// validateToolArguments failure ("No action ran and no approval was requested.").
+func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string) {
+	operation := operationFromToolName(tool)
+	spec, ok := toolArgSpecs[operation]
+	if !ok {
+		return nil, fmt.Sprintf("%s is not a supported tool.", tool)
 	}
-	operations := []string{"list_items", "search", "read_item", "read_note", "read_structure", "create_note", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "create_structured", "add_view", "create_entries", "add_fields", "edit_form", "set_recurrence", "list_templates", "read_template", "apply_template"}
-	description := "Work in the current Nix workspace. Every call is shown for approval. Supply empty strings for unused fields. Reads: list_items (parentId, empty for roots); search (query); read_item, read_note and read_structure (itemId; read_structure returns fields, views and child count); list_templates (optional query); read_template (itemId is the template id). Writes: create_note (title, markdown, optional parentId); append_note (itemId, markdown; never replaces content); rename_item (itemId, title); move_item (itemId, parentId); set_properties (itemId, propertiesJson; read_structure first); trash_item is recoverable; restore_item. Structure: create_structured (parentId, title, specJson {recipe, fields, views}); add_view (itemId, specJson {fields, views}); create_entries (parentId, specJson {entries}); apply_template (itemId is the template id, parentId, title, specJson {inputs}). specJson is a JSON string; the field types, view kinds and their requirements are in your instructions. add_fields (itemId, specJson {fields}; never removes a field); edit_form (itemId, specJson {viewId, form}); set_recurrence (itemId, specJson {frequency, interval, weekdays, until}). Not available: publishing, permanent deletion, removing or retyping fields, deleting views, workspace administration."
-	if mode == "consult" {
-		operations = append(operations, consultOnlyOperations...)
-		description += " Design mode only: validate_blueprint (specJson is the blueprint) checks a design before building and never writes; build_blueprint (specJson is the blueprint) creates it under Pet drafts; save_as_template (itemId is the source, title is the template name, specJson may be empty for defaults or a JSON object) saves the source and its children. By default save_as_template excludes descendants whose titles start with Sample: and restores them after capture."
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder.UseNumber()
+	var fields map[string]json.RawMessage
+	if err := decoder.Decode(&fields); err != nil || fields == nil {
+		return nil, fmt.Sprintf("%s requires a JSON object of arguments.", tool)
 	}
-	properties["operation"] = map[string]any{"type": "string", "enum": operations}
-	return []any{map[string]any{"type": "function", "name": "nix_workspace", "description": description, "inputSchema": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"operation", "itemId", "parentId", "title", "markdown", "query", "propertiesJson", "specJson"}, "properties": properties}}}
+	flat := flatToolArgs{Operation: operation}
+	for key, value := range fields {
+		mapping, known := spec[key]
+		if !known {
+			return nil, fmt.Sprintf("%q is not a parameter of %s.", key, tool)
+		}
+		switch mapping.kind {
+		case argString:
+			var text string
+			if json.Unmarshal(value, &text) != nil {
+				return nil, fmt.Sprintf("%s.%s must be a string.", tool, key)
+			}
+			setFlatString(&flat, mapping.flat, text)
+		case argObjectJSON:
+			objectDecoder := json.NewDecoder(strings.NewReader(string(value)))
+			objectDecoder.UseNumber()
+			var object map[string]any
+			if objectDecoder.Decode(&object) != nil || object == nil {
+				return nil, fmt.Sprintf("%s.%s must be a JSON object.", tool, key)
+			}
+			canonical, err := json.Marshal(object)
+			if err != nil {
+				return nil, fmt.Sprintf("%s.%s must be a JSON object.", tool, key)
+			}
+			setFlatString(&flat, mapping.flat, string(canonical))
+		}
+	}
+	encoded, err := json.Marshal(flat)
+	if err != nil {
+		return nil, fmt.Sprintf("%s arguments could not be processed.", tool)
+	}
+	return encoded, ""
+}
+
+// setFlatString assigns one of flatToolArgs' string fields by its JSON field name (itemId,
+// parentId, title, markdown, query, propertiesJson or specJson). Two typed arguments
+// (templateId and itemId) can map onto the same flat field (itemId) across different
+// operations, so this is a small named-field assignment rather than a struct literal.
+func setFlatString(flat *flatToolArgs, field, value string) {
+	switch field {
+	case "itemId":
+		flat.ItemID = value
+	case "parentId":
+		flat.ParentID = value
+	case "title":
+		flat.Title = value
+	case "markdown":
+		flat.Markdown = value
+	case "query":
+		flat.Query = value
+	case "propertiesJson":
+		flat.PropertiesJSON = value
+	case "specJson":
+		flat.SpecJSON = value
+	}
 }
 
 func (a *account) listModels(ctx context.Context) error {
@@ -57,9 +190,13 @@ func (a *account) listModels(ctx context.Context) error {
 	}
 	var page struct {
 		Data []struct {
-			Model       string `json:"model"`
-			DisplayName string `json:"displayName"`
-			IsDefault   bool   `json:"isDefault"`
+			Model                     string `json:"model"`
+			DisplayName               string `json:"displayName"`
+			IsDefault                 bool   `json:"isDefault"`
+			SupportedReasoningEfforts []struct {
+				ReasoningEffort string `json:"reasoningEffort"`
+			} `json:"supportedReasoningEfforts"`
+			DefaultReasoningEffort string `json:"defaultReasoningEffort"`
 		} `json:"data"`
 	}
 	if len(raw) > 256<<10 || json.Unmarshal(raw, &page) != nil || len(page.Data) > 100 {
@@ -68,13 +205,74 @@ func (a *account) listModels(ctx context.Context) error {
 	models := []Model{}
 	for _, entry := range page.Data {
 		if entry.Model != "" && len(entry.Model) <= 160 && len(entry.DisplayName) <= 200 {
-			models = append(models, Model{entry.Model, entry.DisplayName, entry.IsDefault})
+			efforts := make([]string, 0, len(entry.SupportedReasoningEfforts))
+			for _, supported := range entry.SupportedReasoningEfforts {
+				if supported.ReasoningEffort != "" && len(supported.ReasoningEffort) <= 40 {
+					efforts = append(efforts, supported.ReasoningEffort)
+				}
+			}
+			models = append(models, Model{
+				ID:               entry.Model,
+				Name:             entry.DisplayName,
+				Default:          entry.IsDefault,
+				supportedEfforts: efforts,
+				defaultEffort:    entry.DefaultReasoningEffort,
+			})
 		}
 	}
 	a.mu.Lock()
 	a.models = models
 	a.mu.Unlock()
 	return nil
+}
+
+// effortFor decides the "effort" value, if any, to send on turn/start: the owner's configured
+// value for mode (chatEffort/consultEffort), only when the effective model - explicitModel, or
+// else whichever model model/list marked default - actually advertises it. Loads the model list
+// once if it has not been loaded yet. Never fails the turn: any problem (the list call failing,
+// no default model, the value not being advertised) means an empty result, which send() must
+// treat as "omit effort", not as a reason to fail.
+func (a *account) effortFor(ctx context.Context, mode, explicitModel string) string {
+	configured := a.chatEffort
+	if mode == "consult" {
+		configured = a.consultEffort
+	}
+	if configured == "" {
+		return ""
+	}
+	a.mu.Lock()
+	loaded := len(a.models) > 0
+	a.mu.Unlock()
+	if !loaded {
+		if err := a.listModels(ctx); err != nil {
+			return ""
+		}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var effective *Model
+	for i := range a.models {
+		if explicitModel != "" {
+			if a.models[i].ID == explicitModel {
+				effective = &a.models[i]
+				break
+			}
+			continue
+		}
+		if a.models[i].Default {
+			effective = &a.models[i]
+			break
+		}
+	}
+	if effective == nil {
+		return ""
+	}
+	for _, supported := range effective.supportedEfforts {
+		if supported == configured {
+			return configured
+		}
+	}
+	return ""
 }
 
 func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMessage) bool {
@@ -87,7 +285,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		CallID    string          `json:"callId"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
-	if json.Unmarshal(raw, &p) != nil || p.Tool != "nix_workspace" || p.CallID == "" || len(p.CallID) > 200 {
+	if json.Unmarshal(raw, &p) != nil || p.Tool == "" || p.CallID == "" || len(p.CallID) > 200 {
 		return false
 	}
 	a.mu.Lock()
@@ -96,6 +294,20 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		if c.ThreadID != p.ThreadID || c.State != "thinking" {
 			continue
 		}
+		// Accept p.Tool only when it is one of this conversation mode's typed tool names
+		// (catalog.go's toolNamesFor); nix_workspace and anything else the provider might
+		// send is rejected here, before any of the checks below run.
+		if _, allowed := toolNamesFor(c.Mode)[p.Tool]; !allowed {
+			return false
+		}
+		flatArguments, reason := flattenToolCall(p.Tool, p.Arguments)
+		if reason != "" {
+			if peer, ok := a.transport.(toolTransport); ok {
+				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
+				return true
+			}
+			return false
+		}
 		// The only operation allowed without workspace access is local blueprint
 		// validation in Design mode. Reject everything else before returning a tool
 		// error, preserving the no-consent boundary for workspace operations.
@@ -103,18 +315,18 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			var args struct {
 				Operation string `json:"operation"`
 			}
-			if c.Mode != "consult" || json.Unmarshal(p.Arguments, &args) != nil || args.Operation != "validate_blueprint" {
+			if c.Mode != "consult" || json.Unmarshal(flatArguments, &args) != nil || args.Operation != "validate_blueprint" {
 				return false
 			}
 		}
-		if reason := validateToolArguments(p.Arguments, c.Mode); reason != "" {
+		if reason := validateToolArguments(flatArguments, c.Mode); reason != "" {
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
 				return true
 			}
 			return false
 		}
-		fingerprint, readOnly := toolIdentity(string(p.Arguments))
+		fingerprint, readOnly := toolIdentity(string(flatArguments))
 		readMayBeStale := false
 		for i := len(c.Tools) - 1; i >= 0; i-- {
 			t := &c.Tools[i]
@@ -156,7 +368,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		if len(c.Tools) >= 20 {
 			return false
 		}
-		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(p.Arguments), Status: "pending", rpcID: append(json.RawMessage{}, id...)})
+		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...)})
 		if a.saveLocked(key) != nil {
 			c.Tools = c.Tools[:len(c.Tools)-1]
 			return false
