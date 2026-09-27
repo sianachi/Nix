@@ -19,7 +19,8 @@ public sealed record SavePetSettingsRequest(long ExpectedRevision, PetSettings S
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1056", Justification = "The wire contract uses an empty string when no device login is pending; clients allowlist the provider URL.")]
 public sealed record PetConnectionResponse(string Provider, string Status, string Reason, bool CanConnect,
     string VerificationUrl = "", string UserCode = "", string State = "idle", IReadOnlyList<PetMessage>? Messages = null,
-    IReadOnlyList<PetModel>? Models = null, IReadOnlyList<PetToolCall>? Tools = null, IReadOnlyList<PetHistoryEntry>? History = null);
+    IReadOnlyList<PetModel>? Models = null, IReadOnlyList<PetToolCall>? Tools = null, IReadOnlyList<PetHistoryEntry>? History = null,
+    long Revision = 0);
 
 /// <summary>A private archived conversation in this workspace and pet.</summary>
 public sealed record PetHistoryEntry(string Id, string Title, string CreatedAt);
@@ -40,12 +41,12 @@ public sealed record PetMessage(string Id, string Role, string Text, IReadOnlyLi
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
-    string Mode = "");
+    string Mode = "", long After = 0);
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,
     string ItemId, string ItemTitle, string SharedText, string Model, bool WorkspaceAccess,
-    string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode);
+    string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode, long After);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PetSettings))]

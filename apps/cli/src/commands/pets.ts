@@ -22,6 +22,7 @@ const RUNTIME_OPERATIONS = [
   'disconnect',
   'models',
   'read',
+  'watch',
   'send',
   'interrupt',
   'reset',
@@ -43,6 +44,8 @@ export interface PetOptions {
   readonly toolResult?: string;
   readonly toolSuccess?: boolean;
   readonly mode?: string;
+  /** Only used with `--operation watch`: the last known revision to wait past. */
+  readonly after?: number;
 }
 
 export interface PetToolRunOptions extends PetOptions {
@@ -102,9 +105,24 @@ export async function executePetRuntime(
 ): Promise<unknown> {
   validatePetRuntimeRequest(operation, options);
   if (operation === 'settings') return client.query(pets.settings());
+  if (operation === 'watch') {
+    // A GET long-poll, never the writes-limited POST path. validatePetRuntimeRequest already
+    // required --workspace and --pet for watch; re-checking here narrows the type instead of
+    // asserting it.
+    const { workspace, pet } = options;
+    if (!workspace || !pet) throw new Error('Provide --workspace and --pet.');
+    return client.query(
+      pets.watchRuntime({
+        workspaceId: workspace,
+        petId: pet,
+        ...(options.mode ? { mode: options.mode } : {}),
+        after: options.after ?? 0,
+      }),
+    );
+  }
   return client.execute(
     pets.runtime({
-      operation: operation as Exclude<RuntimeOperation, 'settings'>,
+      operation: operation as Exclude<RuntimeOperation, 'settings' | 'watch'>,
       ...(options.workspace ? { workspaceId: options.workspace } : {}),
       ...(options.pet ? { petId: options.pet } : {}),
       text: options.message ?? '',
@@ -133,7 +151,9 @@ function validatePetRuntimeRequest(
     throw new Error('--mode must be chat or consult.');
   if (operation === 'send' && !options.message?.trim()) throw new Error('Provide --message.');
   if (
-    ['read', 'send', 'interrupt', 'reset', 'tool_claim', 'tool_result'].includes(operation) &&
+    ['read', 'watch', 'send', 'interrupt', 'reset', 'tool_claim', 'tool_result'].includes(
+      operation,
+    ) &&
     (!options.workspace || !options.pet)
   )
     throw new Error('Provide --workspace and --pet.');

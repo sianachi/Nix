@@ -83,6 +83,7 @@ export const petConnectionSchema = z.object({
     .max(20)
     .nullable()
     .default([]),
+  revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
 });
 
 export type PetProfile = z.infer<typeof petProfileSchema>;

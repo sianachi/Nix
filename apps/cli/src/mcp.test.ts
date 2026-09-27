@@ -987,6 +987,47 @@ describe('nixctl mcp workspace tools', () => {
     }
   });
 
+  it('forwards pet_runtime watch as a GET long-poll with after as a query parameter', async () => {
+    const workspaceId = '22222222-2222-4222-8222-222222222222';
+    const petId = '33333333-3333-4333-8333-333333333333';
+    const requests: { method: string; url: string }[] = [];
+    const fetchImpl: FetchImpl = (url, init) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        );
+      }
+      requests.push({ method: init?.method ?? 'GET', url });
+      return Promise.resolve(
+        Response.json({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: 'Connected',
+          canConnect: false,
+          revision: 9,
+        }),
+      );
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const result = await connected.client.callTool({
+        name: 'pet_runtime',
+        arguments: { operation: 'watch', workspaceId, petId, mode: 'chat', after: 5 },
+      });
+      expect(result.isError).not.toBe(true);
+      const watchCall = requests.find((request) => request.url.includes('/pets/runtime/watch'));
+      expect(watchCall?.method).toBe('GET');
+      const query = new URL(watchCall?.url ?? '').searchParams;
+      expect(query.get('workspaceId')).toBe(workspaceId);
+      expect(query.get('petId')).toBe(petId);
+      expect(query.get('mode')).toBe('chat');
+      expect(query.get('after')).toBe('5');
+    } finally {
+      await connected.close();
+    }
+  });
+
   it('rejects pet_runtime tool_claim without a toolId before contacting the service', async () => {
     const requests: string[] = [];
     const fetchImpl: FetchImpl = (url) => {

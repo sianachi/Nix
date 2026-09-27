@@ -13,7 +13,9 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -39,6 +41,9 @@ type Request struct {
 	ToolResult      string `json:"toolResult"`
 	ToolSuccess     bool   `json:"toolSuccess"`
 	HistoryID       string `json:"historyId"`
+	// After is the client's last known conversation revision. Only "watch" uses it: the
+	// operation waits for a change past this revision instead of returning immediately.
+	After int64 `json:"after"`
 }
 
 type Action struct {
@@ -66,6 +71,8 @@ type Response struct {
 	Models          []Model        `json:"models"`
 	Tools           []ToolCall     `json:"tools"`
 	History         []HistoryEntry `json:"history"`
+	// Revision lets a watcher tell whether anything changed since it last looked.
+	Revision int64 `json:"revision"`
 }
 
 type conversation struct {
@@ -80,6 +87,9 @@ type conversation struct {
 	Started         time.Time  `json:"-"`
 	WorkspaceAccess bool       `json:"-"`
 	Tools           []ToolCall `json:"tools"`
+	// Revision is never persisted: every load (fresh or restored) gets a new one, monotonic
+	// across worker restarts because it is seeded from the clock rather than a counter.
+	Revision int64 `json:"-"`
 }
 
 type account struct {
@@ -99,6 +109,12 @@ type account struct {
 	// consultModels is the owner's ordered model preference for consult (Design mode)
 	// threads, from NIX_COMPANION_CONSULT_MODELS. Empty means the provider default.
 	consultModels []string
+	// changed is closed and replaced every time bumpLocked runs, waking every watcher
+	// blocked on it. Read under mu, then selected on after mu is released.
+	changed chan struct{}
+	// watchers counts concurrent "watch" operations for this account, capping them so a
+	// pile of open long-polls cannot exhaust the worker.
+	watchers int32
 }
 
 type Manager struct {
@@ -214,11 +230,15 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Companion runtime unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	if !a.op.TryLock() {
-		http.Error(w, "Companion is busy", http.StatusConflict)
-		return
+	// A watch or a plain read never claims a.op: they must never see "Companion is busy"
+	// while a send or tool operation holds it. Everything else keeps the exclusive lock.
+	if request.Operation != "read" && request.Operation != "watch" {
+		if !a.op.TryLock() {
+			http.Error(w, "Companion is busy", http.StatusConflict)
+			return
+		}
+		defer a.op.Unlock()
 	}
-	defer a.op.Unlock()
 	a.mu.Lock()
 	a.last = time.Now()
 	a.mu.Unlock()
@@ -237,7 +257,7 @@ func validRequest(r Request) bool {
 	switch r.Operation {
 	case "status", "connect", "disconnect", "models":
 		return true
-	case "read", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
+	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
 		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && len(r.Text) <= 8000 && len(r.SharedText) <= 16000 && len(r.Instructions) <= 4000 && len(r.Model) <= 160 && len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
@@ -387,6 +407,13 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 			if err != nil {
 				return Response{}, err
 			}
+		} else if r.Operation == "watch" {
+			// Never touches the transport; only waits for bumpLocked to close a.changed,
+			// the request context to end, or its own timeout, whichever comes first.
+			if atomic.AddInt32(&a.watchers, 1) <= 16 {
+				a.awaitChange(ctx, key, r.After, 20*time.Second)
+			}
+			atomic.AddInt32(&a.watchers, -1)
 		} else if state == "thinking" {
 			a.mu.Lock()
 			expired := time.Since(c.Started) > 15*time.Minute
@@ -395,12 +422,20 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 			if !expired {
 				return a.snapshot(key), nil
 			}
-			a.cancelTools(key)
-			_, _ = a.transport.Call(ctx, "turn/interrupt", map[string]string{"threadId": thread, "turnId": turn})
-			a.mu.Lock()
-			c.State = "error"
-			c.Reason = "The response timed out. You can send another message."
-			a.mu.Unlock()
+			// ServeHTTP no longer holds a.op for "read", so this 15-minute expiry cleanup
+			// (the only place a plain read can reach) manages its own non-blocking claim:
+			// when a send or tool operation is using the transport, skip it this time
+			// rather than block a read that must never wait.
+			if a.op.TryLock() {
+				a.cancelTools(key)
+				_, _ = a.transport.Call(ctx, "turn/interrupt", map[string]string{"threadId": thread, "turnId": turn})
+				a.mu.Lock()
+				c.State = "error"
+				c.Reason = "The response timed out. You can send another message."
+				a.bumpLocked(c)
+				a.mu.Unlock()
+				a.op.Unlock()
+			}
 		}
 		return a.snapshot(key), nil
 	}
@@ -421,8 +456,57 @@ func (a *account) snapshot(key string) Response {
 		}
 		r.Messages = append([]Message{}, c.Messages...)
 		r.Tools = append([]ToolCall{}, c.Tools...)
+		r.Revision = c.Revision
 	}
 	return r
+}
+
+// bumpLocked marks c as changed and wakes every watcher blocked on a.changed. Called with
+// a.mu held: from saveLocked, so every persisted mutation bumps, and explicitly at every
+// mutation that does not save (a delta, a final answer append, an error or reason set).
+func (a *account) bumpLocked(c *conversation) {
+	now := time.Now().UnixMilli()
+	if now <= c.Revision {
+		now = c.Revision + 1
+	}
+	c.Revision = now
+	if a.changed != nil {
+		close(a.changed)
+	}
+	a.changed = make(chan struct{})
+}
+
+// awaitChange blocks until key's conversation revision exceeds after, ctx is done, or
+// timeout elapses, whichever comes first. It never touches the transport.
+func (a *account) awaitChange(ctx context.Context, key string, after int64, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for {
+		a.mu.Lock()
+		c := a.conversations[key]
+		if c == nil || c.Revision > after {
+			a.mu.Unlock()
+			return
+		}
+		if a.changed == nil {
+			a.changed = make(chan struct{})
+		}
+		ch := a.changed
+		a.mu.Unlock()
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return
+		}
+		timer := time.NewTimer(remaining)
+		select {
+		case <-ch:
+			timer.Stop()
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			return
+		}
+	}
 }
 
 func (a *account) load(key string) error {
@@ -451,18 +535,27 @@ func (a *account) load(key string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	// Never persisted (json:"-"): every load, fresh or restored, gets a revision seeded
+	// from the clock so it stays monotonic across a worker restart.
+	c.Revision = time.Now().UnixMilli()
 	a.conversations[key] = c
 	return nil
 }
 
 func (a *account) saveLocked(key string) error {
 	// Bounded provider conversation cache; workspace state is still owned by Core.
+	c := a.conversations[key]
+	a.bumpLocked(c)
+	// A streaming draft (id contains ":draft:") is never durable: encode a copy with
+	// drafts removed rather than the live conversation.
+	persisted := *c
+	persisted.Messages = withoutDrafts(c.Messages)
 	path := filepath.Join(a.home, key+".json")
 	f, err := os.OpenFile(path+".tmp", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
-	err = json.NewEncoder(f).Encode(a.conversations[key])
+	err = json.NewEncoder(f).Encode(&persisted)
 	if err == nil {
 		err = f.Sync()
 	}
@@ -565,19 +658,18 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.Tools = []ToolCall{}
 	c.Started = time.Now()
 	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text, Actions: []Action{}})
-	if len(c.Messages) > 16 {
-		c.Messages = c.Messages[len(c.Messages)-16:]
-	}
+	c.Messages = trimMessages(c.Messages, 16)
 	err = a.saveLocked(key)
 	a.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	raw, err = a.transport.Call(ctx, "turn/start", map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}, "outputSchema": outputSchema()})
+	raw, err = a.transport.Call(ctx, "turn/start", map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}})
 	if err != nil {
 		a.mu.Lock()
 		c.State = "error"
 		c.Reason = "The response could not start. Check the selected model and ChatGPT connection, then retry."
+		a.bumpLocked(c)
 		a.mu.Unlock()
 		return err
 	}
@@ -595,8 +687,62 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	return nil
 }
 
-func outputSchema() map[string]any {
-	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"answer"}, "properties": map[string]any{"answer": map[string]string{"type": "string"}}}
+// withoutDrafts returns messages with every streaming draft (id contains ":draft:")
+// removed. Drafts are in-memory-only progress; only the final message is durable.
+func withoutDrafts(messages []Message) []Message {
+	clean := make([]Message, 0, len(messages))
+	for _, m := range messages {
+		if strings.Contains(m.ID, ":draft:") {
+			continue
+		}
+		clean = append(clean, m)
+	}
+	return clean
+}
+
+// draftID names the one streaming draft message for an item within a turn: stable across
+// repeated deltas for the same item, and distinct across items and turns.
+func draftID(requestID, itemID string) string {
+	digest := sha256.Sum256([]byte(itemID))
+	return fmt.Sprintf("%s:draft:%x", requestID, digest[:16])
+}
+
+// trimMessages keeps at most limit non-draft messages, dropping the oldest first. A
+// streaming draft (id contains ":draft:") is never counted against the limit or evicted
+// to make room: it is provisional and never persisted, but still visible while it streams.
+func trimMessages(messages []Message, limit int) []Message {
+	real := 0
+	for _, m := range messages {
+		if !strings.Contains(m.ID, ":draft:") {
+			real++
+		}
+	}
+	if real <= limit {
+		return messages
+	}
+	drop := real - limit
+	kept := make([]Message, 0, len(messages))
+	for _, m := range messages {
+		if drop > 0 && !strings.Contains(m.ID, ":draft:") {
+			drop--
+			continue
+		}
+		kept = append(kept, m)
+	}
+	return kept
+}
+
+// truncateUTF8 caps s at limit bytes, cutting back to the nearest rune boundary instead of
+// splitting one, so a capped delta or answer is always valid text.
+func truncateUTF8(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }
 
 func (a *account) notify(method string, raw json.RawMessage) {
@@ -623,6 +769,8 @@ func (a *account) notify(method string, raw json.RawMessage) {
 	}
 	var p struct {
 		ThreadID string `json:"threadId"`
+		ItemID   string `json:"itemId"`
+		Delta    string `json:"delta"`
 		Item     struct {
 			ID    string `json:"id"`
 			Type  string `json:"type"`
@@ -639,6 +787,37 @@ func (a *account) notify(method string, raw json.RawMessage) {
 	for key, c := range a.conversations {
 		if c.ThreadID != p.ThreadID || p.ThreadID == "" {
 			continue
+		}
+		if method == "item/agentMessage/delta" {
+			if c.State != "thinking" || p.ItemID == "" || len(p.ItemID) > 200 || p.Delta == "" {
+				continue
+			}
+			id := draftID(c.RequestID, p.ItemID)
+			index := -1
+			for i := range c.Messages {
+				if c.Messages[i].ID == id {
+					index = i
+					break
+				}
+			}
+			if index < 0 {
+				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: truncateUTF8(p.Delta, 32000), Actions: []Action{}})
+				a.bumpLocked(c)
+			} else if remaining := 32000 - len(c.Messages[index].Text); remaining > 0 {
+				c.Messages[index].Text += truncateUTF8(p.Delta, remaining)
+				a.bumpLocked(c)
+			}
+		}
+		if method == "item/completed" && p.Item.Type == "agentMessage" && len(p.Item.ID) <= 200 {
+			// The draft is only ever provisional; the commentary or final message below
+			// replaces it once the item is done.
+			id := draftID(c.RequestID, p.Item.ID)
+			for i := range c.Messages {
+				if c.Messages[i].ID == id {
+					c.Messages = append(c.Messages[:i], c.Messages[i+1:]...)
+					break
+				}
+			}
 		}
 		if method == "item/completed" && p.Item.Type == "agentMessage" && p.Item.Phase == "commentary" {
 			text := strings.TrimSpace(p.Item.Text)
@@ -666,25 +845,27 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			}
 			if !seen {
 				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: text, Actions: []Action{}})
-				if len(c.Messages) > 40 {
-					c.Messages = c.Messages[len(c.Messages)-40:]
-				}
+				c.Messages = trimMessages(c.Messages, 40)
 				_ = a.saveLocked(key)
 			}
 		}
 		if method == "item/completed" && p.Item.Type == "agentMessage" && p.Item.Phase != "commentary" {
-			var answer struct {
+			// The final answer is plain text. A thread started before this change may still
+			// send the legacy {"answer": string} envelope; unwrap it so old threads keep
+			// working. Anything else, JSON or not, is used exactly as written.
+			text := p.Item.Text
+			var envelope struct {
 				Answer string `json:"answer"`
 			}
-			if len(p.Item.Text) > 32000 || json.Unmarshal([]byte(p.Item.Text), &answer) != nil {
-				c.State = "error"
-				c.Reason = "The companion returned an invalid response. Please retry."
-				continue
+			if json.Unmarshal([]byte(text), &envelope) == nil && strings.TrimSpace(envelope.Answer) != "" {
+				text = envelope.Answer
 			}
-			c.Messages = append(c.Messages, Message{ID: c.RequestID + ":assistant", Role: "assistant", Text: answer.Answer, Actions: []Action{}})
+			c.Messages = append(c.Messages, Message{ID: c.RequestID + ":assistant", Role: "assistant", Text: truncateUTF8(text, 32000), Actions: []Action{}})
+			a.bumpLocked(c)
 		}
 		if method == "turn/completed" {
 			a.cancelToolsLocked(key)
+			c.Messages = withoutDrafts(c.Messages)
 			c.TurnID = ""
 			if p.Turn.Status == "completed" && c.State != "error" {
 				c.State = "success"
@@ -699,6 +880,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			if err := a.saveLocked(key); err != nil {
 				c.State = "error"
 				c.Reason = "Conversation could not be saved."
+				a.bumpLocked(c)
 			}
 		}
 	}

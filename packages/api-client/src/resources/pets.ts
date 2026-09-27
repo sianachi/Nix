@@ -93,6 +93,34 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
       mode: input.mode ?? '',
+      // "watch" is the only operation that reads this; POST /runtime never accepts it.
+      after: 0,
     } satisfies components['schemas']['PetRuntimeRequest'],
     invalidates: [['me', 'pets', 'connection']],
+  });
+
+export interface WatchRuntimeInput {
+  readonly workspaceId: string;
+  readonly petId: string;
+  readonly mode?: 'chat' | 'consult';
+  /** The caller's last known revision; the server waits for a change past it. */
+  readonly after?: number;
+}
+
+/**
+ * The GET long-poll counterpart to `runtime`: never a write, never rate limited by the
+ * writes policy, and never de-duplicated the way a cached query would be, since each call
+ * carries a different `after`.
+ */
+export const watchRuntime = (input: WatchRuntimeInput): QueryEndpoint<PetConnection> =>
+  defineQuery({
+    operation: 'pets.watchRuntime',
+    path: '/api/v1/me/pets/runtime/watch',
+    schema: petConnectionSchema,
+    query: {
+      workspaceId: input.workspaceId,
+      petId: input.petId,
+      ...(input.mode ? { mode: input.mode } : {}),
+      after: input.after ?? 0,
+    },
   });

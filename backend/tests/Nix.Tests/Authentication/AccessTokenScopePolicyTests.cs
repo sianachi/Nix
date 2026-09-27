@@ -134,6 +134,7 @@ public sealed class AccessTokenScopePolicyTests
         ["SavePetSettings"] = Requirement.Write,
         ["GetPetConnection"] = Requirement.InteractiveOnly,
         ["PetRuntime"] = Requirement.InteractiveOnly,
+        ["WatchPetRuntime"] = Requirement.InteractiveOnly,
         ["CreateItem"] = Requirement.Write,
         ["CreateStructuredItem"] = Requirement.Write,
         ["SubmitPublicForm"] = Requirement.Write,

@@ -15,12 +15,30 @@ namespace Nix.Features.Pets;
 public sealed class PetWorkerClient(HttpClient http, IConfiguration configuration,
     INixSessionContextAccessor session, NixDispatcher dispatcher, IPermissionResolver permissions)
 {
-    /// <summary>Validates the caller's scope before forwarding a bounded companion operation.</summary>
-    public async Task<Result<PetConnectionResponse>> ExecuteAsync(PetRuntimeRequest request, CancellationToken cancellationToken)
+    /// <summary>Validates the caller's scope before forwarding a bounded companion operation.
+    /// POST /runtime never accepts "watch": only <see cref="ExecuteWatchAsync"/> reaches the
+    /// worker with that operation, through the same permission and identity checks below.</summary>
+    public Task<Result<PetConnectionResponse>> ExecuteAsync(PetRuntimeRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.Operation == "watch")
+        {
+            return Task.FromResult(Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Use the watch endpoint for this operation.")));
+        }
+
+        return ExecuteCoreAsync(request, cancellationToken);
+    }
+
+    /// <summary>The GET watch path: builds the same worker request <see cref="ExecuteAsync"/>'s
+    /// "read" builds - same identity derivation, same workspace permission checks, same persona
+    /// handling - with operation "watch" and the client's last known revision.</summary>
+    public Task<Result<PetConnectionResponse>> ExecuteWatchAsync(Guid workspaceId, Guid petId, string mode, long after, CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(new PetRuntimeRequest("watch", workspaceId, petId, Mode: mode, After: after), cancellationToken);
+
+    private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, CancellationToken cancellationToken)
+    {
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
-        if (request.Operation is not ("status" or "connect" or "disconnect" or "models" or "read" or "send" or "interrupt" or "reset" or "tool_claim" or "tool_result" or "history" or "read_history" or "delete_history")
+        if (request.Operation is not ("status" or "connect" or "disconnect" or "models" or "read" or "watch" or "send" or "interrupt" or "reset" or "tool_claim" or "tool_result" or "history" or "read_history" or "delete_history")
             || request.Text is null || request.SharedText is null || request.Text.Length > 8000 || request.SharedText.Length > 16000
             || request.Model is null || request.Model.Length > 160 || request.ToolId is null || request.ToolId.Length > 200
             || request.ToolResult is null || request.ToolResult.Length > 32000
@@ -97,7 +115,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
-            request.Mode), PetJsonContext.Default.PetWorkerRequest);
+            request.Mode, request.After), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

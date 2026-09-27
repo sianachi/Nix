@@ -178,12 +178,35 @@ func TestProtocolPersistenceAndDuplicateSend(t *testing.T) {
 	}
 }
 
-func TestMalformedProviderMessageFailsClosed(t *testing.T) {
-	a := &account{home: t.TempDir(), conversations: map[string]*conversation{"session": {ThreadID: "thread", State: "thinking"}}}
+// TestPlainTextFinalAnswerIsStoredAsIs proves L2.2: the final agent message is plain text
+// now that outputSchema is gone, so text that is not JSON at all is stored verbatim and the
+// turn still succeeds, rather than failing the turn the way a non-JSON answer once did.
+func TestPlainTextFinalAnswerIsStoredAsIs(t *testing.T) {
+	a := &account{home: t.TempDir(), conversations: map[string]*conversation{"session": {ThreadID: "thread", RequestID: "req", State: "thinking"}}}
 	a.notify("item/completed", json.RawMessage(`{"threadId":"thread","item":{"type":"agentMessage","text":"not JSON"}}`))
 	a.notify("turn/completed", json.RawMessage(`{"threadId":"thread","turn":{"status":"completed"}}`))
-	if a.snapshot("session").State != "error" {
-		t.Fatal("invalid response reported as successful")
+	got := a.snapshot("session")
+	if got.State != "success" {
+		t.Fatalf("plain text answer failed the turn: %+v", got)
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Text != "not JSON" {
+		t.Fatalf("plain text answer not stored as-is: %+v", got.Messages)
+	}
+}
+
+// TestOversizeFinalAnswerIsTruncatedNotErrored proves L2.2: an answer over the 32000-byte
+// cap is truncated on a UTF-8 boundary rather than failing the turn.
+func TestOversizeFinalAnswerIsTruncatedNotErrored(t *testing.T) {
+	a := &account{home: t.TempDir(), conversations: map[string]*conversation{"session": {ThreadID: "thread", RequestID: "req", State: "thinking"}}}
+	message, _ := json.Marshal(map[string]any{"threadId": "thread", "item": map[string]string{"type": "agentMessage", "text": strings.Repeat("a", 32200)}})
+	a.notify("item/completed", message)
+	a.notify("turn/completed", json.RawMessage(`{"threadId":"thread","turn":{"status":"completed"}}`))
+	got := a.snapshot("session")
+	if got.State != "success" {
+		t.Fatalf("oversize answer failed the turn: %+v", got)
+	}
+	if len(got.Messages) != 1 || len(got.Messages[0].Text) != 32000 {
+		t.Fatalf("oversize answer not truncated to 32000 bytes: %d", len(got.Messages[0].Text))
 	}
 }
 

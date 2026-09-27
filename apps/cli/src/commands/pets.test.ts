@@ -160,6 +160,40 @@ describe('pet commands', () => {
       ),
     ).rejects.toThrow('Provide --tool-id and --tool-result.');
   });
+  it('drives watch through a GET long-poll and prints the revision', async () => {
+    let query: URLSearchParams | undefined;
+    server.use(
+      http.get(`${CORE}/api/v1/me/pets/runtime/watch`, ({ request }) => {
+        query = new URL(request.url).searchParams;
+        return HttpResponse.json({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: 'Connected',
+          canConnect: false,
+          revision: 7,
+        });
+      }),
+    );
+    const result = await capture(() =>
+      petCommand(
+        undefined,
+        'watch',
+        { apiUrl: CORE, workspace: WORKSPACE, pet: PET, mode: 'chat', after: 3 },
+        { json: true, isTty: false },
+        { env: { NIX_SESSION_TOKEN: 'ephemeral-session' } },
+      ),
+    );
+    expect(query?.get('workspaceId')).toBe(WORKSPACE);
+    expect(query?.get('petId')).toBe(PET);
+    expect(query?.get('mode')).toBe('chat');
+    expect(query?.get('after')).toBe('3');
+    expect(result).toMatchObject({ revision: 7 });
+  });
+  it('requires --workspace and --pet for watch before contacting the service', async () => {
+    await expect(
+      petCommand(undefined, 'watch', {}, { json: true, isTty: false }),
+    ).rejects.toThrow('Provide --workspace and --pet.');
+  });
 });
 
 async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; done: () => Promise<void> }> {

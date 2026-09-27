@@ -1231,7 +1231,7 @@ export async function createWorkspaceMcpServer(
     'pet_runtime',
     {
       description:
-        'Drive a pet companion runtime: status, connect, send, tool_claim/tool_result, and settings. Uses a short-lived interactive session, never expanded PAT scopes.',
+        'Drive a pet companion runtime: status, connect, send, watch (long-poll for a change past `after`), tool_claim/tool_result, and settings. Uses a short-lived interactive session, never expanded PAT scopes.',
       inputSchema: {
         operation: z.enum([
           'status',
@@ -1239,6 +1239,7 @@ export async function createWorkspaceMcpServer(
           'disconnect',
           'models',
           'read',
+          'watch',
           'send',
           'interrupt',
           'reset',
@@ -1256,6 +1257,7 @@ export async function createWorkspaceMcpServer(
         toolResult: z.string().max(32_000).optional(),
         toolSuccess: z.boolean().optional(),
         mode: z.enum(['chat', 'consult']).optional(),
+        after: z.number().int().min(0).optional(),
         apiUrl: z.string().trim().min(1).optional(),
       },
     },
@@ -1273,6 +1275,7 @@ export async function createWorkspaceMcpServer(
           ...(input.toolResult !== undefined ? { toolResult: input.toolResult } : {}),
           ...(input.toolSuccess !== undefined ? { toolSuccess: input.toolSuccess } : {}),
           ...(input.mode !== undefined ? { mode: input.mode } : {}),
+          ...(input.after !== undefined ? { after: input.after } : {}),
         });
       }),
   );

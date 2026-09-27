@@ -48,6 +48,51 @@ public sealed class PetWorkerClientModeTests
         Assert.Equal("consult", body.RootElement.GetProperty("mode").GetString());
     }
 
+    [Fact]
+    public async Task A_watch_operation_posted_through_ExecuteAsync_is_refused_before_reaching_the_worker()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteAsync(new("watch", WorkspaceGuid, PetGuid), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.invalid_request", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task ExecuteWatchAsync_reaches_the_worker_with_the_watch_operation_and_after_value()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "chat", 42, Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, handler.Calls);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.Equal("watch", body.RootElement.GetProperty("operation").GetString());
+        Assert.Equal("chat", body.RootElement.GetProperty("mode").GetString());
+        Assert.Equal(42, body.RootElement.GetProperty("after").GetInt64());
+    }
+
+    [Fact]
+    public async Task ExecuteWatchAsync_is_refused_exactly_like_read_for_a_foreign_workspace()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new DenyReadPermissions());
+
+        var result = await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "chat", 0, Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.not_found", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
     private static IConfiguration Configuration() => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
     {
         ["Nix:Pets:WorkerUrl"] = "http://worker:8301",
@@ -88,6 +133,17 @@ public sealed class PetWorkerClientModeTests
         public ValueTask<bool> CanReadWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) => ValueTask.FromResult(true);
         public ValueTask<bool> CanWriteWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) => ValueTask.FromResult(true);
         public ValueTask<bool> CanManageWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) => ValueTask.FromResult(true);
+        public ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<WorkspaceId>>([]);
+        public ValueTask<bool> IsTenantAdministratorAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
+    }
+
+    /// <summary>Denies workspace read: proves watch is refused through the same permission
+    /// check "read" goes through, exactly like a foreign workspace or a caller with no access.</summary>
+    private sealed class DenyReadPermissions : IPermissionResolver
+    {
+        public ValueTask<bool> CanReadWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        public ValueTask<bool> CanWriteWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) => ValueTask.FromResult(false);
+        public ValueTask<bool> CanManageWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) => ValueTask.FromResult(false);
         public ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<WorkspaceId>>([]);
         public ValueTask<bool> IsTenantAdministratorAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }

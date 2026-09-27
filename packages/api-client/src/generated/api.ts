@@ -1207,6 +1207,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/pets/runtime/watch': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['WatchPetRuntime'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/graph': {
     parameters: {
       query?: never;
@@ -3054,6 +3070,11 @@ export interface components {
       models?: null | components['schemas']['PetModel'][];
       tools?: null | components['schemas']['PetToolCall'][];
       history?: null | components['schemas']['PetHistoryEntry'][];
+      /**
+       * Format: int64
+       * @default 0
+       */
+      revision: number | string;
     };
     PetHistoryEntry: {
       id: string;
@@ -3108,6 +3129,11 @@ export interface components {
       historyId?: null | string;
       /** @default  */
       mode: string;
+      /**
+       * Format: int64
+       * @default 0
+       */
+      after: number | string;
     };
     PetSettings: {
       enabled: boolean;
@@ -7363,6 +7389,31 @@ export interface operations {
         'application/json': components['schemas']['PetRuntimeRequest'];
       };
     };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+    };
+  };
+  WatchPetRuntime: {
+    parameters: {
+      query: {
+        workspaceId: string;
+        petId: string;
+        mode?: string;
+        after?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description OK */
       200: {

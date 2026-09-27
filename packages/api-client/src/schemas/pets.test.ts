@@ -50,6 +50,23 @@ describe('pet boundary schemas', () => {
       }).success,
     ).toBe(true);
     expect(
+      petConnectionSchema.parse({
+        provider: 'chatgpt',
+        status: 'connected',
+        reason: '',
+        canConnect: false,
+      }).revision,
+    ).toBe(0);
+    expect(
+      petConnectionSchema.parse({
+        provider: 'chatgpt',
+        status: 'connected',
+        reason: '',
+        canConnect: false,
+        revision: 42,
+      }).revision,
+    ).toBe(42);
+    expect(
       petConnectionSchema.safeParse({
         provider: 'chatgpt',
         status: 'connecting',

@@ -180,6 +180,12 @@ export function buildProgram(): Command {
     .option('--tool-result <text>', 'the outcome text to post with tool_result')
     .option('--tool-success', 'mark the posted tool_result a success')
     .option('--mode <mode>', 'chat or consult')
+    .option(
+      '--after <revision>',
+      'with --operation watch: the last known revision to wait past',
+      (value: string) => Number(value),
+      0,
+    )
     .action(async (operation: string, options: PetOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() => petCommand(flags.profile, operation, options, outputOptions(flags.json)));
