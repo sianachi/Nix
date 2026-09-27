@@ -675,3 +675,320 @@ export const ConversationPhone = {
   ),
 };
 export const DarkConversationPhone = { ...ConversationPhone, globals: { ground: 'dark' } };
+
+/** A desktop-width companion, wired the same way `PhoneFrame` is but without the narrow stub, so
+ * the redesigned dialog (header row, settings sheet, activity rows) can be shown at its normal
+ * floating-panel size. `connection` stands in for every `pets.runtime` call the open dialog
+ * makes, which is enough for a static story - nothing here submits a new one. */
+function desktopClient(connection: ReturnType<typeof petConnectionSchema.parse>): NixClient {
+  return {
+    ...createNixClient({
+      baseUrl: 'http://nix.invalid',
+      tokens: {
+        getAccessToken: () => Promise.resolve(null),
+        refreshAccessToken: () => Promise.resolve(null),
+      },
+    }),
+    query: () => Promise.resolve(phoneSettings),
+    execute: () => Promise.resolve(connection),
+  } as NixClient;
+}
+
+function DesktopFrame({
+  connection,
+  children,
+  initialEntry = `/w/${PHONE_WORKSPACE}`,
+}: {
+  readonly connection: ReturnType<typeof petConnectionSchema.parse>;
+  readonly children: ReactNode;
+  readonly initialEntry?: string;
+}): ReactElement {
+  return (
+    <div className="relative h-[42rem] w-full">
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <Routes>
+          <Route
+            path="/w/:workspaceId"
+            element={
+              <ApiClientOverrideProvider client={desktopClient(connection)}>
+                <WorkspaceProvider state={phoneWorkspaceState}>{children}</WorkspaceProvider>
+              </ApiClientOverrideProvider>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </div>
+  );
+}
+
+/** Clicks the first element under `node` that `match` accepts, once it appears - the same
+ * MutationObserver-driven pattern `AutoOpenCompanion` above uses, generalised to walk further
+ * into the dialog (open it, then its overflow menu, then one of the menu's items) since a story
+ * has no test runner to drive those clicks for it. */
+function AutoOpenPanel({
+  menuItemLabel,
+  children,
+}: {
+  readonly menuItemLabel: string;
+  readonly children: ReactNode;
+}): ReactElement {
+  const container = useRef<HTMLDivElement | null>(null);
+  const stage = useRef<'launcher' | 'menu' | 'item' | 'done'>('launcher');
+  useEffect(() => {
+    const node = container.current;
+    if (!node) return;
+    const click = (match: (el: HTMLElement) => boolean): boolean => {
+      const found = Array.from(node.querySelectorAll<HTMLElement>('button, [role="menuitem"]')).find(
+        match,
+      );
+      if (!found) return false;
+      found.click();
+      return true;
+    };
+    const advance = (): void => {
+      if (
+        stage.current === 'launcher' &&
+        click((el) => (el.getAttribute('aria-label') ?? '').startsWith('Talk with '))
+      )
+        stage.current = 'menu';
+      if (
+        stage.current === 'menu' &&
+        click((el) => el.getAttribute('aria-label') === 'More conversation actions')
+      )
+        stage.current = 'item';
+      if (stage.current === 'item' && click((el) => el.textContent.trim() === menuItemLabel))
+        stage.current = 'done';
+    };
+    advance();
+    const observer = new MutationObserver(() => {
+      advance();
+      if (stage.current === 'done') observer.disconnect();
+    });
+    observer.observe(node, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [menuItemLabel]);
+  return <div ref={container}>{children}</div>;
+}
+
+const emptyChatConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  messages: [],
+});
+
+export const EmptyChat = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={emptyChatConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkEmptyChat = { ...EmptyChat, globals: { ground: 'dark' } };
+
+export const EmptyDesign = {
+  render: (): ReactElement => (
+    <DesktopFrame
+      connection={emptyChatConnection}
+      initialEntry={`/w/${PHONE_WORKSPACE}?pet=design`}
+    >
+      <PetCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkEmptyDesign = { ...EmptyDesign, globals: { ground: 'dark' } };
+
+const STREAM_TOOL_ID = '66666666-6666-4666-8666-666666666666';
+const streamedTurnConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  state: 'thinking',
+  messages: [
+    { id: 'user-1', role: 'user', text: 'Find my reading notes and set up a tracker.', actions: [] },
+    {
+      id: 'commentary-1',
+      role: 'assistant',
+      text: 'Let me look at what you already have first.',
+      actions: [],
+    },
+  ],
+  tools: [
+    {
+      id: 'read-1',
+      arguments: JSON.stringify({
+        operation: 'search',
+        query: 'reading',
+        itemId: '',
+        parentId: '',
+        title: '',
+        markdown: '',
+        propertiesJson: '',
+      }),
+      status: 'completed',
+      result: 'Found 3 items.',
+      claimId: 'claim-1',
+    },
+    {
+      id: STREAM_TOOL_ID,
+      arguments: JSON.stringify({
+        operation: 'create_structured',
+        title: 'Reading log',
+        itemId: '',
+        parentId: '',
+        markdown: '',
+        query: '',
+        propertiesJson: '',
+        specJson: JSON.stringify({
+          recipe: 'board',
+          fields: [{ label: 'Status', type: 'select', options: ['To read', 'Reading', 'Done'] }],
+          views: [{ kind: 'board', groupBy: 'Status' }],
+          inherit: true,
+        }),
+      }),
+      status: 'pending',
+      result: '',
+      claimId: '',
+    },
+  ],
+});
+
+export const StreamedTurn = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={streamedTurnConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkStreamedTurn = { ...StreamedTurn, globals: { ground: 'dark' } };
+
+const autoDeclinedConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  messages: [
+    { id: 'user-2', role: 'user', text: 'Add a Status field with a made-up view kind.', actions: [] },
+  ],
+  tools: [
+    {
+      id: 'declined-1',
+      arguments: JSON.stringify({
+        operation: 'create_structured',
+        title: 'Board',
+        itemId: '',
+        parentId: '',
+        markdown: '',
+        query: '',
+        propertiesJson: '',
+        specJson: JSON.stringify({ recipe: 'drive', fields: [], inherit: true }),
+      }),
+      status: 'failed',
+      result:
+        'Declined: the design has problems.\nviews[0].kind: "drive" is not a supported view kind.',
+      claimId: 'claim-2',
+    },
+  ],
+});
+
+export const AutoDeclinedWrite = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={autoDeclinedConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkAutoDeclinedWrite = { ...AutoDeclinedWrite, globals: { ground: 'dark' } };
+
+const completedReceiptConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  state: 'success',
+  messages: [
+    { id: 'user-3', role: 'user', text: 'Create a note called Weekly plan.', actions: [] },
+    { id: 'assistant-3', role: 'assistant', text: 'Done - Weekly plan is ready.', actions: [] },
+  ],
+  tools: [
+    {
+      id: 'completed-1',
+      arguments: JSON.stringify({
+        operation: 'create_note',
+        title: 'Weekly plan',
+        markdown: '# Weekly plan',
+        itemId: '',
+        parentId: '',
+        query: '',
+        propertiesJson: '',
+      }),
+      status: 'completed',
+      result: 'Created "Weekly plan".',
+      claimId: 'claim-3',
+    },
+  ],
+});
+
+/** The receipt this shows ("Approved - done") comes from a per-tab session receipt, not from
+ * the connection snapshot alone - see `action-receipts.ts` - so the story seeds it the same way
+ * a completed approval leaves it, rather than only through the tool's own `status`. */
+export const CompletedReceipt = {
+  render: (): ReactElement => {
+    try {
+      sessionStorage.setItem(
+        `nix.pet.action.tool:${PHONE_WORKSPACE}:44444444-4444-4444-8444-444444444444:chat:completed-1`,
+        'Completed.',
+      );
+    } catch {
+      /* Session storage may be unavailable in this preview. */
+    }
+    return (
+      <DesktopFrame connection={completedReceiptConnection}>
+        <AutoOpenCompanion />
+      </DesktopFrame>
+    );
+  },
+};
+export const DarkCompletedReceipt = { ...CompletedReceipt, globals: { ground: 'dark' } };
+
+const disconnectedConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'disconnected',
+  reason: 'Connect ChatGPT to start a conversation.',
+  canConnect: true,
+});
+
+export const Disconnected = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={disconnectedConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkDisconnected = { ...Disconnected, globals: { ground: 'dark' } };
+
+export const SettingsSheet = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={emptyChatConnection}>
+      <AutoOpenPanel menuItemLabel="Settings">
+        <PetCompanion />
+      </AutoOpenPanel>
+    </DesktopFrame>
+  ),
+};
+export const DarkSettingsSheet = { ...SettingsSheet, globals: { ground: 'dark' } };
+
+export const HistoryPanel = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={emptyChatConnection}>
+      <AutoOpenPanel menuItemLabel="Past conversations">
+        <PetCompanion />
+      </AutoOpenPanel>
+    </DesktopFrame>
+  ),
+};
+export const DarkHistoryPanel = { ...HistoryPanel, globals: { ground: 'dark' } };

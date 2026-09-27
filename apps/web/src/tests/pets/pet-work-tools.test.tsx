@@ -155,17 +155,14 @@ describe('companion work approvals', () => {
   });
 
   it.each([
-    [
-      { operation: 'list_templates', query: 'reading' },
-      /I will list the templates this workspace can apply\./,
-    ],
-    [
-      { operation: 'list_templates', query: '' },
-      /I will list the templates this workspace can apply\./,
-    ],
+    // Both read-only - list_templates and read_template are never previewed (see
+    // `isAutoReadOperation`), so each is announced by its own fixed one-line sentence rather
+    // than a headline built from the preview model.
+    [{ operation: 'list_templates', query: 'reading' }, /^Listed templates$/],
+    [{ operation: 'list_templates', query: '' }, /^Listed templates$/],
     [
       { operation: 'read_template', itemId: '33333333-3333-4333-8333-333333333333' },
-      /I will read the outline of the linked template\./,
+      /^Read a template$/,
     ],
     [
       {
@@ -276,7 +273,10 @@ describe('companion work approvals', () => {
     unsubscribe();
   });
 
-  it('blocks approval when preview context proves the target is outside this workspace', async () => {
+  it('refuses a read whose target is outside this workspace when it runs automatically', async () => {
+    // A read never previews - see `isAutoReadOperation` - so the cross-workspace guard now runs
+    // only at execution time, inside `runWorkspaceTool`'s own `checkItem`. It still refuses
+    // before any content crosses back into a tool result.
     const scopedRuntime = {
       ...runtime,
       tools:
@@ -317,9 +317,16 @@ describe('companion work approvals', () => {
       />,
       { wrapper: MemoryRouter },
     );
-    expect(await screen.findByRole('alert')).toHaveTextContent('preview could not be loaded');
-    expect(screen.getByRole('button', { name: 'Approve request' })).toBeDisabled();
-    expect(client.execute).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+    });
+    await expect(
+      runWorkspaceToolSpy.mock.results[0]?.value as Promise<unknown>,
+    ).rejects.toThrow('outside this workspace');
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
     expect(client.invalidate).not.toHaveBeenCalled();
   });
   it('executes once even with a double click and a stale pending snapshot', async () => {
@@ -370,7 +377,7 @@ describe('companion work approvals', () => {
     unsubscribe();
   });
 
-  it('disables approval for preview problems and sends only those problems back to the pet', async () => {
+  it('automatically declines a write whose preview has problems, once, and shows a receipt', async () => {
     const invalidRuntime = {
       ...runtime,
       tools:
@@ -389,13 +396,18 @@ describe('companion work approvals', () => {
         })) ?? [],
     };
     client.execute.mockImplementation(
-      (endpoint: { body: { operation: string; requestId: string } }) =>
+      (endpoint: {
+        body: { operation: string; requestId: string; toolResult?: string };
+      }) =>
         Promise.resolve({
           ...invalidRuntime,
           tools: invalidRuntime.tools.map((tool) => ({
             ...tool,
             status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
             claimId: endpoint.body.requestId,
+            ...(endpoint.body.operation === 'tool_result'
+              ? { result: endpoint.body.toolResult ?? '' }
+              : {}),
           })),
         }),
     );
@@ -408,9 +420,6 @@ describe('companion work approvals', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot run');
-    expect(screen.getByRole('button', { name: 'Approve request' })).toBeDisabled();
-    await userEvent.click(screen.getByRole('button', { name: 'Send problems to pet' }));
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
@@ -421,6 +430,12 @@ describe('companion work approvals', () => {
     });
     const resultBody = (resultCall as { body: { toolResult: unknown } }).body;
     expect(resultBody.toolResult).toMatch(/^Declined: the design has problems\./);
+    // `onChange` is a no-op here (as elsewhere in this file), so the rendered `tool` never
+    // reflects the persisted result - only the receipt this component tracks itself does. The
+    // richer "Sent N problems back to {pet}" wording (`WriteReceiptRow` in pet-work-tools.tsx)
+    // needs that persisted `tool.result`, which the live app supplies through `setRuntime`.
+    expect(screen.getByRole('status')).toHaveTextContent('Declined');
+    expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
 
   it('passes the preview fingerprint to execution and notifies every touched parent', async () => {
