@@ -190,7 +190,7 @@ func TestMalformedProviderMessageFailsClosed(t *testing.T) {
 func TestIdentitiesAreSeparatedAndMalformedJSONRefused(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := New(ctx, t.TempDir(), "unused", nil)
+	m, err := New(ctx, t.TempDir(), "unused", nil, "low", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,29 +331,30 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 // The Phase D tool version bump (consult mode, validate_blueprint, build_blueprint,
 // save_as_template) must restart any thread that still carries the old schema.
 // TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
-// relative to toolVersion; this pins the constant itself to 4, so a future bump that
-// forgets to change it would not silently pass either test.
-func TestToolVersionFourRestartsThreads(t *testing.T) {
-	if toolVersion != 4 {
-		t.Fatalf("Phase D expects toolVersion 4, got %d", toolVersion)
+// relative to toolVersion; this pins the constant itself to 5 (L1: nix_workspace's single
+// flat-argument tool replaced by one typed nix_<operation> tool per operation), so a future bump
+// that forgets to change it would not silently pass either test.
+func TestToolVersionFiveRestartsThreads(t *testing.T) {
+	if toolVersion != 5 {
+		t.Fatalf("L1 expects toolVersion 5, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	a.conversations[key] = &conversation{ToolVersion: 3, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
+	a.conversations[key] = &conversation{ToolVersion: 4, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}}
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 3 conversation should start a fresh thread on the version 4 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 4 conversation should start a fresh thread on the version 5 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 4 bump: %+v", got.Messages)
+		t.Fatalf("no system notice appended on the version 5 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 4 {
-		t.Fatalf("conversation not recorded at tool version 4: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 5 {
+		t.Fatalf("conversation not recorded at tool version 5: %d", a.conversations[key].ToolVersion)
 	}
 }
 
@@ -531,6 +532,139 @@ func startParams(t *testing.T, f *fakeTransport) map[string]any {
 	}
 	t.Fatal("thread/start not called")
 	return nil
+}
+
+// turnStartParams is startParams' counterpart for turn/start, used by the effort tests below.
+func turnStartParams(t *testing.T, f *fakeTransport) map[string]any {
+	t.Helper()
+	for i, call := range f.calls {
+		if call == "turn/start" {
+			params, ok := f.params[i].(map[string]any)
+			if !ok {
+				t.Fatalf("turn/start params: %T", f.params[i])
+			}
+			return params
+		}
+	}
+	t.Fatal("turn/start not called")
+	return nil
+}
+
+// modelListEffortTransport answers model/list with one model advertising the given supported
+// reasoning efforts (and marks it default), so effortFor can be tested without a real Codex
+// process.
+type modelListEffortTransport struct {
+	fakeTransport
+	modelID          string
+	supportedEfforts []string
+}
+
+func (m *modelListEffortTransport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if method != "model/list" {
+		return m.fakeTransport.Call(ctx, method, params)
+	}
+	m.mu.Lock()
+	m.calls = append(m.calls, method)
+	m.params = append(m.params, params)
+	m.mu.Unlock()
+	efforts := make([]map[string]any, 0, len(m.supportedEfforts))
+	for _, effort := range m.supportedEfforts {
+		efforts = append(efforts, map[string]any{"reasoningEffort": effort})
+	}
+	raw, err := json.Marshal(map[string]any{"data": []map[string]any{{
+		"model": m.modelID, "displayName": m.modelID, "isDefault": true,
+		"supportedReasoningEfforts": efforts, "defaultReasoningEffort": "low",
+	}}})
+	if err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// TestEffortIsSentOnlyWhenTheEffectiveModelAdvertisesIt covers config.go's
+// NIX_COMPANION_CHAT_EFFORT / NIX_COMPANION_CONSULT_EFFORT plumbed through to effortFor: a
+// configured value reaches turn/start only when the effective model (the request's explicit
+// model, else whichever model/list marks default) actually advertises it; otherwise turn/start
+// omits "effort" rather than failing the turn.
+func TestEffortIsSentOnlyWhenTheEffectiveModelAdvertisesIt(t *testing.T) {
+	t.Run("chat effort sent when the default model supports it", func(t *testing.T) {
+		f := &modelListEffortTransport{modelID: "gpt-5", supportedEfforts: []string{"low", "medium"}}
+		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", chatEffort: "low"}
+		if _, err := a.handle(context.Background(), request()); err != nil {
+			t.Fatal(err)
+		}
+		if got := turnStartParams(t, &f.fakeTransport)["effort"]; got != "low" {
+			t.Fatalf("effort = %v, want \"low\"", got)
+		}
+	})
+
+	t.Run("effort omitted when the default model does not support it", func(t *testing.T) {
+		f := &modelListEffortTransport{modelID: "gpt-5", supportedEfforts: []string{"medium", "high"}}
+		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", chatEffort: "low"}
+		if _, err := a.handle(context.Background(), request()); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := turnStartParams(t, &f.fakeTransport)["effort"]; ok {
+			t.Fatal("effort sent for a model that does not advertise it")
+		}
+	})
+
+	t.Run("effort omitted when unconfigured", func(t *testing.T) {
+		f := &modelListEffortTransport{modelID: "gpt-5", supportedEfforts: []string{"low"}}
+		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+		if _, err := a.handle(context.Background(), request()); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := turnStartParams(t, &f.fakeTransport)["effort"]; ok {
+			t.Fatal("effort sent with no configured value")
+		}
+		for _, call := range f.calls {
+			if call == "model/list" {
+				t.Fatal("model/list requested with no configured effort")
+			}
+		}
+	})
+
+	t.Run("consult effort follows the consult setting, not the chat one", func(t *testing.T) {
+		f := &modelListEffortTransport{modelID: "gpt-5", supportedEfforts: []string{"high"}}
+		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", chatEffort: "low", consultEffort: "high"}
+		r := request()
+		r.Mode = "consult"
+		if _, err := a.handle(context.Background(), r); err != nil {
+			t.Fatal(err)
+		}
+		if got := turnStartParams(t, &f.fakeTransport)["effort"]; got != "high" {
+			t.Fatalf("effort = %v, want \"high\"", got)
+		}
+	})
+
+	t.Run("effort omitted when the model list call fails", func(t *testing.T) {
+		f := &failingModelListTransport{}
+		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", chatEffort: "low"}
+		if _, err := a.handle(context.Background(), request()); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := turnStartParams(t, &f.fakeTransport)["effort"]; ok {
+			t.Fatal("effort sent despite a failed model list call")
+		}
+	})
+}
+
+// failingModelListTransport refuses model/list only, so effortFor's failure path (omit effort,
+// never fail the turn) can be exercised without a real Codex process.
+type failingModelListTransport struct {
+	fakeTransport
+}
+
+func (f *failingModelListTransport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
+	if method == "model/list" {
+		f.mu.Lock()
+		f.calls = append(f.calls, method)
+		f.params = append(f.params, params)
+		f.mu.Unlock()
+		return nil, errors.New("model list unavailable")
+	}
+	return f.fakeTransport.Call(ctx, method, params)
 }
 
 // TestInvalidModeIsRefused covers owner decision 4's neighbour, validRequest's mode gate:

@@ -16,6 +16,34 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if settings.PluginMaxModuleBytes != 8<<20 || settings.PluginMemoryPages != 1024 || settings.PluginTimeout <= 0 || settings.PluginMaxHostCalls != 32 {
 		t.Fatalf("invalid plugin defaults: %+v", settings)
 	}
+	if settings.CompanionChatEffort != "low" {
+		t.Fatalf("chat effort default = %q, want \"low\"", settings.CompanionChatEffort)
+	}
+	if settings.CompanionConsultEffort != "" {
+		t.Fatalf("consult effort default = %q, want \"\" (provider default)", settings.CompanionConsultEffort)
+	}
+}
+
+func TestLoadReadsConfiguredReasoningEfforts(t *testing.T) {
+	settings, err := Load(func(key string) string {
+		switch key {
+		case "NIX_COMPANION_CHAT_EFFORT":
+			return "minimal"
+		case "NIX_COMPANION_CONSULT_EFFORT":
+			return "high"
+		default:
+			return ""
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.CompanionChatEffort != "minimal" {
+		t.Fatalf("chat effort = %q, want \"minimal\"", settings.CompanionChatEffort)
+	}
+	if settings.CompanionConsultEffort != "high" {
+		t.Fatalf("consult effort = %q, want \"high\"", settings.CompanionConsultEffort)
+	}
 }
 
 func TestLoadPreservesOrderedConsultModelPreferences(t *testing.T) {

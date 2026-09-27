@@ -18,7 +18,10 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-const toolVersion = 4
+// toolVersion 5: nix_workspace's single flat-argument tool was replaced by one typed
+// nix_<operation> tool per operation (L1.1); a conversation on the old tool version starts a
+// fresh thread the next time it sends (see send() below).
+const toolVersion = 5
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -99,6 +102,12 @@ type account struct {
 	// consultModels is the owner's ordered model preference for consult (Design mode)
 	// threads, from NIX_COMPANION_CONSULT_MODELS. Empty means the provider default.
 	consultModels []string
+	// chatEffort and consultEffort are the owner's configured reasoning effort per mode
+	// (NIX_COMPANION_CHAT_EFFORT, default "low"; NIX_COMPANION_CONSULT_EFFORT, default empty
+	// meaning provider default). effortFor only sends one on turn/start when the effective
+	// model actually advertises it.
+	chatEffort    string
+	consultEffort string
 }
 
 type Manager struct {
@@ -108,18 +117,21 @@ type Manager struct {
 	ctx      context.Context
 	accounts map[string]*account
 	launch   func(context.Context, string, string, func(string, json.RawMessage)) (Transport, error)
-	// consultModels is handed to each account created by this manager; see account.consultModels.
+	// consultModels, chatEffort and consultEffort are handed to each account this manager
+	// creates; see the matching account fields.
 	consultModels []string
+	chatEffort    string
+	consultEffort string
 }
 
-func New(ctx context.Context, root, binary string, consultModels []string) (*Manager, error) {
+func New(ctx context.Context, root, binary string, consultModels []string, chatEffort, consultEffort string) (*Manager, error) {
 	if !filepath.IsAbs(root) {
 		return nil, errors.New("companion data directory must be absolute")
 	}
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
-	m := &Manager{root: root, binary: binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: consultModels}
+	m := &Manager{root: root, binary: binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: consultModels, chatEffort: chatEffort, consultEffort: consultEffort}
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -177,7 +189,7 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	if len(m.accounts) >= 4 {
 		return nil, errors.New("companion capacity reached")
 	}
-	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels}
+	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels, chatEffort: m.chatEffort, consultEffort: m.consultEffort}
 	transport, err := m.launch(m.ctx, m.binary, a.home, a.notify)
 	if err != nil {
 		return nil, err
@@ -573,7 +585,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	if err != nil {
 		return err
 	}
-	raw, err = a.transport.Call(ctx, "turn/start", map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}, "outputSchema": outputSchema()})
+	turnParams := map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}, "outputSchema": outputSchema()}
+	if effort := a.effortFor(ctx, r.Mode, r.Model); effort != "" {
+		turnParams["effort"] = effort
+	}
+	raw, err = a.transport.Call(ctx, "turn/start", turnParams)
 	if err != nil {
 		a.mu.Lock()
 		c.State = "error"

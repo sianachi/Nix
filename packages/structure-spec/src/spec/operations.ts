@@ -67,7 +67,10 @@ export type ViewSetupSpec = z.infer<typeof viewSetupSpecSchema>;
 const entrySpecSchema = z
   .object({
     title: z.string().min(1).max(240),
-    values: z.record(z.string(), jsonValueSchema).optional(),
+    values: z
+      .record(z.string(), jsonValueSchema)
+      .describe('Values are keyed by field key (see read_structure), never by field label.')
+      .optional(),
     markdown: z.string().max(2000).optional(),
     sample: z.boolean().optional(),
   })

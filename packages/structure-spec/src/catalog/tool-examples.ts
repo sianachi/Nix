@@ -1,0 +1,144 @@
+import type { Blueprint } from '../blueprint/schema.js';
+import type { WorkspaceOperation } from './tables.js';
+
+/**
+ * One valid, minimal set of arguments per `WorkspaceOperation`, in the shape a typed
+ * `nix_<operation>` tool call carries them (native JSON, not a flat `specJson` string).
+ * `tools.test.ts` flattens each of these with a TS reference implementation of the Go worker's
+ * `flattenToolCall` and checks the result against `@nix/companion`'s `workspaceToolSchema`, so
+ * both languages are checked against the same fixture; `scripts/build-catalog.ts` also writes
+ * these to `apps/go-workers/internal/companion/catalog/tool-examples.json` so the Go worker's own
+ * `flattenToolCall` tests read the identical fixture (`catalog_test.go` / a new
+ * `tools_flatten_test.go`).
+ *
+ * A sample UUID that satisfies both the Go worker's `uuid` regex and Zod's `z.uuid()` (a `4` in
+ * the version nibble, an `8` in the variant nibble) stands in for every item, template and
+ * parent id.
+ */
+export const EXAMPLE_ITEM_ID = '11111111-1111-4111-8111-111111111111';
+
+const EXAMPLE_BLUEPRINT: Blueprint = {
+  version: 1,
+  title: 'Reading log',
+  summary: 'Track books being read with a status board.',
+  root: {
+    id: 'reading-log',
+    title: 'Reading log',
+    fields: [{ label: 'Status', type: 'select', options: ['To read', 'Reading', 'Done'] }],
+    views: [{ kind: 'list' }, { kind: 'board', groupBy: 'status' }],
+    children: [{ id: 'book-a', title: 'The Hobbit', sample: true, values: { status: 'Done' } }],
+  },
+};
+
+export const TOOL_EXAMPLES: Readonly<Record<WorkspaceOperation, Readonly<Record<string, unknown>>>> = {
+  list_items: {},
+  search: { query: 'reading' },
+  read_item: { itemId: EXAMPLE_ITEM_ID },
+  read_note: { itemId: EXAMPLE_ITEM_ID },
+  read_structure: { itemId: EXAMPLE_ITEM_ID },
+  create_note: { title: 'Plan', markdown: 'Notes go here.' },
+  append_note: { itemId: EXAMPLE_ITEM_ID, markdown: 'More notes.' },
+  rename_item: { itemId: EXAMPLE_ITEM_ID, title: 'New title' },
+  move_item: { itemId: EXAMPLE_ITEM_ID, parentId: '' },
+  set_properties: { itemId: EXAMPLE_ITEM_ID, properties: { status: 'Done' } },
+  trash_item: { itemId: EXAMPLE_ITEM_ID },
+  restore_item: { itemId: EXAMPLE_ITEM_ID },
+  create_structured: {
+    title: 'Reading list',
+    spec: {
+      recipe: 'list',
+      fields: [{ label: 'Status', type: 'select', options: ['To read', 'Reading', 'Done'] }],
+      views: [{ kind: 'list' }],
+    },
+  },
+  add_view: {
+    itemId: EXAMPLE_ITEM_ID,
+    spec: { views: [{ kind: 'board', groupBy: 'status' }] },
+  },
+  create_entries: {
+    parentId: EXAMPLE_ITEM_ID,
+    spec: { entries: [{ title: 'The Hobbit' }] },
+  },
+  validate_blueprint: { blueprint: EXAMPLE_BLUEPRINT },
+  add_fields: {
+    itemId: EXAMPLE_ITEM_ID,
+    spec: { fields: [{ label: 'Rating', type: 'number' }] },
+  },
+  edit_form: {
+    itemId: EXAMPLE_ITEM_ID,
+    spec: {
+      viewId: 'form-1',
+      form: { pages: [{ title: 'Details', blocks: [{ field: 'status' }] }] },
+    },
+  },
+  set_recurrence: { itemId: EXAMPLE_ITEM_ID, spec: { frequency: 'weekly', interval: 1 } },
+  list_templates: {},
+  read_template: { templateId: EXAMPLE_ITEM_ID },
+  apply_template: { templateId: EXAMPLE_ITEM_ID, title: 'New from template' },
+  build_blueprint: { blueprint: EXAMPLE_BLUEPRINT, parentId: '' },
+  save_as_template: { itemId: EXAMPLE_ITEM_ID, title: 'Reading log template' },
+};
+
+/** The flat shape `@nix/companion`'s `workspaceToolSchema` parses, and the Go worker's
+ * `ToolCall.Arguments` stores - unchanged by this task. */
+export interface FlatWorkspaceToolArgs {
+  operation: WorkspaceOperation;
+  itemId: string;
+  parentId: string;
+  title: string;
+  markdown: string;
+  query: string;
+  propertiesJson: string;
+  specJson: string;
+}
+
+/**
+ * A TS reference implementation of the Go worker's `flattenToolCall` (`apps/go-workers/internal
+ * /companion/tools.go`): translates one typed `nix_<operation>` call's native-JSON arguments back
+ * into the flat shape `workspaceToolSchema` and `@nix/companion/run.ts` have always parsed.
+ * `templateId` maps to `itemId`; `properties` marshals to `propertiesJson`; `spec` and
+ * `blueprint` both marshal to `specJson`; every other flat field defaults to `""`. Used only by
+ * `tools.test.ts`'s and `@nix/companion`'s round-trip tests (and by `scripts/build-catalog.ts`,
+ * which writes its output next to `TOOL_EXAMPLES` in the generated `tool-examples.json` so the Go
+ * worker's own flattening test reads the identical expectation) - never by runtime code, since the
+ * worker keeps doing this translation itself.
+ */
+export function flattenToolExample(
+  operation: WorkspaceOperation,
+  args: Readonly<Record<string, unknown>>,
+): FlatWorkspaceToolArgs {
+  const flat: FlatWorkspaceToolArgs = {
+    operation,
+    itemId: '',
+    parentId: '',
+    title: '',
+    markdown: '',
+    query: '',
+    propertiesJson: '',
+    specJson: '',
+  };
+  for (const [key, value] of Object.entries(args)) {
+    switch (key) {
+      case 'itemId':
+      case 'parentId':
+      case 'title':
+      case 'markdown':
+      case 'query':
+        flat[key] = String(value);
+        break;
+      case 'templateId':
+        flat.itemId = String(value);
+        break;
+      case 'properties':
+        flat.propertiesJson = JSON.stringify(value);
+        break;
+      case 'spec':
+      case 'blueprint':
+        flat.specJson = JSON.stringify(value);
+        break;
+      default:
+        throw new Error(`flattenToolExample: unexpected argument "${key}" for ${operation}`);
+    }
+  }
+  return flat;
+}

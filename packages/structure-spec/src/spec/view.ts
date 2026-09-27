@@ -73,7 +73,13 @@ export const viewSpecSchema = z
     kind: z.enum(VIEW_KINDS),
     name: z.string().min(1).max(60).optional(),
     columns: z.array(z.string().min(1)).max(30).optional(),
-    groupBy: z.string().min(1).optional(),
+    groupBy: z
+      .string()
+      .min(1)
+      .describe(
+        'Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group.',
+      )
+      .optional(),
     groupOrder: z.array(z.string().min(1)).optional(),
     date: z.string().min(1).optional(),
     endDate: z.string().min(1).optional(),

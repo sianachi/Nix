@@ -279,3 +279,59 @@ export const STRUCTURE_OPERATIONS = {
     'set_recurrence',
   ],
 } as const satisfies StructureOperationsByMode;
+
+/**
+ * Every operation a pet tool may name, in the order `@nix/companion`'s `workspaceToolSchema`
+ * declares its flat `operation` enum. This package is the source of truth for that order:
+ * `buildPetTools` (`tools.ts`) derives one typed function tool per operation from it,
+ * `@nix/companion/tool-args.ts` imports it to build `workspaceToolSchema`, and the Go worker's
+ * generated `tools-chat.json` / `tools-consult.json` (`scripts/build-catalog.ts`) are the same
+ * tools serialized for the provider. Consult mode offers every operation; chat omits the three
+ * consult-only ones (`CONSULT_ONLY_OPERATION_NAMES`).
+ */
+export const WORKSPACE_OPERATIONS = [
+  'list_items',
+  'search',
+  'read_item',
+  'read_note',
+  'read_structure',
+  'create_note',
+  'append_note',
+  'rename_item',
+  'move_item',
+  'set_properties',
+  'trash_item',
+  'restore_item',
+  'create_structured',
+  'add_view',
+  'create_entries',
+  'validate_blueprint',
+  'add_fields',
+  'edit_form',
+  'set_recurrence',
+  'list_templates',
+  'read_template',
+  'apply_template',
+  'build_blueprint',
+  'save_as_template',
+] as const satisfies readonly string[];
+
+export type WorkspaceOperation = (typeof WORKSPACE_OPERATIONS)[number];
+
+/** Operations the executor never writes through (`@nix/companion`'s `READ_ONLY_OPERATIONS`). */
+export const READ_ONLY_OPERATION_NAMES = [
+  'list_items',
+  'search',
+  'read_item',
+  'read_note',
+  'read_structure',
+  'list_templates',
+  'read_template',
+] as const satisfies readonly WorkspaceOperation[];
+
+/** Operations only offered in consult (Design mode) conversations. */
+export const CONSULT_ONLY_OPERATION_NAMES = [
+  'validate_blueprint',
+  'build_blueprint',
+  'save_as_template',
+] as const satisfies readonly WorkspaceOperation[];
