@@ -90,3 +90,47 @@ export function writeDevicePreference(key: 'voice' | 'placement', value: string)
   }
   window.dispatchEvent(new Event('nix-pet-device-changed'));
 }
+
+/** Whether reads (and, in Design mode, checking a blueprint) run without an approval click.
+ * Defaults on: a read result is only ever shared with ChatGPT after it has already happened, so
+ * asking first buys nothing but a slower reply. Device-wide, like `placement` above. */
+export function readReadWithoutAsking(): boolean {
+  try {
+    const raw = localStorage.getItem('nix.pet.readWithoutAsking');
+    return raw === null ? true : raw === 'true';
+  } catch {
+    return true;
+  }
+}
+
+export function writeReadWithoutAsking(value: boolean): void {
+  try {
+    localStorage.setItem('nix.pet.readWithoutAsking', String(value));
+  } catch {
+    /* The open conversation still applies the choice for this session. */
+  }
+  window.dispatchEvent(new Event('nix-pet-device-changed'));
+}
+
+function workspaceAccessKey(workspaceId: string, petId: string): string {
+  return `nix.pet.workspaceAccess.${workspaceId}.${petId}`;
+}
+
+/** Whether workspace tools are offered for the next message to this pet, on this device, in
+ * this workspace. Off on first use: a device that has never granted a pet workspace access
+ * should not silently start sending it workspace content. */
+export function readWorkspaceAccess(workspaceId: string, petId: string): boolean {
+  try {
+    return localStorage.getItem(workspaceAccessKey(workspaceId, petId)) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function writeWorkspaceAccess(workspaceId: string, petId: string, value: boolean): void {
+  try {
+    localStorage.setItem(workspaceAccessKey(workspaceId, petId), String(value));
+  } catch {
+    /* The open conversation still remembers the toggle for this session. */
+  }
+}

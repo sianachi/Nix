@@ -194,12 +194,12 @@ describe('companion on a phone', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-current', 'true');
 
     await user.click(screen.getByRole('button', { name: 'Chat' }));
-    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-current', 'true');
     await user.click(screen.getByRole('button', { name: 'Design' }));
-    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-current', 'true');
     expect(screen.getByRole('dialog', { name: 'Conversation with Cat' })).toBeInTheDocument();
   });
 

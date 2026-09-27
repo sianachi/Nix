@@ -189,9 +189,14 @@ describe('companion workflow', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-current', 'true');
     expect(screen.getByText(/Describe what you want to keep track of/)).toBeVisible();
   });
+
+  async function openSettings(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Settings' }));
+  }
 
   it('remembers model choices separately for Chat and Design', async () => {
     client.execute.mockResolvedValue({
@@ -208,14 +213,16 @@ describe('companion workflow', () => {
       </MemoryRouter>,
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await user.click(screen.getByText('Chat options and connection'));
+    await openSettings(user);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Codex model' }), 'chat-model');
+    await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Design' }));
-    await user.click(screen.getByText('Chat options and connection'));
+    await openSettings(user);
     expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue('');
     await user.selectOptions(screen.getByRole('combobox', { name: 'Codex model' }), 'design-model');
+    await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Chat' }));
-    await user.click(screen.getByText('Chat options and connection'));
+    await openSettings(user);
     expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue('chat-model');
     expect(
       localStorage.getItem(
@@ -224,7 +231,7 @@ describe('companion workflow', () => {
     ).toBe('design-model');
   });
 
-  it('prioritises replies and keeps secondary controls collapsed', async () => {
+  it('prioritises replies and keeps secondary controls tucked into the overflow menu', async () => {
     client.execute.mockResolvedValue({
       ...connected,
       messages: [
@@ -246,12 +253,9 @@ describe('companion workflow', () => {
     expect(await screen.findByText('Your reply stays in the reading area.')).toBeVisible();
     const messages = screen.getByRole('log', { name: 'Conversation messages' });
     expect(messages).not.toContainElement(screen.getByRole('textbox', { name: 'Message Cat' }));
-    expect(screen.getByRole('combobox', { name: 'Codex model' })).not.toBeVisible();
-    expect(screen.getByRole('button', { name: 'New conversation' })).not.toBeVisible();
-    await user.click(screen.getByText('Chat options and connection'));
-    expect(screen.getByRole('combobox', { name: 'Codex model' })).toBeVisible();
-    await user.click(screen.getByText('More actions and history'));
-    expect(screen.getByRole('button', { name: 'New conversation' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'New conversation' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    expect(screen.getByRole('menuitem', { name: 'New conversation' })).toBeVisible();
   });
 
   it('keeps the chosen model when the chat is closed and reopened', async () => {
@@ -266,20 +270,21 @@ describe('companion workflow', () => {
       </MemoryRouter>,
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await user.click(screen.getByText('Chat options and connection'));
+    await openSettings(user);
     await user.selectOptions(
       screen.getByRole('combobox', { name: 'Codex model' }),
       'gpt-5.3-codex-spark',
     );
+    await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Close' }));
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await user.click(screen.getByText('Chat options and connection'));
+    await openSettings(user);
     expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue(
       'gpt-5.3-codex-spark',
     );
   });
 
-  it('shows response failures without requiring users to open chat options', async () => {
+  it('shows response failures without requiring users to open the menu', async () => {
     client.execute.mockResolvedValue({
       ...connected,
       state: 'error',
@@ -344,8 +349,8 @@ describe('companion workflow', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await screen.findByText('I can create this note.');
-    expect(screen.queryByRole('button', { name: 'Approve change' })).not.toBeInTheDocument();
-    expect(screen.getByRole('status')).not.toHaveTextContent('Needs approval');
+    expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).not.toHaveTextContent('Waiting for your approval');
 
     client.execute.mockResolvedValue({
       ...connected,
@@ -367,8 +372,9 @@ describe('companion workflow', () => {
         },
       ],
     });
-    await user.click(screen.getByRole('button', { name: 'Refresh' }));
-    expect(await screen.findByText('Needs approval')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Reload conversation' }));
+    expect(await screen.findByText('Waiting for your approval')).toBeVisible();
   });
 
   it('offers device sign-in and cancellation without handling credentials in the browser', async () => {

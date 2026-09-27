@@ -1,12 +1,24 @@
+import { type PetConnection, type PetProfile, type PetSettings } from '@nix/api-client';
+import { Button, Icon, Menu, Segmented, Select, Text, focusRing, type MenuEntry } from '@nix/ui';
 import {
-  isCanceledError,
-  pets,
-  type PetConnection,
-  type PetProfile,
-  type PetSettings,
-} from '@nix/api-client';
-import { Button, Select, Text, focusRing } from '@nix/ui';
-import { useEffect, useRef, useState, type CSSProperties, type ReactElement } from 'react';
+  ArrowLeft,
+  ArrowUp,
+  Mic,
+  MoreHorizontal,
+  Square,
+  TextQuote,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
+} from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
@@ -16,17 +28,22 @@ import { useBackDismiss } from '../layout/use-back-dismiss';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
 import { usePetSettings } from './use-pet-settings';
 import { usePetVoice } from './use-pet-voice';
+import { usePetRuntime } from './use-pet-runtime';
 import {
   readConversationModel,
   readDevicePreference,
   readPetPosition,
+  readReadWithoutAsking,
+  readWorkspaceAccess,
   writePetPosition,
   writeConversationModel,
+  writeReadWithoutAsking,
+  writeWorkspaceAccess,
   type PetConversationMode,
 } from './device-preferences';
 import { PetWorkTools } from './pet-work-tools';
 import { PetConnectionPanel } from './pet-connection-panel';
-import { PetHistory } from './pet-history';
+import { PetHistory, exportPetMessages } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
 
@@ -41,6 +58,32 @@ function mobileNavClearance(): number {
     document.documentElement.style.getPropertyValue('--mobile-nav-height'),
   );
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+/** The composer's textarea grows with its content between one and six rows, rather than
+ * scrolling internally past a fixed height. Counting hard line breaks is a close enough
+ * approximation of wrapped-line count for a message box this size, without measuring layout. */
+const CONVERSATION_MODE_OPTIONS: readonly { value: PetConversationMode; label: string }[] = [
+  { value: 'chat', label: 'Chat' },
+  { value: 'consult', label: 'Design' },
+];
+
+function composerRows(text: string): number {
+  const lines = text.split('\n').length;
+  return Math.min(6, Math.max(1, lines));
+}
+
+/** The header's status line, in plain words rather than the raw animation state - never
+ * "listening" or "hover", only what the person actually needs to know right now. */
+function statusText(
+  animation: PetAnimationState,
+  running: boolean,
+  errored: boolean,
+): string {
+  if (errored) return 'Something went wrong';
+  if (animation === 'awaiting-approval') return 'Waiting for your approval';
+  if (running) return 'Thinking';
+  return 'Ready';
 }
 
 export function PetCompanion(): ReactElement | null {
@@ -312,6 +355,8 @@ function Companion({
   );
 }
 
+type ConversationPanel = 'chat' | 'settings' | 'history';
+
 function Conversation({
   workspaceId,
   pet,
@@ -332,21 +377,30 @@ function Conversation({
   const client = useApiClient();
   const [search] = useSearchParams();
   const currentItem = search.get('item');
-  const [runtime, setRuntime] = useState<PetConnection | null>(null);
+  const {
+    runtime,
+    models,
+    busy,
+    error,
+    setRuntime,
+    regenerateRequestId,
+    send,
+    interrupt,
+    reset,
+    reload,
+  } = usePetRuntime(workspaceId, pet.id, mode);
+  const [panel, setPanel] = useState<ConversationPanel>('chat');
   const [draft, setDraft] = useState('');
   const [shared, setShared] = useState<{ itemId: string; text: string } | null>(null);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id, mode));
-  const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
-  const [workspaceAccess, setWorkspaceAccess] = useState(false);
-  const lifetime = useRef<AbortController | null>(null);
+  const [workspaceAccess, setWorkspaceAccess] = useState(() => readWorkspaceAccess(workspaceId, pet.id));
+  const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
   const input = useRef<HTMLTextAreaElement | null>(null);
   const dialog = useRef<HTMLDivElement | null>(null);
   const narrationPending = useRef(false);
   const voice = usePetVoice((text) => {
     setDraft((old) => `${old}${old ? ' ' : ''}${text}`.slice(0, 8000));
+    regenerateRequestId();
   });
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
@@ -364,6 +418,7 @@ function Conversation({
             : runtime?.state === 'success'
               ? 'success'
               : 'idle';
+  const errored = Boolean(error) || runtime?.state === 'error';
 
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
@@ -446,43 +501,21 @@ function Conversation({
   }, [narrow]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    lifetime.current = controller;
-    let timer: ReturnType<typeof setTimeout>;
     // On a phone the dialog itself takes focus first (its name is announced, and Tab starts
     // from a known place); on a wide screen the composer keeps taking it directly, as before.
     if (narrow) dialog.current?.focus();
     else input.current?.focus();
-    void client
-      .execute(pets.runtime({ operation: 'models', mode }), { signal: controller.signal })
-      .then((value) => {
-        if (!controller.signal.aborted) setModels(value.models ?? []);
-      })
-      .catch(() => {
-        /* The provider default remains available if model discovery fails. */
-      });
-    const poll = async () => {
-      try {
-        const result = await client.execute(
-          pets.runtime({ operation: 'read', workspaceId, petId: pet.id, mode }),
-          { signal: controller.signal },
-        );
-        if (!isAborted(controller.signal)) setRuntime(result);
-      } catch (cause) {
-        if (!isCanceledError(cause) && !isAborted(controller.signal))
-          setError('Conversation could not be loaded. Check your connection and try Refresh.');
-      }
-      if (!isAborted(controller.signal))
-        timer = setTimeout(() => {
-          void poll();
-        }, 3000);
+  }, [narrow]);
+
+  useEffect(() => {
+    const changed = () => {
+      setReadWithoutAsking(readReadWithoutAsking());
     };
-    void poll();
+    window.addEventListener('nix-pet-device-changed', changed);
     return () => {
-      controller.abort();
-      clearTimeout(timer);
+      window.removeEventListener('nix-pet-device-changed', changed);
     };
-  }, [client, workspaceId, pet.id, narrow, mode]);
+  }, []);
 
   useEffect(() => {
     if (!narrationPending.current || runtime?.state !== 'success') return;
@@ -491,57 +524,86 @@ function Conversation({
     if (settings.narration && last?.role === 'assistant') voice.speak(last.text);
   }, [runtime, settings.narration, voice]);
 
-  async function command(operation: 'send' | 'interrupt' | 'reset' | 'read') {
-    const controller = lifetime.current;
-    if (busy || !controller || isAborted(controller.signal)) return;
-    setBusy(true);
-    setError('');
-    try {
-      const result = await client.execute(
-        pets.runtime({
-          operation,
-          workspaceId,
-          petId: pet.id,
-          mode,
-          ...(operation === 'send'
-            ? {
-                requestId,
-                text: draft,
-                model,
-                workspaceAccess,
-                ...(shared ? { itemId: shared.itemId, sharedText: shared.text } : {}),
-              }
-            : {}),
-        }),
-        { signal: controller.signal },
-      );
-      if (isAborted(controller.signal)) return;
-      setRuntime(result);
-      if (operation === 'send') {
-        narrationPending.current = true;
-        setDraft('');
-        setShared(null);
-        setRequestId(crypto.randomUUID());
-      }
-    } catch (cause) {
-      if (!isCanceledError(cause) && !isAborted(controller.signal))
-        setError(
-          'The request could not be confirmed. Refresh before retrying; your draft is preserved.',
-        );
-    } finally {
-      if (!isAborted(controller.signal)) setBusy(false);
+  function shareSelection() {
+    const text = window.getSelection()?.toString().trim() ?? '';
+    if (!currentItem || !text) return;
+    setShared({ itemId: currentItem, text: text.slice(0, 16000) });
+  }
+
+  async function submit() {
+    if (!draft.trim() || busy || runtime?.status !== 'connected') return;
+    const ok = await send({
+      text: draft,
+      model,
+      workspaceAccess,
+      ...(shared ? { itemId: shared.itemId, sharedText: shared.text } : {}),
+    });
+    if (ok) {
+      narrationPending.current = true;
+      setDraft('');
+      setShared(null);
     }
   }
 
-  function shareSelection() {
-    const text = window.getSelection()?.toString().trim() ?? '';
-    if (!currentItem || !text) {
-      setError('Select text in the current item, then choose Share selected text.');
-      return;
-    }
-    setShared({ itemId: currentItem, text: text.slice(0, 16000) });
-    setError('');
+  function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    void submit();
   }
+
+  const menuItems: MenuEntry[] = [
+    {
+      label: 'New conversation',
+      disabled: busy || running,
+      onSelect: () => {
+        void reset();
+      },
+    },
+    {
+      label: 'Past conversations',
+      onSelect: () => {
+        setPanel('history');
+      },
+    },
+    {
+      label: 'Export conversation',
+      disabled: !messages.length,
+      onSelect: () => {
+        exportPetMessages(messages, pet.name);
+      },
+    },
+    {
+      label: 'Reload conversation',
+      onSelect: () => {
+        void reload();
+      },
+    },
+    { kind: 'separator' },
+    {
+      label: 'Settings',
+      onSelect: () => {
+        setPanel('settings');
+      },
+    },
+    {
+      kind: 'link',
+      label: 'Pet settings',
+      href: `/w/${workspaceId}/settings`,
+    },
+  ];
+
+  const suggestions =
+    mode === 'consult'
+      ? ['Plan my reading', 'Track a job hunt', 'Weekly meal plan']
+      : [
+          ...(currentItem ? ['Summarize this page'] : []),
+          'Find my notes about...',
+          'Add a status field to this list',
+        ].slice(0, 3);
+
+  const dialogClass = narrow
+    ? 'fixed inset-0 z-40 flex h-[var(--phone-dialog-height,100dvh)] w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground'
+    : 'flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg';
 
   return (
     <div
@@ -550,11 +612,7 @@ function Conversation({
       tabIndex={-1}
       aria-modal={narrow}
       aria-label={`Conversation with ${pet.name}`}
-      className={
-        narrow
-          ? 'fixed inset-0 z-40 flex h-[var(--phone-dialog-height,100dvh)] w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground'
-          : 'flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg'
-      }
+      className={dialogClass}
     >
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-4 py-2">
         <div className="flex min-w-0 items-center gap-3">
@@ -571,299 +629,405 @@ function Conversation({
           <Text variant="h3" as="h2">
             {pet.name}
           </Text>
-          <Text role="status" variant="note">
-            {animation === 'awaiting-approval'
-              ? 'Needs approval'
-              : running
-                ? 'Thinking…'
-                : animation === 'success'
-                  ? 'Replied'
-                  : animation}
+          <Text role="status" variant="note" tone="muted">
+            {statusText(animation, running, errored)}
           </Text>
         </div>
-        <Button variant="ghost" onClick={onClose}>
-          Close
-        </Button>
-      </div>
-      <div
-        role="group"
-        aria-label="Conversation mode"
-        className="flex gap-2 border-b border-divider px-4 py-2"
-      >
-        <Button
-          variant={mode === 'chat' ? 'secondary' : 'ghost'}
-          aria-pressed={mode === 'chat'}
-          onClick={() => {
-            onModeChange('chat');
-          }}
-        >
-          Chat
-        </Button>
-        <Button
-          variant={mode === 'consult' ? 'secondary' : 'ghost'}
-          aria-pressed={mode === 'consult'}
-          onClick={() => {
-            onModeChange('consult');
-          }}
-        >
-          Design
-        </Button>
-      </div>
-      <details className="max-h-40 shrink-0 overflow-y-auto border-b border-divider px-4 py-2">
-        <summary className={`cursor-pointer ${focusRing}`}>
-          <Text as="span" variant="note">
-            Chat options and connection
-          </Text>
-        </summary>
-        <div className="flex flex-col gap-3 py-2">
-          <Text variant="note" tone="muted">
-            Workspace tools run only when enabled and approved. Approved reads share their results
-            with ChatGPT. Design conversations are separate from Chat.{' '}
-            <Link to={`/w/${workspaceId}/settings`} className="underline">
-              Connection and pet settings
-            </Link>
-          </Text>
-          {runtime?.reason && runtime.status === 'connected' ? (
-            <Text variant="note" tone="muted">
-              {runtime.reason}
-            </Text>
-          ) : null}
-          {runtime && runtime.status !== 'connected' ? <PetConnectionPanel compact /> : null}
-          <label className="flex flex-col gap-2">
-            <Text variant="note">Codex model</Text>
-            <Select
-              aria-label="Codex model"
-              value={model}
-              disabled={running || busy}
-              onChange={(event) => {
-                setModel(event.currentTarget.value);
-                writeConversationModel(workspaceId, pet.id, mode, event.currentTarget.value);
-              }}
-            >
-              <option value="">Account default</option>
-              {model && !models.some((entry) => entry.id === model) ? (
-                <option value={model}>{model} (checking availability)</option>
-              ) : null}
-              {models.map((value) => (
-                <option key={value.id} value={value.id}>
-                  {value.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </div>
-      </details>
-      <PetChatViewport
-        latestKey={`${messages.at(-1)?.id ?? ''}:${runtime?.tools?.at(-1)?.id ?? ''}`}
-      >
-        {runtime?.state === 'error' ? (
-          <Text role="alert">
-            {runtime.reason || 'The response did not finish. Refresh and try again.'}
-          </Text>
-        ) : null}
-        {messages.length === 0 ? (
-          <Text variant="note">
-            {mode === 'consult'
-              ? 'Describe what you want to keep track of. Your pet asks a few questions, proposes a design, and builds a draft under Pet drafts for you to try. Nothing is published.'
-              : 'Ask a question, or enable workspace tools to find notes, write content, and organise your work.'}
-          </Text>
-        ) : (
-          messages.map((message, index) => (
-            <div
-              key={message.id}
-              data-pet-latest-message={index === messages.length - 1 ? '' : undefined}
-              className={`flex shrink-0 flex-col gap-2 ${message.role === 'user' ? 'rounded-lg bg-surface p-3' : ''}`}
-            >
-              {message.role === 'system' ? (
-                <Text variant="note" tone="muted">
-                  {message.text}
-                </Text>
-              ) : (
-                <>
-                  <Text variant="note" tone="muted">
-                    {message.role === 'user' ? 'You' : pet.name}
-                  </Text>
-                  <PetMessageText text={message.text} workspaceId={workspaceId} />
-                  {message.role === 'assistant' && voice.canSpeak ? (
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        voice.speak(message.text);
-                      }}
-                    >
-                      Read aloud
-                    </Button>
-                  ) : null}
-                </>
-              )}
-            </div>
-          ))
-        )}
-        {runtime ? (
-          <PetWorkTools
-            client={client}
-            runtime={runtime}
-            workspaceId={workspaceId}
-            petId={pet.id}
-            mode={mode}
-            onChange={setRuntime}
+        <div className="flex items-center gap-2">
+          <Segmented
+            label="Conversation mode"
+            options={CONVERSATION_MODE_OPTIONS}
+            value={mode}
+            onChange={onModeChange}
           />
-        ) : null}
-        {error || voice.error ? <Text role="alert">{error || voice.error}</Text> : null}
-      </PetChatViewport>
-      <div className="flex max-h-[50dvh] shrink-0 flex-col gap-2 overflow-y-auto border-t border-divider p-3">
-        {shared ? (
-          <div className="flex flex-col gap-2">
-            <Text variant="note">
-              Shared selection ({shared.text.length} characters): {shared.text.slice(0, 120)}
-            </Text>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setShared(null);
-              }}
-            >
-              Remove shared text
-            </Button>
-          </div>
-        ) : null}
-        <form
-          className="flex flex-col gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (draft.trim()) void command('send');
+          <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
+            {(trigger) => (
+              <Button {...trigger} variant="icon" aria-label="More conversation actions">
+                <Icon icon={MoreHorizontal} size="sm" />
+              </Button>
+            )}
+          </Menu>
+          <Button variant="icon" aria-label="Close" onClick={onClose}>
+            <Icon icon={X} size="sm" />
+          </Button>
+        </div>
+      </div>
+      {panel === 'settings' ? (
+        <PetSettingsPanel
+          pet={pet}
+          workspaceId={workspaceId}
+          mode={mode}
+          model={model}
+          models={models}
+          running={running || busy}
+          runtime={runtime}
+          readWithoutAsking={readWithoutAsking}
+          onModelChange={(next) => {
+            setModel(next);
+            writeConversationModel(workspaceId, pet.id, mode, next);
           }}
-        >
-          <label htmlFor="pet-message">
-            <Text variant="note">Message {pet.name}</Text>
-          </label>
-          <textarea
-            id="pet-message"
-            ref={input}
-            rows={2}
-            maxLength={8000}
-            value={draft}
-            className={`max-h-32 w-full resize-none rounded border border-divider bg-background p-2 text-foreground ${focusRing}`}
-            onChange={(event) => {
-              setDraft(event.currentTarget.value);
-              setRequestId(crypto.randomUUID());
+          onReadWithoutAskingChange={(next) => {
+            setReadWithoutAsking(next);
+            writeReadWithoutAsking(next);
+          }}
+          onBack={() => {
+            setPanel('chat');
+          }}
+        />
+      ) : panel === 'history' ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setPanel('chat');
             }}
-          />
-          <label className="flex items-start gap-2">
-            <input
-              type="checkbox"
-              checked={workspaceAccess}
-              disabled={running}
-              onChange={(event) => {
-                setWorkspaceAccess(event.currentTarget.checked);
-              }}
-            />
-            <Text variant="note">Allow workspace tools for this message (approval required)</Text>
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={busy || running || !draft.trim() || runtime?.status !== 'connected'}
-            >
-              Send
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                void command('read');
-              }}
-            >
-              Refresh
-            </Button>
+          >
+            <Icon icon={ArrowLeft} size="sm" />
+            Back
+          </Button>
+          <PetHistory workspaceId={workspaceId} petId={pet.id} name={pet.name} client={client} mode={mode} />
+        </div>
+      ) : runtime && runtime.status !== 'connected' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <PetConnectionPanel />
+        </div>
+      ) : (
+        <>
+          <PetChatViewport
+            latestKey={`${messages.at(-1)?.id ?? ''}:${runtime?.tools?.at(-1)?.id ?? ''}:${running ? 'thinking' : 'idle'}`}
+          >
+            {runtime?.state === 'error' ? (
+              <Text role="alert">
+                {runtime.reason || 'The response did not finish. Try again.'}
+              </Text>
+            ) : null}
+            {messages.length === 0 ? (
+              <PetEmptyState
+                mode={mode}
+                suggestions={suggestions}
+                onPick={(suggestion) => {
+                  setDraft(suggestion);
+                  regenerateRequestId();
+                  input.current?.focus();
+                }}
+              />
+            ) : (
+              messages.map((message, index) => (
+                <PetMessageRow
+                  key={message.id}
+                  message={message}
+                  petName={pet.name}
+                  workspaceId={workspaceId}
+                  latest={index === messages.length - 1}
+                  canSpeak={voice.canSpeak}
+                  onReadAloud={() => {
+                    voice.speak(message.text);
+                  }}
+                />
+              ))
+            )}
+            {runtime ? (
+              <PetWorkTools
+                client={client}
+                runtime={runtime}
+                workspaceId={workspaceId}
+                petId={pet.id}
+                petName={pet.name}
+                mode={mode}
+                onChange={setRuntime}
+              />
+            ) : null}
             {running ? (
+              <div className="flex items-center gap-1" aria-hidden="true">
+                <Text variant="note" tone="muted">
+                  {pet.name} is thinking
+                </Text>
+                <span className="flex gap-0.5">
+                  <span className="motion-safe:animate-pulse">.</span>
+                  <span className="motion-safe:animate-pulse">.</span>
+                  <span className="motion-safe:animate-pulse">.</span>
+                </span>
+              </div>
+            ) : null}
+          </PetChatViewport>
+          {error || voice.error ? (
+            <div className="flex items-center justify-between gap-2 border-t border-divider px-4 py-2">
+              <Text role="alert">{error || voice.error}</Text>
               <Button
-                type="button"
-                variant="secondary"
+                variant="ghost"
                 onClick={() => {
-                  void command('interrupt');
+                  void reload();
                 }}
               >
-                Stop response
+                Try again
               </Button>
+            </div>
+          ) : null}
+          <div className="flex shrink-0 flex-col gap-2 border-t border-divider p-3">
+            {shared ? (
+              <div className="flex items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
+                <Text variant="note" className="truncate">
+                  {shared.text.slice(0, 120)}
+                </Text>
+                <Button
+                  variant="icon"
+                  aria-label="Remove shared selection"
+                  onClick={() => {
+                    setShared(null);
+                  }}
+                >
+                  <Icon icon={X} size="sm" />
+                </Button>
+              </div>
             ) : null}
-          </div>
-        </form>
-        <details>
-          <summary className={`cursor-pointer ${focusRing}`}>
-            <Text as="span" variant="note">
-              More actions and history
-            </Text>
-          </summary>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="ghost"
-              onMouseDown={(event) => {
-                event.preventDefault();
-              }}
-              onClick={shareSelection}
-            >
-              Share selected text
-            </Button>
-            {voice.canDictate ? (
-              <Button variant="ghost" disabled={running} onClick={voice.dictate}>
-                Dictate
+            <label htmlFor="pet-message" className="sr-only">
+              Message {pet.name}
+            </label>
+            <div className="flex items-end gap-2">
+              <textarea
+                id="pet-message"
+                ref={input}
+                rows={composerRows(draft)}
+                maxLength={8000}
+                value={draft}
+                placeholder={`Message ${pet.name}`}
+                className={`max-h-48 min-h-11 w-full resize-none rounded border border-divider bg-background p-2 text-foreground ${focusRing}`}
+                onChange={(event) => {
+                  setDraft(event.currentTarget.value);
+                  regenerateRequestId();
+                }}
+                onKeyDown={onComposerKeyDown}
+              />
+              {running ? (
+                <Button variant="icon" aria-label="Stop response" onClick={() => void interrupt()}>
+                  <Icon icon={Square} size="sm" />
+                </Button>
+              ) : (
+                <Button
+                  variant="icon"
+                  aria-label="Send"
+                  disabled={busy || !draft.trim() || runtime?.status !== 'connected'}
+                  onClick={() => void submit()}
+                >
+                  <Icon icon={ArrowUp} size="sm" />
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant={workspaceAccess ? 'secondary' : 'ghost'}
+                aria-pressed={workspaceAccess}
+                disabled={running}
+                onClick={() => {
+                  const next = !workspaceAccess;
+                  setWorkspaceAccess(next);
+                  writeWorkspaceAccess(workspaceId, pet.id, next);
+                }}
+              >
+                {workspaceAccess ? 'Workspace on' : 'Workspace off'}
               </Button>
-            ) : (
-              <Text variant="note" tone="muted">
-                Dictation unavailable in this browser
-              </Text>
-            )}
-            {voice.listening || voice.speaking ? (
-              <Button variant="secondary" onClick={voice.stop}>
-                Stop audio
+              <Button
+                variant="icon"
+                aria-label="Share selected text"
+                disabled={!currentItem}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                }}
+                onClick={shareSelection}
+              >
+                <Icon icon={TextQuote} size="sm" />
               </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              disabled={busy || running}
-              onClick={() => {
-                void command('reset');
-              }}
-            >
-              New conversation
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={!messages.length}
-              onClick={() => {
-                const text = messages
-                  .filter((message) => message.role !== 'system')
-                  .map(
-                    (message) => `${message.role === 'user' ? 'You' : pet.name}\n\n${message.text}`,
-                  )
-                  .join('\n\n---\n\n');
-                const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown' }));
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = 'nix-companion-conversation.md';
-                link.click();
-                URL.revokeObjectURL(url);
-              }}
-            >
-              Export conversation
-            </Button>
+              {voice.canDictate ? (
+                <Button
+                  variant="icon"
+                  aria-label="Dictate"
+                  aria-pressed={voice.listening}
+                  disabled={running}
+                  onClick={voice.dictate}
+                >
+                  <Icon icon={Mic} size="sm" />
+                </Button>
+              ) : null}
+              {voice.listening || voice.speaking ? (
+                <Button variant="icon" aria-label="Stop audio" onClick={voice.stop}>
+                  <Icon icon={VolumeX} size="sm" />
+                </Button>
+              ) : null}
+            </div>
           </div>
-          <PetHistory
-            client={client}
-            workspaceId={workspaceId}
-            petId={pet.id}
-            name={pet.name}
-            mode={mode}
-          />
-        </details>
+        </>
+      )}
+    </div>
+  );
+}
+
+function renderMenuLink({
+  href,
+  children,
+  ...rest
+}: Parameters<NonNullable<Parameters<typeof Menu>[0]['renderLink']>>[0]) {
+  return (
+    <Link to={href} {...rest}>
+      {children}
+    </Link>
+  );
+}
+
+function PetMessageRow({
+  message,
+  petName,
+  workspaceId,
+  latest,
+  canSpeak,
+  onReadAloud,
+}: {
+  readonly message: NonNullable<PetConnection['messages']>[number];
+  readonly petName: string;
+  readonly workspaceId: string;
+  readonly latest: boolean;
+  readonly canSpeak: boolean;
+  readonly onReadAloud: () => void;
+}): ReactElement {
+  if (message.role === 'system')
+    return (
+      <div data-pet-latest-message={latest ? '' : undefined} className="flex justify-center">
+        <Text variant="caption" tone="muted">
+          {message.text}
+        </Text>
+      </div>
+    );
+  const fromUser = message.role === 'user';
+  return (
+    <div
+      data-pet-latest-message={latest ? '' : undefined}
+      className={`flex shrink-0 flex-col gap-1 ${fromUser ? 'items-end' : 'items-start'}`}
+    >
+      <Text as="span" variant="note" className="sr-only">
+        {fromUser ? 'You said' : `${petName} said`}
+      </Text>
+      <div className={fromUser ? 'max-w-[85%] rounded-lg bg-surface px-3 py-2' : 'max-w-[85%]'}>
+        <PetMessageText text={message.text} workspaceId={workspaceId} />
+      </div>
+      {!fromUser && canSpeak ? (
+        <Button variant="icon" aria-label="Read this reply aloud" onClick={onReadAloud}>
+          <Icon icon={Volume2} size="sm" />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function PetEmptyState({
+  mode,
+  suggestions,
+  onPick,
+}: {
+  readonly mode: PetConversationMode;
+  readonly suggestions: readonly string[];
+  readonly onPick: (suggestion: string) => void;
+}): ReactElement {
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+      <Text variant="note" tone="muted">
+        {mode === 'consult'
+          ? 'Describe what you want to keep track of. Your pet asks a few questions, proposes a design, and builds a draft under Pet drafts for you to try. Nothing is published.'
+          : 'Ask a question, or turn on workspace access to find notes, write content, and organise your work.'}
+      </Text>
+      <div className="flex flex-wrap justify-center gap-2">
+        {suggestions.map((suggestion) => (
+          <Button
+            key={suggestion}
+            variant="secondary"
+            onClick={() => {
+              onPick(suggestion);
+            }}
+          >
+            {suggestion}
+          </Button>
+        ))}
       </div>
     </div>
   );
 }
 
-function isAborted(signal: AbortSignal): boolean {
-  return signal.aborted;
+function PetSettingsPanel({
+  pet,
+  workspaceId,
+  mode,
+  model,
+  models,
+  running,
+  runtime,
+  readWithoutAsking,
+  onModelChange,
+  onReadWithoutAskingChange,
+  onBack,
+}: {
+  readonly pet: PetProfile;
+  readonly workspaceId: string;
+  readonly mode: PetConversationMode;
+  readonly model: string;
+  readonly models: NonNullable<PetConnection['models']>;
+  readonly running: boolean;
+  readonly runtime: PetConnection | null;
+  readonly readWithoutAsking: boolean;
+  readonly onModelChange: (model: string) => void;
+  readonly onReadWithoutAskingChange: (value: boolean) => void;
+  readonly onBack: () => void;
+}): ReactElement {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+      <Button variant="ghost" onClick={onBack}>
+        <Icon icon={ArrowLeft} size="sm" />
+        Back
+      </Button>
+      <label className="flex flex-col gap-2">
+        <Text variant="note">Codex model</Text>
+        <Select
+          aria-label="Codex model"
+          value={model}
+          disabled={running}
+          onChange={(event) => {
+            onModelChange(event.currentTarget.value);
+          }}
+        >
+          <option value="">Account default</option>
+          {model && !models.some((entry) => entry.id === model) ? (
+            <option value={model}>{model} (checking availability)</option>
+          ) : null}
+          {models.map((value) => (
+            <option key={value.id} value={value.id}>
+              {value.name}
+            </option>
+          ))}
+        </Select>
+      </label>
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          checked={readWithoutAsking}
+          onChange={(event) => {
+            onReadWithoutAskingChange(event.currentTarget.checked);
+          }}
+        />
+        <Text variant="note">
+          Let {pet.name} read your workspace without asking{mode === 'consult' ? ', and check its design,' : ''}{' '}
+          each time
+        </Text>
+      </label>
+      {runtime?.reason && runtime.status === 'connected' ? (
+        <Text variant="note" tone="muted">
+          {runtime.reason}
+        </Text>
+      ) : null}
+      <Text variant="note" tone="muted">
+        Reads share their results with ChatGPT. Changes always ask first.
+      </Text>
+      <Link to={`/w/${workspaceId}/settings`} className="underline">
+        <Text as="span" variant="note">
+          Connection and pet settings
+        </Text>
+      </Link>
+    </div>
+  );
 }
