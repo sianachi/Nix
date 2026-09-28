@@ -185,6 +185,9 @@ function describeSpecOperation(
     ...(context.existing ? { existing: context.existing } : {}),
     problems: report.problems,
     warnings: report.warnings,
+    // Security fix S1: this model only ever backs an approval card, so note and entry body text
+    // is never cut short here - the owner must see everything a write would store before deciding.
+    truncate: false,
   };
   const model = describeSteps(steps, describeContext);
   return { ...model, neverDoes: NEVER_DOES.slice() };

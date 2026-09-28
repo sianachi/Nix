@@ -169,7 +169,7 @@ describe('companion work approvals', () => {
   });
 
   it.each(['create_note', 'append_note'])(
-    'shows the full pending %s content inline, with no folding, plus its character count',
+    'shows the full pending %s content inline, with no folding, plus its line count',
     async (operation) => {
       const content = 'x'.repeat(340);
       render(
@@ -196,11 +196,17 @@ describe('companion work approvals', () => {
         />,
         { wrapper: MemoryRouter },
       );
-      // Security fix M3: a pending card never folds its content behind "Show content" - the
-      // full text is already in the DOM, with a plain character count next to it.
-      expect(await screen.findByText(content)).toBeVisible();
+      // Security fix S1: a pending card never folds its content behind "Show content" - the
+      // full text is already in the DOM, in a focusable region, with a plain line count next
+      // to it.
+      const region = await screen.findByRole('region', {
+        name: operation === 'create_note' ? 'Note body' : 'Added note text',
+      });
+      expect(region).toHaveTextContent(content);
       expect(screen.queryByText('Show content')).not.toBeInTheDocument();
-      expect(screen.getByText('340 characters')).toBeVisible();
+      expect(
+        screen.getByText(operation === 'create_note' ? 'Note body (1 line)' : 'Added note text (1 line)'),
+      ).toBeVisible();
     },
   );
 
@@ -216,13 +222,15 @@ describe('companion work approvals', () => {
 
   it.each([
     // Both read-only - list_templates and read_template are never previewed (see
-    // `isAutoReadOperation`), so each is announced by its own fixed one-line sentence rather
-    // than a headline built from the preview model.
-    [{ operation: 'list_templates', query: 'reading' }, /^Listed templates$/],
-    [{ operation: 'list_templates', query: '' }, /^Listed templates$/],
+    // `isAutoReadOperation`), so each is announced by its own one-line sentence rather than a
+    // headline built from the preview model. Both auto-run (the default device preference), so
+    // the sentence is already in its present-progressive form while the claim is in flight
+    // (UX fix U3).
+    [{ operation: 'list_templates', query: 'reading' }, /^Listing templates$/],
+    [{ operation: 'list_templates', query: '' }, /^Listing templates$/],
     [
       { operation: 'read_template', itemId: '33333333-3333-4333-8333-333333333333' },
-      /^Read a template$/,
+      /^Reading a template$/,
     ],
     [
       {
@@ -288,7 +296,9 @@ describe('companion work approvals', () => {
         onChange={vi.fn()}
       />,
     );
-    expect(screen.getByRole('status')).toHaveTextContent('Declined');
+    // UX fix U16: the status word is no longer its own live region - the row beside it already
+    // carries the announcement.
+    expect(screen.getByText('Declined')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
 
@@ -476,6 +486,7 @@ describe('companion work approvals', () => {
           })),
         }),
     );
+    const onNeedsDecisionChange = vi.fn();
     render(
       <PetWorkTools
         client={client as unknown as NixClient}
@@ -483,12 +494,16 @@ describe('companion work approvals', () => {
         workspaceId="11111111-1111-4111-8111-111111111111"
         petId="22222222-2222-4222-8222-222222222222"
         onChange={vi.fn()}
+        onNeedsDecisionChange={onNeedsDecisionChange}
       />,
     );
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
     expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    // A write whose preview has problems is auto-declined, never something the owner is asked to
+    // decide - `needsDecision` (and this prop) must exclude it once its problems are known.
+    expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
     const resultCall: unknown = client.execute.mock.calls[1]?.[0];
     expect(resultCall).toMatchObject({
       body: { operation: 'tool_result', toolSuccess: false },
@@ -499,7 +514,7 @@ describe('companion work approvals', () => {
     // reflects the persisted result - only the receipt this component tracks itself does. The
     // richer "Sent N problems back to {pet}" wording (`WriteReceiptRow` in pet-work-tools.tsx)
     // needs that persisted `tool.result`, which the live app supplies through `setRuntime`.
-    expect(screen.getByRole('status')).toHaveTextContent('Declined');
+    expect(screen.getByText('Declined')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
 
@@ -710,7 +725,9 @@ describe('companion work approvals', () => {
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(1);
     });
-    expect(screen.getByText('Checking the design (no workspace access).')).toBeInTheDocument();
+    // UX fix U3 / nit: the read sentence carries the per-operation wording now, with no
+    // "(no workspace access)" qualifier.
+    expect(screen.getByText('Checking the design')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
     expect(client.query).not.toHaveBeenCalled();
     expect(finishValidation).toBeTypeOf('function');
@@ -899,5 +916,173 @@ describe('companion work approvals', () => {
     );
     expect(screen.getByText('Incomplete draft moved to Trash.')).toBeInTheDocument();
     expect(Object.keys(sessionStorage)).toHaveLength(0);
+  });
+
+  describe('security fix S1: nothing a pending write would store is hidden or truncated', () => {
+    function showWrite(operation: string, specJson: string, overrides: Record<string, string> = {}) {
+      return render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={{
+            ...runtime,
+            tools: (runtime.tools ?? []).map((tool) => ({
+              ...tool,
+              arguments: JSON.stringify({
+                operation,
+                title: '',
+                markdown: '',
+                itemId: '',
+                parentId: '',
+                query: '',
+                propertiesJson: '',
+                specJson,
+                ...overrides,
+              }),
+            })),
+          }}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+        />,
+        { wrapper: MemoryRouter },
+      );
+    }
+
+    it('shows a create_entries entry body past its 200-character summary length', async () => {
+      const body = 'y'.repeat(250);
+      showWrite(
+        'create_entries',
+        JSON.stringify({ entries: [{ title: 'Task one', markdown: body }] }),
+        { parentId: '33333333-3333-4333-8333-333333333333' },
+      );
+      const region = await screen.findByText(body);
+      expect(region).toBeVisible();
+      expect(body[200]).toBeDefined();
+    });
+
+    it('shows an add_fields field help string', async () => {
+      const help = 'h'.repeat(190);
+      showWrite('add_fields', JSON.stringify({ fields: [{ label: 'Status', type: 'text', help }] }), {
+        itemId: '33333333-3333-4333-8333-333333333333',
+      });
+      expect(await screen.findByText(help)).toBeVisible();
+    });
+
+    it('shows a save_as_template description', async () => {
+      const description = 'd'.repeat(390);
+      showWrite('save_as_template', JSON.stringify({ description }), {
+        itemId: '33333333-3333-4333-8333-333333333333',
+        title: 'Job hunt',
+      });
+      expect(await screen.findByText(description)).toBeVisible();
+    });
+
+    it('shows an apply_template input value', async () => {
+      const value = 'v'.repeat(150);
+      showWrite('apply_template', JSON.stringify({ inputs: { start_date: value } }), {
+        itemId: '33333333-3333-4333-8333-333333333333',
+        title: 'Reading log copy',
+      });
+      expect(await screen.findByText(value)).toBeVisible();
+    });
+
+    it('shows an edit_form confirmation message', async () => {
+      const message = 'm'.repeat(250);
+      showWrite(
+        'edit_form',
+        JSON.stringify({
+          viewId: 'v1',
+          form: {
+            pages: [{ title: 'Page 1', blocks: [{ field: 'status' }] }],
+            confirmation: { title: 'Done', message },
+          },
+        }),
+        { itemId: '33333333-3333-4333-8333-333333333333' },
+      );
+      expect(await screen.findByText(message)).toBeVisible();
+    });
+
+    it('shows a build_blueprint node body', async () => {
+      const body = 'b'.repeat(220);
+      showWrite(
+        'build_blueprint',
+        JSON.stringify({
+          version: 1,
+          title: 'Design draft',
+          summary: 'A small design.',
+          root: { id: 'plan', title: 'Plan', markdown: body },
+        }),
+      );
+      expect(await screen.findByText(body)).toBeVisible();
+    });
+  });
+
+  it('retries a second auto-run read whose first attempt found the claim lock held (security fix S3)', async () => {
+    const dualRuntime = {
+      ...runtime,
+      tools: [
+        {
+          id: 'read-1',
+          arguments: JSON.stringify({
+            operation: 'search',
+            query: 'alpha',
+            title: '',
+            markdown: '',
+            itemId: '',
+            parentId: '',
+            propertiesJson: '',
+          }),
+          status: 'pending' as const,
+          result: '',
+          claimId: '',
+        },
+        {
+          id: 'read-2',
+          arguments: JSON.stringify({
+            operation: 'search',
+            query: 'beta',
+            title: '',
+            markdown: '',
+            itemId: '',
+            parentId: '',
+            propertiesJson: '',
+          }),
+          status: 'pending' as const,
+          result: '',
+          claimId: '',
+        },
+      ],
+    };
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string; toolId: string } }) =>
+        Promise.resolve({
+          ...dualRuntime,
+          tools: dualRuntime.tools.map((tool) =>
+            tool.id === endpoint.body.toolId
+              ? {
+                  ...tool,
+                  status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+                  claimId: endpoint.body.requestId,
+                }
+              : tool,
+          ),
+        }),
+    );
+    runWorkspaceToolSpy.mockResolvedValue({ text: 'ok', readOnly: true, touchedParents: [] });
+    render(
+      <PetWorkTools
+        client={client as unknown as NixClient}
+        runtime={dualRuntime}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={vi.fn()}
+      />,
+      { wrapper: MemoryRouter },
+    );
+    // Without the fix, the second read's auto-run key is set before its `onResolve` call even
+    // returns, so once the first read holds the claim lock, the second is never retried.
+    await waitFor(() => {
+      expect(runWorkspaceToolSpy).toHaveBeenCalledTimes(2);
+    });
   });
 });

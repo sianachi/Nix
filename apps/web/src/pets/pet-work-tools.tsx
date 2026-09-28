@@ -6,7 +6,7 @@ import {
   type WorkspaceToolArgs,
 } from '@nix/companion/tool-args';
 import type { PreviewModel, Problem } from '@nix/structure-spec';
-import { Button, Card, Text } from '@nix/ui';
+import { Button, Card, Text, cn, focusRing, inkWashStates } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { Link } from 'react-router';
 import { z } from 'zod';
@@ -46,30 +46,80 @@ function isAutoReadOperation(operation: WorkspaceToolArgs['operation']): boolean
   return READ_ONLY_OPERATIONS.has(operation) || operation === 'validate_blueprint';
 }
 
-/** The one-line sentence a read (or a design check) is announced by, before its result is
- * known. Plain and specific enough that a person scanning a long turn can tell what happened
- * without opening anything. */
-function describeReadOperation(args: WorkspaceToolArgs): string {
+/** The base (infinitive), progressive and past forms of one read (or design check)'s sentence
+ * (UX fix U3): "Search for "x"?" while pending, "Searching for "x"" while running, "Searched for
+ * "x"" once done. `base` also backs the declined/failed forms - see `describeReadSentence`. */
+interface ReadPhrase {
+  base: string;
+  progressive: string;
+  past: string;
+}
+
+function readPhrase(args: WorkspaceToolArgs): ReadPhrase {
   switch (args.operation) {
     case 'list_items':
-      return 'Listed items';
-    case 'search':
-      return args.query ? `Searched for "${args.query}"` : 'Searched the workspace';
+      return { base: 'List items', progressive: 'Listing items', past: 'Listed items' };
+    case 'search': {
+      const target = args.query ? `for "${args.query}"` : 'the workspace';
+      return {
+        base: `Search ${target}`,
+        progressive: `Searching ${target}`,
+        past: `Searched ${target}`,
+      };
+    }
     case 'read_item':
-      return 'Read an item';
+      return { base: 'Read an item', progressive: 'Reading an item', past: 'Read an item' };
     case 'read_note':
-      return 'Read a note';
+      return { base: 'Read a note', progressive: 'Reading a note', past: 'Read a note' };
     case 'read_structure':
-      return "Read an item's structure";
+      return {
+        base: "Read an item's structure",
+        progressive: "Reading an item's structure",
+        past: "Read an item's structure",
+      };
     case 'list_templates':
-      return 'Listed templates';
+      return {
+        base: 'List templates',
+        progressive: 'Listing templates',
+        past: 'Listed templates',
+      };
     case 'read_template':
-      return 'Read a template';
+      return { base: 'Read a template', progressive: 'Reading a template', past: 'Read a template' };
     case 'validate_blueprint':
-      return 'Checked the design';
+      return {
+        base: 'Check the design',
+        progressive: 'Checking the design',
+        past: 'Checked the design',
+      };
     default:
-      return 'Ran a read-only request';
+      return {
+        base: 'Run a read-only request',
+        progressive: 'Running a read-only request',
+        past: 'Ran a read-only request',
+      };
   }
+}
+
+function lowerFirst(text: string): string {
+  return text.length ? `${text[0]?.toLowerCase() ?? ''}${text.slice(1)}` : text;
+}
+
+/** The one-line sentence a read (or a design check) is announced by, shaped by its status (UX
+ * fix U3): a question while it waits for approval, present-progressive while it runs, past tense
+ * once it is done, and "Didn't"/"Couldn't" once it is declined or failed - the same five-way
+ * pattern for every read operation and for checking a design. */
+function describeReadSentence(tool: PetToolCall, args: WorkspaceToolArgs, autoRun: boolean): string {
+  const phrase = readPhrase(args);
+  if (tool.status === 'pending') {
+    // An auto-run read is never actually waiting on the owner, even while the server has not
+    // yet turned its status to "claimed" - see `readStatusText`'s own note on the same race.
+    return autoRun ? phrase.progressive : `${phrase.base}?`;
+  }
+  if (tool.status === 'claimed') return phrase.progressive;
+  if (tool.status === 'completed') return phrase.past;
+  if (tool.status === 'failed' && tool.result === DECLINED_BY_USER)
+    return `Didn't ${lowerFirst(phrase.base)}`;
+  return `Couldn't ${lowerFirst(phrase.base)}`;
 }
 
 function buildOutcome(text: string): BuildOutcome | undefined {
@@ -129,6 +179,10 @@ export function PetWorkTools({
     Partial<Record<PetConversationMode, BuildLedger>>
   >({});
   const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
+  // Whether a pending write's own preview has problems, reported by each `PetWorkToolCard` once
+  // its preview loads. A write with problems is auto-declined (see `hasProblems` below) rather
+  // than shown to the owner, so it must never count towards `needsDecision` either.
+  const [hasProblems, setHasProblems] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const changed = () => {
@@ -149,6 +203,7 @@ export function PetWorkTools({
       if (tool.status !== 'pending') return false;
       const key = decisionKey(tool);
       if (decisions[key] || readActionReceipt(key)) return false;
+      if (hasProblems[tool.id]) return false;
       let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
       try {
         parsed = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
@@ -168,16 +223,21 @@ export function PetWorkTools({
   // at most once, a fence guards every structure write, and a build ledger resumes a blueprint
   // build exactly where it left off. Only which component calls it, and how its outcome is
   // presented, may change around it.
+  // Returns whether this call actually started the decision (security fix S3): a call that
+  // returns early because the lock is already held, or the tool is no longer pending, returns
+  // false without doing anything. `ReadActivityRow` only remembers a tool as "already auto-run"
+  // once this returns true, so a second auto-run read that arrived while the first was still in
+  // flight is retried once the first finishes, instead of being silently stalled forever.
   async function resolve(
     tool: PetToolCall,
     approved: boolean,
     fence?: StructureFingerprint,
     refusalResult?: string,
     reportProgress?: (completed: number, total: number) => void,
-  ) {
+  ): Promise<boolean> {
     const key = decisionKey(tool);
     if (lock.current || tool.status !== 'pending' || decisions[key] || readActionReceipt(key))
-      return;
+      return false;
     lock.current = true;
     const submitted = approved
       ? 'Approval submitted. Waiting for confirmation.'
@@ -290,8 +350,10 @@ export function PetWorkTools({
         setDecisions((old) => ({ ...old, [key]: 'Declined' }));
       }
     } catch {
+      // UX fix U23: name the recovery, not the failure - reload from the menu, then check the
+      // workspace, before asking the pet again.
       setError(
-        'The operation could not be confirmed. Refresh and inspect Nix before asking for this change again.',
+        "We couldn't confirm this change. Reload the conversation from the menu and check your workspace before asking again.",
       );
     } finally {
       lock.current = false;
@@ -300,11 +362,16 @@ export function PetWorkTools({
         Object.fromEntries(Object.entries(old).filter(([id]) => id !== tool.id)),
       );
     }
+    return true;
   }
 
+  const tools = runtime.tools ?? [];
+  // UX fix U16: the section - and its label - only exist when there is something to show.
+  if (tools.length === 0) return <></>;
+
   return (
-    <section aria-label="Nix work requests" className="flex flex-col gap-3">
-      {(runtime.tools ?? []).map((tool) => (
+    <section aria-label={`${petName}'s activity`} className="flex flex-col gap-3">
+      {tools.map((tool) => (
         <PetWorkToolCard
           key={tool.id}
           tool={tool}
@@ -316,6 +383,11 @@ export function PetWorkTools({
           progress={progress[tool.id]}
           onBuildProgress={(message) => {
             setProgress((old) => ({ ...old, [tool.id]: message }));
+          }}
+          onProblemsChange={(problems) => {
+            setHasProblems((old) =>
+              old[tool.id] === problems ? old : { ...old, [tool.id]: problems },
+            );
           }}
           submitted={decisions[decisionKey(tool)] ?? readActionReceipt(decisionKey(tool))}
           onResolve={resolve}
@@ -332,7 +404,7 @@ type Resolver = (
   fence?: StructureFingerprint,
   refusalResult?: string,
   reportProgress?: (completed: number, total: number) => void,
-) => Promise<void>;
+) => Promise<boolean>;
 
 /** One line: an icon-free status word or two, next to what happened. Used for every read (and
  * design check) - which never need a decision - and for a write once it has one, so a long turn
@@ -341,27 +413,31 @@ function ActivityRow({
   sentence,
   status,
   details,
+  detailsLabel = 'Result details',
   actions,
 }: {
   readonly sentence: string;
   readonly status: string;
   readonly details: string | undefined;
+  readonly detailsLabel?: string;
   readonly actions: ReactElement | undefined;
 }): ReactElement {
   return (
     <div className="flex flex-col gap-1 border-b border-divider py-2 last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Text variant="bodySmall">{sentence}</Text>
-        <Text variant="note" role="status" tone="muted">
+        {/* UX fix U16: this word already sits beside its own sentence, which the row re-renders
+         * whenever it changes - a second live-region announcement here was redundant noise. */}
+        <Text variant="note" tone="muted">
           {status}
         </Text>
       </div>
       {actions}
       {details ? (
         <details>
-          <summary>
+          <summary className={cn('cursor-pointer rounded', focusRing, inkWashStates)}>
             <Text as="span" variant="note">
-              Result details
+              {detailsLabel}
             </Text>
           </summary>
           <Text variant="note" className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
@@ -373,15 +449,8 @@ function ActivityRow({
   );
 }
 
-function runningLabel(args: WorkspaceToolArgs): string {
-  return args.operation === 'validate_blueprint'
-    ? 'Checking the design (no workspace access).'
-    : 'Running…';
-}
-
 function readStatusText(
   tool: PetToolCall,
-  args: WorkspaceToolArgs,
   autoRun: boolean,
   submitted: string | undefined,
 ) {
@@ -389,11 +458,11 @@ function readStatusText(
     // An auto-run keeps its own running label even once its (identical, internal) submission
     // receipt exists - that receipt is bookkeeping against a repeat prompt, not something the
     // owner asked for, so it never gets to say so on their behalf.
-    if (autoRun) return runningLabel(args);
+    if (autoRun) return 'Running…';
     if (submitted) return submitted;
     return 'Waiting for your approval';
   }
-  if (tool.status === 'claimed') return runningLabel(args);
+  if (tool.status === 'claimed') return 'Running…';
   if (tool.status === 'completed') return 'Done';
   if (tool.status === 'failed') return tool.result === DECLINED_BY_USER ? 'Declined' : 'Failed';
   return 'Stopped';
@@ -420,15 +489,21 @@ function ReadActivityRow({
   useEffect(() => {
     if (!autoRun || tool.status !== 'pending' || submitted || busy || autoRunKey.current === tool.id)
       return;
-    autoRunKey.current = tool.id;
-    void onResolve(tool, true);
+    // Security fix S3: only remember this tool as auto-run once `onResolve` actually started it.
+    // A second auto-run read that arrives while the first is still claiming returns early (the
+    // lock is held) without ever running - if the key were set beforehand, that second read would
+    // never be retried. Leaving it unset here lets this effect fire again once `busy` clears.
+    void (async () => {
+      const started = await onResolve(tool, true);
+      if (started) autoRunKey.current = tool.id;
+    })();
   }, [autoRun, tool, submitted, busy, onResolve]);
 
   const needsClick = !autoRun && tool.status === 'pending' && !submitted;
   return (
     <ActivityRow
-      sentence={describeReadOperation(args)}
-      status={readStatusText(tool, args, autoRun, submitted)}
+      sentence={describeReadSentence(tool, args, autoRun)}
+      status={readStatusText(tool, autoRun, submitted)}
       details={tool.result || undefined}
       actions={
         needsClick ? (
@@ -458,11 +533,40 @@ function ReadActivityRow({
   );
 }
 
+/** UX fix U14: the status word a write's receipt shows, mapped from `tool.status` rather than a
+ * raw enum - "Done", never "completed"; "Stopped", never "interrupted" - and never the richer
+ * internal receipt text a build or a template save also tracks for its own bookkeeping. */
+function writeStatusText(
+  tool: PetToolCall,
+  declinedForProblems: boolean,
+  problemCount: number,
+  petName: string,
+  submitted: string | undefined,
+): string {
+  if (declinedForProblems)
+    return `Sent ${String(problemCount)} problem${problemCount === 1 ? '' : 's'} back to ${petName}`;
+  switch (tool.status) {
+    case 'pending':
+      return submitted ?? 'Waiting for your approval';
+    case 'claimed':
+      return 'Applying…';
+    case 'completed':
+      return 'Done';
+    case 'failed':
+      return tool.result === DECLINED_BY_USER
+        ? 'Declined'
+        : "Didn't finish - check your workspace before retrying";
+    case 'interrupted':
+      return 'Stopped';
+  }
+}
+
 /** A write once it has an outcome: approved and run, declined, or auto-declined because its
  * preview had problems. The full approval card (rendered inline in `PetWorkToolCard` below) only
  * shows before that - see `isCompactWrite`. */
 function WriteReceiptRow({
   tool,
+  headline,
   problems,
   petName,
   submitted,
@@ -470,6 +574,7 @@ function WriteReceiptRow({
   cleanup,
 }: {
   readonly tool: PetToolCall;
+  readonly headline: string;
   readonly problems: readonly Problem[];
   readonly petName: string;
   readonly submitted: string | undefined;
@@ -477,26 +582,16 @@ function WriteReceiptRow({
   readonly cleanup: ReactElement | null | undefined;
 }): ReactElement {
   const declinedForProblems = tool.result.startsWith(DECLINED_FOR_PROBLEMS_PREFIX);
-  const status = declinedForProblems
-    ? `Sent ${String(problems.length)} problem${problems.length === 1 ? '' : 's'} back to ${petName}`
-    : tool.status === 'claimed'
-      ? 'Claimed for execution. Do not repeat this change.'
-      : tool.status === 'pending' && submitted
-        ? submitted
-        : tool.status === 'failed' && tool.result === DECLINED_BY_USER
-          ? 'Declined'
-          : tool.status === 'completed' && submitted
-            ? submitted
-            : tool.status;
   return (
     <ActivityRow
-      sentence="Proposed action"
-      status={status}
+      sentence={headline}
+      status={writeStatusText(tool, declinedForProblems, problems.length, petName, submitted)}
       details={
         declinedForProblems
-          ? problems.map((problem) => `${problem.path}: ${problem.message}`).join('\n')
+          ? problems.map((problem) => problem.message).join('\n')
           : tool.result || undefined
       }
+      detailsLabel={declinedForProblems ? 'Show problems' : 'Result details'}
       actions={
         progress || cleanup ? (
           <div className="flex flex-col gap-2">
@@ -513,6 +608,209 @@ function WriteReceiptRow({
   );
 }
 
+/** One piece of text a pending write would store, with a human label derived from where it sits
+ * in the parsed request (security fix S1). */
+interface WriteTextItem {
+  label: string;
+  text: string;
+}
+
+const WRITE_TEXT_ARRAY_NOUNS: Record<string, string> = {
+  entries: 'Entry',
+  fields: 'Field',
+  inputs: 'Input',
+  pages: 'Page',
+  blocks: 'Question',
+  views: 'View',
+  rules: 'Rule',
+};
+
+const WRITE_TEXT_KEY_WORDS: Record<string, string> = {
+  markdown: 'body',
+  body: 'body',
+  help: 'help',
+  description: 'description',
+  message: 'confirmation message',
+  paragraph: 'paragraph',
+  heading: 'heading',
+  formula: 'formula',
+  why: 'why',
+  default: 'default',
+  title: 'title',
+  label: 'label',
+  value: 'value',
+  query: 'query',
+};
+
+function writeTextWord(key: string): string {
+  return WRITE_TEXT_KEY_WORDS[key] ?? key.replaceAll(/([A-Z])/g, ' $1').toLowerCase();
+}
+
+/** The `label`/`title`/`field`/`heading` a spec array item names itself by, so a nested string
+ * (a field's help, a question's confirmation copy) can be labelled by what it belongs to rather
+ * than by its position alone. */
+function writeTextItemName(record: Record<string, unknown>): string | undefined {
+  for (const key of ['label', 'title', 'field', 'heading']) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) return value;
+  }
+  return undefined;
+}
+
+/** Walks a parsed spec (or the property values of a `set_properties` request) and collects every
+ * non-empty string value in it, each with a plain-language label built from its path - "Entry 3
+ * body", "Field help: Status" - falling back to a capitalized key name. Security fix S1: nothing
+ * a pending write would store may stay off this list, so every string leaf is collected, not just
+ * the ones a specific operation is known to care about. */
+function collectWriteText(
+  value: unknown,
+  key: string | undefined,
+  arrayNoun: string | undefined,
+  itemName: string | undefined,
+  out: WriteTextItem[],
+): void {
+  if (typeof value === 'string') {
+    if (!value.trim() || key === undefined) return;
+    const word = writeTextWord(key);
+    const label =
+      itemName !== undefined
+        ? `${arrayNoun ?? 'Item'} ${word}: ${itemName}`
+        : word.charAt(0).toUpperCase() + word.slice(1);
+    out.push({ label, text: value });
+    return;
+  }
+  if (Array.isArray(value)) {
+    const noun = key !== undefined ? WRITE_TEXT_ARRAY_NOUNS[key] : undefined;
+    value.forEach((item) => {
+      const name =
+        item !== null && typeof item === 'object' && !Array.isArray(item)
+          ? writeTextItemName(item as Record<string, unknown>)
+          : undefined;
+      collectWriteText(item, undefined, noun, name, out);
+    });
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    for (const [nestedKey, nestedValue] of Object.entries(value as Record<string, unknown>)) {
+      collectWriteText(nestedValue, nestedKey, arrayNoun, itemName, out);
+    }
+  }
+}
+
+const WRITE_TEXT_SPEC_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
+  'create_structured',
+  'add_view',
+  'create_entries',
+  'add_fields',
+  'edit_form',
+  'set_recurrence',
+  'apply_template',
+  'build_blueprint',
+  'save_as_template',
+]);
+
+/** Every piece of text a pending write would store, for the section that shows it in full before
+ * Approve (security fix S1). */
+function writeTextItems(args: WorkspaceToolArgs): WriteTextItem[] {
+  const out: WriteTextItem[] = [];
+  if (WRITE_TEXT_SPEC_OPERATIONS.has(args.operation) && args.specJson.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(args.specJson);
+      collectWriteText(parsed, undefined, undefined, undefined, out);
+    } catch {
+      // Invalid JSON is already surfaced as a problem elsewhere; there is nothing to list here.
+    }
+  }
+  if (args.operation === 'set_properties' && args.propertiesJson.trim()) {
+    try {
+      const parsed: unknown = JSON.parse(args.propertiesJson);
+      collectWriteText(parsed, undefined, undefined, undefined, out);
+    } catch {
+      // ditto
+    }
+  }
+  if (args.markdown.trim()) {
+    out.push({ label: args.operation === 'append_note' ? 'Added note text' : 'Note body', text: args.markdown });
+  }
+  return out;
+}
+
+/** Security fix S1: every string a pending write would store, in a focusable scroll region so
+ * nothing here can hide or truncate behind a click before Approve. */
+function WriteTextSection({ items }: { readonly items: readonly WriteTextItem[] }): ReactElement | null {
+  if (items.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-3">
+      <Text variant="note" tone="muted">
+        Text this change will write
+      </Text>
+      {items.map((item, index) => {
+        const lineCount = item.text.split('\n').length;
+        return (
+          <div key={`${item.label}:${String(index)}`} className="flex flex-col gap-1">
+            <Text variant="note" tone="muted">
+              {item.label} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
+            </Text>
+            <div
+              role="region"
+              aria-label={item.label}
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
+              tabIndex={0}
+              className={cn(
+                'max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded border border-divider p-2',
+                focusRing,
+              )}
+            >
+              <Text variant="note">{item.text}</Text>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function formatPropertyValue(value: unknown): string {
+  if (value === null || value === undefined) return '(empty)';
+  if (Array.isArray(value)) return value.map((entry) => formatPropertyValue(entry)).join(', ');
+  if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  if (typeof value === 'number' || typeof value === 'string') return String(value);
+  return JSON.stringify(value);
+}
+
+/** UX fix U15: a `set_properties` request's values as a plain key/value list, alongside (never
+ * instead of) `WriteTextSection`'s full text of every string among them. */
+function PropertyValueList({
+  propertiesJson,
+}: {
+  readonly propertiesJson: string;
+}): ReactElement | null {
+  let entries: [string, unknown][] = [];
+  try {
+    const parsed: unknown = propertiesJson.trim() ? JSON.parse(propertiesJson) : undefined;
+    if (parsed !== undefined && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      entries = Object.entries(parsed as Record<string, unknown>);
+    }
+  } catch {
+    return null;
+  }
+  if (entries.length === 0) return null;
+  return (
+    <dl className="flex flex-col gap-1">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex flex-wrap gap-2">
+          <Text as="dt" variant="note" tone="muted">
+            {key}
+          </Text>
+          <Text as="dd" variant="note">
+            {formatPropertyValue(value)}
+          </Text>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function PetWorkToolCard({
   tool,
   client,
@@ -522,6 +820,7 @@ function PetWorkToolCard({
   readWithoutAsking,
   progress,
   onBuildProgress,
+  onProblemsChange,
   submitted,
   onResolve,
 }: {
@@ -533,6 +832,9 @@ function PetWorkToolCard({
   readonly readWithoutAsking: boolean;
   readonly progress: string | undefined;
   readonly onBuildProgress: (message: string) => void;
+  /** Reports whether this tool's own preview has problems, so the owner-facing `needsDecision`
+   * count in `PetWorkTools` never includes a write that is about to be auto-declined. */
+  readonly onProblemsChange: (hasProblems: boolean) => void;
   readonly submitted?: string;
   readonly onResolve: Resolver;
 }): ReactElement {
@@ -624,6 +926,9 @@ function PetWorkToolCard({
   // owner click through a request that cannot run.
   const hasProblems = !isReadOp && tool.status === 'pending' && problems.length > 0 && !submitted;
   useEffect(() => {
+    onProblemsChange(hasProblems);
+  }, [hasProblems, onProblemsChange]);
+  useEffect(() => {
     if (!hasProblems || busy || autoDeclineKey.current === tool.id) return;
     autoDeclineKey.current = tool.id;
     void onResolve(tool, false, undefined, problemResult);
@@ -704,6 +1009,7 @@ function PetWorkToolCard({
     return (
       <WriteReceiptRow
         tool={tool}
+        headline={model?.headline ?? (state.loading ? 'Preparing a summary…' : 'This change')}
         problems={problems}
         petName={petName}
         submitted={submitted}
@@ -713,9 +1019,19 @@ function PetWorkToolCard({
     );
   }
 
+  const textItems = args ? writeTextItems(args) : [];
   return (
     <Card title={parsed.success ? 'Proposed action' : 'Unsupported tool request'} headingLevel={3}>
-      {model ? <PetStructurePreview model={model} captureSummary={args?.operation === 'save_as_template'} /> : null}
+      {model ? (
+        <PetStructurePreview
+          model={model}
+          captureSummary={args?.operation === 'save_as_template'}
+          // Security fix S1: a pending card never folds any part of the tree it is being asked
+          // to approve - "Show N more", "Why", and warnings all stay open. Folding is fine again
+          // once the write has an outcome, on `WriteReceiptRow`'s own receipt.
+          pending
+        />
+      ) : null}
       {!currentPreview || state.loading ? <Text variant="note">Preparing the preview...</Text> : null}
       {progress ? (
         <Text variant="note" role="status">
@@ -732,33 +1048,17 @@ function PetWorkToolCard({
           This request is unsupported. Decline it so the companion can try a supported operation.
         </Text>
       ) : null}
-      {args?.markdown ? (
-        // Security fix M3: a pending approval never folds or collapses the write it is being
-        // asked to approve, however long - the owner must see everything it would write before
-        // deciding, not a 300-character preview behind a click. Folding stays allowed only on
-        // the compact receipt a write gets once it already has an outcome - see
-        // `WriteReceiptRow`'s own "Result details" disclosure.
-        <>
-          <Text variant="note" className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
-            {args.markdown}
-          </Text>
-          <Text variant="note" tone="muted">
-            {args.markdown.length.toLocaleString('en-US')} characters
-          </Text>
-        </>
+      {args?.operation === 'set_properties' ? (
+        <PropertyValueList propertiesJson={args.propertiesJson} />
       ) : null}
-      {args?.propertiesJson ? (
-        <Text variant="note" className="whitespace-pre-wrap break-words">
-          {args.propertiesJson}
-        </Text>
-      ) : null}
+      <WriteTextSection items={textItems} />
       {itemId ? (
-        <Link className="underline" to={`/w/${workspaceId}?item=${itemId}`}>
+        <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${itemId}`}>
           Inspect target item
         </Link>
       ) : null}
       {parentId ? (
-        <Link className="underline" to={`/w/${workspaceId}?item=${parentId}`}>
+        <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${parentId}`}>
           Inspect destination
         </Link>
       ) : null}

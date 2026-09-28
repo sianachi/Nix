@@ -21,6 +21,12 @@ export interface DescribeContext {
   };
   problems: Problem[];
   warnings: Problem[];
+  /** When false, note-body and entry-body text is shown in full rather than cut at
+   * `truncateText`'s default length. The approval card (`pet-work-tools.tsx`, security fix S1)
+   * always needs the full text before the owner decides, so `describeSpecOperation` in
+   * `@nix/companion` always sets this to false; a direct caller that leaves it out keeps the
+   * shorter, summary-style text. */
+  truncate?: boolean;
 }
 
 function lookupLabel(key: string, properties: readonly StructureProperty[]): string {
@@ -108,8 +114,9 @@ function describeView(
   };
 }
 
-function truncateText(text: string, max = 200): string {
-  return text.length > max ? `${text.slice(0, max)}...` : text;
+function truncateText(text: string, truncate: boolean, max = 200): string {
+  if (!truncate) return text;
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 function describePropertiesRecord(
@@ -198,7 +205,11 @@ export function describeStep(step: Step, context: DescribeContext): PreviewNode 
       };
     }
     case 'appendBody': {
-      return { label: 'Note content', detail: [truncateText(step.markdown)], children: [] };
+      return {
+        label: 'Note content',
+        detail: [truncateText(step.markdown, context.truncate ?? true)],
+        children: [],
+      };
     }
     case 'setRecurrence': {
       return {
@@ -357,6 +368,7 @@ function describeAppendView(step: AppendViewSetupStep, context: DescribeContext)
 function buildEntryNodes(
   steps: readonly Step[],
   orderedFields: readonly StructureProperty[],
+  truncate: boolean,
 ): PreviewNode[] {
   const nodes = new Map<string, PreviewNode>();
   const order: string[] = [];
@@ -371,7 +383,7 @@ function buildEntryNodes(
       order.push(key);
     } else if (step.kind === 'appendBody' && 'nodeId' in step.target) {
       const node = nodes.get(step.target.nodeId);
-      node?.detail.push(truncateText(step.markdown));
+      node?.detail.push(truncateText(step.markdown, truncate));
     }
   }
   return order.flatMap((key) => {
@@ -394,7 +406,7 @@ function describeEntries(steps: readonly Step[], context: DescribeContext): Prev
     headline,
     destination: context.destination,
     counts: countSteps(steps),
-    tree: buildEntryNodes(steps, context.existing?.effective ?? []),
+    tree: buildEntryNodes(steps, context.existing?.effective ?? [], context.truncate ?? true),
     notes: [],
     warnings: context.warnings,
     problems: context.problems,
