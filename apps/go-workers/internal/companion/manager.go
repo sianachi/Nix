@@ -275,7 +275,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// The provider process could not start or answer its first status call (a missing
 		// binary, a crashed runtime, the account cap): without this line the only symptom is a
 		// 503 in the browser.
-		m.logger.Error("companion runtime unavailable", "operation", request.Operation, "error", err.Error())
+		m.logger.Error("companion runtime unavailable", "operation", request.Operation, "error", logSafeError(err))
 		http.Error(w, "Companion runtime unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -310,7 +310,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	response, err := a.handle(ctx, request)
 	if err != nil {
 		a.mu.Lock()
-		a.record(conversationKey(request), slog.LevelWarn, "request.failed", []any{"operation", request.Operation, "error", err.Error()}, nil)
+		a.record(conversationKey(request), slog.LevelWarn, "request.failed", []any{"operation", request.Operation, "error", logSafeError(err)}, nil)
 		a.mu.Unlock()
 		http.Error(w, "Companion request failed; reconnect or retry", http.StatusBadGateway)
 		return
@@ -634,7 +634,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	raw, err := a.transport.Call(ctx, method, params)
 	if err != nil {
 		a.mu.Lock()
-		a.record(key, slog.LevelWarn, "turn.start_failed", []any{"step", method, "error", err.Error()}, nil)
+		a.record(key, slog.LevelWarn, "turn.start_failed", []any{"step", method, "error", logSafeError(err)}, nil)
 		a.mu.Unlock()
 		return err
 	}
@@ -690,7 +690,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	raw, err = a.transport.Call(ctx, "turn/start", turnParams)
 	if err != nil {
 		a.mu.Lock()
-		a.record(key, slog.LevelWarn, "turn.start_failed", []any{"step", "turn/start", "error", err.Error()}, nil)
+		a.record(key, slog.LevelWarn, "turn.start_failed", []any{"step", "turn/start", "error", logSafeError(err)}, nil)
 		c.State = "error"
 		c.Reason = "The response could not start. Check the selected model and ChatGPT connection, then retry."
 		a.bumpLocked(c)
@@ -823,7 +823,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 					meta = append(meta, "provider_duration_ms", *p.Turn.DurationMs)
 				}
 				meta = append(meta, p.Turn.Error.logAttrs()...)
-				a.record(key, slog.LevelWarn, "turn.failed", meta, nil)
+				a.record(key, slog.LevelWarn, "turn.failed", meta, map[string]any{"turn": traceRaw(raw)})
 			}
 			a.cancelToolsLocked(key)
 			c.Messages = withoutDrafts(c.Messages)

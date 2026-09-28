@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -154,19 +155,109 @@ func TestRefusedAndRejectedToolCallsAreLoggedWithTheirReason(t *testing.T) {
 	}
 	a.toolRequest(json.RawMessage(`1`), "item/tool/call", json.RawMessage(`{"threadId":"provider-thread","tool":"nix_search","callId":"a","arguments":{"query":"x"}}`))
 	a.toolRequest(json.RawMessage(`2`), "item/tool/call", json.RawMessage(`{"threadId":"provider-thread","tool":"nix_validate_blueprint","callId":"b","arguments":{"blueprint":{}}}`))
-	a.toolRequest(json.RawMessage(`3`), "item/tool/call", json.RawMessage(`{"threadId":"provider-thread","tool":"nix_search","callId":"c","arguments":{"query":"x","colour":"red"}}`))
+	a.toolRequest(json.RawMessage(`3`), "item/tool/call", json.RawMessage(`{"threadId":"provider-thread","tool":"nix_search","callId":"c","arguments":{"query":"x","My diagnosis is SECRET-HEALTH":"red"}}`))
 	events := logEvents(t, out.String())
 	var reasons []string
 	for _, event := range events {
 		if event["msg"] == "companion tool.rejected" || event["msg"] == "companion tool.refused" {
-			reasons = append(reasons, event["reason"].(string))
+			if reason, ok := event["reason"].(string); ok {
+				reasons = append(reasons, reason)
+			}
+			if code, ok := event["reason_code"].(string); ok {
+				reasons = append(reasons, code)
+			}
 		}
 	}
 	joined := strings.Join(reasons, " | ")
-	for _, want := range []string{"workspace access is off", "not offered in this mode", "not a parameter of nix_search"} {
+	for _, want := range []string{"workspace access is off", "not offered in this mode", "unknown_parameter"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing reason %q in %q", want, joined)
 		}
+	}
+	if strings.Contains(out.String(), "SECRET") {
+		t.Fatalf("an invented parameter name reached the shared log:\n%s", out.String())
+	}
+}
+
+func TestArgumentRefusalCodesCoverEveryTemplate(t *testing.T) {
+	cases := map[string]string{
+		`"x" is not a parameter of nix_search; it accepts query.`: "unknown_parameter",
+		"nix_search.query must be a string.":                      "not_string",
+		"nix_add_view.spec must be a JSON object.":                "not_object",
+		"nix_search requires a JSON object of arguments.":         "arguments_not_object",
+		"nix_nope is not a supported tool.":                       "unsupported_tool",
+		"nix_add_view.spec could not be processed.":               "unprocessable",
+		"nix_add_view arguments could not be processed.":          "unprocessable",
+	}
+	for reason, want := range cases {
+		if got := argumentRefusalCode(reason); got != want {
+			t.Fatalf("argumentRefusalCode(%q) = %q, want %q", reason, got, want)
+		}
+	}
+}
+
+func TestFailedHistoryReadLogsNoIdentifiers(t *testing.T) {
+	var out bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m, err := New(ctx, Options{Root: t.TempDir(), Binary: "unused", Logger: slog.New(slog.NewJSONHandler(&out, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	m.launch = func(_ context.Context, _ string, home string, _ func(string, json.RawMessage)) (Transport, error) {
+		if err := os.MkdirAll(home, 0700); err != nil {
+			return nil, err
+		}
+		return &fakeTransport{}, nil
+	}
+	r := request()
+	historyID := "66666666-6666-4666-8666-666666666666"
+	body, _ := json.Marshal(Request{TenantID: r.TenantID, PrincipalID: r.PrincipalID, WorkspaceID: r.WorkspaceID, PetID: r.PetID, Operation: "read_history", HistoryID: historyID})
+	w := httptest.NewRecorder()
+	m.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/companion", bytes.NewReader(body)))
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status %d", w.Code)
+	}
+	failed := hasEvent(logEvents(t, out.String()), "companion request.failed")
+	if failed == nil || failed["error"] != "open: no such file or directory" {
+		t.Fatalf("request.failed: %v", failed)
+	}
+	for _, id := range []string{r.TenantID, r.PrincipalID, r.WorkspaceID, r.PetID, historyID} {
+		if strings.Contains(out.String(), id) {
+			t.Fatalf("shared log leaks id %q:\n%s", id, out.String())
+		}
+	}
+}
+
+func TestProviderFreeTextIsLoggedOnlyForNamedCodes(t *testing.T) {
+	named := (&turnError{Message: "You have hit your usage limit", CodexErrorInfo: json.RawMessage(`"usageLimitExceeded"`)}).logAttrs()
+	if !strings.Contains(fmt.Sprint(named), "You have hit your usage limit") {
+		t.Fatalf("a named code should keep its message: %v", named)
+	}
+	details := "upstream body SECRET"
+	http := (&turnError{Message: "SECRET upstream said no", CodexErrorInfo: json.RawMessage(`{"httpConnectionFailed":{"httpStatusCode":400}}`), AdditionalDetails: &details}).logAttrs()
+	if strings.Contains(fmt.Sprint(http), "SECRET") || !strings.Contains(fmt.Sprint(http), "httpStatusCode") {
+		t.Fatalf("an HTTP failure must log its code but not its free text: %v", http)
+	}
+}
+
+func TestDeletingHistoryRemovesTheConversationTrace(t *testing.T) {
+	_, home := diagnosticsTurn(t, true)
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	path := filepath.Join(home, "traces", conversationTag(key)+".jsonl")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+	a := &account{home: home, conversations: map[string]*conversation{}, trace: true}
+	r.Operation = "delete_history"
+	r.HistoryID = "66666666-6666-4666-8666-666666666666"
+	if _, err := a.history(key, r); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("trace survived delete_history: %v", err)
 	}
 }
 
@@ -216,6 +307,13 @@ func TestRuntimeUnavailableIsLoggedWithTheCause(t *testing.T) {
 
 func TestTraceCapturesProviderStderrPrivately(t *testing.T) {
 	home := t.TempDir()
+	// An oversized log from an earlier launch is rotated rather than appended to forever.
+	if err := os.MkdirAll(filepath.Join(home, "traces"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "traces", "codex-stderr.log"), bytes.Repeat([]byte("x"), maxStderrBytes+1), 0600); err != nil {
+		t.Fatal(err)
+	}
 	script := filepath.Join(t.TempDir(), "fake-codex")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho provider-diagnostic >&2\nread line\nid=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":(\"?[^\",}]*\"?).*/\\1/')\nprintf '{\"id\":%s,\"result\":{}}\\n' \"$id\"\nexec cat >/dev/null\n"), 0700); err != nil {
 		t.Fatal(err)
@@ -237,7 +335,10 @@ func TestTraceCapturesProviderStderrPrivately(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 {
-		t.Fatalf("stderr log mode: %v %v", info, err)
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0600 || info.Size() > maxStderrBytes {
+		t.Fatalf("stderr log after rotation: %v %v", info, err)
+	}
+	if info, err := os.Stat(path + ".1"); err != nil || info.Size() <= maxStderrBytes {
+		t.Fatalf("the oversized log was not rotated to .1: %v %v", info, err)
 	}
 }

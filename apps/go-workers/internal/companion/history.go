@@ -84,6 +84,11 @@ func (a *account) history(key string, r Request) (Response, error) {
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return Response{}, err
 			}
+			// A trace (diagnostics.go) holds this conversation's full content too; deleting
+			// history must not leave that copy behind.
+			a.mu.Lock()
+			a.removeTraceLocked(key)
+			a.mu.Unlock()
 		} else {
 			f, err := os.Open(path)
 			if err != nil {

@@ -81,7 +81,12 @@ func launchWith(ctx context.Context, binary, home string, notify func(string, js
 	var stderrFile *os.File
 	if trace {
 		if err := os.MkdirAll(filepath.Join(home, "traces"), 0700); err == nil {
-			if f, err := os.OpenFile(filepath.Join(home, "traces", "codex-stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
+			stderrPath := filepath.Join(home, "traces", "codex-stderr.log")
+			// One generation of rotation keeps the provider log bounded across relaunches.
+			if info, err := os.Stat(stderrPath); err == nil && info.Size() > maxStderrBytes {
+				_ = os.Rename(stderrPath, stderrPath+".1")
+			}
+			if f, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
 				stderrFile = f
 				cmd.Stderr = f
 				cmd.Env = append(cmd.Env, "RUST_LOG=info")

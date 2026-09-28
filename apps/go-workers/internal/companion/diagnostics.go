@@ -4,10 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -24,11 +27,19 @@ import (
 //     <account home>/traces/<conversation>.jsonl, mode 0600, next to the provider login the
 //     same directory already holds. Codex's own stderr goes to traces/codex-stderr.log.
 //
+// The trace is for local debugging only and must not be enabled in production: traces/ holds
+// private workspace content and, through Codex's info-level stderr, may hold provider
+// credentials, so it is never something to attach to an issue or share. Deleting a
+// conversation's history removes that conversation's trace; nothing else expires it.
+//
 // Everything here is called with a.mu held.
 
 // maxTraceBytes stops one conversation's trace file from growing without bound; a note is
 // appended once when the cap is reached.
 const maxTraceBytes = 32 << 20
+
+// maxStderrBytes is the size at which codex-stderr.log is rotated to codex-stderr.log.1.
+const maxStderrBytes = 8 << 20
 
 // maxTraceContentBytes bounds any single raw payload copied into a trace line.
 const maxTraceContentBytes = 64 << 10
@@ -169,18 +180,23 @@ type turnError struct {
 	AdditionalDetails *string         `json:"additionalDetails"`
 }
 
-// logAttrs are safe for the shared log: the provider's own error message and code describe the
-// failure (usage limits, rate limits, context window, auth), not the conversation.
+// logAttrs keeps only what is safe for the shared log. The structured code (a fixed name such
+// as "usageLimitExceeded", or an object naming an HTTP status) is always logged. The provider's
+// free-text message is logged only when the code is a plain name or absent: for an upstream HTTP
+// failure the message and additionalDetails can carry the upstream response body, which is not
+// guaranteed to be free of conversation text, so those stay in the trace.
 func (e *turnError) logAttrs() []any {
 	if e == nil {
 		return nil
 	}
-	attrs := []any{"error", truncateUTF8(e.Message, 500)}
-	if len(e.CodexErrorInfo) > 0 && string(e.CodexErrorInfo) != "null" {
-		attrs = append(attrs, "code", truncateUTF8(string(e.CodexErrorInfo), 200))
+	var attrs []any
+	info := strings.TrimSpace(string(e.CodexErrorInfo))
+	hasInfo := info != "" && info != "null"
+	if hasInfo {
+		attrs = append(attrs, "code", truncateUTF8(info, 200))
 	}
-	if e.AdditionalDetails != nil && *e.AdditionalDetails != "" {
-		attrs = append(attrs, "details", truncateUTF8(*e.AdditionalDetails, 500))
+	if !hasInfo || strings.HasPrefix(info, "\"") {
+		attrs = append(attrs, "error", truncateUTF8(e.Message, 500))
 	}
 	return attrs
 }
@@ -208,4 +224,50 @@ func (a *account) recordNotificationLocked(key, method string, raw json.RawMessa
 		// updates) is kept only in the trace, raw, for reconstructing what the provider did.
 		a.record(key, slog.LevelDebug, "provider.notification", []any{"method", method, "item_type", itemType}, map[string]any{"params": traceRaw(raw)})
 	}
+}
+
+// logSafeError reduces an error to text fit for the shared log. A filesystem error's path names
+// the tenant, principal, workspace, pet and history ids (the account and conversation files live
+// under them), so only its operation and cause are kept.
+func logSafeError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Op + ": " + pathErr.Err.Error()
+	}
+	var linkErr *os.LinkError
+	if errors.As(err, &linkErr) {
+		return linkErr.Op + ": " + linkErr.Err.Error()
+	}
+	return truncateUTF8(err.Error(), 300)
+}
+
+// argumentRefusalCode names which of flattenToolCall's fixed refusal templates reason came from,
+// so the shared log never quotes a key the model made up.
+func argumentRefusalCode(reason string) string {
+	switch {
+	case strings.Contains(reason, " is not a parameter of "):
+		return "unknown_parameter"
+	case strings.HasSuffix(reason, " must be a string."):
+		return "not_string"
+	case strings.HasSuffix(reason, " must be a JSON object."):
+		return "not_object"
+	case strings.HasSuffix(reason, " requires a JSON object of arguments."):
+		return "arguments_not_object"
+	case strings.HasSuffix(reason, " is not a supported tool."):
+		return "unsupported_tool"
+	case strings.HasSuffix(reason, " could not be processed."):
+		return "unprocessable"
+	default:
+		return "other"
+	}
+}
+
+// removeTraceLocked deletes conversation key's trace file, if any.
+func (a *account) removeTraceLocked(key string) {
+	tag := conversationTag(key)
+	_ = os.Remove(filepath.Join(a.home, "traces", tag+".jsonl"))
+	delete(a.traceFull, tag)
 }

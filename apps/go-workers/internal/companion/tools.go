@@ -322,7 +322,9 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		}
 		flatArguments, reason := flattenToolCall(p.Tool, p.Arguments)
 		if reason != "" {
-			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "arguments", "reason", reason}, map[string]any{"arguments": traceRaw(p.Arguments)})
+			// The reason can quote a key the model invented, so the shared log gets a fixed code;
+			// the model and the trace get the full sentence.
+			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "arguments", "reason_code", argumentRefusalCode(reason)}, map[string]any{"arguments": traceRaw(p.Arguments), "reason": reason})
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
 				return true
