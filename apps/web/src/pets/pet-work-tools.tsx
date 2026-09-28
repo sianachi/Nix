@@ -756,6 +756,18 @@ function WriteTextSection({
   readonly items: readonly WriteTextItem[];
 }): ReactElement | null {
   if (items.length === 0) return null;
+  // Each scroll box is a region, and regions need distinct names: a repeated label (two node
+  // titles in a blueprint, say) is numbered so every box can be told apart.
+  const totals = new Map<string, number>();
+  for (const item of items) totals.set(item.label, (totals.get(item.label) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const names = items.map((item) => {
+    const total = totals.get(item.label) ?? 1;
+    if (total === 1) return item.label;
+    const position = (seen.get(item.label) ?? 0) + 1;
+    seen.set(item.label, position);
+    return `${item.label} ${String(position)} of ${String(total)}`;
+  });
   return (
     <div className="flex flex-col gap-3">
       <Text variant="note" tone="muted">
@@ -763,14 +775,15 @@ function WriteTextSection({
       </Text>
       {items.map((item, index) => {
         const lineCount = item.text.split('\n').length;
+        const name = names[index] ?? item.label;
         return (
           <div key={`${item.label}:${String(index)}`} className="flex flex-col gap-1">
             <Text variant="note" tone="muted">
-              {item.label} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
+              {name} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
             </Text>
             <div
               role="region"
-              aria-label={item.label}
+              aria-label={name}
               // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
               tabIndex={0}
               className={cn(

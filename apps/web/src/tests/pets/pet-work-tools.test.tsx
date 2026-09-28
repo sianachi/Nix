@@ -1024,6 +1024,29 @@ describe('companion work approvals', () => {
       );
       expect(await screen.findByText(body)).toBeVisible();
     });
+
+    it('gives every text region a distinct name when labels repeat', async () => {
+      showWrite(
+        'build_blueprint',
+        JSON.stringify({
+          version: 1,
+          title: 'Design draft',
+          summary: 'A small design.',
+          root: {
+            id: 'plan',
+            title: 'Plan',
+            markdown: 'First body',
+            children: [{ id: 'week', title: 'Week', markdown: 'Second body' }],
+          },
+        }),
+      );
+      await screen.findByText('Second body');
+      const names = screen
+        .getAllByRole('region')
+        .map((region) => region.getAttribute('aria-label') ?? '');
+      expect(names.length).toBeGreaterThan(1);
+      expect(new Set(names).size).toBe(names.length);
+    });
   });
 
   it('retries a second auto-run read whose first attempt found the claim lock held (security fix S3)', async () => {
