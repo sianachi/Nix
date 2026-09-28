@@ -190,7 +190,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 		t.Fatalf("brackets inside a string counted as nesting: %d", jsonDepth(bracketsInString))
 	}
 	alongsideMarkdown := `{"operation":"create_note","title":"Plan","markdown":"body","specJson":"{}"}`
-	if got := validateToolArguments(json.RawMessage(alongsideMarkdown), "chat"); got != "Put markdown inside specJson entries, not alongside it." {
+	if got := validateToolArguments(json.RawMessage(alongsideMarkdown), "chat"); got != "Put markdown inside spec entries, not alongside it." {
 		t.Fatalf("markdown alongside specJson not refused: %q", got)
 	}
 }
@@ -264,7 +264,10 @@ func TestConsultSaveDescriptionMatchesCaptureContract(t *testing.T) {
 // @nix/structure-spec's TOOL_EXAMPLES and its TS reference flattenToolExample) carries a valid
 // typed-tool argument object and the flat object flattening it must produce. flattenToolCall
 // must produce exactly that flat object from exactly that argument object - the two languages
-// checked against one fixture, so a mapping added on one side and not the other fails here.
+// checked against one fixture, so a mapping added on one side and not the other fails here. This
+// fixture round trip alone does not prove toolArgSpecs has no stale or missing parameter for any
+// operation; TestToolArgSpecsMatchGeneratedSchemas below checks that directly against the
+// generated schemas.
 func TestFlattenToolCallMatchesTSReferenceFixture(t *testing.T) {
 	if len(toolExamples) == 0 {
 		t.Fatal("catalog/tool-examples.json is empty; run pnpm --filter @nix/structure-spec catalog")
@@ -464,6 +467,136 @@ func TestChatCatalogIsEmbeddedAndBounded(t *testing.T) {
 	for _, word := range []string{"Property types", "View kinds", "Recipes", "Never"} {
 		if !strings.Contains(chatCatalog, word) {
 			t.Fatalf("chat catalog missing section %q", word)
+		}
+	}
+}
+
+// validFlatTargets are flatToolArgs' own JSON field names: the only values toolArgSpecs'
+// argMapping.flat and setFlatString's field switch are allowed to name.
+var validFlatTargets = map[string]bool{
+	"itemId": true, "parentId": true, "title": true, "markdown": true,
+	"query": true, "propertiesJson": true, "specJson": true,
+}
+
+// TestToolArgSpecsMatchGeneratedSchemas walks workspaceTools("consult") (a superset of every
+// operation chat also offers) and checks tools.go's hand-written toolArgSpecs against the
+// generated schema directly, rather than trusting the tool-examples.json fixture alone to catch
+// every drift: for every tool, the key set of inputSchema.properties must equal the key set of
+// toolArgSpecs[operation], a property typed "object" must map to argObjectJSON and any other
+// property must map to argString, toolArgSpecs must have exactly one entry per consult tool, and
+// every argMapping's flat target must be one of flatToolArgs' own field names.
+func TestToolArgSpecsMatchGeneratedSchemas(t *testing.T) {
+	tools := workspaceTools("consult")
+	if len(toolArgSpecs) != len(tools) {
+		t.Fatalf("toolArgSpecs has %d entries, want %d (one per consult tool)", len(toolArgSpecs), len(tools))
+	}
+	for _, entry := range tools {
+		tool, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("tool entry is %T, want map[string]any", entry)
+		}
+		name, _ := tool["name"].(string)
+		operation := operationFromToolName(name)
+		spec, ok := toolArgSpecs[operation]
+		if !ok {
+			t.Fatalf("toolArgSpecs is missing an entry for %s", name)
+		}
+		schema, _ := tool["inputSchema"].(map[string]any)
+		properties, _ := schema["properties"].(map[string]any)
+		if len(properties) != len(spec) {
+			t.Fatalf("%s: inputSchema.properties has %d keys, toolArgSpecs[%q] has %d", name, len(properties), operation, len(spec))
+		}
+		for property, rawSchema := range properties {
+			mapping, ok := spec[property]
+			if !ok {
+				t.Fatalf("%s: inputSchema declares %q, toolArgSpecs[%q] does not", name, property, operation)
+			}
+			propertySchema, _ := rawSchema.(map[string]any)
+			wantKind := argString
+			if propertySchema["type"] == "object" {
+				wantKind = argObjectJSON
+			}
+			if mapping.kind != wantKind {
+				t.Fatalf("%s.%s: toolArgSpecs maps kind %v, schema type %v implies %v", name, property, mapping.kind, propertySchema["type"], wantKind)
+			}
+			if !validFlatTargets[mapping.flat] {
+				t.Fatalf("%s.%s: argMapping targets unknown flat field %q", name, property, mapping.flat)
+			}
+		}
+	}
+}
+
+// TestSetFlatStringRefusesAnUnknownField proves setFlatString never silently drops an argument:
+// a field name outside flatToolArgs' own JSON names is refused with an error, not ignored.
+func TestSetFlatStringRefusesAnUnknownField(t *testing.T) {
+	var flat flatToolArgs
+	if err := setFlatString(&flat, "bogus", "value"); err == nil {
+		t.Fatal("unknown flat field silently accepted")
+	}
+	if flat != (flatToolArgs{}) {
+		t.Fatalf("unknown flat field mutated flatToolArgs: %+v", flat)
+	}
+	for field := range validFlatTargets {
+		if err := setFlatString(&flatToolArgs{}, field, "value"); err != nil {
+			t.Fatalf("known flat field %q refused: %v", field, err)
+		}
+	}
+}
+
+// TestRefusalMessagesUseTypedVocabulary proves validateToolArguments and flattenToolCall speak
+// the vocabulary the model actually sees (nix_<operation> tool names, and spec/properties/
+// blueprint/templateId parameter names) rather than the internal flat shape's field names.
+func TestRefusalMessagesUseTypedVocabulary(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{`{"operation":"create_structured","title":"Plan","specJson":"[]"}`, "nix_create_structured requires spec"},
+		{`{"operation":"validate_blueprint","specJson":""}`, "nix_validate_blueprint requires blueprint"},
+		{`{"operation":"build_blueprint","specJson":""}`, "nix_build_blueprint requires blueprint"},
+		{fmt.Sprintf(`{"operation":"set_properties","itemId":%q,"propertiesJson":""}`, itemID), "nix_set_properties requires properties"},
+		{`{"operation":"read_template","itemId":""}`, "nix_read_template requires the exact templateId UUID"},
+		{`{"operation":"apply_template","itemId":""}`, "nix_apply_template requires the exact templateId UUID"},
+		{`{"operation":"read_item","itemId":""}`, "nix_read_item requires the exact itemId UUID"},
+	} {
+		got := validateToolArguments(json.RawMessage(tc.raw), "consult")
+		if !strings.Contains(got, tc.want) {
+			t.Fatalf("%s: got %q, want it to contain %q", tc.raw, got, tc.want)
+		}
+		if !strings.Contains(got, "nix_list_items") && strings.Contains(got, "Discover") {
+			t.Fatalf("%s: discovery hint does not name a typed tool: %q", tc.raw, got)
+		}
+	}
+	_, reason := flattenToolCall("nix_create_note", json.RawMessage(`{"title":"Safe","url":"https://example.com"}`))
+	if !strings.Contains(reason, "it accepts") || !strings.Contains(reason, "title") {
+		t.Fatalf("unknown-parameter reason does not list accepted parameters: %q", reason)
+	}
+}
+
+// TestToolIdentityReadOnlyOperationsArePinned pins the exact operation list toolIdentity treats
+// as read-only (and therefore eligible for the read-after-write staleness rule): a change here
+// is a deliberate widening or narrowing of that rule, not an accident.
+func TestToolIdentityReadOnlyOperationsArePinned(t *testing.T) {
+	want := map[string]bool{
+		"list_items": true, "search": true, "read_item": true, "read_note": true,
+		"read_structure": true, "list_templates": true, "read_template": true, "validate_blueprint": true,
+	}
+	for operation := range want {
+		_, readOnly := toolIdentity(fmt.Sprintf(`{"operation":%q}`, operation))
+		if !readOnly {
+			t.Fatalf("%q should be read-only", operation)
+		}
+	}
+	for _, entry := range workspaceTools("consult") {
+		tool := entry.(map[string]any)
+		operation := operationFromToolName(tool["name"].(string))
+		if want[operation] {
+			continue
+		}
+		_, readOnly := toolIdentity(fmt.Sprintf(`{"operation":%q}`, operation))
+		if readOnly {
+			t.Fatalf("%q is unexpectedly read-only; the pinned list is stale", operation)
 		}
 	}
 }

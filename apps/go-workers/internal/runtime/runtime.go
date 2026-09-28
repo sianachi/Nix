@@ -79,12 +79,18 @@ func Run(service role.Service) {
 	defer stop()
 	var companionHandler http.Handler
 	if settings.CompanionDataDir != "" {
-		manager, companionErr := companion.New(ctx, settings.CompanionDataDir, settings.CompanionBinary, settings.CompanionConsultModels, settings.CompanionChatEffort, settings.CompanionConsultEffort)
+		manager, companionErr := companion.New(ctx, companion.Options{
+			Root:          settings.CompanionDataDir,
+			Binary:        settings.CompanionBinary,
+			ConsultModels: settings.CompanionConsultModels,
+			ChatEffort:    settings.CompanionChatEffort,
+			ConsultEffort: settings.CompanionConsultEffort,
+			Logger:        logger,
+		})
 		if companionErr != nil {
 			logger.Error("companion storage configuration failed")
 			os.Exit(1)
 		}
-		manager.SetLogger(logger)
 		defer manager.Close()
 		companionHandler = manager
 	}

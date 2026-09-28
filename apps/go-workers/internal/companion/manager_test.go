@@ -62,30 +62,41 @@ func TestPreActionCommentaryIsVisibleOnceAndAnswerActionsAreIgnored(t *testing.T
 	if len(a.snapshot(key).Messages[1].ID) > 80 {
 		t.Fatal("commentary ID exceeds client contract")
 	}
-	// The output schema no longer asks for "actions", but a model that returns one
-	// anyway must still be accepted as plain text, not fail the turn.
-	a.notify("item/completed", json.RawMessage(`{"threadId":"provider-thread","item":{"type":"agentMessage","phase":"final_answer","text":"{\"answer\":\"Created.\",\"actions\":[{\"kind\":\"create_item\",\"itemId\":\"\",\"title\":\"Release\"}]}"}}`))
+	// toolVersion 5 forces every conversation onto a fresh thread, so a provider reply can
+	// never carry the retired {"answer": ..., "actions": [...]} envelope any more; a final
+	// answer that happens to be JSON-shaped text is stored exactly as written, never
+	// unwrapped or parsed for actions.
+	jsonShaped := `{"answer":"Created.","actions":[{"kind":"create_item","itemId":"","title":"Release"}]}`
+	raw, err := json.Marshal(map[string]any{"threadId": "provider-thread", "item": map[string]string{"type": "agentMessage", "phase": "final_answer", "text": jsonShaped}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.notify("item/completed", raw)
 	final := a.snapshot(key).Messages[2]
-	if final.Text != "Created." {
-		t.Fatalf("answer text lost: %+v", final)
+	if final.Text != jsonShaped {
+		t.Fatalf("final answer text was altered: %+v", final)
 	}
 	if len(final.Actions) != 0 {
 		t.Fatal("legacy actions were rendered")
 	}
 	if a.snapshot(key).State == "error" {
-		t.Fatal("an extra actions field failed the turn")
+		t.Fatal("a JSON-shaped answer failed the turn")
 	}
 }
 
-func TestStructuredCommentaryRendersOnlyAnswerText(t *testing.T) {
+// TestCommentaryTextIsUsedAsIs proves commentary text is stored exactly as the provider sent
+// it, with no {"answer": ...} envelope unwrap: a JSON-shaped commentary is kept as JSON text,
+// matching the final-answer path removing the same legacy unwrap.
+func TestCommentaryTextIsUsedAsIs(t *testing.T) {
 	a := &account{home: t.TempDir(), conversations: map[string]*conversation{"x": {ThreadID: "thread", RequestID: request().RequestID, State: "thinking"}}}
+	jsonShaped := `{"answer":"I will read the test note.","actions":[]}`
 	for _, id := range []string{"one", "two"} {
-		raw, _ := json.Marshal(map[string]any{"threadId": "thread", "item": map[string]string{"id": id, "type": "agentMessage", "phase": "commentary", "text": `{"answer":"I will read the test note.","actions":[]}`}})
+		raw, _ := json.Marshal(map[string]any{"threadId": "thread", "item": map[string]string{"id": id, "type": "agentMessage", "phase": "commentary", "text": jsonShaped}})
 		a.notify("item/completed", raw)
 	}
 	got := a.snapshot("x")
-	if len(got.Messages) != 1 || got.Messages[0].Text != "I will read the test note." {
-		t.Fatalf("bad commentary: %+v", got.Messages)
+	if len(got.Messages) != 1 || got.Messages[0].Text != jsonShaped {
+		t.Fatalf("commentary text was altered: %+v", got.Messages)
 	}
 }
 
@@ -146,7 +157,7 @@ func TestProtocolPersistenceAndDuplicateSend(t *testing.T) {
 	if start["sandbox"] != "read-only" || start["developerInstructions"] != r.Instructions {
 		t.Fatal("sandbox or saved personality was not applied")
 	}
-	answer := `{"answer":"Here is a suggestion.","actions":[{"kind":"create_item","itemId":"","title":"Draft"}]}`
+	answer := "Here is a suggestion."
 	message, _ := json.Marshal(map[string]any{"threadId": "provider-thread", "item": map[string]string{"type": "agentMessage", "text": answer}})
 	a.notify("item/completed", message)
 	a.notify("turn/completed", json.RawMessage(`{"threadId":"provider-thread","turn":{"status":"completed"}}`))
@@ -213,7 +224,7 @@ func TestOversizeFinalAnswerIsTruncatedNotErrored(t *testing.T) {
 func TestIdentitiesAreSeparatedAndMalformedJSONRefused(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := New(ctx, t.TempDir(), "unused", nil, "low", "")
+	m, err := New(ctx, Options{Root: t.TempDir(), Binary: "unused", ChatEffort: "low"})
 	if err != nil {
 		t.Fatal(err)
 	}

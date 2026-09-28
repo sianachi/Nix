@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -27,9 +28,6 @@ var toolsChatJSON []byte
 //go:embed catalog/tools-consult.json
 var toolsConsultJSON []byte
 
-//go:embed catalog/tool-examples.json
-var toolExamplesJSON []byte
-
 // petTool is one entry of the embedded tools-chat.json / tools-consult.json: a typed
 // nix_<operation> function tool, exactly as `dynamicTools` in `turn/start`/`thread/start` needs
 // it (see manager.go's send).
@@ -40,24 +38,18 @@ type petTool struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
-// toolExampleFixture is one entry of the embedded tool-examples.json: a valid typed-tool
-// argument object for one operation, and the flat {operation, itemId, ...} shape
-// flattenToolCall must produce from it. Written by the same generator
-// (scripts/build-catalog.ts) that TS's own tools.test.ts checks its flattening reference
-// implementation against, so tools_flatten_test.go's table test and the TS round trip check the
-// identical fixture.
-type toolExampleFixture struct {
-	Operation string          `json:"operation"`
-	Arguments json.RawMessage `json:"arguments"`
-	Flat      flatToolArgs    `json:"flat"`
-}
-
 var (
 	toolsChat        []petTool
 	toolsConsult     []petTool
 	toolNamesChat    map[string]struct{}
 	toolNamesConsult map[string]struct{}
-	toolExamples     []toolExampleFixture
+	// consultOnlyOperations are the operations available only in consult (Design mode)
+	// conversations: designing and saving a whole structure, as opposed to the additive,
+	// one-item-at-a-time operations chat also has. Derived at init from the generated catalog
+	// itself (consult tool names minus chat tool names) rather than hand-listed, so it can
+	// never drift from workspaceTools(mode); validateToolArguments uses it to refuse a
+	// consult-only operation's flattened call in chat.
+	consultOnlyOperations []string
 )
 
 func init() {
@@ -67,11 +59,9 @@ func init() {
 	if err := json.Unmarshal(toolsConsultJSON, &toolsConsult); err != nil {
 		panic(fmt.Sprintf("catalog/tools-consult.json is invalid: %v", err))
 	}
-	if err := json.Unmarshal(toolExamplesJSON, &toolExamples); err != nil {
-		panic(fmt.Sprintf("catalog/tool-examples.json is invalid: %v", err))
-	}
 	toolNamesChat = toolNameSet(toolsChat)
 	toolNamesConsult = toolNameSet(toolsConsult)
+	consultOnlyOperations = deriveConsultOnlyOperations(toolNamesConsult, toolNamesChat)
 }
 
 func toolNameSet(tools []petTool) map[string]struct{} {
@@ -80,6 +70,19 @@ func toolNameSet(tools []petTool) map[string]struct{} {
 		names[tool.Name] = struct{}{}
 	}
 	return names
+}
+
+// deriveConsultOnlyOperations returns the operation names (without their nix_ prefix) present
+// in consultNames but not chatNames, sorted for a deterministic result.
+func deriveConsultOnlyOperations(consultNames, chatNames map[string]struct{}) []string {
+	operations := make([]string, 0, len(consultNames))
+	for name := range consultNames {
+		if _, inChat := chatNames[name]; !inChat {
+			operations = append(operations, operationFromToolName(name))
+		}
+	}
+	sort.Strings(operations)
+	return operations
 }
 
 // catalogFor returns the capability catalog appended to a mode's base instructions.
@@ -94,7 +97,9 @@ func catalogFor(mode string) string {
 // `{"type":"function","name",...}` maps `dynamicTools` expects. Parsed once at init from the
 // generated catalog rather than built in Go, so this and @nix/structure-spec's buildPetTools can
 // never drift: a schema change on one side without regenerating the other fails
-// changed-path-checks.sh's catalog diff, not this function.
+// changed-path-checks.sh's catalog diff, not this function. tools.go's hand-written toolArgSpecs
+// is a separate table that is not generated from this catalog and can drift from it on its own;
+// TestToolArgSpecsMatchGeneratedSchemas (tools_test.go) checks the two against each other.
 func workspaceTools(mode string) []any {
 	tools := toolsChat
 	if mode == "consult" {

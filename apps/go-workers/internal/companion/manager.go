@@ -14,9 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
-	"unicode/utf8"
 )
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -25,20 +23,6 @@ var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 // nix_<operation> tool per operation (L1.1); a conversation on the old tool version starts a
 // fresh thread the next time it sends (see send() below).
 const toolVersion = 5
-
-// maxConcurrentWatchers bounds how many "watch" long-polls one account (one tenant+principal)
-// may have open at once. Core keeps a Postgres connection and an open unit-of-work transaction
-// pinned behind every watch it forwards for the whole wait (PetWorkerClient.ExecuteWatchAsync),
-// so this is what bounds pinned connections per principal; it is checked in ServeHTTP, before a
-// conversation is ever loaded, so a rejected watch costs nothing beyond the check itself.
-const maxConcurrentWatchers = 4
-
-// maxTotalDraftBytes bounds the combined length of every streaming draft message in one
-// conversation (there is normally one, but a turn can produce more than one agent-message item).
-// Each individual draft is already capped at 32000 bytes; this second, whole-conversation cap
-// keeps a pathological turn that streams many large drafts from growing memory unboundedly before
-// turn/completed clears them.
-const maxTotalDraftBytes = 64000
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -102,19 +86,15 @@ type conversation struct {
 	Reason          string     `json:"reason,omitempty"`
 	Mode            string     `json:"mode"`
 	Messages        []Message  `json:"messages"`
-	Started         time.Time  `json:"-"`
 	WorkspaceAccess bool       `json:"-"`
 	Tools           []ToolCall `json:"tools"`
 	// Revision is never persisted: every load (fresh or restored) gets a new one, monotonic
 	// across worker restarts because it is seeded from the clock rather than a counter.
 	Revision int64 `json:"-"`
-	// The remaining fields are in-memory timing bookkeeping for the turn/completed log line
-	// only: never persisted, never sent to the client, reset at the start of every send().
-	turnModel   string    // the model actually used, or "" for the provider default
-	turnEffort  string    // the effort actually sent on turn/start, or "" if none
-	firstToolAt time.Time // zero until the turn's first tool call is recorded
-	toolCount   int       // tool calls recorded so far this turn
-	pendingMS   int64     // summed pending-to-claim duration across this turn's tool calls
+	// timing is in-memory-only bookkeeping (turnlog.go) for the turn/completed log line and
+	// the 15-minute "thinking" expiry check (expireStaleThinking, watch.go): never persisted,
+	// never sent to the client, reset by timing.start() at the beginning of every send().
+	timing turnTiming
 }
 
 type account struct {
@@ -165,24 +145,30 @@ type Manager struct {
 	logger        *slog.Logger
 }
 
-// SetLogger routes the per-turn timing log to logger. Call it before the first request; the
-// default is slog.Default().
-func (m *Manager) SetLogger(logger *slog.Logger) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if logger != nil {
-		m.logger = logger
-	}
+// Options configures New. Root and Binary are required; ConsultModels, ChatEffort and
+// ConsultEffort are each handed to every account this manager creates (see the matching
+// account fields). A nil Logger means slog.Default().
+type Options struct {
+	Root          string
+	Binary        string
+	ConsultModels []string
+	ChatEffort    string
+	ConsultEffort string
+	Logger        *slog.Logger
 }
 
-func New(ctx context.Context, root, binary string, consultModels []string, chatEffort, consultEffort string) (*Manager, error) {
-	if !filepath.IsAbs(root) {
+func New(ctx context.Context, opts Options) (*Manager, error) {
+	if !filepath.IsAbs(opts.Root) {
 		return nil, errors.New("companion data directory must be absolute")
 	}
-	if err := os.MkdirAll(root, 0700); err != nil {
+	if err := os.MkdirAll(opts.Root, 0700); err != nil {
 		return nil, err
 	}
-	m := &Manager{root: root, binary: binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: consultModels, chatEffort: chatEffort, consultEffort: consultEffort, logger: slog.Default()}
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: opts.ConsultModels, chatEffort: opts.ChatEffort, consultEffort: opts.ConsultEffort, logger: logger}
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -280,14 +266,14 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// A watch or a plain read never claims a.op: they must never see "Companion is busy"
 	// while a send or tool operation holds it. Everything else keeps the exclusive lock.
 	if request.Operation == "watch" {
-		// Checked before the conversation is loaded: Core pins a database connection behind every
-		// watch for its whole wait, so this cap is what bounds pinned connections per principal.
-		if atomic.AddInt32(&a.watchers, 1) > maxConcurrentWatchers {
-			atomic.AddInt32(&a.watchers, -1)
+		// Checked before the conversation is loaded: Core's NixUnitOfWorkMiddleware pins a
+		// database connection behind every watch for its whole wait, so this cap is what
+		// bounds pinned connections per principal.
+		if !a.tryAcquireWatcher() {
 			http.Error(w, "Too many open watches", http.StatusTooManyRequests)
 			return
 		}
-		defer atomic.AddInt32(&a.watchers, -1)
+		defer a.releaseWatcher()
 	}
 	if request.Operation != "read" && request.Operation != "watch" {
 		if !a.op.TryLock() {
@@ -465,31 +451,18 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 				return Response{}, err
 			}
 		} else if r.Operation == "watch" {
-			// Never touches the transport; only waits for bumpLocked to close a.changed,
-			// the request context to end, or its own timeout, whichever comes first.
+			// Never touches the transport before this; only waits for bumpLocked to close
+			// a.changed, the request context to end, or its own timeout, whichever comes
+			// first. Once it returns, run the same 15-minute "thinking" expiry check the
+			// plain-read path below runs, so a watcher notices a stuck turn too.
 			a.awaitChange(ctx, key, r.After, 20*time.Second)
+			a.expireStaleThinking(ctx, key, c)
 		} else if state == "thinking" {
-			a.mu.Lock()
-			expired := time.Since(c.Started) > 15*time.Minute
-			thread, turn := c.ThreadID, c.TurnID
-			a.mu.Unlock()
-			if !expired {
-				return a.snapshot(key), nil
-			}
 			// ServeHTTP no longer holds a.op for "read", so this 15-minute expiry cleanup
 			// (the only place a plain read can reach) manages its own non-blocking claim:
 			// when a send or tool operation is using the transport, skip it this time
 			// rather than block a read that must never wait.
-			if a.op.TryLock() {
-				a.cancelTools(key)
-				_, _ = a.transport.Call(ctx, "turn/interrupt", map[string]string{"threadId": thread, "turnId": turn})
-				a.mu.Lock()
-				c.State = "error"
-				c.Reason = "The response timed out. You can send another message."
-				a.bumpLocked(c)
-				a.mu.Unlock()
-				a.op.Unlock()
-			}
+			a.expireStaleThinking(ctx, key, c)
 		}
 		return a.snapshot(key), nil
 	}
@@ -513,54 +486,6 @@ func (a *account) snapshot(key string) Response {
 		r.Revision = c.Revision
 	}
 	return r
-}
-
-// bumpLocked marks c as changed and wakes every watcher blocked on a.changed. Called with
-// a.mu held: from saveLocked, so every persisted mutation bumps, and explicitly at every
-// mutation that does not save (a delta, a final answer append, an error or reason set).
-func (a *account) bumpLocked(c *conversation) {
-	now := time.Now().UnixMilli()
-	if now <= c.Revision {
-		now = c.Revision + 1
-	}
-	c.Revision = now
-	if a.changed != nil {
-		close(a.changed)
-	}
-	a.changed = make(chan struct{})
-}
-
-// awaitChange blocks until key's conversation revision exceeds after, ctx is done, or
-// timeout elapses, whichever comes first. It never touches the transport.
-func (a *account) awaitChange(ctx context.Context, key string, after int64, timeout time.Duration) {
-	deadline := time.Now().Add(timeout)
-	for {
-		a.mu.Lock()
-		c := a.conversations[key]
-		if c == nil || c.Revision > after {
-			a.mu.Unlock()
-			return
-		}
-		if a.changed == nil {
-			a.changed = make(chan struct{})
-		}
-		ch := a.changed
-		a.mu.Unlock()
-		remaining := time.Until(deadline)
-		if remaining <= 0 {
-			return
-		}
-		timer := time.NewTimer(remaining)
-		select {
-		case <-ch:
-			timer.Stop()
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-			return
-		}
-	}
 }
 
 func (a *account) load(key string) error {
@@ -710,12 +635,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.Reason = ""
 	c.WorkspaceAccess = r.WorkspaceAccess
 	c.Tools = []ToolCall{}
-	c.Started = time.Now()
-	c.turnModel = r.Model
-	c.turnEffort = ""
-	c.firstToolAt = time.Time{}
-	c.toolCount = 0
-	c.pendingMS = 0
+	c.timing.start(r.Model, "")
 	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text, Actions: []Action{}})
 	c.Messages = trimMessages(c.Messages, 16)
 	err = a.saveLocked(key)
@@ -727,7 +647,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	if effort := a.effortFor(ctx, r.Mode, r.Model); effort != "" {
 		turnParams["effort"] = effort
 		a.mu.Lock()
-		c.turnEffort = effort
+		c.timing.effort = effort
 		a.mu.Unlock()
 	}
 	raw, err = a.transport.Call(ctx, "turn/start", turnParams)
@@ -751,64 +671,6 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.TurnID = turn.Turn.ID
 	a.mu.Unlock()
 	return nil
-}
-
-// withoutDrafts returns messages with every streaming draft (id contains ":draft:")
-// removed. Drafts are in-memory-only progress; only the final message is durable.
-func withoutDrafts(messages []Message) []Message {
-	clean := make([]Message, 0, len(messages))
-	for _, m := range messages {
-		if strings.Contains(m.ID, ":draft:") {
-			continue
-		}
-		clean = append(clean, m)
-	}
-	return clean
-}
-
-// draftID names the one streaming draft message for an item within a turn: stable across
-// repeated deltas for the same item, and distinct across items and turns.
-func draftID(requestID, itemID string) string {
-	digest := sha256.Sum256([]byte(itemID))
-	return fmt.Sprintf("%s:draft:%x", requestID, digest[:16])
-}
-
-// trimMessages keeps at most limit non-draft messages, dropping the oldest first. A
-// streaming draft (id contains ":draft:") is never counted against the limit or evicted
-// to make room: it is provisional and never persisted, but still visible while it streams.
-func trimMessages(messages []Message, limit int) []Message {
-	real := 0
-	for _, m := range messages {
-		if !strings.Contains(m.ID, ":draft:") {
-			real++
-		}
-	}
-	if real <= limit {
-		return messages
-	}
-	drop := real - limit
-	kept := make([]Message, 0, len(messages))
-	for _, m := range messages {
-		if drop > 0 && !strings.Contains(m.ID, ":draft:") {
-			drop--
-			continue
-		}
-		kept = append(kept, m)
-	}
-	return kept
-}
-
-// truncateUTF8 caps s at limit bytes, cutting back to the nearest rune boundary instead of
-// splitting one, so a capped delta or answer is always valid text.
-func truncateUTF8(s string, limit int) string {
-	if len(s) <= limit {
-		return s
-	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(s[cut]) {
-		cut--
-	}
-	return s[:cut]
 }
 
 func (a *account) notify(method string, raw json.RawMessage) {
@@ -855,28 +717,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			continue
 		}
 		if method == "item/agentMessage/delta" {
-			if c.State != "thinking" || p.ItemID == "" || len(p.ItemID) > 200 || p.Delta == "" {
-				continue
-			}
-			id := draftID(c.RequestID, p.ItemID)
-			index := -1
-			for i := range c.Messages {
-				if c.Messages[i].ID == id {
-					index = i
-					break
-				}
-			}
-			total := draftBytes(c.Messages)
-			if total >= maxTotalDraftBytes {
-				continue
-			}
-			if index < 0 {
-				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: truncateUTF8(p.Delta, min(32000, maxTotalDraftBytes-total)), Actions: []Action{}})
-				a.bumpLocked(c)
-			} else if remaining := min(32000-len(c.Messages[index].Text), maxTotalDraftBytes-total); remaining > 0 {
-				c.Messages[index].Text += truncateUTF8(p.Delta, remaining)
-				a.bumpLocked(c)
-			}
+			a.applyDeltaLocked(c, p.ItemID, p.Delta)
 		}
 		if method == "item/completed" && p.Item.Type == "agentMessage" && len(p.Item.ID) <= 200 {
 			// The draft is only ever provisional; the commentary or final message below
@@ -891,12 +732,6 @@ func (a *account) notify(method string, raw json.RawMessage) {
 		}
 		if method == "item/completed" && p.Item.Type == "agentMessage" && p.Item.Phase == "commentary" {
 			text := strings.TrimSpace(p.Item.Text)
-			var envelope struct {
-				Answer string `json:"answer"`
-			}
-			if json.Unmarshal([]byte(text), &envelope) == nil && strings.TrimSpace(envelope.Answer) != "" {
-				text = envelope.Answer
-			}
 			if c.State != "thinking" || text == "" || len(text) > 8000 || len(p.Item.ID) > 200 {
 				continue
 			}
@@ -920,21 +755,17 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			}
 		}
 		if method == "item/completed" && p.Item.Type == "agentMessage" && p.Item.Phase != "commentary" {
-			// The final answer is plain text. A thread started before this change may still
-			// send the legacy {"answer": string} envelope; unwrap it so old threads keep
-			// working. Anything else, JSON or not, is used exactly as written.
+			// The final answer is plain text (L2.2). toolVersion 5 (const above) forces a
+			// fresh thread on every conversation that predates this, so a provider reply can
+			// never carry the retired {"answer": string} envelope here; a genuine JSON reply
+			// (the model answering a JSON-shaped question, say) is used exactly as written,
+			// never unwrapped.
 			text := p.Item.Text
-			var envelope struct {
-				Answer string `json:"answer"`
-			}
-			if json.Unmarshal([]byte(text), &envelope) == nil && strings.TrimSpace(envelope.Answer) != "" {
-				text = envelope.Answer
-			}
 			c.Messages = append(c.Messages, Message{ID: c.RequestID + ":assistant", Role: "assistant", Text: truncateUTF8(text, 32000), Actions: []Action{}})
 			a.bumpLocked(c)
 		}
 		if method == "turn/completed" {
-			a.logTurnLocked(key, c, p.Turn.Status)
+			c.timing.log(a.logger, key, c.Mode, p.Turn.Status)
 			a.cancelToolsLocked(key)
 			c.Messages = withoutDrafts(c.Messages)
 			c.TurnID = ""
@@ -955,47 +786,4 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			}
 		}
 	}
-}
-
-// draftBytes is the combined length of every streaming draft in messages.
-func draftBytes(messages []Message) int {
-	total := 0
-	for _, m := range messages {
-		if strings.Contains(m.ID, ":draft:") {
-			total += len(m.Text)
-		}
-	}
-	return total
-}
-
-// logTurnLocked writes one timing line for a finished turn: no message text, no ids beyond a
-// short hash of the conversation key. Called with a.mu held.
-func (a *account) logTurnLocked(key string, c *conversation, status string) {
-	if a.logger == nil || c.Started.IsZero() {
-		return
-	}
-	digest := sha256.Sum256([]byte(key))
-	model := c.turnModel
-	if model == "" {
-		model = "default"
-	}
-	firstTool := int64(-1)
-	if !c.firstToolAt.IsZero() {
-		firstTool = c.firstToolAt.Sub(c.Started).Milliseconds()
-	}
-	mode := c.Mode
-	if mode == "" {
-		mode = "chat"
-	}
-	a.logger.Info("companion turn completed",
-		"conversation", fmt.Sprintf("%x", digest[:4]),
-		"mode", mode,
-		"model", model,
-		"effort", c.turnEffort,
-		"status", status,
-		"total_ms", time.Since(c.Started).Milliseconds(),
-		"first_tool_ms", firstTool,
-		"tool_calls", c.toolCount,
-		"pending_ms", c.pendingMS,
-	)
 }

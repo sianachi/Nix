@@ -91,7 +91,7 @@ func launch(ctx context.Context, binary, home string, notify func(string, json.R
 					handler := r.request
 					r.requestMu.RUnlock()
 					if handler == nil || !handler(p.ID, p.Method, p.Params) {
-						_ = r.write(map[string]any{"id": p.ID, "error": map[string]any{"code": -32601, "message": "Only the approved Nix workspace tool is available."}})
+						_ = r.write(map[string]any{"id": p.ID, "error": map[string]any{"code": -32601, "message": "That tool is not available in this conversation (workspace access may be off)."}})
 					}
 				} else {
 					notify(p.Method, p.Params)

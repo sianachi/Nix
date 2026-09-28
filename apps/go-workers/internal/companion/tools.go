@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -40,14 +41,6 @@ type toolTransport interface {
 	SetRequestHandler(func(json.RawMessage, string, json.RawMessage) bool)
 	Reply(json.RawMessage, any) error
 }
-
-// consultOnlyOperations are the operations available only in consult (Design mode)
-// conversations: designing and saving a whole structure, as opposed to the additive,
-// one-item-at-a-time operations chat also has. workspaceTools(mode) (catalog.go) is the real
-// source of truth for which operations each mode offers; this list is only used by
-// validateToolArguments to refuse a consult-only operation's flattened call in chat, and by
-// flattenToolCall's own tests.
-var consultOnlyOperations = []string{"validate_blueprint", "build_blueprint", "save_as_template"}
 
 // flatToolArgs is the flat shape `@nix/companion`'s workspaceToolSchema and run.ts have always
 // parsed, and the shape `ToolCall.Arguments` stores. flattenToolCall builds one from a typed
@@ -133,7 +126,7 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 	for key, value := range fields {
 		mapping, known := spec[key]
 		if !known {
-			return nil, fmt.Sprintf("%q is not a parameter of %s.", key, tool)
+			return nil, fmt.Sprintf("%q is not a parameter of %s; it accepts %s.", key, tool, strings.Join(acceptedParams(spec), ", "))
 		}
 		switch mapping.kind {
 		case argString:
@@ -141,7 +134,9 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 			if json.Unmarshal(value, &text) != nil {
 				return nil, fmt.Sprintf("%s.%s must be a string.", tool, key)
 			}
-			setFlatString(&flat, mapping.flat, text)
+			if err := setFlatString(&flat, mapping.flat, text); err != nil {
+				return nil, fmt.Sprintf("%s.%s could not be processed.", tool, key)
+			}
 		case argObjectJSON:
 			objectDecoder := json.NewDecoder(strings.NewReader(string(value)))
 			objectDecoder.UseNumber()
@@ -153,7 +148,9 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 			if err != nil {
 				return nil, fmt.Sprintf("%s.%s must be a JSON object.", tool, key)
 			}
-			setFlatString(&flat, mapping.flat, string(canonical))
+			if err := setFlatString(&flat, mapping.flat, string(canonical)); err != nil {
+				return nil, fmt.Sprintf("%s.%s could not be processed.", tool, key)
+			}
 		}
 	}
 	encoded, err := json.Marshal(flat)
@@ -163,11 +160,25 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 	return encoded, ""
 }
 
+// acceptedParams lists spec's typed parameter names, sorted, for an unknown-key refusal
+// message: the model needs to see what it should have typed instead of what it typed.
+func acceptedParams(spec map[string]argMapping) []string {
+	names := make([]string, 0, len(spec))
+	for name := range spec {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // setFlatString assigns one of flatToolArgs' string fields by its JSON field name (itemId,
 // parentId, title, markdown, query, propertiesJson or specJson). Two typed arguments
 // (templateId and itemId) can map onto the same flat field (itemId) across different
-// operations, so this is a small named-field assignment rather than a struct literal.
-func setFlatString(flat *flatToolArgs, field, value string) {
+// operations, so this is a small named-field assignment rather than a struct literal. field
+// always comes from toolArgSpecs, but an unrecognised value is refused rather than silently
+// dropped: a mapping mistake here must surface as a refusal, never as an argument quietly
+// vanishing from the flattened call.
+func setFlatString(flat *flatToolArgs, field, value string) error {
 	switch field {
 	case "itemId":
 		flat.ItemID = value
@@ -183,7 +194,10 @@ func setFlatString(flat *flatToolArgs, field, value string) {
 		flat.PropertiesJSON = value
 	case "specJson":
 		flat.SpecJSON = value
+	default:
+		return fmt.Errorf("unmapped flat target %q", field)
 	}
+	return nil
 }
 
 func (a *account) listModels(ctx context.Context) error {
@@ -372,10 +386,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			return false
 		}
 		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...), pendingSince: time.Now()})
-		if c.firstToolAt.IsZero() {
-			c.firstToolAt = time.Now()
-		}
-		c.toolCount++
+		c.timing.toolRecorded()
 		if a.saveLocked(key) != nil {
 			c.Tools = c.Tools[:len(c.Tools)-1]
 			return false
@@ -425,6 +436,17 @@ func toolOutput(success bool, result string) any {
 	return map[string]any{"success": success, "contentItems": []any{map[string]string{"type": "inputText", "text": result}}}
 }
 
+// modelParamForItemID names the typed parameter that carries itemId for operation. Every
+// operation calls it itemId except nix_read_template and nix_apply_template, which call it
+// templateId (toolArgSpecs, above); model-facing messages must name whichever one the model
+// actually typed.
+func modelParamForItemID(operation string) string {
+	if operation == "read_template" || operation == "apply_template" {
+		return "templateId"
+	}
+	return "itemId"
+}
+
 func validateToolArguments(raw json.RawMessage, mode string) string {
 	var p struct {
 		Operation  string `json:"operation"`
@@ -448,7 +470,7 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 		return "The design is too large. Use fewer items and fields."
 	}
 	if p.Spec != "" && p.Markdown != "" {
-		return "Put markdown inside specJson entries, not alongside it."
+		return "Put markdown inside spec entries, not alongside it."
 	}
 	if p.Spec != "" && jsonDepth(p.Spec) > 24 {
 		return "The design is too large. Use fewer items and fields."
@@ -457,7 +479,7 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 		return "parentId must be a Nix item UUID or empty for the workspace root."
 	}
 	if p.ItemID != "" && !uuid.MatchString(p.ItemID) {
-		return "itemId must be a Nix item UUID."
+		return fmt.Sprintf("%s must be a Nix item UUID.", modelParamForItemID(p.Operation))
 	}
 	for _, consultOnly := range consultOnlyOperations {
 		if p.Operation == consultOnly && mode != "consult" {
@@ -468,95 +490,95 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 	case "list_items":
 	case "search":
 		if strings.TrimSpace(p.Query) == "" {
-			return "search requires a nonempty query."
+			return "nix_search requires a nonempty query."
 		}
 	case "list_templates":
 	case "create_note":
 		if strings.TrimSpace(p.Title) == "" {
-			return "create_note requires a title."
+			return "nix_create_note requires a title."
 		}
 	case "read_item", "read_note", "read_structure", "append_note", "rename_item", "move_item", "set_properties", "trash_item", "restore_item", "read_template":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_%s requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", p.Operation, modelParamForItemID(p.Operation))
 		}
 		if p.Operation == "rename_item" && strings.TrimSpace(p.Title) == "" {
-			return "rename_item requires a title."
+			return "nix_rename_item requires a title."
 		}
 		if p.Operation == "append_note" && strings.TrimSpace(p.Markdown) == "" {
-			return "append_note requires nonempty markdown."
+			return "nix_append_note requires nonempty markdown."
 		}
 		if p.Operation == "set_properties" {
 			var object map[string]json.RawMessage
 			if json.Unmarshal([]byte(p.Properties), &object) != nil || object == nil {
-				return "set_properties requires a JSON object in propertiesJson."
+				return "nix_set_properties requires properties (a JSON object)."
 			}
 		}
 	case "create_structured":
 		if strings.TrimSpace(p.Title) == "" {
-			return "create_structured requires a title."
+			return "nix_create_structured requires a title."
 		}
 		if !isJSONObject(p.Spec) {
-			return "create_structured requires a JSON object in specJson."
+			return "nix_create_structured requires spec (a JSON object)."
 		}
 	case "add_view":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_add_view requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
 		}
 		if !isJSONObject(p.Spec) {
-			return "add_view requires a JSON object in specJson."
+			return "nix_add_view requires spec (a JSON object)."
 		}
 	case "create_entries":
 		if !uuid.MatchString(p.ParentID) {
-			return "create_entries requires the exact parentId UUID. Discover it with list_items or search if it is not already known."
+			return "nix_create_entries requires the exact parentId UUID. Discover it with nix_list_items or nix_search if it is not already known."
 		}
 		if !isJSONObject(p.Spec) {
-			return "create_entries requires a JSON object in specJson."
+			return "nix_create_entries requires spec (a JSON object)."
 		}
 	case "add_fields":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_add_fields requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
 		}
 		if !isJSONObject(p.Spec) {
-			return "add_fields requires a JSON object in specJson."
+			return "nix_add_fields requires spec (a JSON object)."
 		}
 	case "edit_form":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_edit_form requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
 		}
 		if !isJSONObject(p.Spec) {
-			return "edit_form requires a JSON object in specJson."
+			return "nix_edit_form requires spec (a JSON object)."
 		}
 	case "set_recurrence":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_set_recurrence requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
 		}
 		if !isJSONObject(p.Spec) {
-			return "set_recurrence requires a JSON object in specJson."
+			return "nix_set_recurrence requires spec (a JSON object)."
 		}
 	case "apply_template":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_apply_template requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
 		}
 		if strings.TrimSpace(p.Title) == "" {
-			return "apply_template requires a title."
+			return "nix_apply_template requires a title."
 		}
 		if p.Spec != "" && !isJSONObject(p.Spec) {
-			return "apply_template requires a JSON object in specJson when supplied."
+			return "nix_apply_template requires spec (a JSON object) when supplied."
 		}
 	case "validate_blueprint":
 		if !isJSONObject(p.Spec) {
-			return "validate_blueprint requires a JSON object in specJson."
+			return "nix_validate_blueprint requires blueprint (a JSON object)."
 		}
 	case "build_blueprint":
 		if !isJSONObject(p.Spec) {
-			return "build_blueprint requires a JSON object in specJson."
+			return "nix_build_blueprint requires blueprint (a JSON object)."
 		}
 	case "save_as_template":
 		if !uuid.MatchString(p.ItemID) {
-			return "This operation requires the exact itemId UUID. Discover it with list_items or search if it is not already known."
+			return fmt.Sprintf("nix_save_as_template requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
 		}
 		if strings.TrimSpace(p.Title) == "" {
-			return "save_as_template requires a title."
+			return "nix_save_as_template requires a title."
 		}
 	default:
 		return "Unsupported workspace operation."
@@ -618,9 +640,7 @@ func (a *account) resolveTool(key string, r Request) error {
 				return errors.New("tool already claimed; do not execute again")
 			}
 			t.Status = "claimed"
-			if !t.pendingSince.IsZero() {
-				c.pendingMS += time.Since(t.pendingSince).Milliseconds()
-			}
+			c.timing.toolClaimed(t.pendingSince)
 			t.ClaimID = r.RequestID
 			return a.saveLocked(key)
 		}
