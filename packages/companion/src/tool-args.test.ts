@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { flattenToolExample, TOOL_EXAMPLES, WORKSPACE_OPERATIONS } from '@nix/structure-spec';
+import { WORKSPACE_OPERATIONS } from '@nix/structure-spec';
+import { flattenToolExample, TOOL_EXAMPLES } from '@nix/structure-spec/testing';
 import { workspaceToolSchema } from './tool-args.js';
 
 /**

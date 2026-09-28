@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Nix.Abstractions;
@@ -26,16 +27,16 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             return Task.FromResult(Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Use the watch endpoint for this operation.")));
         }
 
-        return ExecuteCoreAsync(request, cancellationToken);
+        return ExecuteCoreAsync(request, after: 0, cancellationToken);
     }
 
     /// <summary>The GET watch path: builds the same worker request <see cref="ExecuteAsync"/>'s
     /// "read" builds - same identity derivation, same workspace permission checks, same persona
     /// handling - with operation "watch" and the client's last known revision.</summary>
     public Task<Result<PetConnectionResponse>> ExecuteWatchAsync(Guid workspaceId, Guid petId, string mode, long after, CancellationToken cancellationToken) =>
-        ExecuteCoreAsync(new PetRuntimeRequest("watch", workspaceId, petId, Mode: mode, After: after), cancellationToken);
+        ExecuteCoreAsync(new PetRuntimeRequest("watch", workspaceId, petId, Mode: mode), after, cancellationToken);
 
-    private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, CancellationToken cancellationToken)
+    private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, long after, CancellationToken cancellationToken)
     {
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
         if (request.Operation is not ("status" or "connect" or "disconnect" or "models" or "read" or "watch" or "send" or "interrupt" or "reset" or "tool_claim" or "tool_result" or "history" or "read_history" or "delete_history")
@@ -115,23 +116,117 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
-            request.Mode, request.After), PetJsonContext.Default.PetWorkerRequest);
+            request.Mode, after), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion could not complete this request. Retry or reconnect ChatGPT."));
+                // The worker signals backpressure and single-flight contention with these two
+                // codes; every other non-success collapses to the generic unavailable code.
+                return response.StatusCode switch
+                {
+                    HttpStatusCode.TooManyRequests => Result.Failure<PetConnectionResponse>(
+                        new("pets.too_many_watches", "Too many active watches. Close another tab and try again.")),
+                    HttpStatusCode.Conflict => Result.Failure<PetConnectionResponse>(
+                        new("pets.busy", "The companion is already handling another request.")),
+                    _ => Result.Failure<PetConnectionResponse>(
+                        new("pets.unavailable", "The companion could not complete this request. Retry or reconnect ChatGPT.")),
+                };
             }
 
-            // A conversation is bounded to forty messages; never consume an unbounded provider body.
-            await response.Content.LoadIntoBufferAsync(4 * 1024 * 1024, timeout.Token).ConfigureAwait(false);
-            var value = await response.Content.ReadFromJsonAsync(PetJsonContext.Default.PetConnectionResponse, timeout.Token).ConfigureAwait(false);
-            return value is null ? Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion returned an empty response.")) : Result.Success(value);
+            // A conversation is bounded to forty messages; never consume an unbounded provider
+            // body. Deserialising straight from the response stream, capped, avoids buffering
+            // the whole body in memory before parsing it.
+            var body = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
+            var capped = new CappedStream(body, MaxResponseBytes);
+            await using (capped.ConfigureAwait(false))
+            {
+                PetConnectionResponse? value;
+                try
+                {
+                    value = await JsonSerializer.DeserializeAsync(capped, PetJsonContext.Default.PetConnectionResponse, timeout.Token).ConfigureAwait(false);
+                }
+                catch (StreamCapExceededException)
+                {
+                    return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion response exceeded the size limit."));
+                }
+
+                return value is null ? Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion returned an empty response.")) : Result.Success(value);
+            }
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
             return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion is unreachable. Check the existing worker and try again."));
+        }
+    }
+
+    private const int MaxResponseBytes = 4 * 1024 * 1024;
+
+    /// <summary>Thrown by <see cref="CappedStream"/> once more than its byte limit has been read.</summary>
+    private sealed class StreamCapExceededException : Exception
+    {
+        public StreamCapExceededException() : base("The stream exceeded its byte cap.")
+        {
+        }
+
+        public StreamCapExceededException(string message) : base(message)
+        {
+        }
+
+        public StreamCapExceededException(string message, Exception innerException) : base(message, innerException)
+        {
+        }
+    }
+
+    /// <summary>Read-only wrapper that enforces a byte cap while streaming, so the worker's JSON
+    /// response is never buffered whole before the cap can be checked.</summary>
+    private sealed class CappedStream(Stream inner, int limit) : Stream
+    {
+        private long _read;
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException("Async reads only.");
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var read = await inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            _read += read;
+            if (_read > limit)
+            {
+                throw new StreamCapExceededException();
+            }
+
+            return read;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync().ConfigureAwait(false);
+            await base.DisposeAsync().ConfigureAwait(false);
         }
     }
 }

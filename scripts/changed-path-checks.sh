@@ -173,7 +173,10 @@ if [ "$has_openapi" = true ]; then
 fi
 
 if [ "$has_catalog" = true ]; then
-  emit 'pnpm --filter @nix/structure-spec catalog && git diff --exit-code -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog'
+  # git status --porcelain, not git diff --exit-code: diff is blind to untracked files, so a
+  # generator that grew a new output would pass a diff-only check silently. CI's "Structure
+  # catalog is current" step checks the same way.
+  emit 'pnpm --filter @nix/structure-spec catalog && test -z "$(git status --porcelain -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog)"'
 fi
 
 if [ "$has_sensitive_backend" = true ]; then

@@ -3129,11 +3129,6 @@ export interface components {
       historyId?: null | string;
       /** @default  */
       mode: string;
-      /**
-       * Format: int64
-       * @default 0
-       */
-      after: number | string;
     };
     PetSettings: {
       enabled: boolean;
@@ -7399,6 +7394,15 @@ export interface operations {
           'application/json': components['schemas']['PetConnectionResponse'];
         };
       };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
     };
   };
   WatchPetRuntime: {
@@ -7422,6 +7426,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
     };

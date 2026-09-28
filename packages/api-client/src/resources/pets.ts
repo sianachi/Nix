@@ -93,8 +93,6 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
       mode: input.mode ?? '',
-      // "watch" is the only operation that reads this; POST /runtime never accepts it.
-      after: 0,
     } satisfies components['schemas']['PetRuntimeRequest'],
     invalidates: [['me', 'pets', 'connection']],
   });

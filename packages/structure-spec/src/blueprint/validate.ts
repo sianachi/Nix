@@ -6,7 +6,7 @@ import {
   PROPERTY_FORMULA_LIMITS,
 } from '@nix/sheet';
 
-import { LIMITS } from '../catalog/index.js';
+import { LIMITS } from '../catalog/tables.js';
 import type { Cond, FormSpec } from '../spec/form.js';
 import { keyFor } from '../spec/keys.js';
 import { resolveFieldRef, type FieldRefResolution, type ResolvedField } from '../spec/refs.js';

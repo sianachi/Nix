@@ -124,7 +124,9 @@ jobs:
           fi
 
       # The pet's capability catalog is generated from packages/structure-spec's own tables into
-      # two committed outputs the Go worker embeds. Same discipline as the generated API client
+      # a committed src/generated/catalog.json plus the committed outputs the Go worker embeds
+      # (two plain text catalogs and three typed-tool JSON files). Same discipline as the
+      # generated API client
       # above: regenerate, then fail on any drift so a hand-edit or a stale commit is caught here
       # rather than shipping a catalog that disagrees with the validator and executor it is
       # checked against.

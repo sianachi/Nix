@@ -1,10 +1,11 @@
 /**
- * Generates the pet's capability catalog from `buildCatalog()` and writes it in the three shapes
- * consumers need: the machine JSON `src/generated/catalog.json`, and the two plain text files the
- * Go worker embeds. Committed outputs, never hand-edited - `pnpm --filter @nix/structure-spec
- * catalog` is the only way they change. CI (`.github/workflows/ci-frontend.yml`) and
- * `scripts/changed-path-checks.sh` both re-run this and diff the result against what is
- * committed.
+ * Generates the pet's capability catalog from `buildCatalog()` and `buildPetTools()` and writes
+ * it in the shapes consumers need: the machine JSON `src/generated/catalog.json`, the two plain
+ * text catalogs (`chat.txt`, `consult.txt`) and the three typed-tool JSON files (`tools-chat.json`,
+ * `tools-consult.json`, `tool-examples.json`) the Go worker embeds. Committed outputs, never
+ * hand-edited - `pnpm --filter @nix/structure-spec catalog` is the only way they change. CI
+ * (`.github/workflows/ci-frontend.yml`) and `scripts/changed-path-checks.sh` both re-run this and
+ * diff the result against what is committed.
  *
  * Paths are resolved from this script's own location, not the process cwd, so `pnpm --filter
  * @nix/structure-spec catalog` writes the same files whether it is run from the repo root or from
@@ -23,12 +24,11 @@ import { fileURLToPath } from 'node:url';
 import {
   buildCatalog,
   buildPetTools,
-  flattenToolExample,
   renderChat,
   renderConsult,
-  TOOL_EXAMPLES,
   WORKSPACE_OPERATIONS,
 } from '@nix/structure-spec';
+import { flattenToolExample, TOOL_EXAMPLES } from '@nix/structure-spec/testing';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');

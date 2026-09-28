@@ -93,6 +93,45 @@ public sealed class PetWorkerClientModeTests
         Assert.Equal(0, handler.Calls);
     }
 
+    [Fact]
+    public async Task A_429_from_the_worker_is_mapped_to_pets_too_many_watches_and_HTTP_429()
+    {
+        using var handler = new StatusWorker(HttpStatusCode.TooManyRequests);
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "chat", 0, Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.too_many_watches", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task A_409_from_the_worker_is_mapped_to_pets_busy_and_HTTP_409()
+    {
+        using var handler = new StatusWorker(HttpStatusCode.Conflict);
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Design a habit tracker"), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.busy", result.Error.Code);
+    }
+
+    [Fact]
+    public async Task A_worker_response_over_the_four_mebibyte_cap_is_refused_as_pets_unavailable()
+    {
+        using var handler = new OversizedWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteAsync(new("status"), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.unavailable", result.Error.Code);
+    }
+
     private static IConfiguration Configuration() => new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
     {
         ["Nix:Pets:WorkerUrl"] = "http://worker:8301",
@@ -161,6 +200,30 @@ public sealed class PetWorkerClientModeTests
             {
                 Content = new StringContent("{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"Connected\",\"canConnect\":false,\"messages\":[]}", System.Text.Encoding.UTF8, "application/json"),
             };
+        }
+    }
+
+    /// <summary>Answers with a fixed non-success status and no body, standing in for the worker's
+    /// own backpressure (429) and single-flight contention (409) refusals.</summary>
+    private sealed class StatusWorker(HttpStatusCode statusCode) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(statusCode));
+    }
+
+    /// <summary>Answers 200 with a body one byte over <see cref="PetWorkerClient"/>'s four
+    /// mebibyte cap, proving the cap is enforced while streaming rather than after buffering.</summary>
+    private sealed class OversizedWorker : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            const int capBytes = 4 * 1024 * 1024;
+            var padding = new string('a', capBytes + 1);
+            var body = $"{{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"{padding}\",\"canConnect\":false,\"messages\":[]}}";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            });
         }
     }
 }
