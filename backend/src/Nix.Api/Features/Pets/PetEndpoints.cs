@@ -20,7 +20,10 @@ internal static class PetEndpoints
         group.MapPost("/runtime", Runtime).WithName("PetRuntime")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         // Not rate limited by the writes policy: this is a read, and it must never wait behind
-        // one, however often the client long-polls it.
+        // one, however often the client long-polls it. Cost: NixUnitOfWorkMiddleware keeps a
+        // Postgres connection and transaction open for the whole wait (up to 20 s). The worker
+        // caps concurrent watches at four per principal and answers the fifth with 429 at once,
+        // which is what bounds the connections one person can pin.
         group.MapGet("/runtime/watch", Watch).WithName("WatchPetRuntime");
         return endpoints;
     }

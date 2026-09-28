@@ -84,6 +84,7 @@ func Run(service role.Service) {
 			logger.Error("companion storage configuration failed")
 			os.Exit(1)
 		}
+		manager.SetLogger(logger)
 		defer manager.Close()
 		companionHandler = manager
 	}

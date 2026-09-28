@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 type Model struct {
@@ -30,7 +31,9 @@ type ToolCall struct {
 	Result    string `json:"result"`
 	ClaimID   string `json:"claimId"`
 	rpcID     json.RawMessage
-	waiters   []json.RawMessage
+	// pendingSince feeds the per-turn timing log only.
+	pendingSince time.Time
+	waiters      []json.RawMessage
 }
 
 type toolTransport interface {
@@ -368,7 +371,11 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		if len(c.Tools) >= 20 {
 			return false
 		}
-		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...)})
+		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...), pendingSince: time.Now()})
+		if c.firstToolAt.IsZero() {
+			c.firstToolAt = time.Now()
+		}
+		c.toolCount++
 		if a.saveLocked(key) != nil {
 			c.Tools = c.Tools[:len(c.Tools)-1]
 			return false
@@ -611,6 +618,9 @@ func (a *account) resolveTool(key string, r Request) error {
 				return errors.New("tool already claimed; do not execute again")
 			}
 			t.Status = "claimed"
+			if !t.pendingSince.IsZero() {
+				c.pendingMS += time.Since(t.pendingSince).Milliseconds()
+			}
 			t.ClaimID = r.RequestID
 			return a.saveLocked(key)
 		}

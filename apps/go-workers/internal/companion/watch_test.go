@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -171,44 +172,128 @@ func TestWatchIsNotBlockedWhileSendHoldsOp(t *testing.T) {
 	}
 }
 
-// TestWatchCapsConcurrentWatchersPerAccount proves exactly one over-cap watcher skips
-// waiting and returns immediately; the 16 within the cap wait for the shared deadline.
+// TestWatchCapsConcurrentWatchersPerAccount proves ServeHTTP refuses a watch over the per-account
+// cap with 429 at once, before loading anything, while the watches within the cap keep waiting.
 func TestWatchCapsConcurrentWatchersPerAccount(t *testing.T) {
-	a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	r := request()
-	if _, err := a.handle(context.Background(), r); err != nil {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m, err := New(ctx, t.TempDir(), "unused", nil, "", "")
+	if err != nil {
 		t.Fatal(err)
 	}
-	key := r.WorkspaceID + "-" + r.PetID
-	revision := a.snapshot(key).Revision
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	const attempts = 17
-	durations := make([]time.Duration, attempts)
-	var wg sync.WaitGroup
-	for i := 0; i < attempts; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			watch := r
-			watch.Operation = "watch"
-			watch.After = revision
-			start := time.Now()
-			_, _ = a.handle(ctx, watch)
-			durations[i] = time.Since(start)
-		}(i)
-	}
-	wg.Wait()
-
-	fast := 0
-	for _, d := range durations {
-		if d < 500*time.Millisecond {
-			fast++
+	defer m.Close()
+	m.launch = func(_ context.Context, _ string, home string, _ func(string, json.RawMessage)) (Transport, error) {
+		if err := os.MkdirAll(home, 0700); err != nil {
+			return nil, err
 		}
+		return &fakeTransport{}, nil
 	}
-	if fast != 1 {
-		t.Fatalf("expected exactly one watcher over the 16 cap to return immediately, got %d", fast)
+	r := request()
+	// An "after" far in the future means no change can satisfy these watches, so each one within
+	// the cap waits until its request context ends.
+	body, err := json.Marshal(Request{TenantID: r.TenantID, PrincipalID: r.PrincipalID, WorkspaceID: r.WorkspaceID, PetID: r.PetID, Operation: "watch", After: 1 << 62})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitCtx, stop := context.WithTimeout(context.Background(), 2*time.Second)
+	defer stop()
+	var wg sync.WaitGroup
+	for i := 0; i < maxConcurrentWatchers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w := httptest.NewRecorder()
+			m.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/companion", bytes.NewReader(body)).WithContext(waitCtx))
+		}()
+	}
+	// Let every watch within the cap register before the one over it arrives.
+	time.Sleep(300 * time.Millisecond)
+	w := httptest.NewRecorder()
+	start := time.Now()
+	m.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/companion", bytes.NewReader(body)))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("watch over the cap: got %d, want 429", w.Code)
+	}
+	if time.Since(start) > 500*time.Millisecond {
+		t.Fatal("watch over the cap waited instead of returning at once")
+	}
+	stop()
+	wg.Wait()
+	w = httptest.NewRecorder()
+	fresh, err := json.Marshal(Request{TenantID: r.TenantID, PrincipalID: r.PrincipalID, WorkspaceID: r.WorkspaceID, PetID: r.PetID, Operation: "watch"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/companion", bytes.NewReader(fresh)))
+	if w.Code != http.StatusOK {
+		t.Fatalf("watch after the others ended: got %d, want 200 (the cap must be released)", w.Code)
+	}
+}
+
+// TestDraftsAreCappedAcrossTheConversation proves many large drafts in one turn stop growing
+// at maxTotalDraftBytes in total, not 32000 bytes each.
+func TestDraftsAreCappedAcrossTheConversation(t *testing.T) {
+	a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	if err := a.load(key); err != nil {
+		t.Fatal(err)
+	}
+	c := a.conversations[key]
+	c.ThreadID = "thread"
+	c.RequestID = r.RequestID
+	c.State = "thinking"
+	chunk := strings.Repeat("x", 30000)
+	for item := 0; item < 5; item++ {
+		raw, _ := json.Marshal(map[string]string{"threadId": "thread", "turnId": "turn", "itemId": "item-" + string(rune('a'+item)), "delta": chunk})
+		a.notify("item/agentMessage/delta", raw)
+	}
+	if total := draftBytes(a.snapshot(key).Messages); total != maxTotalDraftBytes {
+		t.Fatalf("draft bytes: got %d, want exactly the cap %d", total, maxTotalDraftBytes)
+	}
+}
+
+// TestTurnCompletionLogsTimingsWithoutContent proves the per-turn log line carries timings and
+// counts but never message text or raw ids.
+func TestTurnCompletionLogsTimingsWithoutContent(t *testing.T) {
+	var out bytes.Buffer
+	a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", logger: slog.New(slog.NewJSONHandler(&out, nil))}
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	if err := a.load(key); err != nil {
+		t.Fatal(err)
+	}
+	c := a.conversations[key]
+	c.ThreadID = "thread"
+	c.RequestID = r.RequestID
+	c.State = "thinking"
+	c.Mode = "chat"
+	c.Started = time.Now().Add(-1500 * time.Millisecond)
+	c.firstToolAt = c.Started.Add(400 * time.Millisecond)
+	c.toolCount = 2
+	c.pendingMS = 250
+	c.turnEffort = "low"
+	c.Messages = append(c.Messages, Message{ID: "secret", Role: "user", Text: "my private question", Actions: []Action{}})
+	raw, _ := json.Marshal(map[string]any{"threadId": "thread", "turn": map[string]string{"status": "completed"}})
+	a.notify("turn/completed", raw)
+
+	var line map[string]any
+	if err := json.Unmarshal(out.Bytes(), &line); err != nil {
+		t.Fatalf("log line is not one JSON object: %q", out.String())
+	}
+	if line["msg"] != "companion turn completed" || line["mode"] != "chat" || line["model"] != "default" || line["effort"] != "low" || line["status"] != "completed" {
+		t.Fatalf("unexpected fields: %v", line)
+	}
+	if line["tool_calls"] != float64(2) || line["pending_ms"] != float64(250) || line["first_tool_ms"] != float64(400) {
+		t.Fatalf("unexpected timings: %v", line)
+	}
+	if total, _ := line["total_ms"].(float64); total < 1500 {
+		t.Fatalf("total_ms too small: %v", line["total_ms"])
+	}
+	for _, leaked := range []string{"my private question", r.WorkspaceID, r.PetID, "thread"} {
+		if strings.Contains(out.String(), leaked) {
+			t.Fatalf("log line leaks %q: %s", leaked, out.String())
+		}
 	}
 }
 

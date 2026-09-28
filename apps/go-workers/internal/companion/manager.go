@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,6 +25,20 @@ var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 // nix_<operation> tool per operation (L1.1); a conversation on the old tool version starts a
 // fresh thread the next time it sends (see send() below).
 const toolVersion = 5
+
+// maxConcurrentWatchers bounds how many "watch" long-polls one account (one tenant+principal)
+// may have open at once. Core keeps a Postgres connection and an open unit-of-work transaction
+// pinned behind every watch it forwards for the whole wait (PetWorkerClient.ExecuteWatchAsync),
+// so this is what bounds pinned connections per principal; it is checked in ServeHTTP, before a
+// conversation is ever loaded, so a rejected watch costs nothing beyond the check itself.
+const maxConcurrentWatchers = 4
+
+// maxTotalDraftBytes bounds the combined length of every streaming draft message in one
+// conversation (there is normally one, but a turn can produce more than one agent-message item).
+// Each individual draft is already capped at 32000 bytes; this second, whole-conversation cap
+// keeps a pathological turn that streams many large drafts from growing memory unboundedly before
+// turn/completed clears them.
+const maxTotalDraftBytes = 64000
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -93,6 +108,13 @@ type conversation struct {
 	// Revision is never persisted: every load (fresh or restored) gets a new one, monotonic
 	// across worker restarts because it is seeded from the clock rather than a counter.
 	Revision int64 `json:"-"`
+	// The remaining fields are in-memory timing bookkeeping for the turn/completed log line
+	// only: never persisted, never sent to the client, reset at the start of every send().
+	turnModel   string    // the model actually used, or "" for the provider default
+	turnEffort  string    // the effort actually sent on turn/start, or "" if none
+	firstToolAt time.Time // zero until the turn's first tool call is recorded
+	toolCount   int       // tool calls recorded so far this turn
+	pendingMS   int64     // summed pending-to-claim duration across this turn's tool calls
 }
 
 type account struct {
@@ -124,6 +146,8 @@ type account struct {
 	// model actually advertises it.
 	chatEffort    string
 	consultEffort string
+	// logger receives one line per completed turn (timings only, never content).
+	logger *slog.Logger
 }
 
 type Manager struct {
@@ -138,6 +162,17 @@ type Manager struct {
 	consultModels []string
 	chatEffort    string
 	consultEffort string
+	logger        *slog.Logger
+}
+
+// SetLogger routes the per-turn timing log to logger. Call it before the first request; the
+// default is slog.Default().
+func (m *Manager) SetLogger(logger *slog.Logger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if logger != nil {
+		m.logger = logger
+	}
 }
 
 func New(ctx context.Context, root, binary string, consultModels []string, chatEffort, consultEffort string) (*Manager, error) {
@@ -147,7 +182,7 @@ func New(ctx context.Context, root, binary string, consultModels []string, chatE
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return nil, err
 	}
-	m := &Manager{root: root, binary: binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: consultModels, chatEffort: chatEffort, consultEffort: consultEffort}
+	m := &Manager{root: root, binary: binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: consultModels, chatEffort: chatEffort, consultEffort: consultEffort, logger: slog.Default()}
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -205,7 +240,7 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	if len(m.accounts) >= 4 {
 		return nil, errors.New("companion capacity reached")
 	}
-	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels, chatEffort: m.chatEffort, consultEffort: m.consultEffort}
+	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels, chatEffort: m.chatEffort, consultEffort: m.consultEffort, logger: m.logger}
 	transport, err := m.launch(m.ctx, m.binary, a.home, a.notify)
 	if err != nil {
 		return nil, err
@@ -244,6 +279,16 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// A watch or a plain read never claims a.op: they must never see "Companion is busy"
 	// while a send or tool operation holds it. Everything else keeps the exclusive lock.
+	if request.Operation == "watch" {
+		// Checked before the conversation is loaded: Core pins a database connection behind every
+		// watch for its whole wait, so this cap is what bounds pinned connections per principal.
+		if atomic.AddInt32(&a.watchers, 1) > maxConcurrentWatchers {
+			atomic.AddInt32(&a.watchers, -1)
+			http.Error(w, "Too many open watches", http.StatusTooManyRequests)
+			return
+		}
+		defer atomic.AddInt32(&a.watchers, -1)
+	}
 	if request.Operation != "read" && request.Operation != "watch" {
 		if !a.op.TryLock() {
 			http.Error(w, "Companion is busy", http.StatusConflict)
@@ -422,10 +467,7 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 		} else if r.Operation == "watch" {
 			// Never touches the transport; only waits for bumpLocked to close a.changed,
 			// the request context to end, or its own timeout, whichever comes first.
-			if atomic.AddInt32(&a.watchers, 1) <= 16 {
-				a.awaitChange(ctx, key, r.After, 20*time.Second)
-			}
-			atomic.AddInt32(&a.watchers, -1)
+			a.awaitChange(ctx, key, r.After, 20*time.Second)
 		} else if state == "thinking" {
 			a.mu.Lock()
 			expired := time.Since(c.Started) > 15*time.Minute
@@ -669,6 +711,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.WorkspaceAccess = r.WorkspaceAccess
 	c.Tools = []ToolCall{}
 	c.Started = time.Now()
+	c.turnModel = r.Model
+	c.turnEffort = ""
+	c.firstToolAt = time.Time{}
+	c.toolCount = 0
+	c.pendingMS = 0
 	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text, Actions: []Action{}})
 	c.Messages = trimMessages(c.Messages, 16)
 	err = a.saveLocked(key)
@@ -679,6 +726,9 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	turnParams := map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}}
 	if effort := a.effortFor(ctx, r.Mode, r.Model); effort != "" {
 		turnParams["effort"] = effort
+		a.mu.Lock()
+		c.turnEffort = effort
+		a.mu.Unlock()
 	}
 	raw, err = a.transport.Call(ctx, "turn/start", turnParams)
 	if err != nil {
@@ -816,10 +866,14 @@ func (a *account) notify(method string, raw json.RawMessage) {
 					break
 				}
 			}
+			total := draftBytes(c.Messages)
+			if total >= maxTotalDraftBytes {
+				continue
+			}
 			if index < 0 {
-				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: truncateUTF8(p.Delta, 32000), Actions: []Action{}})
+				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: truncateUTF8(p.Delta, min(32000, maxTotalDraftBytes-total)), Actions: []Action{}})
 				a.bumpLocked(c)
-			} else if remaining := 32000 - len(c.Messages[index].Text); remaining > 0 {
+			} else if remaining := min(32000-len(c.Messages[index].Text), maxTotalDraftBytes-total); remaining > 0 {
 				c.Messages[index].Text += truncateUTF8(p.Delta, remaining)
 				a.bumpLocked(c)
 			}
@@ -880,6 +934,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			a.bumpLocked(c)
 		}
 		if method == "turn/completed" {
+			a.logTurnLocked(key, c, p.Turn.Status)
 			a.cancelToolsLocked(key)
 			c.Messages = withoutDrafts(c.Messages)
 			c.TurnID = ""
@@ -900,4 +955,47 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			}
 		}
 	}
+}
+
+// draftBytes is the combined length of every streaming draft in messages.
+func draftBytes(messages []Message) int {
+	total := 0
+	for _, m := range messages {
+		if strings.Contains(m.ID, ":draft:") {
+			total += len(m.Text)
+		}
+	}
+	return total
+}
+
+// logTurnLocked writes one timing line for a finished turn: no message text, no ids beyond a
+// short hash of the conversation key. Called with a.mu held.
+func (a *account) logTurnLocked(key string, c *conversation, status string) {
+	if a.logger == nil || c.Started.IsZero() {
+		return
+	}
+	digest := sha256.Sum256([]byte(key))
+	model := c.turnModel
+	if model == "" {
+		model = "default"
+	}
+	firstTool := int64(-1)
+	if !c.firstToolAt.IsZero() {
+		firstTool = c.firstToolAt.Sub(c.Started).Milliseconds()
+	}
+	mode := c.Mode
+	if mode == "" {
+		mode = "chat"
+	}
+	a.logger.Info("companion turn completed",
+		"conversation", fmt.Sprintf("%x", digest[:4]),
+		"mode", mode,
+		"model", model,
+		"effort", c.turnEffort,
+		"status", status,
+		"total_ms", time.Since(c.Started).Milliseconds(),
+		"first_tool_ms", firstTool,
+		"tool_calls", c.toolCount,
+		"pending_ms", c.pendingMS,
+	)
 }
