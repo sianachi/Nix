@@ -53,10 +53,9 @@ describe('pet --after validation', () => {
     overrideExitRecursively(program);
 
     await expect(
-      program.parseAsync(
-        ['pet', 'watch', '--workspace', 'w1', '--pet', 'p1', '--after', '-1'],
-        { from: 'user' },
-      ),
+      program.parseAsync(['pet', 'watch', '--workspace', 'w1', '--pet', 'p1', '--after', '-1'], {
+        from: 'user',
+      }),
     ).rejects.toThrow(/non-negative integer/);
     expect(petCommand).not.toHaveBeenCalled();
   });
@@ -66,10 +65,9 @@ describe('pet --after validation', () => {
     overrideExitRecursively(program);
 
     await expect(
-      program.parseAsync(
-        ['pet', 'watch', '--workspace', 'w1', '--pet', 'p1', '--after', '1.5'],
-        { from: 'user' },
-      ),
+      program.parseAsync(['pet', 'watch', '--workspace', 'w1', '--pet', 'p1', '--after', '1.5'], {
+        from: 'user',
+      }),
     ).rejects.toThrow(/non-negative integer/);
     expect(petCommand).not.toHaveBeenCalled();
   });

@@ -755,9 +755,9 @@ function AutoOpenPanel({
     const node = container.current;
     if (!node) return;
     const click = (match: (el: HTMLElement) => boolean): boolean => {
-      const found = Array.from(node.querySelectorAll<HTMLElement>('button, [role="menuitem"]')).find(
-        match,
-      );
+      const found = Array.from(
+        node.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
+      ).find(match);
       if (!found) return false;
       found.click();
       return true;
@@ -826,7 +826,12 @@ const streamedTurnConnection = petConnectionSchema.parse({
   canConnect: false,
   state: 'thinking',
   messages: [
-    { id: 'user-1', role: 'user', text: 'Find my reading notes and set up a tracker.', actions: [] },
+    {
+      id: 'user-1',
+      role: 'user',
+      text: 'Find my reading notes and set up a tracker.',
+      actions: [],
+    },
     {
       id: 'commentary-1',
       role: 'assistant',
@@ -956,7 +961,12 @@ const autoDeclinedConnection = petConnectionSchema.parse({
   reason: 'Connected',
   canConnect: false,
   messages: [
-    { id: 'user-2', role: 'user', text: 'Add a Status field with a made-up view kind.', actions: [] },
+    {
+      id: 'user-2',
+      role: 'user',
+      text: 'Add a Status field with a made-up view kind.',
+      actions: [],
+    },
   ],
   tools: [
     {

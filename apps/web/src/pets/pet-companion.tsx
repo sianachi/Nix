@@ -362,11 +362,7 @@ function Companion({
         className={`relative h-auto touch-none p-1 ${launcherHidden ? 'hidden' : ''}`}
         aria-expanded={open}
         aria-label={`${open ? `Close ${pet.name}` : `Talk with ${pet.name}`}${
-          !open && toolPending
-            ? ' (needs approval)'
-            : !open && unseenReply
-              ? ' (new reply)'
-              : ''
+          !open && toolPending ? ' (needs approval)' : !open && unseenReply ? ' (new reply)' : ''
         }`}
         onMouseEnter={() => {
           setHover(true);
@@ -549,7 +545,9 @@ function Conversation({
     setPreviousModelMode(mode);
     setModel(readConversationModel(workspaceId, pet.id, mode));
   }
-  const [workspaceAccess, setWorkspaceAccess] = useState(() => readWorkspaceAccess(workspaceId, pet.id));
+  const [workspaceAccess, setWorkspaceAccess] = useState(() =>
+    readWorkspaceAccess(workspaceId, pet.id),
+  );
   const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
   const [needsDecisionIds, setNeedsDecisionIds] = useState<readonly string[]>([]);
   const [currentItemTitle, setCurrentItemTitle] = useState<string | null>(null);
@@ -1008,7 +1006,13 @@ function Conversation({
               </Text>
             </div>
           </div>
-          <PetHistory workspaceId={workspaceId} petId={pet.id} name={pet.name} client={client} mode={mode} />
+          <PetHistory
+            workspaceId={workspaceId}
+            petId={pet.id}
+            name={pet.name}
+            client={client}
+            mode={mode}
+          />
         </div>
       ) : !runtime ? (
         // Must-fix 11/12: while nothing has ever loaded yet, the body says so plainly instead of
@@ -1214,8 +1218,7 @@ function Conversation({
                 Workspace access
               </Button>
               <Text as="span" variant="note" className="sr-only" id="pet-workspace-access-hint">
-                Lets {pet.name} find and read your notes for this message. Changes always ask
-                first.
+                Lets {pet.name} find and read your notes for this message. Changes always ask first.
               </Text>
               <Button
                 variant="icon"
@@ -1305,9 +1308,7 @@ function PetMessageRow({
       <Text as="span" variant="note" className="sr-only">
         {fromUser ? 'You said' : `${petName} said`}
       </Text>
-      <div
-        className={fromUser ? 'max-w-[85%] rounded-lg bg-surface px-3 py-2' : 'max-w-[85%]'}
-      >
+      <div className={fromUser ? 'max-w-[85%] rounded-lg bg-surface px-3 py-2' : 'max-w-[85%]'}>
         <PetMessageText text={message.text} workspaceId={workspaceId} />
         {isDraft ? (
           <span

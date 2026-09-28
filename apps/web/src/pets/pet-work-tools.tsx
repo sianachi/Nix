@@ -84,7 +84,11 @@ function readPhrase(args: WorkspaceToolArgs): ReadPhrase {
         past: 'Listed templates',
       };
     case 'read_template':
-      return { base: 'Read a template', progressive: 'Reading a template', past: 'Read a template' };
+      return {
+        base: 'Read a template',
+        progressive: 'Reading a template',
+        past: 'Read a template',
+      };
     case 'validate_blueprint':
       return {
         base: 'Check the design',
@@ -108,7 +112,11 @@ function lowerFirst(text: string): string {
  * fix U3): a question while it waits for approval, present-progressive while it runs, past tense
  * once it is done, and "Didn't"/"Couldn't" once it is declined or failed - the same five-way
  * pattern for every read operation and for checking a design. */
-function describeReadSentence(tool: PetToolCall, args: WorkspaceToolArgs, autoRun: boolean): string {
+function describeReadSentence(
+  tool: PetToolCall,
+  args: WorkspaceToolArgs,
+  autoRun: boolean,
+): string {
   const phrase = readPhrase(args);
   if (tool.status === 'pending') {
     // An auto-run read is never actually waiting on the owner, even while the server has not
@@ -449,11 +457,7 @@ function ActivityRow({
   );
 }
 
-function readStatusText(
-  tool: PetToolCall,
-  autoRun: boolean,
-  submitted: string | undefined,
-) {
+function readStatusText(tool: PetToolCall, autoRun: boolean, submitted: string | undefined) {
   if (tool.status === 'pending') {
     // An auto-run keeps its own running label even once its (identical, internal) submission
     // receipt exists - that receipt is bookkeeping against a repeat prompt, not something the
@@ -487,7 +491,13 @@ function ReadActivityRow({
 }): ReactElement {
   const autoRunKey = useRef('');
   useEffect(() => {
-    if (!autoRun || tool.status !== 'pending' || submitted || busy || autoRunKey.current === tool.id)
+    if (
+      !autoRun ||
+      tool.status !== 'pending' ||
+      submitted ||
+      busy ||
+      autoRunKey.current === tool.id
+    )
       return;
     // Security fix S3: only remember this tool as auto-run once `onResolve` actually started it.
     // A second auto-run read that arrives while the first is still claiming returns early (the
@@ -730,14 +740,21 @@ function writeTextItems(args: WorkspaceToolArgs): WriteTextItem[] {
     }
   }
   if (args.markdown.trim()) {
-    out.push({ label: args.operation === 'append_note' ? 'Added note text' : 'Note body', text: args.markdown });
+    out.push({
+      label: args.operation === 'append_note' ? 'Added note text' : 'Note body',
+      text: args.markdown,
+    });
   }
   return out;
 }
 
 /** Security fix S1: every string a pending write would store, in a focusable scroll region so
  * nothing here can hide or truncate behind a click before Approve. */
-function WriteTextSection({ items }: { readonly items: readonly WriteTextItem[] }): ReactElement | null {
+function WriteTextSection({
+  items,
+}: {
+  readonly items: readonly WriteTextItem[];
+}): ReactElement | null {
   if (items.length === 0) return null;
   return (
     <div className="flex flex-col gap-3">
@@ -788,7 +805,12 @@ function PropertyValueList({
   let entries: [string, unknown][] = [];
   try {
     const parsed: unknown = propertiesJson.trim() ? JSON.parse(propertiesJson) : undefined;
-    if (parsed !== undefined && typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+    if (
+      parsed !== undefined &&
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
       entries = Object.entries(parsed as Record<string, unknown>);
     }
   } catch {
@@ -1021,7 +1043,10 @@ function PetWorkToolCard({
 
   const textItems = args ? writeTextItems(args) : [];
   return (
-    <Card title={parsed.success ? 'Proposed action' : 'Unsupported tool request'} headingLevel={3}>
+    <Card
+      title={parsed.success ? 'Approve this change?' : 'Unsupported tool request'}
+      headingLevel={3}
+    >
       {model ? (
         <PetStructurePreview
           model={model}
@@ -1032,7 +1057,9 @@ function PetWorkToolCard({
           pending
         />
       ) : null}
-      {!currentPreview || state.loading ? <Text variant="note">Preparing the preview...</Text> : null}
+      {!currentPreview || state.loading ? (
+        <Text variant="note">Preparing the preview...</Text>
+      ) : null}
       {progress ? (
         <Text variant="note" role="status">
           {progress}

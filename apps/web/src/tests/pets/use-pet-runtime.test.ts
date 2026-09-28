@@ -214,7 +214,9 @@ describe('usePetRuntime errorKind and retryWatch', () => {
   });
 
   it('retryWatch wakes the loop immediately, skipping the remaining backoff delay', async () => {
-    client.query.mockRejectedValueOnce(new Error('down')).mockResolvedValue(connection({ revision: 1 }));
+    client.query
+      .mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValue(connection({ revision: 1 }));
     const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -230,8 +232,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
   });
 
   it('marks a failed send "send", never a load or command failure', async () => {
-    // Never resolves - keeps the concurrently running watch loop from racing a successful tick
-    // (which clears `error`/`errorKind`) against the send failure this test asserts on.
+    // Never resolves, so this test isolates the send path from the watch loop.
     client.query.mockImplementation(() => new Promise<never>(() => undefined));
     client.execute.mockImplementation((endpoint: unknown) => {
       const operation = (endpoint as { body?: { operation?: string } }).body?.operation;
@@ -243,6 +244,29 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
     });
     expect(result.current.errorKind).toBe('send');
+  });
+
+  it('keeps a failed send visible across later successful watches', async () => {
+    client.query.mockResolvedValue(connection({ revision: 1 }));
+    client.execute.mockImplementation((endpoint: unknown) => {
+      const operation = (endpoint as { body?: { operation?: string } }).body?.operation;
+      if (operation === 'send') return Promise.reject(new Error('boom'));
+      return Promise.resolve(connection());
+    });
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
+    });
+    expect(result.current.errorKind).toBe('send');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(client.query.mock.calls.length).toBeGreaterThan(1);
+    expect(result.current.errorKind).toBe('send');
+    expect(result.current.error).not.toBe('');
   });
 
   it('marks a failed one-off command (reload) "command"', async () => {
@@ -266,7 +290,9 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       const body = (endpoint as { body?: { operation?: string } }).body;
       if (body?.operation === 'send') {
         sendAttempts += 1;
-        return sendAttempts === 1 ? Promise.reject(new Error('boom')) : Promise.resolve(connection());
+        return sendAttempts === 1
+          ? Promise.reject(new Error('boom'))
+          : Promise.resolve(connection());
       }
       return Promise.resolve(connection());
     });

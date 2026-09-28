@@ -190,9 +190,9 @@ describe('pet commands', () => {
     expect(result).toMatchObject({ revision: 7 });
   });
   it('requires --workspace and --pet for watch before contacting the service', async () => {
-    await expect(
-      petCommand(undefined, 'watch', {}, { json: true, isTty: false }),
-    ).rejects.toThrow('Provide --workspace and --pet.');
+    await expect(petCommand(undefined, 'watch', {}, { json: true, isTty: false })).rejects.toThrow(
+      'Provide --workspace and --pet.',
+    );
   });
 });
 

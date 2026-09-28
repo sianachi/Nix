@@ -205,7 +205,9 @@ describe('companion work approvals', () => {
       expect(region).toHaveTextContent(content);
       expect(screen.queryByText('Show content')).not.toBeInTheDocument();
       expect(
-        screen.getByText(operation === 'create_note' ? 'Note body (1 line)' : 'Added note text (1 line)'),
+        screen.getByText(
+          operation === 'create_note' ? 'Note body (1 line)' : 'Added note text (1 line)',
+        ),
       ).toBeVisible();
     },
   );
@@ -390,9 +392,9 @@ describe('companion work approvals', () => {
     await waitFor(() => {
       expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
     });
-    await expect(
-      runWorkspaceToolSpy.mock.results[0]?.value as Promise<unknown>,
-    ).rejects.toThrow('outside this workspace');
+    await expect(runWorkspaceToolSpy.mock.results[0]?.value as Promise<unknown>).rejects.toThrow(
+      'outside this workspace',
+    );
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
@@ -400,7 +402,8 @@ describe('companion work approvals', () => {
     expect(client.invalidate).not.toHaveBeenCalled();
     // The refusal itself must never carry the private fixture's content back to the pet.
     const toolResultCall = client.execute.mock.calls.find(
-      ([endpoint]) => (endpoint as { body: { operation: string } }).body.operation === 'tool_result',
+      ([endpoint]) =>
+        (endpoint as { body: { operation: string } }).body.operation === 'tool_result',
     );
     expect(JSON.stringify(toolResultCall?.[0])).not.toContain('Private fixture title');
   });
@@ -471,9 +474,7 @@ describe('companion work approvals', () => {
         })) ?? [],
     };
     client.execute.mockImplementation(
-      (endpoint: {
-        body: { operation: string; requestId: string; toolResult?: string };
-      }) =>
+      (endpoint: { body: { operation: string; requestId: string; toolResult?: string } }) =>
         Promise.resolve({
           ...invalidRuntime,
           tools: invalidRuntime.tools.map((tool) => ({
@@ -919,7 +920,11 @@ describe('companion work approvals', () => {
   });
 
   describe('security fix S1: nothing a pending write would store is hidden or truncated', () => {
-    function showWrite(operation: string, specJson: string, overrides: Record<string, string> = {}) {
+    function showWrite(
+      operation: string,
+      specJson: string,
+      overrides: Record<string, string> = {},
+    ) {
       return render(
         <PetWorkTools
           client={client as unknown as NixClient}
@@ -962,9 +967,13 @@ describe('companion work approvals', () => {
 
     it('shows an add_fields field help string', async () => {
       const help = 'h'.repeat(190);
-      showWrite('add_fields', JSON.stringify({ fields: [{ label: 'Status', type: 'text', help }] }), {
-        itemId: '33333333-3333-4333-8333-333333333333',
-      });
+      showWrite(
+        'add_fields',
+        JSON.stringify({ fields: [{ label: 'Status', type: 'text', help }] }),
+        {
+          itemId: '33333333-3333-4333-8333-333333333333',
+        },
+      );
       expect(await screen.findByText(help)).toBeVisible();
     });
 

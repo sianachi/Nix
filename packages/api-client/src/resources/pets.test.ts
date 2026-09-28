@@ -32,8 +32,8 @@ describe('the pets resource', () => {
     expect(watchRuntime({ workspaceId: WORKSPACE_ID, petId: PET_ID })).toMatchObject({
       query: { workspaceId: WORKSPACE_ID, petId: PET_ID, after: 0 },
     });
-    expect(
-      watchRuntime({ workspaceId: WORKSPACE_ID, petId: PET_ID }).query,
-    ).not.toHaveProperty('mode');
+    expect(watchRuntime({ workspaceId: WORKSPACE_ID, petId: PET_ID }).query).not.toHaveProperty(
+      'mode',
+    );
   });
 });

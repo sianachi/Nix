@@ -140,6 +140,14 @@ export function usePetRuntime(
   const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
   const [error, setError] = useState('');
   const [errorKind, setErrorKind] = useState<PetRuntimeErrorKind | null>(null);
+  // Mirrors errorKind for the watch loop, which must clear only its own "load" error: a send or
+  // command failure has to survive the next successful watch, or its Try again vanishes at once.
+  const errorKindRef = useRef<PetRuntimeErrorKind | null>(null);
+  const reportError = useCallback((message: string, kind: PetRuntimeErrorKind | null) => {
+    errorKindRef.current = kind;
+    setError(message);
+    setErrorKind(kind);
+  }, []);
   const [busy, setBusy] = useState(false);
   const requestId = useRef(crypto.randomUUID());
   const lifetime = useRef<AbortController | null>(null);
@@ -199,8 +207,7 @@ export function usePetRuntime(
     queueMicrotask(() => {
       if (cancelled) return;
       setRuntimeState(null);
-      setError('');
-      setErrorKind(null);
+      reportError('', null);
       setExposedGeneration(myGeneration);
     });
     void client
@@ -234,7 +241,8 @@ export function usePetRuntime(
         if (isAborted(controller.signal)) break;
         if (!shouldWatch()) continue;
         const now = Date.now();
-        if (now < nextEarliestStart) await sleep(nextEarliestStart - now, controller.signal, wake.current);
+        if (now < nextEarliestStart)
+          await sleep(nextEarliestStart - now, controller.signal, wake.current);
         if (isAborted(controller.signal)) break;
         const requestStart = Date.now();
         nextEarliestStart = requestStart + MIN_REQUEST_GAP_MS;
@@ -252,8 +260,7 @@ export function usePetRuntime(
           const unchanged = result.revision <= revision.current;
           applyRaw(result);
           failures = 0;
-          setError('');
-          setErrorKind(null);
+          if (errorKindRef.current === 'load') reportError('', null);
           if (unchanged && elapsed < MIN_REQUEST_GAP_MS)
             nextEarliestStart = Date.now() + IMMEDIATE_UNCHANGED_DELAY_MS;
         } catch (cause) {
@@ -261,8 +268,12 @@ export function usePetRuntime(
           if (myGeneration !== generation.current) break;
           failures += 1;
           if (failures >= 2) {
-            setError('Conversation could not be loaded. Check your connection and try again.');
-            setErrorKind('load');
+            // Never overwrite a send or command failure the person has not acted on yet.
+            if (errorKindRef.current === null || errorKindRef.current === 'load')
+              reportError(
+                'Conversation could not be loaded. Check your connection and try again.',
+                'load',
+              );
           }
           nextEarliestStart = Date.now() + backoffDelay(failures);
         }
@@ -273,7 +284,7 @@ export function usePetRuntime(
       cancelled = true;
       controller.abort();
     };
-  }, [client, workspaceId, petId, mode, applyRaw]);
+  }, [client, workspaceId, petId, mode, applyRaw, reportError]);
 
   const command = useCallback(
     async (operation: 'send' | 'interrupt' | 'reset' | 'read', input?: PetSendInput) => {
@@ -281,8 +292,7 @@ export function usePetRuntime(
       const myGeneration = generation.current;
       if (busy || !controller || isAborted(controller.signal)) return false;
       setBusy(true);
-      setError('');
-      setErrorKind(null);
+      reportError('', null);
       try {
         const result = await client.execute(
           pets.runtime({
@@ -314,19 +324,19 @@ export function usePetRuntime(
           !isAborted(controller.signal) &&
           myGeneration === generation.current
         ) {
-          setError(
+          reportError(
             operation === 'send'
               ? 'The request could not be confirmed. Try again; your draft is preserved.'
               : 'The request could not be confirmed. Try again.',
+            operation === 'send' ? 'send' : 'command',
           );
-          setErrorKind(operation === 'send' ? 'send' : 'command');
         }
         return false;
       } finally {
         if (!isAborted(controller.signal) && myGeneration === generation.current) setBusy(false);
       }
     },
-    [busy, client, workspaceId, petId, mode, applyRaw],
+    [busy, client, workspaceId, petId, mode, applyRaw, reportError],
   );
 
   return {

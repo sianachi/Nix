@@ -98,9 +98,13 @@ describe('companion live wiring', () => {
 
     const log = await screen.findByRole('log', { name: 'Conversation messages' });
     const text = log.textContent;
-    const order = ['First request', 'First reply', 'Second request', 'Looking into it.', 'Proposed action'].map(
-      (fragment) => text.indexOf(fragment),
-    );
+    const order = [
+      'First request',
+      'First reply',
+      'Second request',
+      'Looking into it.',
+      'Approve this change?',
+    ].map((fragment) => text.indexOf(fragment));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect(order).toEqual([...order].sort((a, b) => a - b));
 
@@ -198,9 +202,7 @@ describe('companion live wiring', () => {
 
     const user = userEvent.setup();
     await user.click(launcher);
-    expect(
-      await screen.findByRole('button', { name: 'Close Cat' }),
-    ).toBeVisible();
+    expect(await screen.findByRole('button', { name: 'Close Cat' })).toBeVisible();
     expect(screen.queryByRole('button', { name: /new reply/ })).not.toBeInTheDocument();
   });
 });

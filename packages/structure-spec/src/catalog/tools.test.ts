@@ -35,7 +35,9 @@ describe('buildPetTools', () => {
     const chatOperations = WORKSPACE_OPERATIONS.filter((operation) => !consultOnly.has(operation));
 
     expect(toolNames('chat')).toEqual(chatOperations.map((operation) => `nix_${operation}`));
-    expect(toolNames('consult')).toEqual(WORKSPACE_OPERATIONS.map((operation) => `nix_${operation}`));
+    expect(toolNames('consult')).toEqual(
+      WORKSPACE_OPERATIONS.map((operation) => `nix_${operation}`),
+    );
   });
 
   it('offers exactly one tool per operation, with no duplicates', () => {
@@ -63,9 +65,10 @@ describe('buildPetTools', () => {
       for (const tool of buildPetTools(mode)) {
         const size = JSON.stringify(normalizeForCodex(tool.inputSchema)).length;
         sizes[`${mode}:${tool.name}`] = size;
-        expect(size, `${mode} ${tool.name} is ${String(size)} bytes, want <= ${String(CODEX_SCHEMA_BUDGET)}`).toBeLessThanOrEqual(
-          CODEX_SCHEMA_BUDGET,
-        );
+        expect(
+          size,
+          `${mode} ${tool.name} is ${String(size)} bytes, want <= ${String(CODEX_SCHEMA_BUDGET)}`,
+        ).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
       }
     }
     // nix_validate_blueprint and nix_build_blueprint carry the largest schema in the catalog (the
@@ -78,7 +81,7 @@ describe('buildPetTools', () => {
     expect(sizes['consult:nix_build_blueprint']).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
   });
 
-  it("generates each spec parameter from the exact schema object run.ts parses with (import identity)", () => {
+  it('generates each spec parameter from the exact schema object run.ts parses with (import identity)', () => {
     const bySpecSchema: [string, string, z.ZodType][] = [
       ['create_structured', 'spec', structuredSpecSchema],
       ['add_view', 'spec', viewSetupSpecSchema],
@@ -133,7 +136,15 @@ describe('flattenToolExample (TS reference implementation)', () => {
       const example = TOOL_EXAMPLES[operation];
       const flat = flattenToolExample(operation, example);
       expect(flat.operation).toBe(operation);
-      for (const key of ['itemId', 'parentId', 'title', 'markdown', 'query', 'propertiesJson', 'specJson'] as const) {
+      for (const key of [
+        'itemId',
+        'parentId',
+        'title',
+        'markdown',
+        'query',
+        'propertiesJson',
+        'specJson',
+      ] as const) {
         expect(typeof flat[key]).toBe('string');
       }
     });

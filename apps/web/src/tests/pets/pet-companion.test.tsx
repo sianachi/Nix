@@ -290,9 +290,7 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('button', { name: 'Close' }));
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await openSettings(user);
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue(
-      'gpt-5.3-codex-spark',
-    );
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-5.3-codex-spark');
   });
 
   it('shows response failures without requiring users to open the menu', async () => {

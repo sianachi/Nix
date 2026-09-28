@@ -11,7 +11,11 @@ import {
   structuredSpecSchema,
   viewSetupSpecSchema,
 } from '../spec/index.js';
-import { CONSULT_ONLY_OPERATION_NAMES, WORKSPACE_OPERATIONS, type WorkspaceOperation } from './tables.js';
+import {
+  CONSULT_ONLY_OPERATION_NAMES,
+  WORKSPACE_OPERATIONS,
+  type WorkspaceOperation,
+} from './tables.js';
 
 /**
  * Generates the model-facing typed tools straight from the same Zod schemas
@@ -159,7 +163,12 @@ function omitBlueprintInteractiveFormDetail(schema: unknown): unknown {
   const properties = node.properties as JsonObject | undefined;
   if (properties) {
     const kind = properties.kind as { enum?: unknown[] } | undefined;
-    if (kind && Array.isArray(kind.enum) && kind.enum.includes('interactive_form') && 'form' in properties) {
+    if (
+      kind &&
+      Array.isArray(kind.enum) &&
+      kind.enum.includes('interactive_form') &&
+      'form' in properties
+    ) {
       const rest = { ...properties };
       delete rest.form;
       node.properties = rest;
@@ -254,7 +263,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['itemId', 'markdown'],
   }),
   rename_item: () => ({
-    description: "Rename an item. Never changes anything else about it.",
+    description: 'Rename an item. Never changes anything else about it.',
     properties: {
       itemId: stringProperty(ITEM_ID_DESCRIPTION),
       title: stringProperty('The new title.'),
@@ -332,7 +341,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   }),
   edit_form: () => ({
     description:
-      "Replace one existing interactive form view, optionally adding new fields to the item at the same time.",
+      'Replace one existing interactive form view, optionally adding new fields to the item at the same time.',
     properties: {
       itemId: stringProperty(ITEM_ID_DESCRIPTION),
       spec: jsonSchemaOf(formEditSpecSchema),
@@ -348,7 +357,8 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['itemId', 'spec'],
   }),
   list_templates: () => ({
-    description: 'List templates available in this workspace, optionally filtered by query. Read-only.',
+    description:
+      'List templates available in this workspace, optionally filtered by query. Read-only.',
     properties: { query: stringProperty('Optional filter text.') },
     required: [],
   }),

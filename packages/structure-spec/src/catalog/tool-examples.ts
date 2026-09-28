@@ -30,7 +30,9 @@ const EXAMPLE_BLUEPRINT: Blueprint = {
   },
 };
 
-export const TOOL_EXAMPLES: Readonly<Record<WorkspaceOperation, Readonly<Record<string, unknown>>>> = {
+export const TOOL_EXAMPLES: Readonly<
+  Record<WorkspaceOperation, Readonly<Record<string, unknown>>>
+> = {
   list_items: {},
   search: { query: 'reading' },
   read_item: { itemId: EXAMPLE_ITEM_ID },
