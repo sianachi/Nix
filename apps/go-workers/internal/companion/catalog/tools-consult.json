@@ -1,7 +1,7 @@
 [
   {
     "name": "nix_list_items",
-    "description": "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; runs without an approval card.",
+    "description": "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; reads may run without a card; changes always ask for approval.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -16,7 +16,7 @@
   },
   {
     "name": "nix_search",
-    "description": "Search this workspace by title or content. Read-only; runs without an approval card.",
+    "description": "Search this workspace by title or content. Read-only; reads may run without a card; changes always ask for approval.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1017,7 +1017,7 @@
                     "additionalProperties": {
                       "$ref": "#/$defs/__schema0"
                     },
-                    "description": "Values are keyed by field key (see read_structure), never by field label."
+                    "description": "Values are keyed by field key (see nix_read_structure), never by field label."
                   },
                   "markdown": {
                     "type": "string"
@@ -2283,7 +2283,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit/empty to use the workspace root."
+          "description": "The parent item UUID, or omit to build under Pet drafts."
         }
       },
       "required": ["blueprint"],

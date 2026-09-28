@@ -69,7 +69,7 @@ const entrySpecSchema = z
     title: z.string().min(1).max(240),
     values: z
       .record(z.string(), jsonValueSchema)
-      .describe('Values are keyed by field key (see read_structure), never by field label.')
+      .describe('Values are keyed by field key (see nix_read_structure), never by field label.')
       .optional(),
     markdown: z.string().max(2000).optional(),
     sample: z.boolean().optional(),

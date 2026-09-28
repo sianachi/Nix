@@ -250,14 +250,16 @@ export interface StructureOperationsByMode {
 }
 
 /**
- * The `nix_workspace` operations that build or extend structure from a `specJson` - as opposed to
- * the plain item operations (`create_note`, `set_properties`, ...) and the template operations
+ * The typed tool operations that build or extend an item's structure - as opposed to the plain
+ * item operations (`create_note`, `set_properties`, ...) and the template operations
  * (`list_templates`, `read_template`, `apply_template`) - named once per mode so the catalog text
  * (`build.ts`) states them instead of a hand-typed sentence.
  *
- * Go's `workspaceTools()` enum is the operations' real source of truth; `catalog_test.go`'s
- * `TestCatalogNamesEveryOperationInItsMode` cross-checks this list against that enum so a
- * structure operation added to one and forgotten in the other fails a test instead of drifting.
+ * This package is the source of truth for the list; the Go worker does not read it. Its
+ * `catalog_test.go` keeps its own hand-typed `structureOperationsInChatMode` fixture and checks
+ * that each name is still a `workspaceTools()` tool and still mentioned in the embedded catalog
+ * text, so that fixture drifting out of step with this list fails a test instead of going
+ * unnoticed - but a structure operation added here and forgotten there is not caught either way.
  * Consult mode carries the same set for now; a later task (D.1b) grows it alongside the
  * consult-only tool enum (`validate_blueprint`, `build_blueprint`, `save_as_template`).
  */

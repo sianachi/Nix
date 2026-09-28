@@ -41,7 +41,7 @@ public sealed record PetMessage(string Id, string Role, string Text, IReadOnlyLi
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
-    string Mode = "", long After = 0);
+    string Mode = "");
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,

@@ -209,13 +209,13 @@ interface ToolBuild {
 const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   list_items: () => ({
     description:
-      "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; runs without an approval card.",
+      "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; reads may run without a card; changes always ask for approval.",
     properties: { parentId: stringProperty(PARENT_ID_DESCRIPTION) },
     required: [],
   }),
   search: () => ({
     description:
-      'Search this workspace by title or content. Read-only; runs without an approval card.',
+      'Search this workspace by title or content. Read-only; reads may run without a card; changes always ask for approval.',
     properties: { query: stringProperty('What to search for.') },
     required: ['query'],
   }),
@@ -373,7 +373,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
       'Build a validated blueprint under Pet drafts, at parentId (omit for the workspace root). Call nix_validate_blueprint first and fix every problem it reports. Design mode only.',
     properties: {
       blueprint: blueprintProperty(),
-      parentId: stringProperty(PARENT_ID_DESCRIPTION),
+      parentId: stringProperty('The parent item UUID, or omit to build under Pet drafts.'),
     },
     required: ['blueprint'],
   }),

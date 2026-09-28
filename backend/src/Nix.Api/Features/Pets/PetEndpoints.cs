@@ -18,13 +18,15 @@ internal static class PetEndpoints
         group.MapGet("/connection", Connection)
             .WithName("GetPetConnection");
         group.MapPost("/runtime", Runtime).WithName("PetRuntime")
-            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
+            .ProducesProblem(StatusCodes.Status409Conflict);
         // Not rate limited by the writes policy: this is a read, and it must never wait behind
         // one, however often the client long-polls it. Cost: NixUnitOfWorkMiddleware keeps a
         // Postgres connection and transaction open for the whole wait (up to 20 s). The worker
         // caps concurrent watches at four per principal and answers the fifth with 429 at once,
         // which is what bounds the connections one person can pin.
-        group.MapGet("/runtime/watch", Watch).WithName("WatchPetRuntime");
+        group.MapGet("/runtime/watch", Watch).WithName("WatchPetRuntime")
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
         return endpoints;
     }
 
@@ -52,7 +54,11 @@ internal static class PetEndpoints
         result.Match<Results<Ok<PetConnectionResponse>, ProblemHttpResult>>(
             value => TypedResults.Ok(value),
             error => TypedResults.Problem(ApiProblem.Create(context,
-                error.Code == "pets.not_found" ? 404 : error.Code == "pets.invalid_request" ? 422 : 503,
+                error.Code == "pets.not_found" ? 404
+                    : error.Code == "pets.invalid_request" ? 422
+                    : error.Code == "pets.busy" ? 409
+                    : error.Code == "pets.too_many_watches" ? 429
+                    : 503,
                 error.Code, "Companion request failed", error.Message)));
 
     private static async Task<Ok<PetSettingsResponse>> Get(HttpContext context, [FromServices] NixDispatcher dispatcher) =>

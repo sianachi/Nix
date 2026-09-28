@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { HABIT, INIT_RULE_KINDS, RECURRENCE, TEMPLATE_INPUT_TYPES } from '../catalog/index.js';
+import { HABIT, INIT_RULE_KINDS, RECURRENCE, TEMPLATE_INPUT_TYPES } from '../catalog/tables.js';
 import { fieldSpecSchema, type FieldSpec } from '../spec/field.js';
 import { jsonValueSchema, type JsonValue } from '../spec/operations.js';
 import { viewSpecSchema, type ViewSpec } from '../spec/view.js';

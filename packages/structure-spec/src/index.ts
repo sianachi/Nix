@@ -42,9 +42,8 @@ export * from './spec/index.js';
 
 export {
   buildCatalog,
+  buildPetTools,
   CONSULT_ONLY_OPERATION_NAMES,
-  EXAMPLE_ITEM_ID,
-  flattenToolExample,
   FORM_RULES,
   HABIT,
   INIT_RULE_KINDS,
@@ -52,13 +51,13 @@ export {
   NEVER_OPERATIONS,
   NEVER_PET_PROPERTY_TYPE,
   NEVER_PET_RECIPES,
+  normalizeForCodex,
   QUERY_OPERATORS,
   READ_ONLY_OPERATION_NAMES,
   RECURRENCE,
   renderChat,
   renderConsult,
   TEMPLATE_INPUT_TYPES,
-  TOOL_EXAMPLES,
   VIEW_KIND_RULES,
   WORKSPACE_OPERATIONS,
 } from './catalog/index.js';
@@ -72,6 +71,7 @@ export type {
   FlatWorkspaceToolArgs,
   FormRules,
   HabitRules,
+  PetToolDefinition,
   QueryOperatorRule,
   RecurrenceRules,
   ViewKindOptionalField,
@@ -79,9 +79,6 @@ export type {
   ViewKindRule,
   WorkspaceOperation,
 } from './catalog/index.js';
-// Imported directly from tools.ts, not re-exported through catalog/index.js: see the comment
-// there for why that indirection would create an import cycle through blueprint/schema.ts.
-export { buildPetTools, normalizeForCodex, type PetToolDefinition } from './catalog/tools.js';
 export * from './compile/index.js';
 export * from './describe/index.js';
 export type { Problem, ValidationContext, ValidationReport } from './validate/report.js';

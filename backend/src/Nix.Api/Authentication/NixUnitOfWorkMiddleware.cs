@@ -623,7 +623,13 @@ public sealed class NixUnitOfWorkMiddleware
             mayWrite: AccessTokenScopePolicy.Satisfies(state.Scopes, AccessTokenScopePolicy.Requirement.Write),
             mayAdminister: AccessTokenScopePolicy.Satisfies(state.Scopes, AccessTokenScopePolicy.Requirement.Admin));
 
-        if (state.LastUsedAt is null || now - state.LastUsedAt >= LastUsedGranularity)
+        // The watch long-poll can hold this request open for up to 20 s. Touching last_used_at
+        // would hold ExecuteUpdateAsync's row lock on the token for that whole wait, which stalls
+        // every other request authenticating with the same token behind it. Skip the touch here;
+        // the same token still gets touched by the requests that follow the long poll.
+        var isWatchLongPoll = HttpMethods.IsGet(context.Request.Method)
+            && context.Request.Path.StartsWithSegments("/api/v1/me/pets/runtime/watch", StringComparison.OrdinalIgnoreCase);
+        if (!isWatchLongPoll && (state.LastUsedAt is null || now - state.LastUsedAt >= LastUsedGranularity))
         {
             await accessTokens.TouchAsync(accessTokenId, now, context.RequestAborted).ConfigureAwait(false);
         }

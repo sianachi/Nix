@@ -12,7 +12,7 @@
  * defined once and reached two ways.
  */
 
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
 import {
   changeWorkspaceMemberRole,
@@ -183,7 +183,14 @@ export function buildProgram(): Command {
     .option(
       '--after <revision>',
       'with --operation watch: the last known revision to wait past',
-      (value: string) => Number(value),
+      (value: string) => {
+        const parsed = Number(value);
+        if (!Number.isInteger(parsed) || parsed < 0) {
+          throw new InvalidArgumentError('--after must be a non-negative integer.');
+        }
+
+        return parsed;
+      },
       0,
     )
     .action(async (operation: string, options: PetOptions, command: Command) => {
