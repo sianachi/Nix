@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PetConnection } from '@nix/api-client';
 import { usePetRuntime } from '../../pets/use-pet-runtime';
 
 const client = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn() }));
@@ -159,5 +160,150 @@ describe('usePetRuntime watch loop', () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(client.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops watching once a closed panel has settled and is idle', async () => {
+    client.query.mockResolvedValue(connection({ revision: 1, state: 'success', tools: [] }));
+    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', false));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const callsAfterSettling = client.query.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    // No further network requests - only the local `IDLE_RECHECK_MS` check, which issues none.
+    expect(client.query.mock.calls.length).toBe(callsAfterSettling);
+  });
+
+  it('aborts the in-flight watch on unmount, so a late response is never applied', async () => {
+    client.query.mockResolvedValue(connection({ revision: 1 }));
+    const { unmount } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const callsBeforeUnmount = client.query.mock.calls.length;
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(client.query.mock.calls.length).toBe(callsBeforeUnmount);
+  });
+});
+
+describe('usePetRuntime errorKind and retryWatch', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    client.query.mockReset();
+    client.execute.mockReset();
+    client.execute.mockResolvedValue(connection());
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('marks a watch failure "load", offering "Retry now" behaviour via retryWatch', async () => {
+    client.query.mockRejectedValue(new Error('network down'));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1001);
+    });
+    expect(result.current.errorKind).toBe('load');
+  });
+
+  it('retryWatch wakes the loop immediately, skipping the remaining backoff delay', async () => {
+    client.query.mockRejectedValueOnce(new Error('down')).mockResolvedValue(connection({ revision: 1 }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(client.query).toHaveBeenCalledTimes(1);
+    act(() => {
+      result.current.retryWatch();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(client.query).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks a failed send "send", never a load or command failure', async () => {
+    // Never resolves - keeps the concurrently running watch loop from racing a successful tick
+    // (which clears `error`/`errorKind`) against the send failure this test asserts on.
+    client.query.mockImplementation(() => new Promise<never>(() => undefined));
+    client.execute.mockImplementation((endpoint: unknown) => {
+      const operation = (endpoint as { body?: { operation?: string } }).body?.operation;
+      if (operation === 'send') return Promise.reject(new Error('boom'));
+      return Promise.resolve(connection());
+    });
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
+    });
+    expect(result.current.errorKind).toBe('send');
+  });
+
+  it('marks a failed one-off command (reload) "command"', async () => {
+    // Never resolves - see the send test above for why.
+    client.query.mockImplementation(() => new Promise<never>(() => undefined));
+    client.execute.mockImplementation((endpoint: unknown) => {
+      const operation = (endpoint as { body?: { operation?: string } }).body?.operation;
+      if (operation === 'read') return Promise.reject(new Error('boom'));
+      return Promise.resolve(connection());
+    });
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await result.current.reload();
+    });
+    expect(result.current.errorKind).toBe('command');
+  });
+
+  it('keeps the same request id when a failed send is retried unedited', async () => {
+    let sendAttempts = 0;
+    client.execute.mockImplementation((endpoint: unknown) => {
+      const body = (endpoint as { body?: { operation?: string } }).body;
+      if (body?.operation === 'send') {
+        sendAttempts += 1;
+        return sendAttempts === 1 ? Promise.reject(new Error('boom')) : Promise.resolve(connection());
+      }
+      return Promise.resolve(connection());
+    });
+    client.query.mockResolvedValue(connection());
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    await act(async () => {
+      await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
+    });
+    await act(async () => {
+      await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
+    });
+    const sendBodies = client.execute.mock.calls
+      .map(([endpoint]) => (endpoint as { body?: { operation?: string; requestId?: string } }).body)
+      .filter((body) => body?.operation === 'send');
+    expect(sendBodies).toHaveLength(2);
+    expect(sendBodies[0]?.requestId).toBe(sendBodies[1]?.requestId);
+  });
+
+  it('ignores a setRuntime call bound to a stale generation once the mode has moved on', async () => {
+    client.query.mockResolvedValue(connection());
+    const { result, rerender } = renderHook(
+      ({ mode }: { mode: 'chat' | 'consult' }) => usePetRuntime(WORKSPACE_ID, PET_ID, mode, true),
+      { initialProps: { mode: 'chat' } },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // Captured before the mode switch - the same stale reference a `PetWorkTools` instance's
+    // in-flight `tool_result` promise would still be holding once it resolves late.
+    const staleSetRuntime = result.current.setRuntime;
+    rerender({ mode: 'consult' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    act(() => {
+      staleSetRuntime(connection({ revision: 999, reason: 'stale-mode' }) as PetConnection);
+    });
+    expect(result.current.runtime?.reason).not.toBe('stale-mode');
   });
 });

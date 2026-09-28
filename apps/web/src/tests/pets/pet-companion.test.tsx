@@ -204,7 +204,7 @@ describe('companion workflow', () => {
 
   async function openSettings(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Settings' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
   }
 
   it('remembers model choices separately for Chat and Design', async () => {
@@ -223,16 +223,16 @@ describe('companion workflow', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await openSettings(user);
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Codex model' }), 'chat-model');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Model' }), 'chat-model');
     await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Design' }));
     await openSettings(user);
-    expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue('');
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Codex model' }), 'design-model');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Model' }), 'design-model');
     await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Chat' }));
     await openSettings(user);
-    expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue('chat-model');
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('chat-model');
     expect(
       localStorage.getItem(
         'nix.pet.model.33333333-3333-4333-8333-333333333333.44444444-4444-4444-8444-444444444444.consult',
@@ -283,14 +283,14 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await openSettings(user);
     await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Codex model' }),
+      screen.getByRole('combobox', { name: 'Model' }),
       'gpt-5.3-codex-spark',
     );
     await user.click(screen.getByRole('button', { name: 'Back' }));
     await user.click(screen.getByRole('button', { name: 'Close' }));
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await openSettings(user);
-    expect(screen.getByRole('combobox', { name: 'Codex model' })).toHaveValue(
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue(
       'gpt-5.3-codex-spark',
     );
   });
@@ -403,6 +403,126 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'Reload conversation' }));
     expect(await screen.findByText('Waiting for your approval')).toBeVisible();
+  });
+
+  it('never shows "Waiting for your approval" nor badges the launcher for an auto-run read that is still pending', async () => {
+    // Must-fix 1: an auto-run read (readWithoutAsking defaults on, and `search` is read-only)
+    // stays `pending` until its own claim round trip finishes - here it never does, so the tool
+    // is pending the whole test - but it must never read as something the owner is being asked
+    // to decide, because it never was.
+    const autoRunConnection = {
+      ...connected,
+      messages: [{ id: 'msg-1', role: 'user', text: 'Find my reading notes', actions: [] }],
+      tools: [
+        {
+          id: 'auto-tool-1',
+          arguments: JSON.stringify({
+            operation: 'search',
+            query: 'reading',
+            itemId: '',
+            parentId: '',
+            title: '',
+            markdown: '',
+            propertiesJson: '',
+          }),
+          status: 'pending',
+          result: '',
+          claimId: '',
+        },
+      ],
+    };
+    client.query.mockResolvedValue(autoRunConnection);
+    client.execute.mockImplementation((endpoint: unknown) => {
+      const operation = (endpoint as { body?: { operation?: string } }).body?.operation;
+      // The claim itself never succeeds in this test - which keeps the tool `pending` for the
+      // whole run without ever reaching the (mocked-elsewhere) `@nix/companion` execution path.
+      if (operation === 'tool_claim') return Promise.reject(new Error('offline'));
+      return Promise.resolve(autoRunConnection);
+    });
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    const launcher = await screen.findByRole('button', { name: 'Talk with Cat' });
+    await waitFor(() => {
+      expect(launcher).toHaveAttribute('aria-label', 'Talk with Cat');
+    });
+    expect(launcher.querySelector('[aria-hidden="true"].rounded-full')).toBeNull();
+
+    await userEvent.click(launcher);
+    const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    // Scoped to the header's own name/status pairing (not the read row's separate "Running…"
+    // status, which shares the same role) - `getByText` finds the header `<h2>` and its status
+    // sibling is the second child of their shared wrapper.
+    const heading = within(dialog).getByRole('heading', { name: 'Cat' });
+    const headerStatus = heading.parentElement?.querySelector('[role="status"]');
+    expect(headerStatus).not.toHaveTextContent('Waiting for your approval');
+  });
+
+  it('shows no "(new reply)" badge for a conversation that is already finished the first time it loads', async () => {
+    // Must-fix 2: the very first state this hook ever observes is a baseline, not a reply that
+    // "just" finished - only a real thinking -> success transition earns the badge.
+    client.query.mockResolvedValue({
+      ...connected,
+      state: 'success',
+      messages: [
+        { id: 'already-1', role: 'user', text: 'Earlier question', actions: [] },
+        { id: 'already-1:assistant', role: 'assistant', text: 'Earlier answer', actions: [] },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    const launcher = await screen.findByRole('button', { name: 'Talk with Cat' });
+    await waitFor(() => {
+      expect(launcher).toHaveAttribute('aria-label', 'Talk with Cat');
+    });
+    expect(screen.queryByRole('button', { name: /new reply/ })).not.toBeInTheDocument();
+  });
+
+  it('focuses the sub-panel heading on open, and Escape backs out of it instead of closing', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
+    const heading = await screen.findByRole('heading', { name: 'Chat settings', level: 3 });
+    await waitFor(() => {
+      expect(document.activeElement).toContainElement(heading);
+    });
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('heading', { name: 'Chat settings' })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('dialog', { name: 'Conversation with Cat' })).toBeInTheDocument();
+  });
+
+  it('returns focus to the overflow menu trigger when Back leaves a sub-panel', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    const trigger = screen.getByRole('button', { name: 'More conversation actions' });
+    await user.click(trigger);
+    await user.click(screen.getByRole('menuitem', { name: 'Past conversations' }));
+    await screen.findByRole('heading', { name: 'Past conversations', level: 3 });
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await waitFor(() => {
+      expect(trigger).toHaveFocus();
+    });
   });
 
   it('offers device sign-in and cancellation without handling credentials in the browser', async () => {

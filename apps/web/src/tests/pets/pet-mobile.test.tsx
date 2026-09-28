@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { StrictMode } from 'react';
 import { PetCompanion } from '../../pets/pet-companion';
 import { stubViewport } from '../stub-viewport';
@@ -546,5 +546,29 @@ describe('companion on a phone', () => {
     await waitFor(() => {
       expect(document.body.style.overflow).toBe('auto');
     });
+  });
+
+  it('closes the phone dialog when the route changes underneath it', async () => {
+    // Must-fix 6: a link followed from inside the conversation (here, "Pet settings" from the
+    // overflow menu) has nowhere to share the screen with the dialog on a phone, so it must
+    // close rather than leave the new page invisible behind it.
+    stubViewport(390);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/w/33333333-3333-4333-8333-333333333333']}>
+        <Routes>
+          <Route path="/w/:workspaceId" element={<PetCompanion />} />
+          <Route path="/w/:workspaceId/settings" element={<div>Workspace settings page</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Pet settings' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText('Workspace settings page')).toBeVisible();
   });
 });

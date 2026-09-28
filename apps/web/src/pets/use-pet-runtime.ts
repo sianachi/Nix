@@ -26,12 +26,21 @@ export interface PetSendInput {
   readonly sharedText?: string;
 }
 
+/** What kind of request the current `error` describes, so the caller can offer the right
+ * recovery action rather than one generic "Try again": `send` resubmits the same request,
+ * `load` wakes the watch loop instead of issuing a fresh command, and `command` retries
+ * whatever one-off request (interrupt, reset, an explicit reload) failed. */
+export type PetRuntimeErrorKind = 'send' | 'load' | 'command';
+
 export interface UsePetRuntimeResult {
   readonly runtime: PetConnection | null;
   readonly models: NonNullable<PetConnection['models']>;
   readonly error: string;
+  readonly errorKind: PetRuntimeErrorKind | null;
   readonly busy: boolean;
-  /** Applies a newer snapshot received elsewhere (a tool claim or result round trip). */
+  /** Applies a newer snapshot received elsewhere (a tool claim or result round trip). Ignored
+   * once the mode, pet or workspace this snapshot belongs to has moved on - see the generation
+   * guard in the runtime effect below. */
   readonly setRuntime: (value: PetConnection) => void;
   /** Call whenever the draft that will become the next `send` changes, so a retried send of an
    * *edited* draft never reuses the request id of whatever was last attempted; an unedited retry
@@ -41,6 +50,9 @@ export interface UsePetRuntimeResult {
   readonly interrupt: () => Promise<void>;
   readonly reset: () => Promise<void>;
   readonly reload: () => Promise<void>;
+  /** Wakes a watch loop that is mid-backoff after a load failure, rather than waiting out the
+   * remaining delay - the retry action behind a `load` error's "Retry now". */
+  readonly retryWatch: () => void;
 }
 
 function isAborted(signal: AbortSignal): boolean {
@@ -55,7 +67,8 @@ function backoffDelay(failures: number): number {
 /** Resolves after `ms`, or immediately if the signal is already aborted / becomes aborted while
  * waiting - a wait this hook is stuck in must never outlive the component. `wake`, when given,
  * also resolves the wait the moment it fires - what lets the idle-panel recheck below react to
- * the panel opening right away, rather than up to `IDLE_RECHECK_MS` late. */
+ * the panel opening right away, rather than up to `IDLE_RECHECK_MS` late, and what lets a
+ * failed watch retry immediately rather than waiting out its backoff. */
 function sleep(ms: number, signal: AbortSignal, wake?: EventTarget): Promise<void> {
   if (signal.aborted || ms <= 0) return Promise.resolve();
   return new Promise((resolve) => {
@@ -108,6 +121,13 @@ function hasPendingTool(runtime: PetConnection | null): boolean {
  * `regenerateRequestId` (wired to the composer's own change handler), so a retried send of an
  * unedited draft reaches the worker as the same request, while a retry of an edited draft is a
  * new one.
+ *
+ * Security S2: switching `mode`, `petId` or `workspaceId` must never show the previous
+ * conversation. Every time the runtime effect below restarts it clears the exposed `runtime` to
+ * `null` immediately (rather than leaving the old snapshot on screen until the next watch
+ * response), and bumps `generation` - a response that started under an earlier generation
+ * (a watch tick, a command, or a tool `onChange` from `PetWorkTools`) is dropped rather than
+ * applied once it arrives late, whichever of those three sources it came from.
  */
 export function usePetRuntime(
   workspaceId: string,
@@ -119,6 +139,7 @@ export function usePetRuntime(
   const [runtime, setRuntimeState] = useState<PetConnection | null>(null);
   const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
   const [error, setError] = useState('');
+  const [errorKind, setErrorKind] = useState<PetRuntimeErrorKind | null>(null);
   const [busy, setBusy] = useState(false);
   const requestId = useRef(crypto.randomUUID());
   const lifetime = useRef<AbortController | null>(null);
@@ -126,6 +147,12 @@ export function usePetRuntime(
   const runtimeRef = useRef<PetConnection | null>(null);
   const panelOpenRef = useRef(panelOpen);
   const wake = useRef(new EventTarget());
+  // Mutated synchronously by the runtime effect below on every restart; compared against the
+  // generation a given response was issued under, so a stray setter (like `setRuntime`, bound
+  // to whichever generation was current when its caller was handed it) can tell a late response
+  // apart from a current one without the effect itself needing to depend on it.
+  const generation = useRef(0);
+  const [exposedGeneration, setExposedGeneration] = useState(0);
   useEffect(() => {
     panelOpenRef.current = panelOpen;
     if (panelOpen) wake.current.dispatchEvent(new Event('wake'));
@@ -133,7 +160,7 @@ export function usePetRuntime(
 
   /** Applies a snapshot (from a watch or a mutation) only if its revision is not older than the
    * one already applied - a stale response, arriving after a newer one, must never overwrite it. */
-  const applyIfNewer = useCallback((value: PetConnection) => {
+  const applyRaw = useCallback((value: PetConnection) => {
     if (value.revision < revision.current) return false;
     revision.current = value.revision;
     runtimeRef.current = value;
@@ -141,11 +168,41 @@ export function usePetRuntime(
     return true;
   }, []);
 
+  // Bound to whichever generation is current at the moment this identity is handed out; a
+  // caller that received it earlier (a `PetWorkTools` instance whose in-flight `tool_result`
+  // resolves after a mode switch) keeps calling this exact closure, so it still checks against
+  // the generation it was minted under rather than whatever generation is live by then.
+  const setRuntime = useCallback(
+    (value: PetConnection) => {
+      if (exposedGeneration !== generation.current) return;
+      applyRaw(value);
+    },
+    [exposedGeneration, applyRaw],
+  );
+
   useEffect(() => {
     const controller = new AbortController();
     lifetime.current = controller;
+    // Bumped synchronously, right here, so the generation check any in-flight response is
+    // measured against (`myGeneration !== generation.current`) is already correct the instant
+    // this effect starts - well before the deferred state clear below actually commits.
+    generation.current += 1;
+    const myGeneration = generation.current;
     revision.current = 0;
     runtimeRef.current = null;
+    // S2: clear the exposed runtime before this generation's first watch response can arrive,
+    // never leaving the previous mode's conversation on screen in the meantime. Deferred a
+    // microtask, the same way `use-bookmarks.ts`'s loader defers its own first read: setting
+    // state synchronously in an effect body is the cascading render
+    // `react-hooks/set-state-in-effect` exists to stop.
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setRuntimeState(null);
+      setError('');
+      setErrorKind(null);
+      setExposedGeneration(myGeneration);
+    });
     void client
       .execute(pets.runtime({ operation: 'models', mode }), { signal: controller.signal })
       .then((value) => {
@@ -177,7 +234,7 @@ export function usePetRuntime(
         if (isAborted(controller.signal)) break;
         if (!shouldWatch()) continue;
         const now = Date.now();
-        if (now < nextEarliestStart) await sleep(nextEarliestStart - now, controller.signal);
+        if (now < nextEarliestStart) await sleep(nextEarliestStart - now, controller.signal, wake.current);
         if (isAborted(controller.signal)) break;
         const requestStart = Date.now();
         nextEarliestStart = requestStart + MIN_REQUEST_GAP_MS;
@@ -190,35 +247,42 @@ export function usePetRuntime(
             pets.watchRuntime({ workspaceId, petId, mode, after: revision.current }),
             { signal: controller.signal, forceRefresh: true },
           );
-          if (isAborted(controller.signal)) break;
+          if (isAborted(controller.signal) || myGeneration !== generation.current) break;
           const elapsed = Date.now() - requestStart;
           const unchanged = result.revision <= revision.current;
-          applyIfNewer(result);
+          applyRaw(result);
           failures = 0;
           setError('');
+          setErrorKind(null);
           if (unchanged && elapsed < MIN_REQUEST_GAP_MS)
             nextEarliestStart = Date.now() + IMMEDIATE_UNCHANGED_DELAY_MS;
         } catch (cause) {
           if (isCanceledError(cause) || isAborted(controller.signal)) break;
+          if (myGeneration !== generation.current) break;
           failures += 1;
-          if (failures >= 2)
+          if (failures >= 2) {
             setError('Conversation could not be loaded. Check your connection and try again.');
+            setErrorKind('load');
+          }
           nextEarliestStart = Date.now() + backoffDelay(failures);
         }
       }
     };
     void watch();
     return () => {
+      cancelled = true;
       controller.abort();
     };
-  }, [client, workspaceId, petId, mode, applyIfNewer]);
+  }, [client, workspaceId, petId, mode, applyRaw]);
 
   const command = useCallback(
     async (operation: 'send' | 'interrupt' | 'reset' | 'read', input?: PetSendInput) => {
       const controller = lifetime.current;
+      const myGeneration = generation.current;
       if (busy || !controller || isAborted(controller.signal)) return false;
       setBusy(true);
       setError('');
+      setErrorKind(null);
       try {
         const result = await client.execute(
           pets.runtime({
@@ -240,31 +304,38 @@ export function usePetRuntime(
           }),
           { signal: controller.signal },
         );
-        if (isAborted(controller.signal)) return false;
-        applyIfNewer(result);
+        if (isAborted(controller.signal) || myGeneration !== generation.current) return false;
+        applyRaw(result);
         if (operation === 'send') requestId.current = crypto.randomUUID();
         return true;
       } catch (cause) {
-        if (!isCanceledError(cause) && !isAborted(controller.signal))
+        if (
+          !isCanceledError(cause) &&
+          !isAborted(controller.signal) &&
+          myGeneration === generation.current
+        ) {
           setError(
             operation === 'send'
               ? 'The request could not be confirmed. Try again; your draft is preserved.'
               : 'The request could not be confirmed. Try again.',
           );
+          setErrorKind(operation === 'send' ? 'send' : 'command');
+        }
         return false;
       } finally {
-        if (!isAborted(controller.signal)) setBusy(false);
+        if (!isAborted(controller.signal) && myGeneration === generation.current) setBusy(false);
       }
     },
-    [busy, client, workspaceId, petId, mode, applyIfNewer],
+    [busy, client, workspaceId, petId, mode, applyRaw],
   );
 
   return {
     runtime,
     models,
     error,
+    errorKind,
     busy,
-    setRuntime: applyIfNewer,
+    setRuntime,
     regenerateRequestId: () => {
       requestId.current = crypto.randomUUID();
     },
@@ -277,6 +348,9 @@ export function usePetRuntime(
     },
     reload: async () => {
       await command('read');
+    },
+    retryWatch: () => {
+      wake.current.dispatchEvent(new Event('wake'));
     },
   };
 }
