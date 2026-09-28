@@ -1,4 +1,4 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Text, cn, focusRing, inkWashStates } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 import type { PreviewModel, PreviewNode } from '@nix/structure-spec';
 
@@ -13,28 +13,55 @@ function detailTone(detail: string): 'default' | 'muted' | 'accent' {
   return 'muted';
 }
 
+function countValue(count: number, singular: string, plural = `${singular}s`): string | undefined {
+  return count > 0 ? `${String(count)} ${count === 1 ? singular : plural}` : undefined;
+}
+
 export function PetStructurePreview({
   model,
   captureSummary = false,
+  pending = false,
 }: {
   readonly model: PreviewModel;
   readonly captureSummary?: boolean;
+  /** True on a still-pending approval card: nothing here may fold behind a click, so tree nodes
+   * never collapse to "Show N more", every "Why" stays open, and warnings stay expanded (security
+   * fix S1). False (the default) is a post-decision receipt, where folding is fine. */
+  readonly pending?: boolean;
 }): ReactElement {
+  const countsLine = captureSummary
+    ? [
+        countValue(model.counts.items, 'item to copy', 'items to copy'),
+        countValue(model.counts.writes, 'template write', 'template writes'),
+      ]
+    : [
+        countValue(model.counts.items, 'item'),
+        countValue(model.counts.fields, 'field'),
+        countValue(model.counts.views, 'view'),
+        countValue(model.counts.entries, 'entry'),
+        countValue(model.counts.writes, 'write'),
+      ];
+  const counts = countsLine.filter((value): value is string => value !== undefined);
   return (
     <div className="flex flex-col gap-2">
       <Text variant="body">{model.headline}</Text>
       <Text variant="note" tone="muted">
         In: {model.destination.path.length ? model.destination.path.join(' / ') : 'Workspace root'}
       </Text>
-      <Text variant="note" tone="muted">
-        {captureSummary
-          ? `${String(model.counts.items)} items to copy, ${String(model.counts.writes)} template write`
-          : `${String(model.counts.items)} items, ${String(model.counts.fields)} fields, ${String(model.counts.views)} views, ${String(model.counts.entries)} entries, ${String(model.counts.writes)} writes`}
-      </Text>
+      {counts.length ? (
+        <Text variant="note" tone="muted">
+          {counts.join(', ')}
+        </Text>
+      ) : null}
       {model.tree.length ? (
         <ul className="list-disc space-y-2 pl-5">
           {model.tree.map((node, index) => (
-            <PreviewTreeNode key={`${node.label}:${String(index)}`} node={node} depth={0} />
+            <PreviewTreeNode
+              key={`${node.label}:${String(index)}`}
+              node={node}
+              depth={0}
+              pending={pending}
+            />
           ))}
         </ul>
       ) : null}
@@ -48,8 +75,8 @@ export function PetStructurePreview({
         </ul>
       ) : null}
       {model.warnings.length ? (
-        <details>
-          <summary>
+        <details open={pending || undefined}>
+          <summary className={cn('cursor-pointer rounded', focusRing, inkWashStates)}>
             <Text variant="note" as="span">
               Worth knowing ({model.warnings.length})
             </Text>
@@ -93,13 +120,17 @@ function countNodes(nodes: readonly PreviewNode[]): number {
 function PreviewTreeNode({
   node,
   depth,
+  pending,
 }: {
   readonly node: PreviewNode;
   readonly depth: number;
+  /** See `PetStructurePreview`'s `pending` prop: while true, this node never collapses behind
+   * "Show N more" and its "Why" starts open, so a pending card shows the whole tree up front. */
+  readonly pending: boolean;
 }): ReactElement {
   const [expanded, setExpanded] = useState(false);
   const hiddenCount = countNodes(node.children);
-  const collapsed = depth >= 2 && hiddenCount > 0 && !expanded;
+  const collapsed = !pending && depth >= 2 && hiddenCount > 0 && !expanded;
   return (
     <li className="space-y-1">
       <Text variant="body">{node.label}</Text>
@@ -114,8 +145,8 @@ function PreviewTreeNode({
         </Text>
       ))}
       {node.why ? (
-        <details>
-          <summary>
+        <details open={pending || undefined}>
+          <summary className={cn('cursor-pointer rounded', focusRing, inkWashStates)}>
             <Text variant="note" as="span">
               Why
             </Text>
@@ -139,6 +170,7 @@ function PreviewTreeNode({
               key={`${child.label}:${String(index)}`}
               node={child}
               depth={depth + 1}
+              pending={pending}
             />
           ))}
         </ul>

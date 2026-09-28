@@ -23,7 +23,8 @@ describe('PetStructurePreview', () => {
     render(<PetStructurePreview model={model()} />);
     expect(screen.getByText('I will create a reading board.')).toBeVisible();
     expect(screen.getByText('In: Books / Reading log')).toBeVisible();
-    expect(screen.getByText('3 items, 7 fields, 2 views, 0 entries, 12 writes')).toBeVisible();
+    // UX fix U15: a zero count is dropped rather than shown as "0 entries".
+    expect(screen.getByText('3 items, 7 fields, 2 views, 12 writes')).toBeVisible();
     expect(screen.getByText(/This never: Publish a public link/)).toBeVisible();
   });
 
@@ -61,6 +62,46 @@ describe('PetStructurePreview', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Show 3 more' }));
     expect(screen.getByText('Rating')).toBeVisible();
     expect(screen.getByText('Notes')).toBeVisible();
+  });
+
+  it('never folds descendants, "Why", or warnings on a pending card (security fix S1)', () => {
+    render(
+      <PetStructurePreview
+        pending
+        model={model({
+          warnings: [{ path: 'fields[0]', code: 'notice', message: 'Worth a look.' }],
+          tree: [
+            {
+              label: 'Board',
+              detail: [],
+              why: 'Because the pet said so.',
+              children: [
+                {
+                  label: 'Reading list',
+                  detail: [],
+                  children: [
+                    {
+                      label: 'Fields',
+                      detail: [],
+                      children: [
+                        { label: 'Rating', detail: [], children: [] },
+                        { label: 'Finished', detail: [], children: [] },
+                        { label: 'Notes', detail: [], children: [] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: /Show \d+ more/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Rating')).toBeVisible();
+    expect(screen.getByText('Notes')).toBeVisible();
+    expect(screen.getByText('Because the pet said so.')).toBeVisible();
+    expect(screen.getByText(/Worth a look\./)).toBeVisible();
   });
 
   it('renders model-authored text literally without interpreting markup or links', () => {
