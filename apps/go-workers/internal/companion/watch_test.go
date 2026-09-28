@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -76,8 +77,24 @@ func TestWatchWakesOnBump(t *testing.T) {
 		done <- got
 	}()
 
-	// Give the watch time to register before the bump it must observe.
-	time.Sleep(100 * time.Millisecond)
+	// Poll for the watch to actually register on a.changed - awaitChange creates it right
+	// before it parks in select - instead of sleeping a guessed duration, so bumping only
+	// happens once the watch is genuinely registered and waiting. This is what makes the
+	// assertion below prove the wake path rather than a race that happens to also pass if
+	// the watch took the immediate, already-changed fast path.
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		a.mu.Lock()
+		registered := a.changed != nil
+		a.mu.Unlock()
+		if registered {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("watch never registered to wait on a.changed")
+		}
+		time.Sleep(time.Millisecond)
+	}
 	a.mu.Lock()
 	a.bumpLocked(a.conversations[key])
 	a.mu.Unlock()
@@ -89,6 +106,30 @@ func TestWatchWakesOnBump(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("watch did not wake on the bump")
+	}
+}
+
+// TestAwaitChangeDwellsAtLeastMinWatchDwellWhenAfterIsNonzero proves the perf floor: with a
+// nonzero after and a revision already past it, awaitChange still waits out minWatchDwell
+// before returning, so a streaming reply cannot make a viewer poll faster than ~8 times a
+// second.
+func TestAwaitChangeDwellsAtLeastMinWatchDwellWhenAfterIsNonzero(t *testing.T) {
+	a := &account{home: t.TempDir(), conversations: map[string]*conversation{"x": {Revision: 100}}}
+	start := time.Now()
+	a.awaitChange(context.Background(), "x", 1, time.Second)
+	if elapsed := time.Since(start); elapsed < minWatchDwell {
+		t.Fatalf("awaitChange returned after %s, want at least %s", elapsed, minWatchDwell)
+	}
+}
+
+// TestAwaitChangeReturnsImmediatelyWhenAfterIsZero proves after == 0 (the caller has no prior
+// revision) is never subject to the dwell: there is nothing to throttle on a first look.
+func TestAwaitChangeReturnsImmediatelyWhenAfterIsZero(t *testing.T) {
+	a := &account{home: t.TempDir(), conversations: map[string]*conversation{"x": {Revision: 100}}}
+	start := time.Now()
+	a.awaitChange(context.Background(), "x", 0, time.Second)
+	if elapsed := time.Since(start); elapsed >= minWatchDwell {
+		t.Fatalf("awaitChange with after == 0 took %s, want well under %s", elapsed, minWatchDwell)
 	}
 }
 
@@ -119,12 +160,56 @@ func TestWatchReturnsOnDeadlineWithSameRevision(t *testing.T) {
 	}
 }
 
+// TestWatchExpiresAStuckThinkingConversation proves that once a watch call returns (whether it
+// woke on a change or hit its own timeout), handle runs the same 15-minute "thinking" expiry
+// check the plain-read path runs: a conversation faked to have started long ago is interrupted
+// and marked as an error, not left stuck forever because nothing ever reads it again.
+func TestWatchExpiresAStuckThinkingConversation(t *testing.T) {
+	f := &fakeTransport{}
+	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	r := request()
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	key := r.WorkspaceID + "-" + r.PetID
+	a.mu.Lock()
+	c := a.conversations[key]
+	c.State = "thinking"
+	c.ThreadID = "provider-thread"
+	c.TurnID = "provider-turn"
+	c.timing.started = time.Now().Add(-16 * time.Minute)
+	before := c.Revision
+	a.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	watch := r
+	watch.Operation = "watch"
+	watch.After = before
+	got, err := a.handle(ctx, watch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != "error" || !strings.Contains(got.Reason, "timed out") {
+		t.Fatalf("watch did not expire a stuck thinking conversation: %+v", got)
+	}
+	interrupted := false
+	for _, call := range f.calls {
+		if call == "turn/interrupt" {
+			interrupted = true
+		}
+	}
+	if !interrupted {
+		t.Fatal("expired conversation's turn was not interrupted")
+	}
+}
+
 // TestWatchIsNotBlockedWhileSendHoldsOp proves the ServeHTTP change: a watch (like a read)
 // never waits for a.op, so it is never refused "Companion is busy" while a send is in flight.
 func TestWatchIsNotBlockedWhileSendHoldsOp(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := New(ctx, t.TempDir(), "unused", nil, "", "")
+	m, err := New(ctx, Options{Root: t.TempDir(), Binary: "unused"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +262,7 @@ func TestWatchIsNotBlockedWhileSendHoldsOp(t *testing.T) {
 func TestWatchCapsConcurrentWatchersPerAccount(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := New(ctx, t.TempDir(), "unused", nil, "", "")
+	m, err := New(ctx, Options{Root: t.TempDir(), Binary: "unused"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,6 +274,10 @@ func TestWatchCapsConcurrentWatchersPerAccount(t *testing.T) {
 		return &fakeTransport{}, nil
 	}
 	r := request()
+	a, err := m.account(ctx, r)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// An "after" far in the future means no change can satisfy these watches, so each one within
 	// the cap waits until its request context ends.
 	body, err := json.Marshal(Request{TenantID: r.TenantID, PrincipalID: r.PrincipalID, WorkspaceID: r.WorkspaceID, PetID: r.PetID, Operation: "watch", After: 1 << 62})
@@ -206,8 +295,15 @@ func TestWatchCapsConcurrentWatchersPerAccount(t *testing.T) {
 			m.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/companion", bytes.NewReader(body)).WithContext(waitCtx))
 		}()
 	}
-	// Let every watch within the cap register before the one over it arrives.
-	time.Sleep(300 * time.Millisecond)
+	// Poll for every watch within the cap to actually register, instead of sleeping a fixed
+	// duration that could be too short under load or needlessly long otherwise.
+	pollDeadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&a.watchers) != maxConcurrentWatchers {
+		if time.Now().After(pollDeadline) {
+			t.Fatalf("watchers never reached the cap: got %d, want %d", atomic.LoadInt32(&a.watchers), maxConcurrentWatchers)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	w := httptest.NewRecorder()
 	start := time.Now()
 	m.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/companion", bytes.NewReader(body)))
@@ -268,11 +364,11 @@ func TestTurnCompletionLogsTimingsWithoutContent(t *testing.T) {
 	c.RequestID = r.RequestID
 	c.State = "thinking"
 	c.Mode = "chat"
-	c.Started = time.Now().Add(-1500 * time.Millisecond)
-	c.firstToolAt = c.Started.Add(400 * time.Millisecond)
-	c.toolCount = 2
-	c.pendingMS = 250
-	c.turnEffort = "low"
+	c.timing.started = time.Now().Add(-1500 * time.Millisecond)
+	c.timing.firstToolAt = c.timing.started.Add(400 * time.Millisecond)
+	c.timing.toolCount = 2
+	c.timing.pendingMS = 250
+	c.timing.effort = "low"
 	c.Messages = append(c.Messages, Message{ID: "secret", Role: "user", Text: "my private question", Actions: []Action{}})
 	raw, _ := json.Marshal(map[string]any{"threadId": "thread", "turn": map[string]string{"status": "completed"}})
 	a.notify("turn/completed", raw)
