@@ -105,6 +105,7 @@ export function PetWorkTools({
   petName = 'your pet',
   mode = 'chat',
   onChange,
+  onNeedsDecisionChange,
   client,
 }: {
   readonly runtime: PetConnection;
@@ -113,6 +114,10 @@ export function PetWorkTools({
   readonly petName?: string;
   readonly mode?: PetConversationMode;
   readonly onChange: (value: PetConnection) => void;
+  /** Reports the ids of the pending tools that are waiting on the owner - never a read that runs
+   * without asking, nor one already decided - so the header, avatar and launcher only say
+   * "needs approval" when that is true. Called whenever the set changes. */
+  readonly onNeedsDecisionChange?: (toolIds: readonly string[]) => void;
   readonly client: NixClient;
 }): ReactElement {
   const lock = useRef(false);
@@ -138,6 +143,25 @@ export function PetWorkTools({
   function decisionKey(tool: PetToolCall) {
     return `tool:${workspaceId}:${petId}:${mode}:${tool.id}`;
   }
+
+  const needsDecision = (runtime.tools ?? [])
+    .filter((tool) => {
+      if (tool.status !== 'pending') return false;
+      const key = decisionKey(tool);
+      if (decisions[key] || readActionReceipt(key)) return false;
+      let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
+      try {
+        parsed = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
+      } catch {
+        return true;
+      }
+      return !(parsed.success && isAutoReadOperation(parsed.data.operation) && readWithoutAsking);
+    })
+    .map((tool) => tool.id);
+  const needsDecisionKey = needsDecision.join(',');
+  useEffect(() => {
+    onNeedsDecisionChange?.(needsDecisionKey ? needsDecisionKey.split(',') : []);
+  }, [needsDecisionKey, onNeedsDecisionChange]);
 
   // The claim/fence/ledger contract below is security-relevant and must stay behaviourally
   // identical to how it always ran: claim on the server before any write, one approval executes
