@@ -14,30 +14,33 @@ type Settings struct {
 	CompanionConsultModels []string
 	CompanionChatEffort    string
 	CompanionConsultEffort string
-	Address                string
-	InternalSecret         string
-	MaxInputBytes          int64
-	MaxLineBytes           int
-	MaxRecords             int
-	MaxTokens              int
-	RequestTimeout         time.Duration
-	InternalAPIURL         string
-	CollaborationURL       string
-	PollInterval           time.Duration
-	WorkerID               string
-	MaxConcurrency         int
-	OpenSearchURL          string
-	OpenSearchIndex        string
-	RabbitMQURL            string
-	WorkerRoles            string
-	LeaseDuration          time.Duration
-	RenewInterval          time.Duration
-	MaxMessageBytes        int
-	ObjectOrigins          []string
-	PluginMaxModuleBytes   int64
-	PluginMemoryPages      int
-	PluginTimeout          time.Duration
-	PluginMaxHostCalls     int
+	// CompanionTrace turns on the full-content companion trace (NIX_COMPANION_TRACE); see
+	// companion/diagnostics.go. Off by default: it writes prompts and workspace content to disk.
+	CompanionTrace       bool
+	Address              string
+	InternalSecret       string
+	MaxInputBytes        int64
+	MaxLineBytes         int
+	MaxRecords           int
+	MaxTokens            int
+	RequestTimeout       time.Duration
+	InternalAPIURL       string
+	CollaborationURL     string
+	PollInterval         time.Duration
+	WorkerID             string
+	MaxConcurrency       int
+	OpenSearchURL        string
+	OpenSearchIndex      string
+	RabbitMQURL          string
+	WorkerRoles          string
+	LeaseDuration        time.Duration
+	RenewInterval        time.Duration
+	MaxMessageBytes      int
+	ObjectOrigins        []string
+	PluginMaxModuleBytes int64
+	PluginMemoryPages    int
+	PluginTimeout        time.Duration
+	PluginMaxHostCalls   int
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -107,6 +110,7 @@ func Load(getenv func(string) string) (Settings, error) {
 		CompanionConsultModels: parseTrimmedList(getenv("NIX_COMPANION_CONSULT_MODELS")),
 		CompanionChatEffort:    valueOr(getenv("NIX_COMPANION_CHAT_EFFORT"), "low"),
 		CompanionConsultEffort: getenv("NIX_COMPANION_CONSULT_EFFORT"),
+		CompanionTrace:         getenv("NIX_COMPANION_TRACE") == "true" || getenv("NIX_COMPANION_TRACE") == "1",
 		Address:                valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret:         getenv("NIX_WORKER_INTERNAL_SECRET"),
 		MaxInputBytes:          maxInputBytes,

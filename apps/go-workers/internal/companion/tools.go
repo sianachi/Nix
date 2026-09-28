@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -32,8 +33,9 @@ type ToolCall struct {
 	Result    string `json:"result"`
 	ClaimID   string `json:"claimId"`
 	rpcID     json.RawMessage
-	// pendingSince feeds the per-turn timing log only.
+	// pendingSince and claimedAt feed the per-turn timing log and tool events only.
 	pendingSince time.Time
+	claimedAt    time.Time
 	waiters      []json.RawMessage
 }
 
@@ -315,10 +317,12 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		// (catalog.go's toolNamesFor); nix_workspace and anything else the provider might
 		// send is rejected here, before any of the checks below run.
 		if _, allowed := toolNamesFor(c.Mode)[p.Tool]; !allowed {
+			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", truncateUTF8(p.Tool, 80), "reason", "not offered in this mode"}, map[string]any{"arguments": traceRaw(p.Arguments)})
 			return false
 		}
 		flatArguments, reason := flattenToolCall(p.Tool, p.Arguments)
 		if reason != "" {
+			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "arguments", "reason", reason}, map[string]any{"arguments": traceRaw(p.Arguments)})
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
 				return true
@@ -333,10 +337,12 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 				Operation string `json:"operation"`
 			}
 			if c.Mode != "consult" || json.Unmarshal(flatArguments, &args) != nil || args.Operation != "validate_blueprint" {
+				a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", p.Tool, "reason", "workspace access is off for this message"}, map[string]any{"arguments": traceRaw(p.Arguments)})
 				return false
 			}
 		}
 		if reason := validateToolArguments(flatArguments, c.Mode); reason != "" {
+			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "validation", "reason", reason}, map[string]any{"arguments": traceRaw(p.Arguments), "flat": traceRaw(flatArguments)})
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
 				return true
@@ -356,6 +362,7 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 				if t.ID != p.CallID && readOnly && readMayBeStale && t.Status == "completed" {
 					continue
 				}
+				a.record(key, slog.LevelInfo, "tool.deduplicated", []any{"tool", p.Tool, "status", t.Status, "same_call", t.ID == p.CallID}, nil)
 				if t.Status == "pending" || t.Status == "claimed" {
 					if string(t.rpcID) == string(id) {
 						return true
@@ -383,14 +390,17 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			}
 		}
 		if len(c.Tools) >= 20 {
+			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", p.Tool, "reason", "20 tool calls per turn reached"}, nil)
 			return false
 		}
 		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...), pendingSince: time.Now()})
 		c.timing.toolRecorded()
 		if a.saveLocked(key) != nil {
 			c.Tools = c.Tools[:len(c.Tools)-1]
+			a.record(key, slog.LevelError, "tool.rejected", []any{"tool", p.Tool, "reason", "conversation could not be saved"}, nil)
 			return false
 		}
+		a.record(key, slog.LevelInfo, "tool.requested", []any{"tool", p.Tool, "arguments_bytes", len(p.Arguments)}, map[string]any{"arguments": traceRaw(p.Arguments), "flat": traceRaw(flatArguments)})
 		return true
 	}
 	return false
@@ -637,10 +647,17 @@ func (a *account) resolveTool(key string, r Request) error {
 		}
 		if r.Operation == "tool_claim" {
 			if c.State != "thinking" || t.Status != "pending" {
+				a.record(key, slog.LevelWarn, "tool.claim_refused", []any{"tool", toolOperation(t.Arguments), "status", t.Status, "turn_state", c.State}, nil)
 				return errors.New("tool already claimed; do not execute again")
 			}
 			t.Status = "claimed"
 			c.timing.toolClaimed(t.pendingSince)
+			pendingMS := int64(0)
+			if !t.pendingSince.IsZero() {
+				pendingMS = time.Since(t.pendingSince).Milliseconds()
+			}
+			a.record(key, slog.LevelInfo, "tool.claimed", []any{"tool", toolOperation(t.Arguments), "pending_ms", pendingMS}, nil)
+			t.claimedAt = time.Now()
 			t.ClaimID = r.RequestID
 			return a.saveLocked(key)
 		}
@@ -665,6 +682,16 @@ func (a *account) resolveTool(key string, r Request) error {
 		if r.ToolSuccess {
 			t.Status = "completed"
 		}
+		level := slog.LevelInfo
+		kind := resultKind(r.ToolSuccess, t.Result)
+		if kind == "failed" || kind == "no_result" {
+			level = slog.LevelWarn
+		}
+		runMS := int64(0)
+		if !t.claimedAt.IsZero() {
+			runMS = time.Since(t.claimedAt).Milliseconds()
+		}
+		a.record(key, level, "tool.result", []any{"tool", toolOperation(t.Arguments), "outcome", kind, "run_ms", runMS, "result_chars", len(t.Result)}, map[string]any{"result": t.Result})
 		if err := a.saveLocked(key); err != nil {
 			return err
 		}
@@ -692,6 +719,7 @@ func (a *account) cancelToolsLocked(key string) {
 	for i := range a.conversations[key].Tools {
 		t := &a.conversations[key].Tools[i]
 		if t.Status == "pending" || t.Status == "claimed" {
+			a.record(key, slog.LevelWarn, "tool.interrupted", []any{"tool", toolOperation(t.Arguments), "status", t.Status}, nil)
 			t.Result = "The turn ended before this request was confirmed. A claimed write may have completed; inspect Nix before retrying."
 			for _, id := range append([]json.RawMessage{t.rpcID}, t.waiters...) {
 				if ok && len(id) > 0 {

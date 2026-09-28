@@ -43,6 +43,13 @@ type packet struct {
 }
 
 func launch(ctx context.Context, binary, home string, notify func(string, json.RawMessage)) (Transport, error) {
+	return launchWith(ctx, binary, home, notify, false)
+}
+
+// launchWith starts the provider. With trace on, its stderr (which can contain account data)
+// goes to a private file in the account home instead of being discarded, with info-level
+// provider logging; it never reaches the shared worker log either way.
+func launchWith(ctx context.Context, binary, home string, notify func(string, json.RawMessage), trace bool) (Transport, error) {
 	work := filepath.Join(home, "empty")
 	if err := os.MkdirAll(work, 0700); err != nil {
 		return nil, err
@@ -53,7 +60,7 @@ func launch(ctx context.Context, binary, home string, notify func(string, json.R
 		args = append(args, "-c", "features."+feature+"=false")
 	}
 	// The pinned runtime dispatches dynamic tools through its code-mode host even
-	// when code_mode is disabled. It needs this dispatcher to reach nix_workspace;
+	// when code_mode is disabled. It needs this dispatcher to reach the nix_ tools;
 	// shell, network/browser tools and every other server request remain denied.
 	args = append(args, "-c", "features.code_mode_host=true")
 	cmd := exec.CommandContext(ctx, binary, args...)
@@ -71,9 +78,26 @@ func launch(ctx context.Context, binary, home string, notify func(string, json.R
 	}
 	// Provider stderr can contain account data. Never forward it to shared worker logs.
 	cmd.Stderr = io.Discard
+	var stderrFile *os.File
+	if trace {
+		if err := os.MkdirAll(filepath.Join(home, "traces"), 0700); err == nil {
+			if f, err := os.OpenFile(filepath.Join(home, "traces", "codex-stderr.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600); err == nil {
+				stderrFile = f
+				cmd.Stderr = f
+				cmd.Env = append(cmd.Env, "RUST_LOG=info")
+			}
+		}
+	}
 	if err = cmd.Start(); err != nil {
 		_ = in.Close()
+		if stderrFile != nil {
+			_ = stderrFile.Close()
+		}
 		return nil, err
+	}
+	if stderrFile != nil {
+		// The child holds its own descriptor now; the parent's copy is no longer needed.
+		_ = stderrFile.Close()
 	}
 	r := &rpc{cmd: cmd, in: in, pending: map[string]chan packet{}, done: make(chan struct{})}
 	go func() {

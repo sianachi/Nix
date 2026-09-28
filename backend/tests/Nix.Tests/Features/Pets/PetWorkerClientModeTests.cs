@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
 using Nix.Domain.Tenancy;
@@ -120,6 +121,25 @@ public sealed class PetWorkerClientModeTests
     }
 
     [Fact]
+    public async Task A_worker_failure_is_logged_with_its_operation_and_status_but_no_content()
+    {
+        using var handler = new StatusWorker(HttpStatusCode.ServiceUnavailable);
+        using var http = new HttpClient(handler);
+        var logger = new CapturingLogger<PetWorkerClient>();
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), logger);
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "private message text"), Cancellation);
+
+        Assert.True(result.IsFailure);
+        var message = Assert.Single(logger.Messages);
+        Assert.Contains("send", message, StringComparison.Ordinal);
+        Assert.Contains("HTTP 503", message, StringComparison.Ordinal);
+        Assert.Contains("pets.unavailable", message, StringComparison.Ordinal);
+        Assert.DoesNotContain("private message text", message, StringComparison.Ordinal);
+        Assert.DoesNotContain(WorkspaceGuid.ToString(), message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_worker_response_over_the_four_mebibyte_cap_is_refused_as_pets_unavailable()
     {
         using var handler = new OversizedWorker();
@@ -225,5 +245,22 @@ public sealed class PetWorkerClientModeTests
                 Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
             });
         }
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
     }
 }

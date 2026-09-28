@@ -85,6 +85,7 @@ func Run(service role.Service) {
 			ConsultModels: settings.CompanionConsultModels,
 			ChatEffort:    settings.CompanionChatEffort,
 			ConsultEffort: settings.CompanionConsultEffort,
+			Trace:         settings.CompanionTrace,
 			Logger:        logger,
 		})
 		if companionErr != nil {

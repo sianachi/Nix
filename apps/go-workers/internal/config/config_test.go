@@ -22,6 +22,26 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if settings.CompanionConsultEffort != "" {
 		t.Fatalf("consult effort default = %q, want \"\" (provider default)", settings.CompanionConsultEffort)
 	}
+	if settings.CompanionTrace {
+		t.Fatal("the full-content companion trace must be off by default")
+	}
+}
+
+func TestLoadEnablesTheCompanionTraceOnlyWhenAsked(t *testing.T) {
+	for value, want := range map[string]bool{"true": true, "1": true, "false": false, "yes": false, "": false} {
+		settings, err := Load(func(key string) string {
+			if key == "NIX_COMPANION_TRACE" {
+				return value
+			}
+			return ""
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if settings.CompanionTrace != want {
+			t.Fatalf("NIX_COMPANION_TRACE=%q: trace = %v, want %v", value, settings.CompanionTrace, want)
+		}
+	}
 }
 
 func TestLoadReadsConfiguredReasoningEfforts(t *testing.T) {

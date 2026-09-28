@@ -96,4 +96,15 @@ internal static partial class ApiLog
         string requestPath,
         string reason,
         string providerId);
+
+    [LoggerMessage(
+        EventId = 2007,
+        Level = LogLevel.Warning,
+        Message = "The companion worker did not complete {Operation}: {Failure}. The browser sees "
+            + "{Code}; no conversation content was logged.")]
+    public static partial void PetWorkerFailed(
+        ILogger logger,
+        string operation,
+        string failure,
+        string code);
 }

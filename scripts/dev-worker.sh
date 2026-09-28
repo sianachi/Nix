@@ -16,6 +16,9 @@ export NIX_WORKER_OBJECT_ORIGINS="${NIX_WORKER_OBJECT_ORIGINS:-http://localhost:
 export NIX_WORKER_ROLES="${NIX_WORKER_ROLES:-import,export,index,plugin-events}"
 export NIX_WORKER_ADDRESS="${NIX_WORKER_ADDRESS:-:8301}"
 export NIX_COMPANION_DATA_DIR="${NIX_COMPANION_DATA_DIR:-$repo_root/.local/companion}"
+# Local development keeps the full-content pet trace on, so a misbehaving pet can be debugged
+# from <data dir>/<account>/traces/*.jsonl. It is off unless set anywhere else.
+export NIX_COMPANION_TRACE="${NIX_COMPANION_TRACE:-true}"
 export NIX_OPENSEARCH_URL="${NIX_OPENSEARCH_URL:-http://localhost:${NIX_OPENSEARCH_PORT:-9201}}"
 export NIX_OPENSEARCH_INDEX="${NIX_OPENSEARCH_INDEX:-nix-items}"
 

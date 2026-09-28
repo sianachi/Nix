@@ -128,6 +128,10 @@ type account struct {
 	consultEffort string
 	// logger receives one line per completed turn (timings only, never content).
 	logger *slog.Logger
+	// trace enables the opt-in full-content trace (diagnostics.go); traceFull remembers which
+	// conversations already hit the trace size cap.
+	trace     bool
+	traceFull map[string]bool
 }
 
 type Manager struct {
@@ -143,6 +147,7 @@ type Manager struct {
 	chatEffort    string
 	consultEffort string
 	logger        *slog.Logger
+	trace         bool
 }
 
 // Options configures New. Root and Binary are required; ConsultModels, ChatEffort and
@@ -155,6 +160,8 @@ type Options struct {
 	ChatEffort    string
 	ConsultEffort string
 	Logger        *slog.Logger
+	// Trace turns on the full-content trace and Codex stderr capture (diagnostics.go).
+	Trace bool
 }
 
 func New(ctx context.Context, opts Options) (*Manager, error) {
@@ -168,7 +175,12 @@ func New(ctx context.Context, opts Options) (*Manager, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: opts.ConsultModels, chatEffort: opts.ChatEffort, consultEffort: opts.ConsultEffort, logger: logger}
+	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: opts.ConsultModels, chatEffort: opts.ChatEffort, consultEffort: opts.ConsultEffort, logger: logger, trace: opts.Trace}
+	if opts.Trace {
+		m.launch = func(ctx context.Context, binary, home string, notify func(string, json.RawMessage)) (Transport, error) {
+			return launchWith(ctx, binary, home, notify, true)
+		}
+	}
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
@@ -226,7 +238,7 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	if len(m.accounts) >= 4 {
 		return nil, errors.New("companion capacity reached")
 	}
-	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels, chatEffort: m.chatEffort, consultEffort: m.consultEffort, logger: m.logger}
+	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels, chatEffort: m.chatEffort, consultEffort: m.consultEffort, logger: m.logger, trace: m.trace}
 	transport, err := m.launch(m.ctx, m.binary, a.home, a.notify)
 	if err != nil {
 		return nil, err
@@ -260,6 +272,10 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	a, err := m.account(ctx, request)
 	if err != nil {
+		// The provider process could not start or answer its first status call (a missing
+		// binary, a crashed runtime, the account cap): without this line the only symptom is a
+		// 503 in the browser.
+		m.logger.Error("companion runtime unavailable", "operation", request.Operation, "error", err.Error())
 		http.Error(w, "Companion runtime unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -270,6 +286,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// database connection behind every watch for its whole wait, so this cap is what
 		// bounds pinned connections per principal.
 		if !a.tryAcquireWatcher() {
+			a.mu.Lock()
+			a.record(conversationKey(request), slog.LevelWarn, "watch.refused", []any{"reason", "too many open watches"}, nil)
+			a.mu.Unlock()
 			http.Error(w, "Too many open watches", http.StatusTooManyRequests)
 			return
 		}
@@ -277,6 +296,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.Operation != "read" && request.Operation != "watch" {
 		if !a.op.TryLock() {
+			a.mu.Lock()
+			a.record(conversationKey(request), slog.LevelWarn, "request.busy", []any{"operation", request.Operation}, nil)
+			a.mu.Unlock()
 			http.Error(w, "Companion is busy", http.StatusConflict)
 			return
 		}
@@ -287,6 +309,9 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.mu.Unlock()
 	response, err := a.handle(ctx, request)
 	if err != nil {
+		a.mu.Lock()
+		a.record(conversationKey(request), slog.LevelWarn, "request.failed", []any{"operation", request.Operation, "error", err.Error()}, nil)
+		a.mu.Unlock()
 		http.Error(w, "Companion request failed; reconnect or retry", http.StatusBadGateway)
 		return
 	}
@@ -608,6 +633,9 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	}
 	raw, err := a.transport.Call(ctx, method, params)
 	if err != nil {
+		a.mu.Lock()
+		a.record(key, slog.LevelWarn, "turn.start_failed", []any{"step", method, "error", err.Error()}, nil)
+		a.mu.Unlock()
 		return err
 	}
 	var started struct {
@@ -650,9 +678,19 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		c.timing.effort = effort
 		a.mu.Unlock()
 	}
+	a.mu.Lock()
+	threadKind := "resumed"
+	if method == "thread/start" {
+		threadKind = "new"
+	}
+	a.record(key, slog.LevelInfo, "turn.started",
+		[]any{"mode", modeName(r.Mode), "model", valueOrDefault(r.Model), "effort", c.timing.effort, "thread", threadKind, "tool_version", toolVersion, "workspace_access", r.WorkspaceAccess, "message_chars", len(r.Text), "shared_chars", len(r.SharedText)},
+		map[string]any{"prompt": json.RawMessage(prompt), "instructions": r.Instructions})
+	a.mu.Unlock()
 	raw, err = a.transport.Call(ctx, "turn/start", turnParams)
 	if err != nil {
 		a.mu.Lock()
+		a.record(key, slog.LevelWarn, "turn.start_failed", []any{"step", "turn/start", "error", err.Error()}, nil)
 		c.State = "error"
 		c.Reason = "The response could not start. Check the selected model and ChatGPT connection, then retry."
 		a.bumpLocked(c)
@@ -706,10 +744,22 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			Phase string `json:"phase"`
 		} `json:"item"`
 		Turn struct {
-			Status string `json:"status"`
+			Status     string     `json:"status"`
+			DurationMs *int64     `json:"durationMs"`
+			Error      *turnError `json:"error"`
 		} `json:"turn"`
+		Error     *turnError `json:"error"`
+		WillRetry bool       `json:"willRetry"`
 	}
 	if json.Unmarshal(raw, &p) != nil {
+		return
+	}
+	if p.ThreadID == "" {
+		// Account-level notifications (rate limits, account updates, and the like) belong to no
+		// conversation: traced for debugging, never logged.
+		if a.trace && method != "account/rateLimits/updated" {
+			a.record("", slog.LevelDebug, "provider.notification", []any{"method", method}, map[string]any{"params": traceRaw(raw)})
+		}
 		return
 	}
 	for key, c := range a.conversations {
@@ -719,6 +769,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 		if method == "item/agentMessage/delta" {
 			a.applyDeltaLocked(c, p.ItemID, p.Delta)
 		}
+		a.recordNotificationLocked(key, method, raw, p.Item.Type, p.Item.Phase, p.Item.Text, p.Error, p.WillRetry)
 		if method == "item/completed" && p.Item.Type == "agentMessage" && len(p.Item.ID) <= 200 {
 			// The draft is only ever provisional; the commentary or final message below
 			// replaces it once the item is done.
@@ -766,6 +817,14 @@ func (a *account) notify(method string, raw json.RawMessage) {
 		}
 		if method == "turn/completed" {
 			c.timing.log(a.logger, key, c.Mode, p.Turn.Status)
+			if p.Turn.Status != "completed" && p.Turn.Status != "interrupted" {
+				meta := []any{"status", p.Turn.Status}
+				if p.Turn.DurationMs != nil {
+					meta = append(meta, "provider_duration_ms", *p.Turn.DurationMs)
+				}
+				meta = append(meta, p.Turn.Error.logAttrs()...)
+				a.record(key, slog.LevelWarn, "turn.failed", meta, nil)
+			}
 			a.cancelToolsLocked(key)
 			c.Messages = withoutDrafts(c.Messages)
 			c.TurnID = ""

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
@@ -14,8 +16,11 @@ namespace Nix.Features.Pets;
 
 /// <summary>Core's bounded, authenticated gateway to the companion in the existing Go worker.</summary>
 public sealed class PetWorkerClient(HttpClient http, IConfiguration configuration,
-    INixSessionContextAccessor session, NixDispatcher dispatcher, IPermissionResolver permissions)
+    INixSessionContextAccessor session, NixDispatcher dispatcher, IPermissionResolver permissions,
+    ILogger<PetWorkerClient>? logger = null)
 {
+    private readonly ILogger log = logger ?? NullLogger<PetWorkerClient>.Instance;
+
     /// <summary>Validates the caller's scope before forwarding a bounded companion operation.
     /// POST /runtime never accepts "watch": only <see cref="ExecuteWatchAsync"/> reaches the
     /// worker with that operation, through the same permission and identity checks below.</summary>
@@ -122,6 +127,13 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
+                var code = response.StatusCode switch
+                {
+                    HttpStatusCode.TooManyRequests => "pets.too_many_watches",
+                    HttpStatusCode.Conflict => "pets.busy",
+                    _ => "pets.unavailable",
+                };
+                ApiLog.PetWorkerFailed(log, request.Operation, $"worker returned HTTP {(int)response.StatusCode}", code);
                 // The worker signals backpressure and single-flight contention with these two
                 // codes; every other non-success collapses to the generic unavailable code.
                 return response.StatusCode switch
@@ -149,6 +161,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                 }
                 catch (StreamCapExceededException)
                 {
+                    ApiLog.PetWorkerFailed(log, request.Operation, "response exceeded the size cap", "pets.unavailable");
                     return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion response exceeded the size limit."));
                 }
 
@@ -157,6 +170,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException || exception is OperationCanceledException && !cancellationToken.IsCancellationRequested)
         {
+            ApiLog.PetWorkerFailed(log, request.Operation, exception.GetType().Name, "pets.unavailable");
             return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion is unreachable. Check the existing worker and try again."));
         }
     }
