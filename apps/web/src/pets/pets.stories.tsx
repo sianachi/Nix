@@ -532,6 +532,23 @@ const phoneConnection = petConnectionSchema.parse({
   userCode: '',
 });
 
+/** Must-fix 9: the companion's connection now streams through the watch loop
+ * (`client.query(pets.watchRuntime(...))`), not the old `execute`-only read - so a stub whose
+ * `query` always answered with the settings payload made every conversation story's watch fail
+ * schema validation and fall back to the connection panel instead of its own named state. Routing
+ * by `endpoint.operation` is what lets the same stub answer both `pets.settings` (settings sheet)
+ * and `pets.watchRuntime` (the live conversation) correctly. `revision: 1` keeps every watch tick
+ * after the first a no-op rather than replaying `applyIfNewer`'s "equal revision" branch forever. */
+function routeQuery(
+  settings: unknown,
+  connection: ReturnType<typeof petConnectionSchema.parse>,
+): (endpoint: { operation: string }) => Promise<unknown> {
+  return (endpoint) =>
+    endpoint.operation === 'pets.watchRuntime'
+      ? Promise.resolve({ ...connection, revision: 1 })
+      : Promise.resolve(settings);
+}
+
 const phoneClient = {
   ...createNixClient({
     baseUrl: 'http://nix.invalid',
@@ -540,7 +557,7 @@ const phoneClient = {
       refreshAccessToken: () => Promise.resolve(null),
     },
   }),
-  query: () => Promise.resolve(phoneSettings),
+  query: routeQuery(phoneSettings, phoneConnection),
   execute: () => Promise.resolve(phoneConnection),
 } as NixClient;
 
@@ -689,7 +706,7 @@ function desktopClient(connection: ReturnType<typeof petConnectionSchema.parse>)
         refreshAccessToken: () => Promise.resolve(null),
       },
     }),
-    query: () => Promise.resolve(phoneSettings),
+    query: routeQuery(phoneSettings, connection),
     execute: () => Promise.resolve(connection),
   } as NixClient;
 }
