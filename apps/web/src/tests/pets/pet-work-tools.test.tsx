@@ -144,6 +144,66 @@ describe('companion work approvals', () => {
     expect(client.execute.mock.calls[0]?.[0]).toMatchObject({ body: { operation: 'tool_claim' } });
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
+  it('shows a "Declined" receipt once a plain decline\'s tool_result succeeds', async () => {
+    // The server snapshot deliberately stays `pending` here (a stale or slow-to-settle round
+    // trip) so the only source of the "Declined" text is the receipt L4 adds after the
+    // `tool_result` POST for a plain decline succeeds - not `tool.status`/`tool.result` on the
+    // snapshot itself, which `WriteReceiptRow` also derives a "Declined" label from.
+    client.execute.mockImplementation(
+      (endpoint: { body: { operation: string; requestId: string } }) =>
+        Promise.resolve({
+          ...runtime,
+          tools: runtime.tools?.map((tool) => ({
+            ...tool,
+            status: endpoint.body.operation === 'tool_claim' ? 'claimed' : 'pending',
+            claimId: endpoint.body.requestId,
+          })),
+        }),
+    );
+    show();
+    await userEvent.click(screen.getByRole('button', { name: 'Decline request' }));
+    await waitFor(() => {
+      expect(screen.getByText('Declined')).toBeVisible();
+    });
+    expect(screen.queryByRole('button', { name: 'Decline request' })).not.toBeInTheDocument();
+  });
+
+  it.each(['create_note', 'append_note'])(
+    'shows the full pending %s content inline, with no folding, plus its character count',
+    async (operation) => {
+      const content = 'x'.repeat(340);
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={{
+            ...runtime,
+            tools: (runtime.tools ?? []).map((tool) => ({
+              ...tool,
+              arguments: JSON.stringify({
+                operation,
+                title: operation === 'create_note' ? 'Plan' : '',
+                markdown: content,
+                itemId: operation === 'append_note' ? '33333333-3333-4333-8333-333333333333' : '',
+                parentId: '',
+                query: '',
+                propertiesJson: '',
+              }),
+            })),
+          }}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      // Security fix M3: a pending card never folds its content behind "Show content" - the
+      // full text is already in the DOM, with a plain character count next to it.
+      expect(await screen.findByText(content)).toBeVisible();
+      expect(screen.queryByText('Show content')).not.toBeInTheDocument();
+      expect(screen.getByText('340 characters')).toBeVisible();
+    },
+  );
+
   it('describes the planned action before the permission buttons', async () => {
     show();
     const description = await screen.findByText(/I will create a note named “Plan”/);
@@ -328,6 +388,11 @@ describe('companion work approvals', () => {
     });
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
     expect(client.invalidate).not.toHaveBeenCalled();
+    // The refusal itself must never carry the private fixture's content back to the pet.
+    const toolResultCall = client.execute.mock.calls.find(
+      ([endpoint]) => (endpoint as { body: { operation: string } }).body.operation === 'tool_result',
+    );
+    expect(JSON.stringify(toolResultCall?.[0])).not.toContain('Private fixture title');
   });
   it('executes once even with a double click and a stale pending snapshot', async () => {
     const changed = vi.fn();

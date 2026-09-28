@@ -258,7 +258,10 @@ export function PetWorkTools({
               : `Stopped after ${String(completed)} of ${String(build.ledger.length)}.`;
         writeActionReceipt(key, receipt);
         setDecisions((old) => ({ ...old, [key]: receipt }));
-      } else if (!approved && refusalResult?.startsWith(DECLINED_FOR_PROBLEMS_PREFIX)) {
+      } else if (!approved) {
+        // Mirrors the approved branch above: once the `tool_result` POST for a decline - a
+        // plain user decline, or an automatic one sent back for a design's problems - has
+        // succeeded, its receipt reads "Declined" rather than staying on the submitted message.
         writeActionReceipt(key, 'Declined');
         setDecisions((old) => ({ ...old, [key]: 'Declined' }));
       }
@@ -706,22 +709,19 @@ function PetWorkToolCard({
         </Text>
       ) : null}
       {args?.markdown ? (
-        args.markdown.length > 300 ? (
-          <details>
-            <summary>
-              <Text as="span" variant="note">
-                Show content
-              </Text>
-            </summary>
-            <Text variant="note" className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
-              {args.markdown}
-            </Text>
-          </details>
-        ) : (
+        // Security fix M3: a pending approval never folds or collapses the write it is being
+        // asked to approve, however long - the owner must see everything it would write before
+        // deciding, not a 300-character preview behind a click. Folding stays allowed only on
+        // the compact receipt a write gets once it already has an outcome - see
+        // `WriteReceiptRow`'s own "Result details" disclosure.
+        <>
           <Text variant="note" className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
             {args.markdown}
           </Text>
-        )
+          <Text variant="note" tone="muted">
+            {args.markdown.length.toLocaleString('en-US')} characters
+          </Text>
+        </>
       ) : null}
       {args?.propertiesJson ? (
         <Text variant="note" className="whitespace-pre-wrap break-words">

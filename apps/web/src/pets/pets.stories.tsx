@@ -866,6 +866,73 @@ export const StreamedTurn = {
 };
 export const DarkStreamedTurn = { ...StreamedTurn, globals: { ground: 'dark' } };
 
+const STREAMING_DRAFT_ID = 'streaming-user-1:draft:aaaaaaaaaaaaaaaa';
+const streamingReplyConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  state: 'thinking',
+  messages: [
+    { id: 'streaming-user-1', role: 'user', text: 'Draft a weekly plan outline.', actions: [] },
+    {
+      id: STREAMING_DRAFT_ID,
+      role: 'assistant',
+      text: 'Here is a draft outline: Monday - review priorities, Tuesday - ',
+      actions: [],
+    },
+  ],
+});
+
+/** The still-streaming reply (id contains `:draft:`) shows the motion-safe caret in place of a
+ * read-aloud action, and the header status reads "Writing" rather than "Thinking". */
+export const StreamingReply = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={streamingReplyConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkStreamingReply = { ...StreamingReply, globals: { ground: 'dark' } };
+
+const launcherBadgeConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  messages: [
+    { id: 'badge-user-1', role: 'user', text: 'Create a note called Weekly plan.', actions: [] },
+  ],
+  tools: [
+    {
+      id: 'badge-tool-1',
+      arguments: JSON.stringify({
+        operation: 'create_note',
+        title: 'Weekly plan',
+        markdown: '# Weekly plan',
+        itemId: '',
+        parentId: '',
+        query: '',
+        propertiesJson: '',
+      }),
+      status: 'pending',
+      result: '',
+      claimId: '',
+    },
+  ],
+});
+
+/** The panel stays closed (no `AutoOpenCompanion`): the launcher shows the token-backed dot
+ * badge for the pending tool, and its accessible name gains "(needs approval)". */
+export const LauncherBadge = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={launcherBadgeConnection}>
+      <PetCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkLauncherBadge = { ...LauncherBadge, globals: { ground: 'dark' } };
+
 const autoDeclinedConnection = petConnectionSchema.parse({
   provider: 'chatgpt',
   status: 'connected',

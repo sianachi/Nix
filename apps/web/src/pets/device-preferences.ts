@@ -92,8 +92,10 @@ export function writeDevicePreference(key: 'voice' | 'placement', value: string)
 }
 
 /** Whether reads (and, in Design mode, checking a blueprint) run without an approval click.
- * Defaults on: a read result is only ever shared with ChatGPT after it has already happened, so
- * asking first buys nothing but a slower reply. Device-wide, like `placement` above. */
+ * Defaults on: with `readWithoutAsking` on (owner decision, default on, ADR-0050 amendment 1) a
+ * read's result is shared with ChatGPT without a per-read click; consent is the per-message
+ * workspace access toggle; reads are Core-authorised, scoped to the workspace, at most 20 per
+ * turn and 16000 characters each. Device-wide, like `placement` above. */
 export function readReadWithoutAsking(): boolean {
   try {
     const raw = localStorage.getItem('nix.pet.readWithoutAsking');

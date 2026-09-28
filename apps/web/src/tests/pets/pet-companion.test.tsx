@@ -104,10 +104,20 @@ describe('companion workflow', () => {
         <PetCompanion />
       </MemoryRouter>,
     );
-    expect(client.execute).not.toHaveBeenCalled();
+    // The runtime hook now lives on `Companion` itself (L4: closed launcher), so it starts
+    // model discovery and the watch loop as soon as the launcher mounts, before the panel is
+    // ever opened - only a `send` is gated on the user actually composing one.
+    expect(
+      client.execute.mock.calls.some(
+        ([endpoint]) => (endpoint as { body?: { operation?: string } }).body?.operation === 'send',
+      ),
+    ).toBe(false);
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await screen.findByRole('dialog', { name: 'Conversation with Cat' });
     await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'Help with a plan');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled();
+    });
     await user.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledWith(
@@ -131,25 +141,24 @@ describe('companion workflow', () => {
   });
 
   it('switches to Design with its own messages and sends mode on every runtime call', async () => {
-    client.execute.mockImplementation(
-      (endpoint: { body?: { operation?: string; mode?: string } }) => {
-        if (endpoint.body?.operation === 'read')
-          return Promise.resolve({
-            ...connected,
-            messages:
-              endpoint.body.mode === 'consult'
-                ? [
-                    {
-                      id: 'design-reply',
-                      role: 'assistant',
-                      text: 'Design conversation',
-                      actions: [],
-                    },
-                  ]
-                : [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation', actions: [] }],
-          });
-        return Promise.resolve(connected);
-      },
+    // The connection now streams through the watch loop (`client.query`, `pets.watchRuntime`)
+    // rather than the old read poll, so the mode-scoped fixture keys off the watch's own
+    // `query.mode` instead of an `execute` command's body.
+    client.query.mockImplementation((endpoint: { query?: { mode?: string } }) =>
+      Promise.resolve({
+        ...connected,
+        messages:
+          endpoint.query?.mode === 'consult'
+            ? [
+                {
+                  id: 'design-reply',
+                  role: 'assistant',
+                  text: 'Design conversation',
+                  actions: [],
+                },
+              ]
+            : [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation', actions: [] }],
+      }),
     );
     const user = userEvent.setup();
     render(
@@ -232,7 +241,9 @@ describe('companion workflow', () => {
   });
 
   it('prioritises replies and keeps secondary controls tucked into the overflow menu', async () => {
-    client.execute.mockResolvedValue({
+    // The connection - including its messages - now arrives through the watch loop
+    // (`client.query`), not an `execute` read; the fixture is mocked there.
+    client.query.mockResolvedValue({
       ...connected,
       messages: [
         {
@@ -285,7 +296,7 @@ describe('companion workflow', () => {
   });
 
   it('shows response failures without requiring users to open the menu', async () => {
-    client.execute.mockResolvedValue({
+    client.query.mockResolvedValue({
       ...connected,
       state: 'error',
       reason: 'The response could not finish.',
@@ -301,7 +312,7 @@ describe('companion workflow', () => {
   });
 
   it('renders a system notice without an author or approval controls', async () => {
-    client.execute.mockResolvedValue({
+    client.query.mockResolvedValue({
       ...connected,
       messages: [
         {
@@ -329,7 +340,22 @@ describe('companion workflow', () => {
   });
 
   it('approval state derives only from pending tool calls', async () => {
+    // The connection arrives through the watch loop; kept in sync with `execute` (used by the
+    // explicit "Reload conversation" action below) so a background watch tick never overwrites
+    // what the reload just applied with this stale fixture.
     client.execute.mockResolvedValue({
+      ...connected,
+      messages: [
+        {
+          id: 'message-one',
+          role: 'assistant',
+          text: 'I can create this note.',
+          actions: [{ kind: 'create_item', itemId: '', title: 'Plan' }],
+        },
+      ],
+      tools: [],
+    });
+    client.query.mockResolvedValue({
       ...connected,
       messages: [
         {
@@ -352,7 +378,7 @@ describe('companion workflow', () => {
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
     expect(screen.getByRole('status')).not.toHaveTextContent('Waiting for your approval');
 
-    client.execute.mockResolvedValue({
+    const pendingConnection = {
       ...connected,
       messages: [
         {
@@ -371,7 +397,9 @@ describe('companion workflow', () => {
           claimId: '',
         },
       ],
-    });
+    };
+    client.execute.mockResolvedValue(pendingConnection);
+    client.query.mockResolvedValue(pendingConnection);
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'Reload conversation' }));
     expect(await screen.findByText('Waiting for your approval')).toBeVisible();

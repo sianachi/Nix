@@ -28,7 +28,7 @@ import { useBackDismiss } from '../layout/use-back-dismiss';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
 import { usePetSettings } from './use-pet-settings';
 import { usePetVoice } from './use-pet-voice';
-import { usePetRuntime } from './use-pet-runtime';
+import { usePetRuntime, type UsePetRuntimeResult } from './use-pet-runtime';
 import {
   readConversationModel,
   readDevicePreference,
@@ -79,11 +79,32 @@ function statusText(
   animation: PetAnimationState,
   running: boolean,
   errored: boolean,
+  hasDraft: boolean,
 ): string {
   if (errored) return 'Something went wrong';
+  if (hasDraft) return 'Writing';
   if (animation === 'awaiting-approval') return 'Waiting for your approval';
   if (running) return 'Thinking';
   return 'Ready';
+}
+
+/** Where the latest turn's tool rows belong among `messages`: right after the last user
+ * message and any commentary that followed it (id contains `:commentary:`), and before that
+ * turn's final answer (id `${lastUserMessageId}:assistant`) or its still-streaming draft (id
+ * contains `:draft:`) - or at the very end when neither has arrived yet. The worker resets
+ * `tools` on every send (`manager.go` `c.Tools = []ToolCall{}`), so every tool call in the
+ * runtime belongs to this one turn; earlier turns render with no tool rows at all. */
+function toolInsertIndex(
+  messages: readonly NonNullable<PetConnection['messages']>[number][],
+): number {
+  let lastUserIndex = -1;
+  for (let index = 0; index < messages.length; index += 1) {
+    if (messages[index]?.role === 'user') lastUserIndex = index;
+  }
+  if (lastUserIndex === -1) return messages.length;
+  let index = lastUserIndex + 1;
+  while (index < messages.length && messages[index]?.id.includes(':commentary:')) index += 1;
+  return index;
 }
 
 export function PetCompanion(): ReactElement | null {
@@ -114,6 +135,28 @@ function Companion({
   const designEntry = search.get('pet') === 'design';
   const [mode, setMode] = useState<PetConversationMode>(designEntry ? 'consult' : 'chat');
   const [open, setOpen] = useState(false);
+  const client = useApiClient();
+  const runtimeApi = usePetRuntime(workspaceId, pet.id, mode, open);
+  const toolPending = (runtimeApi.runtime?.tools ?? []).some((tool) => tool.status === 'pending');
+  const [unseenReply, setUnseenReply] = useState(false);
+  const previousState = useRef(runtimeApi.runtime?.state);
+  // A reply that finishes while the panel is closed sets the launcher badge; opening the panel
+  // clears it. The `queueMicrotask` wrapper (the same one `designEntry` below uses) is what
+  // keeps this a subscription-style callback reacting to the runtime's own change, rather than
+  // a derived value computed synchronously in the effect body.
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      const state = runtimeApi.runtime?.state;
+      if (open) setUnseenReply(false);
+      else if (state === 'success' && previousState.current !== 'success') setUnseenReply(true);
+      previousState.current = state;
+    });
+    return () => {
+      active = false;
+    };
+  }, [open, runtimeApi.runtime?.state]);
   const [hover, setHover] = useState(false);
   const [openAnchor, setOpenAnchor] = useState<CSSProperties | null>(null);
   const launcher = useRef<HTMLButtonElement | null>(null);
@@ -249,19 +292,42 @@ function Companion({
           mode={mode}
           onModeChange={setMode}
           narrow={narrow}
+          runtimeApi={runtimeApi}
           onClose={() => {
             setOpen(false);
             setOpenAnchor(null);
             returnFocus.current = true;
           }}
         />
+      ) : runtimeApi.runtime ? (
+        // Auto-run reads (READ_ONLY_OPERATIONS / validate_blueprint under readWithoutAsking)
+        // must still run while the panel is closed, so a closed panel never stalls a turn on a
+        // read - see `ReadActivityRow`'s own auto-run effect. `hidden` keeps this out of both
+        // the visual layout and the accessibility tree while the panel is closed.
+        <div className="hidden">
+          <PetWorkTools
+            client={client}
+            runtime={runtimeApi.runtime}
+            workspaceId={workspaceId}
+            petId={pet.id}
+            petName={pet.name}
+            mode={mode}
+            onChange={runtimeApi.setRuntime}
+          />
+        </div>
       ) : null}
       <Button
         ref={launcher}
         variant="ghost"
-        className={`h-auto touch-none p-1 ${launcherHidden ? 'hidden' : ''}`}
+        className={`relative h-auto touch-none p-1 ${launcherHidden ? 'hidden' : ''}`}
         aria-expanded={open}
-        aria-label={open ? `Close ${pet.name}` : `Talk with ${pet.name}`}
+        aria-label={`${open ? `Close ${pet.name}` : `Talk with ${pet.name}`}${
+          !open && toolPending
+            ? ' (needs approval)'
+            : !open && unseenReply
+              ? ' (new reply)'
+              : ''
+        }`}
         onMouseEnter={() => {
           setHover(true);
         }}
@@ -350,6 +416,12 @@ function Companion({
           label={pet.name}
           size={narrow ? 'compact' : 'regular'}
         />
+        {!open && (toolPending || unseenReply) ? (
+          <span
+            aria-hidden="true"
+            className="absolute right-0 top-0 size-2.5 rounded-full bg-accent-fill"
+          />
+        ) : null}
       </Button>
     </aside>
   );
@@ -364,6 +436,7 @@ function Conversation({
   mode,
   onModeChange,
   narrow,
+  runtimeApi,
   onClose,
 }: {
   readonly workspaceId: string;
@@ -372,6 +445,7 @@ function Conversation({
   readonly mode: PetConversationMode;
   readonly onModeChange: (mode: PetConversationMode) => void;
   readonly narrow: boolean;
+  readonly runtimeApi: UsePetRuntimeResult;
   readonly onClose: () => void;
 }) {
   const client = useApiClient();
@@ -388,7 +462,7 @@ function Conversation({
     interrupt,
     reset,
     reload,
-  } = usePetRuntime(workspaceId, pet.id, mode);
+  } = runtimeApi;
   const [panel, setPanel] = useState<ConversationPanel>('chat');
   const [draft, setDraft] = useState('');
   const [shared, setShared] = useState<{ itemId: string; text: string } | null>(null);
@@ -405,6 +479,7 @@ function Conversation({
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
   const approvalPending = runtime?.tools?.some((tool) => tool.status === 'pending') ?? false;
+  const hasDraft = messages.some((message) => message.id.includes(':draft:'));
   const animation: PetAnimationState = voice.listening
     ? 'listening'
     : voice.speaking
@@ -521,7 +596,11 @@ function Conversation({
     if (!narrationPending.current || runtime?.state !== 'success') return;
     narrationPending.current = false;
     const last = runtime.messages?.at(-1);
-    if (settings.narration && last?.role === 'assistant') voice.speak(last.text);
+    // Narration speaks a finished reply only, never a still-streaming draft (id contains
+    // `:draft:`) - `runtime.state === 'success'` above should already mean the turn is done,
+    // but this is the belt to that suspender's braces.
+    if (settings.narration && last?.role === 'assistant' && !last.id.includes(':draft:'))
+      voice.speak(last.text);
   }, [runtime, settings.narration, voice]);
 
   function shareSelection() {
@@ -630,7 +709,7 @@ function Conversation({
             {pet.name}
           </Text>
           <Text role="status" variant="note" tone="muted">
-            {statusText(animation, running, errored)}
+            {statusText(animation, running, errored, hasDraft)}
           </Text>
         </div>
         <div className="flex items-center gap-2">
@@ -702,42 +781,66 @@ function Conversation({
               </Text>
             ) : null}
             {messages.length === 0 ? (
-              <PetEmptyState
-                mode={mode}
-                suggestions={suggestions}
-                onPick={(suggestion) => {
-                  setDraft(suggestion);
-                  regenerateRequestId();
-                  input.current?.focus();
-                }}
-              />
-            ) : (
-              messages.map((message, index) => (
-                <PetMessageRow
-                  key={message.id}
-                  message={message}
-                  petName={pet.name}
-                  workspaceId={workspaceId}
-                  latest={index === messages.length - 1}
-                  canSpeak={voice.canSpeak}
-                  onReadAloud={() => {
-                    voice.speak(message.text);
+              <>
+                <PetEmptyState
+                  mode={mode}
+                  suggestions={suggestions}
+                  onPick={(suggestion) => {
+                    setDraft(suggestion);
+                    regenerateRequestId();
+                    input.current?.focus();
                   }}
                 />
-              ))
+                {runtime ? (
+                  <PetWorkTools
+                    client={client}
+                    runtime={runtime}
+                    workspaceId={workspaceId}
+                    petId={pet.id}
+                    petName={pet.name}
+                    mode={mode}
+                    onChange={setRuntime}
+                  />
+                ) : null}
+              </>
+            ) : (
+              (() => {
+                const splitAt = toolInsertIndex(messages);
+                const row = (message: (typeof messages)[number], index: number) => (
+                  <PetMessageRow
+                    key={message.id}
+                    message={message}
+                    petName={pet.name}
+                    workspaceId={workspaceId}
+                    latest={index === messages.length - 1}
+                    canSpeak={voice.canSpeak}
+                    onReadAloud={() => {
+                      voice.speak(message.text);
+                    }}
+                  />
+                );
+                return (
+                  <>
+                    {messages.slice(0, splitAt).map((message, index) => row(message, index))}
+                    {runtime ? (
+                      <PetWorkTools
+                        client={client}
+                        runtime={runtime}
+                        workspaceId={workspaceId}
+                        petId={pet.id}
+                        petName={pet.name}
+                        mode={mode}
+                        onChange={setRuntime}
+                      />
+                    ) : null}
+                    {messages
+                      .slice(splitAt)
+                      .map((message, offset) => row(message, splitAt + offset))}
+                  </>
+                );
+              })()
             )}
-            {runtime ? (
-              <PetWorkTools
-                client={client}
-                runtime={runtime}
-                workspaceId={workspaceId}
-                petId={pet.id}
-                petName={pet.name}
-                mode={mode}
-                onChange={setRuntime}
-              />
-            ) : null}
-            {running ? (
+            {running && !hasDraft ? (
               <div className="flex items-center gap-1" aria-hidden="true">
                 <Text variant="note" tone="muted">
                   {pet.name} is thinking
@@ -897,6 +1000,11 @@ function PetMessageRow({
       </div>
     );
   const fromUser = message.role === 'user';
+  // A streaming draft (id contains `:draft:`) is never durable text yet, so it is kept out of
+  // the viewport's `aria-live="polite"` announcement (a screen reader would otherwise read it
+  // out token by token) and shown with a caret instead, in place of the read-aloud action a
+  // finished reply gets.
+  const isDraft = message.id.includes(':draft:');
   return (
     <div
       data-pet-latest-message={latest ? '' : undefined}
@@ -905,10 +1013,19 @@ function PetMessageRow({
       <Text as="span" variant="note" className="sr-only">
         {fromUser ? 'You said' : `${petName} said`}
       </Text>
-      <div className={fromUser ? 'max-w-[85%] rounded-lg bg-surface px-3 py-2' : 'max-w-[85%]'}>
+      <div
+        aria-live={isDraft ? 'off' : undefined}
+        className={fromUser ? 'max-w-[85%] rounded-lg bg-surface px-3 py-2' : 'max-w-[85%]'}
+      >
         <PetMessageText text={message.text} workspaceId={workspaceId} />
+        {isDraft ? (
+          <span
+            aria-hidden="true"
+            className="ml-0.5 inline-block h-4 w-0.5 align-middle bg-foreground motion-safe:animate-pulse"
+          />
+        ) : null}
       </div>
-      {!fromUser && canSpeak ? (
+      {!fromUser && !isDraft && canSpeak ? (
         <Button variant="icon" aria-label="Read this reply aloud" onClick={onReadAloud}>
           <Icon icon={Volume2} size="sm" />
         </Button>
