@@ -321,7 +321,11 @@ var nixConnectionString = builder.Configuration.GetConnectionString(nixConnectio
 var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
-    builder.Services.AddNixPersistence(nixConnectionString!);
+    builder.Services.AddNixPersistence(new Nix.Persistence.NixPersistenceOptions
+    {
+        ConnectionString = nixConnectionString!,
+        SchedulingEnabled = builder.Configuration.GetValue("Nix:Scheduling:Enabled", true),
+    });
     builder.Services.AddNixSearch(builder.Configuration);
     builder.Services.AddNixRabbitMq(builder.Configuration);
 

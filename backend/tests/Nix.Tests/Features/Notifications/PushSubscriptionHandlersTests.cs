@@ -111,5 +111,65 @@ public sealed class PushSubscriptionHandlersTests
             var removed = _rows.RemoveAll(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Endpoint == endpoint);
             return Task.FromResult(removed == 1);
         }
+
+        public Task<bool> RemoveByIdAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken)
+        {
+            var removed = _rows.RemoveAll(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id);
+            return Task.FromResult(removed == 1);
+        }
+
+        public Task RecordDeliveredAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken)
+        {
+            var index = _rows.FindIndex(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id);
+            if (index >= 0)
+            {
+                var row = _rows[index];
+                _rows[index] = new PushSubscription
+                {
+                    TenantId = row.TenantId,
+                    Id = row.Id,
+                    PrincipalId = row.PrincipalId,
+                    Endpoint = row.Endpoint,
+                    P256dh = row.P256dh,
+                    Auth = row.Auth,
+                    UserAgent = row.UserAgent,
+                    CreatedAt = row.CreatedAt,
+                    LastSuccessAt = DateTimeOffset.UtcNow,
+                    Failures = 0,
+                };
+            }
+            return Task.CompletedTask;
+        }
+
+        public Task RecordFailedAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken)
+        {
+            var index = _rows.FindIndex(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id);
+            if (index >= 0)
+            {
+                var row = _rows[index];
+                var failures = row.Failures + 1;
+                if (failures >= 5)
+                {
+                    _rows.RemoveAt(index);
+                }
+                else
+                {
+                    _rows[index] = new PushSubscription
+                    {
+                        TenantId = row.TenantId,
+                        Id = row.Id,
+                        PrincipalId = row.PrincipalId,
+                        Endpoint = row.Endpoint,
+                        P256dh = row.P256dh,
+                        Auth = row.Auth,
+                        UserAgent = row.UserAgent,
+                        CreatedAt = row.CreatedAt,
+                        LastSuccessAt = row.LastSuccessAt,
+                        Failures = failures,
+                    };
+                }
+            }
+            return Task.CompletedTask;
+        }
     }
 }

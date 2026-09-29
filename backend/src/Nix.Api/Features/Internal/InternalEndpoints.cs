@@ -51,6 +51,7 @@ internal static class InternalEndpoints
         ExportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         ObjectCleanupEndpoints.Map(group.MapGroup("/worker-executions"));
         WorkspacePurgeEndpoints.Map(group.MapGroup("/worker-executions"));
+        NotificationDeliveryEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
 
         return endpoints;
     }

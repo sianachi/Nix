@@ -25,6 +25,9 @@ public interface INotificationStore
     /// <summary>Reads only the revision and unread count, without paging the rows.</summary>
     public Task<(int Unread, long Revision)> SummaryAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken);
 
+    /// <summary>Reads one of the caller's own notifications by id, or <see langword="null"/> when it does not belong to them.</summary>
+    public Task<Notification?> GetAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken);
+
     /// <summary>Marks one notification read. Returns <see langword="false"/> when it does not belong to this owner.</summary>
     public Task<bool> MarkReadAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken);
 

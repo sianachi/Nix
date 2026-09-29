@@ -101,6 +101,9 @@ public static class NixTables
     /// <summary>The per-principal notification inbox revision counter.</summary>
     public const string NotificationInbox = "notification_inbox";
 
+    /// <summary>A planned instant at which a reminder or automation rule should fire. Derived, rebuildable.</summary>
+    public const string ScheduledTrigger = "scheduled_trigger";
+
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
@@ -184,6 +187,7 @@ public static class NixTables
         Notification,
         PushSubscription,
         NotificationInbox,
+        ScheduledTrigger,
         Bookmark,
         ItemLock,
         ItemUnlock,
@@ -338,6 +342,11 @@ public static class NixTables
             [Notification] = FullDml,
             [PushSubscription] = FullDml,
             [NotificationInbox] = FullDml,
+
+            // Derived, rebuildable planning state the dispatcher and planner read and write
+            // directly; cross-tenant discovery goes only through the SECURITY DEFINER lease and
+            // finish functions, never a table-level grant.
+            [ScheduledTrigger] = FullDml,
 
             // Revoked, never deleted: the rows are the audit of what has been able to act as a
             // principal, and an application that can erase that record can erase evidence.

@@ -23,4 +23,16 @@ public interface IPushSubscriptionStore
 
     /// <summary>Removes a device by its endpoint. Returns <see langword="false"/> when it does not belong to this owner.</summary>
     public Task<bool> RemoveAsync(TenantId tenantId, PrincipalId principalId, string endpoint, CancellationToken cancellationToken);
+
+    /// <summary>Removes a device by its id (a push service reported it gone). Returns <see langword="false"/> when it does not belong to this owner.</summary>
+    public Task<bool> RemoveByIdAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken);
+
+    /// <summary>Records a successful delivery: clears the consecutive-failure count.</summary>
+    public Task RecordDeliveredAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a failed delivery attempt, removing the device once it has failed five times in a
+    /// row.
+    /// </summary>
+    public Task RecordFailedAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken);
 }

@@ -108,6 +108,9 @@ public sealed class NotificationHandlersTests
             return Task.FromResult((unread, _revision));
         }
 
+        public Task<Notification?> GetAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken) =>
+            Task.FromResult(_rows.SingleOrDefault(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == notificationId));
+
         public Task<bool> MarkReadAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken)
         {
             var index = _rows.FindIndex(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == notificationId);
