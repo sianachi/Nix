@@ -492,3 +492,23 @@ func assertExecutionRequest(t *testing.T, request *http.Request, owner string, l
 		t.Fatalf("execution request = %#v", body)
 	}
 }
+
+func TestSameOriginPathRefusesProtocolRelativeAndAbsoluteURLs(t *testing.T) {
+	for value, want := range map[string]bool{
+		"/": true,
+		"/w/1a1a1a1a-1111-4111-8111-1a1a1a1a1a1a": true,
+		"/w/x?item=y":               true,
+		"":                          false,
+		"w/x":                       false,
+		"//evil.example/x":          false,
+		"/\\evil.example/x":         false,
+		"https://evil.example/":     false,
+		"/redirect?to=https://evil": false,
+		"/tab\tname":                false,
+		"/line\nbreak":              false,
+	} {
+		if got := sameOriginPath(value); got != want {
+			t.Fatalf("sameOriginPath(%q) = %v, want %v", value, got, want)
+		}
+	}
+}

@@ -1370,7 +1370,7 @@ func (client *Client) GetNotificationDelivery(ctx context.Context, notificationI
 		return nil, err
 	}
 	if len(delivery.Payload.Title) > 200 || len(delivery.Payload.Body) > 1000 || len(delivery.Payload.Tag) > 64 ||
-		!strings.HasPrefix(delivery.Payload.URL, "/") || strings.Contains(delivery.Payload.URL, "://") ||
+		!sameOriginPath(delivery.Payload.URL) ||
 		len(delivery.Subscriptions) > maxNotificationSubscriptions {
 		return nil, errors.New("worker API notification delivery payload is invalid")
 	}
@@ -1631,4 +1631,20 @@ func canonicalUUID(value string) bool {
 		}
 	}
 	return value != "00000000-0000-0000-0000-000000000000"
+}
+
+// sameOriginPath reports whether value is a path on the current origin: it starts with a single
+// slash and cannot be read as a protocol-relative ("//host", "/\\host") or absolute URL, and it
+// carries no control characters a browser might strip before resolving it.
+func sameOriginPath(value string) bool {
+	if !strings.HasPrefix(value, "/") || strings.HasPrefix(value, "//") || strings.HasPrefix(value, "/\\") ||
+		strings.Contains(value, "://") {
+		return false
+	}
+	for _, r := range value {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
