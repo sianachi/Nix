@@ -20,6 +20,7 @@ const (
 	IndexQueue           = "nix.worker.index.v1"
 	PluginEventsQueue    = "nix.worker.plugin-events.v1"
 	CalendarQueue        = "nix.worker.calendar.v1"
+	NotifyQueue          = "nix.worker.notify.v1"
 	ResultRoutingKey     = "job.result"
 	CommandMessageType   = "worker.command.v1"
 	ResultMessageType    = "worker.result.v1"

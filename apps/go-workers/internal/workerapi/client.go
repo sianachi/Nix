@@ -1335,6 +1335,88 @@ func (client *Client) GetExportDestination(ctx context.Context, exportID string,
 	return &destination, nil
 }
 
+// NotificationDeliveryPayload is the rendered push payload for a notification:
+// same-origin path only, never a full URL (N1, ADR-0051 section 5).
+type NotificationDeliveryPayload struct {
+	Title string `json:"title"`
+	Body  string `json:"body"`
+	URL   string `json:"url"`
+	Tag   string `json:"tag"`
+}
+
+type NotificationDeliverySubscription struct {
+	ID       string `json:"id"`
+	Endpoint string `json:"endpoint"`
+	P256dh   string `json:"p256dh"`
+	Auth     string `json:"auth"`
+}
+
+type NotificationDelivery struct {
+	Payload       NotificationDeliveryPayload        `json:"payload"`
+	Subscriptions []NotificationDeliverySubscription `json:"subscriptions"`
+}
+
+const maxNotificationSubscriptions = 20
+
+// GetNotificationDelivery fetches N1's rendered payload and subscription set for
+// a notify.push job.
+func (client *Client) GetNotificationDelivery(ctx context.Context, notificationID string) (*NotificationDelivery, error) {
+	if !canonicalUUID(notificationID) {
+		return nil, errors.New("notification delivery request is invalid")
+	}
+	path := "/internal/worker-executions/notifications/" + url.PathEscape(notificationID) + "/delivery"
+	var delivery NotificationDelivery
+	if err := client.requestStrictJSON(ctx, http.MethodPost, path, nil, &delivery, 64<<10); err != nil {
+		return nil, err
+	}
+	if len(delivery.Payload.Title) > 200 || len(delivery.Payload.Body) > 1000 || len(delivery.Payload.Tag) > 64 ||
+		!strings.HasPrefix(delivery.Payload.URL, "/") || strings.Contains(delivery.Payload.URL, "://") ||
+		len(delivery.Subscriptions) > maxNotificationSubscriptions {
+		return nil, errors.New("worker API notification delivery payload is invalid")
+	}
+	for _, subscription := range delivery.Subscriptions {
+		if !canonicalUUID(subscription.ID) || strings.TrimSpace(subscription.Endpoint) == "" ||
+			strings.TrimSpace(subscription.P256dh) == "" || strings.TrimSpace(subscription.Auth) == "" {
+			return nil, errors.New("worker API notification delivery subscription is invalid")
+		}
+	}
+	return &delivery, nil
+}
+
+// NotificationDeliveryResult is one subscription's outcome for the N1 results call.
+type NotificationDeliveryResult struct {
+	SubscriptionID string `json:"subscriptionId"`
+	Status         string `json:"status"` // "delivered", "gone", or "failed"
+	HTTPStatus     int    `json:"httpStatus"`
+}
+
+// ReportNotificationDeliveryResults reports N1's per-subscription push outcomes.
+// Core deletes "gone" subscriptions and counts "failed" toward removal after 5
+// consecutive failures.
+func (client *Client) ReportNotificationDeliveryResults(ctx context.Context, notificationID string, results []NotificationDeliveryResult) error {
+	if !canonicalUUID(notificationID) || len(results) == 0 || len(results) > maxNotificationSubscriptions {
+		return errors.New("notification delivery result report is invalid")
+	}
+	for _, result := range results {
+		if !canonicalUUID(result.SubscriptionID) {
+			return errors.New("notification delivery result report is invalid")
+		}
+		switch result.Status {
+		case "delivered", "gone", "failed":
+		default:
+			return errors.New("notification delivery result report is invalid")
+		}
+	}
+	body, err := json.Marshal(struct {
+		Results []NotificationDeliveryResult `json:"results"`
+	}{results})
+	if err != nil {
+		return err
+	}
+	path := "/internal/worker-executions/notifications/" + url.PathEscape(notificationID) + "/delivery/results"
+	return client.requestJSON(ctx, http.MethodPost, path, bytes.NewReader(body), nil)
+}
+
 func (client *Client) CompleteJob(ctx context.Context, id string, succeeded bool, result, errorCode, errorDetail any) error {
 	return client.FinishJob(ctx, id, succeeded, false, result, errorCode, errorDetail)
 }

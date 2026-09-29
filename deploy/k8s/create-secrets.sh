@@ -21,8 +21,8 @@ kubectl get namespace nix >/dev/null 2>&1 || kubectl apply -f deploy/k8s/namespa
 
 create_rabbitmq_secret() {
   local update_existing="$1"
-  local rabbitmq_api_password rabbitmq_import_password rabbitmq_export_password rabbitmq_index_password rabbitmq_plugin_password rabbitmq_calendar_password
-  local rabbitmq_api_url rabbitmq_import_url rabbitmq_export_url rabbitmq_index_url rabbitmq_plugin_url rabbitmq_calendar_url rabbitmq_url
+  local rabbitmq_api_password rabbitmq_import_password rabbitmq_export_password rabbitmq_index_password rabbitmq_plugin_password rabbitmq_calendar_password rabbitmq_notify_password
+  local rabbitmq_api_url rabbitmq_import_url rabbitmq_export_url rabbitmq_index_url rabbitmq_plugin_url rabbitmq_calendar_url rabbitmq_notify_url rabbitmq_url
 
   rabbitmq_api_password="$(openssl rand -hex 24)"
   rabbitmq_import_password="$(openssl rand -hex 24)"
@@ -30,6 +30,7 @@ create_rabbitmq_secret() {
   rabbitmq_index_password="$(openssl rand -hex 24)"
   rabbitmq_plugin_password="$(openssl rand -hex 24)"
   rabbitmq_calendar_password="$(openssl rand -hex 24)"
+  rabbitmq_notify_password="$(openssl rand -hex 24)"
 
   # The defaults are intentionally plaintext only across the namespace-internal NetworkPolicy.
   # Supplying all full amqps:// URLs moves application traffic to an external TLS broker while
@@ -40,7 +41,8 @@ create_rabbitmq_secret() {
   rabbitmq_index_url="${NIX_RABBITMQ_INDEX_URL:-amqp://nix-index:$rabbitmq_index_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_plugin_url="${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:$rabbitmq_plugin_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_calendar_url="${NIX_RABBITMQ_CALENDAR_URL:-amqp://nix-calendar:$rabbitmq_calendar_password@nix-rabbitmq:5672/%2Fnix}"
-  for rabbitmq_url in "$rabbitmq_api_url" "$rabbitmq_import_url" "$rabbitmq_export_url" "$rabbitmq_index_url" "$rabbitmq_plugin_url" "$rabbitmq_calendar_url"; do
+  rabbitmq_notify_url="${NIX_RABBITMQ_NOTIFY_URL:-amqp://nix-notify:$rabbitmq_notify_password@nix-rabbitmq:5672/%2Fnix}"
+  for rabbitmq_url in "$rabbitmq_api_url" "$rabbitmq_import_url" "$rabbitmq_export_url" "$rabbitmq_index_url" "$rabbitmq_plugin_url" "$rabbitmq_calendar_url" "$rabbitmq_notify_url"; do
     case "$rabbitmq_url" in
       amqp://* | amqps://*) ;;
       *)
@@ -58,12 +60,14 @@ create_rabbitmq_secret() {
     --from-literal=index-password="$rabbitmq_index_password"
     --from-literal=plugin-password="$rabbitmq_plugin_password"
     --from-literal=calendar-password="$rabbitmq_calendar_password"
+    --from-literal=notify-password="$rabbitmq_notify_password"
     --from-literal=api-url="$rabbitmq_api_url"
     --from-literal=import-url="$rabbitmq_import_url"
     --from-literal=export-url="$rabbitmq_export_url"
     --from-literal=index-url="$rabbitmq_index_url"
     --from-literal=plugin-url="$rabbitmq_plugin_url"
     --from-literal=calendar-url="$rabbitmq_calendar_url"
+    --from-literal=notify-url="$rabbitmq_notify_url"
   )
   if [ "$update_existing" = true ]; then
     kubectl "${rabbitmq_secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -

@@ -38,7 +38,7 @@ smoke() {
 smoke --preflight
 # Fetch release images before writers stop, so the maintenance window excludes the download.
 # Host-built images (NIX_IMAGE_REGISTRY=localhost/nix) must already exist locally.
-release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-calendar-worker nix-web)
+release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web)
 while IFS= read -r image; do
   case "$image" in
     localhost/*) docker image inspect "$image" >/dev/null ;;
@@ -51,7 +51,7 @@ bash "$root/deploy/compose/drift.sh" "${compose[@]}"
 # migrations run. RabbitMQ mounts its configuration from the release checkout, so every release
 # recreates it; with publishers and consumers stopped, that restart cannot interrupt a delivery
 # (queues are durable and messages persistent). Failure leaves writers stopped for inspection.
-"${compose[@]}" stop nix-web nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-calendar-worker nix-collab nix-api
+"${compose[@]}" stop nix-web nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-calendar-worker nix-notify-worker nix-collab nix-api
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-opensearch nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
 "${compose[@]}" run --rm --no-deps nix-migrate
@@ -59,6 +59,6 @@ bash "$root/deploy/compose/drift.sh" "${compose[@]}"
 "${compose[@]}" run --rm --no-deps nix-api-init
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-collab-migrate
 "${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-api nix-collab
-"${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-calendar-worker nix-web cloudflared
+"${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-indexer nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web cloudflared
 smoke
 echo 'Compose release passed import/export verification. Complete browser checks in the runbook.'

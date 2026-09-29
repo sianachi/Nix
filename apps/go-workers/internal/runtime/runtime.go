@@ -31,15 +31,18 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/index"
 	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
+	"github.com/sianachi/Nix/apps/go-workers/internal/notifyjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objectcleanup"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginruntime"
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
+	"github.com/sianachi/Nix/apps/go-workers/internal/pushtransport"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
 	"github.com/sianachi/Nix/apps/go-workers/internal/templatefilecopy"
 	"github.com/sianachi/Nix/apps/go-workers/internal/templateimport"
+	"github.com/sianachi/Nix/apps/go-workers/internal/webpush"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 	"github.com/sianachi/Nix/apps/go-workers/internal/worktemp"
 )
@@ -309,6 +312,20 @@ func Run(service role.Service) {
 		}
 		go runner.Run(ctx)
 	}
+	if roles.Has(role.Notify) {
+		privateKey, keyErr := webpush.ParseVAPIDPrivateKey(settings.PushVAPIDPrivateKey)
+		if keyErr != nil {
+			logger.Error("push VAPID private key configuration failed", "error", keyErr)
+			os.Exit(1)
+		}
+		handler := notifyjob.New(apiClient, pushtransport.New(settings.RequestTimeout), privateKey, settings.PushVAPIDSubject)
+		runner, runnerErr := brokerjob.New(brokerClient, apiClient, handler, broker.NotifyQueue, notifyjob.Kinds, settings.WorkerID, settings.MaxConcurrency, settings.LeaseDuration, settings.RenewInterval, logger)
+		if runnerErr != nil {
+			logger.Error("notify job runner configuration failed", "error", runnerErr)
+			os.Exit(1)
+		}
+		go runner.Run(ctx)
+	}
 	serverFailures := make(chan error, 1)
 	go func() {
 		logger.Info("go worker listening", "address", settings.Address, "roles", settings.WorkerRoles)
@@ -438,7 +455,30 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 			return fmt.Errorf("NIX_OPENSEARCH_INDEX must be an exact safe index name: %w", err)
 		}
 	}
+	if roles.Has(role.Notify) {
+		if len(settings.PushVAPIDPrivateKey) != 32 {
+			return errors.New("NIX_PUSH_VAPID_PRIVATE_KEY must decode to 32 raw bytes for the notify role")
+		}
+		if !validVAPIDSubject(settings.PushVAPIDSubject) {
+			return errors.New("NIX_PUSH_VAPID_SUBJECT must be a mailto: or https: URI for the notify role")
+		}
+	}
 	return nil
+}
+
+func validVAPIDSubject(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	switch parsed.Scheme {
+	case "mailto":
+		return parsed.Opaque != ""
+	case "https":
+		return parsed.Host != "" && parsed.Opaque == ""
+	default:
+		return false
+	}
 }
 
 func validServiceOrigin(raw string) bool {
@@ -613,7 +653,7 @@ func (state *readinessState) RoleReady(service role.Service) bool {
 		return state.search.Load() && state.indexReady != nil && state.indexReady()
 	case role.Plugin:
 		return state.objects.Load()
-	case role.Calendar:
+	case role.Calendar, role.Notify:
 		return true
 	default:
 		return false
@@ -644,6 +684,8 @@ func queueForRole(service role.Service) string {
 		return broker.PluginEventsQueue
 	case role.Calendar:
 		return broker.CalendarQueue
+	case role.Notify:
+		return broker.NotifyQueue
 	default:
 		return ""
 	}
