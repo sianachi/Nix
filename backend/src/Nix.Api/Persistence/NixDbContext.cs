@@ -9,6 +9,7 @@ using Nix.Domain.Importing;
 using Nix.Domain.Items;
 using Nix.Domain.Links;
 using Nix.Domain.Locks;
+using Nix.Domain.Notifications;
 using Nix.Domain.Plugins;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
@@ -315,6 +316,9 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new ItemSearchEntryConfiguration());
         modelBuilder.ApplyConfiguration(new CanvasLibraryConfiguration());
         modelBuilder.ApplyConfiguration(new PetPreferencesConfiguration());
+        modelBuilder.ApplyConfiguration(new PrincipalPreferencesConfiguration());
+        modelBuilder.ApplyConfiguration(new NotificationConfiguration());
+        modelBuilder.ApplyConfiguration(new PushSubscriptionConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLockConfiguration());
         modelBuilder.ApplyConfiguration(new ItemUnlockConfiguration());

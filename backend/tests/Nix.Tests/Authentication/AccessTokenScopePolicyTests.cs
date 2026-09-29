@@ -135,6 +135,18 @@ public sealed class AccessTokenScopePolicyTests
         ["GetPetConnection"] = Requirement.InteractiveOnly,
         ["PetRuntime"] = Requirement.InteractiveOnly,
         ["WatchPetRuntime"] = Requirement.InteractiveOnly,
+
+        // Reading either is a normal Read; a PAT-driven automation should never be able to
+        // change where reminders are pushed or which devices receive them.
+        ["GetPreferences"] = Requirement.Read,
+        ["SavePreferences"] = Requirement.InteractiveOnly,
+        ["ListNotifications"] = Requirement.Read,
+        ["MarkNotificationRead"] = Requirement.Write,
+        ["MarkAllNotificationsRead"] = Requirement.Write,
+        ["WatchNotifications"] = Requirement.Read,
+        ["AddPushSubscription"] = Requirement.InteractiveOnly,
+        ["RemovePushSubscription"] = Requirement.InteractiveOnly,
+        ["GetPushPublicKey"] = Requirement.Read,
         ["CreateItem"] = Requirement.Write,
         ["CreateStructuredItem"] = Requirement.Write,
         ["SubmitPublicForm"] = Requirement.Write,

@@ -66,6 +66,17 @@ public static class AccessTokenScopePolicy
 
         var value = path.Value ?? string.Empty;
 
+        // Preferences writes and registering or removing a push device are interactive-user
+        // boundaries: a personal access token used by an automation should never be able to
+        // change where a person's reminders are pushed or silence their notifications. Reading
+        // either remains Read through the shortcut below.
+        if (!IsRead(method)
+            && (value.Equals("/api/v1/me/preferences", StringComparison.OrdinalIgnoreCase)
+                || value.Equals("/api/v1/me/push-subscriptions", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Requirement.InteractiveOnly;
+        }
+
         // Admin surfaces, whichever method reaches them, because each changes or exposes who can
         // see what rather than what there is to see:
         //  - `/public-link` publishes a view to the anonymous internet, and its GET reads back a
