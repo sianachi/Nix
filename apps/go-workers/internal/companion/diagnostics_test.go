@@ -314,13 +314,30 @@ func TestTraceCapturesProviderStderrPrivately(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, "traces", "codex-stderr.log"), bytes.Repeat([]byte("x"), maxStderrBytes+1), 0600); err != nil {
 		t.Fatal(err)
 	}
-	script := filepath.Join(t.TempDir(), "fake-codex")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\necho provider-diagnostic >&2\nread line\nid=$(printf '%s' \"$line\" | sed -E 's/.*\"id\":(\"?[^\",}]*\"?).*/\\1/')\nprintf '{\"id\":%s,\"result\":{}}\\n' \"$id\"\nexec cat >/dev/null\n"), 0700); err != nil {
+	// The fake provider is a script /bin/sh reads from the launch directory, never an executable
+	// written and exec'd by this test: exec'ing a just-written file races other forks under load
+	// (text file busy / an early exit that surfaces as a broken pipe on the first write).
+	// launchWith runs "<binary> app-server ..." from <home>/empty, so "app-server" is the script.
+	if err := os.MkdirAll(filepath.Join(home, "empty"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	transport, err := launchWith(context.Background(), script, home, func(string, json.RawMessage) {}, true)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(home, "empty", "app-server"), []byte(`echo provider-diagnostic >&2
+while IFS= read -r line; do
+  case "$line" in
+    *'"id":'*)
+      id=${line#*\"id\":}
+      id=${id%%[,\}]*}
+      printf '{"id":%s,"result":{}}\n' "$id"
+      ;;
+  esac
+done
+`), 0600); err != nil {
 		t.Fatal(err)
+	}
+	transport, err := launchWith(context.Background(), "/bin/sh", home, func(string, json.RawMessage) {}, true)
+	if err != nil {
+		stderr, _ := os.ReadFile(filepath.Join(home, "traces", "codex-stderr.log"))
+		t.Fatalf("%v; provider stderr: %q", err, stderr[max(0, len(stderr)-400):])
 	}
 	defer transport.Close()
 	path := filepath.Join(home, "traces", "codex-stderr.log")
