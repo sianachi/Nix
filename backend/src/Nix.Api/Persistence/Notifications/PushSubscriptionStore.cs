@@ -48,4 +48,33 @@ public sealed class PushSubscriptionStore(NixDbContext db) : IPushSubscriptionSt
         await db.Set<PushSubscription>()
             .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Endpoint == endpoint)
             .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false) == 1;
+
+    /// <inheritdoc />
+    public async Task<bool> RemoveByIdAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken) =>
+        await db.Set<PushSubscription>()
+            .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id)
+            .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false) == 1;
+
+    /// <inheritdoc />
+    public Task RecordDeliveredAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken) =>
+        db.Set<PushSubscription>()
+            .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.LastSuccessAt, DateTimeOffset.UtcNow)
+                .SetProperty(row => row.Failures, 0), cancellationToken);
+
+    /// <inheritdoc />
+    public async Task RecordFailedAsync(TenantId tenantId, PrincipalId principalId, Guid id, CancellationToken cancellationToken)
+    {
+        // Five consecutive failures removes the device (ADR-0051 section 5); a success anywhere
+        // in between already reset the count to zero above, so this only ever counts a streak.
+        await db.Set<PushSubscription>()
+            .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(row => row.Failures, row => row.Failures + 1), cancellationToken)
+            .ConfigureAwait(false);
+        await db.Set<PushSubscription>()
+            .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == id && row.Failures >= 5)
+            .ExecuteDeleteAsync(cancellationToken).ConfigureAwait(false);
+    }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
@@ -121,6 +122,13 @@ public static class NixPersistenceServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
+
+        // TryAdd, not Add: the real host already registered its own IConfiguration before calling
+        // this method, and that registration must win. A composition-root test that builds a bare
+        // ServiceCollection has none, so an empty stand-in is what lets every configuration-reading
+        // store (here, the notify.push gate on Nix:Push:VapidPublicKey) resolve without one - the
+        // same reading a missing section gets in production: unset, so push stays unavailable.
+        services.TryAddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
 
         var connectionString = AssertRuntimeConnectionString(options.ConnectionString);
 
@@ -253,6 +261,25 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IPushSubscriptionStore, PushSubscriptionStore>();
         services.AddScoped<ICommandHandler<AddPushSubscription, PushSubscriptionDto>, AddPushSubscriptionHandler>();
         services.AddScoped<ICommandHandler<RemovePushSubscription, bool>, RemovePushSubscriptionHandler>();
+
+        // The scheduler (ADR-0051 section 1). The lease store calls the cross-tenant SECURITY
+        // DEFINER functions directly against the pool, exactly like AbandonedObjectOperationStore;
+        // the plain store is RLS-scoped and used only inside a session already scoped to the
+        // trigger's own tenant and principal.
+        services.AddSingleton<Nix.Persistence.Scheduling.ScheduledTriggerLeaseStore>();
+        services.AddSingleton<Nix.Abstractions.Scheduling.IScheduledTriggerLeaseStore>(
+            provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ScheduledTriggerLeaseStore>());
+        services.AddScoped<Nix.Abstractions.Scheduling.IScheduledTriggerStore, Nix.Persistence.Scheduling.ScheduledTriggerStore>();
+        services.AddSingleton<Nix.Abstractions.Scheduling.IRetentionStore, Nix.Persistence.Scheduling.RetentionStore>();
+        if (options.SchedulingEnabled)
+        {
+            services.AddSingleton<Nix.Persistence.Scheduling.ScheduleDispatcher>();
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(
+                provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ScheduleDispatcher>());
+            services.AddSingleton<Nix.Persistence.Scheduling.TriggerPlanner>();
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(
+                provider => provider.GetRequiredService<Nix.Persistence.Scheduling.TriggerPlanner>());
+        }
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();
         services.AddScoped<IWorkspaceCalendar, WorkspaceCalendarReader>();
         services.AddScoped<IRecurrenceCandidates, RecurrenceCandidateReader>();

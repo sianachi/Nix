@@ -45,4 +45,6 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(PluginHostCallResponse))]
 [JsonSerializable(typeof(PluginCompletionRequest))]
 [JsonSerializable(typeof(PluginCompletionResponse))]
+[JsonSerializable(typeof(NotificationDeliveryResponse))]
+[JsonSerializable(typeof(NotificationDeliveryResultsRequest))]
 internal sealed partial class InternalJsonContext : JsonSerializerContext;

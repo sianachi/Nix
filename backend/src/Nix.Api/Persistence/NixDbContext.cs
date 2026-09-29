@@ -11,6 +11,7 @@ using Nix.Domain.Links;
 using Nix.Domain.Locks;
 using Nix.Domain.Notifications;
 using Nix.Domain.Plugins;
+using Nix.Domain.Scheduling;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
@@ -320,6 +321,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new NotificationConfiguration());
         modelBuilder.ApplyConfiguration(new PushSubscriptionConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationInboxConfiguration());
+        modelBuilder.ApplyConfiguration(new ScheduledTriggerConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLockConfiguration());
         modelBuilder.ApplyConfiguration(new ItemUnlockConfiguration());

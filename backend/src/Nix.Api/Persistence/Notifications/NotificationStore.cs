@@ -1,5 +1,9 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Nix.Abstractions;
+using Nix.Abstractions.Notifications;
+using Nix.Abstractions.Workers;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Notifications;
@@ -18,8 +22,14 @@ namespace Nix.Persistence.Notifications;
 /// fail-closed, the same guarantee <c>Rls_refuses_a_forged_owner_on_insert</c> proves for
 /// pet_preferences.
 /// </remarks>
-public sealed class NotificationStore(NixDbContext db, INixSessionContextAccessor session) : INotificationStore, INotificationWriter
+public sealed class NotificationStore(
+    NixDbContext db,
+    INixSessionContextAccessor session,
+    IPushSubscriptionStore pushSubscriptions,
+    IWorkerJobStore workerJobs,
+    IConfiguration configuration) : INotificationStore, INotificationWriter
 {
+    private const string VapidPublicKeyConfigurationKey = "Nix:Push:VapidPublicKey";
     /// <inheritdoc />
     public async Task<NotificationPage> ListAsync(TenantId tenantId, PrincipalId principalId, long? afterSeq, bool unreadOnly, int limit, CancellationToken cancellationToken)
     {
@@ -58,6 +68,12 @@ public sealed class NotificationStore(NixDbContext db, INixSessionContextAccesso
             """).SingleAsync(cancellationToken).ConfigureAwait(false);
         return (summary.Unread, summary.Revision);
     }
+
+    /// <inheritdoc />
+    public async Task<Notification?> GetAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken) =>
+        await db.Set<Notification>().AsNoTracking()
+            .SingleOrDefaultAsync(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == notificationId, cancellationToken)
+            .ConfigureAwait(false);
 
     /// <inheritdoc />
     public async Task<bool> MarkReadAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken)
@@ -129,12 +145,49 @@ public sealed class NotificationStore(NixDbContext db, INixSessionContextAccesso
         if (inserted == 1)
         {
             await BumpRevisionAsync(context.TenantId, principal, cancellationToken).ConfigureAwait(false);
+            await EnqueuePushAsync(context.TenantId, principal, id, workspaceId, cancellationToken).ConfigureAwait(false);
         }
 
         var row = await db.Set<Notification>().AsNoTracking()
             .SingleAsync(row => row.TenantId == context.TenantId && row.PrincipalId == principal && row.DedupeKey == dedupeKey, cancellationToken)
             .ConfigureAwait(false);
         return new NotificationWriteResult(row, inserted == 1);
+    }
+
+    // A push is enqueued only for a newly created notification (never a deduplicated one), only
+    // when the recipient has a device to push to, and only when push is configured at all - an
+    // unconfigured Nix:Push:VapidPublicKey means the inbox still works and push stays unavailable
+    // (ADR-0051 section 5 and its consequences). The job rides the same transaction as the
+    // notification insert above: both commit together, or neither does.
+    private async Task EnqueuePushAsync(
+        TenantId tenantId,
+        PrincipalId principal,
+        Guid notificationId,
+        WorkspaceId? workspaceId,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(configuration[VapidPublicKeyConfigurationKey]))
+        {
+            return;
+        }
+
+        var devices = await pushSubscriptions.ListAsync(tenantId, principal, cancellationToken).ConfigureAwait(false);
+        if (devices.Count == 0)
+        {
+            return;
+        }
+
+        var payload = JsonSerializer.Serialize(
+            new NotifyPushJobPayload(notificationId),
+            NotifyPushJobJsonContext.Default.NotifyPushJobPayload);
+        await workerJobs.CreateAsync(
+            tenantId,
+            principal,
+            workspaceId,
+            "notify.push",
+            $"notify:{notificationId:D}",
+            payload,
+            cancellationToken).ConfigureAwait(false);
     }
 
     // Every change to an inbox bumps its counter in the same transaction; the row lock orders the

@@ -40,6 +40,11 @@ internal sealed class NixPersistenceHost : IAsyncDisposable
         services.AddNixPersistence(connectionString);
         services.AddNixObjectStorage(new ConfigurationBuilder().Build());
 
+        // Registered only here, never by production composition (ADR-0051's A2 lane): a fixed
+        // point the scheduling tests use to exercise plan -> fire -> notify end to end without a
+        // real reminder or automation source existing yet.
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.SystemTestTriggerSource>();
+
         if (testInterceptor is not null)
         {
             // Test-only composition seam: append an observer to the real persistence graph so
