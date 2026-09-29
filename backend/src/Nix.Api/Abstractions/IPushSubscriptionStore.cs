@@ -10,8 +10,11 @@ public interface IPushSubscriptionStore
     /// <summary>Lists the owner's registered devices.</summary>
     public Task<IReadOnlyList<PushSubscription>> ListAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken);
 
-    /// <summary>Counts the owner's registered devices, to enforce the per-principal ceiling before an insert.</summary>
-    public Task<int> CountAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken);
+    /// <summary>
+    /// Takes a transaction-scoped lock on the owner's registrations, so a count-then-insert under
+    /// it cannot race a concurrent registration past the per-principal ceiling.
+    /// </summary>
+    public Task LockAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Registers a device, or refreshes the existing row for the same endpoint. Returns the saved row.

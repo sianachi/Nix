@@ -319,6 +319,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new PrincipalPreferencesConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationConfiguration());
         modelBuilder.ApplyConfiguration(new PushSubscriptionConfiguration());
+        modelBuilder.ApplyConfiguration(new NotificationInboxConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLockConfiguration());
         modelBuilder.ApplyConfiguration(new ItemUnlockConfiguration());

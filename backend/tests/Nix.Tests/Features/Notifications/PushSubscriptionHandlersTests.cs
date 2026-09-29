@@ -11,8 +11,17 @@ public sealed class PushSubscriptionHandlersTests
 {
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
-    private static string Base64Url(int byteCount) =>
-        Convert.ToBase64String(new byte[byteCount]).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    // A 65-byte key is an uncompressed P-256 point, so it starts with 0x04; other lengths are zeros.
+    private static string Base64Url(int byteCount)
+    {
+        var bytes = new byte[byteCount];
+        if (byteCount == 65)
+        {
+            bytes[0] = 0x04;
+        }
+
+        return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
 
     [Fact]
     public async Task A_disallowed_endpoint_is_refused_before_it_is_stored()
@@ -80,8 +89,7 @@ public sealed class PushSubscriptionHandlersTests
         public Task<IReadOnlyList<PushSubscription>> ListAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<PushSubscription>>(_rows.Where(row => row.TenantId == tenantId && row.PrincipalId == principalId).ToList());
 
-        public Task<int> CountAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) =>
-            Task.FromResult(_rows.Count(row => row.TenantId == tenantId && row.PrincipalId == principalId));
+        public Task LockAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<PushSubscription> SaveAsync(PushSubscription subscription, CancellationToken cancellationToken)
         {

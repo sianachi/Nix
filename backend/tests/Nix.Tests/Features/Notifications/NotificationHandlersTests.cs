@@ -19,7 +19,7 @@ public sealed class NotificationHandlersTests
         var created = await store.CreateAsync(session.Current!.Value.PrincipalId, NotificationKind.Reminder, "Title", "Body", null, null, "key-1", Cancellation);
 
         var markRead = new MarkNotificationReadHandler(store, session);
-        var result = await markRead.HandleAsync(new(created.Id), Cancellation);
+        var result = await markRead.HandleAsync(new(created.Notification.Id), Cancellation);
         Assert.True(result.IsSuccess);
         Assert.Equal(0, result.Value.Unread);
 
@@ -65,8 +65,10 @@ public sealed class NotificationHandlersTests
         var (session, store) = MakeSession();
         var first = await store.CreateAsync(session.Current!.Value.PrincipalId, NotificationKind.System, "First", "Body", null, null, "same-key", Cancellation);
         var second = await store.CreateAsync(session.Current!.Value.PrincipalId, NotificationKind.System, "Second", "Body", null, null, "same-key", Cancellation);
-        Assert.Equal(first.Id, second.Id);
-        Assert.Equal("First", second.Title);
+        Assert.True(first.Created);
+        Assert.False(second.Created);
+        Assert.Equal(first.Notification.Id, second.Notification.Id);
+        Assert.Equal("First", second.Notification.Title);
     }
 
     private static (ScopedNixSessionContextAccessor Session, MemoryNotificationStore Store) MakeSession()
@@ -80,6 +82,7 @@ public sealed class NotificationHandlersTests
     {
         private readonly List<Notification> _rows = [];
         private long _nextSeq = 1;
+        private long _revision;
 
         public Task<NotificationPage> ListAsync(TenantId tenantId, PrincipalId principalId, long? afterSeq, bool unreadOnly, int limit, CancellationToken cancellationToken)
         {
@@ -101,10 +104,8 @@ public sealed class NotificationHandlersTests
 
         public Task<(int Unread, long Revision)> SummaryAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken)
         {
-            var own = _rows.Where(row => row.TenantId == tenantId && row.PrincipalId == principalId).ToList();
-            var unread = own.Count(row => row.ReadAt is null);
-            var latest = own.Count == 0 ? (DateTimeOffset?)null : own.Max(row => row.ReadAt is { } read && read > row.CreatedAt ? read : row.CreatedAt);
-            return Task.FromResult((unread, latest?.ToUnixTimeMilliseconds() ?? 0));
+            var unread = _rows.Count(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.ReadAt is null);
+            return Task.FromResult((unread, _revision));
         }
 
         public Task<bool> MarkReadAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken)
@@ -115,7 +116,12 @@ public sealed class NotificationHandlersTests
                 return Task.FromResult(false);
             }
 
-            _rows[index] = _rows[index].ReadAt is null ? CloneWithRead(_rows[index]) : _rows[index];
+            if (_rows[index].ReadAt is null)
+            {
+                _rows[index] = CloneWithRead(_rows[index]);
+                _revision++;
+            }
+
             return Task.FromResult(true);
         }
 
@@ -126,18 +132,19 @@ public sealed class NotificationHandlersTests
                 if (_rows[index].TenantId == tenantId && _rows[index].PrincipalId == principalId && _rows[index].ReadAt is null)
                 {
                     _rows[index] = CloneWithRead(_rows[index]);
+                    _revision++;
                 }
             }
 
             return Task.CompletedTask;
         }
 
-        public Task<Notification> CreateAsync(PrincipalId principal, NotificationKind kind, string title, string body, ItemId? itemId, WorkspaceId? workspaceId, string dedupeKey, CancellationToken cancellationToken)
+        public Task<NotificationWriteResult> CreateAsync(PrincipalId principal, NotificationKind kind, string title, string body, ItemId? itemId, WorkspaceId? workspaceId, string dedupeKey, CancellationToken cancellationToken)
         {
-            var existing = _rows.FirstOrDefault(row => row.DedupeKey == dedupeKey);
+            var existing = _rows.FirstOrDefault(row => row.PrincipalId == principal && row.DedupeKey == dedupeKey);
             if (existing is not null)
             {
-                return Task.FromResult(existing);
+                return Task.FromResult(new NotificationWriteResult(existing, Created: false));
             }
 
             var created = new Notification
@@ -155,7 +162,8 @@ public sealed class NotificationHandlersTests
                 DedupeKey = dedupeKey,
             };
             _rows.Add(created);
-            return Task.FromResult(created);
+            _revision++;
+            return Task.FromResult(new NotificationWriteResult(created, Created: true));
         }
 
         private static Notification CloneWithRead(Notification row) => new()

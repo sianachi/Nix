@@ -628,7 +628,8 @@ public sealed class NixUnitOfWorkMiddleware
         // every other request authenticating with the same token behind it. Skip the touch here;
         // the same token still gets touched by the requests that follow the long poll.
         var isWatchLongPoll = HttpMethods.IsGet(context.Request.Method)
-            && context.Request.Path.StartsWithSegments("/api/v1/me/pets/runtime/watch", StringComparison.OrdinalIgnoreCase);
+            && (context.Request.Path.StartsWithSegments("/api/v1/me/pets/runtime/watch", StringComparison.OrdinalIgnoreCase)
+                || context.Request.Path.StartsWithSegments("/api/v1/me/notifications/watch", StringComparison.OrdinalIgnoreCase));
         if (!isWatchLongPoll && (state.LastUsedAt is null || now - state.LastUsedAt >= LastUsedGranularity))
         {
             await accessTokens.TouchAsync(accessTokenId, now, context.RequestAborted).ConfigureAwait(false);

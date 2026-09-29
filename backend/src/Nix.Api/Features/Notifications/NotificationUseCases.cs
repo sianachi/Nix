@@ -54,7 +54,7 @@ public sealed class MarkAllNotificationsReadHandler(INotificationStore store, IN
 /// <summary>
 /// Long-polls the session owner's inbox for a change past a known revision, modelled on the
 /// pet runtime watch: the same unit of work stays open for the whole wait (bounded by
-/// <see cref="NotificationWatchGate"/> before it starts), and each poll is a fresh statement, so
+/// <see cref="NotificationWatchGate"/>), and each poll is a fresh statement, so
 /// PostgreSQL's read-committed default lets it see notifications another connection committed
 /// while this one waited.
 /// </summary>
@@ -71,12 +71,12 @@ public sealed class WatchNotificationsHandler(INotificationStore store, INixSess
         var deadline = DateTimeOffset.UtcNow + MaxWait;
         while (true)
         {
-            var (unread, revision) = await store.SummaryAsync(context.TenantId, context.PrincipalId, cancellationToken).ConfigureAwait(false);
+            var (_, revision) = await store.SummaryAsync(context.TenantId, context.PrincipalId, cancellationToken).ConfigureAwait(false);
             if (revision > query.After || DateTimeOffset.UtcNow >= deadline)
             {
                 var page = await store.ListAsync(context.TenantId, context.PrincipalId, afterSeq: null, unreadOnly: false,
                     Nix.Contracts.CursorPaging.DefaultLimit, cancellationToken).ConfigureAwait(false);
-                return NotificationsMapping.ToResponse(page with { Unread = unread, Revision = revision });
+                return NotificationsMapping.ToResponse(page);
             }
 
             var remaining = deadline - DateTimeOffset.UtcNow;

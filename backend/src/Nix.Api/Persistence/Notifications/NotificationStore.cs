@@ -35,46 +35,63 @@ public sealed class NotificationStore(NixDbContext db, INixSessionContextAccesso
             query = query.Where(row => row.Seq < cursor);
         }
 
-        var items = await query.OrderByDescending(row => row.Seq).Take(limit).ToListAsync(cancellationToken).ConfigureAwait(false);
+        // One row past the page tells whether another page exists, so the last page never hands
+        // out a cursor that leads to an empty one.
+        var fetched = await query.OrderByDescending(row => row.Seq).Take(limit + 1).ToListAsync(cancellationToken).ConfigureAwait(false);
+        var items = fetched.Count > limit ? fetched.GetRange(0, limit) : fetched;
         var (unread, revision) = await SummaryAsync(tenantId, principalId, cancellationToken).ConfigureAwait(false);
-        var nextCursor = items.Count == limit ? items[^1].Seq.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
+        var nextCursor = fetched.Count > limit ? items[^1].Seq.ToString(System.Globalization.CultureInfo.InvariantCulture) : null;
         return new NotificationPage(items, nextCursor, unread, revision);
     }
 
     /// <inheritdoc />
     public async Task<(int Unread, long Revision)> SummaryAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken)
     {
-        var own = db.Set<Notification>().AsNoTracking().Where(row => row.TenantId == tenantId && row.PrincipalId == principalId);
-        var unread = await own.CountAsync(row => row.ReadAt == null, cancellationToken).ConfigureAwait(false);
-
-        // The watch revision is the latest instant anything about this inbox changed: a new
-        // notification's created_at, or an existing one's read_at. Whichever moved most recently.
-        var latestCreated = await own.Select(row => (DateTimeOffset?)row.CreatedAt).MaxAsync(cancellationToken).ConfigureAwait(false);
-        var latestRead = await own.Select(row => row.ReadAt).MaxAsync(cancellationToken).ConfigureAwait(false);
-        var latest = latestCreated is { } created && (latestRead is null || created > latestRead) ? created
-            : latestRead ?? latestCreated;
-        return (unread, latest?.ToUnixTimeMilliseconds() ?? 0);
+        // One statement, so the unread count and the revision come from the same snapshot. The
+        // count is served by the partial index on unread rows; the revision is one primary-key probe.
+        var summary = await db.Database.SqlQuery<InboxSummary>($"""
+            SELECT
+                (SELECT count(*)::int FROM notification
+                  WHERE tenant_id = {tenantId.Value} AND principal_id = {principalId.Value} AND read_at IS NULL) AS "Unread",
+                COALESCE((SELECT revision FROM notification_inbox
+                  WHERE tenant_id = {tenantId.Value} AND principal_id = {principalId.Value}), 0) AS "Revision"
+            """).SingleAsync(cancellationToken).ConfigureAwait(false);
+        return (summary.Unread, summary.Revision);
     }
 
     /// <inheritdoc />
-    public async Task<bool> MarkReadAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken) =>
-        await db.Set<Notification>()
+    public async Task<bool> MarkReadAsync(TenantId tenantId, PrincipalId principalId, Guid notificationId, CancellationToken cancellationToken)
+    {
+        var updated = await db.Set<Notification>()
             .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == notificationId && row.ReadAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.ReadAt, DateTimeOffset.UtcNow), cancellationToken)
-            .ConfigureAwait(false) == 1
-        || await db.Set<Notification>().AsNoTracking()
+            .ConfigureAwait(false);
+        if (updated == 1)
+        {
+            await BumpRevisionAsync(tenantId, principalId, cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+
+        return await db.Set<Notification>().AsNoTracking()
             .AnyAsync(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.Id == notificationId, cancellationToken)
             .ConfigureAwait(false);
+    }
 
     /// <inheritdoc />
-    public async Task MarkAllReadAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) =>
-        await db.Set<Notification>()
+    public async Task MarkAllReadAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken)
+    {
+        var updated = await db.Set<Notification>()
             .Where(row => row.TenantId == tenantId && row.PrincipalId == principalId && row.ReadAt == null)
             .ExecuteUpdateAsync(setters => setters.SetProperty(row => row.ReadAt, DateTimeOffset.UtcNow), cancellationToken)
             .ConfigureAwait(false);
+        if (updated > 0)
+        {
+            await BumpRevisionAsync(tenantId, principalId, cancellationToken).ConfigureAwait(false);
+        }
+    }
 
     /// <inheritdoc />
-    public async Task<Notification> CreateAsync(
+    public async Task<NotificationWriteResult> CreateAsync(
         PrincipalId principal,
         NotificationKind kind,
         string title,
@@ -86,26 +103,49 @@ public sealed class NotificationStore(NixDbContext db, INixSessionContextAccesso
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(dedupeKey);
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
+        if (context.PrincipalId != principal)
+        {
+            // Row-level security would refuse this insert anyway; saying so here gives the caller
+            // a clear programming error instead of an opaque policy violation from the database.
+            throw new InvalidOperationException("A notification is written from a session scoped to its recipient.");
+        }
+
         var id = Guid.CreateVersion7();
         var createdAt = DateTimeOffset.UtcNow;
         var kindText = NotificationKindStorage.ToText(kind);
         Guid? itemIdValue = itemId.HasValue ? itemId.Value.Value : null;
         Guid? workspaceIdValue = workspaceId.HasValue ? workspaceId.Value.Value : null;
 
-        // ON CONFLICT DO NOTHING makes this idempotent per (tenant, dedupe key): a redelivered
-        // trigger or a retried worker call lands on the row that already exists instead of a
-        // second one. The insert is always attempted at the caller-chosen principal; a session
-        // scoped to a different principal is refused by row-level security before the select below.
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+        // ON CONFLICT DO NOTHING makes this idempotent per (tenant, principal, dedupe key): a
+        // redelivered trigger or a retried worker call lands on the row that already exists
+        // instead of a second one, and the affected-row count says which happened.
+        var inserted = await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO notification (tenant_id, id, principal_id, kind, title, body, item_id, workspace_id, created_at, dedupe_key)
             VALUES ({context.TenantId.Value}, {id}, {principal.Value}, {kindText}, {title}, {body},
                 {itemIdValue}, {workspaceIdValue},
                 {createdAt}, {dedupeKey})
-            ON CONFLICT (tenant_id, dedupe_key) DO NOTHING
+            ON CONFLICT (tenant_id, principal_id, dedupe_key) DO NOTHING
             """, cancellationToken).ConfigureAwait(false);
+        if (inserted == 1)
+        {
+            await BumpRevisionAsync(context.TenantId, principal, cancellationToken).ConfigureAwait(false);
+        }
 
-        return await db.Set<Notification>().AsNoTracking()
-            .SingleAsync(row => row.TenantId == context.TenantId && row.DedupeKey == dedupeKey, cancellationToken)
+        var row = await db.Set<Notification>().AsNoTracking()
+            .SingleAsync(row => row.TenantId == context.TenantId && row.PrincipalId == principal && row.DedupeKey == dedupeKey, cancellationToken)
             .ConfigureAwait(false);
+        return new NotificationWriteResult(row, inserted == 1);
     }
+
+    // Every change to an inbox bumps its counter in the same transaction; the row lock orders the
+    // bumps by commit, which is what lets a watcher trust "revision greater than what I saw".
+    private Task<int> BumpRevisionAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO notification_inbox (tenant_id, principal_id, revision)
+            VALUES ({tenantId.Value}, {principalId.Value}, 1)
+            ON CONFLICT (tenant_id, principal_id) DO UPDATE SET revision = notification_inbox.revision + 1
+            """, cancellationToken);
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "EF Core materialises SqlQuery rows through reflection.")]
+    private sealed record InboxSummary(int Unread, long Revision);
 }

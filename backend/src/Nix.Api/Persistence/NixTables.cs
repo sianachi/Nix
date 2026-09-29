@@ -98,6 +98,9 @@ public static class NixTables
     /// <summary>One device registered for Web Push.</summary>
     public const string PushSubscription = "push_subscription";
 
+    /// <summary>The per-principal notification inbox revision counter.</summary>
+    public const string NotificationInbox = "notification_inbox";
+
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
@@ -180,6 +183,7 @@ public static class NixTables
         PrincipalPreferences,
         Notification,
         PushSubscription,
+        NotificationInbox,
         Bookmark,
         ItemLock,
         ItemUnlock,
@@ -333,6 +337,7 @@ public static class NixTables
             [PrincipalPreferences] = FullDml,
             [Notification] = FullDml,
             [PushSubscription] = FullDml,
+            [NotificationInbox] = FullDml,
 
             // Revoked, never deleted: the rows are the audit of what has been able to act as a
             // principal, and an application that can erase that record can erase evidence.

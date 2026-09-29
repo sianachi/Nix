@@ -84,6 +84,7 @@ internal static class NotificationEndpoints
         var principalId = (session.Current ?? throw new InvalidOperationException("A session is required.")).PrincipalId.Value;
         if (!gate.TryEnter(principalId))
         {
+            context.Response.Headers.RetryAfter = "5";
             return TypedResults.Problem(ApiProblem.Create(context, StatusCodes.Status429TooManyRequests,
                 "notifications.too_many_watches", "Too many active watches", "Close another tab and try again."));
         }

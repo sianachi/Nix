@@ -247,6 +247,28 @@ public sealed class AccessTokenScopePolicyTests
     }
 
     [Theory]
+    [InlineData("PUT", "/api/v1/me/preferences")]
+    [InlineData("PUT", "/api/v1/me/preferences/")]
+    [InlineData("POST", "/api/v1/me/push-subscriptions/")]
+    [InlineData("DELETE", "/api/v1/me/push-subscriptions//")]
+    public void A_trailing_slash_does_not_turn_an_interactive_only_write_into_a_token_write(string method, string path)
+    {
+        // ASP.NET routing treats "/x/" as "/x", so the classifier must too.
+        var requirement = Classify(method, path);
+
+        Assert.Equal(Requirement.InteractiveOnly, requirement);
+        Assert.False(Satisfies([AccessTokenScopes.Read, AccessTokenScopes.Write, AccessTokenScopes.Admin], requirement));
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/v1/items/00000000-0000-0000-0000-000000000001/move/")]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/leave/")]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/archive/")]
+    [InlineData("GET", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/invitees/")]
+    public void A_trailing_slash_does_not_lower_an_admin_route(string method, string path) =>
+        Assert.Equal(Requirement.Admin, Classify(method, path));
+
+    [Theory]
     [InlineData("GET", "/api/v1/me/tokens")]
     [InlineData("GET", "/api/v1/me/pets/connection")]
     [InlineData("POST", "/api/v1/me/pets/runtime")]

@@ -12,7 +12,7 @@ internal sealed class PushSubscriptionConfiguration : IEntityTypeConfiguration<P
         ArgumentNullException.ThrowIfNull(builder);
         builder.ToTable(NixTables.PushSubscription, table => table.HasCheckConstraint(
             "push_subscription_bounded",
-            "char_length(endpoint) <= 2048 AND char_length(p256dh) <= 128 AND char_length(auth) <= 64"
+            "octet_length(endpoint) <= 2048 AND char_length(p256dh) <= 128 AND char_length(auth) <= 64"
                 + " AND char_length(user_agent) <= 400 AND failures >= 0"));
         builder.HasKey(row => row.Id);
         builder.Property(row => row.Id).HasColumnName("id");
@@ -33,9 +33,6 @@ internal sealed class PushSubscriptionConfiguration : IEntityTypeConfiguration<P
             // A device registration is personal state kept for the principal, not a reference to
             // them: when they are purged, their devices stop being pushed to.
             .OnDelete(DeleteBehavior.Cascade);
-
-        builder.HasIndex(row => new { row.TenantId, row.PrincipalId })
-            .HasDatabaseName("IX_push_subscription_tenant_id_principal_id");
 
         // Re-subscribing the same browser (a token refresh, a re-registration after
         // pushsubscriptionchange) replaces the existing row rather than growing a duplicate.

@@ -11,9 +11,15 @@ internal sealed class PrincipalPreferencesConfiguration : IEntityTypeConfigurati
     public void Configure(EntityTypeBuilder<PrincipalPreferences> builder)
     {
         ArgumentNullException.ThrowIfNull(builder);
-        builder.ToTable(NixTables.PrincipalPreferences, table => table.HasCheckConstraint(
-            "principal_preferences_bounded",
-            "array_length(muted_container_ids, 1) IS NULL OR array_length(muted_container_ids, 1) <= 200"));
+        builder.ToTable(NixTables.PrincipalPreferences, table =>
+        {
+            table.HasCheckConstraint(
+                "principal_preferences_bounded",
+                "array_length(muted_container_ids, 1) IS NULL OR array_length(muted_container_ids, 1) <= 200");
+
+            // Quiet hours are a window: both ends or neither, never half of one for the planner to guess at.
+            table.HasCheckConstraint("principal_preferences_quiet_hours", "(quiet_start IS NULL) = (quiet_end IS NULL)");
+        });
         builder.HasKey(row => new { row.TenantId, row.PrincipalId });
         builder.Property(row => row.TenantId).HasColumnName("tenant_id");
         builder.Property(row => row.PrincipalId).HasColumnName("principal_id");

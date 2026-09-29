@@ -313,6 +313,11 @@ internal static class M0SchemaSeed
                             '{new string(slug == "alpha" ? 'p' : 'q', 87)}', '{new string(slug == "alpha" ? 'k' : 'j', 22)}',
                             '{slug}-agent', now(), NULL, 0);
                 END IF;
+
+                IF to_regclass('public.notification_inbox') IS NOT NULL THEN
+                    INSERT INTO notification_inbox (tenant_id, principal_id, revision)
+                    VALUES ({tenant}, {principal}, 1);
+                END IF;
             END $notifications$;
 
             -- One published capability so the generic tenant-isolation theories exercise the
