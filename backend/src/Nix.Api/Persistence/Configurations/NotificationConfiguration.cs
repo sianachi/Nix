@@ -43,13 +43,20 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
             .OnDelete(DeleteBehavior.Cascade);
 
         // The only list read: this principal's inbox, newest first, optionally filtered to unread.
-        builder.HasIndex(row => new { row.TenantId, row.PrincipalId, row.Seq })
-            .HasDatabaseName("IX_notification_tenant_id_principal_id_seq");
+        builder.HasIndex(row => new { row.TenantId, row.PrincipalId, row.Seq }, "IX_notification_tenant_id_principal_id_seq");
 
-        // Creating a notification is idempotent per tenant: a repeated dedupe key (a redelivered
-        // trigger, a retried worker call) returns the row that already exists.
-        builder.HasIndex(row => new { row.TenantId, row.DedupeKey })
+        // Creating a notification is idempotent per recipient: a repeated dedupe key (a redelivered
+        // trigger, a retried worker call) returns the row that already exists. The key is unique
+        // per principal, not per tenant: row-level security hides other principals' rows, so a
+        // tenant-wide index would let one recipient's key silently swallow another's notification.
+        builder.HasIndex(row => new { row.TenantId, row.PrincipalId, row.DedupeKey })
             .IsUnique()
-            .HasDatabaseName("IX_notification_tenant_id_dedupe_key");
+            .HasDatabaseName("IX_notification_tenant_id_principal_id_dedupe_key");
+
+        // The unread count every inbox read and watch poll needs, and the unread-only list and
+        // mark-all-read: served from the unread rows alone instead of scanning the whole inbox.
+        // Named separately so EF keeps it beside, not instead of, the full index on the same columns.
+        builder.HasIndex(row => new { row.TenantId, row.PrincipalId, row.Seq }, "IX_notification_tenant_id_principal_id_seq_unread")
+            .HasFilter("read_at IS NULL");
     }
 }

@@ -3,30 +3,44 @@ using System.Collections.Concurrent;
 namespace Nix.Features.Notifications;
 
 /// <summary>
-/// Bounds how many <c>notifications/watch</c> long-polls one principal can hold open at once.
+/// Bounds how many <c>notifications/watch</c> long-polls one principal, and this process as a
+/// whole, can hold open at once.
 /// </summary>
 /// <remarks>
 /// The watch route is deliberately outside the writes rate limiter (it is a read, and must never
-/// queue behind one), so nothing else stops a client with several tabs from pinning several
-/// long-lived transactions. This is the bound instead: at most two outstanding per principal, the
-/// same shape the Go worker's own pet-runtime watch enforces, checked before a unit of work opens
-/// rather than after.
+/// queue behind one), and every watch holds a pooled database connection and an open
+/// unit-of-work transaction for up to twenty seconds (the gate runs inside the endpoint, after
+/// the unit of work has begun). Two bounds keep that from exhausting the pool: at most two per
+/// principal, and at most <see cref="MaxConcurrentPerProcess"/> across every principal, well under
+/// the default connection pool of one hundred. Both are per process: with several Core replicas a
+/// principal can hold two per replica (recorded in ADR-0051).
 /// </remarks>
 public sealed class NotificationWatchGate
 {
     /// <summary>The most watches one principal may hold open at the same time.</summary>
     public const int MaxConcurrent = 2;
 
+    /// <summary>The most watches this process may hold open across every principal.</summary>
+    public const int MaxConcurrentPerProcess = 40;
+
     private readonly ConcurrentDictionary<Guid, int> active = new();
+    private int total;
 
     /// <summary>Claims a slot for this principal. Returns <see langword="false"/> when none is free.</summary>
     public bool TryEnter(Guid principalId)
     {
+        if (Interlocked.Increment(ref total) > MaxConcurrentPerProcess)
+        {
+            Interlocked.Decrement(ref total);
+            return false;
+        }
+
         while (true)
         {
             var current = active.GetOrAdd(principalId, 0);
             if (current >= MaxConcurrent)
             {
+                Interlocked.Decrement(ref total);
                 return false;
             }
 
@@ -42,21 +56,17 @@ public sealed class NotificationWatchGate
     {
         while (true)
         {
-            if (!active.TryGetValue(principalId, out var current))
+            if (!active.TryGetValue(principalId, out var current) || current <= 0)
             {
                 return;
             }
 
-            var next = Math.Max(0, current - 1);
-            if (next == 0)
+            var released = current == 1
+                ? active.TryRemove(new KeyValuePair<Guid, int>(principalId, current))
+                : active.TryUpdate(principalId, current - 1, current);
+            if (released)
             {
-                if (active.TryRemove(new KeyValuePair<Guid, int>(principalId, current)))
-                {
-                    return;
-                }
-            }
-            else if (active.TryUpdate(principalId, next, current))
-            {
+                Interlocked.Decrement(ref total);
                 return;
             }
         }

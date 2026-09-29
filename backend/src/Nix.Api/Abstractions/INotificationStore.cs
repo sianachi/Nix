@@ -10,8 +10,9 @@ namespace Nix.Abstractions;
 /// <param name="NextCursor">The cursor for the following slice, or <see langword="null"/> on the last one.</param>
 /// <param name="Unread">How many of this principal's notifications are unread, regardless of slice.</param>
 /// <param name="Revision">
-/// The latest of every notification's created-at or read-at instant for this principal, as epoch
-/// milliseconds. Callers of <c>watch</c> pass back the highest revision they have already seen.
+/// The inbox change counter for this principal, bumped in the same transaction as every new
+/// notification and every read. Callers of <c>watch</c> pass back the highest revision they have
+/// already seen.
 /// </param>
 public sealed record NotificationPage(IReadOnlyList<Notification> Items, string? NextCursor, int Unread, long Revision);
 
@@ -31,6 +32,14 @@ public interface INotificationStore
     public Task MarkAllReadAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken);
 }
 
+/// <summary>A created or already existing notification, and which of the two it was.</summary>
+/// <param name="Notification">The stored notification.</param>
+/// <param name="Created">
+/// <see langword="true"/> when this call inserted it; <see langword="false"/> when the dedupe key
+/// already existed. Only a created notification should be pushed.
+/// </param>
+public sealed record NotificationWriteResult(Notification Notification, bool Created);
+
 /// <summary>
 /// Creates notifications on a recipient's behalf. Used by later lanes' background sources
 /// (reminders, automations, calendar sync); the caller's session must already be scoped to the
@@ -39,10 +48,15 @@ public interface INotificationStore
 public interface INotificationWriter
 {
     /// <summary>
-    /// Creates a notification, or returns the one that already exists for the same
-    /// <paramref name="dedupeKey"/> within the tenant.
+    /// Creates a notification, or returns the one that already exists for the same recipient and
+    /// <paramref name="dedupeKey"/>.
     /// </summary>
-    public Task<Notification> CreateAsync(
+    /// <remarks>
+    /// Dedupe keys are built by server code from identifiers (rule, item, occurrence, recipient)
+    /// and never contain user-written text. The session must be scoped to
+    /// <paramref name="principal"/>; any other principal is refused.
+    /// </remarks>
+    public Task<NotificationWriteResult> CreateAsync(
         PrincipalId principal,
         NotificationKind kind,
         string title,

@@ -25,7 +25,9 @@ public static class PreferencesValidation
             return false;
         }
 
-        return (input.QuietStart is null || TryParseTime(input.QuietStart, out _))
+        // Quiet hours are a window: both ends or neither (the database enforces the same).
+        return (input.QuietStart is null) == (input.QuietEnd is null)
+            && (input.QuietStart is null || TryParseTime(input.QuietStart, out _))
             && (input.QuietEnd is null || TryParseTime(input.QuietEnd, out _));
     }
 
@@ -74,6 +76,7 @@ public sealed class SavePreferencesHandler(IPrincipalPreferencesStore store, INi
         TimeOnly? quietStart = command.Preferences.QuietStart is { } start && PreferencesValidation.TryParseTime(start, out var parsedStart) ? parsedStart : null;
         TimeOnly? quietEnd = command.Preferences.QuietEnd is { } end && PreferencesValidation.TryParseTime(end, out var parsedEnd) ? parsedEnd : null;
 
+        IReadOnlyList<Guid> mutedContainerIds = [.. command.Preferences.MutedContainerIds.Distinct()];
         var saved = await store.SaveAsync(new PrincipalPreferences
         {
             TenantId = context.TenantId,
@@ -84,10 +87,10 @@ public sealed class SavePreferencesHandler(IPrincipalPreferencesStore store, INi
             DueReminderTime = dueReminderTime,
             DueReminders = command.Preferences.DueReminders,
             HabitReminders = command.Preferences.HabitReminders,
-            MutedContainerIds = command.Preferences.MutedContainerIds,
+            MutedContainerIds = mutedContainerIds,
             Revision = revision,
         }, command.ExpectedRevision, cancellationToken).ConfigureAwait(false);
-        return saved ? Result.Success(GetPreferencesHandler.ToResponse(revision, command.Preferences))
+        return saved ? Result.Success(GetPreferencesHandler.ToResponse(revision, command.Preferences with { MutedContainerIds = mutedContainerIds }))
             : Result.Failure<PrincipalPreferencesResponse>(new NixError("notifications.preferences_conflict", "Preferences changed on another device. Reload before saving."));
     }
 }

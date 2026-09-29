@@ -17,10 +17,10 @@ public sealed class PushSubscriptionStore(NixDbContext db) : IPushSubscriptionSt
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
-    public async Task<int> CountAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) =>
-        await db.Set<PushSubscription>().AsNoTracking()
-            .CountAsync(row => row.TenantId == tenantId && row.PrincipalId == principalId, cancellationToken)
-            .ConfigureAwait(false);
+    public Task LockAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({"push_subscription:" + tenantId.Value.ToString() + ":" + principalId.Value.ToString()}, 0))",
+            cancellationToken);
 
     /// <inheritdoc />
     public async Task<PushSubscription> SaveAsync(PushSubscription subscription, CancellationToken cancellationToken)
