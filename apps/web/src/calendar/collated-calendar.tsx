@@ -1,6 +1,6 @@
 import type { CalendarEntry } from '@nix/api-client';
-import { Blueprint, Button, Icon, Segmented, Text, focusRing } from '@nix/ui';
-import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Blueprint, Button, Icon, Segmented, Text, cn, focusRing } from '@nix/ui';
+import { CalendarClock, CircleCheck, Repeat, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
 import { HourGrid } from '../views/calendar/calendar-hours';
@@ -16,12 +16,10 @@ import {
   weekOf,
   type CalendarDay,
 } from '../views/core/calendar-dates';
-import type { Item } from '../views/core/container-model';
 import { readerZone } from '../views/core/timestamps';
 import type { CalendarGrain } from './calendar-window';
 import {
   bucketByDay,
-  containersById,
   noteOptions,
   COLLATED_DATE_KEY,
   toGridItem,
@@ -91,6 +89,17 @@ export interface CollatedCalendarProps {
    */
   readonly onCreate?:
     ((containerId: string, title: string, day: string) => Promise<string | null>) | undefined;
+
+  /**
+   * Marks one occurrence of a repeating entry done.
+   *
+   * Optional, the same way `onCreate` is: absent means no "Mark done" control is offered rather
+   * than one that would have nothing to do. Only offered for a `generated` entry - a stored entry
+   * has no occurrence to complete, only the item's own properties to edit, which this calendar
+   * already reaches through the item panel. `occurredOn` is the entry's own day, already the shape
+   * `recurrence.completeOccurrence` takes.
+   */
+  readonly onComplete?: ((entry: CalendarEntry, occurredOn: string) => void) | undefined;
 }
 
 const GRAINS = [
@@ -100,13 +109,22 @@ const GRAINS = [
 ] as const satisfies readonly { value: CalendarGrain; label: string }[];
 
 export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
-  const { entries, grain, onGrain, anchor, onAnchor, today, onOpen, onReschedule, onCreate } =
-    props;
+  const {
+    entries,
+    grain,
+    onGrain,
+    anchor,
+    onAnchor,
+    today,
+    onOpen,
+    onReschedule,
+    onCreate,
+    onComplete,
+  } = props;
 
   // Keyed on the payload, so stepping the grain does not rebucket entries that have not changed.
   const byDay = useMemo(() => bucketByDay(entries), [entries]);
   const items = useMemo(() => toGridItems(entries), [entries]);
-  const containers = useMemo(() => containersById(entries), [entries]);
 
   // The containers a new entry may land in - the same notes the filter above offers, since every
   // one of them is already known to place by a real property (an entry could not exist otherwise).
@@ -236,8 +254,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
               cell={cell}
               name={name}
               isToday={isToday}
-              items={byDay.get(cell.date) ?? []}
-              containers={containers}
+              entries={byDay.get(cell.date) ?? []}
               over={over === cell.date && dragged !== null}
               onDragOver={() => {
                 setOver(cell.date);
@@ -255,6 +272,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
                 setDragged(null);
               }}
               onReschedule={setRescheduling}
+              onComplete={onComplete}
             />
           )}
         />
@@ -337,10 +355,7 @@ interface CollatedDayCellProps {
   /** The cell's accessible name: weekday, day, month and year, spelt out. */
   readonly name: string;
   readonly isToday: boolean;
-  readonly items: readonly Item[];
-
-  /** Which container each item came from, so its control can say so. */
-  readonly containers: ReadonlyMap<string, string>;
+  readonly entries: readonly CalendarEntry[];
 
   /** Whether a drop here right now would be taken. */
   readonly over: boolean;
@@ -351,6 +366,9 @@ interface CollatedDayCellProps {
   readonly onDragStart: (itemId: string) => void;
   readonly onDragEnd: () => void;
   readonly onReschedule: (itemId: string) => void;
+
+  /** See `CollatedCalendarProps.onComplete`. */
+  readonly onComplete?: ((entry: CalendarEntry, occurredOn: string) => void) | undefined;
 }
 
 /**
@@ -366,8 +384,7 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
     cell,
     name,
     isToday,
-    items,
-    containers,
+    entries,
     over,
     onDragOver,
     onDragLeave,
@@ -376,10 +393,11 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
     onDragStart,
     onDragEnd,
     onReschedule,
+    onComplete,
   } = props;
   const [expanded, setExpanded] = useState(false);
-  const visibleItems = expanded ? items : items.slice(0, MAXIMUM_COLLAPSED_DAY_ITEMS);
-  const hiddenItems = items.length - visibleItems.length;
+  const visibleEntries = expanded ? entries : entries.slice(0, MAXIMUM_COLLAPSED_DAY_ITEMS);
+  const hiddenEntries = entries.length - visibleEntries.length;
 
   return (
     <td
@@ -405,46 +423,101 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
           {String(cell.day)}
         </Text>
 
-        {visibleItems.length === 0 ? null : (
+        {visibleEntries.length === 0 ? null : (
           <ul className="flex flex-col gap-0.5">
-            {visibleItems.map((item) => (
-              <li key={item.id} className="flex items-center gap-0.5">
-                <button
-                  type="button"
-                  draggable
-                  onDragStart={() => {
-                    onDragStart(item.id);
-                  }}
-                  onDragEnd={onDragEnd}
-                  onClick={() => {
-                    onOpen(item.id);
-                  }}
-                  // The container's name is in the accessible name rather than on screen: a day
-                  // cell is two centimetres wide, and a reader who needs to know where something
-                  // came from needs it said rather than truncated.
-                  aria-label={`${item.title}, in ${containers.get(item.id) ?? 'Untitled'}`}
-                  className={`${focusRing} min-w-0 flex-1 truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
-                >
-                  {item.title}
-                </button>
+            {visibleEntries.map((entry) => {
+              const title = entry.title ?? '';
+              const container = entry.containerTitle ?? 'Untitled';
+              const done = entry.completed === true;
 
-                <Button
-                  variant="ghost"
-                  aria-label={`Reschedule ${item.title || 'Untitled'}`}
-                  aria-haspopup="dialog"
-                  className="shrink-0 px-0.5 py-0.5"
-                  onClick={() => {
-                    onReschedule(item.id);
-                  }}
-                >
-                  <Icon icon={CalendarClock} size="sm" />
-                </Button>
-              </li>
-            ))}
+              // A generated occurrence has no row of its own - it is drawn from the series, not
+              // read from storage - so there is nothing here for a drag or a reschedule write to
+              // land on. "Mark done" is the one write this calendar offers it, through the
+              // recurrence completion endpoint rather than the item's own properties.
+              if (entry.generated) {
+                return (
+                  <li key={entry.itemId} className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpen(entry.itemId);
+                      }}
+                      aria-label={`${title}, in ${container}, repeats`}
+                      className={cn(
+                        focusRing,
+                        'min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 text-left text-xs',
+                        done
+                          ? 'bg-muted text-muted line-through'
+                          : 'bg-accent/18 hover:bg-accent/25',
+                      )}
+                    >
+                      <Icon
+                        icon={Repeat}
+                        size="sm"
+                        className="mr-1 inline-block align-text-bottom"
+                      />
+                      {title}
+                    </button>
+
+                    {done ? (
+                      <span className="shrink-0 px-0.5 py-0.5">
+                        <Icon icon={CircleCheck} size="sm" label="Done" />
+                      </span>
+                    ) : onComplete === undefined ? null : (
+                      <Button
+                        variant="ghost"
+                        aria-label={`Mark ${title || 'Untitled'} done`}
+                        className="shrink-0 px-0.5 py-0.5"
+                        onClick={() => {
+                          onComplete(entry, entry.value.slice(0, 10));
+                        }}
+                      >
+                        <Icon icon={CircleCheck} size="sm" />
+                      </Button>
+                    )}
+                  </li>
+                );
+              }
+
+              return (
+                <li key={entry.itemId} className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    draggable
+                    onDragStart={() => {
+                      onDragStart(entry.itemId);
+                    }}
+                    onDragEnd={onDragEnd}
+                    onClick={() => {
+                      onOpen(entry.itemId);
+                    }}
+                    // The container's name is in the accessible name rather than on screen: a day
+                    // cell is two centimetres wide, and a reader who needs to know where something
+                    // came from needs it said rather than truncated.
+                    aria-label={`${title}, in ${container}`}
+                    className={`${focusRing} min-w-0 flex-1 truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
+                  >
+                    {title}
+                  </button>
+
+                  <Button
+                    variant="ghost"
+                    aria-label={`Reschedule ${title || 'Untitled'}`}
+                    aria-haspopup="dialog"
+                    className="shrink-0 px-0.5 py-0.5"
+                    onClick={() => {
+                      onReschedule(entry.itemId);
+                    }}
+                  >
+                    <Icon icon={CalendarClock} size="sm" />
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
         )}
 
-        {items.length <= MAXIMUM_COLLAPSED_DAY_ITEMS ? null : (
+        {entries.length <= MAXIMUM_COLLAPSED_DAY_ITEMS ? null : (
           <Button
             variant="ghost"
             className="self-start px-1 py-0.5 text-xs"
@@ -453,7 +526,7 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
               setExpanded((current) => !current);
             }}
           >
-            {expanded ? 'Show fewer' : `Show ${String(hiddenItems)} more`}
+            {expanded ? 'Show fewer' : `Show ${String(hiddenEntries)} more`}
           </Button>
         )}
       </div>

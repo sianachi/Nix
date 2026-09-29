@@ -14,6 +14,7 @@ export const FIELD_SPEC_TYPES = [
   'multi_select',
   'date',
   'timestamp',
+  'datetime',
   'checkbox',
   'url',
   'image',

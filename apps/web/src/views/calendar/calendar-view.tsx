@@ -13,6 +13,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { isDateShaped } from '../core/property-types';
 import {
   addDays,
   dayFromText,
@@ -176,9 +177,11 @@ function describeUnrenderable(
     return `This calendar places items by "${view.dateProperty}", and that property is not in this item's schema. It was probably removed. The items are all still here; a list view will show them.`;
   }
 
-  // Both, because both name a day. A date is an all-day thing that must not shift for a reader in
-  // another zone; a timestamp is a moment that must, and carries an hour as well.
-  if (definition.type !== 'date' && definition.type !== 'timestamp') {
+  // Every calendar-placeable type, not only a plain date or timestamp: due_date, start_date and
+  // datetime all name a day too, the same set `isDateShaped` already draws the view-kind picker's
+  // line from. A narrower check here used to call a perfectly good due-date or start-date calendar
+  // broken.
+  if (!isDateShaped(definition.type)) {
     return `This calendar places items by "${definition.label}", which is a ${definition.type} property rather than a date or a time. There is no day to put an item on, so nothing can be drawn.`;
   }
 
@@ -271,9 +274,11 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // the reader, not about the value.
   const zone = readerZone();
 
-  // Whether this calendar places by a moment or by a day, which decides what the reschedule dialog
-  // has to be able to type. A container with no schema cannot be asked, and a bare date is the
-  // safer assumption: it is what the month grid and every existing stored value already use.
+  // Whether this calendar places by a moment or by a day, as the declared type: the default the
+  // reschedule dialog falls back to for an item with nothing stored yet (see
+  // `reschedulingPlacesByTime`, which a date-or-time property's per-item value can override). A
+  // container with no schema cannot be asked, and a bare date is the safer assumption: it is what
+  // the month grid and every existing stored value already use.
   const placesByTime =
     container.schema?.properties.find((property) => property.key === dateProperty)?.type ===
     'timestamp';
@@ -402,6 +407,16 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // date the grid no longer agrees with.
   const reschedulingItem =
     rescheduling === null ? null : (items.find((item) => item.id === rescheduling) ?? null);
+
+  // A date-or-time property holds either shape per item, unlike a plain `date` or `timestamp`
+  // property, which is the same shape on every item. So the dialog's own control is chosen from
+  // what this item currently holds - a moment, if it has one - and only falls back to the
+  // property's declared type when there is nothing stored yet to go by.
+  const reschedulingPlacesByTime =
+    reschedulingItem !== null &&
+    readTimestampValue(reschedulingItem.properties, dateProperty) !== null
+      ? true
+      : placesByTime;
 
   // One clock reading for the whole grid rather than one per cell: the answer cannot change
   // halfway through a render, and forty-two of them would be forty-two allocations for one fact.
@@ -662,7 +677,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           item={reschedulingItem}
           dateProperty={dateProperty}
           endDateProperty={endDateProperty}
-          placesByTime={placesByTime}
+          placesByTime={reschedulingPlacesByTime}
           zone={zone}
           onCancel={() => {
             setRescheduling(null);

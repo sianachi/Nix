@@ -32,6 +32,8 @@ export function validateValue(definition: StructureProperty, value: unknown): st
       return checkDate(definition, value);
     case 'timestamp':
       return checkTimestamp(definition, value);
+    case 'datetime':
+      return checkDateOrTimestamp(definition, value);
     case 'url':
       return checkUrl(definition, value);
     case 'image':
@@ -166,6 +168,25 @@ function checkTimestamp(definition: StructureProperty, value: unknown): string |
   }
 
   return null;
+}
+
+/**
+ * A date-or-time value: accepted whenever either half of the union it names would accept it,
+ * matching `PropertyValidator.CheckDateTime` (`PropertyValidator.cs`) - the date shape is tried
+ * first because a synced calendar's all-day events are the common case, and either order accepts
+ * the same set.
+ */
+function checkDateOrTimestamp(definition: StructureProperty, value: unknown): string | null {
+  if (checkDate(definition, value) === null) {
+    return null;
+  }
+  if (checkTimestamp(definition, value) === null) {
+    return null;
+  }
+  return (
+    `${definition.label} must be a date, as yyyy-MM-dd, or a time with its zone, ` +
+    'as 2026-03-17T09:00:00+00:00[Europe/London].'
+  );
 }
 
 const knownTimeZones = new Map<string, boolean>();

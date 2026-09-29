@@ -149,9 +149,13 @@ export function cellText(item: Item, column: SpreadsheetColumn): string {
  * point). It is shown as the reader's own clock instead. The copy value stays the stored string
  * (`cellText` above), so a copied timestamp pastes back losslessly. Everything else shows what it
  * stores: an ISO date is unambiguous, and inventing a second spelling would cost the round trip.
+ *
+ * A date-or-time column takes the same conversion whenever the item it is drawing actually holds a
+ * moment - `readTimestampValue` returns null for a bare `yyyy-MM-dd`, which falls straight through
+ * to the plain-text case below exactly as a `date` column's value already does.
  */
 export function cellDisplay(item: Item, column: SpreadsheetColumn): string {
-  if (column.type === 'timestamp') {
+  if (column.type === 'timestamp' || column.type === 'datetime') {
     const stored = readTimestampValue(item.properties, column.key);
 
     if (stored !== null) {

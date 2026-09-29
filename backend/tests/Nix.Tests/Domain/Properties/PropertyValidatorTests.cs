@@ -697,4 +697,33 @@ public sealed class PropertyValidatorTests
         Assert.Single(
             PropertyValidator.ValidateSupplied("""{"due":"2026-03-17T09:00:00+00:00[Europe/London]"}""", schema));
     }
+
+    [Theory]
+    [InlineData("2026-03-17")]
+    [InlineData("2026-03-17T09:00:00+00:00[Europe/London]")]
+    [InlineData("2026-07-17T09:00:00+01:00[Europe/London]")]
+    public void A_date_or_time_accepts_either_a_bare_date_or_a_timestamp_with_its_zone(string text)
+    {
+        // A synced event toggles between all-day and timed from one edit to the next on the
+        // provider's side, so this is the one type that has to take both shapes CheckDate and
+        // CheckTimestamp already enforce for the plain types, rather than a third parse of its own.
+        AssertAccepted(PropertyType.DateTime, $"\"{text}\"");
+    }
+
+    [Theory]
+    [InlineData("2026-02-30")] // not a real calendar day
+    [InlineData("2026-03-17T09:00:00+00:00")] // a timestamp missing its zone
+    [InlineData("2026-07-17T09:00:00+00:00[Europe/London]")] // an offset the zone was not using
+    [InlineData("not a date")]
+    [InlineData("true")]
+    public void A_date_or_time_refuses_whatever_neither_shape_would_accept(string value)
+    {
+        var text = value is "true" ? value : $"\"{value}\"";
+
+        AssertRefused(
+            PropertyType.DateTime,
+            text,
+            "Field must be a date, as yyyy-MM-dd, or a time with its zone, "
+                + "as 2026-03-17T09:00:00+00:00[Europe/London].");
+    }
 }
