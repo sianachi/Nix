@@ -138,6 +138,33 @@ export interface StubOptions {
   /** Makes the profile request fail, for tests about what the menu does then. */
   readonly profileFails?: boolean;
 
+  /** The caller's saved notification/reminder preferences. Defaults to the server's own default
+   * document for a principal who has never saved one - `Etc/UTC`, revision 0. */
+  readonly preferences?: StubPreferences;
+  /** Makes the preferences read fail. */
+  readonly preferencesFail?: boolean;
+  /** Makes every preferences save answer a stale-revision conflict (409), regardless of the
+   * revision actually sent. */
+  readonly preferencesConflict?: boolean;
+  /** Makes every preferences save answer 422 with this detail, for validation-error tests. */
+  readonly preferencesInvalid?: string;
+
+  /** Notifications in the caller's inbox, newest first, as `GET .../notifications` reports them. */
+  readonly notificationInbox?: readonly StubNotification[];
+  /** Makes the notification list (and watch) read fail. */
+  readonly notificationsFail?: boolean;
+  /** Makes the watch endpoint answer 429 `notifications.too_many_watches` instead of the page. */
+  readonly notificationsWatchThrottled?: boolean;
+
+  /** The VAPID public key `GET /api/v1/me/push/public-key` reports, or omitted for the 404
+   * `push.unavailable` an unconfigured server gives. */
+  readonly pushPublicKey?: string;
+  /** The caller's existing push subscriptions on other devices. */
+  readonly pushSubscriptions?: readonly StubPushSubscription[];
+  /** Makes adding a push subscription refuse with this detail (an origin outside the allowlist,
+   * say), rather than the ordinary always-succeeds stub behavior. */
+  readonly pushSubscriptionRefusal?: string;
+
   /** The caller's personal access tokens, newest first, dead ones included - it is an audit. */
   readonly accessTokens?: readonly StubAccessToken[];
 
@@ -361,6 +388,54 @@ export interface StubMember {
   readonly assignableRoles?: readonly ('owner' | 'editor' | 'viewer')[];
 }
 
+/** As `GET/PUT /api/v1/me/preferences` reports the document. */
+export interface StubPreferences {
+  readonly revision: number;
+  readonly timeZone: string;
+  readonly quietStart: string | null;
+  readonly quietEnd: string | null;
+  readonly dueReminderTime: string;
+  readonly dueReminders: boolean;
+  readonly habitReminders: boolean;
+  readonly mutedContainerIds: readonly string[];
+}
+
+/** The document a principal who has never saved preferences reads - `PreferencesValidation.Default`
+ * on the server, mirrored here rather than imported since this package cannot reach backend code. */
+export const STUB_DEFAULT_PREFERENCES: StubPreferences = {
+  revision: 0,
+  timeZone: 'Etc/UTC',
+  quietStart: null,
+  quietEnd: null,
+  dueReminderTime: '09:00',
+  dueReminders: true,
+  habitReminders: true,
+  mutedContainerIds: [],
+};
+
+/** As `GET /api/v1/me/notifications` reports one row. */
+export interface StubNotification {
+  readonly id: string;
+  readonly kind: 'reminder' | 'automation' | 'calendar' | 'system';
+  readonly title: string;
+  readonly body: string;
+  readonly itemId: string | null;
+  readonly workspaceId: string | null;
+  readonly createdAt: string;
+  readonly readAt: string | null;
+}
+
+/** As `POST /api/v1/me/push-subscriptions` reports a registered device. */
+export interface StubPushSubscription {
+  readonly id: string;
+  readonly endpoint: string;
+  readonly p256dh: string;
+  readonly auth: string;
+  readonly userAgent: string;
+  readonly createdAt: string;
+  readonly lastSuccessAt: string | null;
+}
+
 export interface StubAssignablePrincipal {
   readonly principalId: string;
   readonly displayName: string;
@@ -434,6 +509,15 @@ export interface StubWrites {
   readonly templatePreflights: readonly Record<string, unknown>[];
   /** Every template application request, in the order it was sent. */
   readonly templateApplications: readonly Record<string, unknown>[];
+  /** Every preferences PUT, in the order it was sent. */
+  readonly preferencesWrites: readonly {
+    expectedRevision: number;
+    preferences: Record<string, unknown>;
+  }[];
+  /** Every push subscription POST, in the order it was sent. */
+  readonly pushSubscriptionWrites: readonly { endpoint: string; p256dh: string; auth: string }[];
+  /** Every push subscription DELETE's endpoint, in the order it was sent. */
+  readonly pushSubscriptionRemovals: readonly string[];
 }
 
 export function stubCoreApi(options: StubOptions = {}): StubWrites {
@@ -446,6 +530,16 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     email = 'test@example.test',
     items = [],
     profileFails = false,
+    preferences = STUB_DEFAULT_PREFERENCES,
+    preferencesFail = false,
+    preferencesConflict = false,
+    preferencesInvalid,
+    notificationInbox = [],
+    notificationsFail = false,
+    notificationsWatchThrottled = false,
+    pushPublicKey,
+    pushSubscriptions = [],
+    pushSubscriptionRefusal,
     accessTokens = [],
     tokensFail = false,
     createTokenProblem,
@@ -503,6 +597,13 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // opposite of what a creation test means to.
   const known = [...items];
   let knownWorkspaces = [...workspaces];
+  let heldPreferences = preferences;
+  const preferencesWrites: { expectedRevision: number; preferences: Record<string, unknown> }[] =
+    [];
+  let heldNotifications = notificationInbox.map((entry) => ({ ...entry }));
+  let heldPushSubscriptions = pushSubscriptions.map((entry) => ({ ...entry }));
+  const pushSubscriptionWrites: { endpoint: string; p256dh: string; auth: string }[] = [];
+  const pushSubscriptionRemovals: string[] = [];
   let heldMembers = members.map((member) => ({
     ...member,
     email: member.email ?? null,
@@ -1056,6 +1157,205 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
         propertyWrites.push({ itemId: propertyWrite[1] ?? '', properties: written });
         return Promise.resolve(new Response(null, { status: 204 }));
+      }
+
+      // Notifications, preferences and push routes - every one of them ordered before the /me
+      // route below, which matches by `includes` and would otherwise swallow them all.
+      if (parsedUrl.pathname === '/api/v1/me/preferences') {
+        if (method === 'GET') {
+          return Promise.resolve(
+            preferencesFail
+              ? json({ code: 'notifications.unavailable' }, 500)
+              : json(heldPreferences),
+          );
+        }
+        if (method === 'PUT') {
+          if (preferencesFail) {
+            return Promise.resolve(json({ code: 'notifications.unavailable' }, 500));
+          }
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+            expectedRevision?: number;
+            preferences?: Record<string, unknown>;
+          };
+          const expectedRevision = body.expectedRevision ?? -1;
+          preferencesWrites.push({
+            expectedRevision,
+            preferences: body.preferences ?? {},
+          });
+          if (preferencesInvalid !== undefined) {
+            return Promise.resolve(
+              json({ code: 'notifications.invalid_preferences', detail: preferencesInvalid }, 422),
+            );
+          }
+          if (preferencesConflict || expectedRevision !== heldPreferences.revision) {
+            return Promise.resolve(
+              json(
+                {
+                  code: 'notifications.preferences_conflict',
+                  detail: 'Your notification settings changed elsewhere.',
+                },
+                409,
+              ),
+            );
+          }
+          const submitted = body.preferences ?? {};
+          heldPreferences = {
+            ...heldPreferences,
+            ...submitted,
+            revision: expectedRevision + 1,
+          };
+          return Promise.resolve(json(heldPreferences));
+        }
+      }
+
+      const notificationRead = /^\/api\/v1\/me\/notifications\/([0-9a-f-]{36})\/read$/.exec(
+        parsedUrl.pathname,
+      );
+      if (notificationRead !== null && method === 'POST') {
+        heldNotifications = heldNotifications.map((entry) =>
+          entry.id === notificationRead[1] && entry.readAt === null
+            ? { ...entry, readAt: '2026-09-29T09:00:00.000Z' }
+            : entry,
+        );
+        const unread = heldNotifications.filter((entry) => entry.readAt === null).length;
+        return Promise.resolve(json({ unread }));
+      }
+      if (parsedUrl.pathname === '/api/v1/me/notifications/read-all' && method === 'POST') {
+        heldNotifications = heldNotifications.map((entry) =>
+          entry.readAt === null ? { ...entry, readAt: '2026-09-29T09:00:00.000Z' } : entry,
+        );
+        return Promise.resolve(json({ unread: 0 }));
+      }
+      if (parsedUrl.pathname === '/api/v1/me/notifications/watch') {
+        if (notificationsWatchThrottled) {
+          return Promise.resolve(
+            json(
+              {
+                code: 'notifications.too_many_watches',
+                detail: 'Close another tab and try again.',
+              },
+              429,
+            ),
+          );
+        }
+        if (notificationsFail) {
+          return Promise.resolve(json({ code: 'notifications.unavailable' }, 500));
+        }
+        const revision = heldNotifications.reduce(
+          (max, entry) => Math.max(max, Date.parse(entry.readAt ?? entry.createdAt)),
+          0,
+        );
+        return Promise.resolve(
+          json({
+            items: heldNotifications,
+            nextCursor: null,
+            unread: heldNotifications.filter((entry) => entry.readAt === null).length,
+            revision,
+          }),
+        );
+      }
+      if (parsedUrl.pathname === '/api/v1/me/notifications' && method === 'GET') {
+        if (notificationsFail) {
+          return Promise.resolve(json({ code: 'notifications.unavailable' }, 500));
+        }
+        const unreadOnly = parsedUrl.searchParams.get('unreadOnly') === 'true';
+        const cursor = parsedUrl.searchParams.get('cursor');
+        const pageSize = 20;
+        const source = unreadOnly
+          ? heldNotifications.filter((entry) => entry.readAt === null)
+          : heldNotifications;
+        const startIndex =
+          cursor === null ? 0 : Math.max(0, source.findIndex((entry) => entry.id === cursor) + 1);
+        const page = source.slice(startIndex, startIndex + pageSize);
+        const nextCursor = startIndex + pageSize < source.length ? (page.at(-1)?.id ?? null) : null;
+        return Promise.resolve(
+          json({
+            items: page,
+            nextCursor,
+            unread: heldNotifications.filter((entry) => entry.readAt === null).length,
+            revision: heldNotifications.reduce(
+              (max, entry) => Math.max(max, Date.parse(entry.readAt ?? entry.createdAt)),
+              0,
+            ),
+          }),
+        );
+      }
+
+      if (parsedUrl.pathname === '/api/v1/me/push-subscriptions') {
+        if (method === 'POST') {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+            endpoint?: string;
+            p256dh?: string;
+            auth?: string;
+          };
+          if (pushSubscriptionRefusal !== undefined) {
+            return Promise.resolve(
+              json(
+                {
+                  code: 'notifications.invalid_push_subscription',
+                  detail: pushSubscriptionRefusal,
+                },
+                422,
+              ),
+            );
+          }
+          const endpoint = body.endpoint ?? '';
+          const p256dh = body.p256dh ?? '';
+          const auth = body.auth ?? '';
+          pushSubscriptionWrites.push({ endpoint, p256dh, auth });
+          const created: StubPushSubscription = {
+            id: `eeeeeeee-0000-4000-8000-${String(heldPushSubscriptions.length).padStart(12, '0')}`,
+            endpoint,
+            p256dh,
+            auth,
+            userAgent: 'stub-agent',
+            createdAt: '2026-09-29T09:00:00.000Z',
+            lastSuccessAt: null,
+          };
+          heldPushSubscriptions = [...heldPushSubscriptions, created];
+          return Promise.resolve(
+            json({
+              id: created.id,
+              endpoint: created.endpoint,
+              userAgent: created.userAgent,
+              createdAt: created.createdAt,
+              lastSuccessAt: created.lastSuccessAt,
+            }),
+          );
+        }
+        if (method === 'DELETE') {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+            endpoint?: string;
+          };
+          const endpoint = body.endpoint ?? '';
+          pushSubscriptionRemovals.push(endpoint);
+          heldPushSubscriptions = heldPushSubscriptions.filter(
+            (entry) => entry.endpoint !== endpoint,
+          );
+          return Promise.resolve(new Response(null, { status: 204 }));
+        }
+      }
+
+      if (parsedUrl.pathname === '/api/v1/me/push/public-key' && method === 'GET') {
+        return Promise.resolve(
+          pushPublicKey === undefined
+            ? json(
+                { code: 'push.unavailable', detail: 'This server has not configured Web Push.' },
+                404,
+              )
+            : json({ publicKey: pushPublicKey }),
+        );
+      }
+
+      // One item by id, for a read like the muted-containers list's title lookup. Ordered before
+      // the generic `/items` tree catch-all further down, which matches on `includes('/items')`
+      // and would otherwise answer this with the tree shape instead.
+      const singleItem = /^\/api\/v1\/items\/([0-9a-f-]{36})$/.exec(parsedUrl.pathname);
+      if (singleItem !== null && method === 'GET') {
+        const found = known.find((candidate) => candidate.id === singleItem[1]);
+        return Promise.resolve(
+          found === undefined ? json({ code: 'items.not_found' }, 404) : json(found),
+        );
       }
 
       // Ordered before the /me route below, which would otherwise swallow it.
@@ -2124,6 +2424,9 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     templateUploadBodies,
     templatePreflights: templatePreflightWrites,
     templateApplications: templateApplicationWrites,
+    preferencesWrites,
+    pushSubscriptionWrites,
+    pushSubscriptionRemovals,
   };
 }
 

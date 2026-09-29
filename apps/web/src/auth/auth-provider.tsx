@@ -3,7 +3,42 @@ import { clearInterruptedImport } from '../import/import-interrupted-notice';
 import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 
+import { getServiceWorkerRegistration } from '../pwa/register-service-worker';
 import { useSessionStore, type SessionProfile } from './session-store';
+
+/**
+ * Unsubscribes this device from push and tells Core to forget the subscription, before the
+ * session that registered it ends. A shared browser must not keep delivering the outgoing
+ * account's reminders to whoever uses it next.
+ *
+ * Entirely best-effort: every failure is swallowed and nothing here ever blocks or fails
+ * sign-out. This runs ahead of `/auth/logout` (and therefore ahead of `accessTokenRef` being
+ * cleared) specifically so the DELETE still carries a valid bearer token - `AuthProvider` sits
+ * outside `ApiClientProvider` in `app.tsx` and has no `NixClient` of its own to reach for.
+ */
+async function unsubscribePushBeforeSignOut(accessToken: string | null): Promise<void> {
+  try {
+    const registration = getServiceWorkerRegistration();
+    if (!registration) return;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+    const endpoint = subscription.endpoint;
+    await subscription.unsubscribe().catch(() => undefined);
+    await fetch('/api/v1/me/push-subscriptions', {
+      method: 'DELETE',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(accessToken === null ? {} : { Authorization: `Bearer ${accessToken}` }),
+      },
+      body: JSON.stringify({ endpoint }),
+    });
+  } catch {
+    // Best-effort: sign-out proceeds either way. A subscription left behind here is still
+    // useless to deliver to, since the account it was registered for is about to be signed out.
+  }
+}
 
 /**
  * Browser authentication is mediated by Core. Zitadel tokens never enter JavaScript: Core keeps
@@ -186,6 +221,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
 
       signOut: async () => {
         clearInterruptedImport();
+        await unsubscribePushBeforeSignOut(accessTokenRef.current?.value ?? null);
         const draftsCleared =
           typeof indexedDB === 'undefined' ||
           (await clearDrafts().then(
