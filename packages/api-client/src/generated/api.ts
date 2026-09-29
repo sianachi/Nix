@@ -1223,6 +1223,118 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/preferences': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPreferences'];
+    put: operations['SavePreferences'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListNotifications'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications/{notificationId}/read': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['MarkNotificationRead'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications/read-all': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['MarkAllNotificationsRead'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications/watch': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['WatchNotifications'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/push-subscriptions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AddPushSubscription'];
+    delete: operations['RemovePushSubscription'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/push/public-key': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPushPublicKey'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/graph': {
     parameters: {
       query?: never;
@@ -1967,6 +2079,11 @@ export interface components {
       breaksInheritance: boolean;
       /** Format: uuid */
       inheritedFromItemId: null | string;
+    };
+    AddPushSubscriptionRequest: {
+      endpoint: string;
+      p256dh: string;
+      auth: string;
     };
     AppendViewSetupRequest: {
       properties: components['schemas']['PropertyDefinitionRequest'][];
@@ -3034,6 +3151,33 @@ export interface components {
       /** Format: uuid */
       afterId: null | string;
     };
+    NotificationDto: {
+      /** Format: uuid */
+      id: string;
+      kind: string;
+      title: string;
+      body: string;
+      /** Format: uuid */
+      itemId: null | string;
+      /** Format: uuid */
+      workspaceId: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      readAt: null | string;
+    };
+    NotificationReadResponse: {
+      /** Format: int32 */
+      unread: number | string;
+    };
+    NotificationsPageResponse: {
+      items: components['schemas']['NotificationDto'][];
+      nextCursor: null | string;
+      /** Format: int32 */
+      unread: number | string;
+      /** Format: int64 */
+      revision: number | string;
+    };
     OperationResponse: {
       /** Format: uuid */
       id: string;
@@ -3196,6 +3340,26 @@ export interface components {
       /** Format: int32 */
       skipped: number | string;
     };
+    PreferencesInput: {
+      timeZone: string;
+      quietStart: null | string;
+      quietEnd: null | string;
+      dueReminderTime: string;
+      dueReminders: boolean;
+      habitReminders: boolean;
+      mutedContainerIds: string[];
+    };
+    PrincipalPreferencesResponse: {
+      /** Format: int64 */
+      revision: number | string;
+      timeZone: string;
+      quietStart: null | string;
+      quietEnd: null | string;
+      dueReminderTime: string;
+      dueReminders: boolean;
+      habitReminders: boolean;
+      mutedContainerIds: string[];
+    };
     ProblemDetails: {
       type?: null | string;
       title?: null | string;
@@ -3267,6 +3431,19 @@ export interface components {
       form: components['schemas']['PublicFormDefinitionResponse'];
       fields: components['schemas']['PublicFormPropertyResponse'][];
     };
+    PushPublicKeyResponse: {
+      publicKey: string;
+    };
+    PushSubscriptionDto: {
+      /** Format: uuid */
+      id: string;
+      endpoint: string;
+      userAgent: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      lastSuccessAt: null | string;
+    };
     QueryResultResponse: {
       /** Format: uuid */
       id: string;
@@ -3311,6 +3488,9 @@ export interface components {
     ReferencesResponse: {
       references: components['schemas']['ReferenceResolutionResponse'][];
     };
+    RemovePushSubscriptionRequest: {
+      endpoint: string;
+    };
     RenameWorkspaceRequest: {
       name: string;
     };
@@ -3339,6 +3519,11 @@ export interface components {
       /** Format: int64 */
       expectedRevision: number | string;
       settings: components['schemas']['PetSettings'];
+    };
+    SavePreferencesRequest: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+      preferences: components['schemas']['PreferencesInput'];
     };
     SearchHitResponse: {
       /** Format: uuid */
@@ -7430,6 +7615,221 @@ export interface operations {
       };
       /** @description Too Many Requests */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetPreferences: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PrincipalPreferencesResponse'];
+        };
+      };
+    };
+  };
+  SavePreferences: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SavePreferencesRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PrincipalPreferencesResponse'];
+        };
+      };
+    };
+  };
+  ListNotifications: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        unreadOnly?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationsPageResponse'];
+        };
+      };
+    };
+  };
+  MarkNotificationRead: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        notificationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationReadResponse'];
+        };
+      };
+    };
+  };
+  MarkAllNotificationsRead: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationReadResponse'];
+        };
+      };
+    };
+  };
+  WatchNotifications: {
+    parameters: {
+      query?: {
+        after?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationsPageResponse'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AddPushSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AddPushSubscriptionRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PushSubscriptionDto'];
+        };
+      };
+    };
+  };
+  RemovePushSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RemovePushSubscriptionRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  GetPushPublicKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PushPublicKeyResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

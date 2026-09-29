@@ -265,6 +265,27 @@ export type {
   PetAction,
   PetMessage,
 } from './schemas/pets.js';
+export * as notifications from './resources/notifications.js';
+export {
+  preferencesInputSchema,
+  principalPreferencesResponseSchema,
+  notificationKindSchema,
+  notificationDtoSchema,
+  notificationsPageResponseSchema,
+  notificationReadResponseSchema,
+  pushSubscriptionDtoSchema,
+  pushPublicKeyResponseSchema,
+} from './schemas/notifications.js';
+export type {
+  PreferencesInput,
+  PrincipalPreferencesResponse,
+  NotificationKind,
+  NotificationDto,
+  NotificationsPageResponse,
+  NotificationReadResponse,
+  PushSubscriptionDto,
+  PushPublicKeyResponse,
+} from './schemas/notifications.js';
 export * as bookmarks from './resources/bookmarks.js';
 export * as locks from './resources/locks.js';
 export * as items from './resources/items.js';

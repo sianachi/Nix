@@ -289,6 +289,32 @@ internal static class M0SchemaSeed
             INSERT INTO bookmark (principal_id, tenant_id, item_id, created_at)
             VALUES ({principal}, {tenant}, {item}, now());
 
+            -- Upgrade tests also seed schemas from before reminders and the inbox existed.
+            DO $notifications$
+            BEGIN
+                IF to_regclass('public.principal_preferences') IS NOT NULL THEN
+                    INSERT INTO principal_preferences
+                        (tenant_id, principal_id, time_zone, quiet_start, quiet_end,
+                         due_reminder_time, due_reminders, habit_reminders, muted_container_ids, revision)
+                    VALUES ({tenant}, {principal}, 'Etc/UTC', NULL, NULL, '09:00', true, true, ARRAY[]::uuid[], 1);
+                END IF;
+
+                IF to_regclass('public.notification') IS NOT NULL THEN
+                    INSERT INTO notification
+                        (tenant_id, id, principal_id, kind, title, body, item_id, workspace_id, created_at, dedupe_key)
+                    VALUES ({tenant}, {auditEvent}, {principal}, 'system', '{slug} notification',
+                            '{slug} notification body', {item}, {workspace}, now(), '{slug}-notification-seed');
+                END IF;
+
+                IF to_regclass('public.push_subscription') IS NOT NULL THEN
+                    INSERT INTO push_subscription
+                        (tenant_id, id, principal_id, endpoint, p256dh, auth, user_agent, created_at, last_success_at, failures)
+                    VALUES ({tenant}, {acl}, {principal}, 'https://fcm.googleapis.com/fcm/send/{slug}',
+                            '{new string(slug == "alpha" ? 'p' : 'q', 87)}', '{new string(slug == "alpha" ? 'k' : 'j', 22)}',
+                            '{slug}-agent', now(), NULL, 0);
+                END IF;
+            END $notifications$;
+
             -- One published capability so the generic tenant-isolation theories exercise the
             -- public link table exactly as they do every other tenant-scoped table.
             INSERT INTO public_form_link
