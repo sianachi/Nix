@@ -35,6 +35,7 @@ describe('the capability catalog', () => {
       'multi_select',
       'date',
       'timestamp',
+      'datetime',
       'checkbox',
       'url',
       'image',

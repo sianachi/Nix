@@ -21,6 +21,10 @@ export const PROPERTY_TYPES = [
   { value: 'multi_select', label: 'Multi-select (any of a list)' },
   { value: 'date', label: 'Date' },
   { value: 'timestamp', label: 'Date and time' },
+  // A synced calendar event toggles between all-day and timed from one edit to the next on the
+  // provider's side, so the property holding it has to accept either shape without its declared
+  // type changing underneath it - see PropertyType.DateTime in PropertyType.cs.
+  { value: 'datetime', label: 'Date or time' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'url', label: 'Link' },
   // Told apart from a link because everything downstream reads them differently: a link is text
@@ -64,6 +68,7 @@ export type PropertyValueShape =
   | 'checkbox'
   | 'url'
   | 'image'
+  | 'datetime'
   | (string & {});
 
 export function valueShapeOf(type: string): PropertyValueShape {
@@ -92,7 +97,7 @@ export function valueShapeOf(type: string): PropertyValueShape {
  */
 export function isDateShaped(type: string): boolean {
   const shape = valueShapeOf(type);
-  return shape === 'date' || shape === 'timestamp';
+  return shape === 'date' || shape === 'timestamp' || shape === 'datetime';
 }
 
 /**

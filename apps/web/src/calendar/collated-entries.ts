@@ -76,20 +76,28 @@ export function toGridItems(entries: readonly CalendarEntry[]): readonly Item[] 
  * right for the hour grid and wrong for the month grid, which places by the day the value was
  * written with. The hour grid does its own conversion when it lays a moment on an hour, which is
  * the only place the reader's zone actually decides anything.
+ *
+ * **The entries themselves, not `toGridItem`'s view model.** The month cell needs `generated` and
+ * `completed` to tell a repeating occurrence from a stored entry - facts `Item`'s shape has nowhere
+ * to carry - so this keeps the entry whole; `toGridItem` remains what the hour grid and the
+ * reschedule dialog read, both of which take one `dateProperty` off an `Item` and neither of which
+ * draws a "Repeats" marker or a "Mark done" control.
  */
-export function bucketByDay(entries: readonly CalendarEntry[]): ReadonlyMap<string, Item[]> {
-  const byDay = new Map<string, Item[]>();
+export function bucketByDay(
+  entries: readonly CalendarEntry[],
+): ReadonlyMap<string, CalendarEntry[]> {
+  const byDay = new Map<string, CalendarEntry[]>();
 
   for (const entry of entries) {
     const day = entry.value.slice(0, 10);
     const bucket = byDay.get(day);
 
     if (bucket === undefined) {
-      byDay.set(day, [toGridItem(entry)]);
+      byDay.set(day, [entry]);
       continue;
     }
 
-    bucket.push(toGridItem(entry));
+    bucket.push(entry);
   }
 
   return byDay;

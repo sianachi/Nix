@@ -92,6 +92,7 @@ const KNOWN_TYPES = [
   'multi_select',
   'date',
   'timestamp',
+  'datetime',
   'checkbox',
   'url',
   'image',
@@ -152,6 +153,11 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
 
     case 'timestamp':
       return <TimestampValue {...props} />;
+
+    // A date or a moment: a synced event toggles between all-day and timed from one edit to the
+    // next on the provider's side, so this is the one property that has to hold either shape.
+    case 'datetime':
+      return <DateTimeValue {...props} />;
 
     case 'checkbox':
       return <CheckboxValue {...props} />;
@@ -887,6 +893,158 @@ function zoneOptions(current: string): readonly string[] {
 
   const all = supported.length > 0 ? supported : [readerZone()];
   return all.includes(current) ? all : [current, ...all];
+}
+
+/**
+ * A date or a moment: a date field, and an optional time in the reader's own zone.
+ *
+ * **All-day by default, timed once a time is given.** Leaving the time empty stores the bare
+ * `yyyy-MM-dd` a plain {@link DateValue} would, and filling it in stores an RFC 9557 timestamp
+ * built in the reader's own zone - unlike {@link TimestampValue}, whose zone is part of the value
+ * and has to be shown and chosen, this property is always read and written in whichever zone the
+ * person filling it in is sitting in.
+ *
+ * **Clearing the time returns the value to all-day.** There is no third "time was cleared" state:
+ * a date with no time stored is exactly what an all-day event already looks like, on this property
+ * as on the calendar it will be placed on.
+ */
+function DateTimeValue(props: PropertyInputProps): ReactNode {
+  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
+  const controlLabel = controlName(density, item, property);
+  const zone = readerZone();
+
+  const stored = readTimestampValue(item.properties, property.key);
+  const storedDate = stored === null ? readDateValue(item, property.key) : null;
+  const raw = readPropertyText(item, property.key);
+
+  const localDate =
+    storedDate ?? (stored === null ? '' : stored.at.setZone(zone).toFormat('yyyy-MM-dd'));
+  const localTime = stored === null ? '' : stored.at.setZone(zone).toFormat('HH:mm');
+
+  const [draftDate, setDraftDate] = useState(localDate);
+  const [draftTime, setDraftTime] = useState(localTime);
+  const [seen, setSeen] = useState(`${localDate}|${localTime}`);
+  const [sent, setSent] = useState(`${localDate}|${localTime}`);
+  const [incomplete, setIncomplete] = useState(false);
+
+  const seenKey = `${localDate}|${localTime}`;
+  if (seenKey !== seen) {
+    setSeen(seenKey);
+    setDraftDate(localDate);
+    setDraftTime(localTime);
+    setSent(seenKey);
+    setIncomplete(false);
+  }
+
+  // Something is stored, and it is neither a calendar date nor a timestamp this field can show.
+  if (storedDate === null && stored === null && raw.length > 0) {
+    return (
+      <ReadOnlyValue
+        {...props}
+        note={`Stored as "${raw}", which is not a date or a time this field can show. It is left as it is rather than being overwritten.`}
+      />
+    );
+  }
+
+  function commit(nextDate: string, nextTime: string): void {
+    const key = `${nextDate}|${nextTime}`;
+
+    // Against what was last handed over rather than against what is stored, for the same reason
+    // DateValue compares against `sent`: picking a value commits immediately, and the blur that
+    // follows must not commit the same edit a second time.
+    if (key === sent) {
+      setIncomplete(false);
+      return;
+    }
+
+    if (nextDate.length === 0) {
+      setSent(key);
+      setIncomplete(false);
+      onCommit(null);
+      return;
+    }
+
+    if (!COMPLETE_DATE.test(nextDate)) {
+      // Half a date is not a date - said out loud rather than stored as a clear, the same rule
+      // DateValue applies to a draft mid-edit.
+      setIncomplete(true);
+      return;
+    }
+
+    if (nextTime.length === 0) {
+      setSent(key);
+      setIncomplete(false);
+      onCommit(nextDate);
+      return;
+    }
+
+    const written = writeTimestampValue(`${nextDate}T${nextTime}`, zone);
+    if (written === null) {
+      setIncomplete(true);
+      return;
+    }
+
+    setSent(key);
+    setIncomplete(false);
+    onCommit(written);
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          aria-label={controlLabel}
+          tabIndex={props.tabIndex}
+          type="date"
+          tone={density === 'cell' ? 'plain' : 'default'}
+          value={draftDate}
+          required={property.required}
+          disabled={disabled}
+          aria-invalid={error === null && !incomplete ? undefined : true}
+          onChange={(event) => {
+            const next = event.target.value;
+            setDraftDate(next);
+
+            // A complete date is a finished edit for the date half, the same as DateValue: waiting
+            // for a blur would leave somebody looking at a date they picked and did not save.
+            if (next !== draftDate && COMPLETE_DATE.test(next)) {
+              commit(next, draftTime);
+            }
+          }}
+          onBlur={() => {
+            commit(draftDate, draftTime);
+          }}
+        />
+
+        <Input
+          aria-label={`Time for ${controlLabel}`}
+          tabIndex={props.tabIndex}
+          type="time"
+          tone={density === 'cell' ? 'plain' : 'default'}
+          value={draftTime}
+          disabled={disabled}
+          onChange={(event) => {
+            const next = event.target.value;
+            setDraftTime(next);
+            commit(draftDate, next);
+          }}
+          onBlur={() => {
+            commit(draftDate, draftTime);
+          }}
+        />
+      </div>
+
+      {error !== null && error.length > 0 ? (
+        <Text variant="note" role="alert">
+          {error}
+        </Text>
+      ) : incomplete ? (
+        <Text variant="note" role="alert">
+          Enter a complete date, and a complete time if you set one.
+        </Text>
+      ) : null}
+    </div>
+  );
 }
 
 function DateValue(props: PropertyInputProps): ReactNode {

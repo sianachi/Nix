@@ -2,6 +2,7 @@ import {
   isCanceledError,
   isNixApiError,
   items as coreItems,
+  recurrence as coreRecurrence,
   structure as coreStructure,
   views as coreViews,
   workspaceCalendar as coreWorkspaceCalendar,
@@ -21,6 +22,9 @@ export interface WorkspaceCalendarState {
   readonly reload: () => Promise<void>;
   readonly reschedule: (itemId: string, dateProperty: string, value: string) => Promise<boolean>;
   readonly create: (containerId: string, title: string, day: string) => Promise<string | null>;
+
+  /** Marks one day of a repeating item's series done, then reloads the window it changed. */
+  readonly complete: (itemId: string, occurredOn: string) => Promise<boolean>;
 }
 
 function calendarError(reason: unknown): string {
@@ -95,6 +99,26 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     [client, load],
   );
 
+  const complete = useCallback(
+    async (itemId: string, occurredOn: string): Promise<boolean> => {
+      const controller = new AbortController();
+      operations.current.add(controller);
+      try {
+        await client.execute(coreRecurrence.completeOccurrence(itemId, occurredOn), {
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return false;
+        await load();
+        return true;
+      } catch {
+        return false;
+      } finally {
+        operations.current.delete(controller);
+      }
+    },
+    [client, load],
+  );
+
   const create = useCallback(
     async (containerId: string, title: string, day: string): Promise<string | null> => {
       const controller = new AbortController();
@@ -149,5 +173,5 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     };
   }, [load]);
 
-  return { status, calendar, error, reload: load, reschedule, create };
+  return { status, calendar, error, reload: load, reschedule, create, complete };
 }
