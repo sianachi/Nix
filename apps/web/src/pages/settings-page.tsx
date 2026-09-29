@@ -1,24 +1,26 @@
 import { Tabs, Text } from '@nix/ui';
-import { useState, type ReactElement } from 'react';
+import { type ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
 import { EditorPreferencesSection } from '../settings/editor-preferences-section';
+import { NotificationsSection } from '../settings/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 import { PetSettingsSection } from '../pets/pet-settings-section';
+import { useSettingsTab, type SettingsTab } from './settings-tab';
 
-type SettingsTab = 'workspace' | 'editor' | 'pets' | 'access-tokens';
-
-const settingsTabs = [
+const settingsTabs: readonly { id: SettingsTab; label: string; closable: false }[] = [
   { id: 'workspace', label: 'Workspace', closable: false },
   { id: 'editor', label: 'Editor', closable: false },
+  { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'pets', label: 'Pets', closable: false },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
-] as const;
+];
 
-/** Settings grouped by the thing being managed, with workspace management first. */
+/** Settings grouped by the thing being managed, with workspace management first. Addressable by
+ * `?tab=` so a link to a specific section survives a refresh or gets shared. */
 export function SettingsPage(): ReactElement {
-  const [activeTab, setActiveTab] = useState<SettingsTab>('workspace');
+  const { tab: activeTab, setTab: setActiveTab } = useSettingsTab();
 
   return (
     <div className={`${paneScroller} flex flex-col`}>
@@ -53,6 +55,7 @@ export function SettingsPage(): ReactElement {
       >
         {activeTab === 'workspace' ? <WorkspaceManagementSection /> : null}
         {activeTab === 'editor' ? <EditorPreferencesSection /> : null}
+        {activeTab === 'notifications' ? <NotificationsSection /> : null}
         {activeTab === 'pets' ? <PetSettingsSection /> : null}
         {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
       </main>

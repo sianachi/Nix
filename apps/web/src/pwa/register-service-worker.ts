@@ -3,6 +3,12 @@ const listeners = new Set<() => void>();
 export function getWaitingWorker(): ServiceWorker | null {
   return registration?.waiting ?? null;
 }
+/** The current registration, once `registerServiceWorker` has resolved one - what push
+ * subscribe/unsubscribe operate on rather than each re-deriving their own `navigator.serviceWorker`
+ * lookup. */
+export function getServiceWorkerRegistration(): ServiceWorkerRegistration | undefined {
+  return registration;
+}
 export function subscribeToWorker(listener: () => void): () => void {
   listeners.add(listener);
   return () => {

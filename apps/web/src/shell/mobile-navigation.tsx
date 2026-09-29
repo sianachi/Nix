@@ -1,5 +1,5 @@
 import { Icon, Text, cn, focusRing } from '@nix/ui';
-import { CalendarDays, FolderTree, Plus, Search } from 'lucide-react';
+import { Bell, CalendarDays, FolderTree, Plus, Search } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
 
@@ -7,16 +7,20 @@ export function MobileNavigation({
   workspaceId,
   treeOpen,
   creating,
+  unreadNotifications,
   onTree,
   onSearch,
   onCreate,
+  onOpenInbox,
 }: {
   readonly workspaceId: string;
   readonly treeOpen: boolean;
   readonly creating: boolean;
+  readonly unreadNotifications: number;
   readonly onTree: () => void;
   readonly onSearch: () => void;
   readonly onCreate: () => void;
+  readonly onOpenInbox: () => void;
 }): ReactNode {
   const control = `flex min-h-12 min-w-0 flex-1 flex-col items-center justify-center gap-1 sm:flex-row sm:gap-2 rounded-md px-2 py-2 text-muted hover:bg-surface ${focusRing}`;
   return (
@@ -40,6 +44,23 @@ export function MobileNavigation({
         <Icon icon={CalendarDays} size="sm" />
         <Text variant="caption">Calendar</Text>
       </NavLink>
+      <button type="button" className={`relative ${control}`} onClick={onOpenInbox}>
+        <span className="relative">
+          <Icon icon={Bell} size="sm" />
+          {unreadNotifications > 0 ? (
+            <span
+              aria-hidden="true"
+              className="absolute -right-1 -top-1 size-2 rounded-full bg-accent-fill"
+            />
+          ) : null}
+        </span>
+        <Text variant="caption">
+          Inbox
+          {unreadNotifications > 0 ? (
+            <span className="sr-only">, {unreadNotifications} unread</span>
+          ) : null}
+        </Text>
+      </button>
       <button
         type="button"
         className={cn(

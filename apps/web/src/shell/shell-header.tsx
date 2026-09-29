@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 
 import type { CurrentPrincipalState } from '../session/use-current-principal';
 import { WorkspaceSwitcher } from '../workspaces/workspace-switcher';
+import { NotificationBell } from './notifications/notification-bell';
 import { ProfileMenu } from './profile-menu';
 
 export interface ShellHeaderProps {
@@ -12,8 +13,10 @@ export interface ShellHeaderProps {
   readonly sidebarToggleRef: RefObject<HTMLButtonElement | null>;
   readonly workspaceId: string;
   readonly principal: CurrentPrincipalState;
+  readonly unreadNotifications: number;
   readonly onToggleSidebar: () => void;
   readonly onOpenSearch: () => void;
+  readonly onOpenInbox: () => void;
 }
 
 /** The persistent shell controls that remain visible while the workspace tree changes shape. */
@@ -22,8 +25,10 @@ export function ShellHeader({
   sidebarToggleRef,
   workspaceId,
   principal,
+  unreadNotifications,
   onToggleSidebar,
   onOpenSearch,
+  onOpenInbox,
 }: ShellHeaderProps): ReactNode {
   return (
     <header className="flex min-w-0 shrink-0 items-center gap-1.5 px-2 py-2 sm:gap-3 sm:px-4">
@@ -62,6 +67,8 @@ export function ShellHeader({
             is a shortcut nobody uses. */}
         <kbd className="hidden font-mono text-2xs text-muted md:inline">Ctrl K</kbd>
       </button>
+
+      <NotificationBell unread={unreadNotifications} onClick={onOpenInbox} />
 
       <ProfileMenu principal={principal} />
     </header>
