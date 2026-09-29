@@ -11,6 +11,7 @@ test('every worker command family is routed to its durable queue', () => {
   const expected = new Map([
     ['nix.worker.import.v1', ['import.#', 'template.#', 'file.#', 'object.#']],
     ['nix.worker.export.v1', ['export.#']],
+    ['nix.worker.notify.v1', ['notify.#']],
   ]);
 
   for (const [queue, routingKeys] of expected) {
@@ -29,7 +30,7 @@ test('every worker command family is routed to its durable queue', () => {
 test('the API publisher may emit every command family bound by the topology', () => {
   assert.match(
     bootstrap,
-    /\^\(import\|template\|file\|object\|export\)\\\.\.\+\$/,
+    /\^\(import\|template\|file\|object\|export\|notify\)\\\.\.\+\$/,
   );
 });
 
@@ -39,6 +40,7 @@ test('worker queues retain commands and dead-letter refused deliveries', () => {
     'nix.worker.export.v1',
     'nix.worker.index.v1',
     'nix.worker.plugin-events.v1',
+    'nix.worker.notify.v1',
     'nix.api.results.v1',
   ]) {
     const queue = definitions.queues.find((candidate) => candidate.name === name);
@@ -67,6 +69,7 @@ test('authoritative queues cannot lose work to the quorum default delivery limit
     'nix.worker.import.v1',
     'nix.worker.export.v1',
     'nix.worker.plugin-events.v1',
+    'nix.worker.notify.v1',
   ]) {
     assert.match(name, new RegExp(policy.pattern, 'u'), `${name} is protected`);
   }

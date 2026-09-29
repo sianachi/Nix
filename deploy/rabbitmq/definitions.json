@@ -14,11 +14,12 @@
     { "name": "nix.worker.export.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.worker.index.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-delivery-limit": 5, "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.worker.plugin-events.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
+    { "name": "nix.worker.notify.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.api.results.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum", "x-delivery-limit": 5, "x-dead-letter-exchange": "nix.dead.v1" } },
     { "name": "nix.dead.v1", "vhost": "/nix", "durable": true, "auto_delete": false, "arguments": { "x-queue-type": "quorum" } }
   ],
   "policies": [
-    { "vhost": "/nix", "name": "nix-authoritative-delivery", "pattern": "^nix\\.worker\\.(import|export|plugin-events)\\.v1$", "apply-to": "quorum_queues", "definition": { "delivery-limit": -1 }, "priority": 100 }
+    { "vhost": "/nix", "name": "nix-authoritative-delivery", "pattern": "^nix\\.worker\\.(import|export|plugin-events|notify)\\.v1$", "apply-to": "quorum_queues", "definition": { "delivery-limit": -1 }, "priority": 100 }
   ],
   "bindings": [
     { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "import.#", "arguments": {} },
@@ -26,6 +27,7 @@
     { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "file.#", "arguments": {} },
     { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.import.v1", "destination_type": "queue", "routing_key": "object.#", "arguments": {} },
     { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.export.v1", "destination_type": "queue", "routing_key": "export.#", "arguments": {} },
+    { "source": "nix.commands.v1", "vhost": "/nix", "destination": "nix.worker.notify.v1", "destination_type": "queue", "routing_key": "notify.#", "arguments": {} },
     { "source": "nix.results.v1", "vhost": "/nix", "destination": "nix.api.results.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
     { "source": "nix.workspace.v1", "vhost": "/nix", "destination": "nix.worker.index.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
     { "source": "nix.workspace.v1", "vhost": "/nix", "destination": "nix.worker.plugin-events.v1", "destination_type": "queue", "routing_key": "#", "arguments": {} },
