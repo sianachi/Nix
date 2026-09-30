@@ -202,7 +202,7 @@ public sealed class BrowserAuthLifecycleTests : IAsyncLifetime
             Assert.Equal(2, definitions.Count);
             Assert.All(definitions, definition =>
             {
-                Assert.Contains("|nix_migrator|true|search_path=pg_catalog, public|", definition, StringComparison.Ordinal);
+                Assert.Contains("|nix_migrator|true|search_path=pg_catalog, public, pg_temp|", definition, StringComparison.Ordinal);
                 Assert.EndsWith("|false|true", definition, StringComparison.Ordinal);
             });
         }

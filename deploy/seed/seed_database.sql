@@ -20,6 +20,12 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM nix_app;
 REVOKE CREATE ON SCHEMA public FROM nix_collab;
 
+-- No service uses temporary tables. Without TEMPORARY a caller cannot put a
+-- relation in pg_temp to shadow one a SECURITY DEFINER function names, which
+-- backs up the search_path pinned on those functions. The owner (nix_migrator)
+-- keeps it through ownership.
+REVOKE TEMPORARY ON DATABASE :"db_name" FROM PUBLIC;
+
 -- Table-level grants for future migrations: anything nix_migrator creates in
 -- public is automatically readable/writable by nix_app. Per-table grants in
 -- the migrations themselves still narrow this per the ownership matrix (for
