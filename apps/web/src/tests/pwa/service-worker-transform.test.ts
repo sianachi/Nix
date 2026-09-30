@@ -44,10 +44,26 @@ describe('the PWA asset build transform', () => {
       context,
       {},
       {
-        'assets/index-abc123.js': {},
-        'assets/index-abc123.css': {},
-        'assets/vendor-def456.woff2': {},
-        'not-an-asset.txt': {},
+        // The shape the native-feel shell reads to find what an installed launch needs: the entry
+        // chunk, the one application chunk it loads dynamically, and their stylesheets.
+        'assets/index-abc123.js': {
+          type: 'chunk',
+          fileName: 'assets/index-abc123.js',
+          isEntry: true,
+          imports: [],
+          dynamicImports: ['assets/app-abc123.js'],
+          viteMetadata: { importedCss: new Set(['assets/index-abc123.css']) },
+        },
+        'assets/app-abc123.js': {
+          type: 'chunk',
+          fileName: 'assets/app-abc123.js',
+          isEntry: false,
+          imports: [],
+          dynamicImports: [],
+        },
+        'assets/index-abc123.css': { type: 'asset' },
+        'assets/vendor-def456.woff2': { type: 'asset' },
+        'not-an-asset.txt': { type: 'asset' },
       },
     );
 
@@ -57,6 +73,7 @@ describe('the PWA asset build transform', () => {
     expect(worker).toMatch(/const VERSION = "nix-pwa-[0-9a-f]{16}";/);
     expect(worker).toContain('/assets/index-abc123.js');
     expect(worker).toContain('/assets/vendor-def456.woff2');
+    expect(worker).toContain('const SHELL_ENTRY = "/assets/index-abc123.js";');
 
     for (const handler of ['push', 'notificationclick', 'pushsubscriptionchange']) {
       expect(worker).toContain(`addEventListener('${handler}'`);
