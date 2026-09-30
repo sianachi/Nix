@@ -27,7 +27,12 @@ public sealed record DesiredTrigger(
 /// "no longer desired", so the planner still upserts what it has but must not cancel anything for
 /// that source this pass.
 /// </param>
-public sealed record TriggerPlan(IReadOnlyList<DesiredTrigger> Triggers, bool Complete)
+/// <param name="IncompleteRules">
+/// Rules whose own candidates were cut short while the rest of the plan is whole. The planner
+/// still cancels the source's stale rows, but never those of these rules: one rule reaching its
+/// cap must not stop every other rule's stale triggers from being cancelled.
+/// </param>
+public sealed record TriggerPlan(IReadOnlyList<DesiredTrigger> Triggers, bool Complete, IReadOnlyCollection<Guid>? IncompleteRules = null)
 {
     /// <summary>Gets a complete plan with nothing to schedule.</summary>
     public static TriggerPlan Empty { get; } = new([], Complete: true);
@@ -83,6 +88,14 @@ public interface ITriggerSource
     /// fires its rows by <see cref="Name"/>.
     /// </summary>
     public bool IsPlanned => true;
+
+    /// <summary>
+    /// Gets how often the planner asks this source to plan: every pass for
+    /// <see cref="TimeSpan.Zero"/> (the default), otherwise at most once per interval. The
+    /// 48-hour window gives a source that is costly to plan the lead time to plan less often;
+    /// rows it planned stay as they are between its passes.
+    /// </summary>
+    public TimeSpan PlanInterval => TimeSpan.Zero;
 
     /// <summary>
     /// Returns every trigger this source currently wants planned within <paramref name="window"/>,

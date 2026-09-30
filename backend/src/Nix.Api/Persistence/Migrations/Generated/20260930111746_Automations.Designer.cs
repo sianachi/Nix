@@ -273,7 +273,8 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasDatabaseName("ix_automation_rule_planned")
                         .HasFilter("enabled AND trigger_type IN ('schedule', 'date_arrives')");
 
-                    b.HasIndex("TenantId", "ScopeItemId");
+                    b.HasIndex("TenantId", "ScopeItemId")
+                        .HasDatabaseName("ix_automation_rule_scope_item");
 
                     b.HasIndex("TenantId", "WorkspaceId")
                         .HasDatabaseName("ix_automation_rule_property_watch")
@@ -357,6 +358,11 @@ namespace Nix.Persistence.Migrations.Generated
                     b.HasIndex("TenantId", "RuleId", "TriggerKey")
                         .IsUnique()
                         .HasDatabaseName("ux_automation_run_rule_trigger_key");
+
+                    b.HasIndex(new[] { "TenantId", "RuleId", "CreatedAt" }, "ix_automation_run_rule_working")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("ix_automation_run_rule_working")
+                        .HasFilter("status IN ('succeeded', 'noop', 'failed')");
 
                     b.ToTable("automation_run", null, t =>
                         {

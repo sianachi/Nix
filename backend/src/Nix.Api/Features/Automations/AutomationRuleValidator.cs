@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text;
 using Nix.Domain.Automations;
 using Nix.Domain.Primitives;
 
@@ -36,6 +37,11 @@ public static class AutomationRuleValidator
         violations.AddRange(conditions.Violations);
         var actions = AutomationActionJson.ReadAll(input.Actions);
         violations.AddRange(actions.Violations);
+        if (!actions.Value.IsDefaultOrEmpty
+            && Encoding.UTF8.GetByteCount(AutomationActionJson.WriteAll(actions.Value).ToJsonString()) > AutomationActionJson.MaximumTotalBytes)
+        {
+            violations.Add(new AutomationViolation("actions", "must be at most 12 KiB together"));
+        }
 
         if (input.ScopeItemId == Guid.Empty)
         {

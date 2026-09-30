@@ -16,7 +16,10 @@ public sealed record PlannedAutomationRule(
     Guid? ScopeItemId);
 
 /// <summary>One item a date rule may fire for, and its stored value text.</summary>
-public sealed record AutomationDateCandidate(Guid ItemId, string? ValueText);
+/// <param name="ItemId">The item.</param>
+/// <param name="ValueText">The key's stored value.</param>
+/// <param name="CursorDay">The due_day to resume a due_date read after, with <paramref name="ItemId"/>; null for any other key.</param>
+public sealed record AutomationDateCandidate(Guid ItemId, string? ValueText, string? CursorDay);
 
 /// <summary>
 /// Cross-tenant discovery for the planned automation sources, backed by the SECURITY DEFINER
@@ -29,11 +32,35 @@ public interface IAutomationCandidateFinder
     public Task<IReadOnlyList<PlannedAutomationRule>> FindPlannedRulesAsync(int limit, Guid afterId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Items one date rule may fire for whose value falls around <c>[firstDay, lastDay]</c>, in id order. The
-    /// function reads the key, workspace and scope from the rule row; callers never pass a key.
+    /// Items one date rule may fire for whose value falls around <c>[firstDay, lastDay]</c> - and so
+    /// every rule sharing its tenant, workspace, key and scope. The function reads the key,
+    /// workspace and scope from the rule row; callers never pass a key. A due_date rule's items
+    /// come in <c>(due_day, id)</c> order and resume after <paramref name="afterDay"/> and
+    /// <paramref name="afterId"/>; any other key's come in id order and resume after
+    /// <paramref name="afterId"/> alone.
     /// </summary>
     public Task<IReadOnlyList<AutomationDateCandidate>> FindDateCandidatesAsync(
-        TenantId tenantId, Guid ruleId, DateOnly firstDay, DateOnly lastDay, int limit, Guid afterId, CancellationToken cancellationToken);
+        TenantId tenantId,
+        Guid ruleId,
+        DateOnly firstDay,
+        DateOnly lastDay,
+        int limit,
+        string? afterDay,
+        Guid? afterId,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>How a rule write ended.</summary>
+public enum AutomationRuleWrite
+{
+    /// <summary>The row was written.</summary>
+    Written,
+
+    /// <summary>The rule was not at the expected revision; nothing was written.</summary>
+    Conflict,
+
+    /// <summary>The table's size bound refused the row; nothing was written.</summary>
+    OutOfBounds,
 }
 
 /// <summary>What recording a failed run did to its rule.</summary>
@@ -54,11 +81,21 @@ public interface IAutomationRuleStore
     /// <summary>One of the session owner's rules, or <see langword="null"/>.</summary>
     public Task<AutomationRule?> GetAsync(Guid ruleId, CancellationToken cancellationToken);
 
-    /// <summary>Stores a new rule.</summary>
-    public Task InsertAsync(AutomationRule rule, CancellationToken cancellationToken);
+    /// <summary>
+    /// Serialises rule creation for one owner in one workspace until the calling transaction
+    /// ends, so two concurrent creates cannot both pass the per-owner ceiling's count.
+    /// </summary>
+    public Task LockOwnerQuotaAsync(TenantId tenantId, PrincipalId ownerId, WorkspaceId workspaceId, CancellationToken cancellationToken);
 
-    /// <summary>Replaces a rule only if it is still at <paramref name="expectedRevision"/>.</summary>
-    public Task<bool> ReplaceAsync(AutomationRule rule, long expectedRevision, CancellationToken cancellationToken);
+    /// <summary>Stores a new rule; <see cref="AutomationRuleWrite.OutOfBounds"/> when the table's size bound refuses it.</summary>
+    public Task<AutomationRuleWrite> InsertAsync(AutomationRule rule, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces a rule only if it is still at <paramref name="expectedRevision"/>
+    /// (<see cref="AutomationRuleWrite.Conflict"/> otherwise), or
+    /// <see cref="AutomationRuleWrite.OutOfBounds"/> when the table's size bound refuses it.
+    /// </summary>
+    public Task<AutomationRuleWrite> ReplaceAsync(AutomationRule rule, long expectedRevision, CancellationToken cancellationToken);
 
     /// <summary>Deletes a rule; its runs and state go with it.</summary>
     public Task<bool> DeleteAsync(Guid ruleId, CancellationToken cancellationToken);

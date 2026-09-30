@@ -294,6 +294,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<Nix.Abstractions.Automations.IAutomationRunStore, Nix.Persistence.Automations.AutomationRunStore>();
         services.AddScoped<Nix.Abstractions.Automations.IAutomationActionScope, Nix.Persistence.Automations.AutomationActionScope>();
         services.AddScoped<Nix.Features.Automations.AutomationExecutor>();
+        services.AddScoped<Nix.Features.Automations.PlannedAutomationRules>();
         services.AddScoped<Nix.Features.Automations.AutomationRuleSupport>();
         services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Features.Automations.AutomationScheduleSource>();
         services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Features.Automations.AutomationDateSource>();

@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions.Automations;
 using Nix.Domain.Automations;
+using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
+using Npgsql;
 
 namespace Nix.Persistence.Automations;
 
@@ -13,6 +15,9 @@ namespace Nix.Persistence.Automations;
 /// </summary>
 public sealed class AutomationRuleStore(NixDbContext database) : IAutomationRuleStore
 {
+    private const string RuleWriteSavepoint = "automation_rule_write";
+    private const string BoundedConstraint = "automation_rule_bounded";
+
     public async Task<IReadOnlyList<AutomationRule>> ListAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) =>
         await database.Set<AutomationRule>()
             .AsNoTracking()
@@ -33,11 +38,21 @@ public sealed class AutomationRuleStore(NixDbContext database) : IAutomationRule
             .AsNoTracking()
             .SingleOrDefaultAsync(rule => rule.Id == ruleId, cancellationToken);
 
-    public async Task InsertAsync(AutomationRule rule, CancellationToken cancellationToken)
+    public async Task LockOwnerQuotaAsync(TenantId tenantId, PrincipalId ownerId, WorkspaceId workspaceId, CancellationToken cancellationToken)
+    {
+        // Transaction-scoped: held until the creating transaction commits or rolls back, so a
+        // concurrent create for the same owner and workspace counts only after this one's insert
+        // is visible.
+        var key = $"nix.automation_rule.quota:{tenantId.Value:D}:{ownerId.Value:D}:{workspaceId.Value:D}";
+        await database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({key}, 0))", cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<AutomationRuleWrite> InsertAsync(AutomationRule rule, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rule);
         Guid? scope = rule.ScopeItemId?.Value;
-        await database.Database.ExecuteSqlInterpolatedAsync($"""
+        return await BoundedAsync(() => database.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO automation_rule
                 (id, tenant_id, workspace_id, owner_principal_id, name, enabled, scope_item_id, trigger_type,
                  watch_key, trigger, conditions, actions, schema_version, revision, consecutive_failures,
@@ -46,14 +61,14 @@ public sealed class AutomationRuleStore(NixDbContext database) : IAutomationRule
                     {rule.Name}, {rule.Enabled}, {scope}, {rule.TriggerType}, {rule.WatchKey},
                     {rule.Trigger}::jsonb, {rule.Conditions}::jsonb, {rule.Actions}::jsonb, {rule.SchemaVersion},
                     {rule.Revision}, 0, NULL, NULL, {rule.CreatedAt}, {rule.UpdatedAt})
-            """, cancellationToken).ConfigureAwait(false);
+            """, cancellationToken), cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<bool> ReplaceAsync(AutomationRule rule, long expectedRevision, CancellationToken cancellationToken)
+    public async Task<AutomationRuleWrite> ReplaceAsync(AutomationRule rule, long expectedRevision, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(rule);
         Guid? scope = rule.ScopeItemId?.Value;
-        var updated = await database.Database.ExecuteSqlInterpolatedAsync($"""
+        return await BoundedAsync(() => database.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE automation_rule
                SET name = {rule.Name},
                    enabled = {rule.Enabled},
@@ -71,8 +86,32 @@ public sealed class AutomationRuleStore(NixDbContext database) : IAutomationRule
              WHERE tenant_id = {rule.TenantId.Value}
                AND id = {rule.Id}
                AND revision = {expectedRevision}
-            """, cancellationToken).ConfigureAwait(false);
-        return updated == 1;
+            """, cancellationToken), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Runs one rule write behind a savepoint and maps the table's own size bound
+    /// (<c>automation_rule_bounded</c>) to <see cref="AutomationRuleWrite.OutOfBounds"/>: the
+    /// validator's limits are meant to keep a rule well inside it, and this is the backstop for
+    /// anything they missed. The savepoint keeps the caller's transaction usable afterwards.
+    /// </summary>
+    private async Task<AutomationRuleWrite> BoundedAsync(Func<Task<int>> write, CancellationToken cancellationToken)
+    {
+        await database.Database.ExecuteSqlRawAsync($"SAVEPOINT {RuleWriteSavepoint}", cancellationToken).ConfigureAwait(false);
+        int written;
+        try
+        {
+            written = await write().ConfigureAwait(false);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.CheckViolation
+            && exception.ConstraintName == BoundedConstraint)
+        {
+            await database.Database.ExecuteSqlRawAsync($"ROLLBACK TO SAVEPOINT {RuleWriteSavepoint}", cancellationToken).ConfigureAwait(false);
+            return AutomationRuleWrite.OutOfBounds;
+        }
+
+        await database.Database.ExecuteSqlRawAsync($"RELEASE SAVEPOINT {RuleWriteSavepoint}", cancellationToken).ConfigureAwait(false);
+        return written == 1 ? AutomationRuleWrite.Written : AutomationRuleWrite.Conflict;
     }
 
     public async Task<bool> DeleteAsync(Guid ruleId, CancellationToken cancellationToken) =>
@@ -162,28 +201,45 @@ public sealed class AutomationRunStore(NixDbContext database) : IAutomationRunSt
             .AsNoTracking()
             .SingleOrDefaultAsync(run => run.TenantId == tenantId && run.Id == runId, cancellationToken);
 
-    public Task<int> CountWorkingRunsSinceAsync(TenantId tenantId, Guid ruleId, DateTimeOffset since, CancellationToken cancellationToken) =>
-        database.Set<AutomationRun>()
-            .AsNoTracking()
-            .Where(run => run.TenantId == tenantId && run.RuleId == ruleId && run.CreatedAt >= since)
-            .Where(run => run.Status == AutomationRunStatus.Succeeded
-                || run.Status == AutomationRunStatus.Noop
-                || run.Status == AutomationRunStatus.Failed)
-            .Take(AutomationGuards.PerRuleHourly + 1)
-            .CountAsync(cancellationToken);
+    public async Task<int> CountWorkingRunsSinceAsync(TenantId tenantId, Guid ruleId, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        // Literal statuses, stated exactly as ix_automation_run_rule_working's predicate states
+        // them, so the planner can prove the partial index applies; capped one past the bound,
+        // since only "at the bound or not" matters.
+        var rows = await database.Database.SqlQuery<int>($"""
+            SELECT count(*)::integer AS "Value"
+              FROM (SELECT 1
+                      FROM automation_run run
+                     WHERE run.tenant_id = {tenantId.Value}
+                       AND run.rule_id = {ruleId}
+                       AND run.created_at >= {since}
+                       AND run.status IN ('succeeded', 'noop', 'failed')
+                     LIMIT {AutomationGuards.PerRuleHourly + 1}) working
+            """).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return rows.Count == 0 ? 0 : rows[0];
+    }
 
-    public Task<int> TrimAsync(TenantId tenantId, Guid ruleId, int keep, CancellationToken cancellationToken) =>
-        database.Database.ExecuteSqlInterpolatedAsync($"""
+    public Task<int> TrimAsync(TenantId tenantId, Guid ruleId, int keep, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(keep, 1);
+
+        // Index-backed on every recorded run: the cutoff is the keep-th newest run's instant, read
+        // by walking ix_automation_run_rule_created from the newest end, and everything strictly
+        // older goes by a range on the same index. A rule within its bound finds no cutoff row and
+        // deletes nothing. Runs sharing the cutoff instant are all kept.
+        return database.Database.ExecuteSqlInterpolatedAsync($"""
             DELETE FROM automation_run doomed
+             USING (SELECT run.created_at
+                      FROM automation_run run
+                     WHERE run.tenant_id = {tenantId.Value} AND run.rule_id = {ruleId}
+                     ORDER BY run.created_at DESC
+                    OFFSET {keep - 1}
+                     LIMIT 1) cutoff
              WHERE doomed.tenant_id = {tenantId.Value}
                AND doomed.rule_id = {ruleId}
-               AND doomed.id IN (
-                   SELECT run.id
-                     FROM automation_run run
-                    WHERE run.tenant_id = {tenantId.Value} AND run.rule_id = {ruleId}
-                    ORDER BY run.created_at DESC, run.id DESC
-                   OFFSET {keep})
+               AND doomed.created_at < cutoff.created_at
             """, cancellationToken);
+    }
 
     public Task<AutomationItemState?> GetItemStateAsync(TenantId tenantId, Guid ruleId, ItemId itemId, CancellationToken cancellationToken) =>
         database.Set<AutomationItemState>()

@@ -140,13 +140,13 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
             await work.CommitAsync(Cancellation);
         }
 
-        var leased = await leases.LeaseDueAsync(10, "owner-a", 30, 5, Cancellation);
+        var leased = await leases.LeaseDueAsync(10, "owner-a", 30, 5, null, Cancellation);
         var due = Assert.Single(leased, trigger => trigger.DedupeKey == "due-now");
         Assert.Equal(1, due.Attempts);
         Assert.Equal(TestTenants.AlphaContext.TenantId, due.TenantId);
 
         // Still leased: a second lease pass with a different owner must not reclaim it.
-        var second = await leases.LeaseDueAsync(10, "owner-b", 30, 5, Cancellation);
+        var second = await leases.LeaseDueAsync(10, "owner-b", 30, 5, null, Cancellation);
         Assert.DoesNotContain(second, trigger => trigger.DedupeKey == "due-now");
 
         // The wrong owner cannot finish someone else's lease.
@@ -182,7 +182,7 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         }
 
         var leases = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IScheduledTriggerLeaseStore>();
-        var leased = await leases.LeaseDueAsync(10, "owner-new", 30, 5, Cancellation);
+        var leased = await leases.LeaseDueAsync(10, "owner-new", 30, 5, null, Cancellation);
         Assert.DoesNotContain(leased, trigger => trigger.DedupeKey == "dead-lease");
 
         var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);

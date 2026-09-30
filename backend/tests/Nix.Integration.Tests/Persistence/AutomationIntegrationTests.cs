@@ -304,7 +304,7 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
         await using (var scope = fixture.Application.CreateUnscopedScope())
         {
             var leased = await scope.ServiceProvider.GetRequiredService<IScheduledTriggerLeaseStore>()
-                .LeaseDueAsync(10, "other-replica", 60, 5, Cancellation);
+                .LeaseDueAsync(10, "other-replica", 60, 5, null, Cancellation);
             Assert.Single(leased);
         }
 
@@ -406,6 +406,384 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
         Assert.Equal(1, await CountAsync("SELECT count(*) FROM scheduled_trigger WHERE source = 'automation.property' AND status = 'pending'"));
     }
 
+    [Fact]
+    public async Task A_lock_over_the_triggering_item_keeps_it_out_of_notifications_created_items_previews_and_the_run_log()
+    {
+        await SeedColleagueAsync("editor");
+        var colleague = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var folder = await CreateItemAsync(Alpha, "Private folder", null);
+        var diary = await CreateItemAsync(Alpha, "Secret diary", null, folder);
+        var watcher = await CreateRuleAsync(Alpha, "Watch", """{"type":"property_changed","key":"status"}""",
+            """[{"type":"notify","title":"Changed: {item.title}","body":"{item.title}"},{"type":"create_item","parent":"triggering_item","itemType":"task","title":"Follow up {item.title}"}]""");
+        var stamper = await CreateRuleAsync(Alpha, "Stamp", """{"type":"property_changed","key":"never"}""",
+            $$"""[{"type":"set_property","target":{"itemId":"{{diary}}"},"key":"stamped","value":true}]""");
+
+        // Another member changes the item; the owner then locks the folder above it.
+        await SetAsync(colleague, diary, """{"status":"written"}""");
+        await LockAsync(folder);
+        await DispatchAllAsync();
+
+        Assert.Equal(["skipped|property|0"], await RunsAsync(watcher));
+        Assert.Equal("item_locked|null", await TextAsync(
+            $"SELECT (detail ->> 'reason') || '|' || COALESCE(item_id::text, 'null') FROM automation_run WHERE rule_id = '{watcher}'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM notification WHERE kind = 'automation'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM item WHERE properties ->> 'title' LIKE 'Follow up%'"));
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM automation_run WHERE item_id = '{diary}'"));
+
+        // The dry run renders nothing from the locked item either.
+        AutomationTestResponse preview;
+        var work = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var test = await work.Resolve<NixDispatcher>().SendAsync<TestAutomation, AutomationTestResponse>(new(watcher, diary), Cancellation);
+            Assert.True(test.IsSuccess);
+            preview = test.Value;
+        }
+
+        Assert.False(preview.WouldRun);
+        Assert.Equal("item_locked", preview.Reason);
+        Assert.Empty(preview.Actions);
+
+        // A named target under the lock refuses the action rather than writing through it.
+        var stamped = await RunNowAsync(Alpha, stamper, null);
+        Assert.Equal("failed", stamped.Status);
+        Assert.Equal("set_property.target_locked", stamped.Reason);
+        Assert.Null(await PropertyAsync(diary, "stamped"));
+    }
+
+    [Fact]
+    public async Task Every_owner_keeps_its_own_fifty_rule_cap_on_one_change()
+    {
+        await SeedColleagueAsync("editor");
+        var itemId = await CreateItemAsync(Alpha, "Shared", null);
+
+        // Fifty rules of one owner sort before the other owner's single rule.
+        await ExecuteAsMigratorAsync($$"""
+            INSERT INTO automation_rule (id, tenant_id, workspace_id, owner_principal_id, name, enabled, trigger_type, watch_key,
+                                         trigger, conditions, actions, schema_version, revision, consecutive_failures, created_at, updated_at)
+            SELECT ('00000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, '{{TestTenants.Alpha}}', '{{TestTenants.AlphaWorkspace}}',
+                   '{{TestTenants.AlphaPrincipal}}', 'Mine ' || n, true, 'property_changed', 'status',
+                   '{"type":"property_changed","key":"status"}', '[]', '[{"type":"notify","title":"x"}]', 1, 1, 0, now(), now()
+              FROM generate_series(1, 50) n;
+            INSERT INTO automation_rule (id, tenant_id, workspace_id, owner_principal_id, name, enabled, trigger_type, watch_key,
+                                         trigger, conditions, actions, schema_version, revision, consecutive_failures, created_at, updated_at)
+            VALUES ('ffffffff-ffff-4fff-bfff-ffffffffffff', '{{TestTenants.Alpha}}', '{{TestTenants.AlphaWorkspace}}', '{{Colleague}}', 'Theirs',
+                    true, 'property_changed', 'status', '{"type":"property_changed","key":"status"}', '[]',
+                    '[{"type":"notify","title":"x"}]', 1, 1, 0, now(), now());
+            """);
+
+        await SetAsync(Alpha, itemId, """{"status":"moved"}""");
+
+        Assert.Equal(50, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE source = 'automation.property' AND principal_id = '{TestTenants.AlphaPrincipal}'"));
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE source = 'automation.property' AND principal_id = '{Colleague}'"));
+    }
+
+    [Fact]
+    public async Task An_owner_removed_from_the_workspace_records_access_lost_without_the_item_and_cannot_read_the_rule()
+    {
+        await SeedColleagueAsync("editor");
+        var colleague = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var itemId = await CreateItemAsync(Alpha, "Roadmap", null);
+        var ruleId = await CreateRuleAsync(colleague, "Theirs", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"{item.title}"}]""");
+
+        await ExecuteAsMigratorAsync($"DELETE FROM workspace_member WHERE subject_id = '{Colleague}'");
+        await SetAsync(Alpha, itemId, """{"status":"moved"}""");
+        await DispatchAllAsync();
+
+        Assert.Equal(["failed|property|0"], await RunsAsync(ruleId));
+        Assert.Equal("access_lost|null", await TextAsync(
+            $"SELECT (detail ->> 'reason') || '|' || COALESCE(item_id::text, 'null') FROM automation_run WHERE rule_id = '{ruleId}'"));
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(colleague, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            Assert.Equal(AutomationErrors.NotFoundCode, (await dispatcher.SendAsync<GetAutomation, AutomationRuleResponse>(new(ruleId), Cancellation)).Error.Code);
+            Assert.Equal(AutomationErrors.NotFoundCode, (await dispatcher.SendAsync<ListAutomationRuns, AutomationRunsPageResponse>(new(ruleId, null), Cancellation)).Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_suspended_owners_rule_fails_without_the_item_and_disables_after_five()
+    {
+        await SeedColleagueAsync("editor");
+        var colleague = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var ruleId = await CreateRuleAsync(colleague, "Theirs", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"{item.title}"}]""");
+        var items = new List<Guid>();
+        for (var index = 0; index < 5; index++)
+        {
+            items.Add(await CreateItemAsync(Alpha, $"Item {index}", null));
+        }
+
+        await ExecuteAsMigratorAsync($"UPDATE principal SET status = 'suspended' WHERE principal_id = '{Colleague}'");
+        foreach (var item in items)
+        {
+            await SetAsync(Alpha, item, """{"status":"moved"}""");
+        }
+
+        await DispatchAllAsync();
+
+        Assert.Equal(5, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}' AND status = 'failed' AND detail ->> 'reason' = 'owner_inactive' AND item_id IS NULL"));
+        Assert.Equal("false|repeated_failures", await TextAsync($"SELECT enabled::text || '|' || disabled_reason FROM automation_rule WHERE id = '{ruleId}'"));
+    }
+
+    [Fact]
+    public async Task A_bulk_write_past_the_budget_enqueues_no_more_and_notes_each_rule_once()
+    {
+        var first = await CreateRuleAsync(Alpha, "One", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        var second = await CreateRuleAsync(Alpha, "Two", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO item (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                              created_by, last_modified_by, created_at, last_modified_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{TestTenants.AlphaWorkspace}', 'task', NULL, 100000 + n,
+                   jsonb_build_object('title', 'Bulk ' || n, 'bulk', true), 'active',
+                   '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaPrincipal}', now(), now()
+              FROM generate_series(1, 600) n;
+            """);
+
+        // One statement, one transaction: 600 rows times two rules would be 1,200 triggers.
+        await ExecuteAsMigratorAsync("UPDATE item SET properties = properties || '{\"status\":\"done\"}' WHERE properties ? 'bulk'");
+
+        Assert.Equal(1000, await CountAsync("SELECT count(*) FROM scheduled_trigger WHERE source = 'automation.property'"));
+        foreach (var ruleId in new[] { first, second })
+        {
+            Assert.Equal("throttled|bulk_write|null", await TextAsync(
+                $"SELECT status || '|' || (detail ->> 'reason') || '|' || COALESCE(item_id::text, 'null') FROM automation_run WHERE rule_id = '{ruleId}'"));
+        }
+    }
+
+    [Fact]
+    public async Task A_property_change_fires_at_the_start_of_the_next_minute()
+    {
+        var itemId = await CreateItemAsync(Alpha, "Edge", null);
+        var ruleId = await CreateRuleAsync(Alpha, "Watch", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        await SetAsync(Alpha, itemId, """{"status":"a"}""");
+
+        Assert.Equal("true", await TextAsync($"""
+            SELECT (fire_at = date_trunc('minute', created_at) + interval '1 minute')::text
+              FROM scheduled_trigger WHERE rule_id = '{ruleId}'
+            """));
+    }
+
+    [Fact]
+    public async Task The_hourly_cap_records_one_throttled_run_and_cancels_the_rules_queued_property_triggers()
+    {
+        var ruleId = await CreateRuleAsync(Alpha, "Busy", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        var items = new List<Guid>();
+        for (var index = 0; index < 5; index++)
+        {
+            items.Add(await CreateItemAsync(Alpha, $"Item {index}", null));
+        }
+
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO automation_run (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key, origin, depth, status, created_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{ruleId}', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaWorkspace}',
+                   NULL, 'busy:' || n, 'manual', 0, 'succeeded', now() - interval '10 minutes'
+              FROM generate_series(1, 200) n;
+            """);
+        foreach (var item in items)
+        {
+            await SetAsync(Alpha, item, """{"status":"a"}""");
+        }
+
+        // Three are due now; two are queued for later.
+        await ExecuteAsMigratorAsync($"""
+            UPDATE scheduled_trigger SET fire_at = now() + interval '1 hour'
+             WHERE rule_id = '{ruleId}' AND source_item_id IN ('{items[3]}', '{items[4]}');
+            UPDATE scheduled_trigger SET fire_at = now() - interval '1 second'
+             WHERE rule_id = '{ruleId}' AND status = 'pending' AND fire_at < now() + interval '5 minutes';
+            """);
+        await DispatchAllAsync();
+
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}' AND status = 'throttled'"));
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}' AND trigger_key LIKE 'auto:%:throttled:%'"));
+        Assert.Equal(2, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND status = 'cancelled'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM notification WHERE kind = 'automation'"));
+    }
+
+    [Fact]
+    public async Task Runs_are_trimmed_to_500_on_every_recorded_run_not_only_a_successful_one()
+    {
+        var ruleId = await CreateRuleAsync(Alpha, "Chatty", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"Hi"}]""");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO automation_run (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key, origin, depth, status, created_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{ruleId}', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaWorkspace}',
+                   NULL, 'old:' || n, 'manual', 0, 'skipped', now() - interval '2 hours' - n * interval '1 second'
+              FROM generate_series(1, 505) n;
+            """);
+
+        // No such item: a skipped run, which is recorded - and trimmed after - like any other.
+        var run = await RunNowAsync(Alpha, ruleId, Guid.NewGuid());
+        Assert.Equal("skipped", run.Status);
+        Assert.Equal(500, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}'"));
+    }
+
+    [Fact]
+    public async Task One_retention_pass_drains_more_than_a_single_batch()
+    {
+        var ruleId = await CreateRuleAsync(Alpha, "Old", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"Hi"}]""");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO automation_run (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key, origin, depth, status, created_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{ruleId}', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaWorkspace}',
+                   NULL, 'ancient:' || n, 'manual', 0, 'skipped', now() - interval '40 days'
+              FROM generate_series(1, 1200) n;
+            """);
+
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var provider = scope.ServiceProvider;
+        using var dispatcher = new ScheduleDispatcher(
+            provider.GetRequiredService<IScheduledTriggerLeaseStore>(),
+            provider.GetRequiredService<IRetentionStore>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            TimeProvider.System);
+        await dispatcher.RetentionOnceIfDueAsync(Cancellation);
+
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}'"));
+    }
+
+    [Fact]
+    public async Task A_due_reminder_is_leased_ahead_of_an_earlier_automation_backlog()
+    {
+        var ruleId = await CreateRuleAsync(Alpha, "Backlog", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO scheduled_trigger (tenant_id, id, workspace_id, principal_id, kind, source, source_item_id, rule_id,
+                                           fire_at, dedupe_key, status, attempts, created_at, updated_at)
+            SELECT '{TestTenants.Alpha}', gen_random_uuid(), '{TestTenants.AlphaWorkspace}', '{TestTenants.AlphaPrincipal}', 'automation',
+                   'automation.property', NULL, '{ruleId}', now() - interval '10 minutes' + n * interval '1 millisecond',
+                   'backlog-' || n, 'pending', 0, now(), now()
+              FROM generate_series(1, 60) n;
+            INSERT INTO scheduled_trigger (tenant_id, id, workspace_id, principal_id, kind, source, source_item_id, rule_id,
+                                           fire_at, dedupe_key, status, attempts, created_at, updated_at)
+            VALUES ('{TestTenants.Alpha}', gen_random_uuid(), NULL, '{TestTenants.AlphaPrincipal}', 'reminder', 'reminder.due',
+                    gen_random_uuid(), NULL, now() - interval '1 minute', 'due-reminder', 'pending', 0, now(), now());
+            """);
+
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var provider = scope.ServiceProvider;
+        using var dispatcher = new ScheduleDispatcher(
+            provider.GetRequiredService<IScheduledTriggerLeaseStore>(),
+            provider.GetRequiredService<IRetentionStore>(),
+            provider.GetRequiredService<IServiceScopeFactory>(),
+            TimeProvider.System);
+        Assert.Equal(ScheduleDispatcher.BatchSize, await dispatcher.DispatchOnceAsync(Cancellation));
+
+        Assert.NotEqual("pending", await TextAsync("SELECT status FROM scheduled_trigger WHERE dedupe_key = 'due-reminder'"));
+        Assert.Equal(11, await CountAsync("SELECT count(*) FROM scheduled_trigger WHERE dedupe_key LIKE 'backlog-%' AND status = 'pending'"));
+    }
+
+    [Fact]
+    public async Task A_rule_past_the_tables_size_bound_is_refused_as_invalid()
+    {
+        // Seven bytes as written, sixteen thousand digits as jsonb stores it: the validator's own
+        // limits pass it, and the table's bound is the backstop.
+        var work = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var refused = await dispatcher.SendAsync<CreateAutomation, AutomationRuleResponse>(
+                new(Alpha.WorkspaceId!.Value, Input("Huge", """{"type":"property_changed","key":"status"}""",
+                    """[{"type":"set_property","target":"triggering_item","key":"n","value":1e16500}]""")), Cancellation);
+            Assert.True(refused.IsFailure);
+            Assert.Equal(AutomationErrors.InvalidCode, refused.Error.Code);
+
+            // The transaction is still usable afterwards.
+            var created = await dispatcher.SendAsync<CreateAutomation, AutomationRuleResponse>(
+                new(Alpha.WorkspaceId!.Value, Input("Small", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""")), Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+            await work.CommitAsync(Cancellation);
+        }
+
+        Assert.Equal(1, await CountAsync("SELECT count(*) FROM automation_rule"));
+    }
+
+    [Fact]
+    public async Task Concurrent_creates_at_the_ceiling_leave_exactly_fifty_rules()
+    {
+        await ExecuteAsMigratorAsync($$"""
+            INSERT INTO automation_rule (id, tenant_id, workspace_id, owner_principal_id, name, enabled, trigger_type, watch_key,
+                                         trigger, conditions, actions, schema_version, revision, consecutive_failures, created_at, updated_at)
+            SELECT gen_random_uuid(), '{{TestTenants.Alpha}}', '{{TestTenants.AlphaWorkspace}}', '{{TestTenants.AlphaPrincipal}}', 'Rule ' || n,
+                   true, 'property_changed', 'status', '{"type":"property_changed","key":"status"}', '[]',
+                   '[{"type":"notify","title":"x"}]', 1, 1, 0, now(), now()
+              FROM generate_series(1, 49) n;
+            """);
+
+        var first = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+        Task<Result<AutomationRuleResponse>> racing;
+        await using (first.ConfigureAwait(false))
+        {
+            var created = await first.Resolve<NixDispatcher>().SendAsync<CreateAutomation, AutomationRuleResponse>(
+                new(Alpha.WorkspaceId!.Value, Input("Fiftieth", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""")), Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+
+            // A second create starts before the first commits.
+            racing = CreateInOwnUnitOfWorkAsync("Fifty-first");
+            await Task.Delay(TimeSpan.FromMilliseconds(500), Cancellation);
+            await first.CommitAsync(Cancellation);
+        }
+
+        var second = await racing;
+        Assert.True(second.IsFailure);
+        Assert.Equal(AutomationErrors.LimitReachedCode, second.Error.Code);
+        Assert.Equal(50, await CountAsync("SELECT count(*) FROM automation_rule"));
+    }
+
+    [Fact]
+    public async Task The_due_date_finder_pages_in_due_day_order()
+    {
+        var today = DateTime.UtcNow.Date;
+        var late = await CreateItemAsync(Alpha, "Late", new JsonObject { ["due_date"] = today.AddDays(3).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        var early = await CreateItemAsync(Alpha, "Early", new JsonObject { ["due_date"] = today.AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        var middle = await CreateItemAsync(Alpha, "Middle", new JsonObject { ["due_date"] = today.AddDays(2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        var ruleId = await CreateRuleAsync(Alpha, "Due", """{"type":"date_arrives","key":"due_date","offsetMinutes":0,"time":"09:00"}""", """[{"type":"notify","title":"x"}]""");
+
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var finder = scope.ServiceProvider.GetRequiredService<Nix.Abstractions.Automations.IAutomationCandidateFinder>();
+        var from = DateOnly.FromDateTime(today);
+        var to = from.AddDays(5);
+        var page = await finder.FindDateCandidatesAsync(Alpha.TenantId, ruleId, from, to, 2, null, null, Cancellation);
+        Assert.Equal([early, middle], page.Select(candidate => candidate.ItemId));
+        Assert.Equal(today.AddDays(2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), page[^1].CursorDay);
+
+        var next = await finder.FindDateCandidatesAsync(Alpha.TenantId, ruleId, from, to, 2, page[^1].CursorDay, page[^1].ItemId, Cancellation);
+        Assert.Equal([late], next.Select(candidate => candidate.ItemId));
+    }
+
+    [Fact]
+    public async Task Date_rules_plan_on_their_own_interval_and_a_preserved_rule_keeps_its_stale_rows()
+    {
+        var due = DateTime.UtcNow.AddHours(2);
+        var itemId = await CreateItemAsync(Alpha, "Report", new JsonObject { ["due_date"] = due.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        var ruleId = await CreateRuleAsync(Alpha, "Heads up", $$"""{"type":"date_arrives","key":"due_date","offsetMinutes":0,"time":"{{due:HH:mm}}"}""",
+            """[{"type":"notify","title":"x"}]""");
+        await SavePreferencesAsync(Alpha);
+
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        using var planner = new TriggerPlanner(scope.ServiceProvider.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System);
+        await planner.PlanOnceAsync(Cancellation);
+        var firstKey = await TextAsync($"SELECT dedupe_key FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND status = 'pending'");
+        Assert.NotNull(firstKey);
+
+        // Within the date interval the same planner does not re-read date rules: the moved date's
+        // stale trigger stays until the next date pass.
+        await SetAsync(Alpha, itemId, $$"""{"due_date":"{{due.AddDays(1):yyyy-MM-dd}}"}""");
+        await planner.PlanOnceAsync(Cancellation);
+        Assert.Equal("pending", await TextAsync($"SELECT status FROM scheduled_trigger WHERE dedupe_key = '{firstKey}'"));
+
+        // A reconcile that preserves the rule leaves its stale row; one that does not cancels it.
+        var work = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<IScheduledTriggerStore>();
+            var start = DateTimeOffset.UtcNow;
+            Assert.Equal(0, await store.CancelStaleAsync(Alpha.TenantId, Alpha.WorkspaceId, Alpha.PrincipalId,
+                Nix.Domain.Scheduling.TriggerKind.Automation, AutomationPlanning.DateSource, start, start.AddHours(48), [], [ruleId], Cancellation));
+            Assert.Equal(1, await store.CancelStaleAsync(Alpha.TenantId, Alpha.WorkspaceId, Alpha.PrincipalId,
+                Nix.Domain.Scheduling.TriggerKind.Automation, AutomationPlanning.DateSource, start, start.AddHours(48), [], [], Cancellation));
+            await work.CommitAsync(Cancellation);
+        }
+    }
+
     internal static AutomationRuleInput Input(string name, string trigger, string actions, string? conditions = null, Guid? scopeItemId = null, bool enabled = true) =>
         new(name, enabled, scopeItemId, JsonNode.Parse(trigger)!.AsObject(), conditions is null ? null : JsonNode.Parse(conditions)!.AsArray(), JsonNode.Parse(actions)!.AsArray());
 
@@ -504,13 +882,60 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
             provider.GetRequiredService<IRetentionStore>(),
             provider.GetRequiredService<IServiceScopeFactory>(),
             TimeProvider.System);
-        for (var pass = 0; pass < 10 && await dispatcher.DispatchOnceAsync(Cancellation) > 0; pass++)
+        for (var pass = 0; pass < 10; pass++)
         {
+            // A chained rule's trigger is enqueued during the pass before, a minute ahead.
+            if (pass > 0)
+            {
+                await PullDueForwardAsync();
+            }
+
+            if (await dispatcher.DispatchOnceAsync(Cancellation) == 0)
+            {
+                break;
+            }
         }
     }
 
-    private Task PullDueForwardAsync() => ExecuteAsMigratorAsync(
-        "UPDATE scheduled_trigger SET fire_at = now() - interval '1 second' WHERE status = 'pending' AND fire_at <= now() + interval '5 seconds'");
+    // A property change fires at the start of the next minute (the trailing edge of its burst),
+    // so a test dispatching straight after a write pulls those forward too.
+    private Task PullDueForwardAsync() => ExecuteAsMigratorAsync("""
+        UPDATE scheduled_trigger SET fire_at = now() - interval '1 second'
+         WHERE status = 'pending'
+           AND (fire_at <= now() + interval '5 seconds'
+                OR (source = 'automation.property' AND fire_at <= now() + interval '61 seconds'))
+        """);
+
+    private async Task<Result<AutomationRuleResponse>> CreateInOwnUnitOfWorkAsync(string name)
+    {
+        var work = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var created = await work.Resolve<NixDispatcher>().SendAsync<CreateAutomation, AutomationRuleResponse>(
+                new(Alpha.WorkspaceId!.Value, Input(name, """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""")), Cancellation);
+            if (created.IsSuccess)
+            {
+                await work.CommitAsync(Cancellation);
+            }
+
+            return created;
+        }
+    }
+
+    private async Task LockAsync(Guid itemId)
+    {
+        // Locked from a browser session that therefore holds a grant past the lock; the rule's
+        // owner is that same person, and the rule must still leave the item alone.
+        var work = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            work.Resolve<CredentialSessionContext>().Set(Guid.NewGuid());
+            var locked = await work.Resolve<NixDispatcher>().SendAsync<Nix.Features.Locks.LockItem, bool>(
+                new Nix.Features.Locks.LockItem(ItemId.From(itemId), "hunter22", null), Cancellation);
+            Assert.True(locked.IsSuccess, locked.IsFailure ? locked.Error.Message : string.Empty);
+            await work.CommitAsync(Cancellation);
+        }
+    }
 
     private async Task<Notification> SingleNotificationAsync(NixSessionContext context, string titlePrefix)
     {

@@ -74,6 +74,14 @@ public static class AutomationActionJson
     /// <summary>The largest a created item's property bag or a set value may be, in UTF-8 bytes.</summary>
     public const int MaximumValueBytes = 4096;
 
+    /// <summary>
+    /// The largest the whole action list may be, as this reader writes it, in UTF-8 bytes. The
+    /// table stores it as <c>jsonb</c> bounded at 16,384 bytes of text, and <c>jsonb</c>'s text
+    /// adds a space after every colon and comma - at most a third more for the densest object -
+    /// so 12 KiB here stays inside that bound with the headroom it needs.
+    /// </summary>
+    public const int MaximumTotalBytes = 12_288;
+
     /// <summary>Reads an action list: one to five actions.</summary>
     public static AutomationParse<ImmutableArray<AutomationAction>> ReadAll(JsonNode? node)
     {

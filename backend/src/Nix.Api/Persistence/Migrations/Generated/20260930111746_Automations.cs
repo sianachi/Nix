@@ -141,7 +141,7 @@ namespace Nix.Persistence.Migrations.Generated
                 filter: "enabled AND trigger_type = 'property_changed'");
 
             migrationBuilder.CreateIndex(
-                name: "IX_automation_rule_tenant_id_scope_item_id",
+                name: "ix_automation_rule_scope_item",
                 table: "automation_rule",
                 columns: new[] { "tenant_id", "scope_item_id" });
 
@@ -157,6 +157,13 @@ namespace Nix.Persistence.Migrations.Generated
                 descending: new[] { false, false, true });
 
             migrationBuilder.CreateIndex(
+                name: "ix_automation_run_rule_working",
+                table: "automation_run",
+                columns: new[] { "tenant_id", "rule_id", "created_at" },
+                descending: new[] { false, false, true },
+                filter: "status IN ('succeeded', 'noop', 'failed')");
+
+            migrationBuilder.CreateIndex(
                 name: "ux_automation_run_rule_trigger_key",
                 table: "automation_run",
                 columns: new[] { "tenant_id", "rule_id", "trigger_key" },
@@ -168,6 +175,8 @@ namespace Nix.Persistence.Migrations.Generated
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
+            // Destructive: dropping the tables below deletes every automation rule, run and
+            // per-item state. Revert first removes the automation sources' scheduled triggers.
             AutomationSecuritySql.Revert(sql => migrationBuilder.Sql(sql));
 
             migrationBuilder.DropTable(
