@@ -39,6 +39,7 @@ internal static class AutomationCursor
 /// <summary>What the rule handlers share: mapping, save-time checks, and inline schedule planning.</summary>
 public sealed class AutomationRuleSupport(
     IAutomationRuleStore rules,
+    IPermissionResolver permissions,
     IItemTree tree,
     IReminderCandidateFinder preferences,
     IScheduledTriggerStore triggers,
@@ -51,6 +52,19 @@ public sealed class AutomationRuleSupport(
     internal NixSessionContext Context => session.Current ?? throw new InvalidOperationException("A session is required.");
 
     internal IAutomationRuleStore Rules => rules;
+
+    /// <summary>
+    /// One of the caller's rules, only while they can still read its workspace - as listing
+    /// requires: someone removed from a workspace no longer reads the rules, or the run log of
+    /// the rules, they kept there.
+    /// </summary>
+    internal async Task<AutomationRule?> ReadableAsync(Guid ruleId, CancellationToken cancellationToken)
+    {
+        var rule = await rules.GetAsync(ruleId, cancellationToken).ConfigureAwait(false);
+        return rule is not null && await permissions.CanReadWorkspaceAsync(rule.WorkspaceId, cancellationToken).ConfigureAwait(false)
+            ? rule
+            : null;
+    }
 
     /// <summary>Checks the items a rule names are visible, active and in its workspace.</summary>
     internal async Task<NixError?> CheckItemsAsync(WorkspaceId workspaceId, AutomationDefinition definition, CancellationToken cancellationToken)
@@ -90,7 +104,7 @@ public sealed class AutomationRuleSupport(
     /// <summary>Cancels the rule's pending triggers and, for an enabled schedule rule, plans the next 48 hours now.</summary>
     internal async Task ReplanAsync(AutomationRule rule, CancellationToken cancellationToken)
     {
-        await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, cancellationToken).ConfigureAwait(false);
+        await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, null, cancellationToken).ConfigureAwait(false);
         if (!rule.Enabled || AutomationTriggerJson.ReadStored(rule.Trigger) is not ScheduleTrigger schedule)
         {
             return;
@@ -216,6 +230,10 @@ public sealed class CreateAutomationHandler(AutomationRuleSupport support, IPerm
             return Result.Failure<AutomationRuleResponse>(refused);
         }
 
+        // Counted under the owner's quota lock: two concurrent creates at 49 would otherwise
+        // both count 49 and both insert.
+        var context = support.Context;
+        await support.Rules.LockOwnerQuotaAsync(context.TenantId, context.PrincipalId, command.WorkspaceId, cancellationToken).ConfigureAwait(false);
         if (await support.Rules.CountAsync(command.WorkspaceId, cancellationToken).ConfigureAwait(false) >= AutomationGuards.MaxRulesPerOwnerPerWorkspace)
         {
             return Result.Failure<AutomationRuleResponse>(AutomationErrors.LimitReached);
@@ -223,21 +241,25 @@ public sealed class CreateAutomationHandler(AutomationRuleSupport support, IPerm
 
         var definition = await support.AnchorAsync(validated.Value, cancellationToken).ConfigureAwait(false);
         var now = clock.GetUtcNow();
-        var row = AutomationRuleSupport.ToRow(definition, Guid.CreateVersion7(), support.Context, command.WorkspaceId, 1, 0, null, now, now);
-        await support.Rules.InsertAsync(row, cancellationToken).ConfigureAwait(false);
+        var row = AutomationRuleSupport.ToRow(definition, Guid.CreateVersion7(), context, command.WorkspaceId, 1, 0, null, now, now);
+        if (await support.Rules.InsertAsync(row, cancellationToken).ConfigureAwait(false) == AutomationRuleWrite.OutOfBounds)
+        {
+            return Result.Failure<AutomationRuleResponse>(AutomationErrors.TooLarge);
+        }
+
         await support.ReplanAsync(row, cancellationToken).ConfigureAwait(false);
         return Result.Success(AutomationRuleSupport.ToResponse(row));
     }
 }
 
-/// <summary>Reads one of the caller's rules.</summary>
+/// <summary>Reads one of the caller's rules, in a workspace they can still read.</summary>
 public sealed class GetAutomationHandler(AutomationRuleSupport support) : ICommandHandler<GetAutomation, AutomationRuleResponse>
 {
     /// <inheritdoc />
     public async ValueTask<Result<AutomationRuleResponse>> HandleAsync(GetAutomation command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var rule = await support.Rules.GetAsync(command.RuleId, cancellationToken).ConfigureAwait(false);
+        var rule = await support.ReadableAsync(command.RuleId, cancellationToken).ConfigureAwait(false);
         return rule is null
             ? Result.Failure<AutomationRuleResponse>(AutomationErrors.NotFound)
             : Result.Success(AutomationRuleSupport.ToResponse(rule));
@@ -295,9 +317,12 @@ public sealed class UpdateAutomationHandler(AutomationRuleSupport support, IPerm
             reenabled || definition.Enabled ? null : existing.DisabledReason,
             existing.CreatedAt,
             clock.GetUtcNow());
-        if (!await support.Rules.ReplaceAsync(row, command.ExpectedRevision, cancellationToken).ConfigureAwait(false))
+        switch (await support.Rules.ReplaceAsync(row, command.ExpectedRevision, cancellationToken).ConfigureAwait(false))
         {
-            return Result.Failure<AutomationRuleResponse>(AutomationErrors.Conflict);
+            case AutomationRuleWrite.Conflict:
+                return Result.Failure<AutomationRuleResponse>(AutomationErrors.Conflict);
+            case AutomationRuleWrite.OutOfBounds:
+                return Result.Failure<AutomationRuleResponse>(AutomationErrors.TooLarge);
         }
 
         await support.ReplanAsync(row, cancellationToken).ConfigureAwait(false);
@@ -320,7 +345,7 @@ public sealed class DeleteAutomationHandler(AutomationRuleSupport support, ISche
             return Result.Failure<bool>(AutomationErrors.NotFound);
         }
 
-        await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, cancellationToken).ConfigureAwait(false);
+        await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, null, cancellationToken).ConfigureAwait(false);
         await support.Rules.DeleteAsync(rule.Id, cancellationToken).ConfigureAwait(false);
         return Result.Success(true);
     }
@@ -336,7 +361,7 @@ public sealed class ListAutomationRunsHandler(AutomationRuleSupport support, IAu
     public async ValueTask<Result<AutomationRunsPageResponse>> HandleAsync(ListAutomationRuns command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var rule = await support.Rules.GetAsync(command.RuleId, cancellationToken).ConfigureAwait(false);
+        var rule = await support.ReadableAsync(command.RuleId, cancellationToken).ConfigureAwait(false);
         if (rule is null)
         {
             return Result.Failure<AutomationRunsPageResponse>(AutomationErrors.NotFound);

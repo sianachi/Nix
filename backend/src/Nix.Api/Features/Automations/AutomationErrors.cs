@@ -26,6 +26,14 @@ public static class AutomationErrors
     /// <summary>An unavailable action.</summary>
     public static NixError ActionUnavailable(string message) => new(ActionUnavailableCode, message);
 
+    /// <summary>
+    /// The rule, as stored, exceeds the table's size bound - the backstop behind the validator's
+    /// own limits. Reported as <see cref="InvalidCode"/>.
+    /// </summary>
+    public static NixError TooLarge { get; } = new(
+        InvalidCode,
+        "actions: the automation is larger than one automation may be; shorten its text or values");
+
     /// <summary>The per-owner, per-workspace ceiling.</summary>
     public static NixError LimitReached { get; } = new(
         LimitReachedCode,

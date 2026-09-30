@@ -126,12 +126,16 @@ public sealed class ScheduledTriggerStore(NixDbContext database) : IScheduledTri
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyCollection<string> desiredDedupeKeys,
+        IReadOnlyCollection<Guid> preservedRuleIds,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        ArgumentNullException.ThrowIfNull(desiredDedupeKeys);
+        ArgumentNullException.ThrowIfNull(preservedRuleIds);
         var kindText = TriggerStorage.ToText(kind);
         var now = DateTimeOffset.UtcNow;
         var keys = desiredDedupeKeys.ToArray();
+        var preserved = preservedRuleIds.ToArray();
         Guid? workspaceIdValue = workspaceId?.Value;
         return await database.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE scheduled_trigger
@@ -145,16 +149,23 @@ public sealed class ScheduledTriggerStore(NixDbContext database) : IScheduledTri
                AND fire_at >= {windowStart}
                AND fire_at < {windowEnd}
                AND NOT (dedupe_key = ANY({keys}))
+               AND (rule_id IS NULL OR NOT (rule_id = ANY({preserved})))
             """, cancellationToken).ConfigureAwait(false);
     }
 
-    public Task<int> CancelForRuleAsync(TenantId tenantId, PrincipalId principalId, Guid ruleId, CancellationToken cancellationToken) =>
+    public Task<int> CancelForRuleAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
+        Guid ruleId,
+        string? source,
+        CancellationToken cancellationToken) =>
         database.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE scheduled_trigger
                SET status = 'cancelled', updated_at = {DateTimeOffset.UtcNow}
              WHERE tenant_id = {tenantId.Value}
                AND principal_id = {principalId.Value}
                AND kind = 'automation'
+               AND ({source}::text IS NULL OR source = {source})
                AND rule_id = {ruleId}
                AND status = 'pending'
             """, cancellationToken);

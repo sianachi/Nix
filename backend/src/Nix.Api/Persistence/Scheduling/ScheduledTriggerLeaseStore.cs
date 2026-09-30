@@ -18,10 +18,16 @@ namespace Nix.Persistence.Scheduling;
 /// </summary>
 public sealed class ScheduledTriggerLeaseStore(NpgsqlDataSource dataSource) : IScheduledTriggerLeaseStore
 {
-    private const string LeaseSql = "SELECT * FROM nix_lease_due_triggers(@limit, @owner, @lease_seconds, @max_attempts)";
+    private const string LeaseSql = "SELECT * FROM nix_lease_due_triggers(@limit, @owner, @lease_seconds, @max_attempts, @sources)";
     private const string FinishSql = "SELECT nix_finish_trigger(@tenant_id, @id, @owner, @status, @detail::jsonb)";
 
-    public async Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, int maxAttempts, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(
+        int limit,
+        string owner,
+        int leaseSeconds,
+        int maxAttempts,
+        IReadOnlyList<string>? sources,
+        CancellationToken cancellationToken)
     {
         if (limit is < 1 or > 100)
         {
@@ -45,6 +51,10 @@ public sealed class ScheduledTriggerLeaseStore(NpgsqlDataSource dataSource) : IS
             command.Parameters.Add(new NpgsqlParameter<string>("owner", NpgsqlDbType.Text) { TypedValue = owner });
             command.Parameters.Add(new NpgsqlParameter<int>("lease_seconds", NpgsqlDbType.Integer) { TypedValue = leaseSeconds });
             command.Parameters.Add(new NpgsqlParameter<int>("max_attempts", NpgsqlDbType.Integer) { TypedValue = maxAttempts });
+            command.Parameters.Add(new NpgsqlParameter("sources", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = sources is null ? DBNull.Value : sources.ToArray(),
+            });
             var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             await using (reader.ConfigureAwait(false))
             {

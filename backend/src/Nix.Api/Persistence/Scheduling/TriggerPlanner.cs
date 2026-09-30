@@ -24,6 +24,10 @@ public sealed class TriggerPlanner(
 
     private readonly ILogger<TriggerPlanner> logger = logger ?? NullLogger<TriggerPlanner>.Instance;
 
+    // When each source last planned, for sources with a PlanInterval. Only the planner's own loop
+    // touches it, one pass at a time.
+    private readonly Dictionary<string, DateTimeOffset> lastPlanned = new(StringComparer.Ordinal);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -66,7 +70,8 @@ public sealed class TriggerPlanner(
             plans = new List<(string Name, TriggerKind Kind, TriggerPlan Plan)>(registered.Length);
             foreach (var source in registered)
             {
-                if (!source.IsPlanned)
+                if (!source.IsPlanned
+                    || (lastPlanned.TryGetValue(source.Name, out var planned) && now - planned < source.PlanInterval))
                 {
                     continue;
                 }
@@ -94,6 +99,7 @@ public sealed class TriggerPlanner(
                     TriggerPlannerLog.SourceIncomplete(logger, source.Name, plan.Triggers.Count);
                 }
 
+                lastPlanned[source.Name] = now;
                 plans.Add((source.Name, source.Kind, plan));
             }
         }
@@ -113,7 +119,7 @@ public sealed class TriggerPlanner(
                 // not end the pass for every owner after it, pass after pass.
                 try
                 {
-                    await ReconcileOwnerAsync(name, kind, group.Key, desired, plan.Complete, window, cancellationToken).ConfigureAwait(false);
+                    await ReconcileOwnerAsync(name, kind, group.Key, desired, plan, window, cancellationToken).ConfigureAwait(false);
                 }
 #pragma warning disable CA1031 // Justification: isolating one owner's failure from every other owner's planning is the point.
                 catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
@@ -136,7 +142,7 @@ public sealed class TriggerPlanner(
         TriggerKind kind,
         (Nix.Domain.Tenancy.TenantId TenantId, Nix.Domain.Tenancy.WorkspaceId? WorkspaceId, Nix.Domain.Identity.PrincipalId PrincipalId) owner,
         IReadOnlyList<DesiredTrigger> desired,
-        bool complete,
+        TriggerPlan plan,
         PlanWindow window,
         CancellationToken cancellationToken)
     {
@@ -155,7 +161,7 @@ public sealed class TriggerPlanner(
 
                 // An incomplete plan stopped at its page cap: a row it did not reach is not "no
                 // longer desired", so cancelling against it would drop reminders that still hold.
-                if (complete)
+                if (plan.Complete)
                 {
                     await store.CancelStaleAsync(
                         owner.TenantId,
@@ -166,6 +172,7 @@ public sealed class TriggerPlanner(
                         window.Start,
                         window.End,
                         desired.Select(trigger => trigger.DedupeKey).ToArray(),
+                        plan.IncompleteRules ?? [],
                         cancellationToken).ConfigureAwait(false);
                 }
 

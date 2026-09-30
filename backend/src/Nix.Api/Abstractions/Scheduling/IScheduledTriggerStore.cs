@@ -34,7 +34,18 @@ public interface IScheduledTriggerLeaseStore
     /// - ADR-0051 Amendment 2: the lease must not re-lease past the attempt cap even when nothing
     /// ever ran the dispatcher's own failure handling for it.
     /// </summary>
-    public Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, int maxAttempts, CancellationToken cancellationToken);
+    /// <remarks>
+    /// <paramref name="sources"/>, when given, leases only rows of those sources; the dispatcher
+    /// leases its reminder sources first this way, so a backlog of other sources' rows due
+    /// earlier never delays a due reminder (ADR-0051 Amendment 4).
+    /// </remarks>
+    public Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(
+        int limit,
+        string owner,
+        int leaseSeconds,
+        int maxAttempts,
+        IReadOnlyList<string>? sources,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Finishes a trigger this <paramref name="owner"/> currently leases, moving it to
@@ -81,7 +92,9 @@ public interface IScheduledTriggerStore
     /// triggers of the same kind in more than one workspace (or none, for a personal reminder),
     /// and reconciling one workspace's desired set must never cancel another's rows that this
     /// planning pass never looked at; scoping by source too means one source reconciling its own
-    /// desired set never cancels a different source's rows that merely share a kind.
+    /// desired set never cancels a different source's rows that merely share a kind. Rows of
+    /// <paramref name="preservedRuleIds"/> - rules whose candidates the source could not read in
+    /// full this pass - are never cancelled.
     /// </remarks>
     public Task<int> CancelStaleAsync(
         TenantId tenantId,
@@ -92,14 +105,21 @@ public interface IScheduledTriggerStore
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyCollection<string> desiredDedupeKeys,
+        IReadOnlyCollection<Guid> preservedRuleIds,
         CancellationToken cancellationToken);
 
     /// <summary>
     /// Cancels every pending trigger this recipient holds for one automation rule - when the rule is
-    /// disabled, edited or deleted. A trigger already leased is left alone; the executor skips it
-    /// when it finds the rule disabled or gone.
+    /// disabled, edited or deleted - or, with <paramref name="source"/>, only that source's (the
+    /// property feed's, when the rule's hourly cap trips). A trigger already leased is left alone;
+    /// the executor skips it when it finds the rule disabled, gone or throttled.
     /// </summary>
-    public Task<int> CancelForRuleAsync(TenantId tenantId, PrincipalId principalId, Guid ruleId, CancellationToken cancellationToken);
+    public Task<int> CancelForRuleAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
+        Guid ruleId,
+        string? source,
+        CancellationToken cancellationToken);
 
     /// <summary>Moves a pending trigger's <c>fire_at</c> forward, for retry backoff after a failed fire.</summary>
     public Task RescheduleAsync(TenantId tenantId, Guid id, DateTimeOffset fireAt, CancellationToken cancellationToken);

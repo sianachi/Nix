@@ -33,6 +33,7 @@ public sealed class ScheduleDispatcher(
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan FailureDelay = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan RetentionInterval = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan RetentionBudget = TimeSpan.FromSeconds(5);
 
     // 1 minute, 5 minutes, 30 minutes for the first three failed attempts; the fourth and fifth
     // retry share the last backoff rather than growing further, since five attempts is the ceiling.
@@ -54,6 +55,7 @@ public sealed class ScheduleDispatcher(
     private readonly ILogger<ScheduleDispatcher> logger = logger ?? NullLogger<ScheduleDispatcher>.Instance;
     private readonly string owner = $"schedule-dispatcher:{Environment.MachineName}:{Guid.NewGuid():N}";
     private DateTimeOffset lastRetentionAt = DateTimeOffset.MinValue;
+    private IReadOnlyList<string>? prioritySources;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -82,22 +84,63 @@ public sealed class ScheduleDispatcher(
         }
     }
 
-    /// <summary>Leases and processes one bounded batch; exposed for operational probes and integration tests.</summary>
+    /// <summary>
+    /// Leases and processes one bounded batch; exposed for operational probes and integration tests.
+    /// </summary>
+    /// <remarks>
+    /// Reminder sources are leased first and every source after, from what is left of the batch
+    /// (ADR-0051 Amendment 4): a bulk write can enqueue a large backlog of automation triggers due
+    /// before a reminder, and ordering one lease by due time alone would make that reminder wait
+    /// behind all of it.
+    /// </remarks>
     public async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)
     {
-        var due = await leases.LeaseDueAsync(BatchSize, owner, LeaseSeconds, MaxAttempts, cancellationToken).ConfigureAwait(false);
-        foreach (var trigger in due)
+        var first = await PrioritySourcesAsync().ConfigureAwait(false);
+        IReadOnlyList<DueTrigger> priority = first.Count == 0
+            ? []
+            : await leases.LeaseDueAsync(BatchSize, owner, LeaseSeconds, MaxAttempts, first, cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<DueTrigger> rest = priority.Count < BatchSize
+            ? await leases.LeaseDueAsync(BatchSize - priority.Count, owner, LeaseSeconds, MaxAttempts, null, cancellationToken).ConfigureAwait(false)
+            : [];
+        foreach (var trigger in priority.Concat(rest))
         {
             await ProcessAsync(trigger, cancellationToken).ConfigureAwait(false);
         }
-        return due.Count;
+
+        return priority.Count + rest.Count;
+    }
+
+    /// <summary>The names of every registered reminder source, read once from a scope of their own.</summary>
+    private async Task<IReadOnlyList<string>> PrioritySourcesAsync()
+    {
+        if (prioritySources is { } known)
+        {
+            return known;
+        }
+
+        var scope = scopes.CreateAsyncScope();
+        await using (scope.ConfigureAwait(false))
+        {
+            prioritySources = [.. scope.ServiceProvider.GetServices<ITriggerSource>()
+                .Where(source => source.Kind == TriggerKind.Reminder)
+                .Select(source => source.Name)
+                .Order(StringComparer.Ordinal)];
+        }
+
+        return prioritySources;
     }
 
     /// <summary>
-    /// Purges expired notifications and finished triggers at most once every
+    /// Purges expired notifications, finished triggers and old automation runs at most once every
     /// <see cref="RetentionInterval"/>, in bounded batches - retention is opportunistic background
     /// work, not correctness-critical, so it rides the same loop rather than a service of its own.
     /// </summary>
+    /// <remarks>
+    /// Each purge repeats its batch until a batch comes back short, within
+    /// <see cref="RetentionBudget"/> for the whole pass: one batch per ten minutes falls behind
+    /// anything that writes more than that, and a backlog would then never drain. The budget keeps
+    /// a large backlog from holding up dispatch; whatever is left waits for the next pass.
+    /// </remarks>
     public async Task RetentionOnceIfDueAsync(CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();
@@ -106,9 +149,22 @@ public sealed class ScheduleDispatcher(
             return;
         }
         lastRetentionAt = now;
-        await retention.PurgeOldNotificationsAsync(RetentionBatchSize, cancellationToken).ConfigureAwait(false);
-        await retention.PurgeFinishedTriggersAsync(RetentionBatchSize, cancellationToken).ConfigureAwait(false);
-        await retention.PurgeAutomationRunsAsync(RetentionBatchSize, cancellationToken).ConfigureAwait(false);
+        var started = clock.GetTimestamp();
+        await DrainAsync(retention.PurgeOldNotificationsAsync, started, cancellationToken).ConfigureAwait(false);
+        await DrainAsync(retention.PurgeFinishedTriggersAsync, started, cancellationToken).ConfigureAwait(false);
+        await DrainAsync(retention.PurgeAutomationRunsAsync, started, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task DrainAsync(Func<int, CancellationToken, Task<int>> purge, long started, CancellationToken cancellationToken)
+    {
+        do
+        {
+            if (await purge(RetentionBatchSize, cancellationToken).ConfigureAwait(false) < RetentionBatchSize)
+            {
+                return;
+            }
+        }
+        while (clock.GetElapsedTime(started) < RetentionBudget);
     }
 
     private async Task ProcessAsync(DueTrigger trigger, CancellationToken cancellationToken)

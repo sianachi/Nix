@@ -39,9 +39,19 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer);
             """);
 
-        // p_sources limits leasing to the named sources; NULL (the current build's call, which
-        // passes four arguments) leases every source. It exists for the compatibility wrapper
-        // below.
+        // The source-filtered lease's pending branch: due rows of the named sources in fire_at
+        // order. Raw SQL rather than an EF index, like the item indexes the reminder finders read:
+        // only this function uses it.
+        emit("""
+            CREATE INDEX ix_scheduled_trigger_pending_source_due
+                ON scheduled_trigger (source, fire_at, id)
+             WHERE status = 'pending';
+            """);
+
+        // p_sources limits leasing to the named sources; NULL leases every source. The dispatcher
+        // leases the reminder sources first and then every source (ADR-0051 Amendment 4), so a
+        // backlog of automation triggers can never hold a due reminder back; the compatibility
+        // wrapper below uses it to lease only system.test.
         emit($$"""
             CREATE OR REPLACE FUNCTION nix_lease_due_triggers(
                 p_limit integer, p_owner text, p_lease_seconds integer, p_max_attempts integer,
@@ -65,6 +75,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             AS $function$
             DECLARE
                 v_now timestamptz := clock_timestamp();
+                v_ids uuid[];
             BEGIN
                 IF p_limit NOT BETWEEN 1 AND 100 THEN
                     RAISE EXCEPTION 'invalid scheduled-trigger lease limit';
@@ -108,6 +119,94 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                         FOR UPDATE SKIP LOCKED
                  );
 
+                -- Two index-ordered branches, never one OR: pending rows due now, and leases that
+                -- expired under a process that died. "status = 'pending' OR (status = 'leased'
+                -- AND ...)" cannot be read in fire_at order from any one index, so the planner
+                -- sorted every due row to pick the first p_limit - 160 ms with a 320,000-row
+                -- automation backlog. Each branch instead takes its own first p_limit in
+                -- (fire_at, id) order, locking as it goes; the merge keeps the first p_limit of
+                -- the two. With p_sources named (the dispatcher leases reminder sources before any
+                -- other), the pending branch reads ix_scheduled_trigger_pending_source_due, so a
+                -- backlog of other sources' rows is never walked. Branch by IF, not by
+                -- "p_sources IS NULL OR ...", so each statement keeps its own plan.
+                IF p_sources IS NULL THEN
+                    SELECT array_agg(due.id ORDER BY due.fire_at, due.id)
+                      INTO v_ids
+                      FROM (
+                          SELECT candidates.id, candidates.fire_at
+                            FROM (
+                                SELECT pending.id, pending.fire_at
+                                  FROM (
+                                      SELECT p.id, p.fire_at
+                                        FROM public.scheduled_trigger p
+                                       WHERE p.status = 'pending'
+                                         AND p.fire_at <= v_now
+                                       ORDER BY p.fire_at, p.id
+                                       LIMIT p_limit
+                                         FOR UPDATE SKIP LOCKED
+                                  ) pending
+                                UNION ALL
+                                SELECT expired.id, expired.fire_at
+                                  FROM (
+                                      SELECT l.id, l.fire_at
+                                        FROM public.scheduled_trigger l
+                                       WHERE l.status = 'leased'
+                                         AND l.fire_at <= v_now
+                                         AND l.lease_until <= v_now
+                                         -- Belt and braces alongside the finalize UPDATE above:
+                                         -- an over-cap dead lease is already skipped, but
+                                         -- restating the cap keeps this selection correct even
+                                         -- if a future edit ever separates the two.
+                                         AND l.attempts < p_max_attempts
+                                       ORDER BY l.fire_at, l.id
+                                       LIMIT p_limit
+                                         FOR UPDATE SKIP LOCKED
+                                  ) expired
+                            ) candidates
+                           ORDER BY candidates.fire_at, candidates.id
+                           LIMIT p_limit
+                      ) due;
+                ELSE
+                    SELECT array_agg(due.id ORDER BY due.fire_at, due.id)
+                      INTO v_ids
+                      FROM (
+                          SELECT candidates.id, candidates.fire_at
+                            FROM (
+                                SELECT pending.id, pending.fire_at
+                                  FROM (
+                                      SELECT p.id, p.fire_at
+                                        FROM public.scheduled_trigger p
+                                       WHERE p.status = 'pending'
+                                         AND p.source = ANY(p_sources)
+                                         AND p.fire_at <= v_now
+                                       ORDER BY p.fire_at, p.id
+                                       LIMIT p_limit
+                                         FOR UPDATE SKIP LOCKED
+                                  ) pending
+                                UNION ALL
+                                SELECT expired.id, expired.fire_at
+                                  FROM (
+                                      SELECT l.id, l.fire_at
+                                        FROM public.scheduled_trigger l
+                                       WHERE l.status = 'leased'
+                                         AND l.source = ANY(p_sources)
+                                         AND l.fire_at <= v_now
+                                         AND l.lease_until <= v_now
+                                         AND l.attempts < p_max_attempts
+                                       ORDER BY l.fire_at, l.id
+                                       LIMIT p_limit
+                                         FOR UPDATE SKIP LOCKED
+                                  ) expired
+                            ) candidates
+                           ORDER BY candidates.fire_at, candidates.id
+                           LIMIT p_limit
+                      ) due;
+                END IF;
+
+                IF v_ids IS NULL THEN
+                    RETURN;
+                END IF;
+
                 RETURN QUERY
                 UPDATE public.scheduled_trigger AS candidate
                    SET status = 'leased',
@@ -115,23 +214,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                        lease_until = v_now + make_interval(secs => p_lease_seconds),
                        attempts = candidate.attempts + 1,
                        updated_at = v_now
-                 WHERE candidate.id IN (
-                     SELECT locked.id
-                       FROM public.scheduled_trigger locked
-                      WHERE locked.fire_at <= v_now
-                        AND (p_sources IS NULL OR locked.source = ANY(p_sources))
-                        AND (
-                            locked.status = 'pending'
-                            -- Belt and braces alongside the finalize UPDATE just above: that
-                            -- UPDATE already flips an over-cap dead lease to skipped before this
-                            -- runs, but restating the cap here means this candidate selection
-                            -- stays correct even if a future edit ever separates the two.
-                            OR (locked.status = 'leased' AND locked.lease_until <= v_now AND locked.attempts < p_max_attempts)
-                        )
-                      ORDER BY locked.fire_at, locked.id
-                      LIMIT p_limit
-                        FOR UPDATE SKIP LOCKED
-                 )
+                 WHERE candidate.id = ANY(v_ids)
                 RETURNING
                     candidate.tenant_id,
                     candidate.id,
@@ -202,6 +285,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
         emit("""
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer);
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer, integer, text[]);
+            DROP INDEX IF EXISTS ix_scheduled_trigger_pending_source_due;
             """);
 
         // Restores the function SchedulingSecuritySql.Apply creates - the same signature, row

@@ -52,6 +52,32 @@ public sealed class AutomationRuleValidatorTests
     }
 
     [Fact]
+    public void Five_actions_that_each_fit_but_together_exceed_the_stored_bound_are_refused()
+    {
+        var value = new string('v', 4000);
+        var action = $$"""{"type":"set_property","target":"triggering_item","key":"k","value":"{{value}}"}""";
+        var result = AutomationRuleValidator.Validate(Input(
+            """{"type":"property_changed","key":"status"}""",
+            $"[{string.Join(',', Enumerable.Repeat(action, 5))}]"));
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(AutomationErrors.InvalidCode, result.Error.Code);
+        Assert.Contains("12 KiB", result.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Five_actions_inside_the_aggregate_bound_are_valid()
+    {
+        var value = new string('v', 2000);
+        var action = $$"""{"type":"set_property","target":"triggering_item","key":"k","value":"{{value}}"}""";
+        var result = AutomationRuleValidator.Validate(Input(
+            """{"type":"property_changed","key":"status"}""",
+            $"[{string.Join(',', Enumerable.Repeat(action, 5))}]"));
+
+        Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Message : string.Empty);
+    }
+
+    [Fact]
     public void A_name_over_200_characters_is_refused() =>
         Assert.True(AutomationRuleValidator.Validate(Input(
             """{"type":"schedule","freq":"daily","interval":1,"time":"09:00"}""",

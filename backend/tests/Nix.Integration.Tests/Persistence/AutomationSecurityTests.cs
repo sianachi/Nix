@@ -21,7 +21,7 @@ public sealed class AutomationSecurityTests(NixPostgresFixture fixture) : IAsync
     private static readonly string[] Finders =
     [
         "nix_find_planned_automation_rules(integer, uuid)",
-        "nix_find_automation_date_candidates(uuid, uuid, date, date, integer, uuid)",
+        "nix_find_automation_date_candidates(uuid, uuid, date, date, integer, text, uuid)",
         "nix_purge_automation_runs(integer)",
     ];
 

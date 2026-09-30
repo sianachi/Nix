@@ -19,14 +19,21 @@ public static class AutomationPlanning
     /// <summary>The trigger source name of the event-fed property rules (written by the database trigger).</summary>
     public const string PropertySource = "automation.property";
 
-    /// <summary>The finder page size.</summary>
+    /// <summary>The planned-rule finder's page size.</summary>
     internal const int PageSize = 500;
 
     /// <summary>A ceiling on planned-rule pages per pass: 100,000 rules.</summary>
     internal const int MaxRulePages = 200;
 
-    /// <summary>The most date candidates one rule contributes per pass.</summary>
+    /// <summary>The most date candidates one group of date rules contributes per pass.</summary>
     internal const int MaxDateCandidatesPerRule = 2000;
+
+    /// <summary>
+    /// How often date rules are planned. Their candidates are a range read over the workspace's
+    /// items, the costliest planning read there is, and the 48-hour window leaves ample lead time;
+    /// an instant missed in between still fires late, clamped to now, within <see cref="DateLookback"/>.
+    /// </summary>
+    internal static readonly TimeSpan DatePlanInterval = TimeSpan.FromMinutes(15);
 
     /// <summary>How far back a missed date instant is still fired (clamped to now), as explicit reminders do.</summary>
     internal static readonly TimeSpan DateLookback = TimeSpan.FromHours(24);
@@ -129,7 +136,7 @@ public static class AutomationPlanning
 
 /// <summary>Plans and fires schedule rules (ADR-0051 section 6).</summary>
 public sealed class AutomationScheduleSource(
-    IAutomationCandidateFinder finder,
+    PlannedAutomationRules planned,
     IReminderCandidateFinder preferences,
     AutomationExecutor executor) : ITriggerSource
 {
@@ -143,7 +150,7 @@ public sealed class AutomationScheduleSource(
     public async Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(window);
-        var (rules, complete) = await AutomationPlanning.ReadPlannedRulesAsync(finder, cancellationToken).ConfigureAwait(false);
+        var (rules, complete) = await planned.ReadAsync(cancellationToken).ConfigureAwait(false);
         var schedules = rules.Where(rule => rule.TriggerType == "schedule").ToList();
         var zones = await AutomationPlanning.OwnerZonesAsync(preferences, schedules, cancellationToken).ConfigureAwait(false);
         var desired = new List<DesiredTrigger>();
@@ -168,7 +175,15 @@ public sealed class AutomationScheduleSource(
 }
 
 /// <summary>Plans and fires date_arrives rules over the items in their scope.</summary>
+/// <remarks>
+/// Rules sharing a tenant, workspace, key and scope read their candidates once between them: one
+/// finder call per group per pass, of up to <see cref="AutomationPlanning.MaxDateCandidatesPerRule"/>
+/// items, whose instants each rule then resolves with its own time, offset and owner zone. A group
+/// cut short at that cap marks only its own rules incomplete, so the planner still cancels every
+/// other rule's stale triggers. Planned every <see cref="AutomationPlanning.DatePlanInterval"/>.
+/// </remarks>
 public sealed class AutomationDateSource(
+    PlannedAutomationRules planned,
     IAutomationCandidateFinder finder,
     IReminderCandidateFinder preferences,
     AutomationExecutor executor) : ITriggerSource
@@ -180,12 +195,23 @@ public sealed class AutomationDateSource(
     public TriggerKind Kind => TriggerKind.Automation;
 
     /// <inheritdoc />
+    public TimeSpan PlanInterval => AutomationPlanning.DatePlanInterval;
+
+    /// <inheritdoc />
     public async Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(window);
-        var (rules, complete) = await AutomationPlanning.ReadPlannedRulesAsync(finder, cancellationToken).ConfigureAwait(false);
-        var dateRules = rules.Where(rule => rule.TriggerType == "date_arrives").ToList();
-        var zones = await AutomationPlanning.OwnerZonesAsync(preferences, dateRules, cancellationToken).ConfigureAwait(false);
+        var (rules, complete) = await planned.ReadAsync(cancellationToken).ConfigureAwait(false);
+        var dateRules = new List<(PlannedAutomationRule Rule, DateArrivesTrigger Trigger)>();
+        foreach (var rule in rules)
+        {
+            if (rule.TriggerType == "date_arrives" && AutomationPlanning.TryRead(rule.TriggerJson) is DateArrivesTrigger trigger)
+            {
+                dateRules.Add((rule, trigger));
+            }
+        }
+
+        var zones = await AutomationPlanning.OwnerZonesAsync(preferences, dateRules.Select(entry => entry.Rule), cancellationToken).ConfigureAwait(false);
 
         // The value's day can be a week either side of the fire instant (the offset), plus a day
         // for any UTC offset.
@@ -193,21 +219,24 @@ public sealed class AutomationDateSource(
         var to = DateOnly.FromDateTime(window.End.UtcDateTime).AddDays(8);
         var earliest = window.Start - AutomationPlanning.DateLookback;
         var desired = new List<DesiredTrigger>();
-        foreach (var rule in dateRules)
+        var incomplete = new HashSet<Guid>();
+        var groups = dateRules.GroupBy(entry => (entry.Rule.TenantId, entry.Rule.WorkspaceId, entry.Trigger.Key, entry.Rule.ScopeItemId));
+        foreach (var group in groups)
         {
-            if (AutomationPlanning.TryRead(rule.TriggerJson) is not DateArrivesTrigger trigger)
+            var members = group.OrderBy(entry => entry.Rule.RuleId).ToList();
+            var candidates = await finder.FindDateCandidatesAsync(
+                group.Key.TenantId, members[0].Rule.RuleId, from, to, AutomationPlanning.MaxDateCandidatesPerRule + 1,
+                null, null, cancellationToken).ConfigureAwait(false);
+            if (candidates.Count > AutomationPlanning.MaxDateCandidatesPerRule)
             {
-                continue;
+                incomplete.UnionWith(members.Select(entry => entry.Rule.RuleId));
+                candidates = [.. candidates.Take(AutomationPlanning.MaxDateCandidatesPerRule)];
             }
 
-            var zone = zones.GetValueOrDefault(new ReminderRecipient(rule.TenantId, rule.OwnerPrincipalId), "Etc/UTC");
-            var read = 0;
-            var after = Guid.Empty;
-            while (true)
+            foreach (var (rule, trigger) in members)
             {
-                var batch = await finder.FindDateCandidatesAsync(
-                    rule.TenantId, rule.RuleId, from, to, AutomationPlanning.PageSize, after, cancellationToken).ConfigureAwait(false);
-                foreach (var candidate in batch)
+                var zone = zones.GetValueOrDefault(new ReminderRecipient(rule.TenantId, rule.OwnerPrincipalId), "Etc/UTC");
+                foreach (var candidate in candidates)
                 {
                     var at = AutomationDateInstant.Resolve(candidate.ValueText, trigger.Time, trigger.OffsetMinutes, zone);
                     if (at is { } instant && instant >= earliest && instant < window.End)
@@ -222,29 +251,28 @@ public sealed class AutomationDateSource(
                             AutomationDedupeKeys.Date(rule.RuleId, candidate.ItemId, instant)));
                     }
                 }
-
-                read += batch.Count;
-                if (batch.Count < AutomationPlanning.PageSize)
-                {
-                    break;
-                }
-
-                if (read >= AutomationPlanning.MaxDateCandidatesPerRule)
-                {
-                    complete = false;
-                    break;
-                }
-
-                after = batch[^1].ItemId;
             }
         }
 
-        return new TriggerPlan(desired, complete);
+        return new TriggerPlan(desired, complete, incomplete);
     }
 
     /// <inheritdoc />
     public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
         AutomationPlanning.FireAsync(executor, trigger, AutomationOrigin.Date, AutomationKeyKind.Date, cancellationToken);
+}
+
+/// <summary>
+/// The enabled schedule and date rules, read once per planning scope and shared by both planned
+/// automation sources, which the planner resolves from one scope per pass.
+/// </summary>
+public sealed class PlannedAutomationRules(IAutomationCandidateFinder finder)
+{
+    private Task<(List<PlannedAutomationRule> Rules, bool Complete)>? read;
+
+    /// <summary>Every planned rule, up to the page cap, and whether that is all of them.</summary>
+    public Task<(List<PlannedAutomationRule> Rules, bool Complete)> ReadAsync(CancellationToken cancellationToken) =>
+        read ??= AutomationPlanning.ReadPlannedRulesAsync(finder, cancellationToken);
 }
 
 /// <summary>

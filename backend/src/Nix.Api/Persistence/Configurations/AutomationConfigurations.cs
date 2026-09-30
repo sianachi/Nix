@@ -72,6 +72,10 @@ internal sealed class AutomationRuleConfiguration : IEntityTypeConfiguration<Aut
             .HasFilter("enabled AND trigger_type = 'property_changed'")
             .HasDatabaseName("ix_automation_rule_property_watch");
 
+        // The scope foreign key's own index, named explicitly rather than left to the convention.
+        builder.HasIndex(row => new { row.TenantId, row.ScopeItemId })
+            .HasDatabaseName("ix_automation_rule_scope_item");
+
         // The planner's keyset over every planned rule, across tenants.
         builder.HasIndex(row => row.Id)
             .HasFilter("enabled AND trigger_type IN ('schedule', 'date_arrives')")
@@ -123,6 +127,16 @@ internal sealed class AutomationRunConfiguration : IEntityTypeConfiguration<Auto
         builder.HasIndex(row => new { row.TenantId, row.RuleId, row.CreatedAt })
             .IsDescending(false, false, true)
             .HasDatabaseName("ix_automation_run_rule_created");
+
+        // The hourly throttle's count of runs that did work. Partial, so a rule whose log is
+        // mostly skipped or throttled rows (a burst it refused) is counted from the working rows
+        // alone instead of walking every refused one in the hour.
+        // Named in HasIndex itself: an unnamed HasIndex over the same columns as
+        // ix_automation_run_rule_created would configure that index rather than add this one.
+        builder.HasIndex(row => new { row.TenantId, row.RuleId, row.CreatedAt }, "ix_automation_run_rule_working")
+            .IsDescending(false, false, true)
+            .HasFilter("status IN ('succeeded', 'noop', 'failed')")
+            .HasDatabaseName("ix_automation_run_rule_working");
 
         // nix_purge_automation_runs, across every tenant by age alone.
         builder.HasIndex(row => row.CreatedAt).HasDatabaseName("ix_automation_run_created_at");

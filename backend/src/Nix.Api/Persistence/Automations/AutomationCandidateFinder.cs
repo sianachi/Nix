@@ -13,6 +13,9 @@ namespace Nix.Persistence.Automations;
 /// </summary>
 public sealed class AutomationCandidateFinder(NpgsqlDataSource dataSource) : IAutomationCandidateFinder
 {
+    /// <summary>The function's own bound on one date-candidate read.</summary>
+    public const int MaximumDateCandidates = 5000;
+
     public async Task<IReadOnlyList<PlannedAutomationRule>> FindPlannedRulesAsync(int limit, Guid afterId, CancellationToken cancellationToken)
     {
         if (limit is < 1 or > 500)
@@ -48,16 +51,23 @@ public sealed class AutomationCandidateFinder(NpgsqlDataSource dataSource) : IAu
     }
 
     public async Task<IReadOnlyList<AutomationDateCandidate>> FindDateCandidatesAsync(
-        TenantId tenantId, Guid ruleId, DateOnly firstDay, DateOnly lastDay, int limit, Guid afterId, CancellationToken cancellationToken)
+        TenantId tenantId,
+        Guid ruleId,
+        DateOnly firstDay,
+        DateOnly lastDay,
+        int limit,
+        string? afterDay,
+        Guid? afterId,
+        CancellationToken cancellationToken)
     {
-        if (limit is < 1 or > 500)
+        if (limit is < 1 or > MaximumDateCandidates)
         {
             throw new ArgumentOutOfRangeException(nameof(limit));
         }
 
-        var results = new List<AutomationDateCandidate>(limit);
+        var results = new List<AutomationDateCandidate>(Math.Min(limit, 512));
         var command = dataSource.CreateCommand(
-            "SELECT * FROM nix_find_automation_date_candidates(@tenant_id, @rule_id, @from, @to, @limit, @after_id)");
+            "SELECT * FROM nix_find_automation_date_candidates(@tenant_id, @rule_id, @from, @to, @limit, @after_day, @after_id)");
         await using (command.ConfigureAwait(false))
         {
             command.Parameters.Add(new NpgsqlParameter<Guid>("tenant_id", NpgsqlDbType.Uuid) { TypedValue = tenantId.Value });
@@ -65,14 +75,16 @@ public sealed class AutomationCandidateFinder(NpgsqlDataSource dataSource) : IAu
             command.Parameters.Add(new NpgsqlParameter<DateOnly>("from", NpgsqlDbType.Date) { TypedValue = firstDay });
             command.Parameters.Add(new NpgsqlParameter<DateOnly>("to", NpgsqlDbType.Date) { TypedValue = lastDay });
             command.Parameters.Add(new NpgsqlParameter<int>("limit", NpgsqlDbType.Integer) { TypedValue = limit });
-            command.Parameters.Add(new NpgsqlParameter<Guid>("after_id", NpgsqlDbType.Uuid) { TypedValue = afterId });
+            command.Parameters.Add(new NpgsqlParameter("after_day", NpgsqlDbType.Text) { Value = (object?)afterDay ?? DBNull.Value });
+            command.Parameters.Add(new NpgsqlParameter("after_id", NpgsqlDbType.Uuid) { Value = afterId is { } id ? id : DBNull.Value });
             var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             await using (reader.ConfigureAwait(false))
             {
                 while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
                 {
                     var value = await reader.IsDBNullAsync(1, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(1);
-                    results.Add(new AutomationDateCandidate(reader.GetGuid(0), value));
+                    var day = await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false) ? null : reader.GetString(2);
+                    results.Add(new AutomationDateCandidate(reader.GetGuid(0), value, day));
                 }
             }
         }

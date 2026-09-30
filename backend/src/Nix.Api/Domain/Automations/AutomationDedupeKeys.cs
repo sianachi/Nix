@@ -63,6 +63,14 @@ public static class AutomationDedupeKeys
     public static string Property(Guid ruleId, int depth, Guid itemId, DateTimeOffset at) =>
         $"{AutoPrefix}{ruleId:D}:p{depth.ToString(CultureInfo.InvariantCulture)}:{itemId:D}:{at.UtcDateTime.ToString("yyyyMMddHHmm", CultureInfo.InvariantCulture)}";
 
+    /// <summary>
+    /// The run key a rule records when its hourly cap trips: one per rule per UTC hour, so a burst
+    /// the cap refuses leaves one throttled run, not one per refused trigger. A run key only -
+    /// never a trigger's dedupe key, so <see cref="TryParse"/> does not read it.
+    /// </summary>
+    public static string HourlyThrottle(Guid ruleId, DateTimeOffset at) =>
+        $"{AutoPrefix}{ruleId:D}:throttled:{at.UtcDateTime.ToString("yyyyMMddHH", CultureInfo.InvariantCulture)}";
+
     /// <summary>A hand-started run: unique per call.</summary>
     public static string Manual() => $"{ManualPrefix}{Guid.CreateVersion7():D}";
 

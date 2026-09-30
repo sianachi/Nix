@@ -64,8 +64,25 @@ public sealed class AutomationExecutor(
     INixSessionContextAccessor session,
     NixDispatcher dispatcher,
     IAutomationActionScope actionScope,
+    IItemLocks locks,
     TimeProvider clock)
 {
+    /// <summary>
+    /// Reasons decided before the triggering item is known to be readable by the owner: a run
+    /// recorded for one of these never names the item (its id is withheld from the run log).
+    /// </summary>
+    private static readonly HashSet<string> UnverifiedItemReasons = new(StringComparer.Ordinal)
+    {
+        "rule_disabled", "owner_inactive", "access_lost", "item_gone", "scope_gone", "out_of_scope",
+        "item_locked", "scope_locked",
+    };
+
+    /// <summary>Reasons that count as a failed run and move the rule toward auto-disable.</summary>
+    private static readonly HashSet<string> FailingReasons = new(StringComparer.Ordinal) { "access_lost", "owner_inactive" };
+
+    /// <summary>The internal reason for the per-rule hourly cap; recorded as <c>throttled</c>.</summary>
+    private const string HourlyCapReason = "hourly_cap";
+
     /// <summary>Runs a rule.</summary>
     public async Task<AutomationExecutionResult> ExecuteAsync(AutomationExecution execution, CancellationToken cancellationToken)
     {
@@ -80,29 +97,42 @@ public sealed class AutomationExecutor(
         var rule = evaluation.Rule;
         var now = clock.GetUtcNow();
 
-        if (evaluation.Reason == "access_lost")
+        if (evaluation.Reason is { } failing && FailingReasons.Contains(failing))
         {
-            var failedRun = NewRun(rule, execution, AutomationRunStatus.Failed, Detail("access_lost", null, null), now);
-            if (!await runs.TryInsertAsync(failedRun, cancellationToken).ConfigureAwait(false))
+            var failedRun = NewRun(rule, execution, AutomationRunStatus.Failed, Detail(failing, null, null), now, itemId: null);
+            if (!await TryRecordAsync(failedRun, cancellationToken).ConfigureAwait(false))
             {
                 return new AutomationExecutionResult(TriggerOutcome.Skipped("duplicate"), null);
             }
 
             await RecordFailureAsync(rule, now, cancellationToken).ConfigureAwait(false);
-            return new AutomationExecutionResult(TriggerOutcome.Skipped("access_lost"), failedRun.Id);
+            return new AutomationExecutionResult(TriggerOutcome.Skipped(failing), failedRun.Id);
+        }
+
+        if (evaluation.Reason == HourlyCapReason)
+        {
+            // One run per rule per hour, whatever the burst, and the burst's queued property
+            // triggers go with it: each would only be refused the same way.
+            var throttledRun = NewRun(rule, execution, AutomationRunStatus.Throttled, Detail(HourlyCapReason, null, null), now, itemId: null,
+                triggerKey: AutomationDedupeKeys.HourlyThrottle(rule.Id, now));
+            var noted = await TryRecordAsync(throttledRun, cancellationToken).ConfigureAwait(false);
+            await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, AutomationPlanning.PropertySource, cancellationToken)
+                .ConfigureAwait(false);
+            return new AutomationExecutionResult(TriggerOutcome.Skipped("throttled"), noted ? throttledRun.Id : null);
         }
 
         if (evaluation.Reason is { } skipReason)
         {
             var status = skipReason == "throttled" ? AutomationRunStatus.Throttled : AutomationRunStatus.Skipped;
-            var skipped = NewRun(rule, execution, status, Detail(skipReason, null, null), now);
-            var recorded = await runs.TryInsertAsync(skipped, cancellationToken).ConfigureAwait(false);
+            var itemId = UnverifiedItemReasons.Contains(skipReason) ? null : execution.ItemId;
+            var skipped = NewRun(rule, execution, status, Detail(skipReason, null, null), now, itemId);
+            var recorded = await TryRecordAsync(skipped, cancellationToken).ConfigureAwait(false);
             return new AutomationExecutionResult(TriggerOutcome.Skipped(recorded ? skipReason : "duplicate"), recorded ? skipped.Id : null);
         }
 
         // Provisionally succeeded, so a redelivered trigger racing this one finds the key taken.
-        var run = NewRun(rule, execution, AutomationRunStatus.Succeeded, null, now);
-        if (!await runs.TryInsertAsync(run, cancellationToken).ConfigureAwait(false))
+        var run = NewRun(rule, execution, AutomationRunStatus.Succeeded, null, now, execution.ItemId);
+        if (!await TryRecordAsync(run, cancellationToken).ConfigureAwait(false))
         {
             return new AutomationExecutionResult(TriggerOutcome.Skipped("duplicate"), null);
         }
@@ -151,20 +181,25 @@ public sealed class AutomationExecutor(
             }, cancellationToken).ConfigureAwait(false);
         }
 
-        await runs.TrimAsync(rule.TenantId, rule.Id, AutomationGuards.RunsKeptPerRule, cancellationToken).ConfigureAwait(false);
         return new AutomationExecutionResult(
             TriggerOutcome.Fired(finalStatus == AutomationRunStatus.Succeeded ? "automation_succeeded" : "automation_noop"),
             run.Id);
     }
 
     /// <summary>Evaluates steps one to six and renders every action, writing nothing.</summary>
+    /// <remarks>
+    /// A rule stopped before its triggering item or scope is known to be readable - a lock covers
+    /// it, it is gone, the owner lost access - renders nothing: the preview must not show text
+    /// the run itself would never have used.
+    /// </remarks>
     public async Task<AutomationPreview> PreviewAsync(AutomationExecution execution, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(execution);
         var evaluation = await EvaluateAsync(execution, cancellationToken).ConfigureAwait(false);
-        if (evaluation.Context is not { } context)
+        if (evaluation.Context is not { } context
+            || (evaluation.Reason is { } stopped && (UnverifiedItemReasons.Contains(stopped) || FailingReasons.Contains(stopped))))
         {
-            return new AutomationPreview(false, evaluation.Reason, []);
+            return new AutomationPreview(false, PublicReason(evaluation.Reason), []);
         }
 
         var previews = new List<AutomationPreviewAction>(context.Actions.Length);
@@ -182,7 +217,21 @@ public sealed class AutomationExecutor(
             });
         }
 
-        return new AutomationPreview(evaluation.Reason is null, evaluation.Reason, previews);
+        return new AutomationPreview(evaluation.Reason is null, PublicReason(evaluation.Reason), previews);
+    }
+
+    private static string? PublicReason(string? reason) => reason == HourlyCapReason ? "throttled" : reason;
+
+    /// <summary>Records a run and keeps the rule's log to its newest runs; <see langword="false"/> when the key was taken.</summary>
+    private async Task<bool> TryRecordAsync(AutomationRun run, CancellationToken cancellationToken)
+    {
+        if (!await runs.TryInsertAsync(run, cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        await runs.TrimAsync(run.TenantId, run.RuleId, AutomationGuards.RunsKeptPerRule, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private async Task<Evaluation> EvaluateAsync(AutomationExecution execution, CancellationToken cancellationToken)
@@ -203,7 +252,8 @@ public sealed class AutomationExecutor(
         var conditions = AutomationConditionJson.ReadAll(JsonNode.Parse(rule.Conditions)).Value;
         var actions = AutomationActionJson.ReadStored(rule.Actions);
 
-        // 2. The owner is still active and may still read the workspace.
+        // 2. The owner is still active and may still read the workspace. Either failing counts
+        // toward auto-disable: a departed owner's rule must stop, not skip forever.
         if (!await principalStatus.IsActiveAsync(rule.OwnerPrincipalId, cancellationToken).ConfigureAwait(false))
         {
             return Evaluation.Skip(rule, null, "owner_inactive");
@@ -222,7 +272,10 @@ public sealed class AutomationExecutor(
             return Evaluation.Skip(rule, context, "access_lost");
         }
 
-        // 3. The triggering item and the scope.
+        // 3. The triggering item and the scope: present, active, in the workspace, and not under
+        // any lock. Locks bind whoever is asking - the dispatcher holds no credential, and a
+        // grant one browser holds must not let a rule carry an item's text into a notification,
+        // a created item or a run that every device of the owner sees.
         Item? item = null;
         if (execution.ItemId is { } itemId)
         {
@@ -231,8 +284,6 @@ public sealed class AutomationExecutor(
             {
                 return Evaluation.Skip(rule, context, "item_gone");
             }
-
-            context = context with { Item = item, ItemTitle = ItemProperties.ReadTitle(item.Properties) };
         }
 
         if (rule.ScopeItemId is { } scopeId)
@@ -242,12 +293,42 @@ public sealed class AutomationExecutor(
             {
                 return Evaluation.Skip(rule, context, "scope_gone");
             }
+        }
 
-            if (item is not null && item.Id != scopeId
-                && !await tree.IsVisibleSubtreeMemberAsync(rule.WorkspaceId, scopeId, item.Id, cancellationToken).ConfigureAwait(false))
+        var lockCandidates = new List<ItemId>(2);
+        if (item is not null)
+        {
+            lockCandidates.Add(item.Id);
+        }
+
+        if (rule.ScopeItemId is { } lockedScope)
+        {
+            lockCandidates.Add(lockedScope);
+        }
+
+        if (lockCandidates.Count > 0)
+        {
+            var locked = await locks.LockedAmongAsync(lockCandidates, cancellationToken).ConfigureAwait(false);
+            if (item is not null && locked.Contains(item.Id))
             {
-                return Evaluation.Skip(rule, context, "out_of_scope");
+                return Evaluation.Skip(rule, context, "item_locked");
             }
+
+            if (rule.ScopeItemId is { } coveredScope && locked.Contains(coveredScope))
+            {
+                return Evaluation.Skip(rule, context, "scope_locked");
+            }
+        }
+
+        if (item is not null && rule.ScopeItemId is { } scopeItem && item.Id != scopeItem
+            && !await tree.IsVisibleSubtreeMemberAsync(rule.WorkspaceId, scopeItem, item.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return Evaluation.Skip(rule, context, "out_of_scope");
+        }
+
+        if (item is not null)
+        {
+            context = context with { Item = item, ItemTitle = ItemProperties.ReadTitle(item.Properties) };
         }
 
         if (item is null && (!context.Conditions.IsEmpty || actions.Any(UsesTriggeringItem)))
@@ -315,7 +396,7 @@ public sealed class AutomationExecutor(
         var recent = await runs.CountWorkingRunsSinceAsync(rule.TenantId, rule.Id, now.AddHours(-1), cancellationToken).ConfigureAwait(false);
         if (recent >= AutomationGuards.PerRuleHourly)
         {
-            return Evaluation.Skip(rule, context, "throttled");
+            return Evaluation.Skip(rule, context, HourlyCapReason);
         }
 
         return new Evaluation(rule, context, null);
@@ -353,6 +434,11 @@ public sealed class AutomationExecutor(
             return ActionStep.Failed("set_property.target_not_found");
         }
 
+        if (await IsLockedAsync(target.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return ActionStep.Failed("set_property.target_locked");
+        }
+
         // Writing the value already there is a no-op: nothing is written, so nothing refires.
         if (JsonNode.DeepEquals(ReadValue(ParseBag(target.Properties), set.Key), set.Value))
         {
@@ -370,6 +456,11 @@ public sealed class AutomationExecutor(
         if (Resolve(context, create.Parent) is not { } parentId)
         {
             return ActionStep.Failed("create_item.parent_not_found");
+        }
+
+        if (await IsLockedAsync(ItemId.From(parentId), cancellationToken).ConfigureAwait(false))
+        {
+            return ActionStep.Failed("create_item.parent_locked");
         }
 
         var title = RenderTitle(create.Title, context, AutomationActionJson.MaximumItemTitle);
@@ -399,6 +490,9 @@ public sealed class AutomationExecutor(
         return ActionStep.Done;
     }
 
+    private async Task<bool> IsLockedAsync(ItemId itemId, CancellationToken cancellationToken) =>
+        (await locks.LockedAmongAsync([itemId], cancellationToken).ConfigureAwait(false)).Contains(itemId);
+
     private async Task RecordFailureAsync(AutomationRule rule, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var outcome = await rules.RecordFailureAsync(rule.TenantId, rule.Id, now, cancellationToken).ConfigureAwait(false);
@@ -407,7 +501,7 @@ public sealed class AutomationExecutor(
             return;
         }
 
-        await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, cancellationToken).ConfigureAwait(false);
+        await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, null, cancellationToken).ConfigureAwait(false);
         if (session.Current?.PrincipalId == rule.OwnerPrincipalId)
         {
             var name = rule.Name.Length > 120 ? rule.Name[..120] : rule.Name;
@@ -423,21 +517,28 @@ public sealed class AutomationExecutor(
         }
     }
 
-    private static AutomationRun NewRun(AutomationRule rule, AutomationExecution execution, AutomationRunStatus status, string? detail, DateTimeOffset now) => new()
-    {
-        TenantId = rule.TenantId,
-        Id = Guid.CreateVersion7(),
-        RuleId = rule.Id,
-        OwnerPrincipalId = rule.OwnerPrincipalId,
-        WorkspaceId = rule.WorkspaceId,
-        ItemId = execution.ItemId,
-        TriggerKey = execution.TriggerKey,
-        Origin = execution.Origin,
-        Depth = (short)Math.Clamp(execution.Depth, 0, short.MaxValue),
-        Status = status,
-        Detail = detail,
-        CreatedAt = now,
-    };
+    private static AutomationRun NewRun(
+        AutomationRule rule,
+        AutomationExecution execution,
+        AutomationRunStatus status,
+        string? detail,
+        DateTimeOffset now,
+        Guid? itemId,
+        string? triggerKey = null) => new()
+        {
+            TenantId = rule.TenantId,
+            Id = Guid.CreateVersion7(),
+            RuleId = rule.Id,
+            OwnerPrincipalId = rule.OwnerPrincipalId,
+            WorkspaceId = rule.WorkspaceId,
+            ItemId = itemId,
+            TriggerKey = triggerKey ?? execution.TriggerKey,
+            Origin = execution.Origin,
+            Depth = (short)Math.Clamp(execution.Depth, 0, short.MaxValue),
+            Status = status,
+            Detail = detail,
+            CreatedAt = now,
+        };
 
     /// <summary>Reason codes only - never an exception message or any user text.</summary>
     private static string Detail(string reason, string? code, int? action)
