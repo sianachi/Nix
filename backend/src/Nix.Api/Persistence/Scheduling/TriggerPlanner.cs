@@ -58,28 +58,47 @@ public sealed class TriggerPlanner(
         // reader), and PlanAsync itself runs before any recipient's own session is established -
         // no source registered in this lane needs one to plan.
         var planningScope = scopes.CreateAsyncScope();
-        List<(TriggerKind Kind, IReadOnlyList<DesiredTrigger> Desired)> plans;
+        List<(string Name, TriggerKind Kind, IReadOnlyList<DesiredTrigger> Desired)> plans;
         await using (planningScope.ConfigureAwait(false))
         {
             var registered = planningScope.ServiceProvider.GetServices<ITriggerSource>().ToArray();
-            plans = new List<(TriggerKind Kind, IReadOnlyList<DesiredTrigger> Desired)>(registered.Length);
+            TriggerSourceNames.RequireUnique(registered);
+            plans = new List<(string Name, TriggerKind Kind, IReadOnlyList<DesiredTrigger> Desired)>(registered.Length);
             foreach (var source in registered)
             {
-                var desired = await source.PlanAsync(window, cancellationToken).ConfigureAwait(false);
-                plans.Add((source.Kind, desired));
+                // One source's failure - a row so malformed its own defenses could not save it,
+                // or any other exception - must not take every other source's planning down with
+                // it. Every source here plans across every tenant at once; a single bad row in
+                // one tenant aborting the whole pass would turn into an outage for every tenant,
+                // for every kind of reminder, not just the one row that was wrong.
+                IReadOnlyList<DesiredTrigger> desired;
+                try
+                {
+                    desired = await source.PlanAsync(window, cancellationToken).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Justification: isolating one source's failure from every other source's planning is the point.
+                catch (Exception exception)
+                {
+                    TriggerPlannerLog.SourceFailed(logger, source.Name, exception);
+                    continue;
+                }
+#pragma warning restore CA1031
+
+                plans.Add((source.Name, source.Kind, desired));
             }
         }
 
-        foreach (var (kind, desired) in plans)
+        foreach (var (name, kind, desired) in plans)
         {
             foreach (var group in desired.GroupBy(trigger => (trigger.TenantId, trigger.WorkspaceId, trigger.PrincipalId)))
             {
-                await ReconcileOwnerAsync(kind, group.Key, group.ToArray(), window, cancellationToken).ConfigureAwait(false);
+                await ReconcileOwnerAsync(name, kind, group.Key, group.ToArray(), window, cancellationToken).ConfigureAwait(false);
             }
         }
     }
 
     private async Task ReconcileOwnerAsync(
+        string source,
         TriggerKind kind,
         (Nix.Domain.Tenancy.TenantId TenantId, Nix.Domain.Tenancy.WorkspaceId? WorkspaceId, Nix.Domain.Identity.PrincipalId PrincipalId) owner,
         IReadOnlyList<DesiredTrigger> desired,
@@ -104,6 +123,7 @@ public sealed class TriggerPlanner(
                         trigger.WorkspaceId,
                         trigger.PrincipalId,
                         kind,
+                        source,
                         trigger.SourceItemId,
                         trigger.RuleId,
                         trigger.FireAt,
@@ -116,6 +136,7 @@ public sealed class TriggerPlanner(
                     owner.WorkspaceId,
                     owner.PrincipalId,
                     kind,
+                    source,
                     window.Start,
                     window.End,
                     desired.Select(trigger => trigger.DedupeKey).ToArray(),
@@ -131,4 +152,7 @@ internal static partial class TriggerPlannerLog
 {
     [LoggerMessage(5310, LogLevel.Error, "Trigger planning failed and will retry")]
     internal static partial void Failed(ILogger logger, Exception exception);
+
+    [LoggerMessage(5311, LogLevel.Error, "Trigger source {SourceName} failed to plan; every other source still ran")]
+    internal static partial void SourceFailed(ILogger logger, string sourceName, Exception exception);
 }

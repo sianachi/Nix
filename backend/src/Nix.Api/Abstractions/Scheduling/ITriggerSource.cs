@@ -48,7 +48,17 @@ public sealed record TriggerOutcome(TriggerFireStatus Status, string Reason)
 /// </summary>
 public interface ITriggerSource
 {
-    /// <summary>Gets the trigger kind this source plans and fires.</summary>
+    /// <summary>
+    /// Gets the unique, stable name the dispatcher resolves this source by - lowercase, dotted,
+    /// at most 64 characters (for example <c>reminder.due</c>). Recorded on every trigger this
+    /// source plans, and the dispatcher's only way of choosing which registered source fires a
+    /// leased row: more than one source may share a <see cref="Kind"/>, so <see cref="Kind"/>
+    /// alone cannot resolve one. Must be unique across every registered source - checked at
+    /// startup, since a collision would make the dispatcher's resolution silently ambiguous.
+    /// </summary>
+    public string Name { get; }
+
+    /// <summary>Gets the trigger kind this source plans and fires - a display/reporting category, not a dispatch key.</summary>
     public TriggerKind Kind { get; }
 
     /// <summary>

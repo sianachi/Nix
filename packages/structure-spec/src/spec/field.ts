@@ -25,6 +25,7 @@ export const FIELD_SPEC_TYPES = [
   'estimate',
   'formula',
   'rollup',
+  'reminder',
 ] as const;
 
 /**
@@ -39,6 +40,7 @@ export const TASK_SEMANTIC_FIELD_TYPES = [
   'completion',
   'priority',
   'estimate',
+  'reminder',
 ] as const;
 
 export const ROLLUP_SPEC_AGGREGATES = [

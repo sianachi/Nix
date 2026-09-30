@@ -31,6 +31,7 @@ export function validateValue(definition: StructureProperty, value: unknown): st
     case 'start_date':
       return checkDate(definition, value);
     case 'timestamp':
+    case 'reminder':
       return checkTimestamp(definition, value);
     case 'datetime':
       return checkDateOrTimestamp(definition, value);

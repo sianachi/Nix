@@ -23,6 +23,9 @@ public sealed class SystemTestTriggerSource(INotificationWriter notifications) :
     private static readonly ConcurrentDictionary<string, DesiredTrigger> Desired = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
+    public string Name => "system.test";
+
+    /// <inheritdoc />
     public TriggerKind Kind => TriggerKind.System;
 
     /// <summary>Adds or replaces a trigger a test wants the next planning pass to pick up.</summary>

@@ -99,6 +99,13 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
+        if (ContainsReservedKey(changes, ItemProperties.DueSetByKey))
+        {
+            return Result.Failure<Item>(new NixError(
+                "scheduling.reserved_property",
+                $"'{ItemProperties.DueSetByKey}' is written by the server when a due date is set and cannot be written directly."));
+        }
+
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
@@ -150,10 +157,16 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(PropertyErrors.InvalidProperties(violations));
         }
 
+        // The one point this write's due date, if any, is attributed - see StampDueDateSetBy.
+        var stamped = ItemProperties.StampDueDateSetBy(
+            merged.Merged,
+            merged.Touched,
+            context.PrincipalId.ToString());
+
         await _tree
             .UpdatePropertiesAsync(
                 itemId,
-                merged.Merged,
+                stamped,
                 context.PrincipalId,
                 _clock.GetUtcNow(),
                 cancellationToken)
@@ -166,13 +179,23 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             : Result.Success(written);
     }
 
-    private static bool ContainsReservedFinanceKey(string changes)
+    private static bool ContainsReservedFinanceKey(string changes) =>
+        ContainsKeyMatching(changes, name => name.StartsWith("$fin_", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Whether an incoming change document names a specific reserved key directly - the same shape
+    /// as <see cref="ContainsReservedFinanceKey"/>, for a single key rather than a prefix family.
+    /// </summary>
+    private static bool ContainsReservedKey(string changes, string key) =>
+        ContainsKeyMatching(changes, name => string.Equals(name, key, StringComparison.Ordinal));
+
+    private static bool ContainsKeyMatching(string changes, Func<string, bool> matches)
     {
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(changes);
             return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
-                && document.RootElement.EnumerateObject().Any(property => property.Name.StartsWith("$fin_", StringComparison.Ordinal));
+                && document.RootElement.EnumerateObject().Any(property => matches(property.Name));
         }
         catch (System.Text.Json.JsonException)
         {

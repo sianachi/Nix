@@ -18,10 +18,10 @@ namespace Nix.Persistence.Scheduling;
 /// </summary>
 public sealed class ScheduledTriggerLeaseStore(NpgsqlDataSource dataSource) : IScheduledTriggerLeaseStore
 {
-    private const string LeaseSql = "SELECT * FROM nix_lease_due_triggers(@limit, @owner, @lease_seconds)";
+    private const string LeaseSql = "SELECT * FROM nix_lease_due_triggers(@limit, @owner, @lease_seconds, @max_attempts)";
     private const string FinishSql = "SELECT nix_finish_trigger(@tenant_id, @id, @owner, @status, @detail::jsonb)";
 
-    public async Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, int maxAttempts, CancellationToken cancellationToken)
     {
         if (limit is < 1 or > 100)
         {
@@ -32,6 +32,10 @@ public sealed class ScheduledTriggerLeaseStore(NpgsqlDataSource dataSource) : IS
         {
             throw new ArgumentOutOfRangeException(nameof(leaseSeconds));
         }
+        if (maxAttempts is < 1 or > 20)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxAttempts));
+        }
 
         var results = new List<DueTrigger>(limit);
         var command = dataSource.CreateCommand(LeaseSql);
@@ -40,6 +44,7 @@ public sealed class ScheduledTriggerLeaseStore(NpgsqlDataSource dataSource) : IS
             command.Parameters.Add(new NpgsqlParameter<int>("limit", NpgsqlDbType.Integer) { TypedValue = limit });
             command.Parameters.Add(new NpgsqlParameter<string>("owner", NpgsqlDbType.Text) { TypedValue = owner });
             command.Parameters.Add(new NpgsqlParameter<int>("lease_seconds", NpgsqlDbType.Integer) { TypedValue = leaseSeconds });
+            command.Parameters.Add(new NpgsqlParameter<int>("max_attempts", NpgsqlDbType.Integer) { TypedValue = maxAttempts });
             var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
             await using (reader.ConfigureAwait(false))
             {
@@ -48,23 +53,24 @@ public sealed class ScheduledTriggerLeaseStore(NpgsqlDataSource dataSource) : IS
                     var workspaceId = await reader.IsDBNullAsync(2, cancellationToken).ConfigureAwait(false)
                         ? (WorkspaceId?)null
                         : WorkspaceId.From(reader.GetGuid(2));
-                    var sourceItemId = await reader.IsDBNullAsync(5, cancellationToken).ConfigureAwait(false)
-                        ? (Guid?)null
-                        : reader.GetGuid(5);
-                    var ruleId = await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false)
+                    var sourceItemId = await reader.IsDBNullAsync(6, cancellationToken).ConfigureAwait(false)
                         ? (Guid?)null
                         : reader.GetGuid(6);
+                    var ruleId = await reader.IsDBNullAsync(7, cancellationToken).ConfigureAwait(false)
+                        ? (Guid?)null
+                        : reader.GetGuid(7);
                     results.Add(new DueTrigger(
                         TenantId.From(reader.GetGuid(0)),
                         reader.GetGuid(1),
                         workspaceId,
                         PrincipalId.From(reader.GetGuid(3)),
                         TriggerStorage.KindFromText(reader.GetString(4)),
+                        reader.GetString(5),
                         sourceItemId,
                         ruleId,
-                        await reader.GetFieldValueAsync<DateTimeOffset>(7, cancellationToken).ConfigureAwait(false),
-                        reader.GetString(8),
-                        reader.GetInt32(9)));
+                        await reader.GetFieldValueAsync<DateTimeOffset>(8, cancellationToken).ConfigureAwait(false),
+                        reader.GetString(9),
+                        reader.GetInt32(10)));
                 }
             }
         }

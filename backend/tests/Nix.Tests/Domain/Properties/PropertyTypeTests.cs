@@ -43,6 +43,7 @@ public sealed class PropertyTypeTests
     [InlineData(PropertyType.Timestamp, "timestamp")]
     [InlineData(PropertyType.Image, "image")]
     [InlineData(PropertyType.DateTime, "datetime")]
+    [InlineData(PropertyType.Reminder, "reminder")]
     public void A_type_is_stored_under_the_name_the_contract_publishes(PropertyType type, string name)
     {
         // These literals are the wire format and the column format at once. Changing one is a
@@ -89,6 +90,7 @@ public sealed class PropertyTypeTests
     [InlineData(PropertyType.Timestamp, false)]
     [InlineData(PropertyType.Image, false)]
     [InlineData(PropertyType.DateTime, false)]
+    [InlineData(PropertyType.Reminder, false)]
     public void Only_the_select_types_draw_their_values_from_a_declared_list(
         PropertyType type,
         bool expected)
@@ -107,6 +109,7 @@ public sealed class PropertyTypeTests
     [InlineData(PropertyType.Timestamp, false)]
     [InlineData(PropertyType.Image, false)]
     [InlineData(PropertyType.DateTime, false)]
+    [InlineData(PropertyType.Reminder, false)]
     public void Only_a_single_select_gives_a_board_a_bounded_set_of_columns(
         PropertyType type,
         bool expected)
@@ -128,6 +131,7 @@ public sealed class PropertyTypeTests
     [InlineData(PropertyType.Url, false)]
     [InlineData(PropertyType.Image, false)]
     [InlineData(PropertyType.DateTime, true)]
+    [InlineData(PropertyType.Reminder, false)]
     public void Only_a_date_places_an_item_on_a_calendar(PropertyType type, bool expected)
     {
         Assert.Equal(expected, type.CanPlaceOnCalendar());

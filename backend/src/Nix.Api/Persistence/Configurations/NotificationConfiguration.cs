@@ -58,5 +58,12 @@ internal sealed class NotificationConfiguration : IEntityTypeConfiguration<Notif
         // Named separately so EF keeps it beside, not instead of, the full index on the same columns.
         builder.HasIndex(row => new { row.TenantId, row.PrincipalId, row.Seq }, "IX_notification_tenant_id_principal_id_seq_unread")
             .HasFilter("read_at IS NULL");
+
+        // Serves nix_purge_old_notifications, which scans every tenant's old notifications by age
+        // alone (ADR-0051 Amendment 2's retention indexes owed to lane B1) - the SECURITY DEFINER
+        // retention function crosses every principal, so a tenant- or principal-scoped index would
+        // not serve it the way it serves every ordinary, RLS-scoped read above.
+        builder.HasIndex(row => row.CreatedAt)
+            .HasDatabaseName("IX_notification_created_at");
     }
 }

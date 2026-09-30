@@ -271,6 +271,19 @@ public static class NixPersistenceServiceCollectionExtensions
             provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ScheduledTriggerLeaseStore>());
         services.AddScoped<Nix.Abstractions.Scheduling.IScheduledTriggerStore, Nix.Persistence.Scheduling.ScheduledTriggerStore>();
         services.AddSingleton<Nix.Abstractions.Scheduling.IRetentionStore, Nix.Persistence.Scheduling.RetentionStore>();
+
+        // The three reminder sources (ADR-0051 section 4, lane B1). The candidate finder crosses
+        // every tenant, exactly like the lease store above; the mute checker is ordinary RLS-scoped
+        // reads inside the session already scoped to a trigger's recipient at fire time.
+        services.AddSingleton<Nix.Persistence.Scheduling.ReminderCandidateFinder>();
+        services.AddSingleton<Nix.Abstractions.Scheduling.IReminderCandidateFinder>(
+            provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ReminderCandidateFinder>());
+        services.AddScoped<Nix.Abstractions.Scheduling.IMutedContainerChecker, Nix.Persistence.Scheduling.MutedContainerChecker>();
+        services.AddScoped<Nix.Abstractions.Scheduling.IPrincipalStatusChecker, Nix.Persistence.Scheduling.PrincipalStatusChecker>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.ExplicitReminderSource>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.DueTaskReminderSource>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.HabitReminderSource>();
+
         if (options.SchedulingEnabled)
         {
             services.AddSingleton<Nix.Persistence.Scheduling.ScheduleDispatcher>();

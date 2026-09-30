@@ -84,7 +84,7 @@ public sealed class HabitTrackerHandler(
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(command.Settings);
         var request = command.Settings;
-        var settings = new HabitSettings(request.Frequency, request.Weekdays ?? [], request.Timezone, request.StartDate, request.Target, request.Unit);
+        var settings = new HabitSettings(request.Frequency, request.Weekdays ?? [], request.Timezone, request.StartDate, request.Target, request.Unit, request.ReminderTime);
         if (settings.Validate() is { } invalid)
         {
             return Failure<HabitTrackerResponse>("invalid_settings", invalid);
@@ -193,7 +193,7 @@ public sealed class HabitTrackerHandler(
         var rows = allRows.Where(row => row.OccurredOn >= start && row.OccurredOn <= end).OrderBy(row => row.OccurredOn).ToList();
         var occurrences = BuildOccurrences(history, allRows, start, end, today);
         var lifetime = BuildOccurrences(history, allRows, history.Start, today, today);
-        return Result.Success(new HabitTrackerResponse(parent.Id.Value, settings.Frequency, settings.Weekdays, settings.Timezone, settings.StartDate, settings.Target, settings.Unit, rows, BuildWeeks(occurrences), ReadStatus(parent.Properties), occurrences, BuildProgress(occurrences, lifetime, today), BuildMonths(occurrences)));
+        return Result.Success(new HabitTrackerResponse(parent.Id.Value, settings.Frequency, settings.Weekdays, settings.Timezone, settings.StartDate, settings.Target, settings.Unit, rows, BuildWeeks(occurrences), ReadStatus(parent.Properties), occurrences, BuildProgress(occurrences, lifetime, today), BuildMonths(occurrences), settings.ReminderTime));
     }
 
     /// <inheritdoc />

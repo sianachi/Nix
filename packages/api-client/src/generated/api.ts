@@ -2933,6 +2933,7 @@ export interface components {
       /** Format: double */
       target: number | string;
       unit: string;
+      reminderTime?: null | string;
     };
     HabitStatusRequest: {
       status: string;
@@ -2960,6 +2961,7 @@ export interface components {
       occurrences?: null | components['schemas']['HabitOccurrence'][];
       progress?: null | components['schemas']['HabitProgress'];
       months?: null | components['schemas']['HabitMonthSummary'][];
+      reminderTime?: null | string;
     };
     HabitWeekSummary: {
       /** Format: date */

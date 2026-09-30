@@ -46,6 +46,7 @@ describe('the capability catalog', () => {
       'estimate',
       'formula',
       'rollup',
+      'reminder',
     ]);
   });
 

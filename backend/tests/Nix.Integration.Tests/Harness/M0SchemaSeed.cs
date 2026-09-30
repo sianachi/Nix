@@ -325,12 +325,12 @@ internal static class M0SchemaSeed
             BEGIN
                 IF to_regclass('public.scheduled_trigger') IS NOT NULL THEN
                     INSERT INTO scheduled_trigger
-                        (tenant_id, id, workspace_id, principal_id, kind, source_item_id, rule_id,
-                         fire_at, dedupe_key, status, lease_owner, lease_until, attempts, detail,
-                         created_at, updated_at)
-                    VALUES ({tenant}, gen_random_uuid(), {workspace}, {principal}, 'system', NULL,
-                            NULL, now() + interval '1 hour', '{slug}-trigger-seed', 'pending', NULL,
-                            NULL, 0, NULL, now(), now());
+                        (tenant_id, id, workspace_id, principal_id, kind, source, source_item_id,
+                         rule_id, fire_at, dedupe_key, status, lease_owner, lease_until, attempts,
+                         detail, created_at, updated_at)
+                    VALUES ({tenant}, gen_random_uuid(), {workspace}, {principal}, 'system',
+                            'system.test', NULL, NULL, now() + interval '1 hour',
+                            '{slug}-trigger-seed', 'pending', NULL, NULL, 0, NULL, now(), now());
                 END IF;
             END $scheduling$;
 

@@ -20,7 +20,8 @@ public sealed class PropertySchemaRulesTests
             Property("completion", PropertyType.Completion, "Shipped"),
             Property("priority", PropertyType.Priority, "Urgency"),
             Property("estimate", PropertyType.Estimate, "Hours"),
-            Property("assignee", PropertyType.Assignee, "Owner"));
+            Property("assignee", PropertyType.Assignee, "Owner"),
+            Property("reminder", PropertyType.Reminder, "Nudge"));
 
         Assert.Null(PropertySchemaRules.Refuse(schema));
     }
@@ -32,6 +33,7 @@ public sealed class PropertySchemaRulesTests
     [InlineData(PropertyType.Priority, "priority")]
     [InlineData(PropertyType.Estimate, "estimate")]
     [InlineData(PropertyType.Assignee, "assignee")]
+    [InlineData(PropertyType.Reminder, "reminder")]
     public void A_task_type_under_any_other_key_is_refused_naming_the_required_one(
         PropertyType type,
         string requiredKey)
@@ -97,6 +99,16 @@ public sealed class PropertySchemaRulesTests
         // that was already keying a free-text owner field "assignee" before this type existed must
         // not have that schema retroactively refused.
         var schema = SchemaOf(Property("assignee", PropertyType.Text, "Owner"));
+
+        Assert.Null(PropertySchemaRules.Refuse(schema));
+    }
+
+    [Fact]
+    public void A_plain_timestamp_may_sit_on_the_reminder_key()
+    {
+        // Same reasoning again: a workspace that already keyed a plain timestamp "reminder" must
+        // not be retroactively refused by the type existing now.
+        var schema = SchemaOf(Property("reminder", PropertyType.Timestamp, "Nudge"));
 
         Assert.Null(PropertySchemaRules.Refuse(schema));
     }

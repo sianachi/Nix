@@ -11,6 +11,7 @@ public sealed record DueTrigger(
     WorkspaceId? WorkspaceId,
     PrincipalId PrincipalId,
     TriggerKind Kind,
+    string Source,
     Guid? SourceItemId,
     Guid? RuleId,
     DateTimeOffset FireAt,
@@ -27,9 +28,13 @@ public interface IScheduledTriggerLeaseStore
 {
     /// <summary>
     /// Leases up to <paramref name="limit"/> due or lease-expired triggers, marking each leased by
-    /// <paramref name="owner"/> for <paramref name="leaseSeconds"/>.
+    /// <paramref name="owner"/> for <paramref name="leaseSeconds"/>. A trigger whose lease expired
+    /// without ever finishing (its process died mid-fire) and that has already reached
+    /// <paramref name="maxAttempts"/> is finalized as <c>skipped</c> instead of being leased again
+    /// - ADR-0051 Amendment 2: the lease must not re-lease past the attempt cap even when nothing
+    /// ever ran the dispatcher's own failure handling for it.
     /// </summary>
-    public Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, CancellationToken cancellationToken);
+    public Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, int maxAttempts, CancellationToken cancellationToken);
 
     /// <summary>
     /// Finishes a trigger this <paramref name="owner"/> currently leases, moving it to
@@ -58,6 +63,7 @@ public interface IScheduledTriggerStore
         WorkspaceId? workspaceId,
         PrincipalId principalId,
         TriggerKind kind,
+        string source,
         Guid? sourceItemId,
         Guid? ruleId,
         DateTimeOffset fireAt,
@@ -71,16 +77,18 @@ public interface IScheduledTriggerStore
     /// <paramref name="desiredDedupeKeys"/> - the source no longer produces it.
     /// </summary>
     /// <remarks>
-    /// Scoped by workspace as well as principal and kind: a principal can have triggers of the
-    /// same kind in more than one workspace (or none, for a personal reminder), and reconciling
-    /// one workspace's desired set must never cancel another's rows that this planning pass never
-    /// looked at.
+    /// Scoped by workspace and source as well as principal and kind: a principal can have
+    /// triggers of the same kind in more than one workspace (or none, for a personal reminder),
+    /// and reconciling one workspace's desired set must never cancel another's rows that this
+    /// planning pass never looked at; scoping by source too means one source reconciling its own
+    /// desired set never cancels a different source's rows that merely share a kind.
     /// </remarks>
     public Task<int> CancelStaleAsync(
         TenantId tenantId,
         WorkspaceId? workspaceId,
         PrincipalId principalId,
         TriggerKind kind,
+        string source,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyCollection<string> desiredDedupeKeys,

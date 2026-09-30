@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
@@ -108,6 +109,13 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
+        if (properties?.Any(pair => pair.Key == ItemProperties.DueSetByKey) == true)
+        {
+            return Result.Failure<Item>(new NixError(
+                "scheduling.reserved_property",
+                $"'{ItemProperties.DueSetByKey}' is written by the server when a due date is set and cannot be written directly."));
+        }
+
         if (string.IsNullOrWhiteSpace(type))
         {
             return Result.Failure<Item>(ItemErrors.NotFound("An item type is required."));
@@ -159,6 +167,14 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             return Result.Failure<Item>(PropertyErrors.InvalidProperties(violations));
         }
 
+        // The one point this write's due date, if any, is attributed - see
+        // ItemProperties.StampDueDateSetBy. A create names every key it supplied, so "touched" is
+        // simply the properties the request carried, before the title was merged in above.
+        var stamped = ItemProperties.StampDueDateSetBy(
+            bag,
+            properties?.Select(pair => pair.Key).ToImmutableArray() ?? ImmutableArray<string>.Empty,
+            context.PrincipalId.ToString());
+
         var now = _clock.GetUtcNow();
         var item = new Item
         {
@@ -170,7 +186,7 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             Seq = await _tree
                 .NextSiblingSequenceAsync(workspaceId, parentId, cancellationToken)
                 .ConfigureAwait(false),
-            Properties = bag,
+            Properties = stamped,
             LifecycleState = ItemLifecycleState.Active,
             CreatedBy = context.PrincipalId,
             LastModifiedBy = context.PrincipalId,

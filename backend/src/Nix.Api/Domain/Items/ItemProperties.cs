@@ -124,6 +124,79 @@ public static class ItemProperties
     /// <summary>The property an item's display name is stored under.</summary>
     public const string TitleKey = "title";
 
+    /// <summary>The reserved key of the due-date task type, fixed by <c>PropertySchemaRules</c>.</summary>
+    public const string DueDateKey = "due_date";
+
+    /// <summary>
+    /// The system property recording which principal set an item's <see cref="DueDateKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// Written only by <see cref="StampDueDateSetBy"/>, from the two Core write paths that can set
+    /// a due date (<c>SetItemPropertiesHandler</c> and <c>CreateItemHandler</c>) - never by a
+    /// client directly, the same way <c>$fin_</c>-prefixed keys are guarded at those same two
+    /// boundaries. ADR-0051 section 4: the recipient of a due-task reminder is the principal named
+    /// here, falling back to <see cref="Item.CreatedBy"/> when this key is absent.
+    /// </remarks>
+    public const string DueSetByKey = "$due_set_by";
+
+    /// <summary>
+    /// Stamps or clears <see cref="DueSetByKey"/> on a bag, when this write names
+    /// <see cref="DueDateKey"/> among the keys it touched.
+    /// </summary>
+    /// <param name="bag">The property bag this write is about to store, as JSON.</param>
+    /// <param name="touchedKeys">The keys this specific write named.</param>
+    /// <param name="principalId">The principal making this write.</param>
+    /// <returns>The bag, with <see cref="DueSetByKey"/> set or removed as the due date requires.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The single point every due-date write funnels through.</b> A write that sets
+    /// <see cref="DueDateKey"/> to a value stamps who set it; a write that clears it (an explicit
+    /// null, or - for create - simply not naming it) removes the stamp too, so a due date and its
+    /// setter cannot drift apart. A write that never names <see cref="DueDateKey"/> leaves an
+    /// existing stamp untouched, because it is not a due-date write at all.
+    /// </para>
+    /// <para>
+    /// Called once per write, after the bag for that write is known and before it is stored -
+    /// after <see cref="Merge"/> for an edit, and against the incoming bag itself for a create -
+    /// so both callers land on the one rule rather than restating it.
+    /// </para>
+    /// </remarks>
+    public static string StampDueDateSetBy(
+        string bag,
+        IReadOnlyCollection<string> touchedKeys,
+        string principalId)
+    {
+        ArgumentNullException.ThrowIfNull(bag);
+        ArgumentNullException.ThrowIfNull(touchedKeys);
+        ArgumentNullException.ThrowIfNull(principalId);
+
+        if (!touchedKeys.Contains(DueDateKey))
+        {
+            return bag;
+        }
+
+        JsonObject document;
+        try
+        {
+            document = JsonNode.Parse(bag) as JsonObject ?? [];
+        }
+        catch (JsonException)
+        {
+            return bag;
+        }
+
+        if (document.TryGetPropertyValue(DueDateKey, out var value) && value is not null)
+        {
+            document[DueSetByKey] = principalId;
+        }
+        else
+        {
+            document.Remove(DueSetByKey);
+        }
+
+        return document.ToJsonString();
+    }
+
     /// <summary>
     /// Reads the title out of a property bag.
     /// </summary>

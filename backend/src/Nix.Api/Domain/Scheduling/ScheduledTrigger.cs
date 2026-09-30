@@ -104,6 +104,15 @@ public sealed class ScheduledTrigger
     /// <summary>Gets what produced this trigger.</summary>
     public required TriggerKind Kind { get; init; }
 
+    /// <summary>
+    /// Gets the unique, stable name of the <c>ITriggerSource</c> that planned this trigger (for
+    /// example <c>reminder.due</c>) - what the dispatcher resolves a leased row's fire action by,
+    /// never <see cref="Kind"/> alone. <see cref="Kind"/> stays the category for display and
+    /// reporting; more than one source shares a kind, and only <see cref="Source"/> tells them
+    /// apart.
+    /// </summary>
+    public required string Source { get; init; }
+
     /// <summary>Gets the item this trigger is about, or <see langword="null"/> when it is not about one.</summary>
     public Guid? SourceItemId { get; init; }
 

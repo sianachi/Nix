@@ -58,10 +58,17 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
 
             foreach (var function in new[]
             {
-                "nix_lease_due_triggers(integer, text, integer)",
+                "nix_lease_due_triggers(integer, text, integer, integer)",
                 "nix_finish_trigger(uuid, uuid, text, text, jsonb)",
                 "nix_purge_finished_triggers(integer)",
                 "nix_purge_old_notifications(integer)",
+                "nix_find_explicit_reminder_candidates(timestamptz, timestamptz, integer, timestamptz, uuid)",
+                "nix_find_due_reminder_candidates(date, date, integer, date, uuid)",
+                "nix_find_habit_reminder_candidates(integer, uuid)",
+                "nix_reminder_preferences_for(uuid[])",
+                "nix_safe_timestamptz(text)",
+                "nix_safe_date(text)",
+                "nix_safe_uuid(text)",
             })
             {
                 foreach (var (role, expected) in new[] { ("nix_app", true), ("nix_collab", false) })
@@ -87,7 +94,7 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         {
             await work.Resolve<IScheduledTriggerStore>().UpsertPendingAsync(
                 TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.WorkspaceId, TestTenants.AlphaContext.PrincipalId,
-                TriggerKind.System, null, null, DateTimeOffset.UtcNow.AddMinutes(5), "alpha-only", Cancellation);
+                TriggerKind.System, "system.test", null, null, DateTimeOffset.UtcNow.AddMinutes(5), "alpha-only", Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
@@ -110,8 +117,8 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         {
             var error = await Assert.ThrowsAsync<PostgresException>(() => work.DbContext.Database.ExecuteSqlInterpolatedAsync($"""
                 INSERT INTO scheduled_trigger
-                    (tenant_id, id, principal_id, kind, fire_at, dedupe_key, status, attempts, created_at, updated_at)
-                VALUES ({TestTenants.Alpha}, {Guid.NewGuid()}, {TestTenants.BetaPrincipal}, 'system', now(), 'forged', 'pending', 0, now(), now())
+                    (tenant_id, id, principal_id, kind, source, fire_at, dedupe_key, status, attempts, created_at, updated_at)
+                VALUES ({TestTenants.Alpha}, {Guid.NewGuid()}, {TestTenants.BetaPrincipal}, 'system', 'system.test', now(), 'forged', 'pending', 0, now(), now())
                 """, Cancellation));
             Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, error.SqlState);
         }
@@ -127,17 +134,17 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         {
             await work.Resolve<IScheduledTriggerStore>().UpsertPendingAsync(
                 TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.WorkspaceId, TestTenants.AlphaContext.PrincipalId,
-                TriggerKind.System, null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "due-now", Cancellation);
+                TriggerKind.System, "system.test", null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "due-now", Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
-        var leased = await leases.LeaseDueAsync(10, "owner-a", 30, Cancellation);
+        var leased = await leases.LeaseDueAsync(10, "owner-a", 30, 5, Cancellation);
         var due = Assert.Single(leased, trigger => trigger.DedupeKey == "due-now");
         Assert.Equal(1, due.Attempts);
         Assert.Equal(TestTenants.AlphaContext.TenantId, due.TenantId);
 
         // Still leased: a second lease pass with a different owner must not reclaim it.
-        var second = await leases.LeaseDueAsync(10, "owner-b", 30, Cancellation);
+        var second = await leases.LeaseDueAsync(10, "owner-b", 30, 5, Cancellation);
         Assert.DoesNotContain(second, trigger => trigger.DedupeKey == "due-now");
 
         // The wrong owner cannot finish someone else's lease.
@@ -148,6 +155,85 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
 
         // And a second finish, now that the lease is gone, fails too.
         Assert.False(await leases.FinishAsync(due.TenantId, due.Id, "owner-a", TriggerStatus.Fired, null, Cancellation));
+    }
+
+    [Fact]
+    public async Task A_lease_that_outlived_its_process_past_the_attempt_cap_is_skipped_rather_than_re_leased()
+    {
+        // ADR-0051 Amendment 2, owed by lane B1: a lease nobody ever finished (the process holding
+        // it died mid-fire) must not be handed out forever just because it keeps expiring. Seeded
+        // directly as an already-leased, already-expired, already-at-the-cap row - the shape
+        // nothing in the dispatcher's own failure handling ever produces, since that handling only
+        // runs for a process that is still there to run it.
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        var deadId = Guid.NewGuid();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO scheduled_trigger
+                    (tenant_id, id, principal_id, kind, source, fire_at, dedupe_key, status, attempts,
+                     lease_owner, lease_until, created_at, updated_at)
+                VALUES ('{TestTenants.Alpha}', '{deadId}', '{TestTenants.AlphaPrincipal}', 'system',
+                        'system.test', now() - interval '1 hour', 'dead-lease', 'leased', 5,
+                        'dead-owner', now() - interval '1 minute', now() - interval '1 hour', now() - interval '1 minute');
+                """);
+        }
+
+        var leases = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IScheduledTriggerLeaseStore>();
+        var leased = await leases.LeaseDueAsync(10, "owner-new", 30, 5, Cancellation);
+        Assert.DoesNotContain(leased, trigger => trigger.DedupeKey == "dead-lease");
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var row = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == deadId, Cancellation);
+            Assert.Equal(TriggerStatus.Skipped, row.Status);
+            Assert.Null(row.LeaseOwner);
+            Assert.Null(row.LeaseUntil);
+        }
+    }
+
+    [Fact]
+    public async Task A_backed_off_retry_still_pending_is_left_alone_by_the_next_planning_pass()
+    {
+        // ADR-0051 Amendment 2, owed by lane B1: a trigger the dispatcher already retried once
+        // (attempts > 0, still pending, fire_at pushed into the future by backoff) must not have
+        // that backoff overwritten the very next time the source that produced it replans - or the
+        // backoff could never actually elapse.
+        var scopeFactory = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        using var planner = new TriggerPlanner(scopeFactory, TimeProvider.System);
+        var context = TestTenants.AlphaContext;
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        var backedOffId = Guid.NewGuid();
+        var backedOffFireAt = DateTimeOffset.UtcNow.AddMinutes(30);
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO scheduled_trigger
+                    (tenant_id, id, principal_id, kind, source, fire_at, dedupe_key, status, attempts, created_at, updated_at)
+                VALUES ('{context.TenantId.Value}', '{backedOffId}', '{context.PrincipalId.Value}', 'system',
+                        'system.test', '{backedOffFireAt:O}', 'backed-off', 'pending', 2, now(), now());
+                """);
+        }
+
+        // The source still wants this same dedupe key, but at a different (earlier) instant than
+        // the backoff currently holds it at - exactly what a source recomputes on every pass.
+        SystemTestTriggerSource.Want(new DesiredTrigger(
+            context.TenantId, context.WorkspaceId, context.PrincipalId, null, null,
+            DateTimeOffset.UtcNow.AddMinutes(1), "backed-off"));
+        await planner.PlanOnceAsync(Cancellation);
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var row = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == backedOffId, Cancellation);
+            Assert.Equal(TriggerStatus.Pending, row.Status);
+            Assert.Equal(2, row.Attempts);
+            Assert.Equal(backedOffFireAt, row.FireAt, TimeSpan.FromSeconds(1));
+        }
     }
 
     [Fact]
@@ -280,7 +366,7 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
     }
 
     [Fact]
-    public async Task A_trigger_source_that_throws_retries_with_backoff_then_skips_after_five_attempts()
+    public async Task An_unknown_trigger_source_is_skipped_by_name_not_guessed_by_kind()
     {
         var scopeFactory = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IServiceScopeFactory>();
         var leases = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IScheduledTriggerLeaseStore>();
@@ -291,12 +377,13 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            // A trigger of a kind no ITriggerSource resolves: the dispatcher's "no source
-            // registered" path exercises the same skip-with-reason branch a real failure does,
-            // without needing a source that can be told to throw.
+            // A trigger whose source name no registered ITriggerSource carries: the dispatcher
+            // must not fall back to any source sharing the same Kind - Kind is a display category,
+            // never a dispatch key - so this is skipped as "unknown_source" even though its Kind
+            // (System) is exactly what SystemTestTriggerSource itself reports.
             await work.Resolve<IScheduledTriggerStore>().UpsertPendingAsync(
                 context.TenantId, context.WorkspaceId, context.PrincipalId,
-                TriggerKind.Automation, null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "no-source", Cancellation);
+                TriggerKind.System, "reminder.nonexistent", null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "no-source", Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
@@ -309,7 +396,75 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
             var trigger = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
                 .SingleAsync(row => row.DedupeKey == "no-source", Cancellation);
             Assert.Equal(TriggerStatus.Skipped, trigger.Status);
+            Assert.Contains("unknown_source", trigger.Detail, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public async Task Reconciling_one_sources_desired_set_never_cancels_another_sources_rows_of_the_same_kind()
+    {
+        // ADR-0051 Amendment 2 / the architect's dispatch redesign: two sources can share a Kind
+        // (both are System here, for the test's convenience - the point is Kind alone must not
+        // scope the cancel) without one source's replan touching the other's still-desired rows.
+        var scopeFactory = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        var context = TestTenants.AlphaContext;
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<IScheduledTriggerStore>();
+            // "other.source" plants a row of the same Kind, Tenant, Workspace and Principal that
+            // the real System-source planning pass below never mentions - it must survive.
+            await store.UpsertPendingAsync(
+                context.TenantId, context.WorkspaceId, context.PrincipalId,
+                TriggerKind.System, "other.source", null, null, DateTimeOffset.UtcNow.AddHours(1),
+                "other-source-row", Cancellation);
+            await work.CommitAsync(Cancellation);
+        }
+
+        using var planner = new TriggerPlanner(scopeFactory, TimeProvider.System);
+        SystemTestTriggerSource.Want(new DesiredTrigger(
+            context.TenantId, context.WorkspaceId, context.PrincipalId, null, null,
+            DateTimeOffset.UtcNow.AddHours(1), "system-test-row"));
+        await planner.PlanOnceAsync(Cancellation);
+
+        work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var other = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(row => row.DedupeKey == "other-source-row", Cancellation);
+            Assert.Equal(TriggerStatus.Pending, other.Status);
+
+            var own = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(row => row.DedupeKey == "system-test-row", Cancellation);
+            Assert.Equal(TriggerStatus.Pending, own.Status);
+            Assert.Equal("system.test", own.Source);
+        }
+    }
+
+    [Fact]
+    public void Two_registered_trigger_sources_sharing_a_name_are_refused()
+    {
+        ITriggerSource first = new NamedStubTriggerSource("reminder.due");
+        ITriggerSource second = new NamedStubTriggerSource("reminder.due");
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => TriggerSourceNames.RequireUnique([first, second]));
+        Assert.Contains("reminder.due", error.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>A minimal <see cref="ITriggerSource"/> whose only purpose is to carry a Name for the uniqueness check.</summary>
+    private sealed class NamedStubTriggerSource(string name) : ITriggerSource
+    {
+        public string Name => name;
+
+        public TriggerKind Kind => TriggerKind.Reminder;
+
+        public Task<IReadOnlyList<DesiredTrigger>> PlanAsync(PlanWindow window, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("Not exercised by the uniqueness check.");
+
+        public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("Not exercised by the uniqueness check.");
     }
 
     [Fact]
@@ -320,10 +475,10 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         {
             await RawSql.ExecuteAsync(connection, transaction: null, $"""
                 INSERT INTO scheduled_trigger
-                    (tenant_id, id, principal_id, kind, fire_at, dedupe_key, status, attempts, created_at, updated_at)
-                VALUES ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'system',
+                    (tenant_id, id, principal_id, kind, source, fire_at, dedupe_key, status, attempts, created_at, updated_at)
+                VALUES ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'system', 'system.test',
                         now() - interval '40 days', 'old-fired', 'fired', 1, now() - interval '40 days', now() - interval '40 days'),
-                       ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'system',
+                       ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'system', 'system.test',
                         now() - interval '1 hour', 'recent-fired', 'fired', 1, now() - interval '1 hour', now() - interval '1 hour');
 
                 INSERT INTO notification (tenant_id, id, principal_id, kind, title, body, created_at, dedupe_key)
