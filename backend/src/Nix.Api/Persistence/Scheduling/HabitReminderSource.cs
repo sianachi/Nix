@@ -29,6 +29,7 @@ public sealed class HabitReminderSource(
     IMutedContainerChecker mutedContainers,
     IPrincipalStatusChecker principalStatus,
     INotificationWriter notifications,
+    IItemLocks locks,
     NixDbContext database) : ITriggerSource
 {
     /// <inheritdoc />
@@ -201,8 +202,9 @@ public sealed class HabitReminderSource(
             return TriggerOutcome.Skipped("already_checked_in");
         }
 
-        var title = ItemProperties.ReadTitle(item.Properties);
-        var truncatedTitle = title.Length > 200 ? title[..200] : title;
+        var truncatedTitle = await ReminderSourceSupport
+            .NotificationTitleAsync(item, locks, cancellationToken)
+            .ConfigureAwait(false);
 
         await notifications.CreateAsync(
             trigger.PrincipalId,

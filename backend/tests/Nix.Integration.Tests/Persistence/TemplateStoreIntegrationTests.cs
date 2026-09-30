@@ -2520,6 +2520,58 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Import_refuses_a_bag_naming_a_member_twice_rather_than_failing_the_request()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var child = Items()[1] with
+            {
+                Properties = "{\"due_date\":\"2026-12-01\",\"due_date\":\"2026-12-02\"}",
+            };
+
+            var imported = await work.Resolve<TemplateStore>().BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace),
+                "import-duplicate-member",
+                Descriptor(),
+                [Items()[0], child],
+                Cancellation);
+
+            Assert.True(imported.IsFailure);
+            Assert.Equal(TemplateErrors.Invalid("x").Code, imported.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_draft_item_edit_cannot_carry_a_set_by_value_into_template_content()
+    {
+        var templateId = await ImportAndFinalizeAsync("draft-strips-set-by");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "draft-strips-set-by", Cancellation);
+            Assert.True(draft.IsSuccess);
+
+            var updated = await store.UpdateDraftItemAsync(
+                templateId,
+                draft.Value.OperationId,
+                ChildSource,
+                null,
+                $$"""{"title":"Child","due_date":"2026-12-01","{{ItemProperties.DueSetByKey}}":"{{TestTenants.BetaPrincipal}}","{{ItemProperties.ReminderSetByKey}}":"{{TestTenants.BetaPrincipal}}"}""",
+                null,
+                null,
+                Cancellation);
+
+            Assert.True(updated.IsSuccess, updated.IsFailure ? updated.Error.Message : string.Empty);
+            var bag = Assert.IsType<JsonObject>(JsonNode.Parse(updated.Value.Properties!));
+            Assert.Equal("2026-12-01", (string?)bag["due_date"]);
+            Assert.False(bag.ContainsKey(ItemProperties.DueSetByKey));
+            Assert.False(bag.ContainsKey(ItemProperties.ReminderSetByKey));
+        }
+    }
+
+    [Fact]
     public async Task Draft_root_properties_are_preserved_when_the_root_is_edited()
     {
         var templateId = await ImportAndFinalizeAsync("draft-root-invariant");

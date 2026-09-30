@@ -295,6 +295,60 @@ public sealed class ItemPropertiesStampSetByTests
         Assert.Null(ItemProperties.StripSetBy(null));
     }
 
+    [Fact]
+    public void Clearing_completion_on_a_dated_item_re_attributes_its_due_date_to_whoever_reopened_it()
+    {
+        // Reopening a task re-targets its due reminder as surely as setting the date does, so the
+        // principal who reopened it is the one the reminder now goes to.
+        var reopened = ItemProperties.StampSetBy(
+            $$"""{"due_date":"2026-10-01","completion":false,"{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["completion"],
+            "00000000-0000-0000-0000-000000000002");
+        Assert.Equal(
+            "00000000-0000-0000-0000-000000000002",
+            (string?)Assert.IsType<JsonObject>(JsonNode.Parse(reopened))[ItemProperties.DueSetByKey]);
+
+        var cleared = ItemProperties.StampSetBy(
+            $$"""{"due_date":"2026-10-01","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["completion"],
+            "00000000-0000-0000-0000-000000000002");
+        Assert.Equal(
+            "00000000-0000-0000-0000-000000000002",
+            (string?)Assert.IsType<JsonObject>(JsonNode.Parse(cleared))[ItemProperties.DueSetByKey]);
+    }
+
+    [Fact]
+    public void Completing_or_reopening_an_undated_item_leaves_attribution_alone()
+    {
+        var completed = ItemProperties.StampSetBy(
+            $$"""{"due_date":"2026-10-01","completion":true,"{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["completion"],
+            "00000000-0000-0000-0000-000000000002");
+        Assert.Equal(
+            "00000000-0000-0000-0000-000000000001",
+            (string?)Assert.IsType<JsonObject>(JsonNode.Parse(completed))[ItemProperties.DueSetByKey]);
+
+        var undated = ItemProperties.StampSetBy(
+            """{"title":"No date","completion":false}""",
+            ["completion"],
+            "00000000-0000-0000-0000-000000000002");
+        Assert.False(Assert.IsType<JsonObject>(JsonNode.Parse(undated)).ContainsKey(ItemProperties.DueSetByKey));
+    }
+
+    [Fact]
+    public void A_bag_naming_a_member_twice_is_returned_for_validation_rather_than_throwing()
+    {
+        // JsonNode.Parse accepts duplicate member names and JsonObject throws ArgumentException on
+        // first use; these are client bytes, so the callers' envelope validation must see the bag
+        // and refuse it rather than the rewrite surfacing as a 500.
+        const string duplicated = """{"due_date":"2026-10-01","$due_set_by":"00000000-0000-0000-0000-00000000000f","$due_set_by":"00000000-0000-0000-0000-00000000000e"}""";
+
+        Assert.Equal(duplicated, ItemProperties.WithTitle(duplicated, "Title"));
+        Assert.Equal(duplicated, ItemProperties.StripSetBy(duplicated));
+        Assert.Equal(duplicated, ItemProperties.RestampCopiedSetBy(duplicated, "00000000-0000-0000-0000-000000000002"));
+        Assert.NotNull(new Nix.Domain.Templates.TemplateDefinitionValidator().ValidateEnvelope(duplicated, null, null));
+    }
+
     [Theory]
     [InlineData("$due_set_by", true)]
     [InlineData("$reminder_set_by", true)]

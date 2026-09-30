@@ -9,7 +9,9 @@ namespace Nix.Persistence.Migrations;
 /// failure handling, which never gets to run for a process that is no longer there.
 /// </summary>
 /// <remarks>
-/// Also the first version to return <c>source</c> - the trigger's own <c>ITriggerSource.Name</c>
+/// Every definer here pins <c>SET search_path = pg_catalog, public, pg_temp</c> (pg_temp last, so
+/// a caller's temporary relation can never shadow one the definer means) and schema-qualifies the
+/// relations it names. Also the first version to return <c>source</c> - the trigger's own <c>ITriggerSource.Name</c>
 /// column, added alongside this delta in the same migration - since the dispatcher now resolves a
 /// leased row's fire action by that name rather than by <c>kind</c>.
 /// </remarks>
@@ -59,7 +61,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
             DECLARE
                 v_now timestamptz := clock_timestamp();
@@ -91,7 +93,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                 -- inside nix_finish_trigger's own UPDATE) must not block this pass waiting for
                 -- it - this finalize is a courtesy for rows nothing is still working on, not a
                 -- guarantee, and the next pass finds it whichever way that finish resolved.
-                UPDATE scheduled_trigger AS dead
+                UPDATE public.scheduled_trigger AS dead
                    SET status = 'skipped',
                        lease_owner = NULL,
                        lease_until = NULL,
@@ -99,7 +101,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                        updated_at = v_now
                  WHERE dead.id IN (
                      SELECT locked.id
-                       FROM scheduled_trigger locked
+                       FROM public.scheduled_trigger locked
                       WHERE locked.status = 'leased'
                         AND locked.lease_until <= v_now
                         AND locked.attempts >= p_max_attempts
@@ -107,7 +109,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                  );
 
                 RETURN QUERY
-                UPDATE scheduled_trigger AS candidate
+                UPDATE public.scheduled_trigger AS candidate
                    SET status = 'leased',
                        lease_owner = p_owner,
                        lease_until = v_now + make_interval(secs => p_lease_seconds),
@@ -115,7 +117,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                        updated_at = v_now
                  WHERE candidate.id IN (
                      SELECT locked.id
-                       FROM scheduled_trigger locked
+                       FROM public.scheduled_trigger locked
                       WHERE locked.fire_at <= v_now
                         AND (p_sources IS NULL OR locked.source = ANY(p_sources))
                         AND (
@@ -172,7 +174,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             LANGUAGE sql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
                 SELECT leased.tenant_id,
                        leased.id,
@@ -184,7 +186,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                        leased.fire_at,
                        leased.dedupe_key,
                        leased.attempts
-                  FROM nix_lease_due_triggers(p_limit, p_owner, p_lease_seconds, 5, ARRAY['system.test']) AS leased;
+                  FROM public.nix_lease_due_triggers(p_limit, p_owner, p_lease_seconds, 5, ARRAY['system.test']) AS leased;
             $function$;
 
             REVOKE ALL ON FUNCTION nix_lease_due_triggers(integer, text, integer) FROM PUBLIC;
@@ -202,8 +204,10 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer, integer, text[]);
             """);
 
-        // Restores exactly the function body SchedulingSecuritySql.Apply still creates today, so a
-        // rollback leaves the database exactly as that migration left it.
+        // Restores the function SchedulingSecuritySql.Apply creates - the same signature, row
+        // shape and uncapped behaviour, so a rollback leaves callers exactly as that migration left
+        // them - except that the restored definer keeps pg_temp last on its search_path and its
+        // relations schema-qualified rather than reverting to the weaker original path.
         emit($$"""
             CREATE OR REPLACE FUNCTION nix_lease_due_triggers(p_limit integer, p_owner text, p_lease_seconds integer)
             RETURNS TABLE (
@@ -220,7 +224,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
             DECLARE
                 v_now timestamptz := clock_timestamp();
@@ -236,7 +240,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                 END IF;
 
                 RETURN QUERY
-                UPDATE scheduled_trigger AS candidate
+                UPDATE public.scheduled_trigger AS candidate
                    SET status = 'leased',
                        lease_owner = p_owner,
                        lease_until = v_now + make_interval(secs => p_lease_seconds),
@@ -244,7 +248,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                        updated_at = v_now
                  WHERE candidate.id IN (
                      SELECT locked.id
-                       FROM scheduled_trigger locked
+                       FROM public.scheduled_trigger locked
                       WHERE locked.fire_at <= v_now
                         AND (
                             locked.status = 'pending'

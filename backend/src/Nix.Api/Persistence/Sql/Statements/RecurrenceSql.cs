@@ -1,3 +1,5 @@
+using Nix.Domain.Items;
+
 namespace Nix.Persistence.Sql.Statements;
 
 /// <summary>
@@ -137,10 +139,22 @@ public static class RecurrenceSql
     /// predicate failing, or the item simply not existing, are indistinguishable from this
     /// statement's zero-rows result - the caller reports all three as "item not found" alike.
     /// </para>
+    /// <para>
+    /// <b>A recurrence write is a schedule write.</b> Setting, changing or clearing the rule
+    /// re-targets a dated item's due reminders, so it re-attributes
+    /// <see cref="ItemProperties.DueSetByKey"/> to <c>@actor</c> exactly as a write of
+    /// <c>due_date</c> would (<see cref="ItemProperties.StampSetBy"/>, ADR-0051 Amendment 4). An
+    /// item without a due date keeps its bag untouched.
+    /// </para>
     /// </remarks>
-    public const string SetRecurrence = """
+    public const string SetRecurrence = $"""
         UPDATE item
            SET recurrence = @recurrence::jsonb,
+               properties = CASE
+                   WHEN properties ->> '{ItemProperties.DueDateKey}' IS NOT NULL
+                   THEN properties || jsonb_build_object('{ItemProperties.DueSetByKey}', @actor::text)
+                   ELSE properties
+               END,
                last_modified_at = now(),
                last_modified_by = @actor
          WHERE tenant_id = @tenant_id

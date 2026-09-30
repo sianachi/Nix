@@ -320,6 +320,10 @@ public sealed partial class TemplateStore
             nextProperties = ItemProperties.WithTitle(nextProperties, title.Trim());
         }
 
+        // Template content carries no set-by value (the applier is attributed at application
+        // time), so a client-supplied one is dropped here exactly as capture and import drop it.
+        nextProperties = ItemProperties.StripSetBy(nextProperties);
+
         var nextSchema = schema ?? item.Schema;
         var nextViews = views ?? item.Views;
         var declared = PropertySchemaJson.Read(nextSchema);

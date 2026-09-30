@@ -723,5 +723,211 @@ public sealed class ReminderSourcesIntegrationTests(NixPostgresFixture fixture) 
             Assert.Contains("already_checked_in", trigger.Detail, StringComparison.Ordinal);
         }
     }
-}
 
+    [Fact]
+    public async Task Every_reminder_definer_pins_pg_temp_last_and_qualifies_its_relations()
+    {
+        // A SECURITY DEFINER function runs with its owner's rights; with pg_temp anywhere but last
+        // (or implicitly first, when unnamed) a caller's temporary relation could shadow one the
+        // definer reads. Relations are schema-qualified as well, so resolution never depends on
+        // the path at all.
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var definitions = await RawSql.TextListAsync(
+                connection,
+                """
+                SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')|'
+                    || coalesce(array_to_string(p.proconfig, ','), '')
+                  FROM pg_proc p
+                  JOIN pg_namespace n ON n.oid = p.pronamespace
+                 WHERE n.nspname = 'public'
+                   AND p.prosecdef
+                   AND p.proname IN (
+                       'nix_find_explicit_reminder_candidates',
+                       'nix_find_due_reminder_candidates',
+                       'nix_find_recurring_due_reminder_candidates',
+                       'nix_find_habit_reminder_candidates',
+                       'nix_reminder_preferences_for',
+                       'nix_lease_due_triggers')
+                 ORDER BY 1
+                """);
+
+            Assert.Equal(7, definitions.Count);
+            Assert.All(definitions, definition => Assert.Contains(
+                "search_path=pg_catalog, public, pg_temp", definition, StringComparison.Ordinal));
+
+            var unqualified = await RawSql.TextListAsync(
+                connection,
+                """
+                SELECT p.proname
+                  FROM pg_proc p
+                  JOIN pg_namespace n ON n.oid = p.pronamespace
+                 WHERE n.nspname = 'public'
+                   AND p.prosecdef
+                   AND p.proname IN (
+                       'nix_find_explicit_reminder_candidates',
+                       'nix_find_due_reminder_candidates',
+                       'nix_find_recurring_due_reminder_candidates',
+                       'nix_find_habit_reminder_candidates',
+                       'nix_reminder_preferences_for',
+                       'nix_lease_due_triggers')
+                   AND (p.prosrc ~* '(from|join|update)\s+(item|principal|principal_preferences|scheduled_trigger|nix_lease_due_triggers)\M'
+                        OR p.prosrc ~* '[^.]\mnix_safe_(uuid|date|timestamptz)\(')
+                 ORDER BY 1
+                """);
+            Assert.Empty(unqualified);
+        }
+    }
+
+    [Fact]
+    public async Task Reopening_a_dated_task_re_attributes_its_due_reminder_to_whoever_reopened_it()
+    {
+        await SeedColleagueAsync("active");
+        var itemId = await CreateItemAsync(TestTenants.AlphaContext, "Reopened task", new JsonObject
+        {
+            ["due_date"] = Today(),
+            ["completion"] = true,
+        });
+
+        var colleagueContext = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var work = await fixture.Application.BeginUnitOfWorkAsync(colleagueContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var reopened = await work.Resolve<NixDispatcher>().SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(ItemId.From(itemId), """{"completion":false}"""), Cancellation);
+            Assert.True(reopened.IsSuccess, reopened.IsSuccess ? "" : reopened.Error.Message);
+            Assert.Equal(Colleague.ToString(), (string?)JsonNode.Parse(reopened.Value.Properties!)![ItemProperties.DueSetByKey]);
+            await work.CommitAsync(Cancellation);
+        }
+    }
+
+    [Fact]
+    public async Task Setting_a_recurrence_on_a_dated_task_re_attributes_its_due_reminder()
+    {
+        await SeedColleagueAsync("active");
+        var dated = await CreateItemAsync(TestTenants.AlphaContext, "Now recurring", new JsonObject { ["due_date"] = Today() });
+        var undated = await CreateItemAsync(TestTenants.AlphaContext, "Recurring, undated", null);
+
+        var colleagueContext = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var work = await fixture.Application.BeginUnitOfWorkAsync(colleagueContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            foreach (var itemId in new[] { dated, undated })
+            {
+                var set = await dispatcher.SendAsync<Nix.Features.Recurrence.SetItemRecurrence, Item>(
+                    new Nix.Features.Recurrence.SetItemRecurrence(
+                        ItemId.From(itemId), new Nix.Features.Recurrence.SetRecurrenceRequest("daily", 1, null, null)),
+                    Cancellation);
+                Assert.True(set.IsSuccess, set.IsSuccess ? "" : set.Error.Message);
+            }
+
+            await work.CommitAsync(Cancellation);
+        }
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var setBy = await RawSql.TextListAsync(
+                connection,
+                $"""
+                SELECT id::text || '|' || coalesce(properties ->> '$due_set_by', '')
+                  FROM item WHERE id IN ('{dated}', '{undated}')
+                """);
+            Assert.Contains($"{dated}|{Colleague}", setBy);
+            Assert.Contains($"{undated}|", setBy);
+        }
+    }
+
+    [Fact]
+    public async Task A_due_reminder_under_a_locked_ancestor_withholds_the_title()
+    {
+        var context = TestTenants.AlphaContext;
+        await SavePreferencesAsync(context, dueReminderTime: NowMinusOneMinute());
+        var folder = await CreateItemAsync(context, "Private folder", null);
+        Guid itemId;
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var created = await work.Resolve<NixDispatcher>().SendAsync<CreateItem, Item>(
+                new CreateItem(context.WorkspaceId!.Value, "task", "Secret task title", ItemId.From(folder),
+                    new JsonObject { ["due_date"] = Today() }),
+                Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+            itemId = created.Value.Id.Value;
+            await work.CommitAsync(Cancellation);
+        }
+
+        await LockAsync(folder);
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+
+        var notification = Assert.Single(await NotificationsForAsync(TestTenants.AlphaPrincipal, itemId));
+        Assert.Equal(LockedTitle, notification.Title);
+        Assert.DoesNotContain("Secret", notification.Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_locked_items_explicit_reminder_withholds_the_title()
+    {
+        var context = TestTenants.AlphaContext;
+        var reminderAt = DateTimeOffset.UtcNow.AddMilliseconds(200);
+        var itemId = await CreateItemAsync(context, "Secret reminder title", new JsonObject
+        {
+            ["reminder"] = $"{reminderAt.UtcDateTime:yyyy-MM-ddTHH:mm:ss}+00:00[Etc/UTC]",
+        });
+        await LockAsync(itemId);
+
+        await PlanAndDispatchAsync(TimeSpan.FromMilliseconds(400));
+
+        var notification = Assert.Single(await NotificationsForAsync(TestTenants.AlphaPrincipal, itemId));
+        Assert.Equal(LockedTitle, notification.Title);
+    }
+
+    [Fact]
+    public async Task A_locked_habits_reminder_withholds_the_title()
+    {
+        var context = TestTenants.AlphaContext;
+        Guid habitId;
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(context.WorkspaceId!.Value, "habit", "Secret habit title", null, null), Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+            habitId = created.Value.Id.Value;
+            var settings = await dispatcher.SendAsync<SetHabitSettings, HabitTrackerResponse>(
+                new SetHabitSettings(
+                    ItemId.From(habitId),
+                    new HabitSettingsRequest("daily", [], "Etc/UTC", DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1), 1, "times", HabitReminderTime())),
+                Cancellation);
+            Assert.True(settings.IsSuccess, settings.IsSuccess ? "" : settings.Error.Message);
+            await work.CommitAsync(Cancellation);
+        }
+
+        await LockAsync(habitId);
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+
+        var notification = Assert.Single(await NotificationsForAsync(TestTenants.AlphaPrincipal, habitId));
+        Assert.Equal(LockedTitle, notification.Title);
+    }
+
+    private const string LockedTitle = "Reminder for a locked item";
+
+    private async Task LockAsync(Guid itemId)
+    {
+        // Locked from a browser session, which therefore holds a grant past the lock. The
+        // notification must still withhold the title: it outlives that grant and reaches every
+        // device the recipient has subscribed, not only the one that unlocked.
+        var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            work.Resolve<Nix.Abstractions.CredentialSessionContext>().Set(Guid.NewGuid());
+            var locked = await work.Resolve<NixDispatcher>().SendAsync<Nix.Features.Locks.LockItem, bool>(
+                new Nix.Features.Locks.LockItem(ItemId.From(itemId), "hunter22", null), Cancellation);
+            Assert.True(locked.IsSuccess, locked.IsFailure ? locked.Error.Message : string.Empty);
+            await work.CommitAsync(Cancellation);
+        }
+    }
+}
