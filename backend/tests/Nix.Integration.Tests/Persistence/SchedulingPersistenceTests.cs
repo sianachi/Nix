@@ -58,14 +58,16 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
 
             foreach (var function in new[]
             {
-                "nix_lease_due_triggers(integer, text, integer, integer)",
+                "nix_lease_due_triggers(integer, text, integer)",
+                "nix_lease_due_triggers(integer, text, integer, integer, text[])",
                 "nix_finish_trigger(uuid, uuid, text, text, jsonb)",
                 "nix_purge_finished_triggers(integer)",
                 "nix_purge_old_notifications(integer)",
                 "nix_find_explicit_reminder_candidates(timestamptz, timestamptz, integer, timestamptz, uuid)",
-                "nix_find_due_reminder_candidates(date, date, integer, date, uuid)",
+                "nix_find_due_reminder_candidates(date, date, integer, text, uuid)",
+                "nix_find_recurring_due_reminder_candidates(date, date, integer, uuid)",
                 "nix_find_habit_reminder_candidates(integer, uuid)",
-                "nix_reminder_preferences_for(uuid[])",
+                "nix_reminder_preferences_for(uuid[], uuid[])",
                 "nix_safe_timestamptz(text)",
                 "nix_safe_date(text)",
                 "nix_safe_uuid(text)",
@@ -93,8 +95,8 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         await using (work.ConfigureAwait(false))
         {
             await work.Resolve<IScheduledTriggerStore>().UpsertPendingAsync(
-                TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.WorkspaceId, TestTenants.AlphaContext.PrincipalId,
-                TriggerKind.System, "system.test", null, null, DateTimeOffset.UtcNow.AddMinutes(5), "alpha-only", Cancellation);
+                TriggerKind.System, "system.test",
+                [new DesiredTrigger(TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.WorkspaceId, TestTenants.AlphaContext.PrincipalId, null, null, DateTimeOffset.UtcNow.AddMinutes(5), "alpha-only")], Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
@@ -133,8 +135,8 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
         await using (work.ConfigureAwait(false))
         {
             await work.Resolve<IScheduledTriggerStore>().UpsertPendingAsync(
-                TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.WorkspaceId, TestTenants.AlphaContext.PrincipalId,
-                TriggerKind.System, "system.test", null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "due-now", Cancellation);
+                TriggerKind.System, "system.test",
+                [new DesiredTrigger(TestTenants.AlphaContext.TenantId, TestTenants.AlphaContext.WorkspaceId, TestTenants.AlphaContext.PrincipalId, null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "due-now")], Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
@@ -382,8 +384,8 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
             // never a dispatch key - so this is skipped as "unknown_source" even though its Kind
             // (System) is exactly what SystemTestTriggerSource itself reports.
             await work.Resolve<IScheduledTriggerStore>().UpsertPendingAsync(
-                context.TenantId, context.WorkspaceId, context.PrincipalId,
-                TriggerKind.System, "reminder.nonexistent", null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "no-source", Cancellation);
+                TriggerKind.System, "reminder.nonexistent",
+                [new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, DateTimeOffset.UtcNow.AddSeconds(-1), "no-source")], Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
@@ -416,9 +418,8 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
             // "other.source" plants a row of the same Kind, Tenant, Workspace and Principal that
             // the real System-source planning pass below never mentions - it must survive.
             await store.UpsertPendingAsync(
-                context.TenantId, context.WorkspaceId, context.PrincipalId,
-                TriggerKind.System, "other.source", null, null, DateTimeOffset.UtcNow.AddHours(1),
-                "other-source-row", Cancellation);
+                TriggerKind.System, "other.source",
+                [new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, DateTimeOffset.UtcNow.AddHours(1), "other-source-row")], Cancellation);
             await work.CommitAsync(Cancellation);
         }
 
@@ -460,7 +461,7 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
 
         public TriggerKind Kind => TriggerKind.Reminder;
 
-        public Task<IReadOnlyList<DesiredTrigger>> PlanAsync(PlanWindow window, CancellationToken cancellationToken) =>
+        public Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken) =>
             throw new NotSupportedException("Not exercised by the uniqueness check.");
 
         public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
@@ -509,4 +510,197 @@ public sealed class SchedulingPersistenceTests(NixPostgresFixture fixture) : IAs
             Assert.DoesNotContain("old-notification", remainingNotificationKeys);
         }
     }
+
+    [Fact]
+    public async Task One_owner_failing_to_reconcile_does_not_stop_planning_for_the_other_owners()
+    {
+        // H1c: every owner reconciles in its own transaction, so a failure (here, a recipient that
+        // does not exist, which fails the principal foreign key) must roll back that owner only and
+        // leave the pass - and every owner after it - running.
+        var scopeFactory = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        using var planner = new TriggerPlanner(scopeFactory, TimeProvider.System);
+        var context = TestTenants.AlphaContext;
+        var fireAt = DateTimeOffset.UtcNow.AddHours(1);
+
+        SystemTestTriggerSource.Want(new DesiredTrigger(
+            context.TenantId, context.WorkspaceId, Nix.Domain.Identity.PrincipalId.From(Guid.NewGuid()), null, null, fireAt, "orphan-owner"));
+        SystemTestTriggerSource.Want(new DesiredTrigger(
+            context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "surviving-owner"));
+
+        await planner.PlanOnceAsync(Cancellation);
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var survivor = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(row => row.DedupeKey == "surviving-owner", Cancellation);
+            Assert.Equal(TriggerStatus.Pending, survivor.Status);
+        }
+    }
+
+    [Fact]
+    public async Task An_incomplete_plan_still_upserts_but_cancels_nothing_for_that_source()
+    {
+        var scopeFactory = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        using var planner = new TriggerPlanner(scopeFactory, TimeProvider.System);
+        var context = TestTenants.AlphaContext;
+        var fireAt = DateTimeOffset.UtcNow.AddHours(1);
+
+        SystemTestTriggerSource.Want(new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "kept-a"));
+        SystemTestTriggerSource.Want(new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "unread-b"));
+        await planner.PlanOnceAsync(Cancellation);
+
+        // The next pass stopped at its page cap before reaching "unread-b": that is not the same
+        // as "unread-b" no longer being wanted, so it must stay pending; the new row still lands.
+        SystemTestTriggerSource.Reset();
+        SystemTestTriggerSource.ReportIncomplete();
+        SystemTestTriggerSource.Want(new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "kept-a"));
+        SystemTestTriggerSource.Want(new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "new-c"));
+        await planner.PlanOnceAsync(Cancellation);
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var rows = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .Where(row => row.PrincipalId == context.PrincipalId)
+                .ToDictionaryAsync(row => row.DedupeKey, row => row.Status, Cancellation);
+            Assert.Equal(TriggerStatus.Pending, rows["kept-a"]);
+            Assert.Equal(TriggerStatus.Pending, rows["unread-b"]);
+            Assert.Equal(TriggerStatus.Pending, rows["new-c"]);
+        }
+    }
+
+    [Fact]
+    public async Task Replanning_unchanged_triggers_rewrites_no_rows()
+    {
+        var context = TestTenants.AlphaContext;
+        var fireAt = DateTimeOffset.UtcNow.AddHours(2);
+        DesiredTrigger[] desired =
+        [
+            new(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "steady-a"),
+            new(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, fireAt, "steady-b"),
+        ];
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<IScheduledTriggerStore>();
+            Assert.Equal(2, await store.UpsertPendingAsync(TriggerKind.System, "system.test", desired, Cancellation));
+            Assert.Equal(0, await store.UpsertPendingAsync(TriggerKind.System, "system.test", desired, Cancellation));
+
+            // Only a real change is written.
+            Assert.Equal(1, await store.UpsertPendingAsync(
+                TriggerKind.System, "system.test", [desired[0] with { FireAt = fireAt.AddMinutes(5) }], Cancellation));
+            await work.CommitAsync(Cancellation);
+        }
+    }
+
+    [Fact]
+    public async Task A_dedupe_key_collision_never_lets_one_source_overwrite_anothers_row()
+    {
+        var context = TestTenants.AlphaContext;
+        var originalFireAt = DateTimeOffset.UtcNow.AddHours(3);
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<IScheduledTriggerStore>();
+            await store.UpsertPendingAsync(
+                TriggerKind.System, "other.source",
+                [new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, originalFireAt, "shared-key")],
+                Cancellation);
+
+            var written = await store.UpsertPendingAsync(
+                TriggerKind.System, "system.test",
+                [new DesiredTrigger(context.TenantId, context.WorkspaceId, context.PrincipalId, null, null, originalFireAt.AddHours(1), "shared-key")],
+                Cancellation);
+            Assert.Equal(0, written);
+            await work.CommitAsync(Cancellation);
+        }
+
+        work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var row = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(candidate => candidate.DedupeKey == "shared-key", Cancellation);
+            Assert.Equal("other.source", row.Source);
+            Assert.Equal(originalFireAt, row.FireAt, TimeSpan.FromSeconds(1));
+        }
+    }
+
+    [Fact]
+    public async Task The_previous_builds_lease_overload_leases_only_rows_that_build_can_fire()
+    {
+        // L6: a Core instance still on the previous build calls the three-argument overload during
+        // a rolling deploy. That build dispatches by kind and has no reminder source, so it must
+        // never be handed a reminder row it would finish as skipped.
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO scheduled_trigger
+                    (tenant_id, id, principal_id, kind, source, fire_at, dedupe_key, status, attempts, created_at, updated_at)
+                VALUES ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'reminder', 'reminder.due',
+                        now() - interval '1 minute', 'new-build-reminder', 'pending', 0, now(), now()),
+                       ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'system', 'system.test',
+                        now() - interval '1 minute', 'old-build-system', 'pending', 0, now(), now());
+                """);
+
+            var leased = await RawSql.TextListAsync(
+                connection, "SELECT dedupe_key || '|' || kind FROM nix_lease_due_triggers(10, 'previous-build', 30)");
+            Assert.Equal(["old-build-system|system"], leased);
+
+            var reminderStatus = await RawSql.TextAsync(
+                connection, transaction: null, "SELECT status FROM scheduled_trigger WHERE dedupe_key = 'new-build-reminder'");
+            Assert.Equal("pending", reminderStatus);
+        }
+    }
+
+    [Fact]
+    public async Task Upgrading_backfills_each_existing_triggers_source_from_its_kind()
+    {
+        // S4: rows planned before the source column existed. Only the previous build's
+        // SystemTestTriggerSource ever produced 'system' rows; anything else is marked as a legacy
+        // row the dispatcher will skip by name (unknown_source) rather than guess a source for.
+        var options = new DbContextOptionsBuilder<Nix.Persistence.NixDbContext>()
+            .UseNpgsql(fixture.MigratorConnectionString)
+            .Options;
+        var context = new Nix.Persistence.NixDbContext(options);
+        await using (context.ConfigureAwait(false))
+        {
+            var migrator = Microsoft.EntityFrameworkCore.Infrastructure.AccessorExtensions
+                .GetService<Microsoft.EntityFrameworkCore.Migrations.IMigrator>(context);
+            await migrator.MigrateAsync("20260929201755_Scheduling", Cancellation);
+            try
+            {
+                var connection = await fixture.OpenMigratorConnectionAsync();
+                await using (connection.ConfigureAwait(false))
+                {
+                    await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                        INSERT INTO scheduled_trigger
+                            (tenant_id, id, principal_id, kind, fire_at, dedupe_key, status, attempts, created_at, updated_at)
+                        VALUES ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'system',
+                                now(), 'legacy-system', 'pending', 0, now(), now()),
+                               ('{TestTenants.Alpha}', '{Guid.NewGuid()}', '{TestTenants.AlphaPrincipal}', 'reminder',
+                                now(), 'legacy-reminder', 'pending', 0, now(), now());
+                        """);
+                }
+
+                await migrator.MigrateAsync(targetMigration: null, cancellationToken: Cancellation);
+
+                var verify = await fixture.OpenMigratorConnectionAsync();
+                await using (verify.ConfigureAwait(false))
+                {
+                    var sources = await RawSql.TextListAsync(
+                        verify, "SELECT dedupe_key || '|' || source FROM scheduled_trigger ORDER BY dedupe_key");
+                    Assert.Equal(["legacy-reminder|legacy.unknown", "legacy-system|system.test"], sources);
+                }
+            }
+            finally
+            {
+                await migrator.MigrateAsync(targetMigration: null, cancellationToken: Cancellation);
+            }
+        }
+    }
 }
+

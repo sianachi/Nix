@@ -453,7 +453,9 @@ public sealed partial class TemplateStore
                 Type = item.ItemType,
                 ParentId = item.ParentSourceId is { } parent ? targetIds[parent] : null,
                 Seq = item.Seq,
-                Properties = ItemProperties.WithTitle(item.Properties, item.Title),
+                // An imported file may name any principal as a value's setter; template content
+                // carries none (the applier is attributed at application time).
+                Properties = ItemProperties.StripSetBy(ItemProperties.WithTitle(item.Properties, item.Title)),
                 Schema = item.Schema,
                 Views = item.Views,
                 Recurrence = item.Recurrence,

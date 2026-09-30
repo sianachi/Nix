@@ -1,4 +1,5 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
 using Nix.Abstractions;
 using Nix.Abstractions.Scheduling;
 using Nix.Domain.Habits;
@@ -27,14 +28,9 @@ public sealed class HabitReminderSource(
     IPermissionResolver permissions,
     IMutedContainerChecker mutedContainers,
     IPrincipalStatusChecker principalStatus,
-    INotificationWriter notifications) : ITriggerSource
+    INotificationWriter notifications,
+    NixDbContext database) : ITriggerSource
 {
-    private const int PageSize = 500;
-
-    // See ExplicitReminderSource's identical constant: a ceiling on pages per pass, not on how
-    // many habit reminders may exist.
-    private const int MaxPages = 20;
-
     /// <inheritdoc />
     public string Name => "reminder.habit";
 
@@ -42,33 +38,22 @@ public sealed class HabitReminderSource(
     public TriggerKind Kind => TriggerKind.Reminder;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DesiredTrigger>> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
+    public async Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(window);
 
-        var found = new List<HabitReminderCandidate>();
-        var afterId = Guid.Empty;
-        for (var page = 0; page < MaxPages; page++)
-        {
-            var batch = await candidates.FindHabitsAsync(PageSize, afterId, cancellationToken).ConfigureAwait(false);
-            found.AddRange(batch);
-            if (batch.Count < PageSize)
-            {
-                break;
-            }
-
-            afterId = batch[^1].ItemId;
-        }
+        var (found, complete) = await ReminderSourceSupport.ReadAllPagesAsync<HabitReminderCandidate>(
+            last => candidates.FindHabitsAsync(ReminderSourceSupport.PageSize, last?.ItemId ?? Guid.Empty, cancellationToken)).ConfigureAwait(false);
 
         if (found.Count == 0)
         {
-            return [];
+            return new TriggerPlan([], complete);
         }
 
-        var preferences = await candidates
-            .PreferencesForAsync(found.Select(candidate => candidate.PrincipalId).Distinct().ToArray(), cancellationToken)
-            .ConfigureAwait(false);
-        var preferencesByPrincipal = preferences.ToDictionary(entry => entry.PrincipalId);
+        var preferencesByRecipient = await ReminderSourceSupport.PreferencesByRecipientAsync(
+            candidates,
+            found.Select(candidate => new ReminderRecipient(candidate.TenantId, candidate.PrincipalId)),
+            cancellationToken).ConfigureAwait(false);
 
         var desired = new List<DesiredTrigger>(found.Count);
         foreach (var candidate in found)
@@ -80,7 +65,8 @@ public sealed class HabitReminderSource(
                 continue;
             }
 
-            if (!preferencesByPrincipal.TryGetValue(candidate.PrincipalId, out var recipient) || !recipient.HabitReminders)
+            if (!preferencesByRecipient.TryGetValue(new ReminderRecipient(candidate.TenantId, candidate.PrincipalId), out var recipient)
+                || !recipient.HabitReminders)
             {
                 continue;
             }
@@ -144,7 +130,7 @@ public sealed class HabitReminderSource(
             }
         }
 
-        return desired;
+        return new TriggerPlan(desired, complete);
     }
 
     private static DateTimeOffset LocalInstant(DateOnly day, TimeOnly time, string timeZone) =>
@@ -198,7 +184,7 @@ public sealed class HabitReminderSource(
         }
 
         var recipientPreferences = await candidates
-            .PreferencesForAsync([trigger.PrincipalId], cancellationToken)
+            .PreferencesForAsync([new ReminderRecipient(trigger.TenantId, trigger.PrincipalId)], cancellationToken)
             .ConfigureAwait(false);
         if (recipientPreferences.Count == 0 || !recipientPreferences[0].HabitReminders)
         {
@@ -210,7 +196,7 @@ public sealed class HabitReminderSource(
             return TriggerOutcome.Skipped("container_muted");
         }
 
-        if (await HasCheckInAsync(ItemId.From(itemId), scheduledDay, cancellationToken).ConfigureAwait(false))
+        if (await HasCheckInAsync(item, scheduledDay, cancellationToken).ConfigureAwait(false))
         {
             return TriggerOutcome.Skipped("already_checked_in");
         }
@@ -232,55 +218,28 @@ public sealed class HabitReminderSource(
     }
 
     /// <summary>
-    /// Whether a habit's child items already record a check-in for a day - the same
-    /// <c>$habit_date</c> convention <c>HabitTracker</c>'s own check-in lookup uses.
+    /// Whether a habit's live child items already record a check-in for a day - the
+    /// <c>$habit_check_in_date</c> key <c>HabitTracker</c>'s own check-in write path stores.
     /// </summary>
-    private async Task<bool> HasCheckInAsync(ItemId habitId, DateOnly day, CancellationToken cancellationToken)
+    /// <remarks>
+    /// Asks exactly that question in SQL (EXISTS, so it stops at the first match) rather than
+    /// listing children: a long-lived daily habit has thousands of check-ins, and any listing cap
+    /// would eventually leave today's check-in unread and remind someone who already checked in.
+    /// Runs under the dispatcher's session, so row security still applies.
+    /// </remarks>
+    private async Task<bool> HasCheckInAsync(Item habit, DateOnly day, CancellationToken cancellationToken)
     {
-        var habit = await tree.FindAsync(habitId, cancellationToken).ConfigureAwait(false);
-        if (habit is null)
-        {
-            return false;
-        }
-
-        var children = await tree
-            .ListChildrenAsync(habit.WorkspaceId, habitId, includeDeleted: false, afterSeq: null, limit: 2000, cancellationToken)
-            .ConfigureAwait(false);
         var dayText = day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        foreach (var child in children)
-        {
-            if (child.LifecycleState != ItemLifecycleState.Active || child.Properties is null)
-            {
-                continue;
-            }
-
-            var occurredOn = ReadCheckInDate(child.Properties);
-            if (occurredOn == dayText)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static string? ReadCheckInDate(string properties)
-    {
-        try
-        {
-            var bag = System.Text.Json.Nodes.JsonNode.Parse(properties) as System.Text.Json.Nodes.JsonObject;
-            // The exact key HabitTracker's own check-in write path stores under
-            // (HabitTracker.cs's private DateKey constant).
-            return bag?["$habit_check_in_date"]?.GetValue<string>();
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
-        }
-        catch (InvalidOperationException)
-        {
-            return null;
-        }
+        return await database.Database.SqlQuery<bool>($"""
+            SELECT EXISTS (
+                SELECT 1
+                  FROM item child
+                 WHERE child.tenant_id = {habit.TenantId.Value}
+                   AND child.workspace_id = {habit.WorkspaceId.Value}
+                   AND child.parent_id = {habit.Id.Value}
+                   AND child.lifecycle_state = 'active'
+                   AND child.properties ->> '$habit_check_in_date' = {dayText}) AS "Value"
+            """).SingleAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static bool TryParseScheduledDay(string dedupeKey, out DateOnly scheduledDay)

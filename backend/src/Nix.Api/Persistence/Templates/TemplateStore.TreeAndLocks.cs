@@ -38,7 +38,9 @@ public sealed partial class TemplateStore
             Seq = source.Seq,
             // Capture keeps authored root values so initialization can explicitly keep, reset, or
             // replace them at application time. Sensitive task fields are reset by the evaluator.
-            Properties = source.Properties,
+            // Who set a scheduled value is never template content: it is re-attributed to
+            // whoever applies the template (CloneRegularItem).
+            Properties = ItemProperties.StripSetBy(source.Properties),
             Schema = isRoot && rootSchema is not null ? rootSchema : source.Schema,
             Views = source.Views,
             Recurrence = source.Recurrence,
@@ -66,9 +68,13 @@ public sealed partial class TemplateStore
             Type = source.Type,
             ParentId = parentId,
             Seq = source.Seq,
-            Properties = initialized is null
-                ? ItemProperties.WithTitle(source.Properties, title)
-                : ItemProperties.WithTitle(initialized.Properties, initialized.Title),
+            // A copied set-by value would route the new item's reminders to whoever it named in
+            // the template; the applying principal is the one who set every value copied here.
+            Properties = ItemProperties.RestampCopiedSetBy(
+                initialized is null
+                    ? ItemProperties.WithTitle(source.Properties, title)
+                    : ItemProperties.WithTitle(initialized.Properties, initialized.Title),
+                Context.PrincipalId.ToString()),
             Schema = source.Schema,
             Views = source.Views,
             Recurrence = initialized?.Recurrence ?? source.Recurrence,

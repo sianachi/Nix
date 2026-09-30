@@ -469,7 +469,11 @@ public sealed class DocumentImportStore(
                 Type = planned.ItemType,
                 ParentId = parentId,
                 Seq = sequence,
-                Properties = ItemProperties.WithTitle(planned.Properties, planned.Title),
+                // A planned set-by value comes from the imported file, not from anyone who acted
+                // here: the importing principal is attributed for every scheduled value.
+                Properties = ItemProperties.RestampCopiedSetBy(
+                    ItemProperties.WithTitle(planned.Properties, planned.Title),
+                    context.PrincipalId.ToString()),
                 Schema = planned.Schema,
                 Views = planned.Views,
                 LifecycleState = ItemLifecycleState.Provisioning,

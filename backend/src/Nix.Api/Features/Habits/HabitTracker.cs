@@ -72,7 +72,7 @@ public sealed class HabitTrackerHandler(
             return Failure<HabitStatusResponse>("history_limit", "This habit has reached the limit of 512 lifecycle revisions.");
         }
         var update = await dispatcher.SendAsync<SetItemProperties, Item>(
-            new SetItemProperties(command.ItemId, statusProperties.ToJsonString()), cancellationToken).ConfigureAwait(false);
+            new SetItemProperties(command.ItemId, statusProperties.ToJsonString()) { HabitWrite = true }, cancellationToken).ConfigureAwait(false);
         return update.IsFailure
             ? Result.Failure<HabitStatusResponse>(update.Error)
             : Result.Success(new HabitStatusResponse(command.ItemId.Value, command.Status.Status));
@@ -136,7 +136,7 @@ public sealed class HabitTrackerHandler(
             properties = changes;
         }
         var written = await dispatcher.SendAsync<SetItemProperties, Item>(
-            new SetItemProperties(command.ItemId, properties.ToJsonString()), cancellationToken).ConfigureAwait(false);
+            new SetItemProperties(command.ItemId, properties.ToJsonString()) { HabitWrite = true }, cancellationToken).ConfigureAwait(false);
         if (written.IsFailure)
         {
             return Result.Failure<HabitTrackerResponse>(written.Error);
@@ -256,11 +256,11 @@ public sealed class HabitTrackerHandler(
         Result<Item> written;
         if (matches.Length == 1)
         {
-            written = await dispatcher.SendAsync<SetItemProperties, Item>(new SetItemProperties(matches[0].Id, properties.ToJsonString()), cancellationToken).ConfigureAwait(false);
+            written = await dispatcher.SendAsync<SetItemProperties, Item>(new SetItemProperties(matches[0].Id, properties.ToJsonString()) { HabitWrite = true }, cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            written = await dispatcher.SendAsync<CreateItem, Item>(new CreateItem(parent.WorkspaceId, "note", $"Check-in · {command.OccurredOn:yyyy-MM-dd}", parent.Id, properties), cancellationToken).ConfigureAwait(false);
+            written = await dispatcher.SendAsync<CreateItem, Item>(new CreateItem(parent.WorkspaceId, "note", $"Check-in · {command.OccurredOn:yyyy-MM-dd}", parent.Id, properties) { HabitWrite = true }, cancellationToken).ConfigureAwait(false);
         }
         return written.IsFailure ? Result.Failure<HabitCheckInResponse>(written.Error) : Result.Success(new HabitCheckInResponse(written.Value.Id.Value, command.OccurredOn, completed, quantity));
     }

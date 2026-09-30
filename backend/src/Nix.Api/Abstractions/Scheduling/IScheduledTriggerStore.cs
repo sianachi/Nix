@@ -53,21 +53,21 @@ public interface IScheduledTriggerLeaseStore
 public interface IScheduledTriggerStore
 {
     /// <summary>
-    /// Upserts a pending trigger by <c>(tenant_id, principal_id, dedupe_key)</c>: creates it, or
-    /// moves its <c>fire_at</c> forward if it is still pending. A trigger already leased, fired,
-    /// skipped or cancelled is left alone - replanning must never resurrect or reschedule a row
-    /// the dispatcher is already handling or has finished.
+    /// Upserts a batch of pending triggers of one <paramref name="source"/> by
+    /// <c>(tenant_id, principal_id, dedupe_key)</c> in one statement: creates each, or moves an
+    /// existing one's <c>fire_at</c> (and the ids it carries) if it is still pending and never
+    /// retried, or revives a cancelled one. Returns the number of rows written.
     /// </summary>
-    public Task UpsertPendingAsync(
-        TenantId tenantId,
-        WorkspaceId? workspaceId,
-        PrincipalId principalId,
+    /// <remarks>
+    /// A row is left untouched when it is leased, fired, skipped, pending after a failed attempt
+    /// (its backoff must elapse), already exactly as desired (no rewrite, no dead tuple), or
+    /// planned by a different source - a dedupe-key collision must never let one source take over
+    /// another's row. Duplicate dedupe keys within <paramref name="triggers"/> keep the last.
+    /// </remarks>
+    public Task<int> UpsertPendingAsync(
         TriggerKind kind,
         string source,
-        Guid? sourceItemId,
-        Guid? ruleId,
-        DateTimeOffset fireAt,
-        string dedupeKey,
+        IReadOnlyCollection<DesiredTrigger> triggers,
         CancellationToken cancellationToken);
 
     /// <summary>

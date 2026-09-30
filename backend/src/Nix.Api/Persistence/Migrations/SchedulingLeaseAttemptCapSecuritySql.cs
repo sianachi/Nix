@@ -16,15 +16,19 @@ namespace Nix.Persistence.Migrations;
 /// <remarks>
 /// A new file rather than an edit to <see cref="SchedulingSecuritySql"/> itself: that file is
 /// referenced by an already-generated migration, and changing what it emits would retroactively
-/// change what that migration is recorded as having done. This one instead states the delta - drop
-/// the three-parameter function, create the four-parameter one - the same way
-/// <c>NotificationsHardeningSecuritySql</c> layers onto <c>NotificationsSecuritySql</c>.
+/// change what that migration is recorded as having done. This one instead states the delta -
+/// create the capped function, and replace the three-parameter one with a compatibility wrapper
+/// over it - the same way <c>NotificationsHardeningSecuritySql</c> layers onto
+/// <c>NotificationsSecuritySql</c>.
 /// </remarks>
 public static class SchedulingLeaseAttemptCapSecuritySql
 {
     private const string ApplicationRole = "nix_app";
 
-    /// <summary>Drops the three-parameter lease function and creates the capped, four-parameter one.</summary>
+    /// <summary>
+    /// Creates the capped lease function and replaces the three-parameter one with a wrapper over
+    /// it that a Core instance still running the previous build can call during a rolling deploy.
+    /// </summary>
     public static void Apply(Action<string> emit)
     {
         ArgumentNullException.ThrowIfNull(emit);
@@ -33,9 +37,13 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer);
             """);
 
+        // p_sources limits leasing to the named sources; NULL (the current build's call, which
+        // passes four arguments) leases every source. It exists for the compatibility wrapper
+        // below.
         emit($$"""
             CREATE OR REPLACE FUNCTION nix_lease_due_triggers(
-                p_limit integer, p_owner text, p_lease_seconds integer, p_max_attempts integer)
+                p_limit integer, p_owner text, p_lease_seconds integer, p_max_attempts integer,
+                p_sources text[] DEFAULT NULL)
             RETURNS TABLE (
                 tenant_id uuid,
                 id uuid,
@@ -109,6 +117,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                      SELECT locked.id
                        FROM scheduled_trigger locked
                       WHERE locked.fire_at <= v_now
+                        AND (p_sources IS NULL OR locked.source = ANY(p_sources))
                         AND (
                             locked.status = 'pending'
                             -- Belt and braces alongside the finalize UPDATE just above: that
@@ -136,8 +145,50 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             END
             $function$;
 
-            REVOKE ALL ON FUNCTION nix_lease_due_triggers(integer, text, integer, integer) FROM PUBLIC;
-            GRANT EXECUTE ON FUNCTION nix_lease_due_triggers(integer, text, integer, integer) TO {{ApplicationRole}};
+            REVOKE ALL ON FUNCTION nix_lease_due_triggers(integer, text, integer, integer, text[]) FROM PUBLIC;
+            GRANT EXECUTE ON FUNCTION nix_lease_due_triggers(integer, text, integer, integer, text[]) TO {{ApplicationRole}};
+            """);
+
+        // Rolling-deploy compatibility: a Core instance still on the previous build calls the
+        // three-parameter overload, and dispatches by kind with no reminder source registered, so
+        // it would lease every reminder row and finish it as skipped ("no_source_registered").
+        // The wrapper therefore leases only the one source that build could fire (system.test,
+        // never registered in production), with the same attempt cap as the current dispatcher
+        // (ScheduleDispatcher.MaxAttempts), and returns that build's row shape. Once no instance
+        // of the previous build can be running, a later migration can drop this overload.
+        emit($$"""
+            CREATE OR REPLACE FUNCTION nix_lease_due_triggers(p_limit integer, p_owner text, p_lease_seconds integer)
+            RETURNS TABLE (
+                tenant_id uuid,
+                id uuid,
+                workspace_id uuid,
+                principal_id uuid,
+                kind text,
+                source_item_id uuid,
+                rule_id uuid,
+                fire_at timestamptz,
+                dedupe_key text,
+                attempts integer)
+            LANGUAGE sql
+            VOLATILE
+            SECURITY DEFINER
+            SET search_path = pg_catalog, public
+            AS $function$
+                SELECT leased.tenant_id,
+                       leased.id,
+                       leased.workspace_id,
+                       leased.principal_id,
+                       leased.kind,
+                       leased.source_item_id,
+                       leased.rule_id,
+                       leased.fire_at,
+                       leased.dedupe_key,
+                       leased.attempts
+                  FROM nix_lease_due_triggers(p_limit, p_owner, p_lease_seconds, 5, ARRAY['system.test']) AS leased;
+            $function$;
+
+            REVOKE ALL ON FUNCTION nix_lease_due_triggers(integer, text, integer) FROM PUBLIC;
+            GRANT EXECUTE ON FUNCTION nix_lease_due_triggers(integer, text, integer) TO {{ApplicationRole}};
             """);
     }
 
@@ -147,7 +198,8 @@ public static class SchedulingLeaseAttemptCapSecuritySql
         ArgumentNullException.ThrowIfNull(emit);
 
         emit("""
-            DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer, integer);
+            DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer);
+            DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer, integer, text[]);
             """);
 
         // Restores exactly the function body SchedulingSecuritySql.Apply still creates today, so a

@@ -39,6 +39,10 @@ public sealed record SetItemProperties(ItemId ItemId, string Changes) : ICommand
     // The trusted marker lives on the command, never the HTTP DTO. Only finance handlers in this
     // assembly set it after validating their domain write.
     internal bool FinanceWrite { get; init; }
+
+    // The same kind of trusted marker for the habit handlers, which alone may write $habit_ keys.
+    // It never admits a scheduler set-by key.
+    internal bool HabitWrite { get; init; }
 }
 
 /// <summary>Handles <see cref="SetItemProperties"/>.</summary>
@@ -99,11 +103,9 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
-        if (ContainsReservedKey(changes, ItemProperties.DueSetByKey))
+        if (ContainsKeyMatching(changes, name => SchedulingReservedProperties.IsRefused(name, command.HabitWrite)))
         {
-            return Result.Failure<Item>(new NixError(
-                "scheduling.reserved_property",
-                $"'{ItemProperties.DueSetByKey}' is written by the server when a due date is set and cannot be written directly."));
+            return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }
 
         var context = _session.Current
@@ -157,8 +159,9 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(PropertyErrors.InvalidProperties(violations));
         }
 
-        // The one point this write's due date, if any, is attributed - see StampDueDateSetBy.
-        var stamped = ItemProperties.StampDueDateSetBy(
+        // The one point this write's scheduled values, if any, are attributed - see
+        // ItemProperties.StampSetBy.
+        var stamped = ItemProperties.StampSetBy(
             merged.Merged,
             merged.Touched,
             context.PrincipalId.ToString());
@@ -181,13 +184,6 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
 
     private static bool ContainsReservedFinanceKey(string changes) =>
         ContainsKeyMatching(changes, name => name.StartsWith("$fin_", StringComparison.Ordinal));
-
-    /// <summary>
-    /// Whether an incoming change document names a specific reserved key directly - the same shape
-    /// as <see cref="ContainsReservedFinanceKey"/>, for a single key rather than a prefix family.
-    /// </summary>
-    private static bool ContainsReservedKey(string changes, string key) =>
-        ContainsKeyMatching(changes, name => string.Equals(name, key, StringComparison.Ordinal));
 
     private static bool ContainsKeyMatching(string changes, Func<string, bool> matches)
     {

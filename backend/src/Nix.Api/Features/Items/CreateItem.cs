@@ -36,6 +36,12 @@ public sealed record CreateItem(
 {
     /// <summary>Internal capability for validated finance feature dispatches; never request-bound.</summary>
     internal bool FinanceWrite { get; init; }
+
+    /// <summary>
+    /// Internal capability for validated habit feature dispatches, allowing <c>$habit_</c> keys;
+    /// never request-bound, and never a way to write a scheduler set-by key.
+    /// </summary>
+    internal bool HabitWrite { get; init; }
 }
 
 /// <summary>
@@ -109,11 +115,9 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
-        if (properties?.Any(pair => pair.Key == ItemProperties.DueSetByKey) == true)
+        if (properties?.Any(pair => SchedulingReservedProperties.IsRefused(pair.Key, command.HabitWrite)) == true)
         {
-            return Result.Failure<Item>(new NixError(
-                "scheduling.reserved_property",
-                $"'{ItemProperties.DueSetByKey}' is written by the server when a due date is set and cannot be written directly."));
+            return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }
 
         if (string.IsNullOrWhiteSpace(type))
@@ -167,10 +171,10 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             return Result.Failure<Item>(PropertyErrors.InvalidProperties(violations));
         }
 
-        // The one point this write's due date, if any, is attributed - see
-        // ItemProperties.StampDueDateSetBy. A create names every key it supplied, so "touched" is
+        // The one point this write's scheduled values, if any, are attributed - see
+        // ItemProperties.StampSetBy. A create names every key it supplied, so "touched" is
         // simply the properties the request carried, before the title was merged in above.
-        var stamped = ItemProperties.StampDueDateSetBy(
+        var stamped = ItemProperties.StampSetBy(
             bag,
             properties?.Select(pair => pair.Key).ToImmutableArray() ?? ImmutableArray<string>.Empty,
             context.PrincipalId.ToString());

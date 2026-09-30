@@ -20,10 +20,12 @@ namespace Nix.Persistence.Migrations.Generated
                 table: "scheduled_trigger");
 
             // Added nullable, backfilled, then tightened - rather than a blank-string default -
-            // because every existing row today can only have come from SystemTestTriggerSource
-            // (the only ITriggerSource this build registers so far), and an empty string would
-            // fail the bounded check constraint added below (source ~ '^[a-z0-9._-]+$' requires
-            // at least one character).
+            // because an empty string would fail the bounded check constraint added below
+            // (source ~ '^[a-z0-9._-]+$' requires at least one character). The only source the
+            // previous build could register is SystemTestTriggerSource (kind 'system'); any other
+            // existing row gets 'legacy.unknown', which satisfies the check and names no
+            // registered source, so the dispatcher skips it as unknown_source rather than guessing
+            // a source by kind.
             migrationBuilder.AddColumn<string>(
                 name: "source",
                 table: "scheduled_trigger",
@@ -31,7 +33,7 @@ namespace Nix.Persistence.Migrations.Generated
                 maxLength: 64,
                 nullable: true);
 
-            migrationBuilder.Sql("UPDATE scheduled_trigger SET source = 'system.test' WHERE source IS NULL;");
+            migrationBuilder.Sql("UPDATE scheduled_trigger SET source = CASE kind WHEN 'system' THEN 'system.test' ELSE 'legacy.unknown' END WHERE source IS NULL;");
 
             migrationBuilder.AlterColumn<string>(
                 name: "source",
@@ -91,6 +93,8 @@ namespace Nix.Persistence.Migrations.Generated
                 name: "IX_notification_created_at",
                 table: "notification");
 
+            // Loses every row's source: rolling back past this migration returns dispatch to the
+            // previous build's by-kind resolution, and a later re-apply backfills from kind again.
             migrationBuilder.DropColumn(
                 name: "source",
                 table: "scheduled_trigger");

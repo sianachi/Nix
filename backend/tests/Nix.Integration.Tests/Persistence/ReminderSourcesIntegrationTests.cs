@@ -389,4 +389,339 @@ public sealed class ReminderSourcesIntegrationTests(NixPostgresFixture fixture) 
             Assert.Equal(TestTenants.AlphaPrincipal, notification.PrincipalId.Value);
         }
     }
+
+    private static readonly Guid Colleague = new("13131313-1111-4111-8111-131313131313");
+
+    private static string Today() => DateOnly.FromDateTime(DateTime.UtcNow).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    private async Task SeedColleagueAsync(string status)
+    {
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO principal
+                    (principal_id, tenant_id, external_subject, kind, display_name, email, status, deprovisioned_at)
+                VALUES ('{Colleague}', '{TestTenants.Alpha}', 'alpha-reminder-colleague', 'user', 'Colleague',
+                        'reminder-colleague@example.test', '{status}', NULL);
+
+                INSERT INTO workspace_member
+                    (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
+                VALUES ('{TestTenants.AlphaWorkspace}', 'principal', '{Colleague}', '{TestTenants.Alpha}', 'editor',
+                        '{TestTenants.AlphaPrincipal}', now());
+                """);
+        }
+    }
+
+    private async Task<Guid> CreateItemAsync(Nix.Abstractions.NixSessionContext context, string title, JsonObject? properties)
+    {
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var created = await work.Resolve<NixDispatcher>().SendAsync<CreateItem, Item>(
+                new CreateItem(context.WorkspaceId!.Value, "task", title, null, properties), Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+            await work.CommitAsync(Cancellation);
+            return created.Value.Id.Value;
+        }
+    }
+
+    private async Task ForgePropertyAsync(Guid itemId, string key, string value)
+    {
+        // Written as the migrator, straight into storage: the shape a value would have if it ever
+        // reached the bag without passing the write path's guard.
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                UPDATE item SET properties = properties || jsonb_build_object('{key}', '{value}'::text)
+                 WHERE id = '{itemId}';
+                """);
+        }
+    }
+
+    private async Task<IReadOnlyList<Notification>> NotificationsForAsync(Guid principalId, Guid itemId)
+    {
+        var work = await fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, principalId), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            return await work.DbContext.Set<Notification>().AsNoTracking()
+                .Where(row => row.ItemId == ItemId.From(itemId)).ToListAsync(Cancellation);
+        }
+    }
+
+    [Theory]
+    [InlineData("$reminder_set_by")]
+    [InlineData("$habit_reminder_time")]
+    [InlineData("$habit_check_in_date")]
+    public async Task Generic_item_commands_cannot_write_any_reserved_scheduling_key(string key)
+    {
+        var context = TestTenants.AlphaContext;
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var forgedCreate = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(context.WorkspaceId!.Value, "task", "Forged", null, new JsonObject { [key] = "x" }),
+                Cancellation);
+            Assert.True(forgedCreate.IsFailure);
+            Assert.Equal("scheduling.reserved_property", forgedCreate.Error.Code);
+
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(context.WorkspaceId!.Value, "task", "Real task", null, null), Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+
+            var forgedWrite = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(created.Value.Id, new JsonObject { [key] = "x" }.ToJsonString()), Cancellation);
+            Assert.True(forgedWrite.IsFailure);
+            Assert.Equal("scheduling.reserved_property", forgedWrite.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_due_set_by_naming_another_tenants_principal_falls_back_to_the_creator()
+    {
+        var context = TestTenants.AlphaContext;
+        await SavePreferencesAsync(context, dueReminderTime: NowMinusOneMinute());
+        var itemId = await CreateItemAsync(context, "Cross-tenant setter", new JsonObject { ["due_date"] = Today() });
+        await ForgePropertyAsync(itemId, "$due_set_by", TestTenants.BetaPrincipal.ToString());
+
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+
+        var notification = Assert.Single(await NotificationsForAsync(TestTenants.AlphaPrincipal, itemId));
+        Assert.Equal("Due today", notification.Body);
+    }
+
+    [Fact]
+    public async Task A_due_set_by_naming_a_suspended_colleague_falls_back_to_the_creator()
+    {
+        var context = TestTenants.AlphaContext;
+        await SeedColleagueAsync("suspended");
+        await SavePreferencesAsync(context, dueReminderTime: NowMinusOneMinute());
+        var itemId = await CreateItemAsync(context, "Suspended setter", new JsonObject { ["due_date"] = Today() });
+        await ForgePropertyAsync(itemId, "$due_set_by", Colleague.ToString());
+
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+
+        Assert.Single(await NotificationsForAsync(TestTenants.AlphaPrincipal, itemId));
+        Assert.Empty(await NotificationsForAsync(Colleague, itemId));
+    }
+
+    [Fact]
+    public async Task An_explicit_reminder_goes_to_the_colleague_who_set_it()
+    {
+        await SeedColleagueAsync("active");
+        var itemId = await CreateItemAsync(TestTenants.AlphaContext, "Colleague's reminder", null);
+
+        var colleagueContext = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var work = await fixture.Application.BeginUnitOfWorkAsync(colleagueContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var reminderAt = DateTimeOffset.UtcNow.AddMilliseconds(200);
+            var written = await work.Resolve<NixDispatcher>().SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(ItemId.From(itemId), new JsonObject
+                {
+                    ["reminder"] = $"{reminderAt.UtcDateTime:yyyy-MM-ddTHH:mm:ss}+00:00[Etc/UTC]",
+                }.ToJsonString()),
+                Cancellation);
+            Assert.True(written.IsSuccess, written.IsSuccess ? "" : written.Error.Message);
+            Assert.Equal(Colleague.ToString(), (string?)JsonNode.Parse(written.Value.Properties!)![ItemProperties.ReminderSetByKey]);
+            await work.CommitAsync(Cancellation);
+        }
+
+        await PlanAndDispatchAsync(TimeSpan.FromMilliseconds(400));
+
+        var notification = Assert.Single(await NotificationsForAsync(Colleague, itemId));
+        Assert.Equal("Reminder", notification.Body);
+        Assert.Empty(await NotificationsForAsync(TestTenants.AlphaPrincipal, itemId));
+    }
+
+    [Fact]
+    public async Task An_explicit_reminder_missed_during_an_outage_is_planned_once_and_fires_once()
+    {
+        // S3: the reminder's instant passed two hours ago while nothing was planning. It is still
+        // owed once; replanning afterwards finds its row fired and leaves it alone.
+        var context = TestTenants.AlphaContext;
+        var missedAt = DateTimeOffset.UtcNow.AddHours(-2);
+        var itemId = await CreateItemAsync(context, "Missed during outage", new JsonObject
+        {
+            ["reminder"] = $"{missedAt.UtcDateTime:yyyy-MM-ddTHH:mm:ss}+00:00[Etc/UTC]",
+        });
+
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+
+        Assert.Single(await NotificationsForAsync(TestTenants.AlphaPrincipal, itemId));
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var trigger = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(row => row.SourceItemId == itemId, Cancellation);
+            Assert.Equal(TriggerStatus.Fired, trigger.Status);
+        }
+    }
+
+    [Fact]
+    public async Task Preferences_are_read_for_more_than_500_recipients_by_the_whole_key()
+    {
+        var context = TestTenants.AlphaContext;
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var saved = await work.Resolve<NixDispatcher>().SendAsync<SavePreferences, PrincipalPreferencesResponse>(
+                new SavePreferences(0, new PreferencesInput("Europe/London", null, null, "07:30", true, true, [])), Cancellation);
+            Assert.True(saved.IsSuccess, saved.IsSuccess ? "" : saved.Error.Message);
+            await work.CommitAsync(Cancellation);
+        }
+
+        var alpha = new ReminderRecipient(context.TenantId, context.PrincipalId);
+        // The same principal id asked for under another tenant must not read Alpha's row.
+        var misTenanted = new ReminderRecipient(Nix.Domain.Tenancy.TenantId.From(TestTenants.Beta), context.PrincipalId);
+        ReminderRecipient[] recipients =
+        [
+            alpha,
+            misTenanted,
+            .. Enumerable.Range(0, 700).Select(_ => new ReminderRecipient(
+                context.TenantId, Nix.Domain.Identity.PrincipalId.From(Guid.NewGuid()))),
+        ];
+
+        var finder = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IReminderCandidateFinder>();
+        var preferences = await finder.PreferencesForAsync(recipients, Cancellation);
+
+        Assert.Equal(recipients.Length, preferences.Count);
+        var byRecipient = preferences.ToDictionary(entry => entry.Recipient);
+        Assert.Equal(new TimeOnly(7, 30), byRecipient[alpha].DueReminderTime);
+        Assert.Equal("Europe/London", byRecipient[alpha].TimeZone);
+        Assert.Equal(new TimeOnly(9, 0), byRecipient[misTenanted].DueReminderTime);
+        Assert.Equal("UTC", byRecipient[misTenanted].TimeZone);
+    }
+
+    [Fact]
+    public async Task Due_candidates_come_from_two_arms_and_skip_completed_historical_and_ended_items()
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        string Day(DateOnly day) => day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        var plainDue = Guid.NewGuid();
+        var plainCompleted = Guid.NewGuid();
+        var plainHistorical = Guid.NewGuid();
+        var recurring = Guid.NewGuid();
+        var recurringEnded = Guid.NewGuid();
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            string Row(Guid id, string properties, string? recurrence) =>
+                $"('{id}', '{TestTenants.Alpha}', '{TestTenants.AlphaWorkspace}', 'task', NULL, 1000, '{properties}'::jsonb, "
+                + (recurrence is null ? "NULL" : $"'{recurrence}'::jsonb")
+                + $", 'active', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaPrincipal}', now(), now())";
+            var dailyRule = "{\"freq\":\"daily\",\"interval\":1}";
+            var endedRule = "{\"freq\":\"daily\",\"interval\":1,\"until\":\"" + Day(today.AddYears(-1)) + "\"}";
+            var rows = string.Join(",\n", new[]
+            {
+                Row(plainDue, "{\"title\":\"due\",\"due_date\":\"" + Day(today) + "\"}", null),
+                Row(plainCompleted, "{\"title\":\"done\",\"due_date\":\"" + Day(today) + "\",\"completion\":true}", null),
+                Row(plainHistorical, "{\"title\":\"old\",\"due_date\":\"" + Day(today.AddYears(-3)) + "\"}", null),
+                Row(recurring, "{\"title\":\"daily\",\"due_date\":\"" + Day(today.AddYears(-2)) + "\"}", dailyRule),
+                Row(recurringEnded, "{\"title\":\"ended\",\"due_date\":\"" + Day(today.AddYears(-2)) + "\"}", endedRule),
+            });
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO item
+                    (id, tenant_id, workspace_id, type, parent_id, seq, properties, recurrence, lifecycle_state,
+                     created_by, last_modified_by, created_at, last_modified_at)
+                VALUES
+                {rows};
+                """);
+        }
+
+        var finder = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IReminderCandidateFinder>();
+        var plain = await finder.FindDueAsync(today.AddDays(-1), today.AddDays(3), 500, string.Empty, Guid.Empty, Cancellation);
+        var recurringFound = await finder.FindRecurringDueAsync(today.AddDays(-1), today.AddDays(3), 500, Guid.Empty, Cancellation);
+
+        Assert.Equal(new[] { plainDue }, plain.Select(candidate => candidate.ItemId));
+        Assert.Equal(today, plain[0].DueDay);
+        Assert.Equal(new[] { recurring }, recurringFound.Select(candidate => candidate.ItemId));
+        Assert.Equal(today.AddYears(-2), recurringFound[0].AnchorDay);
+
+        // And both arms become triggers for today.
+        await SavePreferencesAsync(TestTenants.AlphaContext, dueReminderTime: "23:59");
+        var scopeFactory = fixture.Application.CreateUnscopedScope().ServiceProvider.GetRequiredService<IServiceScopeFactory>();
+        using var planner = new TriggerPlanner(scopeFactory, TimeProvider.System);
+        await planner.PlanOnceAsync(Cancellation);
+
+        var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var keys = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .Select(row => row.DedupeKey).ToListAsync(Cancellation);
+            Assert.Contains(ReminderDedupeKeys.Due(plainDue, today), keys);
+            Assert.Contains(ReminderDedupeKeys.Due(recurring, today), keys);
+            Assert.DoesNotContain(keys, key => key.Contains(plainCompleted.ToString(), StringComparison.Ordinal)
+                || key.Contains(plainHistorical.ToString(), StringComparison.Ordinal)
+                || key.Contains(recurringEnded.ToString(), StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public async Task A_habit_with_thousands_of_check_ins_is_still_skipped_once_today_is_checked_in()
+    {
+        // L4: "already checked in today" must not depend on how many older check-ins exist.
+        var context = TestTenants.AlphaContext;
+        await SavePreferencesAsync(context);
+
+        Guid habitId;
+        var work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new CreateItem(context.WorkspaceId!.Value, "habit", "Long streak", null, null), Cancellation);
+            Assert.True(created.IsSuccess, created.IsSuccess ? "" : created.Error.Message);
+            habitId = created.Value.Id.Value;
+            var settings = await dispatcher.SendAsync<SetHabitSettings, HabitTrackerResponse>(
+                new SetHabitSettings(
+                    ItemId.From(habitId),
+                    new HabitSettingsRequest("daily", [], "Etc/UTC", DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-1), 1, "times", HabitReminderTime())),
+                Cancellation);
+            Assert.True(settings.IsSuccess, settings.IsSuccess ? "" : settings.Error.Message);
+            await work.CommitAsync(Cancellation);
+        }
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            // 2,500 older check-ins sorted ahead of today's, then today's own.
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO item
+                    (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                     created_by, last_modified_by, created_at, last_modified_at)
+                SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{TestTenants.AlphaWorkspace}', 'note', '{habitId}', g,
+                       jsonb_build_object('title', 'Check-in', '$habit_check_in_date', to_char(date '2015-01-01' + g, 'YYYY-MM-DD'),
+                                          '$habit_check_in_completed', true),
+                       'active', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaPrincipal}', now(), now()
+                  FROM generate_series(1, 2500) g;
+
+                INSERT INTO item
+                    (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                     created_by, last_modified_by, created_at, last_modified_at)
+                VALUES (gen_random_uuid(), '{TestTenants.Alpha}', '{TestTenants.AlphaWorkspace}', 'note', '{habitId}', 1000000,
+                        jsonb_build_object('title', 'Check-in', '$habit_check_in_date', '{Today()}', '$habit_check_in_completed', true),
+                        'active', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaPrincipal}', now(), now());
+                """);
+        }
+
+        await PlanAndDispatchAsync(TimeSpan.Zero);
+
+        Assert.Empty(await NotificationsForAsync(TestTenants.AlphaPrincipal, habitId));
+        work = await fixture.Application.BeginUnitOfWorkAsync(context, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var todaysKey = ReminderDedupeKeys.Habit(habitId, DateOnly.FromDateTime(DateTime.UtcNow));
+            var trigger = await work.DbContext.Set<ScheduledTrigger>().AsNoTracking()
+                .SingleAsync(row => row.DedupeKey == todaysKey, Cancellation);
+            Assert.Equal(TriggerStatus.Skipped, trigger.Status);
+            Assert.Contains("already_checked_in", trigger.Detail, StringComparison.Ordinal);
+        }
+    }
 }
+

@@ -14,8 +14,8 @@ namespace Nix.Persistence.Scheduling;
 /// <summary>
 /// Fires at <c>due_reminder_time</c>, in the recipient's own zone, on an item's due day - and on
 /// every occurrence day a recurring item produces, skipping any already complete (ADR-0051 section
-/// 4). The recipient is whoever set the due date (<c>$due_set_by</c>), falling back to the item's
-/// creator when that is absent.
+/// 4). The recipient is whoever set the due date (<c>$due_set_by</c>) while that principal is active
+/// in the item's tenant, falling back to the item's creator otherwise.
 /// </summary>
 public sealed class DueTaskReminderSource(
     IReminderCandidateFinder candidates,
@@ -25,12 +25,6 @@ public sealed class DueTaskReminderSource(
     IPrincipalStatusChecker principalStatus,
     INotificationWriter notifications) : ITriggerSource
 {
-    private const int PageSize = 500;
-
-    // See ExplicitReminderSource's identical constant: a ceiling on pages per pass, not on how
-    // many due reminders may exist.
-    private const int MaxPages = 20;
-
     /// <inheritdoc />
     public string Name => "reminder.due";
 
@@ -38,7 +32,7 @@ public sealed class DueTaskReminderSource(
     public TriggerKind Kind => TriggerKind.Reminder;
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<DesiredTrigger>> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
+    public async Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(window);
 
@@ -51,118 +45,104 @@ public sealed class DueTaskReminderSource(
         var findFrom = windowStartDay.AddDays(-1);
         var findTo = DateOnly.FromDateTime(window.End.UtcDateTime).AddDays(1);
 
-        var found = new List<DueReminderCandidate>();
-        // Not DateOnly.MinValue - see ExplicitReminderSource's identical note on its own keyset
-        // sentinel.
-        var afterDay = new DateOnly(1900, 1, 1);
-        var afterId = Guid.Empty;
-        for (var page = 0; page < MaxPages; page++)
-        {
-            var batch = await candidates
-                .FindDueAsync(findFrom, findTo, PageSize, afterDay, afterId, cancellationToken)
-                .ConfigureAwait(false);
-            found.AddRange(batch);
-            if (batch.Count < PageSize)
-            {
-                break;
-            }
+        // The plain and recurring arms page independently, each by its own keyset over its own
+        // index, so neither population can starve the other.
+        var (plain, plainComplete) = await ReminderSourceSupport.ReadAllPagesAsync<DueReminderCandidate>(
+            last => candidates.FindDueAsync(
+                findFrom, findTo, ReminderSourceSupport.PageSize, last?.DueDayText ?? string.Empty, last?.ItemId ?? Guid.Empty, cancellationToken)).ConfigureAwait(false);
+        var (recurring, recurringComplete) = await ReminderSourceSupport.ReadAllPagesAsync<RecurringDueReminderCandidate>(
+            last => candidates.FindRecurringDueAsync(
+                findFrom, findTo, ReminderSourceSupport.PageSize, last?.ItemId ?? Guid.Empty, cancellationToken)).ConfigureAwait(false);
+        var complete = plainComplete && recurringComplete;
 
-            var last = batch[^1];
-            afterDay = last.DueDay;
-            afterId = last.ItemId;
+        if (plain.Count == 0 && recurring.Count == 0)
+        {
+            return new TriggerPlan([], complete);
         }
 
-        if (found.Count == 0)
+        var preferencesByRecipient = await ReminderSourceSupport.PreferencesByRecipientAsync(
+            candidates,
+            plain.Select(candidate => new ReminderRecipient(candidate.TenantId, candidate.PrincipalId))
+                .Concat(recurring.Select(candidate => new ReminderRecipient(candidate.TenantId, candidate.PrincipalId))),
+            cancellationToken).ConfigureAwait(false);
+
+        var desired = new List<DesiredTrigger>(plain.Count + recurring.Count);
+        foreach (var candidate in plain)
         {
-            return [];
-        }
-
-        var preferences = await candidates
-            .PreferencesForAsync(found.Select(candidate => candidate.PrincipalId).Distinct().ToArray(), cancellationToken)
-            .ConfigureAwait(false);
-        var preferencesByPrincipal = preferences.ToDictionary(entry => entry.PrincipalId);
-
-        var desired = new List<DesiredTrigger>(found.Count);
-        foreach (var candidate in found)
-        {
-            if (!preferencesByPrincipal.TryGetValue(candidate.PrincipalId, out var recipient))
+            if (candidate.DueDay is { } dueDay && dueDay >= findFrom && dueDay <= findTo)
             {
-                continue;
-            }
-
-            if (!recipient.DueReminders)
-            {
-                continue;
-            }
-
-            // Occurrence day, and the instant its due_reminder_time names before any clamping or
-            // quiet-hours deferral - computed for every candidate occurrence in the window (plus
-            // findFrom's one-day pad, to catch a recipient whose zone puts "today" ahead of
-            // window.Start's UTC calendar day) so the overdue-collapsing rule below can see all
-            // of them at once.
-            var occurrences = OccurrenceDays(candidate, findFrom, findTo)
-                .Select(day => (Day: day, NaiveFireAt: LocalInstant(day, recipient.DueReminderTime, recipient.TimeZone)))
-                .Where(occurrence => occurrence.NaiveFireAt < window.End)
-                .ToList();
-
-            // Of any occurrences whose natural instant already passed window.Start, only the
-            // single most recent is kept, to be clamped to "now" below: a daily item, planned
-            // fresh for the first time, would otherwise have both yesterday's and today's
-            // occurrence in this list at once (the one-day pad above exists to catch a boundary
-            // case, not to resurrect a whole extra day), firing two reminders together instead of
-            // the one still actually owed. A steadily-running scheduler never accumulates more
-            // than one overdue occurrence in the first place, since each is fired or skipped
-            // within the same day it becomes due; collapsing here only matters for a cold start
-            // or an outage.
-            var mostRecentOverdue = occurrences
-                .Where(occurrence => occurrence.NaiveFireAt < window.Start)
-                .OrderByDescending(occurrence => occurrence.Day)
-                .Take(1);
-            var dueNow = occurrences.Where(occurrence => occurrence.NaiveFireAt >= window.Start);
-
-            foreach (var (occurrenceDay, naiveFireAt) in dueNow.Concat(mostRecentOverdue))
-            {
-                var clampedFireAt = naiveFireAt < window.Start ? window.Start : naiveFireAt;
-                var fireAt = ReminderQuietHours.Apply(clampedFireAt, recipient.TimeZone, recipient.QuietStart, recipient.QuietEnd);
-                desired.Add(new DesiredTrigger(
-                    candidate.TenantId,
-                    candidate.WorkspaceId,
-                    candidate.PrincipalId,
-                    candidate.ItemId,
-                    null,
-                    fireAt,
-                    ReminderDedupeKeys.Due(candidate.ItemId, occurrenceDay)));
+                AddOccurrences(
+                    desired, window, preferencesByRecipient,
+                    candidate.TenantId, candidate.WorkspaceId, candidate.PrincipalId, candidate.ItemId, [dueDay]);
             }
         }
 
-        return desired;
+        foreach (var candidate in recurring)
+        {
+            if (candidate.AnchorDay is { } anchor && RecurrenceRuleJson.Read(candidate.Recurrence) is { } rule)
+            {
+                AddOccurrences(
+                    desired, window, preferencesByRecipient,
+                    candidate.TenantId, candidate.WorkspaceId, candidate.PrincipalId, candidate.ItemId,
+                    RecurrenceExpansion.Occurrences(rule, anchor, findFrom, findTo).Where(day => !rule.IsCompleted(day)));
+            }
+        }
+
+        return new TriggerPlan(desired, complete);
     }
 
-    /// <summary>Every not-yet-complete occurrence day a candidate produces in a window.</summary>
-    private static IEnumerable<DateOnly> OccurrenceDays(DueReminderCandidate candidate, DateOnly from, DateOnly to)
+    /// <summary>Adds the triggers one candidate's not-yet-complete occurrence days produce.</summary>
+    private static void AddOccurrences(
+        List<DesiredTrigger> desired,
+        PlanWindow window,
+        Dictionary<ReminderRecipient, ReminderPreferences> preferencesByRecipient,
+        Nix.Domain.Tenancy.TenantId tenantId,
+        Nix.Domain.Tenancy.WorkspaceId workspaceId,
+        PrincipalId principalId,
+        Guid itemId,
+        IEnumerable<DateOnly> occurrenceDays)
     {
-        if (candidate.Recurrence is null)
+        if (!preferencesByRecipient.TryGetValue(new ReminderRecipient(tenantId, principalId), out var recipient)
+            || !recipient.DueReminders)
         {
-            if (!candidate.Completed && candidate.DueDay >= from && candidate.DueDay <= to)
-            {
-                yield return candidate.DueDay;
-            }
-
-            yield break;
+            return;
         }
 
-        var rule = RecurrenceRuleJson.Read(candidate.Recurrence);
-        if (rule is null)
-        {
-            yield break;
-        }
+        // Occurrence day, and the instant its due_reminder_time names before any clamping or
+        // quiet-hours deferral - computed for every candidate occurrence in the window (plus
+        // findFrom's one-day pad, to catch a recipient whose zone puts "today" ahead of
+        // window.Start's UTC calendar day) so the overdue-collapsing rule below can see all of
+        // them at once.
+        var occurrences = occurrenceDays
+            .Select(day => (Day: day, NaiveFireAt: LocalInstant(day, recipient.DueReminderTime, recipient.TimeZone)))
+            .Where(occurrence => occurrence.NaiveFireAt < window.End)
+            .ToList();
 
-        foreach (var day in RecurrenceExpansion.Occurrences(rule, candidate.DueDay, from, to))
+        // Of any occurrences whose natural instant already passed window.Start, only the single
+        // most recent is kept, to be clamped to "now" below: a daily item, planned fresh for the
+        // first time, would otherwise have both yesterday's and today's occurrence in this list
+        // at once (the one-day pad above exists to catch a boundary case, not to resurrect a
+        // whole extra day), firing two reminders together instead of the one still actually
+        // owed. A steadily-running scheduler never accumulates more than one overdue occurrence
+        // in the first place; collapsing here only matters for a cold start or an outage.
+        var mostRecentOverdue = occurrences
+            .Where(occurrence => occurrence.NaiveFireAt < window.Start)
+            .OrderByDescending(occurrence => occurrence.Day)
+            .Take(1);
+        var dueNow = occurrences.Where(occurrence => occurrence.NaiveFireAt >= window.Start);
+
+        foreach (var (occurrenceDay, naiveFireAt) in dueNow.Concat(mostRecentOverdue))
         {
-            if (!rule.IsCompleted(day))
-            {
-                yield return day;
-            }
+            var clampedFireAt = naiveFireAt < window.Start ? window.Start : naiveFireAt;
+            var fireAt = ReminderQuietHours.Apply(clampedFireAt, recipient.TimeZone, recipient.QuietStart, recipient.QuietEnd);
+            desired.Add(new DesiredTrigger(
+                tenantId,
+                workspaceId,
+                principalId,
+                itemId,
+                null,
+                fireAt,
+                ReminderDedupeKeys.Due(itemId, occurrenceDay)));
         }
     }
 
@@ -186,7 +166,9 @@ public sealed class DueTaskReminderSource(
             return TriggerOutcome.Skipped("item_gone");
         }
 
-        var recipientId = ResolveRecipient(item);
+        var recipientId = await ReminderSourceSupport
+            .ResolveRecipientAsync(item, ItemProperties.DueSetByKey, principalStatus, cancellationToken)
+            .ConfigureAwait(false);
         if (recipientId != trigger.PrincipalId)
         {
             return TriggerOutcome.Skipped("recipient_changed");
@@ -211,7 +193,7 @@ public sealed class DueTaskReminderSource(
         }
 
         var recipientPreferences = await candidates
-            .PreferencesForAsync([trigger.PrincipalId], cancellationToken)
+            .PreferencesForAsync([new ReminderRecipient(trigger.TenantId, trigger.PrincipalId)], cancellationToken)
             .ConfigureAwait(false);
         if (recipientPreferences.Count == 0 || !recipientPreferences[0].DueReminders)
         {
@@ -261,20 +243,6 @@ public sealed class DueTaskReminderSource(
             CultureInfo.InvariantCulture,
             DateTimeStyles.None,
             out occurrenceDay);
-    }
-
-    private static PrincipalId ResolveRecipient(Item item)
-    {
-        if (item.Properties is not null
-            && JsonNode.Parse(item.Properties) is JsonObject bag
-            && bag[ItemProperties.DueSetByKey] is JsonValue value
-            && value.TryGetValue<string>(out var text)
-            && Guid.TryParseExact(text, "D", out var principalGuid))
-        {
-            return PrincipalId.From(principalGuid);
-        }
-
-        return item.CreatedBy;
     }
 
     private static bool IsPlainOccurrenceStillDue(Item item, DateOnly occurrenceDay)

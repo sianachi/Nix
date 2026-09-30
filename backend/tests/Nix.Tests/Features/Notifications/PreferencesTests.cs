@@ -26,6 +26,7 @@ public sealed class PreferencesTests
         Assert.False(PreferencesValidation.IsValid(new PreferencesInput("Not/AZone", null, null, "09:00", true, true, [])));
         Assert.False(PreferencesValidation.IsValid(new PreferencesInput("Etc/UTC", null, null, "9am", true, true, [])));
         Assert.False(PreferencesValidation.IsValid(new PreferencesInput("Etc/UTC", "25:00", null, "09:00", true, true, [])));
+        Assert.False(PreferencesValidation.IsValid(new PreferencesInput("Etc/UTC", "22:00", "22:00", "09:00", true, true, [])));
         Assert.False(PreferencesValidation.IsValid(new PreferencesInput("Etc/UTC", null, null, "09:00", true, true, [.. Enumerable.Range(0, 201).Select(_ => Guid.NewGuid())])));
     }
 

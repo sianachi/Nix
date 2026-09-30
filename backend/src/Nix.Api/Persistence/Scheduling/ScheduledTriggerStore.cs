@@ -3,6 +3,8 @@ using Nix.Abstractions.Scheduling;
 using Nix.Domain.Identity;
 using Nix.Domain.Scheduling;
 using Nix.Domain.Tenancy;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Nix.Persistence.Scheduling;
 
@@ -14,64 +16,106 @@ namespace Nix.Persistence.Scheduling;
 /// </summary>
 public sealed class ScheduledTriggerStore(NixDbContext database) : IScheduledTriggerStore
 {
-    public async Task UpsertPendingAsync(
-        TenantId tenantId,
-        WorkspaceId? workspaceId,
-        PrincipalId principalId,
+    public async Task<int> UpsertPendingAsync(
         TriggerKind kind,
         string source,
-        Guid? sourceItemId,
-        Guid? ruleId,
-        DateTimeOffset fireAt,
-        string dedupeKey,
+        IReadOnlyCollection<DesiredTrigger> triggers,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(dedupeKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(source);
-        var id = Guid.CreateVersion7();
-        var now = DateTimeOffset.UtcNow;
-        var kindText = TriggerStorage.ToText(kind);
-        var pendingText = TriggerStorage.ToText(TriggerStatus.Pending);
-        var cancelledText = TriggerStorage.ToText(TriggerStatus.Cancelled);
-        Guid? workspaceIdValue = workspaceId?.Value;
+        ArgumentNullException.ThrowIfNull(triggers);
+        if (triggers.Count == 0)
+        {
+            return 0;
+        }
 
-        // ON CONFLICT touches the row only while it is pending-and-never-retried, or cancelled: a
-        // trigger already leased, fired or skipped must never be resurrected or rescheduled by
-        // replanning, but a cancelled one must be revivable - a due date moved away and back, or a
-        // rule disabled and re-enabled, is exactly the same dedupe key becoming desired again.
-        // Reviving resets attempts and any stale lease fields so it is indistinguishable from a
-        // fresh row.
+        // One row per conflict key: a single INSERT ... ON CONFLICT DO UPDATE may not touch the
+        // same row twice.
+        var rows = triggers
+            .GroupBy(trigger => (trigger.TenantId, trigger.PrincipalId, trigger.DedupeKey))
+            .Select(group => group.Last())
+            .ToArray();
+        foreach (var row in rows)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(row.DedupeKey, nameof(triggers));
+        }
+
+        var now = DateTimeOffset.UtcNow;
+
+        // ON CONFLICT touches the row only when it belongs to this same source and is either
+        // cancelled or pending-and-never-retried with something actually different:
         //
-        // A pending row with attempts > 0 is excluded on purpose (ADR-0051 Amendment 2): it is a
-        // trigger a fire attempt already failed on, moved back to pending with its fire_at pushed
-        // out by the dispatcher's backoff. The very next planning pass, 60 seconds later, would
-        // otherwise overwrite that backoff with "now" (or whatever instant the source still
-        // computes for it) and reset attempts to 0, so a failing trigger could never actually back
-        // off - it would be replanned to "due immediately" before its backoff ever elapsed. Once a
-        // retried trigger fires, is skipped for good, or is genuinely no longer desired, it leaves
-        // this branch through CancelStaleAsync instead.
-        await database.Database.ExecuteSqlInterpolatedAsync($"""
+        // - Another source's row is never overwritten (ADR-0051 Amendment 3: a source only
+        //   manages its own rows), even if two sources ever produced the same dedupe key.
+        // - A trigger already leased, fired or skipped must never be resurrected or rescheduled by
+        //   replanning, but a cancelled one must be revivable - a due date moved away and back is
+        //   exactly the same dedupe key becoming desired again. Reviving resets attempts and any
+        //   stale lease fields so it is indistinguishable from a fresh row.
+        // - A pending row with attempts > 0 is excluded on purpose (ADR-0051 Amendment 2): the
+        //   dispatcher pushed its fire_at out by backoff, and replanning must not overwrite that
+        //   backoff with "now" before it elapses.
+        // - A pending row already exactly as desired is left alone: every 60-second pass
+        //   re-desires every trigger in the 48-hour window, and rewriting unchanged rows would
+        //   churn dead tuples and WAL for nothing.
+        const string sql = """
             INSERT INTO scheduled_trigger
                 (tenant_id, id, workspace_id, principal_id, kind, source, source_item_id, rule_id,
                  fire_at, dedupe_key, status, attempts, created_at, updated_at)
-            VALUES ({tenantId.Value}, {id}, {workspaceIdValue}, {principalId.Value}, {kindText},
-                {source}, {sourceItemId}, {ruleId}, {fireAt}, {dedupeKey}, {pendingText}, 0, {now}, {now})
+            SELECT desired.tenant_id, desired.id, desired.workspace_id, desired.principal_id, @kind,
+                   @source, desired.source_item_id, desired.rule_id, desired.fire_at, desired.dedupe_key,
+                   'pending', 0, @now, @now
+              FROM unnest(@tenant_ids, @ids, @workspace_ids, @principal_ids, @source_item_ids,
+                          @rule_ids, @fire_ats, @dedupe_keys)
+                   AS desired(tenant_id, id, workspace_id, principal_id, source_item_id, rule_id,
+                              fire_at, dedupe_key)
             ON CONFLICT (tenant_id, principal_id, dedupe_key) DO UPDATE SET
                 fire_at = EXCLUDED.fire_at,
                 workspace_id = EXCLUDED.workspace_id,
-                source = EXCLUDED.source,
                 source_item_id = EXCLUDED.source_item_id,
                 rule_id = EXCLUDED.rule_id,
-                status = {pendingText},
+                status = 'pending',
                 attempts = 0,
                 lease_owner = NULL,
                 lease_until = NULL,
                 detail = NULL,
                 updated_at = EXCLUDED.updated_at
-            WHERE scheduled_trigger.status = {cancelledText}
-               OR (scheduled_trigger.status = {pendingText} AND scheduled_trigger.attempts = 0)
-            """, cancellationToken).ConfigureAwait(false);
+            WHERE scheduled_trigger.source = EXCLUDED.source
+              AND (scheduled_trigger.status = 'cancelled'
+                   OR (scheduled_trigger.status = 'pending'
+                       AND scheduled_trigger.attempts = 0
+                       AND (scheduled_trigger.fire_at, scheduled_trigger.workspace_id,
+                            scheduled_trigger.source_item_id, scheduled_trigger.rule_id)
+                           IS DISTINCT FROM
+                           (EXCLUDED.fire_at, EXCLUDED.workspace_id,
+                            EXCLUDED.source_item_id, EXCLUDED.rule_id)))
+            """;
+
+        return await database.Database.ExecuteSqlRawAsync(
+            sql,
+            [
+                new NpgsqlParameter<string>("kind", NpgsqlDbType.Text) { TypedValue = TriggerStorage.ToText(kind) },
+                new NpgsqlParameter<string>("source", NpgsqlDbType.Text) { TypedValue = source },
+                new NpgsqlParameter<DateTimeOffset>("now", NpgsqlDbType.TimestampTz) { TypedValue = now },
+                UuidArray("tenant_ids", rows.Select(row => (Guid?)row.TenantId.Value)),
+                UuidArray("ids", rows.Select(_ => (Guid?)Guid.CreateVersion7())),
+                UuidArray("workspace_ids", rows.Select(row => row.WorkspaceId?.Value)),
+                UuidArray("principal_ids", rows.Select(row => (Guid?)row.PrincipalId.Value)),
+                UuidArray("source_item_ids", rows.Select(row => row.SourceItemId)),
+                UuidArray("rule_ids", rows.Select(row => row.RuleId)),
+                new NpgsqlParameter<DateTimeOffset[]>("fire_ats", NpgsqlDbType.Array | NpgsqlDbType.TimestampTz)
+                {
+                    TypedValue = rows.Select(row => row.FireAt.ToUniversalTime()).ToArray(),
+                },
+                new NpgsqlParameter<string[]>("dedupe_keys", NpgsqlDbType.Array | NpgsqlDbType.Text)
+                {
+                    TypedValue = rows.Select(row => row.DedupeKey).ToArray(),
+                },
+            ],
+            cancellationToken).ConfigureAwait(false);
     }
+
+    private static NpgsqlParameter<Guid?[]> UuidArray(string name, IEnumerable<Guid?> values) =>
+        new(name, NpgsqlDbType.Array | NpgsqlDbType.Uuid) { TypedValue = values.ToArray() };
 
     public async Task<int> CancelStaleAsync(
         TenantId tenantId,
