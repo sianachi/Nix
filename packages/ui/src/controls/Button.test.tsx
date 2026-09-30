@@ -180,4 +180,12 @@ describe('Button', () => {
     expect(className).toContain('mt-4');
     expect(className).toContain('bg-accent-fill');
   });
+
+  it('behaves like an application control: an arrow cursor and no text selection on its label', () => {
+    render(<Button>Save</Button>);
+
+    const button = screen.getByRole('button', { name: 'Save' });
+    expect(button).toHaveClass('cursor-default', 'select-none');
+    expect(button).not.toHaveClass('cursor-pointer');
+  });
 });

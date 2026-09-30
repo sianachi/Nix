@@ -1,5 +1,14 @@
 import { MobileItemMove } from '../items/mobile-item-move';
-import { Button, Dialog, Icon, PaneDivider, Text, focusRing } from '@nix/ui';
+import {
+  Button,
+  Dialog,
+  Icon,
+  PaneDivider,
+  Skeleton,
+  SkeletonLines,
+  Text,
+  focusRing,
+} from '@nix/ui';
 import {
   ArrowLeft,
   MoreHorizontal,
@@ -68,6 +77,7 @@ import { useContainer } from '../views/core/use-container';
 import { DocumentHistory } from '../history/document-history';
 import { LockDialog } from '../locks/lock-dialog';
 import { LockedBody } from '../locks/locked-body';
+import { useForgetLockedBody } from '../locks/use-forget-locked-body';
 import { useItemLock } from '../locks/use-item-lock';
 import { historyPanelWidth } from '../layout/regions';
 import { ItemPanel } from '../panel/item-panel';
@@ -467,6 +477,7 @@ export function OpenItem({
   // ancestor's. This is what lets the page say so, and close both when the unlock runs out, instead
   // of drawing an editor that cannot connect or a view over nothing.
   const lock = useItemLock(itemId);
+  useForgetLockedBody(itemId, lock);
   const lockNoun = bodyNoun(bodyKind);
   const lockButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -793,15 +804,11 @@ export function OpenItem({
         <div className={paneColumn}>
           {!lock.open ? (
             lock.status === 'loading' ? (
-              <Text
-                variant="note"
-                as="div"
-                tone="muted"
-                role="status"
-                className="flex flex-1 items-center justify-center"
-              >
-                Loading…
-              </Text>
+              <SkeletonLines
+                label="Loading this page…"
+                heading
+                className="w-full max-w-3xl px-8 py-6"
+              />
             ) : lock.status === 'error' ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2">
                 <Text variant="note" tone="muted" role="alert">
@@ -824,26 +831,24 @@ export function OpenItem({
             bodyKind === 'canvas' ? (
               <Suspense
                 fallback={
-                  <Text
-                    variant="note"
-                    as="div"
-                    tone="muted"
-                    className="flex flex-1 items-center justify-center"
-                  >
-                    Loading the canvas…
-                  </Text>
+                  <div className="flex flex-1 p-4">
+                    <span role="status" className="sr-only">
+                      Loading the canvas…
+                    </span>
+                    <Skeleton shape="block" />
+                  </div>
                 }
               >
-                <CanvasEditor itemId={itemId} />
+                <CanvasEditor itemId={itemId} cacheBody={!lock.locked} />
               </Suspense>
             ) : bodyKind === 'spreadsheet' ? (
-              <SheetEditor itemId={itemId} />
+              <SheetEditor itemId={itemId} cacheBody={!lock.locked} />
             ) : bodyKind === 'file' ? (
               <FileViewer itemId={itemId} />
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
-              <NoteEditor itemId={itemId} />
+              <NoteEditor itemId={itemId} cacheBody={!lock.locked} />
             )
           ) : (
             <section aria-label="Container" className={paneColumn}>

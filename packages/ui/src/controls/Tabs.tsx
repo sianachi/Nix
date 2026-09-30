@@ -3,8 +3,10 @@ import { X } from 'lucide-react';
 import { useRef, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 
 import { cn } from '../lib/cn';
+import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
+import { type MenuEntry } from './Menu';
 import { Icon } from '../primitives/Icon';
-import { focusRing, inkWashStates } from '../primitives/interaction';
+import { chromeSurface, focusRing, inkWashStates } from '../primitives/interaction';
 
 /**
  * <Tabs> - a strip of open, independent documents, one of them showing.
@@ -75,11 +77,17 @@ export interface TabsProps {
   /** Its presence enables native dragging; callers omit it for coarse-pointer surfaces. */
   readonly drag?: TabsDrag;
 
+  /**
+   * The actions a secondary click on a tab offers, built when the menu opens. Omit, or return no
+   * entries, to leave the browser's own menu in place.
+   */
+  readonly contextMenu?: (id: string) => readonly MenuEntry[];
+
   /** Layout only. */
   readonly className?: string;
 }
 
-const tablistVariants = cva('flex min-w-0 items-stretch', {
+const tablistVariants = cva(cn('flex min-w-0 items-stretch', chromeSurface), {
   variants: {
     orientation: {
       // `min-w-0` on the base above is what lets `overflow-x-auto` here ever engage: a caller
@@ -125,6 +133,7 @@ export function Tabs(props: TabsProps): ReactNode {
     onClose,
     orientation = 'horizontal',
     drag,
+    contextMenu,
     className,
   } = props;
   const listRef = useRef<HTMLDivElement>(null);
@@ -189,9 +198,11 @@ export function Tabs(props: TabsProps): ReactNode {
         const active = item.id === activeId;
         const closable = (item.closable ?? true) && onClose !== undefined;
 
-        return (
+        // The tab itself, carrying the context-menu marker only when the caller offers tab actions.
+        const drawTab = (contextTarget?: ContextMenuTargetProps): ReactNode => (
           <div
             key={item.id}
+            {...contextTarget}
             role="tab"
             draggable={drag === undefined ? undefined : true}
             tabIndex={active ? 0 : -1}
@@ -232,31 +243,31 @@ export function Tabs(props: TabsProps): ReactNode {
             {/* `closable` already folds in "the caller accepts a close" - TS narrows `onClose` through the alias. */}
             {closable ? (
               /*
-                A pointer-only affordance, deliberately a span and deliberately outside the
-                accessibility tree: a tablist may own nothing but tabs and a tab may not contain
-                another interactive control, and even a `<button>` at `tabindex="-1"` stays a
-                natively focusable element assistive technology can land on. Keyboard and
-                screen-reader users close with Delete or Backspace on the tab itself, which
-                `aria-keyshortcuts` above announces, and which the tab's own `title` writes down for
-                a sighted keyboard user who has no screen reader to read that attribute out.
-                Hidden until the tab is hovered, focused or active, the same reveal-on-proximity
-                rule the pane divider and sidebar rows use. `pointer-coarse:` mirrors that: a touch
-                pointer never fires `:hover`, so without it the close mark would stay invisible and
-                under the 24px target floor on every tab but the active one - it forces the mark
-                visible and grows its box to `--control-sm`, the same pairing the sidebar's expand
-                control uses.
+              A pointer-only affordance, deliberately a span and deliberately outside the
+              accessibility tree: a tablist may own nothing but tabs and a tab may not contain
+              another interactive control, and even a `<button>` at `tabindex="-1"` stays a
+              natively focusable element assistive technology can land on. Keyboard and
+              screen-reader users close with Delete or Backspace on the tab itself, which
+              `aria-keyshortcuts` above announces, and which the tab's own `title` writes down for
+              a sighted keyboard user who has no screen reader to read that attribute out.
+              Hidden until the tab is hovered, focused or active, the same reveal-on-proximity
+              rule the pane divider and sidebar rows use. `pointer-coarse:` mirrors that: a touch
+              pointer never fires `:hover`, so without it the close mark would stay invisible and
+              under the 24px target floor on every tab but the active one - it forces the mark
+              visible and grows its box to `--control-sm`, the same pairing the sidebar's expand
+              control uses.
 
-                The cost of `aria-hidden` here, so it is not rediscovered as a bug: this X is gone
-                from the accessibility tree for *every* consumer of that tree, which includes
-                voice-control users - "click Close Roadmap" no longer matches anything, and they
-                must reach the tab and press Delete like other keyboard-driven users. That is the
-                price of the tablist pattern's rule against interactive content inside a tab, and
-                it is paid deliberately.
+              The cost of `aria-hidden` here, so it is not rediscovered as a bug: this X is gone
+              from the accessibility tree for *every* consumer of that tree, which includes
+              voice-control users - "click Close Roadmap" no longer matches anything, and they
+              must reach the tab and press Delete like other keyboard-driven users. That is the
+              price of the tablist pattern's rule against interactive content inside a tab, and
+              it is paid deliberately.
 
-                No lint suppression is needed for a click handler with no key handler beside it:
-                `jsx-a11y` stops asking for one once an element is `aria-hidden`, which is the same
-                reasoning as the paragraphs above, reached independently.
-              */
+              No lint suppression is needed for a click handler with no key handler beside it:
+              `jsx-a11y` stops asking for one once an element is `aria-hidden`, which is the same
+              reasoning as the paragraphs above, reached independently.
+            */
               <span
                 aria-hidden="true"
                 title={`Close ${item.label} (Delete)`}
@@ -265,7 +276,7 @@ export function Tabs(props: TabsProps): ReactNode {
                   onClose(item.id);
                 }}
                 className={cn(
-                  'shrink-0 cursor-pointer rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
+                  'shrink-0 cursor-default rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                   'pointer-coarse:flex pointer-coarse:size-(--control-sm) pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100',
                   active && 'opacity-100',
                   inkWashStates,
@@ -275,6 +286,18 @@ export function Tabs(props: TabsProps): ReactNode {
               </span>
             ) : null}
           </div>
+        );
+
+        return contextMenu === undefined ? (
+          drawTab()
+        ) : (
+          <ContextMenu
+            key={item.id}
+            label={`${item.label} tab actions`}
+            items={() => contextMenu(item.id)}
+          >
+            {drawTab}
+          </ContextMenu>
         );
       })}
     </div>

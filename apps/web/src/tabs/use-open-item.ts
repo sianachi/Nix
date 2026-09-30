@@ -8,6 +8,7 @@ import { BESIDE_REFUSAL_COPY, parsePanes, usePanes, type BesideRefusal } from '.
 import { useSelectedItem, writeSelectedItem } from '../routing/selected-item';
 import { ownerOfItem } from './tab-ownership';
 import { useTabStore, type OpenTab } from './tab-store';
+import { withViewTransition } from '../lib/view-transition';
 
 /**
  * The one door a document is opened through - previewed, pinned, or opened beside - and the
@@ -255,11 +256,39 @@ export function useOpenItem(): OpenItemControl {
     [isEditorRoute, locate, focusExisting, tabPinned, paneControl, besideRefusal],
   );
 
+  // Opening a document or switching tabs replaces what a pane shows, so it crossfades rather than
+  // cuts (`withViewTransition` explains how, and when it steps aside). Memoized like the callbacks
+  // they wrap: consumers hold these in effect dependencies and in props of memoized rows.
+  const openPreviewTransition = useCallback(
+    (itemId: string): void => {
+      withViewTransition(() => {
+        openPreview(itemId);
+      });
+    },
+    [openPreview],
+  );
+  const openPinnedTransition = useCallback(
+    (itemId: string): void => {
+      withViewTransition(() => {
+        openPinned(itemId);
+      });
+    },
+    [openPinned],
+  );
+  const activateTabTransition = useCallback(
+    (itemId: string): void => {
+      withViewTransition(() => {
+        activateTab(itemId);
+      });
+    },
+    [activateTab],
+  );
+
   return {
-    openPreview,
-    openPinned,
+    openPreview: openPreviewTransition,
+    openPinned: openPinnedTransition,
     openBeside,
-    activateTab,
+    activateTab: activateTabTransition,
     canOpenBeside: besideRefusal === null,
     besideRefusal,
   };

@@ -155,7 +155,9 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     ...matched.map((command) => ({
       id: `command:${command.id}`,
       label: command.label,
-      hint: command.hint,
+      hint: [command.hint, command.shortcut]
+        .filter((part): part is string => part !== undefined && part !== '')
+        .join(' · '),
       icon: command.icon,
       group: 'Commands',
     })),

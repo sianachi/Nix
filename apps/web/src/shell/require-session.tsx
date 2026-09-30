@@ -1,9 +1,9 @@
-import { Text } from '@nix/ui';
+import { Button, Text } from '@nix/ui';
 import { type ReactNode } from 'react';
 import { Outlet } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
-import { useSessionStore } from '../auth/session-store';
+import { useSessionStore, type Unreachable } from '../auth/session-store';
 import { LoginPage } from '../pages/login-page';
 
 /**
@@ -22,10 +22,27 @@ import { LoginPage } from '../pages/login-page';
 export function RequireSession(): ReactNode {
   const status = useSessionStore((state) => state.status);
   const error = useSessionStore((state) => state.error);
+  const retry = useSessionStore((state) => state.sessionRetryRequested);
+  const unreachable = useSessionStore((state) => state.unreachable);
   const { signIn, isConfigured } = useAuth();
 
   if (status === 'authenticated') {
     return <Outlet />;
+  }
+
+  // Before the restoring screen, and also while a retry is in flight: the unreachable screen
+  // stays and says it is trying, rather than flashing "Restoring session…" and back.
+  if (
+    unreachable !== null &&
+    (status === 'unreachable' || status === 'unknown' || status === 'authenticating')
+  ) {
+    return (
+      <UnreachableScreen
+        unreachable={unreachable}
+        retrying={status !== 'unreachable'}
+        onRetry={retry}
+      />
+    );
   }
 
   if (status === 'unknown' || status === 'authenticating') {
@@ -52,5 +69,44 @@ export function RequireSession(): ReactNode {
       error={error ?? configurationHint}
       host={globalThis.location.host}
     />
+  );
+}
+
+/**
+ * Core could not be reached. Says which of the two it is as far as the browser can tell - this
+ * device has no network, or it has one and the server is not answering - because the two ask
+ * different things of the person: reconnect, or wait. Either way Nix keeps trying by itself, and
+ * the screen says when it last did.
+ */
+function UnreachableScreen(props: {
+  readonly unreachable: Unreachable;
+  readonly retrying: boolean;
+  readonly onRetry: () => void;
+}): ReactNode {
+  const { unreachable, retrying, onRetry } = props;
+  const offline = unreachable.cause === 'offline';
+  const lastTried = new Date(unreachable.lastTriedAt).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  return (
+    <main className="flex min-h-dvh items-center justify-center bg-background px-6">
+      <div className="flex max-w-md flex-col items-start gap-3">
+        <Text as="h1" variant="h2">
+          {offline ? 'Nix is offline' : 'Nix can’t reach its server'}
+        </Text>
+        <Text as="p" variant="body" tone="muted">
+          {offline
+            ? 'Reconnect to open your workspace. Nix will try again as soon as this device is back online.'
+            : 'Your connection is working, but the Nix server is not answering. Nix will keep trying.'}
+        </Text>
+        <Text as="p" variant="note" tone="muted" role="status">
+          {retrying ? 'Trying again…' : `Last tried at ${lastTried}.`}
+        </Text>
+        <Button variant="secondary" disabled={retrying} onClick={onRetry}>
+          {retrying ? 'Trying…' : 'Try again'}
+        </Button>
+      </div>
+    </main>
   );
 }

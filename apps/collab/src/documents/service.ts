@@ -226,6 +226,12 @@ export async function applyUpdate(
  * simply the newest entry in it, and the state being restored *from* remains exactly as
  * reachable as it was before.
  *
+ * **Keep it that way: clients depend on it.** Browsers keep a local copy of bodies they have
+ * opened and reconcile it with the live document on every open (ADR-0053). That is safe only
+ * because no path rewinds a document under the same `docId`; one that did - a backup restore, a
+ * purge - would have every stale copy push the removed content back. Such an operation must give
+ * the document a new `docId` so clients halt instead.
+ *
  * Only a note's prose fragment has a defined "content" to pour a reconstruction into - a
  * canvas's elements and a sheet's cells are addressed by key, not replaced wholesale, and
  * neither strategy implements the floor {@link BodyKindStrategy.repair} relies on for the same

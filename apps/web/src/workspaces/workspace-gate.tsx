@@ -10,6 +10,7 @@ import {
   LoadingPanel,
   PartialNotice,
 } from '../components/states/status-panels';
+import { SHARE_PARAMETERS } from '../launch/launch-intent';
 import { readLastWorkspaceId } from './last-workspace';
 import { useAccessibleWorkspaces, WorkspaceProvider } from './workspace-context';
 
@@ -25,6 +26,18 @@ export function safeLegacySearch(search: string, preserveResources: boolean): st
     }
   }
   const value = params.toString();
+  return value.length === 0 ? '' : `?${value}`;
+}
+
+/** Keeps only a share launch's own parameters, dropping anything else a sharing app appended. */
+export function launchSearch(search: string): string {
+  const incoming = new URLSearchParams(search);
+  const kept = new URLSearchParams();
+  for (const name of SHARE_PARAMETERS) {
+    const value = incoming.get(name);
+    if (value !== null) kept.set(name, value);
+  }
+  const value = kept.toString();
   return value.length === 0 ? '' : `?${value}`;
 }
 
@@ -94,12 +107,11 @@ export function LegacyWorkspaceRedirect(): ReactNode {
   if (selected === undefined) return null;
 
   const suffix = location.pathname === '/' ? '' : location.pathname;
-  return (
-    <Navigate
-      replace
-      to={`/w/${selected.id}${suffix}${safeLegacySearch(location.search, rememberedWorkspace !== undefined)}${location.hash}`}
-    />
-  );
+  // A launch carries what was shared in its query; every other legacy address has it scrubbed.
+  const search = location.pathname.startsWith('/launch/')
+    ? launchSearch(location.search)
+    : safeLegacySearch(location.search, rememberedWorkspace !== undefined);
+  return <Navigate replace to={`/w/${selected.id}${suffix}${search}${location.hash}`} />;
 }
 
 export function WorkspaceGate({ children }: { readonly children: ReactNode }): ReactNode {

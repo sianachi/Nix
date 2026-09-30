@@ -41,5 +41,11 @@ export function signedIn(): void {
 
 /** Returns the session store to its initial, nobody-signed-in state. */
 export function resetSession(): void {
-  useSessionStore.setState({ status: 'anonymous', profile: null, error: null });
+  useSessionStore.setState({
+    status: 'anonymous',
+    profile: null,
+    error: null,
+    restoreAttempt: 0,
+    unreachable: null,
+  });
 }

@@ -13,6 +13,7 @@ import {
 } from '../core/timestamps';
 import { RescheduleDialog } from './reschedule-dialog';
 import { useRovingGrid } from './use-roving-grid';
+import { CalendarEntryMenu } from './calendar-entry-menu';
 
 /**
  * A day or a week, drawn against the hours.
@@ -656,36 +657,48 @@ function DayColumn(props: {
           // reaches the same write a drag makes, exactly as the month card's own reschedule
           // control does. A span sets an explicit `height`, computed from its duration; a point
           // sets none and draws at its content's own height, exactly as it always has.
-          <div
+          <CalendarEntryMenu
             key={entry.item.id}
-            style={position} // design-token-exempt: computed from the data and the overlap sweep
-            className="absolute flex items-stretch gap-0.5 rounded-sm bg-accent/18"
+            itemId={entry.item.id}
+            title={readPropertyText(entry.item, 'title')}
+            onOpen={onOpen}
+            onReschedule={onReschedule}
           >
-            <button
-              type="button"
-              onClick={() => {
-                onOpen(entry.item.id);
-              }}
-              className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-            >
-              <span className="truncate font-medium">{readPropertyText(entry.item, 'title')}</span>
-              <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
-            </button>
-
-            {onReschedule === undefined ? null : (
-              <Button
-                variant="ghost"
-                aria-label={`Reschedule ${readPropertyText(entry.item, 'title') || 'Untitled'}`}
-                aria-haspopup="dialog"
-                className="shrink-0 self-start px-0.5 py-1"
-                onClick={() => {
-                  onReschedule(entry.item.id);
-                }}
+            {(contextTarget) => (
+              <div
+                {...contextTarget}
+                style={position} // design-token-exempt: computed from the data and the overlap sweep
+                className="absolute flex items-stretch gap-0.5 rounded-sm bg-accent/18"
               >
-                <Icon icon={CalendarClock} size="sm" />
-              </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpen(entry.item.id);
+                  }}
+                  className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                >
+                  <span className="truncate font-medium">
+                    {readPropertyText(entry.item, 'title')}
+                  </span>
+                  <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
+                </button>
+
+                {onReschedule === undefined ? null : (
+                  <Button
+                    variant="ghost"
+                    aria-label={`Reschedule ${readPropertyText(entry.item, 'title') || 'Untitled'}`}
+                    aria-haspopup="dialog"
+                    className="shrink-0 self-start px-0.5 py-1"
+                    onClick={() => {
+                      onReschedule(entry.item.id);
+                    }}
+                  >
+                    <Icon icon={CalendarClock} size="sm" />
+                  </Button>
+                )}
+              </div>
             )}
-          </div>
+          </CalendarEntryMenu>
         );
       })}
     </div>
@@ -865,23 +878,32 @@ function AllDayBand(props: {
             )}
           >
             {allDay.map((item) => (
-              /* `relative before:*`: the drawn chip is about 19px tall (`text-xs` at its 1.4 line
+              <CalendarEntryMenu
+                key={item.id}
+                itemId={item.id}
+                title={readPropertyText(item, 'title')}
+                onOpen={onOpen}
+              >
+                {(contextTarget) => (
+                  /* `relative before:*`: the drawn chip is about 19px tall (`text-xs` at its 1.4 line
                  height plus `py-0.5`), under WCAG 2.5.8's 24px floor, and making it taller would
                  push the band's rows apart. The pseudo-element widens what a pointer has to hit
                  without widening what the eye sees - the same technique, with the same reasoning,
                  as @nix/ui's PaneDivider grab band. `-inset-y-1` is one spacing step (3.4px) past
                  each edge, which clears the floor with room for the density to tighten. The
                  column's `gap-2` is what gives those extensions somewhere to go; see it above. */
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => {
-                  onOpen(item.id);
-                }}
-                className="relative block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-              >
-                {readPropertyText(item, 'title')}
-              </button>
+                  <button
+                    {...contextTarget}
+                    type="button"
+                    onClick={() => {
+                      onOpen(item.id);
+                    }}
+                    className="relative block w-full truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs before:absolute before:inset-x-0 before:-inset-y-1 hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                  >
+                    {readPropertyText(item, 'title')}
+                  </button>
+                )}
+              </CalendarEntryMenu>
             ))}
 
             {/* `opacity-0`/`pointer-events-none`, not `invisible` - see the hour cell's own

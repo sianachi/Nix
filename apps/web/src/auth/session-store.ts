@@ -23,7 +23,20 @@ export type SessionStatus =
   /** Signed out, or never signed in. */
   | 'anonymous'
   /** Sign-in was attempted and failed. `error` says why. */
-  | 'failed';
+  | 'failed'
+  /**
+   * Core could not be reached at all - the device is offline, or the server is not answering. Not
+   * a sign-in failure: nothing is known about the session, so neither the login screen nor the
+   * workspace is honest. `unreachable` says which, and restoration is retried.
+   */
+  | 'unreachable';
+
+/** Why Core could not be reached, as far as the browser can tell. */
+export interface Unreachable {
+  /** `offline` when the device reports no network; `server` when it has one and Core is silent. */
+  readonly cause: 'offline' | 'server';
+  readonly lastTriedAt: number;
+}
 
 export interface SessionProfile {
   /** The issuer's stable subject claim. Not an email - people change those. */
@@ -36,6 +49,13 @@ export interface SessionState {
   readonly status: SessionStatus;
   readonly profile: SessionProfile | null;
   readonly error: string | null;
+  /** Bumped to ask the provider for another restore attempt after `unreachable`. */
+  readonly restoreAttempt: number;
+  /**
+   * The last unreachable answer, kept while a retry is in flight so the offline screen stays up
+   * and says it is trying, rather than flashing the restoring screen and back.
+   */
+  readonly unreachable: Unreachable | null;
 
   /** A sign-in or session restore has started. */
   readonly signInStarted: () => void;
@@ -45,6 +65,10 @@ export interface SessionState {
   readonly signInSucceeded: (profile: SessionProfile) => void;
   /** Sign-in failed, or a renew failed and the session is gone. */
   readonly signInFailed: (message: string) => void;
+  /** The session restore could not reach Core at all. */
+  readonly sessionUnreachable: (cause: Unreachable['cause']) => void;
+  /** Ask for the session to be restored again, after the network returns. */
+  readonly sessionRetryRequested: () => void;
   /**
    * The session ended, deliberately or otherwise. `reason` is set only when the ending itself
    * needs explaining - a session that expired underneath the person - and left unset for a
@@ -57,6 +81,8 @@ export const useSessionStore = create<SessionState>((set) => ({
   status: 'unknown',
   profile: null,
   error: null,
+  restoreAttempt: 0,
+  unreachable: null,
 
   signInStarted: () => {
     set({ status: 'authenticating', error: null });
@@ -69,17 +95,34 @@ export const useSessionStore = create<SessionState>((set) => ({
   },
 
   signInSucceeded: (profile) => {
-    set({ status: 'authenticated', profile, error: null });
+    set({ status: 'authenticated', profile, error: null, unreachable: null });
   },
 
   signInFailed: (message) => {
     // The profile is cleared as well as the status set: a half-signed-in state where a stale name
     // is still rendered next to a failure is exactly the kind of dishonest view to avoid.
-    set({ status: 'failed', profile: null, error: message });
+    set({ status: 'failed', profile: null, error: message, unreachable: null });
+  },
+
+  sessionUnreachable: (cause) => {
+    set({
+      status: 'unreachable',
+      profile: null,
+      error: null,
+      unreachable: { cause, lastTriedAt: Date.now() },
+    });
+  },
+
+  sessionRetryRequested: () => {
+    set((state) =>
+      state.status === 'unreachable'
+        ? { status: 'unknown', restoreAttempt: state.restoreAttempt + 1 }
+        : state,
+    );
   },
 
   signedOut: (reason) => {
-    set({ status: 'anonymous', profile: null, error: reason ?? null });
+    set({ status: 'anonymous', profile: null, error: reason ?? null, unreachable: null });
   },
 }));
 

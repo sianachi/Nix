@@ -44,6 +44,7 @@ import { EditorAddressDialog, type EditorAddressKind } from './editor-address-di
 import { EmacsKeymap } from './emacs-keymap';
 import { MoveBlock } from './move-block';
 import { useKeyboardModeStore } from './keyboard-mode-store';
+import { documentScope } from './body-cache';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
 import { SyncFooter } from './sync-footer';
@@ -62,6 +63,7 @@ import { renderToggleButton, toggleSummaryView } from './toggle-button';
 import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
+import { LOCAL_COPY_STALE, StaleCopyNotice } from './stale-copy-notice';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -84,6 +86,12 @@ export interface NoteEditorProps {
   readonly mobileActions?: ReactNode;
   readonly documentPath?: string | undefined;
   readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
+  /**
+   * Keep a local copy of this body so reopening it paints at once (see `body-cache.ts`). Off
+   * unless the page says so: only a page that has read the item's lock state knows the body
+   * carries no lock, and a locked body is never kept on disk.
+   */
+  readonly cacheBody?: boolean;
 }
 
 /**
@@ -387,6 +395,7 @@ export function NoteEditor({
   documentPath,
   onSync,
   mobileActions,
+  cacheBody = false,
 }: NoteEditorProps): ReactNode {
   const narrow = useDrawerNavigation();
   const { getAccessToken } = useAuth();
@@ -400,6 +409,9 @@ export function NoteEditor({
   // event: the document on screen still shows the edit, and the only honest thing to do is say
   // it did not stick.
   const [refusal, setRefusal] = useState<string | null>(null);
+  // The painted local copy turned out to be another version's; see `StaleCopyNotice`.
+  const [stale, setStale] = useState(false);
+  const [localCopy, setLocalCopy] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(0);
   const [uploadingFileIndex, setUploadingFileIndex] = useState(0);
@@ -646,6 +658,11 @@ export function NoteEditor({
     selector: ({ editor: current }) => vimStatusMode(current.state),
   });
 
+  // A stale copy stops syncing, so typing into it would go nowhere; say so by not accepting it.
+  useEffect(() => {
+    if (stale) editor.setEditable(false);
+  }, [editor, stale]);
+
   useEffect(() => {
     setVimEnabled(editor.view, keyboardMode === 'vim');
     describeEditorWith(editor.view.dom, vimDescriptionId, keyboardMode === 'vim');
@@ -739,20 +756,15 @@ export function NoteEditor({
   }, [doc, fragment]);
 
   useEffect(() => {
+    const scope = documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'note');
     const sync = startCollabSync({
       itemId,
       documentPath,
-      ...(profile?.subject && workspaceId
-        ? {
-            draftScope: JSON.stringify([
-              profile.subject,
-              workspaceId,
-              itemId,
-              documentPath ?? 'note',
-            ]),
-            onDraftState: setDraftState,
-          }
-        : {}),
+      onLocalCopy: () => {
+        setLocalCopy(true);
+      },
+      cacheScope: cacheBody ? scope : undefined,
+      ...(scope === undefined ? {} : { draftScope: scope, onDraftState: setDraftState }),
       doc,
       awareness,
       fragmentName: FRAGMENT_NAME,
@@ -766,6 +778,7 @@ export function NoteEditor({
         setSyncState(state);
       },
       onNotice: (notice) => {
+        if (notice.code === LOCAL_COPY_STALE) setStale(true);
         const copy = REFUSAL_COPY[notice.code];
         if (copy !== undefined) {
           setRefusal(copy);
@@ -778,7 +791,17 @@ export function NoteEditor({
       onSync?.(null);
       sync.destroy();
     };
-  }, [awareness, doc, documentPath, getAccessToken, itemId, onSync, profile?.subject, workspaceId]);
+  }, [
+    awareness,
+    cacheBody,
+    doc,
+    documentPath,
+    getAccessToken,
+    itemId,
+    onSync,
+    profile?.subject,
+    workspaceId,
+  ]);
 
   // Who this cursor belongs to, told to everyone else. The color is picked by client
   // identifier so two tabs of the same person still read as two cursors.
@@ -861,6 +884,7 @@ export function NoteEditor({
               formatting
             )}
 
+            {stale ? <StaleCopyNotice noun="note" /> : null}
             {refusal === null ? null : (
               <Text
                 variant="caption"
@@ -1111,7 +1135,7 @@ export function NoteEditor({
               </Text>
             )}
           </div>
-          <SyncFooter state={syncState} draftState={draftState} />
+          <SyncFooter showingLocalCopy={localCopy} state={syncState} draftState={draftState} />
         </div>
       </ReferenceResolutionProvider>
     </NoteSourcesProvider>

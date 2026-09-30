@@ -376,4 +376,45 @@ describe('a vertical strip', () => {
     // A tablist that answered to both axes would be lying about `aria-orientation`.
     expect(screen.getByRole('tab', { name: 'Meeting notes' })).toHaveFocus();
   });
+
+  it('offers the actions the caller builds for the tab that was secondary-clicked', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const contextMenu = vi.fn((id: string) => [
+      { kind: 'action' as const, label: `Close ${id}`, onSelect },
+    ]);
+    render(
+      <Tabs
+        label="Open documents"
+        items={OPEN}
+        activeId="a"
+        onActivate={vi.fn()}
+        contextMenu={contextMenu}
+      />,
+    );
+
+    expect(fireEvent.contextMenu(screen.getByRole('tab', { name: 'Roadmap' }))).toBe(false);
+    // Open, but not rendered inside the tablist, which may own nothing but tabs.
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    expect(within(screen.getByRole('tablist')).queryByRole('menu')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Close b' }));
+
+    expect(contextMenu).toHaveBeenCalledWith('b');
+    expect(onSelect).toHaveBeenCalledOnce();
+  });
+
+  it('leaves the browser menu alone without a context menu', () => {
+    render(<Tabs label="Open documents" items={OPEN} activeId="a" onActivate={vi.fn()} />);
+
+    expect(fireEvent.contextMenu(screen.getByRole('tab', { name: 'Roadmap' }))).toBe(true);
+  });
+
+  it('keeps its labels out of text selection while leaving fields inside selectable', () => {
+    render(<Tabs label="Open documents" items={OPEN} activeId="a" onActivate={vi.fn()} />);
+
+    expect(screen.getByRole('tablist')).toHaveClass(
+      'select-none',
+      '[&_:is(input,textarea,[contenteditable]:not([contenteditable=false]))]:select-text',
+    );
+  });
 });

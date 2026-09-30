@@ -6,8 +6,10 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
   "background_color": "#f2f2f3",
   "theme_color": "#f2f2f3",
+  "launch_handler": { "client_mode": ["navigate-existing", "auto"] },
   "icons": [
     {
       "src": "/nix-icon-192.png",
@@ -26,6 +28,38 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New note",
+      "short_name": "New",
+      "description": "Create a note in your workspace",
+      "url": "/launch/new",
+      "icons": [{ "src": "/nix-icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Today",
+      "description": "Open today's daily note",
+      "url": "/launch/today",
+      "icons": [{ "src": "/nix-icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Search",
+      "description": "Search your workspace",
+      "url": "/launch/search",
+      "icons": [{ "src": "/nix-icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "share_target": {
+    "action": "/launch/share",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
+  "file_handlers": [
+    {
+      "action": "/launch/open",
+      "accept": { "text/markdown": [".md", ".markdown"] }
     }
   ]
 }

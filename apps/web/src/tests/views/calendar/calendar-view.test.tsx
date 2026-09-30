@@ -236,6 +236,21 @@ describe('the calendar view', () => {
     expect(within(dialog).getByLabelText('New date for Kickoff')).toHaveValue('2026-03-17');
   });
 
+  it('offers opening and rescheduling on a secondary click of an entry', async () => {
+    const person = user();
+    renderCalendar({ children: [KICKOFF] });
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Kickoff' }), {
+      clientX: 20,
+      clientY: 20,
+    });
+    const menu = screen.getByRole('menu', { name: 'Kickoff actions' });
+    expect(within(menu).getByRole('menuitem', { name: 'Open' })).toBeInTheDocument();
+    await person.click(within(menu).getByRole('menuitem', { name: 'Reschedule…' }));
+
+    expect(screen.getByRole('dialog', { name: 'Reschedule Kickoff' })).toBeInTheDocument();
+  });
+
   it('reschedules an item from the keyboard, writing the day the person named', async () => {
     const person = user();
     const { setProperties } = renderCalendar({ children: [KICKOFF] });

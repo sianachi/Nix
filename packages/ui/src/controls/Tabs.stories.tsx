@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { type Meta, type StoryObj } from '@storybook/react-vite';
+import { expect, fireEvent, fn, within } from 'storybook/test';
 
 import { Select } from './Select';
 import { Tabs, type TabItem, type TabsOrientation } from './Tabs';
@@ -241,4 +242,26 @@ export const Vertical: Story = {
 /** Drag a tab from either strip to the other; app code decides what the move means. */
 export const DraggableBetweenStrips: Story = {
   render: () => <TransferExample />,
+};
+
+/** A secondary click on a tab offers the caller's actions; the menu is portalled out of the strip. */
+export const WithContextMenu: Story = {
+  args: {
+    contextMenu: (id) => [
+      { kind: 'action', label: 'Close', shortcut: 'Delete', onSelect: fn() },
+      { kind: 'action', label: 'Close other tabs', onSelect: fn() },
+      { kind: 'separator' },
+      { kind: 'action', label: `Keep ${id} open`, onSelect: fn() },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await fireEvent.contextMenu(canvas.getByRole('tab', { name: 'Roadmap' }), {
+      clientX: 60,
+      clientY: 20,
+    });
+    await expect(
+      within(document.body).getByRole('menu', { name: 'Roadmap tab actions' }),
+    ).toBeInTheDocument();
+  },
 };

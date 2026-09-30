@@ -35,6 +35,32 @@ export const focusRing =
 export const focusRingInset =
   'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent';
 
+/**
+ * Application chrome - toolbars, rails, headers, tab strips, sidebars, menus: surfaces a person
+ * operates rather than reads. Their labels do not take a text selection, so a double-click on a
+ * row or a drag across a toolbar does not paint a highlight the way it would on a web page, which
+ * is one of the quickest tells that an application is one.
+ *
+ * Text fields inside chrome stay selectable - a name being typed into a sidebar row is content,
+ * and iOS will not place a caret in a field whose ancestor refuses selection.
+ */
+export const chromeSurface =
+  'select-none [&_:is(input,textarea,[contenteditable]:not([contenteditable=false]))]:select-text';
+
+/**
+ * Whether an event landed where typing happens - a field or editable content. The one definition
+ * of "a text target", shared by the context menu (which leaves the browser's own menu there, for
+ * spelling and paste) and the application's shortcuts (which leave bare keys to the typist), and
+ * matching the fields `chromeSurface` keeps selectable.
+ */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return (
+    target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !==
+    null
+  );
+}
+
 /** Disabled controls: 45% opacity, and a cursor that says "not this one". */
 export const disabledState = 'disabled:cursor-not-allowed disabled:opacity-45';
 

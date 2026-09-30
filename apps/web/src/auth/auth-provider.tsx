@@ -1,3 +1,4 @@
+import { clearBodyCache, openBodyCache } from '../editor/body-cache';
 import { clearDrafts } from '../editor/draft-journal';
 import { clearInterruptedImport } from '../import/import-interrupted-notice';
 import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -60,6 +61,21 @@ interface AccessTokenState {
   readonly expiresAt: number;
 }
 
+/** Core could not be reached: no response arrived, or a proxy answered for it. */
+class CoreUnreachable extends Error {
+  constructor(readonly reason: 'offline' | 'server') {
+    super(reason === 'offline' ? 'This device is offline.' : 'The Nix server is not answering.');
+  }
+}
+
+/** Whether a request that got no answer at all did so for want of a network on this device. */
+function networkCause(): 'offline' | 'server' {
+  return typeof navigator !== 'undefined' && !navigator.onLine ? 'offline' : 'server';
+}
+
+/** How long to wait before each automatic retry while Core is unreachable. */
+const RETRY_DELAYS_MS = [5_000, 15_000, 30_000, 60_000] as const;
+
 function toProfile(profile: z.infer<typeof browserProfileSchema>): SessionProfile {
   return { subject: profile.subject, name: profile.name, email: null };
 }
@@ -85,6 +101,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const signInSucceeded = useSessionStore((state) => state.signInSucceeded);
   const signInFailed = useSessionStore((state) => state.signInFailed);
   const signedOut = useSessionStore((state) => state.signedOut);
+  const sessionUnreachable = useSessionStore((state) => state.sessionUnreachable);
+  const sessionRetryRequested = useSessionStore((state) => state.sessionRetryRequested);
+  const restoreAttempt = useSessionStore((state) => state.restoreAttempt);
 
   useEffect(() => {
     // A remounted provider must not replace a definitive in-memory state with a second restore.
@@ -95,6 +114,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     }
 
     const controller = new AbortController();
+    const isAborted = (): boolean => controller.signal.aborted;
     let settled = false;
     signInStarted();
 
@@ -105,14 +125,24 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       headers: { Accept: 'application/json' },
       signal: controller.signal,
     })
+      // Classified here, at the one call that can fail for want of a network, rather than by
+      // error type below: a TypeError from a bug later in this chain is a failure to report, not
+      // an outage to wait out.
+      .catch((cause: unknown) => {
+        throw controller.signal.aborted ? cause : new CoreUnreachable(networkCause());
+      })
       .then(async (response) => {
+        // A proxy answering for a Core that is down or restarting.
+        if (response.status === 502 || response.status === 503 || response.status === 504) {
+          throw new CoreUnreachable('server');
+        }
         if (!response.ok) {
           throw new Error('Core could not restore the browser session.');
         }
 
         return browserSessionSchema.parse(await readJson(response));
       })
-      .then((session) => {
+      .then(async (session) => {
         if (controller.signal.aborted) {
           return;
         }
@@ -129,7 +159,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
             value: session.accessToken,
             expiresAt: Date.parse(session.expiresAt),
           };
-          signInSucceeded(toProfile(session.profile));
+          const profile = toProfile(session.profile);
+          // Opened before the workspace can mount an editor: a different person than the store
+          // last belonged to clears it first. A store that cannot be opened stays closed, which
+          // costs only the instant first paint.
+          await openBodyCache(profile.subject).catch(() => undefined);
+          // Read through a call: the narrowing above cannot see an abort during the await.
+          if (isAborted()) return;
+          signInSucceeded(profile);
           return;
         }
 
@@ -143,6 +180,10 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
 
         settled = true;
         accessTokenRef.current = null;
+        if (error instanceof CoreUnreachable) {
+          sessionUnreachable(error.reason);
+          return;
+        }
         signInFailed(error instanceof Error ? error.message : 'Session could not be restored.');
       });
 
@@ -152,13 +193,39 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         sessionRestoreCancelled();
       }
     };
-  }, [sessionRestoreCancelled, signInFailed, signInStarted, signInSucceeded, signedOut]);
+  }, [
+    restoreAttempt,
+    sessionRestoreCancelled,
+    sessionUnreachable,
+    signInFailed,
+    signInStarted,
+    signInSucceeded,
+    signedOut,
+  ]);
+
+  // While Core is unreachable: try again the moment the device reports a network, and on a
+  // lengthening timer regardless - a server that is down comes back without the device's network
+  // ever changing, so waiting for `online` alone would wait forever.
+  const status = useSessionStore((state) => state.status);
+  useEffect(() => {
+    if (status !== 'unreachable') return;
+    const delay = RETRY_DELAYS_MS[Math.min(restoreAttempt, RETRY_DELAYS_MS.length - 1)];
+    const timer = setTimeout(sessionRetryRequested, delay);
+    window.addEventListener('online', sessionRetryRequested);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('online', sessionRetryRequested);
+    };
+  }, [restoreAttempt, sessionRetryRequested, status]);
 
   useEffect(() => {
     const clearSession = (): void => {
       accessTokenRef.current = null;
       refreshRef.current = null;
       signedOut();
+      // The signing-out tab already cleared the shared store; clearing here as well stops this
+      // tab's editors from writing a copy back after it did.
+      if (typeof indexedDB !== 'undefined') void clearBodyCache().catch(() => undefined);
     };
     window.addEventListener('nix:signed-out-elsewhere', clearSession);
     return () => {
@@ -188,7 +255,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         clearInterruptedImport();
         const draftsCleared =
           typeof indexedDB === 'undefined' ||
-          (await clearDrafts().then(
+          (await Promise.all([clearDrafts(), clearBodyCache()]).then(
             () => true,
             () => false,
           ));
@@ -205,7 +272,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
           signedOut();
           if (!draftsCleared)
             signInFailed(
-              'Signed out. Local drafts could not be cleared. Clear this site’s storage before sharing this device.',
+              'Signed out. Local drafts and saved pages could not be cleared. Clear this site’s storage before sharing this device.',
             );
         }
       },

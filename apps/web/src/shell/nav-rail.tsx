@@ -1,4 +1,4 @@
-import { Icon, Text, focusRing } from '@nix/ui';
+import { Icon, Text, chromeSurface, focusRing } from '@nix/ui';
 import {
   Bookmark,
   CalendarClock,
@@ -234,7 +234,10 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
     // than only alongside the tree, so it stays one continuous line rather than a border that
     // starts partway down. Named, because a shell with a rail and a workspace tree has more than
     // one way to move around and "navigation, navigation" is not a landmark list anybody can use.
-    <nav aria-label="Destinations" className="flex shrink-0 border-r border-divider bg-surface">
+    <nav
+      aria-label="Destinations"
+      className={`flex shrink-0 border-r border-divider bg-surface ${chromeSurface}`}
+    >
       <ul className="flex min-h-0 flex-1 list-none flex-col items-center gap-1 px-1 py-2 max-lg:items-stretch max-lg:px-2">
         {items.map((item, index) => {
           const current = index === currentIndex;

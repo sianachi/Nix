@@ -13,7 +13,12 @@ import {
 import { cn } from '../lib/cn';
 import { blueprintFrame } from '../primitives/Blueprint';
 import { Icon } from '../primitives/Icon';
-import { disabledState, focusRingInset, inkWashStates } from '../primitives/interaction';
+import {
+  chromeSurface,
+  disabledState,
+  focusRingInset,
+  inkWashStates,
+} from '../primitives/interaction';
 import { placeFloatingMenu, readViewportBounds } from '../primitives/placement';
 
 /**
@@ -67,6 +72,8 @@ export interface MenuAction {
   /** Marks a destructive action (leave, delete, sign out) without a colour the system does not have. */
   readonly destructive?: boolean;
   readonly disabled?: boolean;
+  /** The keyboard shortcut that does the same thing, shown after the label - display only. */
+  readonly shortcut?: string;
   readonly onSelect: () => void;
 }
 
@@ -187,19 +194,112 @@ const itemClass = cn(
 );
 
 export function Menu(props: MenuProps): ReactNode {
-  const { label, items, children, renderLink = defaultRenderLink, className } = props;
+  const { label, items, children, renderLink, className } = props;
 
   const panelId = useId();
-  const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [open, setOpen] = useState<'first' | 'last' | null>(null);
   // Bumped whenever a close should hand focus back to the trigger. A counter rather than a plain
   // boolean so two closes in a row - vanishingly unlikely, but free to handle - each still fire the
   // effect below, and a token rather than a direct ref read here: every path that can close the
-  // menu is reachable from inside the rendered item list (a click handler built in `items.map`),
-  // and reading `triggerRef.current` from there is a render-time ref access. Moving the read into
-  // its own effect, keyed on this token, is what keeps it one.
+  // menu is reachable from inside the rendered item list, and reading `triggerRef.current` from
+  // there is a render-time ref access. Moving the read into its own effect, keyed on this token,
+  // is what keeps it one.
   const [focusReturnToken, setFocusReturnToken] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (focusReturnToken === 0) return;
+    triggerRef.current?.focus();
+  }, [focusReturnToken]);
+
+  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      setOpen('first');
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setOpen('last');
+    }
+  };
+
+  return (
+    <>
+      {children({
+        ref: triggerRef,
+        type: 'button',
+        'aria-haspopup': 'menu',
+        'aria-expanded': open !== null,
+        'aria-controls': panelId,
+        onClick: () => {
+          setOpen((current) => (current === null ? 'first' : null));
+        },
+        onKeyDown: onTriggerKeyDown,
+      })}
+
+      {open !== null ? (
+        <MenuPanel
+          id={panelId}
+          label={label}
+          items={items}
+          initial={open}
+          renderLink={renderLink}
+          className={className}
+          ignoreOutside={triggerRef}
+          anchor={() => {
+            const rect = triggerRef.current?.getBoundingClientRect();
+            return rect ? { left: rect.left, top: rect.top, bottom: rect.bottom } : null;
+          }}
+          onClose={(returnFocus) => {
+            setOpen(null);
+            if (returnFocus) setFocusReturnToken((token) => token + 1);
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** What a panel is anchored to: a trigger's rectangle, or the point a context menu opened at. */
+export interface MenuPanelAnchor {
+  readonly left: number;
+  readonly top: number;
+  readonly bottom: number;
+}
+
+export interface MenuPanelProps {
+  readonly id?: string;
+  readonly label: string;
+  readonly items: readonly MenuEntry[];
+  /** Which interactive entry takes focus first. */
+  readonly initial: 'first' | 'last';
+  readonly renderLink?: ((props: MenuLinkRenderProps) => ReactNode) | undefined;
+  readonly className?: string | undefined;
+  /** Read on open and on every viewport change; `null` leaves the panel where it is. */
+  readonly anchor: () => MenuPanelAnchor | null;
+  /** A pointerdown inside this element is not an outside click - the trigger toggles itself. */
+  readonly ignoreOutside?: RefObject<HTMLElement | null>;
+  /** `returnFocus` is true for a choice or Escape, false for Tab, an outside click or a content close. */
+  readonly onClose: (returnFocus: boolean) => void;
+}
+
+/**
+ * The open panel shared by `<Menu>` and `<ContextMenu>`: the item list, roving focus, keyboard
+ * model, outside-click dismissal and placement. Rendered only while open, so its state starts
+ * fresh each time. Not exported from the package - a consumer wants one of the two components.
+ */
+export function MenuPanel(props: MenuPanelProps): ReactNode {
+  const {
+    id,
+    label,
+    items,
+    initial,
+    renderLink = defaultRenderLink,
+    className,
+    anchor,
+    ignoreOutside,
+    onClose,
+  } = props;
+
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Indices into `items` - not a separate numbering - so `activeIndex` always names one entry
@@ -211,26 +311,16 @@ export function Menu(props: MenuProps): ReactNode {
   const firstEnabled = enabledIndices.length > 0 ? enabledIndices[0] : undefined;
   const lastEnabled =
     enabledIndices.length > 0 ? enabledIndices[enabledIndices.length - 1] : undefined;
+  const [activeIndex, setActiveIndex] = useState(
+    () => (initial === 'first' ? firstEnabled : lastEnabled) ?? 0,
+  );
 
-  const closeSilently = (): void => {
-    setOpen(false);
-  };
-
-  const closeAndReturnFocus = (): void => {
-    setOpen(false);
-    setFocusReturnToken((token) => token + 1);
-  };
-
+  // The latest callbacks, read by effects that must not re-run - and re-place or re-bind - every
+  // time a caller passes a fresh closure.
+  const latest = useRef({ anchor, onClose });
   useEffect(() => {
-    if (focusReturnToken === 0) return;
-    triggerRef.current?.focus();
-  }, [focusReturnToken]);
-
-  const openAt = (position: 'first' | 'last'): void => {
-    const target = position === 'first' ? firstEnabled : lastEnabled;
-    if (target !== undefined) setActiveIndex(target);
-    setOpen(true);
-  };
+    latest.current = { anchor, onClose };
+  });
 
   const moveActive = (direction: 1 | -1): void => {
     if (enabledIndices.length === 0) return;
@@ -247,7 +337,7 @@ export function Menu(props: MenuProps): ReactNode {
     } else {
       entry.onSelect();
     }
-    closeAndReturnFocus();
+    onClose(true);
   };
 
   // Focus follows the active index while the menu is open, so arrow keys move real focus rather
@@ -255,40 +345,33 @@ export function Menu(props: MenuProps): ReactNode {
   // position marker rather than a stored ref, so a caller's `renderLink` only has to carry one
   // data attribute through to keep its item in the roving order.
   useEffect(() => {
-    if (!open) return;
     const item = panelRef.current?.querySelector<HTMLElement>(
       `[data-menu-item-index="${String(activeIndex)}"]`,
     );
     item?.focus();
-  }, [open, activeIndex]);
+  }, [activeIndex]);
 
-  // Outside pointerdown closes the menu. Attached only while open, same as every other disclosure
-  // in this package (`Dialog.tsx`'s backdrop, `workspace-switcher.tsx` and `profile-menu.tsx`
-  // before this replaced their own copies of the same effect).
+  // Outside pointerdown closes the menu, the same as every other disclosure in this package.
   useEffect(() => {
-    if (!open) return;
-
     function onPointerDown(event: MouseEvent): void {
       const target = event.target as Node;
-      if (triggerRef.current?.contains(target) === true) return;
+      if (ignoreOutside?.current?.contains(target) === true) return;
       if (panelRef.current?.contains(target) === true) return;
       // Not a return-focus close: the click already moved focus wherever the pointer landed.
-      setOpen(false);
+      latest.current.onClose(false);
     }
 
     document.addEventListener('mousedown', onPointerDown);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
     };
-  }, [open]);
+  }, [ignoreOutside]);
 
-  // Placement: anchored below the trigger, flipped above and clamped 8px inside the visual
-  // viewport - see the component doc comment for why `visualViewport` and not `window` alone.
+  // Placement: anchored below its anchor, flipped above and clamped 8px inside the visual
+  // viewport - see `<Menu>`'s doc comment for why `visualViewport` and not `window` alone.
   useEffect(() => {
-    if (!open) return;
-    const trigger = triggerRef.current;
     const panel = panelRef.current;
-    if (!trigger || !panel) return;
+    if (!panel) return;
 
     const margin = 8;
 
@@ -305,21 +388,18 @@ export function Menu(props: MenuProps): ReactNode {
         return;
       }
 
-      const triggerRect = trigger.getBoundingClientRect();
+      const anchorRect = latest.current.anchor();
+      if (anchorRect === null) return;
       const panelRect = panel.getBoundingClientRect();
 
-      // `minHeight` set to the panel's own measured height (plus the same margin) reproduces
-      // this component's previous flip rule - not enough room below for the panel as rendered -
-      // through the shared primitive rather than a second copy of it.
-      const placement = placeFloatingMenu(
-        { left: triggerRect.left, top: triggerRect.top, bottom: triggerRect.bottom },
-        panelRect.width,
-        readViewportBounds(),
-        { minHeight: panelRect.height + margin },
-      );
+      // `minHeight` set to the panel's own measured height (plus the same margin) flips it
+      // whenever there is not enough room below for the panel as rendered.
+      const placement = placeFloatingMenu(anchorRect, panelRect.width, readViewportBounds(), {
+        minHeight: panelRect.height + margin,
+      });
 
       // A long menu (for example the workspace creator with many templates) can be taller than
-      // either side of its trigger. Cap it to the side we chose before positioning, then let the
+      // either side of its anchor. Cap it to the side we chose before positioning, then let the
       // panel's existing overflow-y-auto make the entries reachable by scrolling.
       panel.style.setProperty('max-height', `${String(placement.maxHeight)}px`);
       panel.style.setProperty('left', `${String(placement.left)}px`);
@@ -340,17 +420,7 @@ export function Menu(props: MenuProps): ReactNode {
       viewport?.removeEventListener('resize', place);
       viewport?.removeEventListener('scroll', place);
     };
-  }, [open, items.length]);
-
-  const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
-    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      openAt('first');
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      openAt('last');
-    }
-  };
+  }, [items.length]);
 
   // Attached once, to the panel, rather than once per item: it is what lets Escape close the menu
   // from a `content` entry's own controls (the profile menu's appearance radios, the workspace
@@ -367,14 +437,14 @@ export function Menu(props: MenuProps): ReactNode {
       // wins, and it wins by stopping propagation at its own node rather than by racing to
       // attach its listener first.
       event.stopPropagation();
-      closeAndReturnFocus();
+      onClose(true);
       return;
     }
 
     if (event.key === 'Tab') {
       // Left alone: the browser still moves focus on, this only drops the panel from the tree
       // first so it does not sit open over whatever comes next.
-      closeSilently();
+      onClose(false);
       return;
     }
 
@@ -405,6 +475,7 @@ export function Menu(props: MenuProps): ReactNode {
   const panelClass = cn(
     blueprintFrame,
     'fixed z-30 flex flex-col overflow-y-auto bg-background py-1 shadow-md',
+    chromeSurface,
     // design-token-exempt: 220px is a minimum reading measure for a short label list, the same
     // category as `Dialog.tsx`'s 560px - not a step on any scale.
     'min-w-[220px] max-w-[calc(100vw-16px)]',
@@ -415,100 +486,94 @@ export function Menu(props: MenuProps): ReactNode {
   );
 
   return (
-    <>
-      {children({
-        ref: triggerRef,
-        type: 'button',
-        'aria-haspopup': 'menu',
-        'aria-expanded': open,
-        'aria-controls': panelId,
-        onClick: () => {
-          if (open) closeSilently();
-          else openAt('first');
-        },
-        onKeyDown: onTriggerKeyDown,
-      })}
+    <div
+      id={id}
+      ref={panelRef}
+      role="menu"
+      aria-label={label}
+      // Not a tab stop of its own: focus lands on an item, never on the menu container itself.
+      // Still needed on the attribute for the same reason `Dialog`'s own `tabIndex={-1}` is.
+      tabIndex={-1}
+      className={panelClass}
+      onKeyDown={onPanelKeyDown}
+      // A right-click inside an open menu is not a request for the browser's own menu on top of it.
+      onContextMenu={(event) => {
+        event.preventDefault();
+      }}
+    >
+      {items.map((entry, index) => {
+        if (entry.kind === 'separator') {
+          return (
+            <div
+              key={`separator-${String(index)}`}
+              role="separator"
+              className="my-1 border-t border-divider"
+            />
+          );
+        }
 
-      {open ? (
-        <div
-          id={panelId}
-          ref={panelRef}
-          role="menu"
-          aria-label={label}
-          // Not a tab stop of its own: focus lands on an item (or stays on the trigger), never on
-          // the menu container itself. Still needed on the attribute for the same reason `Dialog`'s
-          // own `tabIndex={-1}` is - a `role="menu"` this focusable-in-principle owes assistive
-          // technology a stop in the focus order, even one it is never the one actually used.
-          tabIndex={-1}
-          className={panelClass}
-          onKeyDown={onPanelKeyDown}
-        >
-          {items.map((entry, index) => {
-            if (entry.kind === 'separator') {
-              return (
-                <div
-                  key={`separator-${String(index)}`}
-                  role="separator"
-                  className="my-1 border-t border-divider"
-                />
-              );
-            }
+        if (entry.kind === 'content') {
+          const node =
+            typeof entry.content === 'function'
+              ? entry.content({
+                  close: () => {
+                    onClose(false);
+                  },
+                })
+              : entry.content;
+          return <Fragment key={entry.key ?? `content-${String(index)}`}>{node}</Fragment>;
+        }
 
-            if (entry.kind === 'content') {
-              const node =
-                typeof entry.content === 'function'
-                  ? entry.content({ close: closeSilently })
-                  : entry.content;
-              return <Fragment key={entry.key ?? `content-${String(index)}`}>{node}</Fragment>;
-            }
+        const tone = entry.destructive === true ? 'font-semibold' : undefined;
+        const tabIndex = index === activeIndex ? 0 : -1;
+        const key = entry.key ?? entry.label;
 
-            const tone = entry.destructive === true ? 'font-semibold' : undefined;
-            const tabIndex = index === activeIndex ? 0 : -1;
-            const key = entry.key ?? entry.label;
-
-            if (entry.kind === 'link') {
-              return (
-                <Fragment key={key}>
-                  {renderLink({
-                    href: entry.href,
-                    role: 'menuitem',
-                    tabIndex,
-                    className: cn(itemClass, tone),
-                    onClick: () => {
-                      select(entry);
-                    },
-                    children: (
-                      <>
-                        {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
-                        {entry.label}
-                      </>
-                    ),
-                    'data-menu-item-index': index,
-                  })}
-                </Fragment>
-              );
-            }
-
-            return (
-              <button
-                key={key}
-                type="button"
-                role="menuitem"
-                tabIndex={tabIndex}
-                disabled={entry.disabled}
-                data-menu-item-index={index}
-                className={cn(itemClass, tone)}
-                onClick={() => {
+        if (entry.kind === 'link') {
+          return (
+            <Fragment key={key}>
+              {renderLink({
+                href: entry.href,
+                role: 'menuitem',
+                tabIndex,
+                className: cn(itemClass, tone),
+                onClick: () => {
                   select(entry);
-                }}
-              >
-                {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
-                {entry.label}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </>
+                },
+                children: (
+                  <>
+                    {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
+                    {entry.label}
+                  </>
+                ),
+                'data-menu-item-index': index,
+              })}
+            </Fragment>
+          );
+        }
+
+        return (
+          <button
+            key={key}
+            type="button"
+            role="menuitem"
+            tabIndex={tabIndex}
+            disabled={entry.disabled}
+            data-menu-item-index={index}
+            className={cn(itemClass, tone)}
+            onClick={() => {
+              select(entry);
+            }}
+          >
+            {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
+            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            {entry.shortcut ? (
+              <kbd aria-hidden="true" className="font-body text-xs text-muted">
+                {entry.shortcut}
+              </kbd>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
   );
 }

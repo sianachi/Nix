@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
@@ -136,6 +136,21 @@ describe('ListView', () => {
 
     expect(screen.getByRole('table')).toHaveAttribute('aria-rowcount', '3201');
     expect(screen.getAllByRole('rowheader').length).toBeLessThanOrEqual(100);
+  });
+
+  it('opens a row from its secondary-click menu', async () => {
+    const person = userEvent.setup();
+    const onOpen = vi.fn();
+    renderAt(
+      <ListView container={containerData({ children: [ZETA] })} view={null} onOpen={onOpen} />,
+    );
+
+    const row = screen.getAllByRole('row')[1];
+    if (row === undefined) throw new Error('The list drew no rows.');
+    expect(fireEvent.contextMenu(row, { clientX: 10, clientY: 10 })).toBe(false);
+    await person.click(screen.getByRole('menuitem', { name: 'Open' }));
+
+    expect(onOpen).toHaveBeenCalledWith(ZETA.id);
   });
 
   it('takes its columns from the schema, in the schema order, behind the title', () => {

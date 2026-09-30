@@ -24,6 +24,7 @@ import { LegacyWorkspaceRedirect, WorkspaceGate } from './workspaces/workspace-g
 import { ArchivedWorkspacesPage } from './workspaces/archived-workspaces-page';
 import { AccessibleWorkspacesProvider } from './workspaces/workspace-context';
 import { PetCompanion } from './pets/pet-companion';
+import { LaunchPage } from './launch/launch-page';
 
 // Loaded when somebody opens /tokens, not before: the specimens are about 35 kB of design-lane
 // reference material - every ramp step, every type scale, every rhythm demo - and nobody working
@@ -128,6 +129,11 @@ export function App(): ReactElement {
                     lazy-loaded, for the rail destinations' reason - the screen is small, and a
                     Suspense boundary around nothing is a fallback that can only ever flash. */}
                     <Route path="settings" element={<SettingsPage />} />
+
+                    {/* Where the installed app lands from a shortcut, the share sheet or an opened
+                    file. `/launch/...` outside a workspace is routed here by
+                    `LegacyWorkspaceRedirect`, which picks the workspace exactly as for `/`. */}
+                    <Route path="launch/:action" element={<LaunchPage />} />
 
                     {/* The boundary is per-route rather than around the whole tree: a fallback over
                     `Routes` would blank the shell while a chunk arrives. The wording matches the

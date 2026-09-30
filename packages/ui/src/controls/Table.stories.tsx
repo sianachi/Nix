@@ -1,5 +1,5 @@
 import { type Meta, type StoryObj } from '@storybook/react-vite';
-import { expect, fn, userEvent, within } from 'storybook/test';
+import { expect, fireEvent, fn, userEvent, within } from 'storybook/test';
 
 import { Table, type TableColumn, type TableProps } from './Table';
 import { Tag } from './Tag';
@@ -213,5 +213,26 @@ export const SingleColumn: Story = {
   args: {
     columns: [{ key: 'title', header: 'Title', cell: (row) => row.title }],
     rows: ROWS.slice(0, 1),
+  },
+};
+
+/** A secondary click on a row offers the caller's actions, named for the row they act on. */
+export const WithRowContextMenu: Story = {
+  args: {
+    rowContextMenu: () => [
+      { kind: 'action', label: 'Open', onSelect: fn() },
+      { kind: 'action', label: 'Copy link', onSelect: fn() },
+    ],
+    rowContextMenuLabel: (row) => `${row.title} actions`,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await fireEvent.contextMenu(canvas.getByRole('rowheader', { name: 'Retention policy' }), {
+      clientX: 60,
+      clientY: 60,
+    });
+    await expect(
+      within(document.body).getByRole('menu', { name: 'Retention policy actions' }),
+    ).toBeInTheDocument();
   },
 };

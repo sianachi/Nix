@@ -2,6 +2,8 @@ import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
 import { type ReactNode, type Ref } from 'react';
 
 import { cn } from '../lib/cn';
+import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
+import { type MenuEntry } from './Menu';
 import { Icon } from '../primitives/Icon';
 import { Text } from '../primitives/Text';
 import { focusRing, inkWashStates } from '../primitives/interaction';
@@ -99,6 +101,14 @@ export interface TableProps<Row> {
   /** Layout only - margin, width, grid placement. Never a restyle of the table. */
   readonly className?: string;
 
+  /**
+   * The actions a secondary click on a row offers, built when the menu opens. Omit, or return no
+   * entries, to leave the browser's own menu in place.
+   */
+  readonly rowContextMenu?: (row: Row) => readonly MenuEntry[];
+  /** What a row's menu is called - which row it acts on. Defaults to "Row actions". */
+  readonly rowContextMenuLabel?: (row: Row) => string;
+
   /** Sparse row geometry when the caller renders only a measured window of a larger table. */
   readonly virtualization?: {
     readonly totalRows: number;
@@ -122,7 +132,7 @@ const headerText = 'font-heading text-xs tracking-wider uppercase';
  * press and focus read the same here as everywhere else.
  */
 const sortButton = cn(
-  'flex w-full cursor-pointer items-center gap-1 rounded-sm text-left transition-colors',
+  'flex w-full cursor-default items-center gap-1 rounded-sm text-left transition-colors',
   headerText,
   cellPadding,
   focusRing,
@@ -159,8 +169,43 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     onSortChange,
     className,
     virtualization,
+    rowContextMenu,
+    rowContextMenuLabel,
     tableRef,
   } = props;
+
+  // One row, with the context-menu marker when the caller offers row actions. A plain row when it
+  // does not, so a table without a menu pays nothing for one.
+  const drawRow = (
+    row: Row,
+    dataIndex: number,
+    contextTarget?: ContextMenuTargetProps,
+  ): ReactNode => (
+    <tr
+      key={rowKey(row)}
+      {...contextTarget}
+      aria-rowindex={virtualization === undefined ? undefined : dataIndex + 2}
+      data-virtual-index={virtualization === undefined ? undefined : dataIndex}
+    >
+      {columns.map((column) => {
+        const cellClass = cn(
+          'border-b border-divider font-body text-md text-foreground',
+          cellPadding,
+          column.align === 'end' ? 'text-right' : 'text-left',
+        );
+
+        return column.rowHeader === true ? (
+          <th key={column.key} scope="row" className={cn(cellClass, 'font-medium')}>
+            {column.cell(row)}
+          </th>
+        ) : (
+          <td key={column.key} className={cellClass}>
+            {column.cell(row)}
+          </td>
+        );
+      })}
+    </tr>
+  );
 
   const message = loading ? loadingMessage : rows.length === 0 ? emptyMessage : null;
 
@@ -241,29 +286,17 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   />
                 </tr>
               ) : null,
-              <tr
-                key={rowKey(row)}
-                aria-rowindex={virtualization === undefined ? undefined : dataIndex + 2}
-                data-virtual-index={virtualization === undefined ? undefined : dataIndex}
-              >
-                {columns.map((column) => {
-                  const cellClass = cn(
-                    'border-b border-divider font-body text-md text-foreground',
-                    cellPadding,
-                    column.align === 'end' ? 'text-right' : 'text-left',
-                  );
-
-                  return column.rowHeader === true ? (
-                    <th key={column.key} scope="row" className={cn(cellClass, 'font-medium')}>
-                      {column.cell(row)}
-                    </th>
-                  ) : (
-                    <td key={column.key} className={cellClass}>
-                      {column.cell(row)}
-                    </td>
-                  );
-                })}
-              </tr>,
+              rowContextMenu === undefined ? (
+                drawRow(row, dataIndex)
+              ) : (
+                <ContextMenu
+                  key={rowKey(row)}
+                  label={rowContextMenuLabel?.(row) ?? 'Row actions'}
+                  items={() => rowContextMenu(row)}
+                >
+                  {(contextTarget) => drawRow(row, dataIndex, contextTarget)}
+                </ContextMenu>
+              ),
               rowOffset === rows.length - 1 &&
               (virtualization?.spacerHeights[rows.length] ?? 0) > 0 ? (
                 <tr key="spacer-after" aria-hidden="true">

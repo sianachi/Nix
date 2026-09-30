@@ -1,3 +1,4 @@
+import * as bodies from '../../editor/body-cache';
 import * as drafts from '../../editor/draft-journal';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -186,6 +187,7 @@ describe('Core-mediated browser sessions', () => {
     vi.stubGlobal('fetch', fetch);
     vi.stubGlobal('indexedDB', {});
     const clear = vi.spyOn(drafts, 'clearDrafts').mockRejectedValue(new Error('Storage blocked'));
+    const clearBodies = vi.spyOn(bodies, 'clearBodyCache').mockResolvedValue(undefined);
     renderProvider();
     await screen.findByText('authenticated');
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -195,8 +197,91 @@ describe('Core-mediated browser sessions', () => {
       '/auth/logout',
       expect.objectContaining({ method: 'POST' }),
     );
-    expect(useSessionStore.getState().error).toContain('Local drafts could not be cleared');
+    expect(useSessionStore.getState().error).toContain('could not be cleared');
     clear.mockRestore();
+    clearBodies.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it('reports an unreachable Core as offline rather than a failed sign-in, and retries when the network returns', async () => {
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(authenticated());
+    vi.stubGlobal('fetch', fetch);
+    renderProvider();
+    expect(await screen.findByText('unreachable')).toBeInTheDocument();
+
+    window.dispatchEvent(new Event('online'));
+
+    expect(await screen.findByText('authenticated')).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it('treats a proxy answering for a stopped Core as unreachable, not a failed sign-in', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('Bad gateway', { status: 502 })));
+    renderProvider();
+    expect(await screen.findByText('unreachable')).toBeInTheDocument();
+    expect(useSessionStore.getState().unreachable?.cause).toBe('server');
+    vi.unstubAllGlobals();
+  });
+
+  it('keeps retrying on a timer while Core stays unreachable, without waiting for a network change', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce(authenticated());
+    vi.stubGlobal('fetch', fetch);
+    renderProvider();
+    expect(await screen.findByText('unreachable')).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(await screen.findByText('authenticated')).toBeInTheDocument();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('reports a bug in reading the session as a failure, not as an outage', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(json({ authenticated: true, configured: true, profile: 7 })),
+    );
+    renderProvider();
+    expect(await screen.findByText('failed')).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it('still reports a malformed session response as a failed sign-in', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('<html></html>', { status: 200 })),
+    );
+    renderProvider();
+    expect(await screen.findByText('failed')).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it('removes locally saved pages along with drafts when signing out', async () => {
+    const user = userEvent.setup();
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(authenticated())
+      .mockResolvedValueOnce(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetch);
+    vi.stubGlobal('indexedDB', {});
+    const clearDrafts = vi.spyOn(drafts, 'clearDrafts').mockResolvedValue(undefined);
+    const clearBodies = vi.spyOn(bodies, 'clearBodyCache').mockResolvedValue(undefined);
+    renderProvider();
+    await screen.findByText('authenticated');
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    await screen.findByText('anonymous');
+    expect(clearDrafts).toHaveBeenCalledOnce();
+    expect(clearBodies).toHaveBeenCalledOnce();
+    clearDrafts.mockRestore();
+    clearBodies.mockRestore();
     vi.unstubAllGlobals();
   });
 

@@ -100,9 +100,15 @@ export const PRESENTATION: Record<SyncState, Presentation> = {
 export function SyncFooter({
   state,
   draftState,
+  showingLocalCopy = false,
 }: {
   readonly state: SyncState;
   readonly draftState?: DraftState | undefined;
+  /**
+   * The body on screen is this device's saved copy, painted before the connection opened. Said
+   * while connecting, so content that may be hours old is not mistaken for the live document.
+   */
+  readonly showingLocalCopy?: boolean;
 }): ReactNode {
   const presentation = PRESENTATION[state];
   const { icon, spins, tier } = presentation;
@@ -115,7 +121,11 @@ export function SyncFooter({
           ? ['Local save unavailable', 'Keep this tab open until your edits sync.']
           : null;
   const term = draftCopy?.[0] ?? presentation.term;
-  const detail = draftCopy?.[1] ?? presentation.detail;
+  const detail =
+    draftCopy?.[1] ??
+    (state === 'connecting' && showingLocalCopy
+      ? 'Showing the copy saved on this device until the server answers.'
+      : presentation.detail);
   const unhealthy = tier === 'unhealthy';
 
   return (

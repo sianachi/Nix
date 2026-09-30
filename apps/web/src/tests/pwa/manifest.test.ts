@@ -13,6 +13,17 @@ const manifest = JSON.parse(
   readonly name?: string;
   readonly start_url?: string;
   readonly display?: string;
+  readonly display_override?: readonly string[];
+  readonly shortcuts?: readonly { readonly name?: string; readonly url?: string }[];
+  readonly share_target?: {
+    readonly action?: string;
+    readonly method?: string;
+    readonly params?: Record<string, string>;
+  };
+  readonly file_handlers?: readonly {
+    readonly action?: string;
+    readonly accept?: Record<string, readonly string[]>;
+  }[];
   readonly icons?: readonly {
     readonly src?: string;
     readonly sizes?: string;
@@ -42,5 +53,28 @@ describe('the installable web app', () => {
       expect(icon?.src).toMatch(/^\/[a-z0-9-]+\.png$/u);
       expect(pngDimensions(join(appRoot, 'public', icon?.src ?? 'missing'))).toEqual([size, size]);
     }
+  });
+
+  it('offers its shortcuts, share target and file handler at launch addresses the worker serves', () => {
+    const worker = readFileSync(join(appRoot, 'public', 'service-worker.js'), 'utf8');
+    expect(worker).toContain("'/launch/'");
+
+    expect(manifest.shortcuts?.map((shortcut) => shortcut.url)).toEqual([
+      '/launch/new',
+      '/launch/today',
+      '/launch/search',
+    ]);
+    expect(manifest.share_target).toEqual({
+      action: '/launch/share',
+      method: 'GET',
+      params: { title: 'title', text: 'text', url: 'url' },
+    });
+    expect(manifest.file_handlers).toEqual([
+      { action: '/launch/open', accept: { 'text/markdown': ['.md', '.markdown'] } },
+    ]);
+  });
+
+  it('asks for its own title bar on desktop, falling back to a standard window', () => {
+    expect(manifest.display_override).toEqual(['window-controls-overlay', 'standalone']);
   });
 });

@@ -666,7 +666,7 @@ function HabitRow({
         <details className="mt-3">
           <summary
             className={cn(
-              'w-fit cursor-pointer rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised',
+              'w-fit cursor-default rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised',
               focusRing,
             )}
           >

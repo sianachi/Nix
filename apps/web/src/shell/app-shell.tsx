@@ -6,8 +6,8 @@ import { MobileNavigation } from './mobile-navigation';
 import { PwaControls } from '../pwa/pwa-controls';
 import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Outlet, useNavigate } from 'react-router';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
 import { ImportDialog } from '../import/import-dialog';
@@ -32,11 +32,15 @@ import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
 import { useTemplates } from '../templates/use-templates';
 import { TemplateLibraryProvider } from '../templates/template-library-context';
 import { ShellHeader } from './shell-header';
-import { useRevealOpenPanes, useShellSearchShortcut } from './shell-effects';
+import { KeyboardShortcutsDialog } from '../keyboard/keyboard-shortcuts-dialog';
+import { useRevealOpenPanes, useShellShortcuts } from './shell-effects';
 import { ShellSidebar } from './shell-sidebar';
 import { ShellToasts, useShellToasts } from './shell-toasts';
 import { useWorkspace } from '../workspaces/workspace-context';
 import { WorkspaceInvitationNotice } from '../workspaces/workspace-invitation-notice';
+import type { LaunchNavigationState } from '../launch/launch-intent';
+import { viewCommitted } from '../lib/view-transition';
+import { onNotice } from '../lib/notices';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -104,6 +108,25 @@ export function AppShell(): ReactNode {
   const selectedIsKept = useIsKept(selectedId);
   const sidebar = useSidebar(narrow);
   const [searchOpen, setSearchOpen] = useState(false);
+  const location = useLocation();
+  // The installed app's Search shortcut lands here with a request to open search over whatever
+  // is showing. Taken during render, once per history entry (React's pattern for state that
+  // follows a changed input), then cleared from history so Back and a reload do not reopen it.
+  // Ends a crossfade waiting on this navigation: the new location is in the DOM now, before
+  // paint, which is the moment `withViewTransition` needs for its second snapshot.
+  useLayoutEffect(() => {
+    viewCommitted();
+  }, [location.key]);
+  const launchState = location.state as LaunchNavigationState | null;
+  const [launchConsumed, setLaunchConsumed] = useState<string | null>(null);
+  if (launchState?.openSearch === true && launchConsumed !== location.key) {
+    setLaunchConsumed(location.key);
+    setSearchOpen(true);
+  }
+  useEffect(() => {
+    if (launchState?.openSearch !== true) return;
+    void navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [launchState, location.pathname, location.search, navigate]);
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
   useBackDismiss(narrow && (sidebar.visible || searchOpen || workspaceImportOpen), () => {
     setWorkspaceImportOpen(false);
@@ -146,6 +169,17 @@ export function AppShell(): ReactNode {
   const treeRegionRef = useRef<HTMLDivElement>(null);
 
   const shellToasts = useShellToasts();
+  // Passing notices from anywhere in the workspace - a copied link, closed tabs - shown once,
+  // here, as a toast for sighted readers and through the live region for everyone else.
+  const pushToast = shellToasts.push;
+  useEffect(
+    () =>
+      onNotice((notice) => {
+        announce(notice.message);
+        pushToast(notice);
+      }),
+    [pushToast],
+  );
 
   // A screen that got torn down mid-import - a session expiring underneath it, chief among the
   // ways that happens - left a short, content-free summary behind for this workspace (see
@@ -235,7 +269,46 @@ export function AppShell(): ReactNode {
   }
 
   useRevealOpenPanes(tree, panes);
-  useShellSearchShortcut(setSearchOpen);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  /**
+   * Creates an untitled note at the root and opens it - from the palette's command and from its
+   * shortcut alike. Awaited for its answer, not fired and forgotten: `create` reports either an id
+   * or a refusal, and dropping both meant a command that fired onto either a document nobody could
+   * find or a silent failure - which is how people end up with six items called "Untitled".
+   */
+  function createUntitledNote(): void {
+    void tree.create(null, 'Untitled note').then((outcome) => {
+      if (outcome.id !== null) {
+        openPreview(outcome.id);
+        return;
+      }
+
+      const message = outcome.refusal ?? 'That could not be created.';
+      // Both at once: the live region alone spoke only to a screen reader, and the palette has
+      // already closed by the time this lands, so a sighted reader saw a command fire and then
+      // nothing - the same silent-failure shape `requestDelete` above exists to avoid.
+      announce(message);
+      shellToasts.push({ key: 'new-note-failed', message });
+    });
+  }
+
+  useShellShortcuts({
+    search: () => {
+      setSearchOpen(true);
+    },
+    'new-note': createUntitledNote,
+    'toggle-sidebar': sidebar.toggle,
+    back: () => {
+      void navigate(-1);
+    },
+    forward: () => {
+      void navigate(1);
+    },
+    shortcuts: () => {
+      setShortcutsOpen(true);
+    },
+  });
 
   // The pet launcher (`pet-companion.tsx`) reads `--mobile-nav-height` to sit above the bottom
   // navigation rather than under it. No token names the nav's rendered height - it depends on the
@@ -519,26 +592,7 @@ export function AppShell(): ReactNode {
           // Built here rather than inside the palette, because the shell is what holds each of
           // these. A palette that reached for them itself would be a second owner of the sidebar's
           // state and a second caller of the tree's create.
-          createItem: () => {
-            // Awaited for its answer, not fired and forgotten. `create` reports either an id or a
-            // refusal, and dropping both meant the palette closed onto either a document nobody
-            // could find or a silent failure - which is how people end up with six items called
-            // "Untitled". The sidebar's own create has handled both since U8; this now does too.
-            void tree.create(null, 'Untitled note').then((outcome) => {
-              if (outcome.id !== null) {
-                openPreview(outcome.id);
-                return;
-              }
-
-              const message = outcome.refusal ?? 'That could not be created.';
-              // Both at once: the live region alone spoke only to a screen reader, and the palette
-              // has already closed by the time this lands, so a sighted reader saw a command fire
-              // and then nothing - the same silent-failure shape `requestDelete` above exists to
-              // avoid.
-              announce(message);
-              shellToasts.push({ key: 'new-note-failed', message });
-            });
-          },
+          createItem: createUntitledNote,
           toggleSidebar: sidebar.toggle,
 
           // Null when nothing is open, so the command is left out of the list rather than offered
@@ -550,10 +604,23 @@ export function AppShell(): ReactNode {
                   void toggleBookmark(selectedId);
                 },
           openItemIsKept: selectedIsKept,
+          openToday: () => {
+            void navigate(`/w/${workspaceId}/daily`);
+          },
+          openShortcuts: () => {
+            setShortcutsOpen(true);
+          },
         })}
         onSelectItem={openPreview}
         onClose={() => {
           setSearchOpen(false);
+        }}
+      />
+
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onClose={() => {
+          setShortcutsOpen(false);
         }}
       />
 

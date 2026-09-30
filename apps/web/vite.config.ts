@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import type { Plugin } from 'vite';
+import type { Plugin, Rollup } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 const excalidrawFontUrlPrefix = '/excalidraw-assets/fonts/';
@@ -116,6 +116,54 @@ function excalidrawFontAssets(): Plugin {
       );
     },
   };
+}
+
+/**
+ * The scripts and styles the application needs before it can paint: the entry chunk, the chunk it
+ * loads the application from, and everything those import statically. The service worker installs
+ * exactly these with the document, so an installed launch never waits on the network for them;
+ * every other chunk is cached the first time it is used.
+ */
+export function startupGraph(bundle: Rollup.OutputBundle): {
+  readonly entry: string;
+  readonly startup: readonly string[];
+} {
+  const chunks = Object.values(bundle).filter(
+    (output): output is Rollup.OutputChunk => output.type === 'chunk',
+  );
+  const entry = chunks.find((chunk) => chunk.isEntry);
+  if (!entry) throw new Error('The application entry chunk is missing.');
+  const byName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+  const files = new Set<string>();
+  const visit = (fileName: string): void => {
+    if (files.has(fileName)) return;
+    files.add(fileName);
+    const chunk = byName.get(fileName);
+    if (!chunk) return;
+    for (const css of chunk.viteMetadata?.importedCss ?? []) files.add(css);
+    for (const imported of chunk.imports) visit(imported);
+  };
+  visit(entry.fileName);
+  // main.tsx loads the application with one dynamic import after its boot concerns run; that
+  // chunk is part of every launch, unlike the feature chunks the application itself loads lazily.
+  // Exactly one: a second dynamic import in the entry would silently join every install.
+  if (entry.dynamicImports.length !== 1) {
+    throw new Error(
+      `The entry should load the application with one dynamic import; it has ${String(entry.dynamicImports.length)}. Update startupGraph if that is intended.`,
+    );
+  }
+  for (const dynamic of entry.dynamicImports) visit(dynamic);
+  return { entry: `/${entry.fileName}`, startup: [...files].map((file) => `/${file}`) };
+}
+
+function replaceExactlyOnce(source: string, pattern: string | RegExp, replacement: string): string {
+  const matches =
+    typeof pattern === 'string'
+      ? source.split(pattern).length - 1
+      : [...source.matchAll(new RegExp(pattern.source, `${pattern.flags}g`))].length;
+  if (matches !== 1)
+    throw new Error(`Expected one service worker placeholder for ${String(pattern)}.`);
+  return source.replace(pattern, replacement);
 }
 
 const fallbackCspMeta =
@@ -240,24 +288,36 @@ export default defineConfig({
           .slice(0, 16);
         const offlineCss = assets.find((name) => /^\/assets\/index-.*\.css$/.test(name));
         if (!offlineCss) throw new Error('The offline screen stylesheet is missing.');
+        const { entry, startup } = startupGraph(bundle);
+        const baseShellFiles = ['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png'];
         this.emitFile({
           type: 'asset',
           fileName: 'offline.html',
           source: offline.replace('/src/app.css', offlineCss),
         });
+        // Each placeholder in the source worker, and what this build puts in its place.
+        const placeholders: readonly (readonly [string | RegExp, string])[] = [
+          [
+            "const VERSION = 'nix-pwa-dev';",
+            `const VERSION = ${JSON.stringify(`nix-pwa-${version}`)};`,
+          ],
+          [
+            /const SHELL_ASSETS = \[.*?\];/su,
+            `const SHELL_ASSETS = ${JSON.stringify([...new Set([...baseShellFiles, '/index.html', offlineCss, ...startup])])};`,
+          ],
+          [
+            /const ASSETS = \[.*?\];/su,
+            `const ASSETS = ${JSON.stringify([...baseShellFiles, ...assets])};`,
+          ],
+          ['const SHELL_ENTRY = null;', `const SHELL_ENTRY = ${JSON.stringify(entry)};`],
+        ];
         this.emitFile({
           type: 'asset',
           fileName: 'service-worker.js',
-          source: worker
-            .replace("'nix-pwa-dev'", JSON.stringify(`nix-pwa-${version}`))
-            .replace(
-              /const SHELL_ASSETS = \[.*?\];/s,
-              `const SHELL_ASSETS = ${JSON.stringify(['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png', offlineCss])};`,
-            )
-            .replace(
-              "const ASSETS = ['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png'];",
-              `const ASSETS = ${JSON.stringify(['/offline.html', '/nix-icon-192.png', '/nix-icon-512.png', ...assets])};`,
-            ),
+          source: placeholders.reduce(
+            (source, [pattern, replacement]) => replaceExactlyOnce(source, pattern, replacement),
+            worker,
+          ),
         });
       },
     },

@@ -124,7 +124,7 @@ export function GraphExplorer({
                   </Text>
                 ) : (
                   <details>
-                    <summary className="cursor-pointer py-2">
+                    <summary className="cursor-default py-2">
                       {String(related.length)} connections
                     </summary>
                     <ul className="border-l border-divider pl-3">
