@@ -3,6 +3,7 @@ import { Suspense, lazy, type ReactElement } from 'react';
 import { Route, Routes } from 'react-router';
 
 import { AuthProvider } from './auth/auth-provider';
+import { AutomationsPage } from './automations/automations-page';
 import { ApiClientProvider } from './api/api-client-provider';
 import { AppErrorBoundary } from './components/error-boundary';
 import { DailyNotePage } from './daily-notes/daily-note-page';
@@ -129,6 +130,11 @@ export function App(): ReactElement {
                     lazy-loaded, for the rail destinations' reason - the screen is small, and a
                     Suspense boundary around nothing is a fallback that can only ever flash. */}
                     <Route path="settings" element={<SettingsPage />} />
+
+                    {/* The caller's own rules in this workspace (ADR-0051 section 6). A place of its
+                    own rather than a settings tab: a rule has an editor and a run log, and the
+                    address names the open rule so a link to it survives a refresh. */}
+                    <Route path="automations" element={<AutomationsPage />} />
 
                     {/* Where the installed app lands from a shortcut, the share sheet or an opened
                     file. `/launch/...` outside a workspace is routed here by
