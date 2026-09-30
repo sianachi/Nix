@@ -104,6 +104,15 @@ public static class NixTables
     /// <summary>A planned instant at which a reminder or automation rule should fire. Derived, rebuildable.</summary>
     public const string ScheduledTrigger = "scheduled_trigger";
 
+    /// <summary>One owner-private automation rule (ADR-0051 section 6).</summary>
+    public const string AutomationRule = "automation_rule";
+
+    /// <summary>One record of an automation rule firing or deciding not to.</summary>
+    public const string AutomationRun = "automation_run";
+
+    /// <summary>What a property rule last saw on one item.</summary>
+    public const string AutomationItemState = "automation_item_state";
+
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
@@ -188,6 +197,9 @@ public static class NixTables
         PushSubscription,
         NotificationInbox,
         ScheduledTrigger,
+        AutomationRule,
+        AutomationRun,
+        AutomationItemState,
         Bookmark,
         ItemLock,
         ItemUnlock,
@@ -347,6 +359,13 @@ public static class NixTables
             // directly; cross-tenant discovery goes only through the SECURITY DEFINER lease and
             // finish functions, never a table-level grant.
             [ScheduledTrigger] = FullDml,
+
+            // An owner's own rules, their run log and per-item state, read and written by Core
+            // alone under the owner's session; cross-owner work (planning, retention, the property
+            // feed) goes only through the SECURITY DEFINER functions in AutomationSecuritySql.
+            [AutomationRule] = FullDml,
+            [AutomationRun] = FullDml,
+            [AutomationItemState] = FullDml,
 
             // Revoked, never deleted: the rows are the audit of what has been able to act as a
             // principal, and an application that can erase that record can erase evidence.

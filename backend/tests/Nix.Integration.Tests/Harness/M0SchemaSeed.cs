@@ -165,6 +165,8 @@ internal static class M0SchemaSeed
         var templateApplication = Literal(rows.TemplateApplicationId);
         var templateSource = Literal(rows.TemplateSourceId);
         var slug = rows.Slug;
+        const string automationTrigger = """{"type":"schedule","freq":"daily","interval":1,"time":"09:00","startDate":"2026-01-01"}""";
+        const string automationActions = """[{"type":"notify","title":"Seeded","body":""}]""";
         var pluginDigest = new string(slug == "alpha" ? 'A' : 'B', 64);
         var browserSessionHash = new string(slug == "alpha" ? 'a' : 'b', BrowserSession.TokenHashLength);
 
@@ -333,6 +335,32 @@ internal static class M0SchemaSeed
                             '{slug}-trigger-seed', 'pending', NULL, NULL, 0, NULL, now(), now());
                 END IF;
             END $scheduling$;
+
+            -- Upgrade tests also seed schemas from before automations existed. One owner-private
+            -- schedule rule, one run and one per-item state row per tenant, so the isolation
+            -- theories have a row of each to see and to try to relabel.
+            DO $automations$
+            BEGIN
+                IF to_regclass('public.automation_rule') IS NOT NULL THEN
+                    INSERT INTO automation_rule
+                        (id, tenant_id, workspace_id, owner_principal_id, name, enabled, scope_item_id,
+                         trigger_type, watch_key, trigger, conditions, actions, schema_version, revision,
+                         consecutive_failures, disabled_reason, last_run_at, created_at, updated_at)
+                    VALUES ({group}, {tenant}, {workspace}, {principal}, '{slug} rule', false, NULL,
+                            'schedule', NULL,
+                            '{automationTrigger}'::jsonb,
+                            '[]'::jsonb, '{automationActions}'::jsonb, 1, 1,
+                            0, NULL, NULL, now(), now());
+                    INSERT INTO automation_run
+                        (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key,
+                         origin, depth, status, detail, created_at)
+                    VALUES (gen_random_uuid(), {tenant}, {group}, {principal}, {workspace}, {item},
+                            '{slug}-run-seed', 'manual', 0, 'succeeded', NULL, now());
+                    INSERT INTO automation_item_state
+                        (tenant_id, rule_id, item_id, owner_principal_id, last_value_hash, last_fired_at)
+                    VALUES ({tenant}, {group}, {item}, {principal}, NULL, now());
+                END IF;
+            END $automations$;
 
             -- One published capability so the generic tenant-isolation theories exercise the
             -- public link table exactly as they do every other tenant-scoped table.

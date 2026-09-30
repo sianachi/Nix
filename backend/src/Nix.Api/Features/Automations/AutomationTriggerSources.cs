@@ -1,0 +1,273 @@
+using Nix.Abstractions.Automations;
+using Nix.Abstractions.Scheduling;
+using Nix.Domain.Automations;
+using Nix.Domain.Identity;
+using Nix.Domain.Scheduling;
+using Nix.Domain.Tenancy;
+
+namespace Nix.Features.Automations;
+
+/// <summary>The planning rules the automation sources and the inline replan share.</summary>
+public static class AutomationPlanning
+{
+    /// <summary>The trigger source name of schedule rules.</summary>
+    public const string ScheduleSource = "automation.schedule";
+
+    /// <summary>The trigger source name of date rules.</summary>
+    public const string DateSource = "automation.date";
+
+    /// <summary>The trigger source name of the event-fed property rules (written by the database trigger).</summary>
+    public const string PropertySource = "automation.property";
+
+    /// <summary>The finder page size.</summary>
+    internal const int PageSize = 500;
+
+    /// <summary>A ceiling on planned-rule pages per pass: 100,000 rules.</summary>
+    internal const int MaxRulePages = 200;
+
+    /// <summary>The most date candidates one rule contributes per pass.</summary>
+    internal const int MaxDateCandidatesPerRule = 2000;
+
+    /// <summary>How far back a missed date instant is still fired (clamped to now), as explicit reminders do.</summary>
+    internal static readonly TimeSpan DateLookback = TimeSpan.FromHours(24);
+
+    /// <summary>
+    /// The schedule triggers one rule wants in <paramref name="window"/>: every occurrence in it, plus
+    /// the single most recent one that is already overdue (within a day), clamped to the window's
+    /// start - the same collapsing rule the due-task reminders use, so a cold start fires the one
+    /// occurrence still owed rather than a backlog.
+    /// </summary>
+    public static IEnumerable<DesiredTrigger> ScheduleTriggers(
+        TenantId tenantId,
+        WorkspaceId workspaceId,
+        PrincipalId ownerId,
+        Guid ruleId,
+        ScheduleTrigger trigger,
+        string ownerZone,
+        PlanWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        var occurrences = AutomationSchedule.Occurrences(trigger, ownerZone, window.Start.AddDays(-1), window.End);
+        var overdue = occurrences.Where(occurrence => occurrence.At < window.Start).OrderByDescending(occurrence => occurrence.At).Take(1);
+        foreach (var occurrence in overdue.Concat(occurrences.Where(occurrence => occurrence.At >= window.Start)))
+        {
+            yield return new DesiredTrigger(
+                tenantId,
+                workspaceId,
+                ownerId,
+                null,
+                ruleId,
+                occurrence.At < window.Start ? window.Start : occurrence.At,
+                AutomationDedupeKeys.Schedule(ruleId, occurrence.Day));
+        }
+    }
+
+    /// <summary>Reads every planned rule, up to <see cref="MaxRulePages"/> pages.</summary>
+    internal static async Task<(List<PlannedAutomationRule> Rules, bool Complete)> ReadPlannedRulesAsync(
+        IAutomationCandidateFinder finder, CancellationToken cancellationToken)
+    {
+        var rules = new List<PlannedAutomationRule>();
+        var after = Guid.Empty;
+        for (var page = 0; page < MaxRulePages; page++)
+        {
+            var batch = await finder.FindPlannedRulesAsync(PageSize, after, cancellationToken).ConfigureAwait(false);
+            rules.AddRange(batch);
+            if (batch.Count < PageSize)
+            {
+                return (rules, true);
+            }
+
+            after = batch[^1].RuleId;
+        }
+
+        return (rules, false);
+    }
+
+    /// <summary>Owner zones for every distinct owner, defaulted to UTC.</summary>
+    internal static async Task<Dictionary<ReminderRecipient, string>> OwnerZonesAsync(
+        IReminderCandidateFinder preferences, IEnumerable<PlannedAutomationRule> rules, CancellationToken cancellationToken)
+    {
+        var owners = rules.Select(rule => new ReminderRecipient(rule.TenantId, rule.OwnerPrincipalId)).Distinct().ToArray();
+        if (owners.Length == 0)
+        {
+            return [];
+        }
+
+        var found = await preferences.PreferencesForAsync(owners, cancellationToken).ConfigureAwait(false);
+        return found.ToDictionary(entry => entry.Recipient, entry => entry.TimeZone);
+    }
+
+    /// <summary>Reads a stored trigger defensively: a row that no longer reads plans nothing.</summary>
+    internal static AutomationTrigger? TryRead(string json)
+    {
+        try
+        {
+            return AutomationTriggerJson.Read(System.Text.Json.Nodes.JsonNode.Parse(json)).Value;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Runs the executor for a leased trigger whose key names its rule.</summary>
+    internal static async Task<TriggerOutcome> FireAsync(
+        AutomationExecutor executor, DueTrigger trigger, AutomationOrigin origin, AutomationKeyKind expected, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(trigger);
+        if (!AutomationDedupeKeys.TryParse(trigger.DedupeKey, out var key) || key.Kind != expected
+            || trigger.RuleId is not { } ruleId || key.RuleId != ruleId)
+        {
+            return TriggerOutcome.Skipped("malformed_key");
+        }
+
+        var result = await executor.ExecuteAsync(
+            new AutomationExecution(ruleId, origin, trigger.DedupeKey, key.ItemId, key.Depth, key), cancellationToken).ConfigureAwait(false);
+        return result.Outcome;
+    }
+}
+
+/// <summary>Plans and fires schedule rules (ADR-0051 section 6).</summary>
+public sealed class AutomationScheduleSource(
+    IAutomationCandidateFinder finder,
+    IReminderCandidateFinder preferences,
+    AutomationExecutor executor) : ITriggerSource
+{
+    /// <inheritdoc />
+    public string Name => AutomationPlanning.ScheduleSource;
+
+    /// <inheritdoc />
+    public TriggerKind Kind => TriggerKind.Automation;
+
+    /// <inheritdoc />
+    public async Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        var (rules, complete) = await AutomationPlanning.ReadPlannedRulesAsync(finder, cancellationToken).ConfigureAwait(false);
+        var schedules = rules.Where(rule => rule.TriggerType == "schedule").ToList();
+        var zones = await AutomationPlanning.OwnerZonesAsync(preferences, schedules, cancellationToken).ConfigureAwait(false);
+        var desired = new List<DesiredTrigger>();
+        foreach (var rule in schedules)
+        {
+            if (AutomationPlanning.TryRead(rule.TriggerJson) is not ScheduleTrigger trigger)
+            {
+                continue;
+            }
+
+            var zone = zones.GetValueOrDefault(new ReminderRecipient(rule.TenantId, rule.OwnerPrincipalId), "Etc/UTC");
+            desired.AddRange(AutomationPlanning.ScheduleTriggers(
+                rule.TenantId, rule.WorkspaceId, rule.OwnerPrincipalId, rule.RuleId, trigger, zone, window));
+        }
+
+        return new TriggerPlan(desired, complete);
+    }
+
+    /// <inheritdoc />
+    public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
+        AutomationPlanning.FireAsync(executor, trigger, AutomationOrigin.Schedule, AutomationKeyKind.Schedule, cancellationToken);
+}
+
+/// <summary>Plans and fires date_arrives rules over the items in their scope.</summary>
+public sealed class AutomationDateSource(
+    IAutomationCandidateFinder finder,
+    IReminderCandidateFinder preferences,
+    AutomationExecutor executor) : ITriggerSource
+{
+    /// <inheritdoc />
+    public string Name => AutomationPlanning.DateSource;
+
+    /// <inheritdoc />
+    public TriggerKind Kind => TriggerKind.Automation;
+
+    /// <inheritdoc />
+    public async Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        var (rules, complete) = await AutomationPlanning.ReadPlannedRulesAsync(finder, cancellationToken).ConfigureAwait(false);
+        var dateRules = rules.Where(rule => rule.TriggerType == "date_arrives").ToList();
+        var zones = await AutomationPlanning.OwnerZonesAsync(preferences, dateRules, cancellationToken).ConfigureAwait(false);
+
+        // The value's day can be a week either side of the fire instant (the offset), plus a day
+        // for any UTC offset.
+        var from = DateOnly.FromDateTime(window.Start.UtcDateTime).AddDays(-8);
+        var to = DateOnly.FromDateTime(window.End.UtcDateTime).AddDays(8);
+        var earliest = window.Start - AutomationPlanning.DateLookback;
+        var desired = new List<DesiredTrigger>();
+        foreach (var rule in dateRules)
+        {
+            if (AutomationPlanning.TryRead(rule.TriggerJson) is not DateArrivesTrigger trigger)
+            {
+                continue;
+            }
+
+            var zone = zones.GetValueOrDefault(new ReminderRecipient(rule.TenantId, rule.OwnerPrincipalId), "Etc/UTC");
+            var read = 0;
+            var after = Guid.Empty;
+            while (true)
+            {
+                var batch = await finder.FindDateCandidatesAsync(
+                    rule.TenantId, rule.RuleId, from, to, AutomationPlanning.PageSize, after, cancellationToken).ConfigureAwait(false);
+                foreach (var candidate in batch)
+                {
+                    var at = AutomationDateInstant.Resolve(candidate.ValueText, trigger.Time, trigger.OffsetMinutes, zone);
+                    if (at is { } instant && instant >= earliest && instant < window.End)
+                    {
+                        desired.Add(new DesiredTrigger(
+                            rule.TenantId,
+                            rule.WorkspaceId,
+                            rule.OwnerPrincipalId,
+                            candidate.ItemId,
+                            rule.RuleId,
+                            instant < window.Start ? window.Start : instant,
+                            AutomationDedupeKeys.Date(rule.RuleId, candidate.ItemId, instant)));
+                    }
+                }
+
+                read += batch.Count;
+                if (batch.Count < AutomationPlanning.PageSize)
+                {
+                    break;
+                }
+
+                if (read >= AutomationPlanning.MaxDateCandidatesPerRule)
+                {
+                    complete = false;
+                    break;
+                }
+
+                after = batch[^1].ItemId;
+            }
+        }
+
+        return new TriggerPlan(desired, complete);
+    }
+
+    /// <inheritdoc />
+    public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
+        AutomationPlanning.FireAsync(executor, trigger, AutomationOrigin.Date, AutomationKeyKind.Date, cancellationToken);
+}
+
+/// <summary>
+/// Fires property_changed rules. Event-fed: the <c>item_automation_property_changed</c> database
+/// trigger inserts its rows as writes happen, so the planner never reconciles it
+/// (<see cref="IsPlanned"/> is <see langword="false"/>).
+/// </summary>
+public sealed class AutomationPropertySource(AutomationExecutor executor) : ITriggerSource
+{
+    /// <inheritdoc />
+    public string Name => AutomationPlanning.PropertySource;
+
+    /// <inheritdoc />
+    public TriggerKind Kind => TriggerKind.Automation;
+
+    /// <inheritdoc />
+    public bool IsPlanned => false;
+
+    /// <inheritdoc />
+    public Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken) =>
+        Task.FromResult(TriggerPlan.Empty);
+
+    /// <inheritdoc />
+    public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
+        AutomationPlanning.FireAsync(executor, trigger, AutomationOrigin.Property, AutomationKeyKind.Property, cancellationToken);
+}

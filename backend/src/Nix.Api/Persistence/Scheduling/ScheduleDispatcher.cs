@@ -108,6 +108,7 @@ public sealed class ScheduleDispatcher(
         lastRetentionAt = now;
         await retention.PurgeOldNotificationsAsync(RetentionBatchSize, cancellationToken).ConfigureAwait(false);
         await retention.PurgeFinishedTriggersAsync(RetentionBatchSize, cancellationToken).ConfigureAwait(false);
+        await retention.PurgeAutomationRunsAsync(RetentionBatchSize, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task ProcessAsync(DueTrigger trigger, CancellationToken cancellationToken)

@@ -148,6 +148,17 @@ public sealed class ScheduledTriggerStore(NixDbContext database) : IScheduledTri
             """, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<int> CancelForRuleAsync(TenantId tenantId, PrincipalId principalId, Guid ruleId, CancellationToken cancellationToken) =>
+        database.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE scheduled_trigger
+               SET status = 'cancelled', updated_at = {DateTimeOffset.UtcNow}
+             WHERE tenant_id = {tenantId.Value}
+               AND principal_id = {principalId.Value}
+               AND kind = 'automation'
+               AND rule_id = {ruleId}
+               AND status = 'pending'
+            """, cancellationToken);
+
     public Task RescheduleAsync(TenantId tenantId, Guid id, DateTimeOffset fireAt, CancellationToken cancellationToken) =>
         database.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE scheduled_trigger

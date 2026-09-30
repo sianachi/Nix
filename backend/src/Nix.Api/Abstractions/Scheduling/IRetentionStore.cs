@@ -12,4 +12,7 @@ public interface IRetentionStore
 
     /// <summary>Deletes up to <paramref name="limit"/> finished (fired, skipped, or cancelled) triggers older than 30 days. Returns how many were removed.</summary>
     public Task<int> PurgeFinishedTriggersAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>Deletes up to <paramref name="limit"/> automation runs older than 30 days. Returns how many were removed.</summary>
+    public Task<int> PurgeAutomationRunsAsync(int limit, CancellationToken cancellationToken);
 }

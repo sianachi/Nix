@@ -201,6 +201,18 @@ public sealed class AccessTokenScopePolicyTests
         ["SetWorkspacePluginEnabled"] = Requirement.Admin,
         ["ReplaceWorkspacePluginCapabilities"] = Requirement.Admin,
 
+        // Automations act later as their owner, unattended, with that owner's write access
+        // (ADR-0051 section 6): creating, changing, running or deleting one is an admin-scope
+        // capability for a token, never an ordinary write. Reading them stays a read.
+        ["ListAutomations"] = Requirement.Read,
+        ["GetAutomation"] = Requirement.Read,
+        ["ListAutomationRuns"] = Requirement.Read,
+        ["CreateAutomation"] = Requirement.Admin,
+        ["UpdateAutomation"] = Requirement.Admin,
+        ["DeleteAutomation"] = Requirement.Admin,
+        ["RunAutomation"] = Requirement.Admin,
+        ["TestAutomation"] = Requirement.Admin,
+
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,
         ["CreateAccessToken"] = Requirement.InteractiveOnly,
@@ -267,6 +279,28 @@ public sealed class AccessTokenScopePolicyTests
     [InlineData("GET", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/invitees/")]
     public void A_trailing_slash_does_not_lower_an_admin_route(string method, string path) =>
         Assert.Equal(Requirement.Admin, Classify(method, path));
+
+    [Theory]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/automations")]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/automations/")]
+    [InlineData("PUT", "/api/v1/automations/00000000-0000-0000-0000-000000000002")]
+    [InlineData("DELETE", "/api/v1/automations/00000000-0000-0000-0000-000000000002/")]
+    [InlineData("POST", "/api/v1/automations/00000000-0000-0000-0000-000000000002/run")]
+    [InlineData("POST", "/api/v1/automations/00000000-0000-0000-0000-000000000002/test")]
+    public void Automation_writes_need_admin_even_for_a_write_scoped_token(string method, string path)
+    {
+        var requirement = Classify(method, path);
+
+        Assert.Equal(Requirement.Admin, requirement);
+        Assert.False(Satisfies([AccessTokenScopes.Read, AccessTokenScopes.Write], requirement));
+    }
+
+    [Theory]
+    [InlineData("/api/v1/workspaces/00000000-0000-0000-0000-000000000001/automations")]
+    [InlineData("/api/v1/automations/00000000-0000-0000-0000-000000000002")]
+    [InlineData("/api/v1/automations/00000000-0000-0000-0000-000000000002/runs")]
+    public void Reading_automations_is_a_read(string path) =>
+        Assert.Equal(Requirement.Read, Classify("GET", path));
 
     [Theory]
     [InlineData("GET", "/api/v1/me/tokens")]
