@@ -892,4 +892,50 @@ describe('a rollup property', () => {
 
     expect(screen.getByText(/How many of the items inside this one/)).toBeVisible();
   });
+
+  it('writes a reminder as an RFC 9557 moment in the reader’s zone, which is what Core accepts', () => {
+    const onCommit = vi.fn();
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const control = screen.getByLabelText('Reminder');
+    fireEvent.change(control, { target: { value: '2099-03-17T09:30' } });
+    fireEvent.blur(control);
+
+    expect(onCommit).toHaveBeenCalledWith('2099-03-17T09:30:00-10:00[Pacific/Honolulu]');
+    expect(screen.getByText(/in Pacific\/Honolulu/)).toBeVisible();
+  });
+
+  it('shows a stored reminder on the reader’s own clock and clears it with its own control', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+    render(
+      <PropertyInput
+        item={itemWith({ reminder: '2099-03-17T19:30:00+00:00[Europe/London]' })}
+        property={propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    expect(screen.getByLabelText('Reminder')).toHaveValue('2099-03-17T09:30');
+    await person.click(screen.getByRole('button', { name: 'Clear reminder for Reminder' }));
+    expect(onCommit).toHaveBeenCalledWith(null);
+  });
+
+  it('says when a reminder’s time has already passed', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ reminder: '2020-01-01T09:00:00-10:00[Pacific/Honolulu]' })}
+        property={propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/This time has passed/)).toBeVisible();
+  });
 });
