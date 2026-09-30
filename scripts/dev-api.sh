@@ -43,6 +43,7 @@ export Nix__Collaboration__BaseUrl="${Nix__Collaboration__BaseUrl:-$NIX_COLLAB_O
 export Nix__Bff__Authority="$NIX_OIDC_ISSUER"
 export Nix__Bff__ClientId="$NIX_OIDC_CLIENT_ID"
 export Nix__Bff__PublicOrigin="$NIX_WEB_ORIGIN"
+export Nix__Bff__AccountPage="${Nix__Bff__AccountPage:-$NIX_OIDC_ISSUER/ui/console/users/me?id=security}"
 export Nix__Bff__DataProtectionKeysPath="$dev_state_dir/.dev-data-protection"
 export Nix__AccessTokens__Issuer="$NIX_API_ORIGIN"
 export Nix__AccessTokens__Audience="nix"

@@ -53,6 +53,24 @@ separate from the runtime. The Compose manifest assumes the database and restric
 exist. For a new host, provision those roles, ownership, credentials and OIDC outside this upgrade
 procedure; never run development/demo seed scripts against production.
 
+Password changes, passkeys and second factors live at the identity provider, not in Nix. The
+profile menu links to `Nix__Bff__AccountPage`, which defaults to the Zitadel console's own-account
+page (`$NIX_OIDC_ISSUER/ui/console/users/me?id=security`); set `NIX_OIDC_ACCOUNT_URL` for another provider.
+"Reset Password" on the Zitadel login only works with an active SMTP provider. Converge that and
+the passkey-allowing login policy with `deploy/seed/zitadel-self-service.sh`, the one seed-directory
+script meant for production: it changes only the instance SMTP provider and login policy, and is
+safe to re-run. Give it an IAM_OWNER token and the SMTP password as mode-0600 files, never as
+arguments:
+
+```sh
+ZITADEL_URL="$NIX_OIDC_ISSUER" ZITADEL_PAT_FILE=~/zitadel-owner.pat \
+NIX_SMTP_HOST=smtp.example.org:587 NIX_SMTP_SENDER=no-reply@example.org \
+NIX_SMTP_USER=<user> NIX_SMTP_PASSWORD_FILE=~/smtp.password \
+  deploy/seed/zitadel-self-service.sh
+```
+
+Prove it by choosing "Reset Password" for a test account and following the emailed link.
+
 Release checks use a dedicated release-check token, never a personal working token: a revoked
 personal token broke the last smoke run. The release operator owns it and records its expiry
 date. Tokens narrow scopes but not workspaces, so mint it as a separate, non-administrator release-check principal

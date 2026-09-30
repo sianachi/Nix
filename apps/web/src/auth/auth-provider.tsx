@@ -21,6 +21,11 @@ export interface AuthContextValue {
   readonly getAccessToken: () => Promise<string | null>;
   /** Whether Core has the interactive provider and its signing key configured. */
   readonly isConfigured: boolean;
+  /**
+   * The identity provider's self-service page - password, passkeys, second factors - or null when
+   * the deployment names none. Nix never handles credentials; it only points at where they live.
+   */
+  readonly accountUrl: string | null;
 }
 
 const browserProfileSchema = z.object({
@@ -34,6 +39,12 @@ const browserSessionSchema = z.object({
   profile: browserProfileSchema.nullable(),
   accessToken: z.string().min(1).nullable(),
   expiresAt: z.iso.datetime({ offset: true }).nullable(),
+  // Rendered as a link, so only a web address is kept: a javascript: URL from a misconfigured
+  // deployment is dropped rather than becoming a click, without costing the sign-in itself.
+  accountUrl: z
+    .url({ protocol: /^https?$/ })
+    .nullish()
+    .catch(null),
 });
 
 const browserTokenSchema = z.object({
@@ -93,6 +104,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   // True until Core answers so the login screen never flashes a false configuration warning while
   // the session gate is still restoring. The response is authoritative before the gate settles.
   const [configured, setConfigured] = useState(true);
+  const [accountUrl, setAccountUrl] = useState<string | null>(null);
   const accessTokenRef = useRef<AccessTokenState | null>(null);
   const refreshRef = useRef<Promise<string | null> | null>(null);
 
@@ -149,6 +161,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
 
         settled = true;
         setConfigured(session.configured);
+        setAccountUrl(session.accountUrl ?? null);
         if (
           session.authenticated &&
           session.profile !== null &&
@@ -238,6 +251,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const value = useMemo<AuthContextValue>(
     () => ({
       isConfigured: configured,
+      accountUrl,
 
       signIn: () => {
         if (!configured) {
@@ -319,7 +333,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         return refresh;
       },
     }),
-    [configured, signInFailed, signInStarted, signedOut],
+    [accountUrl, configured, signInFailed, signInStarted, signedOut],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;
