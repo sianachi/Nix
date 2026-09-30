@@ -76,7 +76,7 @@ export function PetStructurePreview({
       ) : null}
       {model.warnings.length ? (
         <details open={pending || undefined}>
-          <summary className={cn('cursor-pointer rounded', focusRing, inkWashStates)}>
+          <summary className={cn('cursor-default rounded', focusRing, inkWashStates)}>
             <Text variant="note" as="span">
               Worth knowing ({model.warnings.length})
             </Text>
@@ -146,7 +146,7 @@ function PreviewTreeNode({
       ))}
       {node.why ? (
         <details open={pending || undefined}>
-          <summary className={cn('cursor-pointer rounded', focusRing, inkWashStates)}>
+          <summary className={cn('cursor-default rounded', focusRing, inkWashStates)}>
             <Text variant="note" as="span">
               Why
             </Text>

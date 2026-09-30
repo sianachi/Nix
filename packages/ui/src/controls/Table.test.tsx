@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -186,5 +186,21 @@ describe('Table', () => {
         (cell) => (cell as HTMLElement).style.height,
       ),
     ).toEqual(['450px', '3960px']);
+  });
+
+  it('offers the row actions the caller builds for the row that was secondary-clicked', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderTable({
+      rowContextMenu: (row) => [{ kind: 'action', label: `Open ${row.title}`, onSelect }],
+    });
+
+    const opened = fireEvent.contextMenu(
+      screen.getByRole('rowheader', { name: 'Retention policy' }),
+    );
+    await user.click(screen.getByRole('menuitem', { name: 'Open Retention policy' }));
+
+    expect(opened).toBe(false);
+    expect(onSelect).toHaveBeenCalledOnce();
   });
 });

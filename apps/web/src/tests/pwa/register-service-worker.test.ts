@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { onNotice } from '../../lib/notices';
 import { registerServiceWorker } from '../../pwa/register-service-worker';
 
 let unregister = (): void => undefined;
@@ -28,6 +29,33 @@ describe('the installed app lifecycle', () => {
     await vi.waitFor(() => {
       expect(register).toHaveBeenCalledWith('/service-worker.js');
     });
+  });
+
+  it('looks for a newer build when a lazily loaded chunk is missing', async () => {
+    const update = vi.fn(() => Promise.resolve());
+    const register = vi.fn(() =>
+      Promise.resolve({ addEventListener: vi.fn(), removeEventListener: vi.fn(), update }),
+    );
+    vi.stubGlobal('navigator', { serviceWorker: { register } });
+
+    unregister = registerServiceWorker();
+    globalThis.dispatchEvent(new Event('load'));
+    await vi.waitFor(() => {
+      expect(register).toHaveBeenCalled();
+    });
+    await Promise.resolve();
+    const notices: { message: string; action?: { label: string } }[] = [];
+    const stop = onNotice((notice) => notices.push(notice));
+    window.dispatchEvent(new Event('vite:preloadError'));
+    stop();
+
+    expect(update).toHaveBeenCalledOnce();
+    expect(notices).toEqual([
+      expect.objectContaining({
+        message: 'Nix has been updated. Reload to open this.',
+        action: expect.objectContaining({ label: 'Reload' }) as unknown,
+      }),
+    ]);
   });
 
   it('does nothing when the browser has no service-worker support', () => {

@@ -188,6 +188,58 @@ describe('closing tabs and panes', () => {
   });
 });
 
+describe('the tab context menu', () => {
+  async function openThreePinned(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+    renderAt(<App />, `/?item=${ALPHA.id}`);
+    await user.dblClick(await screen.findByRole('button', { name: 'Alpha' }));
+    await user.dblClick(screen.getByRole('button', { name: 'Bravo' }));
+    await user.dblClick(screen.getByRole('button', { name: 'Charlie' }));
+    await screen.findByRole('tab', { name: 'Charlie' });
+  }
+
+  it('closes every other tab and shows the one it was opened on', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
+    const user = userEvent.setup();
+    await openThreePinned(user);
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Alpha' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Close other tabs' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Alpha']);
+    });
+    expect(screen.getByRole('tab', { name: 'Alpha' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('closes the tabs to the right, leaving those before it', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
+    const user = userEvent.setup();
+    await openThreePinned(user);
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Bravo' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Close tabs to the right' }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Alpha', 'Bravo']);
+    });
+  });
+
+  it('keeps a preview tab open', async () => {
+    stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });
+    const user = userEvent.setup();
+    renderAt(<App />, `/?item=${ALPHA.id}`);
+    await user.click(await screen.findByRole('button', { name: 'Bravo' }));
+    await screen.findByRole('tab', { name: 'Bravo' });
+
+    fireEvent.contextMenu(screen.getByRole('tab', { name: 'Bravo' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Keep open' }));
+    await user.click(screen.getByRole('button', { name: 'Charlie' }));
+
+    await screen.findByRole('tab', { name: 'Charlie' });
+    expect(screen.getByRole('tab', { name: 'Bravo' })).toBeInTheDocument();
+  });
+});
+
 describe('a document already open elsewhere', () => {
   it('is focused in its own pane rather than duplicated, even when only backgrounded there', async () => {
     stubCoreApi({ items: [ALPHA, BRAVO, CHARLIE] });

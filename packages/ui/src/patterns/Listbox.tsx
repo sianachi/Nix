@@ -312,7 +312,7 @@ export function Listbox(props: ListboxProps): ReactNode {
                   }
                 }}
                 className={cn(
-                  'flex cursor-pointer items-center gap-2 px-3 py-2 text-sm',
+                  'flex cursor-default items-center gap-2 px-3 py-2 text-sm select-none',
                   active ? listboxActiveOption : 'hover:bg-foreground/7',
                 )}
               >

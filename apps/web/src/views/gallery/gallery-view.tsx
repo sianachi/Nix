@@ -1,5 +1,5 @@
 import { files as fileResources } from '@nix/api-client';
-import { Button, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Button, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { ImagePlus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -18,6 +18,7 @@ import {
 import { CoverImage } from './cover-image';
 import { CoverPickerDialog } from './cover-picker-dialog';
 import { CreateItemControl } from '../core/create-item-control';
+import { useItemContextActions } from '../core/use-item-context-actions';
 import { propertyTypeLabel } from '../core/property-types';
 import type { ContainerData } from '../core/use-container';
 import type { ViewRendererProps } from '../core/view-kinds';
@@ -574,6 +575,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     setSize,
     virtualIndex,
   } = props;
+  const itemActions = useItemContextActions(onOpen);
 
   // Absent values render as nothing rather than as an empty row: a card is a summary, and a column
   // of blank labels tells nobody anything.
@@ -590,104 +592,112 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     //
     // `relative` is load-bearing - it is what the title button's stretched hit area is measured
     // against - and `shadow-sm` is the resting elevation every other card in the product has.
-    <li
-      {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
-      aria-posinset={position}
-      aria-setsize={setSize}
-      data-virtual-index={virtualIndex}
-      className={cn(
-        blueprintFrame,
-        'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
-      )}
+    <ContextMenu
+      label={`${item.title || 'Untitled'} actions`}
+      items={() => itemActions(item.id, item.title)}
     >
-      {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
+      {(contextTarget) => (
+        <li
+          {...contextTarget}
+          {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
+          aria-posinset={position}
+          aria-setsize={setSize}
+          data-virtual-index={virtualIndex}
+          className={cn(
+            blueprintFrame,
+            'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
+          )}
+        >
+          {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
           which item that was about - the status arriving ahead of its subject. `order-first` puts
           the picture back on top for everyone reading with their eyes. */}
-      {/* A real heading, so a card grid can be walked by heading rather than only by tabbing
+          {/* A real heading, so a card grid can be walked by heading rather than only by tabbing
           through every title in it. A gallery is the view where that matters most - it is a page of
           named things and nothing else - and a `span` styled to look like a heading gives a screen
           reader user no way through it. The control lives inside the heading so both the outline
           and the affordance survive. */}
-      <h3>
-        <button
-          type="button"
-          onClick={() => {
-            onOpen(item.id);
-          }}
-          // The card is mostly picture, and in a gallery the picture *is* the affordance - it is
-          // why somebody chose this view. A stretched pseudo-element makes the whole card clickable
-          // while the accessible tree keeps exactly one control per card; a second click target on
-          // the image would be two controls with one name.
-          className={cn(
-            'w-full text-left after:absolute after:inset-0 after:content-[""]',
-            focusRing,
-          )}
-        >
-          <Text variant="h5" as="span" lines={2}>
-            {item.title || 'Untitled'}
-          </Text>
-        </button>
-      </h3>
+          <h3>
+            <button
+              type="button"
+              onClick={() => {
+                onOpen(item.id);
+              }}
+              // The card is mostly picture, and in a gallery the picture *is* the affordance - it is
+              // why somebody chose this view. A stretched pseudo-element makes the whole card clickable
+              // while the accessible tree keeps exactly one control per card; a second click target on
+              // the image would be two controls with one name.
+              className={cn(
+                'w-full text-left after:absolute after:inset-0 after:content-[""]',
+                focusRing,
+              )}
+            >
+              <Text variant="h5" as="span" lines={2}>
+                {item.title || 'Untitled'}
+              </Text>
+            </button>
+          </h3>
 
-      {/* **Always on screen, never only on hover.** A hover-revealed control is invisible to a
+          {/* **Always on screen, never only on hover.** A hover-revealed control is invisible to a
           tap - there is no hover state on a touch screen - which was the whole of the complaint
           this answers: "no easy way to put images on grids". `z-20` clears the title button's
           stretched hit area above it (see the `z-10` note on the fields below, which faces the
           same problem one layer down) and the `bg-surface` wrapper is what keeps a transparent
           icon button legible sitting on top of an arbitrary photograph. */}
-      <div className="absolute right-2 top-2 z-20 rounded-md bg-surface">
-        <Button
-          variant="icon"
-          aria-label={
-            cover.kind === 'ready' && readPropertyText(item, cover.property.key).length > 0
-              ? `Change cover for ${item.title || 'Untitled'}`
-              : `Set cover for ${item.title || 'Untitled'}`
-          }
-          onClick={onRequestCover}
-        >
-          <Icon icon={ImagePlus} size="sm" />
-        </Button>
-      </div>
+          <div className="absolute right-2 top-2 z-20 rounded-md bg-surface">
+            <Button
+              variant="icon"
+              aria-label={
+                cover.kind === 'ready' && readPropertyText(item, cover.property.key).length > 0
+                  ? `Change cover for ${item.title || 'Untitled'}`
+                  : `Set cover for ${item.title || 'Untitled'}`
+              }
+              onClick={onRequestCover}
+            >
+              <Icon icon={ImagePlus} size="sm" />
+            </Button>
+          </div>
 
-      {/* Nothing at all when no cover was asked for. A grey rectangle here would be a placeholder
+          {/* Nothing at all when no cover was asked for. A grey rectangle here would be a placeholder
           for a picture that was never coming, which reads as a load that never finished. */}
-      {cover.kind === 'ready' ? (
-        <div className="order-first">
-          <CoverPane
-            src={readPropertyText(item, cover.property.key)}
-            label={cover.property.label}
-            size={size}
-            failed={coverFailed}
-            onFailure={onCoverFailure}
-          />
-        </div>
-      ) : null}
-
-      {fields.length === 0 ? null : (
-        // `relative z-10`: the title button's `after:absolute after:inset-0` stretched hit area
-        // sits on top of the card in DOM order, and without a stacking context of its own this
-        // layer would swallow every click a field control below it is meant to receive - a tap
-        // meant for a select or a checkbox opening the item instead.
-        <div className="relative z-10 flex flex-col gap-1">
-          {fields.map((field) => (
-            <div key={field.key}>
-              <Text variant="kicker" tone="muted" as="span">
-                {field.label}
-              </Text>
-              <ListCell
-                item={item}
-                property={field}
-                onWrite={(value) => onWrite(item.id, field.key, value)}
+          {cover.kind === 'ready' ? (
+            <div className="order-first">
+              <CoverPane
+                src={readPropertyText(item, cover.property.key)}
+                label={cover.property.label}
+                size={size}
+                failed={coverFailed}
+                onFailure={onCoverFailure}
               />
-              <Text variant="caption" as="span" className="sr-only">
-                {readPropertyText(item, field.key)}
-              </Text>
             </div>
-          ))}
-        </div>
+          ) : null}
+
+          {fields.length === 0 ? null : (
+            // `relative z-10`: the title button's `after:absolute after:inset-0` stretched hit area
+            // sits on top of the card in DOM order, and without a stacking context of its own this
+            // layer would swallow every click a field control below it is meant to receive - a tap
+            // meant for a select or a checkbox opening the item instead.
+            <div className="relative z-10 flex flex-col gap-1">
+              {fields.map((field) => (
+                <div key={field.key}>
+                  <Text variant="kicker" tone="muted" as="span">
+                    {field.label}
+                  </Text>
+                  <ListCell
+                    item={item}
+                    property={field}
+                    onWrite={(value) => onWrite(item.id, field.key, value)}
+                  />
+                  <Text variant="caption" as="span" className="sr-only">
+                    {readPropertyText(item, field.key)}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          )}
+        </li>
       )}
-    </li>
+    </ContextMenu>
   );
 }
 

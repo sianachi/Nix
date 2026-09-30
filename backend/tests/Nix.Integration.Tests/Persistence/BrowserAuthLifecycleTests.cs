@@ -29,6 +29,7 @@ public sealed class BrowserAuthLifecycleTests : IAsyncLifetime
     private const string ClientId = "nix-browser-test";
     private const string Subject = "browser-user-without-azp";
     private const string PublicOrigin = "https://nix.browser.test";
+    private const string AccountPage = "https://issuer.alpha.test/ui/console/users/me?id=security";
 
     private readonly NixPostgresFixture _fixture;
     private RSA _providerKey = null!;
@@ -127,6 +128,7 @@ public sealed class BrowserAuthLifecycleTests : IAsyncLifetime
         using var session = JsonDocument.Parse(await restored.Content.ReadAsStringAsync(Cancellation));
         Assert.True(session.RootElement.GetProperty("authenticated").GetBoolean());
         Assert.Equal("Browser Person", session.RootElement.GetProperty("profile").GetProperty("name").GetString());
+        Assert.Equal(AccountPage, session.RootElement.GetProperty("accountUrl").GetString());
         var accessToken = session.RootElement.GetProperty("accessToken").GetString();
         Assert.False(string.IsNullOrWhiteSpace(accessToken));
 
@@ -154,6 +156,7 @@ public sealed class BrowserAuthLifecycleTests : IAsyncLifetime
         var anonymous = await _client.GetAsync(new Uri("/auth/session", UriKind.Relative), Cancellation);
         using var ended = JsonDocument.Parse(await anonymous.Content.ReadAsStringAsync(Cancellation));
         Assert.False(ended.RootElement.GetProperty("authenticated").GetBoolean());
+        Assert.Equal(JsonValueKind.Null, ended.RootElement.GetProperty("accountUrl").ValueKind);
 
         using var staleRequest = new HttpRequestMessage(HttpMethod.Get, "/api/v1/workspaces");
         staleRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
@@ -270,6 +273,7 @@ public sealed class BrowserAuthLifecycleTests : IAsyncLifetime
             builder.UseSetting("Nix:Bff:Authority", Issuer);
             builder.UseSetting("Nix:Bff:ClientId", ClientId);
             builder.UseSetting("Nix:Bff:PublicOrigin", PublicOrigin);
+            builder.UseSetting("Nix:Bff:AccountPage", AccountPage);
             builder.UseSetting(SelfIssuedTokenService.IssuerConfigurationKey, "https://core.browser.test");
             builder.UseSetting(SelfIssuedTokenService.AudienceConfigurationKey, "nix");
             builder.UseSetting(SelfIssuedTokenService.KeyIdConfigurationKey, "browser-core-key");

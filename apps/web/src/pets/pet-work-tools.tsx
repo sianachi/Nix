@@ -443,7 +443,7 @@ function ActivityRow({
       {actions}
       {details ? (
         <details>
-          <summary className={cn('cursor-pointer rounded', focusRing, inkWashStates)}>
+          <summary className={cn('cursor-default rounded', focusRing, inkWashStates)}>
             <Text as="span" variant="note">
               {detailsLabel}
             </Text>

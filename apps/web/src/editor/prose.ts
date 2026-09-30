@@ -331,7 +331,7 @@ export const proseClasses: Readonly<Record<string, string>> = {
 
   // A commented range is marked the way a reader would mark one: underneath, not on top, so
   // the words stay the words. The thread it belongs to is on the element as an attribute.
-  comment: 'border-b-2 border-b-accent-400 bg-accent/10 hover:bg-accent/20 cursor-pointer',
+  comment: 'border-b-2 border-b-accent-400 bg-accent/10 hover:bg-accent/20 cursor-default',
 };
 
 /**

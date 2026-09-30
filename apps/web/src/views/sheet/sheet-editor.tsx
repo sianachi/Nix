@@ -1,13 +1,16 @@
 import { SHEET_CELLS_KEY } from '@nix/sheet';
 import { Text } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
+import { useParams } from 'react-router';
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
 import { useAuth } from '../../auth/auth-provider';
 import { useSessionStore } from '../../auth/session-store';
+import { documentScope } from '../../editor/body-cache';
 import { startCollabSync, type CollabSync, type SyncState } from '../../editor/collab-sync';
 import { PresenceList } from '../../editor/presence-list';
+import { LOCAL_COPY_STALE, StaleCopyNotice } from '../../editor/stale-copy-notice';
 import { SyncFooter } from '../../editor/sync-footer';
 import { SheetGrid } from './sheet-grid';
 import { useSheet } from './use-sheet';
@@ -33,6 +36,12 @@ export interface SheetEditorProps {
   readonly itemId: string;
   readonly documentPath?: string | undefined;
   readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
+  /**
+   * Keep a local copy of this body so reopening it paints at once (see `body-cache.ts`). Off
+   * unless the page says so: only a page that has read the item's lock state knows the body
+   * carries no lock, and a locked body is never kept on disk.
+   */
+  readonly cacheBody?: boolean;
 }
 
 /**
@@ -46,15 +55,25 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
     'This sheet has more cells than can be saved. Recent edits are not saved - remove some cells and they will send.',
   document_too_large:
     'This sheet is too large to save. Recent edits are not saved - remove some content and they will send.',
+  local_copy_stale: 'This sheet changed while you were away. Reload to open the current version.',
   document_does_not_parse:
     'This sheet cannot be saved as written - a cell holds something the sheet format cannot store, or a formula is too expensive to finish recalculating.',
 };
 
-export function SheetEditor({ itemId, documentPath, onSync }: SheetEditorProps): ReactNode {
+export function SheetEditor({
+  itemId,
+  documentPath,
+  onSync,
+  cacheBody = false,
+}: SheetEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
+  const { workspaceId } = useParams<{ workspaceId: string }>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
   const [refusal, setRefusal] = useState<string | null>(null);
+  // The painted local copy turned out to be another version's; see `StaleCopyNotice`.
+  const [stale, setStale] = useState(false);
+  const [localCopy, setLocalCopy] = useState(false);
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -68,6 +87,12 @@ export function SheetEditor({ itemId, documentPath, onSync }: SheetEditorProps):
     const sync = startCollabSync({
       itemId,
       documentPath,
+      onLocalCopy: () => {
+        setLocalCopy(true);
+      },
+      cacheScope: cacheBody
+        ? documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'sheet')
+        : undefined,
       doc,
       awareness,
       fragmentName: SHEET_CELLS_KEY,
@@ -81,6 +106,7 @@ export function SheetEditor({ itemId, documentPath, onSync }: SheetEditorProps):
         setSyncState(state);
       },
       onNotice: (notice) => {
+        if (notice.code === LOCAL_COPY_STALE) setStale(true);
         const copy = REFUSAL_COPY[notice.code];
         if (copy !== undefined) {
           setRefusal(copy);
@@ -92,7 +118,17 @@ export function SheetEditor({ itemId, documentPath, onSync }: SheetEditorProps):
       onSync?.(null);
       sync.destroy();
     };
-  }, [awareness, doc, documentPath, getAccessToken, itemId, onSync]);
+  }, [
+    awareness,
+    doc,
+    documentPath,
+    getAccessToken,
+    itemId,
+    onSync,
+    profile?.subject,
+    workspaceId,
+    cacheBody,
+  ]);
 
   useEffect(() => {
     awareness.setLocalStateField('user', {
@@ -127,9 +163,13 @@ export function SheetEditor({ itemId, documentPath, onSync }: SheetEditorProps):
         </Text>
       ) : null}
 
-      <SheetGrid sheet={sheet} />
+      {stale ? <StaleCopyNotice noun="sheet" /> : null}
+      {/* A grid has no read-only mode of its own; `inert` stops a stale copy taking edits. */}
+      <div className="flex min-h-0 flex-1 flex-col" inert={stale}>
+        <SheetGrid sheet={sheet} />
+      </div>
 
-      <SyncFooter state={syncState} />
+      <SyncFooter showingLocalCopy={localCopy} state={syncState} />
     </div>
   );
 }

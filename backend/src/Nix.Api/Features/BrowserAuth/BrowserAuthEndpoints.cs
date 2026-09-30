@@ -134,7 +134,8 @@ internal static class BrowserAuthEndpoints
                 session.PrincipalId.Value.ToString("D", CultureInfo.InvariantCulture),
                 session.DisplayName),
             coordinator.MintAccessToken(session),
-            tokens.Clock.GetUtcNow() + tokens.Lifetime));
+            tokens.Clock.GetUtcNow() + tokens.Lifetime,
+            coordinator.AccountPage?.AbsoluteUri));
     }
 
     private static async Task<Results<Ok<BrowserTokenResponse>, ProblemHttpResult>> RefreshToken(
@@ -301,15 +302,17 @@ internal sealed record BrowserSessionResponse(
     bool Configured,
     BrowserProfileResponse? Profile,
     string? AccessToken,
-    DateTimeOffset? ExpiresAt)
+    DateTimeOffset? ExpiresAt,
+    string? AccountUrl)
 {
     internal static BrowserSessionResponse Anonymous(bool configured) =>
-        new(false, configured, null, null, null);
+        new(false, configured, null, null, null, null);
 
     internal static BrowserSessionResponse SignedIn(
         BrowserProfileResponse profile,
         string accessToken,
-        DateTimeOffset expiresAt) => new(true, true, profile, accessToken, expiresAt);
+        DateTimeOffset expiresAt,
+        string? accountUrl) => new(true, true, profile, accessToken, expiresAt, accountUrl);
 }
 
 /// <summary>A renewed short-lived Core bearer token.</summary>

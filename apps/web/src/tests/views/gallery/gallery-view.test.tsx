@@ -25,6 +25,7 @@ const WORKSPACE = 'a1000000-0000-4000-8000-000000000001';
 // `GalleryView` as a bare leaf the way `drive-view.test.tsx` does for the same reason.
 vi.mock('../../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: WORKSPACE }),
+  useOptionalWorkspace: () => ({ workspaceId: WORKSPACE }),
 }));
 
 const { beginUploadMock, uploadAndCompleteFileMock } = vi.hoisted(() => ({

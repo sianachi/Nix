@@ -45,8 +45,8 @@ internal static class InternalEndpoints
         SearchIndexDispatchEndpoints.Map(group);
         PluginDispatchEndpoints.Map(group);
         FileEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
-        DocumentImportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
-        TemplateImportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
+        DocumentImportWorkerEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
+        TemplateImportWorkerEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         TemplateFileTransferEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         ExportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         ObjectCleanupEndpoints.Map(group.MapGroup("/worker-executions"));

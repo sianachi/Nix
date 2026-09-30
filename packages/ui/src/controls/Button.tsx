@@ -79,7 +79,7 @@ const boxPadding = 'px-[calc(var(--spacing)*3.6)]';
 const buttonVariants = cva(
   cn(
     blueprintFrame,
-    'inline-flex cursor-pointer items-center justify-center gap-2',
+    'inline-flex cursor-default items-center justify-center gap-2 select-none',
     'h-(--control-md) pointer-coarse:h-(--control-lg) font-heading text-md font-semibold no-underline',
     'transition-colors',
     focusRing,

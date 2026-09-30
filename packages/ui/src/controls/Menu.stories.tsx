@@ -1,5 +1,5 @@
 import { type Meta, type StoryObj } from '@storybook/react-vite';
-import { Archive, LogOut, Plus, Settings, Trash2 } from 'lucide-react';
+import { Archive, KeyRound, LogOut, Plus, Settings, Trash2 } from 'lucide-react';
 import { expect, fn, userEvent, within } from 'storybook/test';
 
 import { focusRing } from '../primitives/interaction';
@@ -115,6 +115,33 @@ export const ClosesOnOutsideClick: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await userEvent.click(canvas.getByText('Outside the menu.'));
     await expect(canvas.queryByRole('menu')).not.toBeInTheDocument();
+  },
+};
+
+/** A destination outside the application opens in a new tab and says so, visibly and aloud. */
+export const WithExternalLink: Story = {
+  args: {
+    items: [
+      { kind: 'link', label: 'Settings', icon: Settings, href: '/w/1/settings' },
+      {
+        kind: 'link',
+        label: 'Password and security',
+        icon: KeyRound,
+        href: 'https://sso.example.test/ui/console/users/me?id=security',
+        external: true,
+      },
+      { kind: 'action', label: 'Sign out', icon: LogOut, onSelect: fn() },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
+    const external = canvas.getByRole('menuitem', {
+      name: 'Password and security (opens in a new tab)',
+    });
+    await expect(external).toHaveAttribute('target', '_blank');
+    await expect(external).toHaveAttribute('rel', 'noopener noreferrer');
+    await expect(canvas.getByRole('menuitem', { name: 'Settings' })).not.toHaveAttribute('target');
   },
 };
 

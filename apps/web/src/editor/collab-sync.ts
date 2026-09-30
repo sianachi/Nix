@@ -1,4 +1,5 @@
 import { registerPendingWork } from '../lib/pending-work';
+import { indexedBodyCache, type BodyCacheStore } from './body-cache';
 import { createDraftJournal, type DraftState, type DraftRecord } from './draft-journal';
 import { SCHEMA_VERSION } from '@nix/editor-schema';
 import * as decoding from 'lib0/decoding';
@@ -51,10 +52,22 @@ const MESSAGE_AWARENESS = 1;
 const MESSAGE_NOTICE = 2;
 const MESSAGE_PERSISTENCE_BARRIER = 3;
 const BARRIER_TIMEOUT_MS = 15_000;
+/**
+ * How the local copy is refreshed: once changes stop arriving for `SNAPSHOT_QUIET_MS`, and at
+ * least every `SNAPSHOT_MAX_WAIT_MS` while they keep coming. Encoding a large document is tens of
+ * milliseconds on the main thread, so a session watching a colleague type must not pay it on every
+ * burst - and an unchanged document never pays it at all.
+ */
+const SNAPSHOT_QUIET_MS = 2_000;
+const SNAPSHOT_MAX_WAIT_MS = 30_000;
+/** The body cache's per-document ceiling; a larger document stops being encoded for it. */
+const SNAPSHOT_MAX_BYTES = 8 * 1024 * 1024;
 
 /** Close codes the provider reacts to by name. Everything else is a plain drop. */
 const CLOSE_UNAUTHENTICATED = 4401;
 const CLOSE_REVOKED = 4403;
+/** No such item, or not one this caller may see - the service's uniform non-answer at join. */
+const CLOSE_NOT_FOUND = 4404;
 /** The item is visible but its body is locked to this session; the page shows the lock prompt. */
 const CLOSE_BODY_LOCKED = 4405;
 const CLOSE_SCHEMA_MISMATCH = 4409;
@@ -79,6 +92,15 @@ export interface ProviderSocket {
 
 export interface CollabSyncOptions {
   readonly draftScope?: string;
+  /**
+   * Keeps a local copy of this body's last confirmed state under this scope, and paints it before
+   * the connection opens. See `body-cache.ts` for what the copy may and may not be trusted with.
+   */
+  readonly cacheScope?: string | undefined;
+  /** The store behind `cacheScope`. Defaults to IndexedDB; tests supply an in-memory one. */
+  readonly bodyCache?: BodyCacheStore;
+  /** Told when the saved copy has been painted, so the footer can say what is on screen. */
+  readonly onLocalCopy?: () => void;
   readonly onDraftState?: (state: DraftState) => void;
   readonly itemId: string;
   /** Overrides the ordinary item WebSocket route for staged or library-only document aliases. */
@@ -159,6 +181,45 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     .catch(() => {
       options.onDraftState?.('error');
     });
+  const cacheScope = options.cacheScope;
+  const cache: BodyCacheStore | null =
+    cacheScope === undefined
+      ? null
+      : (options.bodyCache ?? (typeof indexedDB === 'undefined' ? null : indexedBodyCache));
+  /** The server document the cached copy was taken from, compared against the one we join. */
+  let cachedDocId: string | null = null;
+  /** The server document this connection joined, known once `ready` arrives. */
+  let serverDocId: string | null = null;
+  /** Whether this connection has received the server's full state since `ready`. */
+  let initialSynced = false;
+  /** Set when the cached copy turned out to belong to a different document; no further syncing. */
+  let halted = false;
+  let snapshotTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether the document holds a confirmed change the local copy does not have yet. */
+  let snapshotDirty = false;
+  /** When the oldest unsaved change arrived, for the max-wait ceiling. */
+  let dirtySince = 0;
+  /** Latched once the document outgrows the cache, so it is not re-encoded only to be refused. */
+  let oversize = false;
+  const cacheReady =
+    cache === null || cacheScope === undefined
+      ? undefined
+      : cache
+          .read(cacheScope)
+          .then((record) => {
+            if (record === null || isDestroyed()) return;
+            if (record.schemaVersion !== SCHEMA_VERSION) {
+              void cache.discard(cacheScope).catch(() => undefined);
+              return;
+            }
+            Y.applyUpdate(doc, record.update, CACHE_ORIGIN);
+            cachedDocId = record.docId;
+            options.onLocalCopy?.();
+          })
+          .catch(() => {
+            // An unreadable copy is only a slower first paint; drop it and sync normally.
+            void cache.discard(cacheScope).catch(() => undefined);
+          });
   let localRevision = 0;
   let confirmedRevision = 0;
   let confirming = false;
@@ -267,6 +328,11 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
   function onDocUpdate(update: Uint8Array, origin: unknown): void {
     if (origin === REMOTE_ORIGIN) {
+      // Only a change the server actually sent: an empty resync applies nothing and emits nothing.
+      markSnapshotDirty();
+      return;
+    }
+    if (origin === CACHE_ORIGIN) {
       return;
     }
 
@@ -303,8 +369,79 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   doc.on('update', onDocUpdate);
   awareness.on('update', onAwarenessUpdate);
 
+  /** Whether every edit made here is confirmed persisted, so the document is the server's state. */
+  function settled(): boolean {
+    return (
+      ready &&
+      initialSynced &&
+      !writeRefused &&
+      !unsynced &&
+      pending.length === 0 &&
+      localRevision === confirmedRevision
+    );
+  }
+
+  function saveSnapshot(): void {
+    if (snapshotTimer !== null) {
+      clearTimeout(snapshotTimer);
+      snapshotTimer = null;
+    }
+    if (
+      cache === null ||
+      cacheScope === undefined ||
+      serverDocId === null ||
+      !snapshotDirty ||
+      oversize ||
+      !settled()
+    )
+      return;
+    const update = Y.encodeStateAsUpdate(doc);
+    if (update.byteLength > SNAPSHOT_MAX_BYTES) {
+      oversize = true;
+      return;
+    }
+    snapshotDirty = false;
+    void cache
+      .write({
+        scope: cacheScope,
+        docId: serverDocId,
+        schemaVersion: SCHEMA_VERSION,
+        savedAt: Date.now(),
+        update,
+      })
+      .catch(() => {
+        // The copy is derived and only speeds up the next open; a refused write loses nothing.
+        snapshotDirty = true;
+      });
+  }
+
+  function markSnapshotDirty(): void {
+    if (cache === null || oversize) return;
+    if (!snapshotDirty) dirtySince = Date.now();
+    snapshotDirty = true;
+    scheduleSnapshot();
+  }
+
+  /** A trailing debounce with a ceiling: quiet for a moment, or long enough that it must. */
+  function scheduleSnapshot(): void {
+    if (cache === null || destroyed || !snapshotDirty || oversize) return;
+    if (snapshotTimer !== null) clearTimeout(snapshotTimer);
+    const overdue = Date.now() - dirtySince >= SNAPSHOT_MAX_WAIT_MS;
+    snapshotTimer = setTimeout(saveSnapshot, overdue ? 0 : SNAPSHOT_QUIET_MS);
+  }
+
+  function discardCache(): void {
+    cachedDocId = null;
+    if (snapshotTimer !== null) {
+      clearTimeout(snapshotTimer);
+      snapshotTimer = null;
+    }
+    if (cache !== null && cacheScope !== undefined)
+      void cache.discard(cacheScope).catch(() => undefined);
+  }
+
   function scheduleReconnect(delayMs: number): void {
-    if (destroyed || retryTimer !== null) {
+    if (destroyed || halted || retryTimer !== null) {
       return;
     }
     retryTimer = setTimeout(() => {
@@ -314,12 +451,13 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   }
 
   async function connect(): Promise<void> {
-    if (destroyed || connecting) {
+    if (destroyed || halted || connecting) {
       return;
     }
 
     connecting = true;
     await draftsReady;
+    if (cacheReady !== undefined) await cacheReady;
     const token = await getAccessToken().catch(() => null);
     connecting = false;
     if (isDestroyed()) {
@@ -357,9 +495,10 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       }
       socket = null;
       ready = false;
+      initialSynced = false;
       rejectBarriers('The document disconnected before its changes were confirmed.');
 
-      if (destroyed) {
+      if (destroyed || halted) {
         return;
       }
 
@@ -373,6 +512,14 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
       const verdict = classifyClose(event.code);
       onState(verdict.state);
+      if (
+        event.code === CLOSE_REVOKED ||
+        event.code === CLOSE_NOT_FOUND ||
+        event.code === CLOSE_BODY_LOCKED
+      ) {
+        // No body this device may no longer read stays readable from it.
+        discardCache();
+      }
       if (event.code === CLOSE_REVOKED) {
         restoredDrafts = [];
         void draft?.discard().catch(() => {
@@ -389,8 +536,26 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
   function handleMessage(from: ProviderSocket, data: unknown): void {
     if (typeof data === 'string') {
-      const frame = JSON.parse(data) as { type?: string; mode?: string };
+      const frame = JSON.parse(data) as { type?: string; mode?: string; docId?: unknown };
       if (frame.type === 'ready') {
+        const joined = typeof frame.docId === 'string' ? frame.docId : null;
+        if (cachedDocId !== null && joined !== cachedDocId) {
+          // The copy painted on open belongs to a different server document than the one this
+          // item now has - or the service did not say which document it joined, which is the same
+          // question left unanswered. Syncing would push its content into the new one, so stop here, drop
+          // the copy, and ask for a reload, which opens the current document from scratch.
+          halted = true;
+          discardCache();
+          onState('degraded');
+          onNotice?.({
+            code: 'local_copy_stale',
+            detail: 'This page changed while you were away. Reload to open the current version.',
+          });
+          from.close(1000, 'The local copy belongs to another document.');
+          return;
+        }
+        serverDocId = joined;
+        initialSynced = false;
         ready = true;
         writeRefused = false;
         retryMs = minRetryMs;
@@ -463,9 +628,16 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       case MESSAGE_SYNC: {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_SYNC);
-        syncProtocol.readSyncMessage(decoder, encoder, doc, REMOTE_ORIGIN);
+        const kind = syncProtocol.readSyncMessage(decoder, encoder, doc, REMOTE_ORIGIN);
         if (encoding.length(encoder) > 1) {
           from.send(encoding.toUint8Array(encoder));
+        }
+        if (kind === syncProtocol.messageYjsSyncStep2) {
+          initialSynced = true;
+          // The first copy of a document this device has none of is worth making even if the
+          // server sent it as one unchanged-looking state; an existing copy waits for a change.
+          if (cachedDocId === null) markSnapshotDirty();
+          else scheduleSnapshot();
         }
         return;
       }
@@ -559,6 +731,10 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       }
       flushPending();
 
+      // Closing a settled document is the most useful moment to keep its copy: it is exactly what
+      // the next open would otherwise wait for. Only if something changed since the last one.
+      saveSnapshot();
+
       destroyed = true;
       unregisterPending();
       clearInterval(confirmationTimer);
@@ -588,6 +764,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       if (hasWriteRefusal()) throw new Error('The server refused an edit.');
       await draft?.acknowledge(records);
       confirmedRevision = revision;
+      markSnapshotDirty();
     } finally {
       confirming = false;
     }
@@ -618,6 +795,9 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   };
   const visible = (): void => {
     if (browserDocument?.visibilityState === 'visible') resume();
+    // Hidden may be the last this page is seen alive - a phone reclaims a background tab without
+    // an unload - so keep what is pending now rather than on a timer that may never fire.
+    else saveSnapshot();
   };
   browserWindow?.addEventListener('online', resume);
   browserDocument?.addEventListener('visibilitychange', visible);
@@ -679,3 +859,9 @@ function resolveUrl(path: string): string {
  * collide with one some other plugin chose.
  */
 const REMOTE_ORIGIN = Symbol('nix.collab.remote');
+
+/**
+ * Marks the cached copy applied on open. Like a remote update it is never sent or journalled as a
+ * local edit: the server already holds it, and sync step 1 reconciles anything newer either way.
+ */
+const CACHE_ORIGIN = Symbol('nix.collab.cache');

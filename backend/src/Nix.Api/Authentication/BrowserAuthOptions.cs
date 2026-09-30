@@ -18,6 +18,13 @@ public sealed class BrowserAuthOptions
     /// <summary>The public same-origin Nix URL, without a path.</summary>
     public string PublicOrigin { get; init; } = string.Empty;
 
+    /// <summary>
+    /// The identity provider's self-service account page, where a person changes their password,
+    /// enrols a passkey or resets a factor. Optional: when absent or unsafe, the browser offers no
+    /// account link. Credentials stay with the provider; Nix only points at it.
+    /// </summary>
+    public string AccountPage { get; init; } = string.Empty;
+
     /// <summary>How long a local browser session stands before a new OIDC login.</summary>
     public int SessionHours { get; init; } = 8;
 
@@ -30,6 +37,22 @@ public sealed class BrowserAuthOptions
     /// <summary>Parses the configured authority.</summary>
     public bool TryAuthority(out Uri authority) => TryOrigin(Authority, out authority);
 
+    /// <summary>Parses the configured account page, which unlike an origin may carry a path.</summary>
+    public bool TryAccountPage(out Uri account)
+    {
+        if (Uri.TryCreate(AccountPage, UriKind.Absolute, out var parsed)
+            && string.IsNullOrEmpty(parsed.UserInfo)
+            && string.IsNullOrEmpty(parsed.Fragment)
+            && IsSafeScheme(parsed))
+        {
+            account = parsed;
+            return true;
+        }
+
+        account = null!;
+        return false;
+    }
+
     /// <summary>Parses the public application origin.</summary>
     public bool TryPublicOrigin(out Uri origin) => TryOrigin(PublicOrigin, out origin);
 
@@ -40,8 +63,7 @@ public sealed class BrowserAuthOptions
             && string.IsNullOrEmpty(parsed.Query)
             && string.IsNullOrEmpty(parsed.Fragment)
             && parsed.AbsolutePath == "/"
-            && (parsed.Scheme == Uri.UriSchemeHttps
-                || (parsed.Scheme == Uri.UriSchemeHttp && parsed.IsLoopback)))
+            && IsSafeScheme(parsed))
         {
             origin = parsed;
             return true;
@@ -50,4 +72,7 @@ public sealed class BrowserAuthOptions
         origin = null!;
         return false;
     }
+
+    private static bool IsSafeScheme(Uri uri) =>
+        uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback);
 }

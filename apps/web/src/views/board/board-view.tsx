@@ -1,5 +1,5 @@
 import { useNarrowViewport } from '../../layout/viewport';
-import { Field, Select, Blueprint, Icon, Text, cn, focusRing } from '@nix/ui';
+import { ContextMenu, Field, Select, Blueprint, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
@@ -15,6 +15,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { useItemContextActions } from '../core/use-item-context-actions';
 import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
@@ -493,6 +494,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
     setSize,
     virtualIndex,
   } = props;
+  const itemActions = useItemContextActions(onOpen);
 
   const current = readSelectValue(item, property.key);
 
@@ -505,101 +507,109 @@ function BoardCard(props: BoardCardProps): ReactNode {
   });
 
   return (
-    <li
-      {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
-      aria-posinset={position}
-      aria-setsize={setSize}
-      data-virtual-index={virtualIndex}
-      className="min-w-0"
+    <ContextMenu
+      label={`${item.title || 'Untitled'} actions`}
+      items={() => itemActions(item.id, item.title)}
     >
-      <Blueprint
-        className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
-      >
-        <div
-          draggable
-          onDragStart={(event) => {
-            setDragged(item.id);
-            event.dataTransfer.effectAllowed = 'move';
-            // Set, though the drop handler prefers its own state: without data attached, Firefox
-            // refuses to start the drag at all.
-            event.dataTransfer.setData('text/plain', item.id);
-          }}
-          onDragEnd={() => {
-            setDragged(null);
-          }}
+      {(contextTarget) => (
+        <li
+          {...contextTarget}
+          {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
+          aria-posinset={position}
+          aria-setsize={setSize}
+          data-virtual-index={virtualIndex}
+          className="min-w-0"
         >
-          <button
-            type="button"
-            onClick={() => {
-              onOpen(item.id);
-            }}
-            className={cn('w-full text-left', focusRing)}
+          <Blueprint
+            className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
           >
-            <Text variant="h5" as="span" lines={2}>
-              {item.title || 'Untitled'}
-            </Text>
-          </button>
-        </div>
+            <div
+              draggable
+              onDragStart={(event) => {
+                setDragged(item.id);
+                event.dataTransfer.effectAllowed = 'move';
+                // Set, though the drop handler prefers its own state: without data attached, Firefox
+                // refuses to start the drag at all.
+                event.dataTransfer.setData('text/plain', item.id);
+              }}
+              onDragEnd={() => {
+                setDragged(null);
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onOpen(item.id);
+                }}
+                className={cn('w-full text-left', focusRing)}
+              >
+                <Text variant="h5" as="span" lines={2}>
+                  {item.title || 'Untitled'}
+                </Text>
+              </button>
+            </div>
 
-        {fields.length === 0 ? null : (
-          <div className="flex flex-col gap-1">
-            {fields.map((field) => (
-              <div key={field.key}>
-                <Text variant="kicker" tone="muted" as="span">
-                  {field.label}
-                </Text>
-                <ListCell
-                  item={item}
-                  property={field}
-                  onWrite={(value) => onWrite(item.id, field.key, value)}
-                />
-                <Text variant="caption" as="span" className="sr-only">
-                  {readPropertyText(item, field.key)}
-                </Text>
+            {fields.length === 0 ? null : (
+              <div className="flex flex-col gap-1">
+                {fields.map((field) => (
+                  <div key={field.key}>
+                    <Text variant="kicker" tone="muted" as="span">
+                      {field.label}
+                    </Text>
+                    <ListCell
+                      item={item}
+                      property={field}
+                      onWrite={(value) => onWrite(item.id, field.key, value)}
+                    />
+                    <Text variant="caption" as="span" className="sr-only">
+                      {readPropertyText(item, field.key)}
+                    </Text>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        {/*
+            {/*
         Drag is not the only way to move a card, and it never can be: a keyboard user, a screen
         reader user and anyone on a touch device with assistive technology all need this control.
         It carries the same meaning as the drag - it writes the grouping property - so the two
         gestures cannot drift apart.
       */}
-        <label className="flex flex-col gap-0.5">
-          <Text variant="kicker" tone="muted" as="span">
-            {property.label}
-          </Text>
-          <Select
-            // Named per card, not per property: a board of twelve cards would otherwise offer twelve
-            // controls all called "Status", and neither a screen reader user nor a test could say
-            // which one they were operating.
-            aria-label={`${property.label} for ${item.title || 'Untitled'}`}
-            value={current ?? UNSET_VALUE}
-            onChange={(event) => {
-              const next = event.target.value;
-              onMove(item, next === UNSET_VALUE ? null : next);
-            }}
-          >
-            {/*
+            <label className="flex flex-col gap-0.5">
+              <Text variant="kicker" tone="muted" as="span">
+                {property.label}
+              </Text>
+              <Select
+                // Named per card, not per property: a board of twelve cards would otherwise offer twelve
+                // controls all called "Status", and neither a screen reader user nor a test could say
+                // which one they were operating.
+                aria-label={`${property.label} for ${item.title || 'Untitled'}`}
+                value={current ?? UNSET_VALUE}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  onMove(item, next === UNSET_VALUE ? null : next);
+                }}
+              >
+                {/*
             The card's current value is offered even when it is not one of the board's columns, so
             a card that arrived here with a value this board does not show can still be read
             without the control silently reporting some other column.
           */}
-            {current !== null && !columns.some((column) => column.value === current) ? (
-              <option value={current}>{current}</option>
-            ) : null}
+                {current !== null && !columns.some((column) => column.value === current) ? (
+                  <option value={current}>{current}</option>
+                ) : null}
 
-            {columns.map((column) => (
-              <option key={column.value ?? UNSET_VALUE} value={column.value ?? UNSET_VALUE}>
-                {column.label}
-              </option>
-            ))}
-          </Select>
-        </label>
-      </Blueprint>
-    </li>
+                {columns.map((column) => (
+                  <option key={column.value ?? UNSET_VALUE} value={column.value ?? UNSET_VALUE}>
+                    {column.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </Blueprint>
+        </li>
+      )}
+    </ContextMenu>
   );
 }
 

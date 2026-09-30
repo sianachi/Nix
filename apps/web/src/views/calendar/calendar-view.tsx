@@ -40,6 +40,7 @@ import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
 import { useViewState } from '../core/view-state';
 import { ListCell } from '../list/list-cell';
+import { CalendarEntryMenu } from './calendar-entry-menu';
 
 /**
  * A container's children on a month grid, placed by the view's date property.
@@ -941,64 +942,74 @@ function ItemCard(props: ItemCardProps): ReactNode {
     props.card;
 
   return (
-    <div
-      draggable
-      onDragStart={(event: DragEvent<HTMLDivElement>) => {
-        setDragged(item.id, occurrenceDate);
-        event.dataTransfer.effectAllowed = 'move';
-        // Set although nothing reads it: without data attached, Firefox refuses to start the drag.
-        event.dataTransfer.setData('text/plain', item.id);
-      }}
-      onDragEnd={() => {
-        clearDragged();
-      }}
-      className="flex items-start gap-1 border border-divider bg-surface px-1"
+    <CalendarEntryMenu
+      itemId={item.id}
+      title={item.title}
+      onOpen={onOpen}
+      onReschedule={setRescheduling}
     >
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
+      {(contextTarget) => (
+        <div
+          {...contextTarget}
+          draggable
+          onDragStart={(event: DragEvent<HTMLDivElement>) => {
+            setDragged(item.id, occurrenceDate);
+            event.dataTransfer.effectAllowed = 'move';
+            // Set although nothing reads it: without data attached, Firefox refuses to start the drag.
+            event.dataTransfer.setData('text/plain', item.id);
+          }}
+          onDragEnd={() => {
+            clearDragged();
+          }}
+          className="flex items-start gap-1 border border-divider bg-surface px-1"
+        >
+          <div className="flex min-w-0 flex-1 flex-col">
+            {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
             width is its text's, and a one- or two-character title lands under WCAG 2.5.8's 24px
             floor. Half a step each side is the widest the hit area can grow without reaching the
             reschedule control's own widened area beside it. */}
-        <Button
-          variant="ghost"
-          className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
-          onClick={() => {
-            onOpen(item.id);
-          }}
-        >
-          <span className="truncate">{item.title || 'Untitled'}</span>
-        </Button>
+            <Button
+              variant="ghost"
+              className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
+              onClick={() => {
+                onOpen(item.id);
+              }}
+            >
+              <span className="truncate">{item.title || 'Untitled'}</span>
+            </Button>
 
-        {secondaryProperty === null ? null : (
-          <div className="min-w-0">
-            <Text variant="kicker" tone="muted" as="span">
-              {secondaryProperty.label}
-            </Text>
-            <ListCell
-              item={item}
-              property={secondaryProperty}
-              tabIndex={-1}
-              onWrite={(value) => onWrite(item.id, secondaryProperty.key, value)}
-            />
+            {secondaryProperty === null ? null : (
+              <div className="min-w-0">
+                <Text variant="kicker" tone="muted" as="span">
+                  {secondaryProperty.label}
+                </Text>
+                <ListCell
+                  item={item}
+                  property={secondaryProperty}
+                  tabIndex={-1}
+                  onWrite={(value) => onWrite(item.id, secondaryProperty.key, value)}
+                />
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* `before:-inset-x-1`: with `px-0` this is an 18px-wide target - the 16px glyph plus the
+          {/* `before:-inset-x-1`: with `px-0` this is an 18px-wide target - the 16px glyph plus the
           hairline borders - under the 24px floor, and giving the padding back would cost the day
           cell width it does not have. One spacing step each side clears the floor invisibly, the
           pane-divider technique again. */}
-      <Button
-        variant="ghost"
-        aria-label={`Reschedule ${item.title || 'Untitled'}`}
-        aria-haspopup="dialog"
-        className="relative px-0 py-0.5 before:absolute before:inset-y-0 before:-inset-x-1"
-        onClick={() => {
-          setRescheduling(item.id);
-        }}
-      >
-        <Icon icon={CalendarClock} size="sm" />
-      </Button>
-    </div>
+          <Button
+            variant="ghost"
+            aria-label={`Reschedule ${item.title || 'Untitled'}`}
+            aria-haspopup="dialog"
+            className="relative px-0 py-0.5 before:absolute before:inset-y-0 before:-inset-x-1"
+            onClick={() => {
+              setRescheduling(item.id);
+            }}
+          >
+            <Icon icon={CalendarClock} size="sm" />
+          </Button>
+        </div>
+      )}
+    </CalendarEntryMenu>
   );
 }

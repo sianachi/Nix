@@ -1,11 +1,24 @@
-import { Icon, Select, Tabs, Text, cn, focusRing, inkWashStates, type TabItem } from '@nix/ui';
-import { PanelLeft, PanelTop } from 'lucide-react';
+import {
+  Icon,
+  Select,
+  Tabs,
+  Text,
+  cn,
+  focusRing,
+  inkWashStates,
+  type MenuEntry,
+  type TabItem,
+} from '@nix/ui';
+import { PanelLeft, PanelTop, Pin, X } from 'lucide-react';
 import { useState, type DragEvent, type ReactNode } from 'react';
 
 import { useMediaQuery } from '../layout/viewport';
+import { copyLinkEntry } from '../items/item-menu-entries';
+import { publishNotice } from '../lib/notices';
 import type { PaneState } from '../panes/pane-state';
 import type { ShellContext } from '../shell/shell-context';
 import { useSelectedItem } from '../routing/selected-item';
+import { useOptionalWorkspace } from '../workspaces/workspace-context';
 import {
   carriesTabTransfer,
   readTabTransfer,
@@ -72,6 +85,8 @@ export function DocumentTabStrip({
   const { clear } = useSelectedItem();
   const { activateTab } = useOpenItem();
   const tabClosed = useTabStore((state) => state.tabClosed);
+  const tabPinned = useTabStore((state) => state.tabPinned);
+  const workspace = useOptionalWorkspace();
   const orientation = useTabOrientationStore((state) => state.orientation);
   const orientationToggled = useTabOrientationStore((state) => state.orientationToggled);
   const finePointer = useMediaQuery('(pointer: fine)');
@@ -156,6 +171,70 @@ export function DocumentTabStrip({
     }
   }
 
+  /**
+   * Closes several tabs at once, keeping `keep` open and showing it if the showing tab is among
+   * those closed - the editor-group convention for "Close Others" and "Close to the Right".
+   */
+  function closeAllBut(keep: string, closing: readonly string[]): void {
+    if (closing.length === 0) return;
+    if (closing.includes(activeItemId)) activateTab(keep);
+    for (const itemId of closing) tabClosed(itemId);
+    publishNotice({
+      key: 'tabs-closed',
+      message: `${String(closing.length)} ${closing.length === 1 ? 'tab' : 'tabs'} closed.`,
+    });
+  }
+
+  function tabActions(itemId: string): MenuEntry[] {
+    const index = tabs.findIndex((tab) => tab.itemId === itemId);
+    const tab = tabs[index];
+    if (tab === undefined) return [];
+    const others = tabs.filter((other) => other.itemId !== itemId).map((other) => other.itemId);
+    const toTheRight = tabs.slice(index + 1).map((other) => other.itemId);
+    const title = items[index]?.label ?? 'Untitled';
+    return [
+      {
+        kind: 'action',
+        label: 'Close',
+        icon: X,
+        shortcut: 'Delete',
+        onSelect: () => {
+          handleClose(itemId);
+        },
+      },
+      {
+        kind: 'action',
+        label: 'Close other tabs',
+        disabled: others.length === 0,
+        onSelect: () => {
+          closeAllBut(itemId, others);
+        },
+      },
+      {
+        kind: 'action',
+        label: 'Close tabs to the right',
+        disabled: toTheRight.length === 0,
+        onSelect: () => {
+          closeAllBut(itemId, toTheRight);
+        },
+      },
+      { kind: 'separator' },
+      ...(tab.pinned
+        ? []
+        : [
+            {
+              kind: 'action' as const,
+              label: 'Keep open',
+              icon: Pin,
+              onSelect: () => {
+                tabPinned(paneIndex, itemId);
+              },
+            },
+          ]),
+      ...(workspace === null ? [] : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
+    ];
+  }
+
   return (
     <div
       onDragEnter={onDragEnter}
@@ -185,6 +264,7 @@ export function DocumentTabStrip({
           }
         }}
         onClose={handleClose}
+        contextMenu={tabActions}
         {...(finePointer && destinations.length > 0
           ? {
               drag: {

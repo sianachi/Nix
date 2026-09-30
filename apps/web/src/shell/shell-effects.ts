@@ -1,4 +1,7 @@
-import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useRef } from 'react';
+
+import { isTypingTarget, matchesShortcut } from '../lib/shortcuts';
+import { SHORTCUTS, type ShellShortcutId } from '../keyboard/shortcut-registry';
 
 import type { WorkspaceTree } from '../items/use-workspace-tree';
 import type { PaneState } from '../panes/pane-state';
@@ -26,20 +29,40 @@ export function useRevealOpenPanes(tree: WorkspaceTree, panes: readonly PaneStat
   }, [openIds, tree]);
 }
 
-/** Installs the shell-wide command-palette shortcut while leaving handled inner shortcuts alone. */
-export function useShellSearchShortcut(setSearchOpen: Dispatch<SetStateAction<boolean>>): void {
+/**
+ * Installs the shell-wide shortcuts in `shortcut-registry.ts` - search, new note, the sidebar,
+ * history, and the shortcut sheet - while leaving inner shortcuts alone.
+ *
+ * Inner controls get first refusal: a key an editor or a menu already handled (`defaultPrevented`)
+ * never also fires a global action as it bubbles through the shell. History keys and the bare `?`
+ * are also left to text fields and editable content, where `[` and `?` are things people type.
+ */
+export function useShellShortcuts(actions: Readonly<Record<ShellShortcutId, () => void>>): void {
+  // Read by the one listener installed below, so a caller's fresh closures on every render do not
+  // re-install it.
+  const latest = useRef(actions);
+  useEffect(() => {
+    latest.current = actions;
+  });
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent): void {
-      // Inner controls get first refusal. Editor modes use Ctrl+K for their own command, and a
-      // handled key must not also open a global surface as it bubbles through the shell.
-      if (event.defaultPrevented) {
+      if (event.defaultPrevented || event.repeat) {
         return;
       }
-
-      // Both modifiers, because the same browser runs on machines with either.
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+      // A dialog is modal: nothing behind it should change while it is open, and a chord that
+      // opened search or made a note under the dialog would do exactly that.
+      if (insideAnotherModal(event.target)) {
+        return;
+      }
+      const typing = isTypingTarget(event.target);
+      for (const entry of SHORTCUTS) {
+        if (entry.handledBy !== 'shell') continue;
+        if (!entry.keys.some((keys) => matchesShortcut(event, keys))) continue;
+        if (typing && !entry.whileTyping) return;
         event.preventDefault();
-        setSearchOpen(true);
+        latest.current[entry.id]();
+        return;
       }
     }
 
@@ -47,5 +70,11 @@ export function useShellSearchShortcut(setSearchOpen: Dispatch<SetStateAction<bo
     return () => {
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [setSearchOpen]);
+  }, []);
+}
+
+/** Whether a modal dialog is open that the key press did not come from inside. */
+function insideAnotherModal(target: EventTarget | null): boolean {
+  const modal = document.querySelector('dialog[open], [aria-modal="true"]');
+  return modal !== null && !(target instanceof Node && modal.contains(target));
 }

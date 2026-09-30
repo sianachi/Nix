@@ -25,6 +25,56 @@ describe('the session gate', () => {
     expect(screen.queryByRole('textbox', { name: /organisation/i })).not.toBeInTheDocument();
   });
 
+  it('says the app is offline, not signed out, when Core cannot be reached', async () => {
+    const fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetch);
+    useSessionStore.setState({
+      status: 'unreachable',
+      profile: null,
+      error: null,
+      unreachable: { cause: 'offline', lastTriedAt: Date.now() },
+    });
+
+    renderAt(<App />);
+
+    expect(screen.getByRole('heading', { level: 1, name: /nix is offline/i })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /continue with sso/i })).not.toBeInTheDocument();
+    screen.getByRole('button', { name: /try again/i }).click();
+    await vi.waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/auth/session', expect.anything());
+    });
+    vi.unstubAllGlobals();
+  });
+
+  it('says the server is not answering, not that the device is offline, when it has a network', () => {
+    useSessionStore.setState({
+      status: 'unreachable',
+      profile: null,
+      error: null,
+      unreachable: { cause: 'server', lastTriedAt: Date.now() },
+    });
+
+    renderAt(<App />);
+
+    expect(screen.getByRole('heading', { name: /can.t reach its server/i })).toBeVisible();
+    expect(screen.getByText(/connection is working/i)).toBeVisible();
+    expect(screen.getByRole('status')).toHaveTextContent(/last tried at/i);
+  });
+
+  it('keeps the unreachable screen up, saying it is trying, while a retry is in flight', () => {
+    useSessionStore.setState({
+      status: 'authenticating',
+      profile: null,
+      error: null,
+      unreachable: { cause: 'server', lastTriedAt: Date.now() },
+    });
+
+    renderAt(<App />);
+
+    expect(screen.getByRole('button', { name: 'Trying…' })).toBeDisabled();
+    expect(screen.queryByText(/restoring session/i)).not.toBeInTheDocument();
+  });
+
   it('says it is restoring rather than showing sign-in while a renew is in flight', () => {
     useSessionStore.setState({ status: 'authenticating', profile: null, error: null });
 

@@ -318,7 +318,7 @@ export function Contents({
         <TemplateFact label="Fields and views" value="Included" />
         <label
           aria-label="Include document content"
-          className="flex cursor-pointer items-start gap-3"
+          className="flex cursor-default items-start gap-3"
         >
           <input
             type="checkbox"
@@ -339,7 +339,7 @@ export function Contents({
         </label>
         <label
           aria-label="Include everything inside"
-          className="flex cursor-pointer items-start gap-3"
+          className="flex cursor-default items-start gap-3"
         >
           <input
             type="checkbox"

@@ -1,3 +1,6 @@
+import { publishNotice } from '../lib/notices';
+import { flushPendingWork } from '../lib/pending-work';
+
 let registration: ServiceWorkerRegistration | undefined;
 const listeners = new Set<() => void>();
 export function getWaitingWorker(): ServiceWorker | null {
@@ -41,9 +44,33 @@ export function registerServiceWorker(): () => void {
             void value.update().catch(() => undefined);
         };
         document.addEventListener('visibilitychange', check);
+        // The installed shell keeps serving its own build until the person accepts an update, so a
+        // chunk it never cached may be gone from a newer deploy. That failure is the clearest sign
+        // one exists: look for it now, and the update prompt appears instead of a dead feature.
+        const stale = (): void => {
+          void value.update().catch(() => undefined);
+          // The part that failed to load stays failed until the page runs the newer build, so
+          // say so and offer the one fix, rather than leaving a dead screen to explain itself.
+          publishNotice({
+            key: 'build-updated',
+            message: 'Nix has been updated. Reload to open this.',
+            action: {
+              label: 'Reload',
+              onAction: () => {
+                void flushPendingWork()
+                  .catch(() => undefined)
+                  .then(() => {
+                    globalThis.location.reload();
+                  });
+              },
+            },
+          });
+        };
+        window.addEventListener('vite:preloadError', stale);
         cleanupRegistration = () => {
           value.removeEventListener('updatefound', found);
           document.removeEventListener('visibilitychange', check);
+          window.removeEventListener('vite:preloadError', stale);
         };
       })
       .catch((error: unknown) => {

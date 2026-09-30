@@ -3,6 +3,8 @@ import { createContext, use, useEffect, useRef, useState, type ReactNode } from 
 import { Outlet, useParams } from 'react-router';
 
 import { useApiClient } from '../api/api-client-provider';
+import { useSessionStore } from '../auth/session-store';
+import { pruneBodyCache } from '../editor/body-cache';
 import { useTabStore } from '../tabs/tab-store';
 import { rememberLastWorkspaceId } from './last-workspace';
 
@@ -201,6 +203,19 @@ function useAccessibleWorkspaceLoader(): AccessibleWorkspaceState {
 
 export function AccessibleWorkspacesProvider(): ReactNode {
   const state = useAccessibleWorkspaceLoader();
+  const subject = useSessionStore((session) => session.profile?.subject);
+  // Once the complete list is known, local copies of bodies in any other workspace are copies of
+  // something this person can no longer reach. A partial list proves nothing, so it prunes nothing.
+  const reachable =
+    state.status === 'ready' || state.status === 'empty'
+      ? state.workspaces.map((workspace) => workspace.id).join(' ')
+      : null;
+  useEffect(() => {
+    if (subject === undefined || reachable === null || typeof indexedDB === 'undefined') return;
+    void pruneBodyCache(subject, reachable === '' ? [] : reachable.split(' ')).catch(
+      () => undefined,
+    );
+  }, [reachable, subject]);
   return (
     <AccessibleWorkspacesContext value={state}>
       <Outlet />

@@ -568,7 +568,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           it - so the keyboard ladder below is a shortcut, not the only door. */}
       <div className="mb-1 flex items-center justify-between gap-2">
         <details>
-          <summary className={cn('inline-block cursor-pointer', focusRing)}>
+          <summary className={cn('inline-block cursor-default', focusRing)}>
             <Text as="span" variant="note" tone="muted">
               Keyboard
             </Text>
@@ -628,7 +628,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                   );
                 }}
                 className={cn(
-                  'absolute top-0 flex cursor-pointer items-center gap-1 truncate border-r border-divider px-2 text-left text-sm font-semibold',
+                  'absolute top-0 flex cursor-default items-center gap-1 truncate border-r border-divider px-2 text-left text-sm font-semibold',
                   sorted ? 'text-accent-text' : 'text-foreground',
                   focusRing,
                 )}

@@ -1,4 +1,4 @@
-import { Button, Dialog } from '@nix/ui';
+import { Button, Dialog, chromeSurface } from '@nix/ui';
 import type { ItemInsertKind } from './item-insert-dialog';
 import { TableSizePicker } from './table-size-picker';
 import { Icon } from '@nix/ui';
@@ -446,7 +446,11 @@ export function EditorToolbar({
       ...(inTable ? table : []),
     ];
     return (
-      <div role="toolbar" aria-label="Formatting" className="flex w-max items-center gap-1">
+      <div
+        role="toolbar"
+        aria-label="Formatting"
+        className={`flex w-max items-center gap-1 ${chromeSurface}`}
+      >
         <Group controls={marks.filter((control) => ['bold', 'italic'].includes(control.id))} />
         <Group controls={lists.filter((control) => control.id === 'bulletList')} />
         <Button
@@ -536,7 +540,7 @@ export function EditorToolbar({
       role="toolbar"
       aria-label="Formatting"
       aria-orientation="horizontal"
-      className="flex w-max flex-nowrap items-center gap-0.5 px-2 py-1.5 sm:w-auto sm:flex-wrap sm:px-8"
+      className={`flex w-max flex-nowrap items-center gap-0.5 px-2 py-1.5 sm:w-auto sm:flex-wrap sm:px-8 ${chromeSurface}`}
     >
       <Group controls={blocks} />
       <Separator />

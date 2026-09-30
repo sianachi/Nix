@@ -143,4 +143,10 @@ describe('the sync footer', () => {
       screen.getByRole('contentinfo').querySelector('svg')?.getAttribute('class') ?? '',
     ).not.toContain('animate-spin');
   });
+
+  it('says the body is this device’s saved copy while it connects', () => {
+    render(<SyncFooter state="connecting" showingLocalCopy />);
+
+    expect(screen.getByRole('contentinfo')).toHaveTextContent(/copy saved on this device/i);
+  });
 });

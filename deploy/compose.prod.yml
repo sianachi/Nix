@@ -184,6 +184,9 @@ services:
       Nix__Bff__Authority: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
       Nix__Bff__ClientId: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID}
       Nix__Bff__PublicOrigin: ${NIX_PUBLIC_ORIGIN:?set NIX_PUBLIC_ORIGIN}
+      # The IdP's self-service page for password, passkey and MFA changes. Defaults to the
+      # Zitadel console's own-account page; set NIX_OIDC_ACCOUNT_URL for any other provider.
+      Nix__Bff__AccountPage: ${NIX_OIDC_ACCOUNT_URL:-${NIX_OIDC_ISSUER}/ui/console/users/me?id=security}
       Nix__Bff__DataProtectionKeysPath: /var/lib/nix/data-protection
       Nix__AccessTokens__Issuer: ${NIX_CORE_TOKEN_ISSUER:?set NIX_CORE_TOKEN_ISSUER}
       Nix__AccessTokens__Audience: ${NIX_CORE_TOKEN_AUDIENCE:?set NIX_CORE_TOKEN_AUDIENCE}

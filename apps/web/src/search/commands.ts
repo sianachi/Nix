@@ -1,4 +1,7 @@
-import { FilePlus, PanelLeft, Star, type LucideIcon } from 'lucide-react';
+import { CalendarDays, FilePlus, Keyboard, PanelLeft, Star, type LucideIcon } from 'lucide-react';
+
+import { formatShortcut } from '../lib/shortcuts';
+import { shortcutFor, type ShellShortcutId } from '../keyboard/shortcut-registry';
 
 /**
  * What the palette can do, as opposed to what it can find.
@@ -17,6 +20,8 @@ export interface PaletteCommand {
   readonly id: string;
   readonly label: string;
   readonly hint?: string;
+  /** The keys that do the same thing, written the way this platform writes them. */
+  readonly shortcut?: string;
   readonly icon: LucideIcon;
   readonly keywords: readonly string[];
   readonly run: () => void;
@@ -46,6 +51,14 @@ export interface CommandContext {
 
   /** Whether the open item is already kept, so the command can say which way it goes. */
   readonly openItemIsKept: boolean;
+
+  readonly openToday: () => void;
+  readonly openShortcuts: () => void;
+}
+
+function keysOf(id: ShellShortcutId): string {
+  const [first] = shortcutFor(id).keys;
+  return first === undefined ? '' : formatShortcut(first);
 }
 
 /** The commands this build ships. */
@@ -56,15 +69,32 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
       label: 'New note',
       hint: 'In the current workspace',
       icon: FilePlus,
+      shortcut: keysOf('new-note'),
       keywords: ['new', 'note', 'create', 'add', 'document'],
       run: context.createItem,
+    },
+    {
+      id: 'open-today',
+      label: 'Open today’s note',
+      icon: CalendarDays,
+      keywords: ['today', 'daily', 'journal', 'date'],
+      run: context.openToday,
     },
     {
       id: 'toggle-sidebar',
       label: 'Show or hide the sidebar',
       icon: PanelLeft,
+      shortcut: keysOf('toggle-sidebar'),
       keywords: ['sidebar', 'tree', 'hide', 'show', 'collapse', 'expand', 'navigation'],
       run: context.toggleSidebar,
+    },
+    {
+      id: 'keyboard-shortcuts',
+      label: 'Keyboard shortcuts',
+      icon: Keyboard,
+      shortcut: keysOf('shortcuts'),
+      keywords: ['keyboard', 'shortcuts', 'keys', 'hotkeys', 'help'],
+      run: context.openShortcuts,
     },
 
     // Offered only when there is something to keep. The label names the direction rather than the

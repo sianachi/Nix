@@ -100,7 +100,7 @@ export function Checkbox(props: CheckboxProps): ReactNode {
           assignRef(ref, node);
         }}
         className={cn(
-          'peer size-4 shrink-0 cursor-pointer appearance-none rounded-sm border border-divider bg-background',
+          'peer size-4 shrink-0 cursor-default appearance-none rounded-sm border border-divider bg-background',
           'checked:border-accent-fill checked:bg-accent-fill',
           'indeterminate:border-accent-fill indeterminate:bg-accent-fill',
           'transition-colors',
@@ -129,7 +129,7 @@ export function Checkbox(props: CheckboxProps): ReactNode {
       htmlFor={inputId}
       className={cn(
         'inline-flex items-center gap-2',
-        disabled === true ? 'cursor-not-allowed opacity-45' : 'cursor-pointer',
+        disabled === true ? 'cursor-not-allowed opacity-45' : 'cursor-default select-none',
         className,
       )}
     >

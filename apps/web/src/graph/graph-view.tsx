@@ -488,7 +488,7 @@ export function GraphView({ nodes, links, onOpen }: GraphViewProps): ReactElemen
             return (
               <g
                 key={node.id}
-                className="group cursor-pointer transition-transform duration-500 ease-out motion-reduce:transition-none"
+                className="group cursor-default transition-transform duration-500 ease-out motion-reduce:transition-none"
                 transform={home}
                 onPointerDown={(event) => {
                   onNodePointerDown(event, node);

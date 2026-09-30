@@ -1,4 +1,4 @@
-import { Icon, Text, cn, focusRing } from '@nix/ui';
+import { Icon, Text, chromeSurface, cn, focusRing } from '@nix/ui';
 import { Bell, CalendarDays, FolderTree, Plus, Search } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
@@ -27,7 +27,7 @@ export function MobileNavigation({
     // design-token-exempt: device safe-area inset keeps navigation above the home indicator.
     <nav
       aria-label="Mobile navigation"
-      className="flex shrink-0 items-center gap-1 border-t border-divider bg-background px-2 pb-[env(safe-area-inset-bottom)]"
+      className={`flex shrink-0 items-center gap-1 border-t border-divider bg-background px-2 pb-[env(safe-area-inset-bottom)] ${chromeSurface}`}
     >
       <button type="button" className={control} aria-expanded={treeOpen} onClick={onTree}>
         <Icon icon={FolderTree} size="sm" />

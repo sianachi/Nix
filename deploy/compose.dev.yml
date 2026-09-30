@@ -7,7 +7,7 @@
 #
 # Profiles:
 #   core   - the default developer set: app Postgres (pgvector), RabbitMQ, Versity S3
-#            gateway, Zitadel (with its own Postgres).
+#            gateway, Zitadel (with its own Postgres), Mailpit (Zitadel's outbox).
 #   search - OpenSearch, the rebuildable index used by the Go index role.
 #   media  - clamd virus scanner (heavy: ~1-2 GB RAM for the signature DB).
 #
@@ -26,6 +26,7 @@
 #   5673  RabbitMQ AMQP       (5672 is commonly occupied)
 #   15673 RabbitMQ management
 #   8300  Zitadel             (8080 is too popular to claim)
+#   8325  Mailpit web UI      (Zitadel's password-reset and verification mail)
 #   9201  OpenSearch          (9200 is commonly occupied)
 #
 # Application processes are not in this file. Core (5014), the web app (5173)
@@ -229,6 +230,18 @@ services:
     #
     # Verify by hand with:
     #   curl -fsS http://localhost:8300/.well-known/openid-configuration
+
+  # Catches every mail Zitadel sends - password-reset codes, email verification,
+  # passkey registration links - so the self-service flows work end to end with
+  # no real mail provider. deploy/seed/zitadel-configure.sh points Zitadel's SMTP
+  # at mailpit:1025 on the compose network; only the web UI is published.
+  # Inbox: http://localhost:8325
+  mailpit:
+    image: axllent/mailpit:v1.29
+    profiles: ["core"]
+    ports:
+      # Loopback only: the inbox holds password-reset links for every dev account.
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8325}:8025"
 
 volumes:
   nix-pg-data:

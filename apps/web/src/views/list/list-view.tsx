@@ -6,6 +6,7 @@ import {
   Select,
   cn,
   focusRing,
+  type MenuEntry,
   type TableColumn,
   type TableSort,
 } from '@nix/ui';
@@ -22,6 +23,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { useItemContextActions } from '../core/use-item-context-actions';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
@@ -79,6 +81,8 @@ export function ListView(props: ListViewProps): ReactNode {
   const narrow = useNarrowViewport();
   const viewState = useViewState();
   const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const itemActions = useItemContextActions(onOpen);
+  const rowContextMenu = (item: Item): MenuEntry[] => itemActions(item.id, item.title);
 
   // The URL wins, the stored view is the starting point. A view configured to sort by owner is
   // what somebody arriving with no sort in the address should see; the moment they click a header
@@ -186,7 +190,13 @@ export function ListView(props: ListViewProps): ReactNode {
           onSortChange={onSortChange}
         />
       ) : (
-        <ListRows items={chrome.items} columns={columns} sort={sort} onSortChange={onSortChange} />
+        <ListRows
+          items={chrome.items}
+          columns={columns}
+          sort={sort}
+          onSortChange={onSortChange}
+          rowContextMenu={rowContextMenu}
+        />
       )}
 
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
@@ -202,10 +212,16 @@ interface ListRowsProps {
   readonly columns: readonly TableColumn<Item>[];
   readonly sort: TableSort | undefined;
   readonly onSortChange: (sort: TableSort) => void;
+  readonly rowContextMenu?: (item: Item) => MenuEntry[];
+}
+
+/** Which row a list row's menu acts on, for the name a screen reader hears. */
+function rowMenuLabel(item: Item): string {
+  return `${item.title || 'Untitled'} actions`;
 }
 
 function ListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu } = props;
   if (items.length <= VIRTUALIZATION_THRESHOLD) {
     return (
       <Table<Item>
@@ -216,17 +232,18 @@ function ListRows(props: ListRowsProps): ReactNode {
         emptyMessage="Nothing in here yet."
         {...(sort === undefined ? {} : { sort })}
         onSortChange={onSortChange}
+        {...(rowContextMenu === undefined
+          ? {}
+          : { rowContextMenu, rowContextMenuLabel: rowMenuLabel })}
       />
     );
   }
 
-  return (
-    <VirtualListRows items={items} columns={columns} sort={sort} onSortChange={onSortChange} />
-  );
+  return <VirtualListRows {...props} />;
 }
 
 function VirtualListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu } = props;
   const rootRef = useRef<HTMLTableElement>(null);
   // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
   const keys = useMemo(() => items.map((item) => item.id), [items]);
@@ -250,6 +267,9 @@ function VirtualListRows(props: ListRowsProps): ReactNode {
       emptyMessage="Nothing in here yet."
       {...(sort === undefined ? {} : { sort })}
       onSortChange={onSortChange}
+      {...(rowContextMenu === undefined
+        ? {}
+        : { rowContextMenu, rowContextMenuLabel: rowMenuLabel })}
       virtualization={{
         totalRows: items.length,
         rowIndexes: windowed.indexes,
@@ -313,7 +333,7 @@ function buildColumns(
             onOpen(item.id);
           }}
           className={cn(
-            'cursor-pointer text-left hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
+            'cursor-default text-left hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
             focusRing,
           )}
         >
@@ -431,7 +451,7 @@ function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): 
             <div className="py-2">{columns[0]?.cell(item)}</div>
             {columns.length > 1 ? (
               <details>
-                <summary className="cursor-pointer py-2">Fields</summary>
+                <summary className="cursor-default py-2">Fields</summary>
                 <dl className="flex flex-col gap-3">
                   {columns.slice(1).map((column) => (
                     <div key={column.key} className="min-w-0">

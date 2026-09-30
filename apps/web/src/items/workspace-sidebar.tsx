@@ -1,5 +1,8 @@
 import {
   Button,
+  ContextMenu,
+  Skeleton,
+  chromeSurface,
   Icon,
   Menu,
   Text,
@@ -15,6 +18,7 @@ import {
   ChevronRight,
   Check,
   Columns2,
+  ExternalLink,
   FilePlus,
   FileText,
   FolderUp,
@@ -43,22 +47,14 @@ import { OPEN_BESIDE_REFUSAL_COPY, type OpenBesideRefusal } from '../tabs/use-op
 import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
 import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
+import { publishNotice } from '../lib/notices';
+import { isApplePlatform } from '../lib/shortcuts';
+import { bookmarkEntry, copyLinkEntry } from './item-menu-entries';
 import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
-/**
- * Whether this is an Apple platform, for the one gesture whose modifier differs.
- *
- * Read once, from the user agent's own platform hint rather than by sniffing a version string.
- * It matters because Ctrl+click is the *secondary* click on a Mac: accepting it as "open beside"
- * there would turn every attempt to open a context menu into a new pane.
- */
-const APPLE = /mac|iphone|ipad|ipod/i.test(
-  // The modern hint where it exists, the user-agent string where it does not. Deliberately not
-  // `navigator.platform`, which is deprecated and frozen to a lie on several browsers.
-  (navigator as { userAgentData?: { platform?: string } }).userAgentData?.platform ??
-    navigator.userAgent,
-);
+/** Whether this is an Apple platform, for the one gesture whose modifier differs. */
+const APPLE = isApplePlatform();
 
 /**
  * The workspace tree, in the sidebar, always on screen.
@@ -219,7 +215,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   return (
     // The width belongs to the shell, which sizes and resizes the region this fills; a width
     // here as well would be two owners for one dimension.
-    <aside aria-label="Workspace" className="flex w-full flex-col overflow-hidden bg-surface">
+    <aside
+      aria-label="Workspace"
+      className={cn('flex w-full flex-col overflow-hidden bg-surface', chromeSurface)}
+    >
       <div className="flex shrink-0 items-center gap-1 px-3 py-2">
         {/* The published label look, composed onto a span: `<Text>`'s className is layout only,
             and this was reaching through it for uppercase and tracking - which is the type axis the
@@ -560,14 +559,21 @@ interface TreeBodyProps {
   readonly onDeleteItem: (item: TreeItem) => void;
 }
 
+/** A loading tree's rows: ragged, like titles, rather than a ruled table of equal bars. */
+const TREE_SKELETON_WIDTHS = ['w-3/4', 'w-1/2', 'w-2/3', 'w-5/12', 'w-3/5'] as const;
+
 function TreeBody(props: TreeBodyProps): ReactNode {
   const { tree } = props;
 
   if (tree.status === 'loading') {
+    // Rows in the positions the tree will take, so the sidebar fills in rather than appearing.
     return (
-      <Text variant="note" tone="muted" className="px-3 py-2">
-        Loading the workspace…
-      </Text>
+      <div role="status" aria-busy={true} className="flex flex-col gap-3 px-3 py-2.5">
+        <span className="sr-only">Loading the workspace…</span>
+        {TREE_SKELETON_WIDTHS.map((width, index) => (
+          <Skeleton key={index} className={width} />
+        ))}
+      </div>
     );
   }
 
@@ -710,6 +716,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
   // A selector rather than the whole store, so a row re-renders when its own answer moves and not
   // when somebody keeps an unrelated item three folders away.
   const keptIds = useBookmarksStore((state) => state.keptIds);
+  const { workspaceId } = useWorkspace();
 
   const {
     item,
@@ -827,45 +834,128 @@ function TreeNode(props: TreeNodeProps): ReactNode {
     }
   }
 
+  const title = item.title || 'Untitled';
+
+  /**
+   * Out of every parent, to the end of the workspace's top level - after the current last root, so
+   * moving does not reorder the roots already there. Its refusal is said, not dropped: the row not
+   * moving is otherwise indistinguishable from a click that missed.
+   */
+  function moveToRoot(): void {
+    const lastRoot = tree.childrenOf(null).at(-1);
+    void tree.move(item.id, null, lastRoot?.id ?? null).then((outcome) => {
+      if (outcome.refusal !== null)
+        publishNotice({ key: 'move-refused', message: outcome.refusal });
+    });
+  }
+
+  /**
+   * The row's actions, gathered where the right-click lands. Every one of them already exists as a
+   * control or gesture on the row - this is the place a desktop user looks for them first, not a
+   * second implementation. Built when the menu opens, so the bookmark entry names the current state.
+   */
+  function contextItems(): MenuEntry[] {
+    return [
+      {
+        kind: 'action',
+        label: 'Open',
+        icon: FileText,
+        onSelect: () => {
+          onSelect(item.id);
+        },
+      },
+      {
+        kind: 'action',
+        label: 'Open in a new tab',
+        icon: ExternalLink,
+        onSelect: () => {
+          onOpenPinned(item.id);
+        },
+      },
+      ...(besideRefusal === 'narrow'
+        ? []
+        : [
+            {
+              kind: 'action' as const,
+              label: 'Open beside',
+              icon: Columns2,
+              shortcut: APPLE ? '⌘ Click' : 'Ctrl+Click',
+              disabled: !canOpenBeside,
+              onSelect: () => {
+                onOpenBeside(item.id);
+              },
+            },
+          ]),
+      { kind: 'separator' },
+      bookmarkEntry(item.id),
+      copyLinkEntry(workspaceId, item.id, title),
+      ...(item.parentId === null
+        ? []
+        : [
+            {
+              kind: 'action' as const,
+              label: 'Move to workspace root',
+              icon: FolderUp,
+              onSelect: () => {
+                moveToRoot();
+              },
+            },
+          ]),
+      { kind: 'separator' },
+      {
+        kind: 'action',
+        label: 'Delete',
+        icon: Trash2,
+        destructive: true,
+        onSelect: () => {
+          onDeleteItem(item);
+        },
+      },
+    ];
+  }
+
   return (
     <li role="treeitem" aria-expanded={expandable ? expanded : undefined} aria-selected={selected}>
-      <div
-        draggable
-        onDragStart={onDragStart}
-        onDragEnd={() => {
-          setDragged(null);
-          setZone(null);
-        }}
-        onDragOver={(event) => {
-          event.preventDefault();
-          const box = event.currentTarget.getBoundingClientRect();
-          setZone(dropZoneAt(event.clientY - box.top, box.height));
-        }}
-        onDragLeave={() => {
-          setZone(null);
-        }}
-        onDrop={onDrop}
-        className={[
-          'group relative flex items-center gap-1 pr-1',
-          indentAt(ROW_INDENT, depth),
-          selected ? 'bg-accent/18' : 'hover:bg-accent/10',
-          dropping && zone === 'inside' ? 'outline-2 -outline-offset-2 outline-accent' : '',
-        ].join(' ')}
-      >
-        {/* A line where the item would land, rather than an outline round the row it would land
+      <ContextMenu label={`${title} actions`} items={contextItems}>
+        {(contextTarget) => (
+          <div
+            {...contextTarget}
+            draggable
+            onDragStart={onDragStart}
+            onDragEnd={() => {
+              setDragged(null);
+              setZone(null);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              const box = event.currentTarget.getBoundingClientRect();
+              setZone(dropZoneAt(event.clientY - box.top, box.height));
+            }}
+            onDragLeave={() => {
+              setZone(null);
+            }}
+            onDrop={onDrop}
+            className={[
+              'group relative flex items-center gap-1 pr-1',
+              indentAt(ROW_INDENT, depth),
+              selected ? 'bg-accent/18' : 'hover:bg-accent/10',
+              dropping && zone === 'inside' ? 'outline-2 -outline-offset-2 outline-accent' : '',
+            ].join(' ')}
+          >
+            {/* A line where the item would land, rather than an outline round the row it would land
             beside. An outline says "into this"; a line between two rows says "between them", which
             is the thing being chosen. */}
-        {dropping && zone !== 'inside' ? (
-          <span
-            aria-hidden="true"
-            className={[
-              'pointer-events-none absolute inset-x-0 h-0.5 bg-accent',
-              zone === 'before' ? 'top-0' : 'bottom-0',
-            ].join(' ')}
-          />
-        ) : null}
+            {dropping && zone !== 'inside' ? (
+              <span
+                aria-hidden="true"
+                className={[
+                  'pointer-events-none absolute inset-x-0 h-0.5 bg-accent',
+                  zone === 'before' ? 'top-0' : 'bottom-0',
+                ].join(' ')}
+              />
+            ) : null}
 
-        {/* `max-sm:size-(--control-sm)` on both the button and its placeholder, narrow-scoped:
+            {/* `max-sm:size-(--control-sm)` on both the button and its placeholder, narrow-scoped:
             below `sm` this is a touch target and 20px (`size-5`) is under WCAG 2.5.8's 24px floor,
             but the two have to grow together or a row without an expand control would sit at a
             different gutter width than one with it.
@@ -875,55 +965,55 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             `@media(pointer:coarse)`), so a touch-capable device *above* `sm` - an iPad in portrait,
             say - would otherwise get neither the hover reveal nor the `max-sm:` override, leaving
             it unreachable rather than merely small. */}
-        {expandable ? (
-          <button
-            type="button"
-            aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
-            onClick={() => {
-              setExpanded(!expanded);
-              if (!expanded && !tree.isExpanded(item.id)) void tree.toggle(item.id);
-            }}
-            className="flex size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm) items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-          >
-            <Icon icon={expanded ? ChevronDown : ChevronRight} size="sm" />
-          </button>
-        ) : (
-          <span
-            aria-hidden="true"
-            className="size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm)"
-          />
-        )}
+            {expandable ? (
+              <button
+                type="button"
+                aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
+                onClick={() => {
+                  setExpanded(!expanded);
+                  if (!expanded && !tree.isExpanded(item.id)) void tree.toggle(item.id);
+                }}
+                className="flex size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm) items-center justify-center text-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+              >
+                <Icon icon={expanded ? ChevronDown : ChevronRight} size="sm" />
+              </button>
+            ) : (
+              <span
+                aria-hidden="true"
+                className="size-5 max-sm:size-(--control-sm) pointer-coarse:size-(--control-sm)"
+              />
+            )}
 
-        <button
-          type="button"
-          onClick={(event) => {
-            // The accelerator everybody already has from a browser and an editor. Gated on the
-            // platform's own modifier: Ctrl+click on a Mac is the *secondary* click, so accepting
-            // it there would turn every attempt to open a context menu into a new pane.
-            if (APPLE ? event.metaKey : event.ctrlKey) {
-              // Deliberately not gated here. `openBeside` refuses on its own - it announces the
-              // reason and writes nothing - which is the only place the check can live and still
-              // be true of every caller. An earlier cut gated the controls instead, and this
-              // branch routed around it.
-              onOpenBeside(item.id);
-              return;
-            }
-            onSelect(item.id);
-          }}
-          onDoubleClick={() => {
-            onOpenPinned(item.id);
-          }}
-          // On the row's own control rather than on the wrapper: this is the element that takes
-          // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a
-          // control that only looks like one.
-          onKeyDown={onKeyDown}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
-        >
-          <Icon icon={FileText} size="sm" />
-          <span className="truncate">{item.title || 'Untitled'}</span>
-        </button>
+            <button
+              type="button"
+              onClick={(event) => {
+                // The accelerator everybody already has from a browser and an editor. Gated on the
+                // platform's own modifier: Ctrl+click on a Mac is the *secondary* click, so accepting
+                // it there would turn every attempt to open a context menu into a new pane.
+                if (APPLE ? event.metaKey : event.ctrlKey) {
+                  // Deliberately not gated here. `openBeside` refuses on its own - it announces the
+                  // reason and writes nothing - which is the only place the check can live and still
+                  // be true of every caller. An earlier cut gated the controls instead, and this
+                  // branch routed around it.
+                  onOpenBeside(item.id);
+                  return;
+                }
+                onSelect(item.id);
+              }}
+              onDoubleClick={() => {
+                onOpenPinned(item.id);
+              }}
+              // On the row's own control rather than on the wrapper: this is the element that takes
+              // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a
+              // control that only looks like one.
+              onKeyDown={onKeyDown}
+              className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={FileText} size="sm" />
+              <span className="truncate">{item.title || 'Untitled'}</span>
+            </button>
 
-        {/* Beside Delete, in the row's own established grammar: revealed on hover, always
+            {/* Beside Delete, in the row's own established grammar: revealed on hover, always
             reachable by keyboard - and, below `sm`, always visible and at the 28px control size
             rather than 20px, because touch has no hover to reveal a hidden control with, and a
             control under WCAG 2.5.8's 24px floor is a thumb's width from the row next to it.
@@ -938,93 +1028,94 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             ever act around is worse than no control - on a phone a screen reader would hear it on
             every single row. `'limit'` is the opposite: a temporary state of how many panes happen
             to be open, so it stays visible and disabled, with the explanation, exactly as before. */}
-        {besideRefusal === 'narrow' ? null : (
-          <button
-            type="button"
-            disabled={!canOpenBeside}
-            aria-label={
-              besideRefusal === null
-                ? `Open ${item.title || 'Untitled'} beside`
-                : `Cannot open ${item.title || 'Untitled'} beside. ${OPEN_BESIDE_REFUSAL_COPY[besideRefusal]}`
-            }
-            onClick={() => {
-              onOpenBeside(item.id);
-            }}
-            // `opacity-0`, not `invisible`. `visibility: hidden` takes an element out of the tab
-            // order entirely, so `focus-visible:visible` can never fire - nothing can focus it in
-            // order to un-hide it. The control was pointer-only, which is the objection it exists to
-            // answer. Opacity hides it and keeps it reachable.
-            //
-            // `pointer-events-none` rides along with that same `opacity-0` regardless of viewport
-            // width: an element can be hit-tested while fully transparent, so without this a thumb
-            // or pointer landing near the row's edge could trigger a control nothing on screen shows
-            // it landed on. The three states that raise the opacity back to 100 - hover, focus-visible,
-            // group-hover - restore pointer events with it; `max-sm:` does the same unconditionally,
-            // since below `sm` this is never hidden in the first place.
-            className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${disabledState} ${focusRing}`}
-          >
-            <Icon icon={Columns2} size="sm" />
-          </button>
-        )}
+            {besideRefusal === 'narrow' ? null : (
+              <button
+                type="button"
+                disabled={!canOpenBeside}
+                aria-label={
+                  besideRefusal === null
+                    ? `Open ${item.title || 'Untitled'} beside`
+                    : `Cannot open ${item.title || 'Untitled'} beside. ${OPEN_BESIDE_REFUSAL_COPY[besideRefusal]}`
+                }
+                onClick={() => {
+                  onOpenBeside(item.id);
+                }}
+                // `opacity-0`, not `invisible`. `visibility: hidden` takes an element out of the tab
+                // order entirely, so `focus-visible:visible` can never fire - nothing can focus it in
+                // order to un-hide it. The control was pointer-only, which is the objection it exists to
+                // answer. Opacity hides it and keeps it reachable.
+                //
+                // `pointer-events-none` rides along with that same `opacity-0` regardless of viewport
+                // width: an element can be hit-tested while fully transparent, so without this a thumb
+                // or pointer landing near the row's edge could trigger a control nothing on screen shows
+                // it landed on. The three states that raise the opacity back to 100 - hover, focus-visible,
+                // group-hover - restore pointer events with it; `max-sm:` does the same unconditionally,
+                // since below `sm` this is never hidden in the first place.
+                className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${disabledState} ${focusRing}`}
+              >
+                <Icon icon={Columns2} size="sm" />
+              </button>
+            )}
 
-        {/* Revealed on hover and on focus like its neighbours, and always visible once the item is
+            {/* Revealed on hover and on focus like its neighbours, and always visible once the item is
             kept - a star that vanished when the pointer left would mean a reader could not tell
             what they had bookmarked without hovering every row in turn. `BookmarkButton` owns the
             pressed state and the toggle; the classes here are the row's, because only the row knows
             what its controls look like. */}
-        <BookmarkButton
-          compact
-          itemId={item.id}
-          title={item.title}
-          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-lg) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
-        />
+            <BookmarkButton
+              compact
+              itemId={item.id}
+              title={item.title}
+              className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-lg) ${keptIds.has(item.id) ? 'opacity-100 pointer-events-auto' : ''} ${focusRing}`}
+            />
 
-        {/* A direct escape from nesting. Dragging beside a root or pressing Alt+Left once per
+            {/* A direct escape from nesting. Dragging beside a root or pressing Alt+Left once per
             ancestor still works, but neither is a reasonable requirement for the common outcome
             "put this in the workspace". Appended after the current last root so moving does not
             unexpectedly reorder the roots already there. */}
-        {item.parentId === null ? null : (
-          <button
-            type="button"
-            aria-label={`Move ${item.title || 'Untitled'} to the workspace root`}
-            onClick={() => {
-              const lastRoot = tree.childrenOf(null).at(-1);
-              void tree.move(item.id, null, lastRoot?.id ?? null);
-            }}
-            className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${focusRing}`}
-          >
-            <Icon icon={FolderUp} size="sm" />
-          </button>
-        )}
+            {item.parentId === null ? null : (
+              <button
+                type="button"
+                aria-label={`Move ${item.title || 'Untitled'} to the workspace root`}
+                onClick={() => {
+                  moveToRoot();
+                }}
+                className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) ${focusRing}`}
+              >
+                <Icon icon={FolderUp} size="sm" />
+              </button>
+            )}
 
-        <button
-          type="button"
-          aria-label={`Delete ${item.title}`}
-          onClick={() => {
-            // Immediate, on purpose - see `requestDelete` on `app-shell.tsx` for why a toast
-            // with Undo replaced the `globalThis.confirm()` this control used to sit behind. The
-            // control is revealed on hover and sits a few pixels from the one that opens the
-            // item, which is exactly the situation Undo (rather than a slower "are you sure") is
-            // meant to answer.
-            onDeleteItem(item);
-          }}
-          // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
-          // takes an element out of the tab order, so this was keyboard-unreachable - and of the
-          // two controls in this row it is the destructive one. `pointer-events-none` and the
-          // narrow-scoped sizing and always-visible state follow the same reasoning as that
-          // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
-          // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
-          // the `max-sm:` override without it.
-          //
-          // `pointer-coarse:ml-2` widens the gap in front of this control only: on touch, a thumb
-          // landing between "move to root" and the bookmark star and this destructive action has
-          // less margin for error than a mouse pointer does, and the row's own `gap-1` is otherwise
-          // the same narrow spacing on every control in it.
-          className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) pointer-coarse:ml-2 ${focusRing}`}
-        >
-          <Icon icon={Trash2} size="sm" />
-        </button>
-      </div>
+            <button
+              type="button"
+              aria-label={`Delete ${item.title}`}
+              onClick={() => {
+                // Immediate, on purpose - see `requestDelete` on `app-shell.tsx` for why a toast
+                // with Undo replaced the `globalThis.confirm()` this control used to sit behind. The
+                // control is revealed on hover and sits a few pixels from the one that opens the
+                // item, which is exactly the situation Undo (rather than a slower "are you sure") is
+                // meant to answer.
+                onDeleteItem(item);
+              }}
+              // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
+              // takes an element out of the tab order, so this was keyboard-unreachable - and of the
+              // two controls in this row it is the destructive one. `pointer-events-none` and the
+              // narrow-scoped sizing and always-visible state follow the same reasoning as that
+              // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
+              // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
+              // the `max-sm:` override without it.
+              //
+              // `pointer-coarse:ml-2` widens the gap in front of this control only: on touch, a thumb
+              // landing between "move to root" and the bookmark star and this destructive action has
+              // less margin for error than a mouse pointer does, and the row's own `gap-1` is otherwise
+              // the same narrow spacing on every control in it.
+              className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) pointer-coarse:ml-2 ${focusRing}`}
+            >
+              <Icon icon={Trash2} size="sm" />
+            </button>
+          </div>
+        )}
+      </ContextMenu>
 
       {expanded ? (
         <ul role="group">

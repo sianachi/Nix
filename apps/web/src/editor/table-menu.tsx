@@ -1,4 +1,4 @@
-import { Icon, Text } from '@nix/ui';
+import { Icon, Text, chromeSurface } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
   BetweenHorizontalEnd,
@@ -308,6 +308,7 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
       style={{ left: placement.left, top: placement.top }} // design-token-exempt: the table's position is a runtime measurement, not a scale step.
       className={[
         'fixed z-20 flex max-w-full flex-wrap items-center gap-2 rounded-md border border-divider bg-surface p-1 shadow-md',
+        chromeSurface,
         placement.pinned ? '' : '-translate-y-full',
       ].join(' ')}
       // Swallowed before the browser can move focus: a press on a menu button must not blur
