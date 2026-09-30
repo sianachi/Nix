@@ -220,10 +220,7 @@ describe('the tab context menu', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Close tabs to the right' }));
 
     await waitFor(() => {
-      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-        'Alpha',
-        'Bravo',
-      ]);
+      expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['Alpha', 'Bravo']);
     });
   });
 

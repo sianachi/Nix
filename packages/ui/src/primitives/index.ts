@@ -20,12 +20,7 @@ export {
 } from './Text';
 export { Icon, ICON_STROKE_WIDTH, type IconProps, type IconSize } from './Icon';
 export { Duotone, type DuotoneProps } from './Duotone';
-export {
-  Skeleton,
-  SkeletonLines,
-  type SkeletonLinesProps,
-  type SkeletonProps,
-} from './Skeleton';
+export { Skeleton, SkeletonLines, type SkeletonLinesProps, type SkeletonProps } from './Skeleton';
 export {
   placeFloatingMenu,
   readViewportBounds,
