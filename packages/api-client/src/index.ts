@@ -286,6 +286,25 @@ export type {
   PushSubscriptionDto,
   PushPublicKeyResponse,
 } from './schemas/notifications.js';
+export * as automations from './resources/automations.js';
+export {
+  automationRuleInputSchema,
+  automationRuleResponseSchema,
+  automationListResponseSchema,
+  automationRunResponseSchema,
+  automationRunsPageResponseSchema,
+  automationActionPreviewSchema,
+  automationTestResponseSchema,
+} from './schemas/automations.js';
+export type {
+  AutomationRuleInput,
+  AutomationRuleResponse,
+  AutomationListResponse,
+  AutomationRunResponse,
+  AutomationRunsPageResponse,
+  AutomationActionPreview,
+  AutomationTestResponse,
+} from './schemas/automations.js';
 export * as bookmarks from './resources/bookmarks.js';
 export * as locks from './resources/locks.js';
 export * as items from './resources/items.js';
