@@ -7,6 +7,7 @@ import {
   files,
   finance,
   habits,
+  notifications,
   operations,
   workspaces,
   templates as templateResources,
@@ -40,6 +41,27 @@ import { executePetRuntime, executePetToolRun, petSessionFor } from './commands/
 import { readStructureForSession } from './commands/structure.ts';
 import { evaluateBlueprint, executeBlueprintBuild } from './commands/blueprint.ts';
 import { resolveSession, type SessionDeps } from './commands/shared.ts';
+import {
+  executeListNotifications,
+  executeReadAllNotifications,
+  executeReadNotification,
+  executeSetPreferences,
+  parsePreferenceFlags,
+} from './commands/notifications.ts';
+import { executeClearReminder, executeSetReminder } from './commands/reminders.ts';
+import {
+  executeCreateAutomation,
+  executeDeleteAutomation,
+  executeGetAutomation,
+  executeListAutomationRuns,
+  executeListAutomations,
+  executeRunAutomation,
+  executeSetAutomationEnabled,
+  executeTestAutomation,
+  executeUpdateAutomation,
+  type RulePatch,
+} from './commands/automations.ts';
+import { toFailure } from './output.ts';
 import type { Session } from './session.ts';
 
 const identifier = z.uuid();
@@ -82,6 +104,21 @@ const pageInput = {
   limit: z.number().int().min(1).max(200).default(50),
   cursor: z.string().max(512).optional(),
 };
+
+const jsonObjectInput = z.record(z.string(), z.unknown());
+/** Rule members Core validates; carried as JSON so the grammar lives once, in Core. */
+const ruleDocumentInput = {
+  trigger: jsonObjectInput.optional(),
+  conditions: z.array(jsonObjectInput).max(5).optional(),
+  actions: z.array(jsonObjectInput).min(1).max(5).optional(),
+};
+const RULE_GRAMMAR =
+  'trigger: {type:"schedule",freq:"daily"|"weekly"|"monthly",interval,time:"HH:mm",weekdays?:["mo".."su"],timeZone?,startDate?} ' +
+  '| {type:"date_arrives",key,offsetMinutes?,time?} | {type:"property_changed",key,from?:{value},to?:{value}}. ' +
+  'conditions (<=5, on the triggering item): {key,op:"equals"|"not_equals"|"is_empty"|"is_not_empty",value?}. ' +
+  'actions (1-5): {type:"notify",title,body?} | {type:"set_property",target:"triggering_item"|{itemId},key,value} ' +
+  '| {type:"create_item",parent:"triggering_item"|"scope"|{itemId},itemType,title,properties?}. ' +
+  'Titles may use {date} and {item.title}.';
 
 export interface WorkspaceMcpOptions {
   readonly profileName?: string;
@@ -1376,6 +1413,234 @@ export async function createWorkspaceMcpServer(
       }),
   );
 
+  server.registerTool(
+    'list_notifications',
+    {
+      description: 'List one page of your own notifications, newest first, with the unread count.',
+      inputSchema: {
+        unreadOnly: z.boolean().default(false),
+        cursor: z.string().max(512).optional(),
+      },
+    },
+    ({ unreadOnly, cursor }) =>
+      toolResult(async () =>
+        executeListNotifications(await session(), { unread: unreadOnly, cursor }),
+      ),
+  );
+
+  server.registerTool(
+    'mark_notification_read',
+    {
+      description: 'Mark one of your notifications read.',
+      inputSchema: { notificationId: identifier },
+    },
+    ({ notificationId }) =>
+      toolResult(async () => executeReadNotification(await session(), notificationId)),
+  );
+
+  server.registerTool(
+    'mark_all_notifications_read',
+    { description: 'Mark all of your notifications read.', inputSchema: {} },
+    () => toolResult(async () => executeReadAllNotifications(await session())),
+  );
+
+  server.registerTool(
+    'get_notification_preferences',
+    {
+      description:
+        'Read your time zone, quiet hours, due-reminder time, reminder switches and muted containers.',
+      inputSchema: {},
+    },
+    () =>
+      toolResult(async () =>
+        (await session()).client.query(notifications.preferences(), { forceRefresh: true }),
+      ),
+  );
+
+  server.registerTool(
+    'set_notification_preferences',
+    {
+      description:
+        'Change only the given preferences. quiet is "HH:mm-HH:mm" or "off"; mute and unmute take container item ids.',
+      inputSchema: {
+        timeZone: z.string().max(64).optional(),
+        quiet: z.string().max(11).optional(),
+        dueReminderTime: z.string().max(5).optional(),
+        dueReminders: z.boolean().optional(),
+        habitReminders: z.boolean().optional(),
+        mute: z.array(identifier).max(200).optional(),
+        unmute: z.array(identifier).max(200).optional(),
+      },
+    },
+    (input) =>
+      toolResult(async () => {
+        const onOff = (value: boolean | undefined) =>
+          value === undefined ? undefined : value ? 'on' : 'off';
+        const changes = parsePreferenceFlags({
+          timeZone: input.timeZone,
+          quiet: input.quiet,
+          dueTime: input.dueReminderTime,
+          dueReminders: onOff(input.dueReminders),
+          habitReminders: onOff(input.habitReminders),
+          mute: input.mute,
+          unmute: input.unmute,
+        });
+        return executeSetPreferences(await session(), changes);
+      }),
+  );
+
+  server.registerTool(
+    'set_reminder',
+    {
+      description:
+        'Remind yourself about an item once. when: local "2026-10-01T09:00", instant "...Z", zoned "...+01:00[Europe/London]" or relative "+90m"/"+2h"/"+1d". zone defaults to your preference.',
+      inputSchema: {
+        itemId: identifier,
+        when: z.string().min(1).max(80),
+        zone: z.string().max(64).optional(),
+      },
+    },
+    ({ itemId, when, zone }) =>
+      toolResult(async () => executeSetReminder(await session(), itemId, when, { zone })),
+  );
+
+  server.registerTool(
+    'clear_reminder',
+    { description: "Remove an item's reminder.", inputSchema: { itemId: identifier } },
+    ({ itemId }) => toolResult(async () => executeClearReminder(await session(), itemId)),
+  );
+
+  server.registerTool(
+    'list_automations',
+    {
+      description: 'List your own automation rules in a workspace.',
+      inputSchema: { workspaceId: identifier },
+    },
+    ({ workspaceId }) =>
+      toolResult(async () => ({
+        items: await executeListAutomations(await session(), workspaceId),
+      })),
+  );
+
+  server.registerTool(
+    'get_automation',
+    { description: 'Read one of your automation rules.', inputSchema: { ruleId: identifier } },
+    ({ ruleId }) => toolResult(async () => executeGetAutomation(await session(), ruleId)),
+  );
+
+  server.registerTool(
+    'create_automation',
+    {
+      description: `Create an automation rule. Writes need the admin access scope. ${RULE_GRAMMAR}`,
+      inputSchema: {
+        workspaceId: identifier,
+        name: z.string().trim().min(1).max(200),
+        enabled: z.boolean().default(true),
+        scopeItemId: identifier.nullable().default(null),
+        trigger: jsonObjectInput,
+        conditions: ruleDocumentInput.conditions,
+        actions: ruleDocumentInput.actions.unwrap(),
+      },
+    },
+    ({ workspaceId, name, enabled, scopeItemId, trigger, conditions, actions }) =>
+      toolResult(async () => {
+        return executeCreateAutomation(await session(), workspaceId, {
+          name,
+          enabled,
+          scopeItemId,
+          trigger,
+          conditions: conditions ?? [],
+          actions,
+        });
+      }),
+  );
+
+  server.registerTool(
+    'update_automation',
+    {
+      description:
+        'Change an automation rule: given members replace the stored ones. Saves behind expectedRevision, else the current revision. Writes need the admin access scope.',
+      inputSchema: {
+        ruleId: identifier,
+        expectedRevision: z.number().int().min(0).optional(),
+        name: z.string().trim().min(1).max(200).optional(),
+        enabled: z.boolean().optional(),
+        scopeItemId: identifier.nullable().optional(),
+        ...ruleDocumentInput,
+      },
+    },
+    ({ ruleId, expectedRevision, ...members }) =>
+      toolResult(async () => {
+        const patch: RulePatch = {};
+        if (members.name !== undefined) patch.name = members.name;
+        if (members.enabled !== undefined) patch.enabled = members.enabled;
+        if (members.scopeItemId !== undefined) patch.scopeItemId = members.scopeItemId;
+        if (members.trigger !== undefined) patch.trigger = members.trigger;
+        if (members.conditions !== undefined) patch.conditions = members.conditions;
+        if (members.actions !== undefined) patch.actions = members.actions;
+        if (Object.keys(patch).length === 0) throw new Error('Nothing to change.');
+        return executeUpdateAutomation(await session(), ruleId, patch, expectedRevision);
+      }),
+  );
+
+  server.registerTool(
+    'set_automation_enabled',
+    {
+      description:
+        'Switch an automation rule on or off. Enabling clears an automatic disable. Writes need the admin access scope.',
+      inputSchema: { ruleId: identifier, enabled: z.boolean() },
+    },
+    ({ ruleId, enabled }) =>
+      toolResult(async () => executeSetAutomationEnabled(await session(), ruleId, enabled)),
+  );
+
+  server.registerTool(
+    'delete_automation',
+    {
+      description:
+        'Delete an automation rule and its run log. Requires explicit confirmation and the admin access scope.',
+      inputSchema: { ruleId: identifier, confirm: z.boolean() },
+    },
+    ({ ruleId, confirm }) =>
+      toolResult(async () => {
+        if (!confirm) throw new Error('Set confirm: true to delete this automation.');
+        return executeDeleteAutomation(await session(), ruleId);
+      }),
+  );
+
+  server.registerTool(
+    'list_automation_runs',
+    {
+      description:
+        "One page of an automation rule's run log, newest first: status, reason code, origin and item.",
+      inputSchema: { ruleId: identifier, cursor: z.string().max(512).optional() },
+    },
+    ({ ruleId, cursor }) =>
+      toolResult(async () => executeListAutomationRuns(await session(), ruleId, cursor)),
+  );
+
+  server.registerTool(
+    'run_automation',
+    {
+      description:
+        'Run an automation rule now, as you, optionally on a triggering item. Writes need the admin access scope.',
+      inputSchema: { ruleId: identifier, itemId: identifier.optional() },
+    },
+    ({ ruleId, itemId }) =>
+      toolResult(async () => executeRunAutomation(await session(), ruleId, itemId)),
+  );
+
+  server.registerTool(
+    'test_automation',
+    {
+      description:
+        'Dry-run an automation rule: whether it would run now and previews of its actions. Writes nothing, but needs the admin access scope.',
+      inputSchema: { ruleId: identifier, itemId: identifier.optional() },
+    },
+    ({ ruleId, itemId }) =>
+      toolResult(async () => executeTestAutomation(await session(), ruleId, itemId)),
+  );
+
   return server;
 }
 
@@ -1421,7 +1686,9 @@ async function toolResult(action: () => Promise<unknown>) {
       content: [
         {
           type: 'text' as const,
-          text: error instanceof Error ? error.message : 'The Nix operation failed.',
+          // Core's own words (the problem detail, not only its title), plus how to fix a
+          // token-scope refusal - the same text the CLI prints.
+          text: error instanceof Error ? toFailure(error).message : 'The Nix operation failed.',
         },
       ],
     };

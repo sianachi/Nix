@@ -98,6 +98,17 @@ export const ExitCode = {
 
 export type ExitCode = (typeof ExitCode)[keyof typeof ExitCode];
 
+/** Core's stable code for a personal access token that authenticates but does not reach a route. */
+const INSUFFICIENT_SCOPE = 'auth.insufficient_scope';
+
+/**
+ * Appended after Core's own refusal, never in place of it: Core names the scope the route wanted,
+ * and this says what a person does about it. Automation writes, for example, need `admin`.
+ */
+const SCOPE_HINT =
+  'This profile token lacks that scope. Create a personal access token that holds it, then run ' +
+  '`nixctl auth login --api-url <url> --token <token>`.';
+
 /**
  * Turns anything thrown into a message and an exit code.
  *
@@ -113,7 +124,10 @@ export function toFailure(error: unknown): Failure {
         return { message: detail, code: ExitCode.NotFound };
       }
       if (error.status === 401 || error.status === 403) {
-        return { message: detail, code: ExitCode.Refused };
+        return {
+          message: error.code === INSUFFICIENT_SCOPE ? `${detail}\n${SCOPE_HINT}` : detail,
+          code: ExitCode.Refused,
+        };
       }
     }
     return { message: detail, code: ExitCode.General };

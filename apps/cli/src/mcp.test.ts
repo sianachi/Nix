@@ -90,6 +90,22 @@ describe('nixctl mcp workspace tools', () => {
         'blueprint_validate',
         'blueprint_describe',
         'blueprint_build',
+        'list_notifications',
+        'mark_notification_read',
+        'mark_all_notifications_read',
+        'get_notification_preferences',
+        'set_notification_preferences',
+        'set_reminder',
+        'clear_reminder',
+        'list_automations',
+        'get_automation',
+        'create_automation',
+        'update_automation',
+        'set_automation_enabled',
+        'delete_automation',
+        'list_automation_runs',
+        'run_automation',
+        'test_automation',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
@@ -1053,6 +1069,238 @@ describe('nixctl mcp workspace tools', () => {
       expect(result.isError).toBe(true);
       expect(JSON.stringify(result.content)).toContain('Provide --tool-id.');
       expect(requests.filter((url) => url.endsWith('/pets/runtime'))).toHaveLength(0);
+    } finally {
+      await connected.close();
+    }
+  });
+});
+
+describe('nixctl mcp notification, reminder and automation tools', () => {
+  const RULE = '33333333-3333-4333-8333-333333333333';
+  const ITEM = '11111111-1111-4111-8111-111111111111';
+  const LIFE_TOOLS = [
+    'list_notifications',
+    'mark_notification_read',
+    'mark_all_notifications_read',
+    'get_notification_preferences',
+    'set_notification_preferences',
+    'set_reminder',
+    'clear_reminder',
+    'list_automations',
+    'get_automation',
+    'create_automation',
+    'update_automation',
+    'set_automation_enabled',
+    'delete_automation',
+    'list_automation_runs',
+    'run_automation',
+    'test_automation',
+  ];
+
+  function automationRule(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: RULE,
+      workspaceId: WORKSPACE,
+      name: 'Morning review',
+      enabled: true,
+      scopeItemId: null,
+      trigger: { type: 'schedule', freq: 'daily', interval: 1, time: '08:00' },
+      conditions: [],
+      actions: [{ type: 'notify', title: 'Review', body: '' }],
+      revision: 4,
+      consecutiveFailures: 0,
+      disabledReason: null,
+      lastRunAt: null,
+      createdAt: '2026-09-30T12:00:00Z',
+      updatedAt: '2026-09-30T12:00:00Z',
+      ...overrides,
+    };
+  }
+
+  function stub(respond: (method: string, path: string) => Response): {
+    fetchImpl: FetchImpl;
+    calls: { method: string; path: string; body: unknown }[];
+  } {
+    const calls: { method: string; path: string; body: unknown }[] = [];
+    const fetchImpl: FetchImpl = (url, init) => {
+      if (url.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({ accessToken: 'jwt-owner', tokenType: 'Bearer', expiresInSeconds: 600 }),
+        );
+      }
+      const method = init?.method ?? 'GET';
+      const path = new URL(url).pathname;
+      calls.push({
+        method,
+        path,
+        body: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+      });
+      return Promise.resolve(respond(method, path));
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+    return { fetchImpl, calls };
+  }
+
+  it('keeps every new tool input schema within the 4800-byte companion budget', async () => {
+    const connected = await connect('owner', async () => unexpectedRequest());
+    try {
+      const tools = (await connected.client.listTools()).tools.filter((tool) =>
+        LIFE_TOOLS.includes(tool.name),
+      );
+      expect(tools).toHaveLength(LIFE_TOOLS.length);
+      for (const tool of tools) {
+        expect(JSON.stringify(tool.inputSchema).length, tool.name).toBeLessThanOrEqual(4800);
+      }
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('creates a rule and updates it by merging onto the current rule behind its revision', async () => {
+    const { fetchImpl, calls } = stub((method) =>
+      Response.json(automationRule(method === 'PUT' ? { name: 'Evening', revision: 5 } : {}), {
+        status: method === 'POST' ? 201 : 200,
+      }),
+    );
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const created = await connected.client.callTool({
+        name: 'create_automation',
+        arguments: {
+          workspaceId: WORKSPACE,
+          name: 'Morning review',
+          trigger: { type: 'schedule', freq: 'daily', interval: 1, time: '08:00' },
+          actions: [{ type: 'notify', title: 'Review' }],
+        },
+      });
+      expect(created.isError).toBeFalsy();
+      const updated = await connected.client.callTool({
+        name: 'update_automation',
+        arguments: { ruleId: RULE, name: 'Evening' },
+      });
+      expect(updated.isError).toBeFalsy();
+
+      expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+        `POST /api/v1/workspaces/${WORKSPACE}/automations`,
+        `GET /api/v1/automations/${RULE}`,
+        `PUT /api/v1/automations/${RULE}`,
+      ]);
+      expect(calls[0]?.body).toEqual({
+        name: 'Morning review',
+        enabled: true,
+        scopeItemId: null,
+        trigger: { type: 'schedule', freq: 'daily', interval: 1, time: '08:00' },
+        conditions: [],
+        actions: [{ type: 'notify', title: 'Review' }],
+      });
+      expect(calls[2]?.body).toMatchObject({
+        expectedRevision: 4,
+        rule: { name: 'Evening', trigger: { type: 'schedule' } },
+      });
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('returns an out-of-scope refusal in Core its own words with how to fix it', async () => {
+    const { fetchImpl } = stub(() =>
+      Response.json(
+        {
+          title: 'Access token out of scope',
+          status: 403,
+          code: 'auth.insufficient_scope',
+          detail: `Principal 'p' is authenticated, but personal access token 't' does not reach POST /api/v1/automations/${RULE}/run: it requires admin.`,
+        },
+        { status: 403, headers: { 'content-type': 'application/problem+json' } },
+      ),
+    );
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const result = await connected.client.callTool({
+        name: 'run_automation',
+        arguments: { ruleId: RULE, itemId: ITEM },
+      });
+      expect(result.isError).toBe(true);
+      const text = JSON.stringify(result.content);
+      expect(text).toContain('it requires admin');
+      expect(text).toContain('nixctl auth login');
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('requires confirmation before deleting a rule', async () => {
+    const connected = await connect('owner', async () => unexpectedRequest());
+    try {
+      const result = await connected.client.callTool({
+        name: 'delete_automation',
+        arguments: { ruleId: RULE, confirm: false },
+      });
+      expect(result.isError).toBe(true);
+      expect(JSON.stringify(result.content)).toContain('confirm: true');
+    } finally {
+      await connected.close();
+    }
+  });
+
+  it('saves notification preferences behind the revision read and sets a zoned reminder', async () => {
+    const preferences = {
+      revision: 2,
+      timeZone: 'Europe/London',
+      quietStart: null,
+      quietEnd: null,
+      dueReminderTime: '09:00',
+      dueReminders: true,
+      habitReminders: true,
+      mutedContainerIds: [],
+    };
+    const { fetchImpl, calls } = stub((method, path) => {
+      if (path === '/api/v1/me/preferences') return Response.json(preferences);
+      return Response.json({
+        id: ITEM,
+        workspaceId: WORKSPACE,
+        parentId: null,
+        type: 'note',
+        title: 'Pay rent',
+        hasChildren: false,
+        seq: 1,
+        lifecycleState: 'active',
+        properties: {},
+        createdAt: '2026-09-30T12:00:00Z',
+        updatedAt: '2026-09-30T12:00:00Z',
+      });
+    });
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const saved = await connected.client.callTool({
+        name: 'set_notification_preferences',
+        arguments: { quiet: '22:00-07:00', habitReminders: false, mute: [ITEM] },
+      });
+      expect(saved.isError).toBeFalsy();
+      const reminded = await connected.client.callTool({
+        name: 'set_reminder',
+        arguments: { itemId: ITEM, when: '2026-10-01T09:00', zone: 'Europe/London' },
+      });
+      expect(reminded.isError).toBeFalsy();
+
+      expect(calls[1]).toMatchObject({
+        method: 'PUT',
+        body: {
+          expectedRevision: 2,
+          preferences: {
+            quietStart: '22:00',
+            quietEnd: '07:00',
+            habitReminders: false,
+            dueReminders: true,
+            mutedContainerIds: [ITEM],
+          },
+        },
+      });
+      expect(calls[2]).toMatchObject({
+        method: 'PATCH',
+        path: `/api/v1/items/${ITEM}/properties`,
+        body: { properties: { reminder: '2026-10-01T09:00:00+01:00[Europe/London]' } },
+      });
     } finally {
       await connected.close();
     }
