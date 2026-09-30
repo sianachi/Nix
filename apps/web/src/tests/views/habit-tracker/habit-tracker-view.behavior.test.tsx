@@ -117,6 +117,7 @@ describe('habit tracker user flows', () => {
       occurrences: null,
       progress: null,
       months: null,
+      reminderTime: null,
     };
     saveHabit.mockResolvedValue(null);
     saveCheckIn.mockResolvedValue(null);
@@ -311,6 +312,33 @@ describe('habit tracker user flows', () => {
     expect(execute).toHaveBeenCalled();
   });
 
+  it('sets a reminder time, and clearing it sends no reminder', async () => {
+    tracker = { ...tracker, reminderTime: '07:30' };
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }));
+    const reminder = screen.getByLabelText('Reminder time');
+    expect(reminder).toHaveValue('07:30');
+
+    fireEvent.change(reminder, { target: { value: '21:15' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => {
+      expect(saveHabit).toHaveBeenLastCalledWith(
+        'habit-1',
+        expect.objectContaining({ reminderTime: '21:15' }),
+      );
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit schedule' }));
+    fireEvent.change(screen.getByLabelText('Reminder time'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => {
+      expect(saveHabit).toHaveBeenLastCalledWith(
+        'habit-1',
+        expect.objectContaining({ reminderTime: null }),
+      );
+    });
+  });
+
   it('persists widget changes and restores the prior selection when saving fails', async () => {
     const container = aContainer({ children: [habit] });
     const setViews = vi
@@ -346,6 +374,7 @@ describe('habit tracker narrow-screen default', () => {
       occurrences: null,
       progress: null,
       months: null,
+      reminderTime: null,
     };
     saveHabit.mockResolvedValue(null);
     saveCheckIn.mockResolvedValue(null);

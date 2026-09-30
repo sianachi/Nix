@@ -95,6 +95,19 @@ describe('habit history requests', () => {
       occurrences: null,
       progress: null,
       months: null,
+      reminderTime: null,
     });
+  });
+
+  it('sends and reads back a habit reminder time', async () => {
+    const withReminder = { ...settings, reminderTime: '07:30' };
+    server.use(
+      http.put(testUrl(`/api/v1/items/${habitId}/habit`), async ({ request }) => {
+        expect(await request.json()).toEqual(withReminder);
+        return HttpResponse.json({ ...tracker, reminderTime: '07:30' });
+      }),
+    );
+    const saved = await client.execute(setHabit(habitId, withReminder));
+    expect(saved.reminderTime).toBe('07:30');
   });
 });

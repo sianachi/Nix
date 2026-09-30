@@ -21,6 +21,9 @@ export interface SetHabitInput {
   readonly startDate: string;
   readonly target: number;
   readonly unit: string;
+  /** HH:mm in `timezone`, or null for no reminder. Omitted leaves the saved reminder cleared, since
+   * the settings write replaces the whole document. */
+  readonly reminderTime?: string | null;
 }
 
 export interface HabitCheckInInput {
