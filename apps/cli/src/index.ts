@@ -98,6 +98,28 @@ import {
 import { checkIn, readHabit, setHabit, setHabitStatus, undoCheckIn } from './commands/habits.ts';
 import * as financeCommands from './commands/finance.ts';
 import {
+  getPreferences,
+  listNotifications,
+  readAllNotifications,
+  readNotification,
+  setPreferences,
+  type PreferenceFlags,
+} from './commands/notifications.ts';
+import { clearReminder, setReminder } from './commands/reminders.ts';
+import {
+  createAutomation,
+  deleteAutomation,
+  getAutomation,
+  listAutomationRuns,
+  listAutomations,
+  runAutomation,
+  setAutomationEnabled,
+  testAutomation,
+  updateAutomation,
+  type CreateAutomationOptions,
+  type UpdateAutomationOptions,
+} from './commands/automations.ts';
+import {
   applyTemplate,
   captureTemplate,
   cancelTemplateArchiveImport,
@@ -1700,6 +1722,195 @@ export function buildProgram(): Command {
       await run(() => undoCheckIn(flags.profile, habitId, options.on, outputOptions(flags.json)));
     });
 
+  const inbox = program
+    .command('notifications')
+    .description('Your own notifications inbox and reminder preferences.');
+
+  inbox
+    .command('list')
+    .description('List one page of your notifications, newest first.')
+    .option('--unread', 'only unread notifications', false)
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(async (options: { unread: boolean; cursor?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listNotifications(flags.profile, options, outputOptions(flags.json)));
+    });
+
+  inbox
+    .command('read <notificationId>')
+    .description('Mark one notification read.')
+    .action(async (notificationId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readNotification(flags.profile, notificationId, outputOptions(flags.json)));
+    });
+
+  inbox
+    .command('read-all')
+    .description('Mark every notification read.')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readAllNotifications(flags.profile, outputOptions(flags.json)));
+    });
+
+  const prefs = inbox
+    .command('prefs')
+    .description('Your time zone, quiet hours, reminder switches and muted containers.');
+
+  prefs
+    .command('get')
+    .description('Print your preferences.')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getPreferences(flags.profile, outputOptions(flags.json)));
+    });
+
+  prefs
+    .command('set')
+    .description('Change only the preferences given; the rest stay as they are.')
+    .option('--time-zone <iana>', 'IANA time zone, for example Europe/London')
+    .option('--quiet <HH:mm-HH:mm|off>', 'quiet hours that defer reminders, or off')
+    .option('--due-time <HH:mm>', 'when due-task reminders fire on the due day')
+    .option('--due-reminders <on|off>', 'reminders for due tasks')
+    .option('--habit-reminders <on|off>', 'reminders for habit check-ins')
+    .option(
+      '--mute <containerId>',
+      'mute reminders under a container (repeatable)',
+      collectOption,
+      [],
+    )
+    .option('--unmute <containerId>', 'unmute a container (repeatable)', collectOption, [])
+    .action(async (options: PreferenceFlags, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => setPreferences(flags.profile, options, outputOptions(flags.json)));
+    });
+
+  const remind = program
+    .command('remind')
+    .description("An item's reminder: one notification to you at a chosen time.");
+
+  remind
+    .command('set <itemId> <when>')
+    .description(
+      'Set the reminder. <when> is a local time (2026-10-01T09:00), an instant ' +
+        '(2026-10-01T08:00:00Z), a zoned time (...+01:00[Europe/London]) or relative (+90m, +2h, +1d).',
+    )
+    .option('--zone <iana>', 'the zone a local time is read in (default: your preference)')
+    .action(async (itemId: string, when: string, options: { zone?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => setReminder(flags.profile, itemId, when, options, outputOptions(flags.json)));
+    });
+
+  remind
+    .command('clear <itemId>')
+    .description("Remove the item's reminder.")
+    .action(async (itemId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => clearReminder(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  const auto = program
+    .command('automations')
+    .description(
+      'Your own automation rules. Writes need a personal access token with the admin scope.',
+    );
+
+  auto
+    .command('list')
+    .description('List your rules in a workspace.')
+    .requiredOption('--workspace <id>', 'the workspace to read')
+    .action(async (options: WorkspaceOption, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => listAutomations(flags.profile, options.workspace, outputOptions(flags.json)));
+    });
+
+  auto
+    .command('get <ruleId>')
+    .description('Print one rule; the output can be edited and passed back to update --file.')
+    .action(async (ruleId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => getAutomation(flags.profile, ruleId, outputOptions(flags.json)));
+    });
+
+  ruleFlags(
+    auto
+      .command('create')
+      .description('Create a rule from flags or a JSON file.')
+      .requiredOption('--workspace <id>', 'the workspace the rule belongs to')
+      .option('--disabled', 'create it switched off'),
+  ).action(async (options: CreateAutomationOptions, command: Command) => {
+    const flags = globalFlags(command);
+    await run(() => createAutomation(flags.profile, options, outputOptions(flags.json)));
+  });
+
+  ruleFlags(
+    auto
+      .command('update <ruleId>')
+      .description('Change a rule: flags replace the parts they name; --file replaces its members.')
+      .option('--revision <n>', 'save only if the rule is still at this revision'),
+  ).action(async (ruleId: string, options: UpdateAutomationOptions, command: Command) => {
+    const flags = globalFlags(command);
+    await run(() => updateAutomation(flags.profile, ruleId, options, outputOptions(flags.json)));
+  });
+
+  for (const [name, enabled] of [
+    ['enable', true],
+    ['disable', false],
+  ] as const) {
+    auto
+      .command(`${name} <ruleId>`)
+      .description(
+        enabled
+          ? 'Switch a rule on; this also clears an automatic disable after repeated failures.'
+          : 'Switch a rule off and cancel its pending triggers.',
+      )
+      .action(async (ruleId: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          setAutomationEnabled(flags.profile, ruleId, enabled, outputOptions(flags.json)),
+        );
+      });
+  }
+
+  auto
+    .command('delete <ruleId>')
+    .description('Delete a rule and its run log.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(async (ruleId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        deleteAutomation(flags.profile, ruleId, options.yes === true, outputOptions(flags.json)),
+      );
+    });
+
+  auto
+    .command('runs <ruleId>')
+    .description("One page of a rule's run log, newest first.")
+    .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
+    .action(async (ruleId: string, options: { cursor?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        listAutomationRuns(flags.profile, ruleId, options, outputOptions(flags.json)),
+      );
+    });
+
+  auto
+    .command('run <ruleId>')
+    .description('Run a rule now, as you; the result is the recorded run.')
+    .option('--item <itemId>', 'the triggering item, for rules that act on one')
+    .action(async (ruleId: string, options: { item?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => runAutomation(flags.profile, ruleId, options, outputOptions(flags.json)));
+    });
+
+  auto
+    .command('test <ruleId>')
+    .description('Dry-run a rule: whether it would run now and what its actions would do.')
+    .option('--item <itemId>', 'the triggering item, for rules that act on one')
+    .action(async (ruleId: string, options: { item?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => testAutomation(flags.profile, ruleId, options, outputOptions(flags.json)));
+    });
+
   program
     .command('search <query>')
     .description('Full-text search across the items you can see.')
@@ -2171,6 +2382,53 @@ function parseSeqArg(value: string): number {
     throw new Error(`'${value}' is not a valid sequence number.`);
   }
   return seq;
+}
+
+/** The rule-shaping flags `automations create` and `automations update` share. */
+function ruleFlags(command: Command): Command {
+  return command
+    .option('--file <path>', "a JSON rule, or the output of 'automations get' ('-' for stdin)")
+    .option('--name <name>', 'the rule name')
+    .option('--scope <itemId|none>', 'only items under this container (none clears it)')
+    .option('--schedule <freq>', 'trigger on a schedule: daily | weekly | monthly')
+    .option('--at <HH:mm>', 'schedule time, or the time a date-only value arrives')
+    .option('--every <n>', 'schedule interval (1-366, default 1)')
+    .option('--weekdays <days>', 'weekly schedule days: comma-separated mo,tu,we,th,fr,sa,su')
+    .option('--time-zone <iana>', 'schedule zone (default: yours)')
+    .option('--start <yyyy-mm-dd>', 'first day of the schedule')
+    .option('--when-date <key>', 'trigger when a date property arrives, e.g. due_date')
+    .option('--offset <minutes>', 'fire this many minutes after (negative: before) the date')
+    .option('--when-changed <key>', 'trigger when a property changes')
+    .option('--from <value>', 'only when it changes from this value')
+    .option('--to <value>', 'only when it changes to this value')
+    .option(
+      '--if <key=value|key!=value>',
+      'condition on the triggering item (repeatable)',
+      collectOptional,
+    )
+    .option('--if-empty <key>', 'condition: the property is empty (repeatable)', collectOptional)
+    .option('--if-set <key>', 'condition: the property is set (repeatable)', collectOptional)
+    .option('--notify <title>', 'action: notify you; {date} and {item.title} are filled in')
+    .option('--notify-body <body>', 'the notification body')
+    .option(
+      '--set <key=value>',
+      'action: set a property on the triggering item (repeatable)',
+      collectOptional,
+    )
+    .option('--set-item <itemId>', 'set the --set properties on this item instead')
+    .option('--create <title>', 'action: create an item with this title')
+    .option('--create-type <type>', 'the created item type (default note)')
+    .option('--create-under <triggering_item|scope|itemId>', 'where the item is created')
+    .option(
+      '--create-prop <key=value>',
+      'a property of the created item (repeatable)',
+      collectOptional,
+    );
+}
+
+/** Like {@link collectOption}, but absent (undefined) until the flag is first given. */
+function collectOptional(value: string, previous: string[] | undefined): string[] {
+  return [...(previous ?? []), value];
 }
 
 function collectOption(value: string, previous: string[]): string[] {

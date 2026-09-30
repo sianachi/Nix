@@ -72,3 +72,42 @@ describe('pet --after validation', () => {
     expect(petCommand).not.toHaveBeenCalled();
   });
 });
+
+describe('automations create flag collection', () => {
+  it('collects repeatable flags and leaves unused ones absent', async () => {
+    const automationsModule = await import('./commands/automations.ts');
+    const spy = vi
+      .spyOn(automationsModule, 'createAutomation')
+      .mockImplementation(() => Promise.resolve());
+    try {
+      const program = buildProgram();
+      overrideExitRecursively(program);
+      await program.parseAsync(
+        [
+          'automations',
+          'create',
+          '--workspace',
+          'w1',
+          '--name',
+          'n',
+          '--when-changed',
+          'status',
+          '--if',
+          'a=1',
+          '--if',
+          'b!=2',
+          '--set',
+          'c=3',
+        ],
+        { from: 'user' },
+      );
+      const options = spy.mock.calls[0]?.[1];
+      expect(options?.if).toEqual(['a=1', 'b!=2']);
+      expect(options?.set).toEqual(['c=3']);
+      expect(options?.createProp).toBeUndefined();
+      expect(options?.ifEmpty).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
