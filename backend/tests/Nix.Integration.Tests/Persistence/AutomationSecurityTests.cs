@@ -152,7 +152,12 @@ public sealed class AutomationSecurityTests(NixPostgresFixture fixture) : IAsync
     public async Task A_temporary_table_cannot_shadow_what_the_finder_reads()
     {
         var ruleId = await CreateAsync(TestTenants.AlphaContext, trigger: """{"type":"schedule","freq":"daily","interval":1,"time":"09:00"}""");
-        var connection = await fixture.OpenApplicationConnectionAsync();
+        // The service roles cannot create temporary tables at all (TEMPORARY is revoked from
+        // PUBLIC; DatabaseRoleTests proves that wall). This proves the ones behind it - the
+        // finder's schema-qualified relations and pinned search path - on their own, from the
+        // migrator's session: it owns the database, so it keeps TEMPORARY, and inside a definer
+        // name resolution is the same whoever the caller is.
+        var connection = await fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
         {
             await RawSql.ExecuteAsync(connection, transaction: null, """
@@ -162,6 +167,7 @@ public sealed class AutomationSecurityTests(NixPostgresFixture fixture) : IAsync
                     'schedule', '{}', NULL, true);
                 """);
             var found = await RawSql.GuidListAsync(connection, transaction: null, "SELECT rule_id FROM nix_find_planned_automation_rules(500)");
+            await RawSql.ExecuteAsync(connection, transaction: null, "DROP TABLE pg_temp.automation_rule");
             Assert.Equal([ruleId], found);
         }
     }
