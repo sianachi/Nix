@@ -23,7 +23,8 @@ public sealed class DueTaskReminderSource(
     IPermissionResolver permissions,
     IMutedContainerChecker mutedContainers,
     IPrincipalStatusChecker principalStatus,
-    INotificationWriter notifications) : ITriggerSource
+    INotificationWriter notifications,
+    IItemLocks locks) : ITriggerSource
 {
     /// <inheritdoc />
     public string Name => "reminder.due";
@@ -205,8 +206,9 @@ public sealed class DueTaskReminderSource(
             return TriggerOutcome.Skipped("container_muted");
         }
 
-        var title = ItemProperties.ReadTitle(item.Properties);
-        var truncatedTitle = title.Length > 200 ? title[..200] : title;
+        var truncatedTitle = await ReminderSourceSupport
+            .NotificationTitleAsync(item, locks, cancellationToken)
+            .ConfigureAwait(false);
 
         await notifications.CreateAsync(
             trigger.PrincipalId,

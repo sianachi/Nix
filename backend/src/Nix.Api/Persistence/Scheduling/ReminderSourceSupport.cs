@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Nix.Abstractions;
 using Nix.Abstractions.Scheduling;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
@@ -56,6 +57,33 @@ internal static class ReminderSourceSupport
             .PreferencesForAsync(recipients.Distinct().ToArray(), cancellationToken)
             .ConfigureAwait(false);
         return preferences.ToDictionary(entry => entry.Recipient);
+    }
+
+    /// <summary>The title a reminder for an item under a lock carries instead of the item's own.</summary>
+    internal const string LockedItemTitle = "Reminder for a locked item";
+
+    /// <summary>
+    /// The notification title for a reminder about <paramref name="item"/>: its own title, cut to
+    /// the notification limit, or <see cref="LockedItemTitle"/> when any lock covers it.
+    /// </summary>
+    /// <remarks>
+    /// Notification content follows locks (ADR-0051 Amendment 4). The dispatcher's scope has no
+    /// credential, so no grant past a lock counts here: a notification outlives any grant and is
+    /// pushed to every device the recipient subscribed, not only the browser that unlocked. The
+    /// reminder is still delivered; only the item's text is withheld.
+    /// </remarks>
+    internal static async Task<string> NotificationTitleAsync(
+        Item item,
+        IItemLocks locks,
+        CancellationToken cancellationToken)
+    {
+        if (!await locks.MayReadBodyAsync(item.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return LockedItemTitle;
+        }
+
+        var title = ItemProperties.ReadTitle(item.Properties);
+        return title.Length > 200 ? title[..200] : title;
     }
 
     /// <summary>

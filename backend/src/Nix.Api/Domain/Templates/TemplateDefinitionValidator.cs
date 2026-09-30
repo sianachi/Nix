@@ -71,6 +71,11 @@ public sealed class TemplateDefinitionValidator
             {
                 return "Item properties are not valid JSON.";
             }
+            catch (ArgumentException)
+            {
+                // JsonNode.Parse accepts a member named twice and the object throws on first use.
+                return "Item properties name the same property more than once.";
+            }
         }
 
         if (schema is not null)

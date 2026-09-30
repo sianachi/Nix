@@ -9,11 +9,14 @@ namespace Nix.Persistence.Migrations;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Same shape as <see cref="SchedulingSecuritySql"/>'s lease function and
-/// <see cref="Nix.Persistence.ObjectStorage.AbandonedObjectReapingSecuritySql"/>'s finder: owned
-/// by the migrator role (BYPASSRLS is what crosses FORCE ROW LEVEL SECURITY, not SECURITY DEFINER
-/// alone), <c>SET search_path = pg_catalog, public</c>, a bounded <c>LIMIT</c>, and
-/// <c>REVOKE</c>/<c>GRANT</c> stated explicitly rather than inherited.
+/// Each finder is owned by the migrator role (BYPASSRLS is what crosses FORCE ROW LEVEL SECURITY,
+/// not SECURITY DEFINER alone), has a bounded <c>LIMIT</c>, and states <c>REVOKE</c>/<c>GRANT</c>
+/// explicitly rather than inheriting them. Unlike the older <see cref="SchedulingSecuritySql"/>
+/// lease function, each pins <c>SET search_path = pg_catalog, public, pg_temp</c> - pg_temp named
+/// last, because a path that leaves it out searches it first, where a caller's temporary relation
+/// or function could shadow the one the definer means - and schema-qualifies every relation and
+/// helper it names (<c>public.item</c>, <c>public.principal</c>, <c>public.nix_safe_uuid</c>, ...),
+/// so name resolution never depends on the path at all.
 /// </para>
 /// <para>
 /// <b>Every value read out of a property bag is parsed defensively, never cast bare.</b>
@@ -79,10 +82,13 @@ public static class ReminderSourceSecuritySql
         //
         // Deliberately without SET search_path, unlike the SECURITY DEFINER finders: a SET clause
         // stops Postgres from inlining a SQL function, turning one expression into a separate
-        // function call per row (measured on the plain and recurring due arms). They are safe
-        // without it - they are not SECURITY DEFINER, and they name only pg_catalog objects,
-        // which the search path always consults first unless it lists pg_catalog explicitly
-        // later; their callers set search_path = pg_catalog, public themselves.
+        // function call per row (measured on the plain and recurring due arms). They are not
+        // SECURITY DEFINER, so they run with their caller's rights, and they name only pg_catalog
+        // functions. But pg_input_is_valid's type-name argument (and the ::timestamptz, ::date and
+        // ::uuid casts) resolve through the caller's search_path, so these are only as safe as
+        // that path: they are safe here because every definer that calls them pins
+        // search_path = pg_catalog, public, pg_temp - pg_catalog first and pg_temp last - so no
+        // temporary or public type can shadow the built-in one.
         emit($$"""
             CREATE OR REPLACE FUNCTION nix_safe_timestamptz(p_text text)
             RETURNS timestamptz
@@ -183,7 +189,7 @@ public static class ReminderSourceSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
             DECLARE
                 v_from_text text := to_char(p_from - interval '1 day', 'YYYY-MM-DD');
@@ -216,8 +222,8 @@ public static class ReminderSourceSecuritySql
                              -- split_part before the first '[' leaves the offset-bearing instant;
                              -- nix_safe_timestamptz returns NULL rather than raising when the
                              -- value is not one at all (an undeclared key can hold anything).
-                             nix_safe_timestamptz(split_part(i.properties ->> 'reminder', '[', 1)) AS reminder_at
-                        FROM item i
+                             public.nix_safe_timestamptz(split_part(i.properties ->> 'reminder', '[', 1)) AS reminder_at
+                        FROM public.item i
                        WHERE i.lifecycle_state = 'active'
                          AND i.template_id IS NULL
                          AND i.properties ? 'reminder'
@@ -226,9 +232,9 @@ public static class ReminderSourceSecuritySql
                          AND (i.properties ->> 'reminder') >= v_from_text
                          AND (i.properties ->> 'reminder') < v_to_text
                   ) candidate
-                  LEFT JOIN principal setter
+                  LEFT JOIN public.principal setter
                     ON setter.tenant_id = candidate.tenant_id
-                   AND setter.principal_id = nix_safe_uuid(candidate.set_by_text)
+                   AND setter.principal_id = public.nix_safe_uuid(candidate.set_by_text)
                    AND setter.status = 'active'
                  WHERE candidate.reminder_at IS NOT NULL
                    AND candidate.reminder_at >= p_from
@@ -269,7 +275,7 @@ public static class ReminderSourceSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             SET enable_sort = off
             SET enable_bitmapscan = off
             AS $function$
@@ -302,11 +308,11 @@ public static class ReminderSourceSecuritySql
                        -- item's own tenant; the creator otherwise.
                        COALESCE(setter.principal_id, i.created_by),
                        i.due_day,
-                       nix_safe_date(i.due_day)
-                  FROM item i
-                  LEFT JOIN principal setter
+                       public.nix_safe_date(i.due_day)
+                  FROM public.item i
+                  LEFT JOIN public.principal setter
                     ON setter.tenant_id = i.tenant_id
-                   AND setter.principal_id = nix_safe_uuid(i.properties ->> '$due_set_by')
+                   AND setter.principal_id = public.nix_safe_uuid(i.properties ->> '$due_set_by')
                    AND setter.status = 'active'
                  WHERE i.lifecycle_state = 'active'
                    AND i.template_id IS NULL
@@ -343,7 +349,7 @@ public static class ReminderSourceSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             SET enable_sort = off
             SET enable_bitmapscan = off
             AS $function$
@@ -363,12 +369,12 @@ public static class ReminderSourceSecuritySql
                        i.id,
                        i.workspace_id,
                        COALESCE(setter.principal_id, i.created_by),
-                       nix_safe_date(i.due_day),
+                       public.nix_safe_date(i.due_day),
                        i.recurrence::text
-                  FROM item i
-                  LEFT JOIN principal setter
+                  FROM public.item i
+                  LEFT JOIN public.principal setter
                     ON setter.tenant_id = i.tenant_id
-                   AND setter.principal_id = nix_safe_uuid(i.properties ->> '$due_set_by')
+                   AND setter.principal_id = public.nix_safe_uuid(i.properties ->> '$due_set_by')
                    AND setter.status = 'active'
                  WHERE i.recurrence IS NOT NULL
                    AND i.lifecycle_state = 'active'
@@ -398,7 +404,7 @@ public static class ReminderSourceSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
             BEGIN
                 IF p_limit NOT BETWEEN 1 AND 500 THEN
@@ -426,7 +432,7 @@ public static class ReminderSourceSecuritySql
                            '$habit_unit', to_jsonb('unit'::text),
                            '$habit_reminder_time', i.properties -> '$habit_reminder_time'
                        )::text
-                  FROM item i
+                  FROM public.item i
                  WHERE i.lifecycle_state = 'active'
                    AND i.template_id IS NULL
                    AND i.properties ? '$habit_reminder_time'
@@ -455,7 +461,7 @@ public static class ReminderSourceSecuritySql
             LANGUAGE plpgsql
             VOLATILE
             SECURITY DEFINER
-            SET search_path = pg_catalog, public
+            SET search_path = pg_catalog, public, pg_temp
             AS $function$
             BEGIN
                 IF p_tenant_ids IS NULL OR p_principal_ids IS NULL
@@ -480,7 +486,7 @@ public static class ReminderSourceSecuritySql
                        COALESCE(preferences.habit_reminders, true),
                        COALESCE(preferences.muted_container_ids, ARRAY[]::uuid[])
                   FROM unnest(p_tenant_ids, p_principal_ids) AS wanted(tenant_id, principal_id)
-                  LEFT JOIN principal_preferences preferences
+                  LEFT JOIN public.principal_preferences preferences
                     ON preferences.tenant_id = wanted.tenant_id
                    AND preferences.principal_id = wanted.principal_id;
             END

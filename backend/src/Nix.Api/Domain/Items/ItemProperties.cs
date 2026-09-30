@@ -147,6 +147,9 @@ public static class ItemProperties
     /// </summary>
     public const string ReminderSetByKey = "$reminder_set_by";
 
+    /// <summary>The reserved key of the completion task type.</summary>
+    public const string CompletionKey = "completion";
+
     /// <summary>The prefix of the keys only the habit endpoints write.</summary>
     public const string HabitPrefix = "$habit_";
 
@@ -197,6 +200,13 @@ public static class ItemProperties
     /// after <see cref="Merge"/> for an edit, and against the incoming bag itself for a create -
     /// so both callers land on the one rule rather than restating it.
     /// </para>
+    /// <para>
+    /// <b>Reopening a dated item is a schedule write too.</b> A write that names
+    /// <see cref="CompletionKey"/> and leaves it anything but <see langword="true"/> on an item
+    /// with a <see cref="DueDateKey"/> brings that item's due reminders back, so it re-attributes
+    /// <see cref="DueSetByKey"/> to whoever reopened it (ADR-0051 Amendment 4). Completing an item
+    /// only suppresses reminders and changes no attribution.
+    /// </para>
     /// </remarks>
     public static string StampSetBy(
         string bag,
@@ -207,7 +217,8 @@ public static class ItemProperties
         ArgumentNullException.ThrowIfNull(touchedKeys);
         ArgumentNullException.ThrowIfNull(principalId);
 
-        if (!SetByPairs.Any(pair => touchedKeys.Contains(pair.Key)))
+        var reopens = touchedKeys.Contains(CompletionKey);
+        if (!reopens && !SetByPairs.Any(pair => touchedKeys.Contains(pair.Key)))
         {
             return bag;
         }
@@ -230,8 +241,18 @@ public static class ItemProperties
             }
         }
 
+        if (reopens
+            && !IsTrue(document[CompletionKey])
+            && document[DueDateKey] is not null)
+        {
+            document[DueSetByKey] = principalId;
+        }
+
         return document.ToJsonString();
     }
+
+    private static bool IsTrue(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
 
     /// <summary>
     /// Re-attributes a bag copied from another source (a template application, a document
@@ -254,6 +275,10 @@ public static class ItemProperties
     /// Removes every set-by value from a bag that is about to become template content, where no
     /// principal is attributed until the template is applied.
     /// </summary>
+    /// <remarks>
+    /// A bag that is not a readable JSON object, or that names a member twice, comes back
+    /// unchanged for the caller's envelope validation to refuse; see <see cref="WithTitle"/>.
+    /// </remarks>
     public static string? StripSetBy(string? bag) => RewriteSetBy(bag, principalId: null);
 
     private static string? RewriteSetBy(string? bag, string? principalId)
@@ -264,34 +289,37 @@ public static class ItemProperties
             return bag;
         }
 
-        JsonObject document;
         try
         {
-            if (JsonNode.Parse(bag) is not JsonObject parsed)
+            if (JsonNode.Parse(bag) is not JsonObject document)
             {
                 return bag;
             }
 
-            document = parsed;
+            foreach (var (key, setByKey) in SetByPairs)
+            {
+                if (principalId is null)
+                {
+                    document.Remove(setByKey);
+                }
+                else
+                {
+                    Attribute(document, key, setByKey, principalId);
+                }
+            }
+
+            return document.ToJsonString();
         }
         catch (JsonException)
         {
             return bag;
         }
-
-        foreach (var (key, setByKey) in SetByPairs)
+        catch (ArgumentException)
         {
-            if (principalId is null)
-            {
-                document.Remove(setByKey);
-            }
-            else
-            {
-                Attribute(document, key, setByKey, principalId);
-            }
+            // A member named twice parses, then throws on first use of the object. Returned
+            // unchanged so the caller's envelope validation refuses it as a 4xx, as Merge does.
+            return bag;
         }
-
-        return document.ToJsonString();
     }
 
     private static void Attribute(JsonObject document, string key, string setByKey, string principalId)
@@ -342,9 +370,17 @@ public static class ItemProperties
     /// <param name="title">The title to store.</param>
     /// <returns>The updated JSON object.</returns>
     /// <remarks>
+    /// <para>
     /// Preserving the rest matters: a rename must not silently drop properties a later goal added,
     /// and "read, replace one key, write the whole bag" is the only shape that survives a schema
     /// this code does not yet know about.
+    /// </para>
+    /// <para>
+    /// A bag naming a member twice is returned unchanged, without the title: it cannot be
+    /// rewritten, and every caller that can receive one (document and template imports, template
+    /// drafts) validates the result with <c>TemplateDefinitionValidator.ValidateEnvelope</c>, which
+    /// refuses it - a 4xx, never an unhandled exception.
+    /// </para>
     /// </remarks>
     public static string WithTitle(string? properties, string title)
     {
@@ -362,7 +398,15 @@ public static class ItemProperties
             bag = [];
         }
 
-        bag[TitleKey] = title;
+        try
+        {
+            bag[TitleKey] = title;
+        }
+        catch (ArgumentException)
+        {
+            return properties!;
+        }
+
         return bag.ToJsonString();
     }
 }
