@@ -1,7 +1,9 @@
 import type { MenuEntry } from '@nix/ui';
 import { FileText } from 'lucide-react';
 
+import { useAutomateEntry } from '../../automations/automate-entry';
 import { bookmarkEntry, copyLinkEntry } from '../../items/item-menu-entries';
+import { useMuteRemindersEntry } from '../../settings/mute-reminders-entry';
 import { useOptionalWorkspace } from '../../workspaces/workspace-context';
 
 /**
@@ -14,6 +16,8 @@ export function useItemContextActions(
   onOpen: (itemId: string) => void,
 ): (itemId: string, title: string, extra?: readonly MenuEntry[]) => MenuEntry[] {
   const workspace = useOptionalWorkspace();
+  const automateEntry = useAutomateEntry(workspace?.workspaceId ?? null);
+  const muteRemindersEntry = useMuteRemindersEntry();
 
   return (itemId, title, extra = []) => [
     {
@@ -27,5 +31,7 @@ export function useItemContextActions(
     ...extra,
     bookmarkEntry(itemId),
     ...(workspace === null ? [] : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
+    ...(automateEntry === null ? [] : [automateEntry(itemId)]),
+    ...(muteRemindersEntry === null ? [] : [muteRemindersEntry(itemId, title)]),
   ];
 }

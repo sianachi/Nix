@@ -145,6 +145,8 @@ describe('the sidebar row context menu', () => {
       expect.stringContaining('Open beside'),
       'Bookmark',
       'Copy link',
+      'Automate…',
+      'Mute reminders',
       'Delete',
     ]);
   });
