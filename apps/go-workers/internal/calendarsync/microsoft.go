@@ -18,8 +18,9 @@ import (
 // relies on (verified against the provider docs 2026-09-29): GET
 // /me/calendars/{id}/calendarView/delta?startDateTime&endDateTime for the first round, then
 // following @odata.nextLink pages and storing @odata.deltaLink; deletions and events leaving the
-// window arrive in `value` with an "@removed" annotation; Prefer: odata.maxpagesize=50 and
-// Prefer: outlook.timezone="UTC"; all-day events have isAllDay=true with midnight start/end, and
+// window arrive in `value` with an "@removed" annotation (reason "deleted" or "changed");
+// Prefer: odata.maxpagesize=50, outlook.timezone="UTC" and outlook.body-content-type="text"
+// (so details arrive as plain text, not HTML); all-day events have isAllDay=true with midnight start/end, and
 // the Graph end for an all-day event is exclusive, like Google's.
 type MicrosoftClient struct {
 	transport *transport
@@ -95,7 +96,7 @@ func (client *MicrosoftClient) Pull(ctx context.Context, accessToken, calendarID
 		}
 	}
 	headers := bearerHeaders(accessToken)
-	headers["Prefer"] = `odata.maxpagesize=50, outlook.timezone="UTC"`
+	headers["Prefer"] = `odata.maxpagesize=50, outlook.timezone="UTC", outlook.body-content-type="text"`
 	response, err := client.transport.do(ctx, http.MethodGet, target, headers, nil)
 	if err != nil {
 		return Page{}, err
@@ -116,6 +117,11 @@ func (client *MicrosoftClient) Pull(ctx context.Context, accessToken, calendarID
 	}
 	events := make([]ProviderEvent, 0, len(decoded.Value))
 	for _, item := range decoded.Value {
+		// Reason "changed" means the event only left the delta window; it still exists upstream,
+		// so reporting it cancelled would trash a live item.
+		if item.Removed != nil && item.Removed.Reason == "changed" {
+			continue
+		}
 		events = append(events, client.convert(item))
 	}
 	return Page{
@@ -128,7 +134,12 @@ func (client *MicrosoftClient) Pull(ctx context.Context, accessToken, calendarID
 
 func (client *MicrosoftClient) convert(item graphEvent) ProviderEvent {
 	if item.Removed != nil {
-		return ProviderEvent{ExternalID: item.ID, Status: "cancelled", UpdatedAt: item.LastModifiedDateTime}
+		// A removed event carries only its id: no bounds and no lastModifiedDateTime.
+		updated := item.LastModifiedDateTime
+		if updated.IsZero() {
+			updated = time.Now().UTC()
+		}
+		return ProviderEvent{ExternalID: item.ID, Status: "cancelled", UpdatedAt: updated}
 	}
 	startZone := WindowsToIANA(item.OriginalStartTimeZone, client.logger)
 	endZone := WindowsToIANA(item.OriginalEndTimeZone, client.logger)

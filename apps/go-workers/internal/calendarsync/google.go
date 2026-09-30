@@ -123,10 +123,16 @@ func (client *GoogleClient) Pull(ctx context.Context, accessToken, calendarID, c
 }
 
 func (client *GoogleClient) convert(item googleEvent) (ProviderEvent, error) {
-	status := item.Status
-	if status != "cancelled" {
-		status = "confirmed"
+	if item.Status == "cancelled" {
+		// An incremental round reports a deleted event with only its id and status: no start or
+		// end to parse. Core needs only the id to remove it.
+		updated := item.Updated
+		if updated.IsZero() {
+			updated = time.Now().UTC()
+		}
+		return ProviderEvent{ExternalID: item.ID, Version: item.ETag, Status: "cancelled", UpdatedAt: updated}, nil
 	}
+	status := "confirmed"
 	start, err := googleBound(item.Start, false)
 	if err != nil {
 		return ProviderEvent{}, err

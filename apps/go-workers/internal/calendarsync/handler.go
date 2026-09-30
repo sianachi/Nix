@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
@@ -16,7 +18,12 @@ import (
 // Kinds is the job kind the calendar role's runner registers for the calendar.sync queue.
 var Kinds = []string{"calendar.sync"}
 
-const changesPageLimit = 100
+const (
+	changesPageLimit = 100
+	// maxTitleBytes and maxDetailsBytes mirror the C2 bounds in workerapi.validateCalendarEvent.
+	maxTitleBytes   = 500
+	maxDetailsBytes = 8000
+)
 
 // API is the subset of workerapi.Client the sync algorithm calls, so tests can fake Core with an
 // httptest server behind the same *workerapi.Client rather than mocking an interface by hand.
@@ -66,11 +73,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	}
 	session, err := handler.api.StartCalendarSession(ctx, payload.LinkID)
 	if err != nil {
-		var responseErr *workerapi.ResponseError
-		if errors.As(err, &responseErr) && responseErr.Code == "calendar.needs_reauth" {
-			return nil, failure("calendar_needs_reauth", err)
-		}
-		return nil, transient("calendar_session_unavailable", err)
+		return nil, apiFailure("calendar_session_unavailable", err)
 	}
 	provider, ok := handler.providers[session.Provider]
 	if !ok {
@@ -127,14 +130,14 @@ func (handler *Handler) pull(ctx context.Context, provider Provider, linkID stri
 		if len(wireEvents) > 0 || full {
 			result, applyErr := handler.api.PullCalendarEvents(ctx, linkID, workerapi.CalendarPullRequest{Full: full, Events: wireEvents})
 			if applyErr != nil {
-				return applied, conflicts, full, transient("calendar_pull_apply_failed", applyErr)
+				return applied, conflicts, full, apiFailure("calendar_pull_apply_failed", applyErr)
 			}
 			applied += result.Applied
 			conflicts += result.Conflicts
 		}
 		if !page.Next {
 			if setErr := handler.api.SetCalendarCursor(ctx, linkID, page.Cursor, full, session.WindowStart, session.WindowEnd); setErr != nil {
-				return applied, conflicts, full, transient("calendar_cursor_failed", setErr)
+				return applied, conflicts, full, apiFailure("calendar_cursor_failed", setErr)
 			}
 			return applied, conflicts, full, nil
 		}
@@ -149,7 +152,7 @@ func (handler *Handler) pull(ctx context.Context, provider Provider, linkID stri
 func (handler *Handler) push(ctx context.Context, provider Provider, linkID string, session *workerapi.CalendarSession) (int, error) {
 	changes, err := handler.api.GetCalendarChanges(ctx, linkID, changesPageLimit)
 	if err != nil {
-		return 0, transient("calendar_changes_unavailable", err)
+		return 0, apiFailure("calendar_changes_unavailable", err)
 	}
 	if len(changes.Changes) == 0 {
 		return 0, nil
@@ -160,7 +163,7 @@ func (handler *Handler) push(ctx context.Context, provider Provider, linkID stri
 		results = append(results, result)
 	}
 	if err := handler.api.ReportCalendarPushed(ctx, linkID, results); err != nil {
-		return 0, transient("calendar_pushed_report_failed", err)
+		return 0, apiFailure("calendar_pushed_report_failed", err)
 	}
 	return len(results), nil
 }
@@ -222,24 +225,41 @@ func (handler *Handler) logProviderError(ctx context.Context, linkID, direction 
 	}
 }
 
+// toWireEvent renders a provider event as a C2 event. A cancelled event carries no bounds (start
+// is "" and end is omitted): providers do not report them for deletions. Provider text is cut to
+// the contract bounds on a rune boundary so one oversized event cannot fail the whole page.
 func toWireEvent(event ProviderEvent) workerapi.CalendarEvent {
-	var end *string
-	if event.End != nil {
-		wire := event.End.Wire()
-		end = &wire
-	}
-	return workerapi.CalendarEvent{
+	wire := workerapi.CalendarEvent{
 		ExternalID: event.ExternalID,
 		Version:    event.Version,
 		Status:     event.Status,
-		Title:      event.Title,
-		Start:      event.Start.Wire(),
-		End:        end,
-		Location:   event.Location,
-		Details:    event.Details,
+		Title:      truncateText(event.Title, maxTitleBytes),
+		Location:   truncateText(event.Location, maxTitleBytes),
+		Details:    truncateText(event.Details, maxDetailsBytes),
 		ReadOnly:   event.ReadOnly,
 		UpdatedAt:  event.UpdatedAt,
 	}
+	if event.Status == "cancelled" {
+		return wire
+	}
+	wire.Start = event.Start.Wire()
+	if event.End != nil {
+		end := event.End.Wire()
+		wire.End = &end
+	}
+	return wire
+}
+
+// truncateText cuts value to at most maximum bytes without splitting a UTF-8 sequence.
+func truncateText(value string, maximum int) string {
+	if len(value) <= maximum {
+		return value
+	}
+	cut := maximum
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut]
 }
 
 func fromWireChange(change workerapi.CalendarChange) (PushEvent, error) {
@@ -259,10 +279,7 @@ func fromWireChange(change workerapi.CalendarChange) (PushEvent, error) {
 }
 
 func truncate(value string, maximum int) string {
-	if len(value) <= maximum {
-		return value
-	}
-	return value[:maximum]
+	return truncateText(value, maximum)
 }
 
 func canonicalUUID(value string) bool {
@@ -278,6 +295,33 @@ func canonicalUUID(value string) bool {
 		}
 	}
 	return value != "00000000-0000-0000-0000-000000000000"
+}
+
+// apiFailure classifies a Core worker-executions error. A refused execution (the lease moved on)
+// is returned unwrapped, as in every other worker role. Core's calendar refusals
+// (calendar.link_unavailable: the link was deleted, stopped or no longer matches the job;
+// calendar.needs_reauth: Core already marked the connection and notified the owner) and any other
+// 4xx rejection are terminal: retrying the same request cannot succeed. Everything else (5xx,
+// 408, 429, transport errors) is retried.
+func apiFailure(code string, err error) error {
+	var response *workerapi.ResponseError
+	if !errors.As(err, &response) {
+		return transient(code, err)
+	}
+	switch {
+	case response.Status == http.StatusConflict && response.Code == "worker.execution_refused":
+		return err
+	case response.Status == http.StatusConflict && response.Code == "calendar.link_unavailable":
+		return failure("calendar_link_unavailable", err)
+	case response.Status == http.StatusConflict && response.Code == "calendar.needs_reauth":
+		return failure("calendar_needs_reauth", err)
+	case response.Status == http.StatusRequestTimeout || response.Status == http.StatusTooManyRequests || response.Status >= 500:
+		return transient(code, err)
+	case response.Status >= 400:
+		return failure(code, err)
+	default:
+		return transient(code, err)
+	}
 }
 
 func failure(code string, err error) error {

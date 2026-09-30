@@ -1,0 +1,40 @@
+{
+  "full": false,
+  "events": [
+    {
+      "externalId": "evt-timed",
+      "version": "\"3181161784712000\"",
+      "status": "confirmed",
+      "title": "Standup",
+      "start": "2026-10-01T09:00:00-04:00[America/New_York]",
+      "end": "2026-10-01T09:15:00-04:00[America/New_York]",
+      "location": "Room 4",
+      "details": "Agenda\nNotes",
+      "readOnly": false,
+      "updatedAt": "2026-09-30T12:00:00Z"
+    },
+    {
+      "externalId": "evt-allday",
+      "version": "ck-2",
+      "status": "confirmed",
+      "title": "Offsite",
+      "start": "2026-10-05",
+      "end": "2026-10-06",
+      "location": "",
+      "details": "",
+      "readOnly": true,
+      "updatedAt": "2026-09-29T08:30:00Z"
+    },
+    {
+      "externalId": "evt-cancelled",
+      "version": "",
+      "status": "cancelled",
+      "title": "",
+      "start": "",
+      "location": "",
+      "details": "",
+      "readOnly": false,
+      "updatedAt": "2026-09-30T12:05:00Z"
+    }
+  ]
+}
