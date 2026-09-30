@@ -126,12 +126,15 @@ public sealed class CompositionRootTests
     public void Template_endpoints_depend_only_on_the_dispatcher()
     {
         var assembly = typeof(NixPersistenceServiceCollectionExtensions).Assembly;
-        var endpointType = assembly.GetType("Nix.Features.Templates.TemplateEndpoints");
+        var endpointTypes = assembly.GetTypes()
+            .Where(type => type is { Namespace: "Nix.Features.Templates", IsAbstract: true, IsSealed: true }
+                && type.Name.EndsWith("Endpoints", StringComparison.Ordinal))
+            .ToArray();
         var concreteStore = assembly.GetType("Nix.Persistence.Templates.TemplateStore");
-        Assert.NotNull(endpointType);
+        Assert.True(endpointTypes.Length >= 2, "Expected the public and internal template endpoint classes.");
         Assert.NotNull(concreteStore);
-        var routeMethods = endpointType
-            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+        var routeMethods = endpointTypes
+            .SelectMany(type => type.GetMethods(BindingFlags.Static | BindingFlags.NonPublic))
             .Where(method => method.ReturnType == typeof(Task<IResult>))
             .ToArray();
 
