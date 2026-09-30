@@ -189,6 +189,9 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
         Assert.Equal(["succeeded|property|1"], await RunsAsync(second));
         Assert.Equal(["suppressed|property|2"], await RunsAsync(third));
         Assert.Contains("chain_depth", await TextAsync($"SELECT detail::text FROM automation_run WHERE rule_id = '{third}'"), StringComparison.Ordinal);
+
+        // Decided in the trigger, before anything verified the owner may read the item.
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{third}' AND item_id IS NULL"));
     }
 
     [Fact]
@@ -423,9 +426,10 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
         await LockAsync(folder);
         await DispatchAllAsync();
 
-        Assert.Equal(["skipped|property|0"], await RunsAsync(watcher));
-        Assert.Equal("item_locked|null", await TextAsync(
-            $"SELECT (detail ->> 'reason') || '|' || COALESCE(item_id::text, 'null') FROM automation_run WHERE rule_id = '{watcher}'"));
+        // Skipped at the trigger, and no run recorded: a run row would tell the owner a covered
+        // item had changed at all.
+        Assert.Empty(await RunsAsync(watcher));
+        Assert.Contains("item_locked", await TextAsync($"SELECT detail::text FROM scheduled_trigger WHERE rule_id = '{watcher}' AND status = 'skipped'"), StringComparison.Ordinal);
         Assert.Equal(0, await CountAsync("SELECT count(*) FROM notification WHERE kind = 'automation'"));
         Assert.Equal(0, await CountAsync("SELECT count(*) FROM item WHERE properties ->> 'title' LIKE 'Follow up%'"));
         Assert.Equal(0, await CountAsync($"SELECT count(*) FROM automation_run WHERE item_id = '{diary}'"));
@@ -441,7 +445,7 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
         }
 
         Assert.False(preview.WouldRun);
-        Assert.Equal("item_locked", preview.Reason);
+        Assert.Equal("item_gone", preview.Reason);
         Assert.Empty(preview.Actions);
 
         // A named target under the lock refuses the action rather than writing through it.
@@ -612,9 +616,18 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
               FROM generate_series(1, 505) n;
             """);
 
-        // No such item: a skipped run, which is recorded - and trimmed after - like any other.
-        var run = await RunNowAsync(Alpha, ruleId, Guid.NewGuid());
-        Assert.Equal("skipped", run.Status);
+        // The same item again inside the minute: a throttled run, which is recorded - and trimmed
+        // after - like any other.
+        var itemId = await CreateItemAsync(Alpha, "Target", null);
+        Assert.Equal("succeeded", (await RunNowAsync(Alpha, ruleId, itemId)).Status);
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO automation_run (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key, origin, depth, status, created_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{ruleId}', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaWorkspace}',
+                   NULL, 'older:' || n, 'manual', 0, 'skipped', now() - interval '3 hours' - n * interval '1 second'
+              FROM generate_series(1, 20) n;
+            """);
+        var run = await RunNowAsync(Alpha, ruleId, itemId);
+        Assert.Equal("throttled", run.Status);
         Assert.Equal(500, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}'"));
     }
 
@@ -784,6 +797,248 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
         }
     }
 
+    [Fact]
+    public async Task A_colleagues_rule_watching_for_a_value_under_a_locked_parent_records_no_run()
+    {
+        await SeedColleagueAsync("editor");
+        var colleague = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var folder = await CreateItemAsync(Alpha, "Private folder", null);
+        var diary = await CreateItemAsync(Alpha, "Secret diary", null, folder);
+        var theirs = await CreateRuleAsync(colleague, "Tell me", """{"type":"property_changed","key":"status","to":{"value":"done"}}""",
+            """[{"type":"notify","title":"Something is done"}]""");
+
+        // The owner finishes the diary and locks the folder above it: the colleague's rule must not
+        // learn that anything under the lock reached "done" - not even from a bare run-log row.
+        await SetAsync(Alpha, diary, """{"status":"done"}""");
+        await LockAsync(folder);
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{theirs}'"));
+        await DispatchAllAsync();
+
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{theirs}'"));
+        Assert.Equal(0, await CountAsync("SELECT count(*) FROM notification WHERE kind = 'automation'"));
+        Assert.Equal("skipped", await TextAsync($"SELECT status FROM scheduled_trigger WHERE rule_id = '{theirs}'"));
+    }
+
+    [Fact]
+    public async Task A_date_rule_plans_nothing_for_a_locked_item()
+    {
+        var due = DateTime.UtcNow.AddHours(3);
+        var folder = await CreateItemAsync(Alpha, "Private folder", null);
+        var covered = await CreateItemAsync(Alpha, "Covered", new JsonObject { ["due_date"] = due.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }, folder);
+        var open = await CreateItemAsync(Alpha, "Open", new JsonObject { ["due_date"] = due.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        await ExecuteAsMigratorAsync($"UPDATE item SET properties = properties || jsonb_build_object('when', '{due:yyyy-MM-dd}') WHERE id IN ('{covered}', '{open}')");
+        await LockAsync(folder);
+
+        var byDue = await CreateRuleAsync(Alpha, "By due", $$"""{"type":"date_arrives","key":"due_date","offsetMinutes":0,"time":"{{due:HH:mm}}"}""",
+            """[{"type":"notify","title":"x"}]""");
+        var byKey = await CreateRuleAsync(Alpha, "By key", $$"""{"type":"date_arrives","key":"when","offsetMinutes":0,"time":"{{due:HH:mm}}"}""",
+            """[{"type":"notify","title":"x"}]""");
+        await PlanAsync();
+
+        // Both finder branches leave the covered item out; the open one is still planned.
+        foreach (var ruleId in new[] { byDue, byKey })
+        {
+            Assert.Equal(0, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND source_item_id = '{covered}'"));
+            Assert.Equal(1, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND source_item_id = '{open}' AND status = 'pending'"));
+        }
+    }
+
+    [Fact]
+    public async Task A_locked_item_and_a_missing_item_read_the_same_to_test_and_run_now()
+    {
+        var folder = await CreateItemAsync(Alpha, "Private folder", null);
+        var diary = await CreateItemAsync(Alpha, "Secret diary", null, folder);
+        var ruleId = await CreateRuleAsync(Alpha, "Probe", """{"type":"property_changed","key":"status"}""",
+            """[{"type":"notify","title":"{item.title}"}]""");
+        await LockAsync(folder);
+
+        var answers = new List<string>();
+        foreach (var candidate in new[] { diary, Guid.NewGuid() })
+        {
+            var work = await fixture.Application.BeginUnitOfWorkAsync(Alpha, Cancellation);
+            await using (work.ConfigureAwait(false))
+            {
+                var dispatcher = work.Resolve<NixDispatcher>();
+                var test = await dispatcher.SendAsync<TestAutomation, AutomationTestResponse>(new(ruleId, candidate), Cancellation);
+                Assert.True(test.IsSuccess);
+                var run = await dispatcher.SendAsync<RunAutomation, AutomationRunResponse>(new(ruleId, candidate), Cancellation);
+                Assert.True(run.IsFailure);
+                answers.Add($"{test.Value.WouldRun}|{test.Value.Reason}|{test.Value.Actions.Count}|{run.Error.Code}|{run.Error.Message}");
+                await work.CommitAsync(Cancellation);
+            }
+        }
+
+        Assert.Equal(answers[0], answers[1]);
+        Assert.StartsWith("False|item_gone|0|", answers[0], StringComparison.Ordinal);
+        Assert.Empty(await RunsAsync(ruleId));
+    }
+
+    [Fact]
+    public async Task A_bulk_write_past_the_budget_notes_every_property_rule_of_the_workspace()
+    {
+        var byStatus = await CreateRuleAsync(Alpha, "Status", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        var byOther = await CreateRuleAsync(Alpha, "Other", """{"type":"property_changed","key":"other"}""", """[{"type":"notify","title":"x"}]""");
+        await InsertBulkItemsAsync(1005);
+
+        // One transaction: the budget is spent on "status", the first row past it changes
+        // "status" again, and only later rows change "other" - which must still be noted.
+        await ExecuteAsMigratorAsync("""
+            BEGIN;
+            UPDATE item SET properties = properties || '{"status":"done"}' WHERE properties ? 'bulk' AND seq <= 101000;
+            UPDATE item SET properties = properties || '{"status":"again"}' WHERE properties ? 'bulk' AND seq = 101001;
+            UPDATE item SET properties = properties || '{"other":"x"}' WHERE properties ? 'bulk' AND seq > 101001;
+            COMMIT;
+            """);
+
+        foreach (var ruleId in new[] { byStatus, byOther })
+        {
+            Assert.Equal(1, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}' AND status = 'throttled' AND detail ->> 'reason' = 'bulk_write'"));
+        }
+    }
+
+    [Fact]
+    public async Task Runs_the_property_trigger_writes_are_trimmed_to_500_as_well()
+    {
+        var ruleId = await CreateRuleAsync(Alpha, "Status", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO automation_run (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key, origin, depth, status, created_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{ruleId}', '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaWorkspace}',
+                   NULL, 'old:' || n, 'property', 0, 'throttled', now() - interval '2 hours' - n * interval '1 second'
+              FROM generate_series(1, 510) n;
+            """);
+        await InsertBulkItemsAsync(1001);
+
+        // Only the database trigger records this rule's run - the executor never sees it.
+        await ExecuteAsMigratorAsync("UPDATE item SET properties = properties || '{\"status\":\"done\"}' WHERE properties ? 'bulk'");
+
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}' AND detail ->> 'reason' = 'bulk_write'"));
+        Assert.Equal(500, await CountAsync($"SELECT count(*) FROM automation_run WHERE rule_id = '{ruleId}'"));
+    }
+
+    [Fact]
+    public async Task A_member_removed_from_the_workspace_cannot_update_a_rule_or_probe_items_through_it()
+    {
+        await SeedColleagueAsync("editor");
+        var colleague = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, Colleague);
+        var existing = await CreateItemAsync(Alpha, "Roadmap", null);
+        const string trigger = """{"type":"property_changed","key":"status"}""";
+        var ruleId = await CreateRuleAsync(colleague, "Theirs", trigger, """[{"type":"notify","title":"x"}]""");
+        await ExecuteAsMigratorAsync($"DELETE FROM workspace_member WHERE subject_id = '{Colleague}'");
+
+        // Disabling needs no write access, but it still needs to read the workspace; and naming a
+        // real item and a made-up one must read the same.
+        var codes = new List<string>();
+        foreach (var named in new[] { existing, Guid.NewGuid() })
+        {
+            var work = await fixture.Application.BeginUnitOfWorkAsync(colleague, Cancellation);
+            await using (work.ConfigureAwait(false))
+            {
+                var saved = await work.Resolve<NixDispatcher>().SendAsync<UpdateAutomation, AutomationRuleResponse>(
+                    new(ruleId, 1, Input("Theirs", trigger, $$"""[{"type":"set_property","target":{"itemId":"{{named}}"},"key":"k","value":1}]""", enabled: false)),
+                    Cancellation);
+                Assert.True(saved.IsFailure);
+                codes.Add(saved.Error.Code);
+            }
+        }
+
+        Assert.Equal([AutomationErrors.NotFoundCode, AutomationErrors.NotFoundCode], codes);
+        Assert.Equal("true|1", await TextAsync($"SELECT enabled::text || '|' || revision FROM automation_rule WHERE id = '{ruleId}'"));
+    }
+
+    [Fact]
+    public async Task Saving_or_reenabling_a_date_rule_plans_its_triggers_at_once()
+    {
+        var due = DateTime.UtcNow.AddHours(3);
+        var itemId = await CreateItemAsync(Alpha, "Report", new JsonObject { ["due_date"] = due.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        await SavePreferencesAsync(Alpha);
+        var trigger = $$"""{"type":"date_arrives","key":"due_date","offsetMinutes":0,"time":"{{due:HH:mm}}"}""";
+        const string actions = """[{"type":"notify","title":"x"}]""";
+
+        // No planner pass anywhere in this test.
+        var ruleId = await CreateRuleAsync(Alpha, "Heads up", trigger, actions);
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND source_item_id = '{itemId}' AND status = 'pending'"));
+
+        await UpdateRuleAsync(Alpha, ruleId, 1, "Heads up", trigger, actions, enabled: false);
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND status = 'pending'"));
+
+        await UpdateRuleAsync(Alpha, ruleId, 2, "Heads up", trigger, actions, enabled: true);
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND source_item_id = '{itemId}' AND status = 'pending'"));
+
+        // An edit that moves the time replans to the new instant.
+        var earlier = due.AddMinutes(-30);
+        await UpdateRuleAsync(Alpha, ruleId, 3, "Heads up", $$"""{"type":"date_arrives","key":"due_date","offsetMinutes":0,"time":"{{earlier:HH:mm}}"}""", actions, enabled: true);
+        Assert.Equal($"{earlier:HH:mm}", await TextAsync($"SELECT to_char(fire_at AT TIME ZONE 'UTC', 'HH24:MI') FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND status = 'pending'"));
+    }
+
+    [Fact]
+    public async Task A_date_group_reads_a_window_sized_by_its_offsets_and_logs_a_truncated_group()
+    {
+        var today = DateTime.UtcNow.Date;
+        var soon = DateTime.UtcNow.AddHours(26);
+
+        // More than a group's cap (2,000) of items due five days ago: with offset zero none can fire, and
+        // none may crowd out the one item that can.
+        await InsertBulkItemsAsync(2_001, today.AddDays(-5));
+        var itemId = await CreateItemAsync(Alpha, "Tomorrow", new JsonObject { ["due_date"] = soon.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) });
+        var ruleId = await CreateRuleAsync(Alpha, "Due", """{"type":"date_arrives","key":"due_date","offsetMinutes":0,"time":"00:30"}""",
+            """[{"type":"notify","title":"x"}]""");
+        await PlanAsync();
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM scheduled_trigger WHERE rule_id = '{ruleId}' AND source_item_id = '{itemId}' AND status = 'pending'"));
+
+        // A group that really is past its cap is named in a warning, by ids and counts only.
+        await ExecuteAsMigratorAsync($"UPDATE item SET properties = properties || jsonb_build_object('due_date', '{soon:yyyy-MM-dd}') WHERE properties ? 'bulk'");
+        await using var scope = fixture.Application.CreateUnscopedScope();
+        var provider = scope.ServiceProvider;
+        var logger = new CapturingLogger<AutomationDateSource>();
+        var source = new AutomationDateSource(
+            provider.GetRequiredService<PlannedAutomationRules>(),
+            provider.GetRequiredService<Nix.Abstractions.Automations.IAutomationCandidateFinder>(),
+            provider.GetRequiredService<IReminderCandidateFinder>(),
+            provider.GetRequiredService<AutomationExecutor>(),
+            logger);
+        var now = DateTimeOffset.UtcNow;
+        var plan = await source.PlanAsync(new PlanWindow(now, now.AddHours(48)), Cancellation);
+
+        Assert.Contains(ruleId, plan.IncompleteRules ?? []);
+        var warning = Assert.Single(logger.Events, entry => entry.EventId.Id == 5320);
+        Assert.Equal(LogLevel.Warning, warning.Level);
+        Assert.Contains(TestTenants.AlphaWorkspace.ToString(), warning.Message, StringComparison.Ordinal);
+        Assert.Contains("due_date", warning.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("Bulk", warning.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_unfiltered_lease_reads_pending_rows_in_index_order_without_a_sort()
+    {
+        var ruleId = await CreateRuleAsync(Alpha, "Backlog", """{"type":"property_changed","key":"status"}""", """[{"type":"notify","title":"x"}]""");
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO scheduled_trigger (tenant_id, id, workspace_id, principal_id, kind, source, source_item_id, rule_id,
+                                           fire_at, dedupe_key, status, attempts, created_at, updated_at)
+            SELECT '{TestTenants.Alpha}', gen_random_uuid(), '{TestTenants.AlphaWorkspace}', '{TestTenants.AlphaPrincipal}', 'automation',
+                   'automation.property', NULL, '{ruleId}', date_trunc('minute', now()) - interval '1 minute',
+                   'tied-' || n, 'pending', 0, now(), now()
+              FROM generate_series(1, 20000) n;
+            ANALYZE scheduled_trigger;
+            """);
+
+        // The pending branch of nix_lease_due_triggers, as it reads with no source filter: every
+        // row shares one fire_at, so only an index ending in id returns them in order.
+        IReadOnlyList<string> plan;
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            plan = await RawSql.TextListAsync(connection, """
+                EXPLAIN SELECT p.id, p.fire_at FROM public.scheduled_trigger p
+                 WHERE p.status = 'pending' AND p.fire_at <= clock_timestamp()
+                 ORDER BY p.fire_at, p.id LIMIT 50 FOR UPDATE SKIP LOCKED
+                """);
+        }
+
+        var text = string.Join('\n', plan);
+        Assert.Contains("ix_scheduled_trigger_pending_due", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sort", text, StringComparison.Ordinal);
+    }
+
     internal static AutomationRuleInput Input(string name, string trigger, string actions, string? conditions = null, Guid? scopeItemId = null, bool enabled = true) =>
         new(name, enabled, scopeItemId, JsonNode.Parse(trigger)!.AsObject(), conditions is null ? null : JsonNode.Parse(conditions)!.AsArray(), JsonNode.Parse(actions)!.AsArray());
 
@@ -920,6 +1175,20 @@ public sealed class AutomationIntegrationTests(NixPostgresFixture fixture) : IAs
 
             return created;
         }
+    }
+
+    /// <summary>Root items marked <c>bulk</c>, with seq 100001 upwards, optionally all due on one day.</summary>
+    private Task InsertBulkItemsAsync(int count, DateTime? dueDay = null)
+    {
+        var due = dueDay is { } day ? $", 'due_date', '{day:yyyy-MM-dd}'" : string.Empty;
+        return ExecuteAsMigratorAsync($"""
+            INSERT INTO item (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                              created_by, last_modified_by, created_at, last_modified_at)
+            SELECT gen_random_uuid(), '{TestTenants.Alpha}', '{TestTenants.AlphaWorkspace}', 'task', NULL, 100000 + n,
+                   jsonb_build_object('title', 'Bulk ' || n, 'bulk', true{due}), 'active',
+                   '{TestTenants.AlphaPrincipal}', '{TestTenants.AlphaPrincipal}', now(), now()
+              FROM generate_series(1, {count}) n;
+            """);
     }
 
     private async Task LockAsync(Guid itemId)

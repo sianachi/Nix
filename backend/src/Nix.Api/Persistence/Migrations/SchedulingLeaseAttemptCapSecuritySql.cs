@@ -39,10 +39,18 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer);
             """);
 
-        // The source-filtered lease's pending branch: due rows of the named sources in fire_at
-        // order. Raw SQL rather than an EF index, like the item indexes the reminder finders read:
-        // only this function uses it.
+        // The two pending branches' indexes: due rows in (fire_at, id) order, unfiltered and per
+        // source. Raw SQL rather than EF indexes, like the item indexes the reminder finders read:
+        // only this function uses them. Both end in id because the branches order by it: the
+        // model's IX_scheduled_trigger_status_fire_at stops at fire_at, so rows sharing one fire_at
+        // (a bulk write's property triggers all fire at the same minute) had to be read and
+        // sorted in full to find the first p_limit - 399 ms with 320,000 pending rows on one
+        // fire_at, against well under a millisecond walking ix_scheduled_trigger_pending_due.
         emit("""
+            CREATE INDEX ix_scheduled_trigger_pending_due
+                ON scheduled_trigger (fire_at, id)
+             WHERE status = 'pending';
+
             CREATE INDEX ix_scheduled_trigger_pending_source_due
                 ON scheduled_trigger (source, fire_at, id)
              WHERE status = 'pending';
@@ -119,16 +127,20 @@ public static class SchedulingLeaseAttemptCapSecuritySql
                         FOR UPDATE SKIP LOCKED
                  );
 
-                -- Two index-ordered branches, never one OR: pending rows due now, and leases that
-                -- expired under a process that died. "status = 'pending' OR (status = 'leased'
-                -- AND ...)" cannot be read in fire_at order from any one index, so the planner
-                -- sorted every due row to pick the first p_limit - 160 ms with a 320,000-row
-                -- automation backlog. Each branch instead takes its own first p_limit in
-                -- (fire_at, id) order, locking as it goes; the merge keeps the first p_limit of
-                -- the two. With p_sources named (the dispatcher leases reminder sources before any
-                -- other), the pending branch reads ix_scheduled_trigger_pending_source_due, so a
-                -- backlog of other sources' rows is never walked. Branch by IF, not by
-                -- "p_sources IS NULL OR ...", so each statement keeps its own plan.
+                -- Two branches, never one OR: pending rows due now, and leases that expired under
+                -- a process that died. "status = 'pending' OR (status = 'leased' AND ...)" cannot
+                -- be read in fire_at order from any one index, so the planner sorted every due row
+                -- to pick the first p_limit - 160 ms with a 320,000-row automation backlog. Each
+                -- branch instead takes its own first p_limit in (fire_at, id) order, locking as it
+                -- goes; the merge keeps the first p_limit of the two. The pending branch is
+                -- index-ordered: it walks ix_scheduled_trigger_pending_due, or with p_sources
+                -- named (the dispatcher leases reminder sources before any other)
+                -- ix_scheduled_trigger_pending_source_due, so a backlog of other sources' rows is
+                -- never walked. The expired-lease branch is not: it reads
+                -- IX_scheduled_trigger_status_fire_at and sorts what it finds, which is only the
+                -- rows a dead replica still held in flight.
+                -- Branch by IF, not by "p_sources IS NULL OR ...", so each statement keeps its own
+                -- plan.
                 IF p_sources IS NULL THEN
                     SELECT array_agg(due.id ORDER BY due.fire_at, due.id)
                       INTO v_ids
@@ -286,6 +298,7 @@ public static class SchedulingLeaseAttemptCapSecuritySql
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer);
             DROP FUNCTION IF EXISTS nix_lease_due_triggers(integer, text, integer, integer, text[]);
             DROP INDEX IF EXISTS ix_scheduled_trigger_pending_source_due;
+            DROP INDEX IF EXISTS ix_scheduled_trigger_pending_due;
             """);
 
         // Restores the function SchedulingSecuritySql.Apply creates - the same signature, row

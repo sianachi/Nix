@@ -76,9 +76,12 @@ public static class AutomationActionJson
 
     /// <summary>
     /// The largest the whole action list may be, as this reader writes it, in UTF-8 bytes. The
-    /// table stores it as <c>jsonb</c> bounded at 16,384 bytes of text, and <c>jsonb</c>'s text
-    /// adds a space after every colon and comma - at most a third more for the densest object -
-    /// so 12 KiB here stays inside that bound with the headroom it needs.
+    /// table stores it as <c>jsonb</c> bounded at 16,384 bytes of text, and <c>jsonb</c>'s text is
+    /// longer than what was written: a space after every colon and comma (a dense array such as
+    /// <c>[1,1,1]</c> grows by half), and a number is stored in full (<c>1e16500</c> is sixteen
+    /// thousand digits). So 12 KiB here keeps every ordinary rule inside that bound but does not
+    /// guarantee it; the table's <c>automation_rule_bounded</c> check is the backstop, and the
+    /// rule store reports a row it refuses as <c>automation.invalid</c>, never a server error.
     /// </summary>
     public const int MaximumTotalBytes = 12_288;
 
