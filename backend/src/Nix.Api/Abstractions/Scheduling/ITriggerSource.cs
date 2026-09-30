@@ -76,6 +76,15 @@ public interface ITriggerSource
     public TriggerKind Kind { get; }
 
     /// <summary>
+    /// Gets whether the planner reconciles this source at all. An event-fed source (the automation
+    /// property feed, whose rows a database trigger inserts as writes happen) returns
+    /// <see langword="false"/>: the planner then never calls <see cref="PlanAsync"/>, upserts and
+    /// cancels nothing for it, and does not warn that its plan was incomplete. The dispatcher still
+    /// fires its rows by <see cref="Name"/>.
+    /// </summary>
+    public bool IsPlanned => true;
+
+    /// <summary>
     /// Returns every trigger this source currently wants planned within <paramref name="window"/>,
     /// across whichever recipients it is responsible for, and whether that set is complete. A
     /// source that needs to enumerate more than its own already-scoped data across tenants must be

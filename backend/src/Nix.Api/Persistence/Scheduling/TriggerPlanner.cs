@@ -66,6 +66,11 @@ public sealed class TriggerPlanner(
             plans = new List<(string Name, TriggerKind Kind, TriggerPlan Plan)>(registered.Length);
             foreach (var source in registered)
             {
+                if (!source.IsPlanned)
+                {
+                    continue;
+                }
+
                 // One source's failure - a row so malformed its own defenses could not save it,
                 // or any other exception - must not take every other source's planning down with
                 // it. Every source here plans across every tenant at once; a single bad row in

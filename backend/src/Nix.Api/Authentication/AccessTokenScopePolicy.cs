@@ -116,7 +116,11 @@ public static class AccessTokenScopePolicy
                 && value.StartsWith("/api/v1/workspaces/", StringComparison.OrdinalIgnoreCase))
             // Plugin writes pin publisher trust or grant executable components access to
             // workspace data. Listing installations remains a read through the shortcut above.
-            || value.Contains("/plugins", StringComparison.OrdinalIgnoreCase))
+            || value.Contains("/plugins", StringComparison.OrdinalIgnoreCase)
+            // Automation rules act later, unattended, with their owner's write access
+            // (ADR-0051 section 6): a token may read them, but creating, changing, running or
+            // deleting one is an admin capability, never an ordinary write.
+            || value.Contains("/automations", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }

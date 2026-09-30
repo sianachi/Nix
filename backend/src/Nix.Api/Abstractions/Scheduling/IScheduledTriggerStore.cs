@@ -94,6 +94,13 @@ public interface IScheduledTriggerStore
         IReadOnlyCollection<string> desiredDedupeKeys,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Cancels every pending trigger this recipient holds for one automation rule - when the rule is
+    /// disabled, edited or deleted. A trigger already leased is left alone; the executor skips it
+    /// when it finds the rule disabled or gone.
+    /// </summary>
+    public Task<int> CancelForRuleAsync(TenantId tenantId, PrincipalId principalId, Guid ruleId, CancellationToken cancellationToken);
+
     /// <summary>Moves a pending trigger's <c>fire_at</c> forward, for retry backoff after a failed fire.</summary>
     public Task RescheduleAsync(TenantId tenantId, Guid id, DateTimeOffset fireAt, CancellationToken cancellationToken);
 }
