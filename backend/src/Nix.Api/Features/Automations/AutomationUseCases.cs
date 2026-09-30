@@ -66,9 +66,18 @@ public sealed class AutomationRuleSupport(
             : null;
     }
 
-    /// <summary>Checks the items a rule names are visible, active and in its workspace.</summary>
+    /// <summary>
+    /// Checks the caller may read the rule's workspace and that the items the rule names are
+    /// visible, active and in it. The workspace comes first: someone no longer in it must not
+    /// learn, from which ids are refused, which items exist there.
+    /// </summary>
     internal async Task<NixError?> CheckItemsAsync(WorkspaceId workspaceId, AutomationDefinition definition, CancellationToken cancellationToken)
     {
+        if (!await permissions.CanReadWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return AutomationErrors.NotFound;
+        }
+
         var named = AutomationRuleValidator.NamedItems(definition).ToList();
         if (definition.ScopeItemId is { } scope)
         {
@@ -101,21 +110,43 @@ public sealed class AutomationRuleSupport(
         return definition with { Trigger = schedule with { StartDate = AutomationSchedule.LocalDate(clock.GetUtcNow(), zone) } };
     }
 
-    /// <summary>Cancels the rule's pending triggers and, for an enabled schedule rule, plans the next 48 hours now.</summary>
+    /// <summary>
+    /// Cancels the rule's pending triggers and, for an enabled schedule or date rule, plans the next
+    /// 48 hours now - so a rule saved or turned back on never waits for the planner (a date rule's
+    /// next pass can be 15 minutes away).
+    /// </summary>
     internal async Task ReplanAsync(AutomationRule rule, CancellationToken cancellationToken)
     {
         await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, null, cancellationToken).ConfigureAwait(false);
-        if (!rule.Enabled || AutomationTriggerJson.ReadStored(rule.Trigger) is not ScheduleTrigger schedule)
+        if (!rule.Enabled)
         {
             return;
         }
 
         var now = clock.GetUtcNow();
-        var desired = AutomationPlanning.ScheduleTriggers(
-            rule.TenantId, rule.WorkspaceId, rule.OwnerPrincipalId, rule.Id, schedule,
-            await OwnerZoneAsync(cancellationToken).ConfigureAwait(false),
-            new PlanWindow(now, now + PlanWindowSpan)).ToList();
-        await triggers.UpsertPendingAsync(TriggerKind.Automation, AutomationPlanning.ScheduleSource, desired, cancellationToken).ConfigureAwait(false);
+        var window = new PlanWindow(now, now + PlanWindowSpan);
+        switch (AutomationTriggerJson.ReadStored(rule.Trigger))
+        {
+            case ScheduleTrigger schedule:
+                var scheduled = AutomationPlanning.ScheduleTriggers(
+                    rule.TenantId, rule.WorkspaceId, rule.OwnerPrincipalId, rule.Id, schedule,
+                    await OwnerZoneAsync(cancellationToken).ConfigureAwait(false), window).ToList();
+                await triggers.UpsertPendingAsync(TriggerKind.Automation, AutomationPlanning.ScheduleSource, scheduled, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+            case DateArrivesTrigger date:
+                // The planner's own read, sized the same way; past the cap the planner's next
+                // pass finds the rest.
+                var (from, to) = AutomationPlanning.DateCandidateDays(window, [date.OffsetMinutes]);
+                var candidates = await rules.DateCandidatesAsync(
+                    rule.TenantId, rule.Id, from, to, AutomationPlanning.MaxDateCandidatesPerRule, cancellationToken).ConfigureAwait(false);
+                var dated = AutomationPlanning.DateTriggers(
+                    rule.TenantId, rule.WorkspaceId, rule.OwnerPrincipalId, rule.Id, date,
+                    await OwnerZoneAsync(cancellationToken).ConfigureAwait(false), candidates, window).ToList();
+                await triggers.UpsertPendingAsync(TriggerKind.Automation, AutomationPlanning.DateSource, dated, cancellationToken)
+                    .ConfigureAwait(false);
+                break;
+        }
     }
 
     internal static AutomationRule ToRow(
@@ -274,7 +305,10 @@ public sealed class UpdateAutomationHandler(AutomationRuleSupport support, IPerm
     public async ValueTask<Result<AutomationRuleResponse>> HandleAsync(UpdateAutomation command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var existing = await support.Rules.GetAsync(command.RuleId, cancellationToken).ConfigureAwait(false);
+
+        // Read access first, as Get and Runs require, even to turn a rule off: a member removed
+        // from the workspace must not be able to probe it through a rule they kept there.
+        var existing = await support.ReadableAsync(command.RuleId, cancellationToken).ConfigureAwait(false);
         if (existing is null)
         {
             return Result.Failure<AutomationRuleResponse>(AutomationErrors.NotFound);

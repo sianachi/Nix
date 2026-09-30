@@ -105,6 +105,14 @@ public interface IAutomationRuleStore
 
     /// <summary>Counts a failed run and turns the rule off at the bound, atomically.</summary>
     public Task<AutomationFailureOutcome?> RecordFailureAsync(TenantId tenantId, Guid ruleId, DateTimeOffset at, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// One date rule's first candidates, from the same finder the planner calls but inside the
+    /// calling transaction, so a rule saved a moment ago - turned on, or given a new key or scope -
+    /// is read as saved rather than as last committed.
+    /// </summary>
+    public Task<IReadOnlyList<AutomationDateCandidate>> DateCandidatesAsync(
+        TenantId tenantId, Guid ruleId, DateOnly firstDay, DateOnly lastDay, int limit, CancellationToken cancellationToken);
 }
 
 /// <summary>A rule's run log and per-item state, under the owner's row-level security.</summary>

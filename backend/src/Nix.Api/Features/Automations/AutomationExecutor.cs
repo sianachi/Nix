@@ -77,6 +77,22 @@ public sealed class AutomationExecutor(
         "item_locked", "scope_locked",
     };
 
+    /// <summary>
+    /// Reasons that record no run at all, only a skipped trigger. A run row - even one without an
+    /// item id - would tell the owner that something under a lock changed, or reached the value a
+    /// rule watches for.
+    /// </summary>
+    private static readonly HashSet<string> LockedReasons = new(StringComparer.Ordinal) { "item_locked", "scope_locked" };
+
+    /// <summary>
+    /// Reasons a manual run records nothing for: the caller named the item, so a missing one must
+    /// read exactly as a locked one - no run either way, and the same public reason.
+    /// </summary>
+    private static readonly HashSet<string> ManualUnrecordedReasons = new(StringComparer.Ordinal)
+    {
+        "item_gone", "scope_gone", "item_locked", "scope_locked",
+    };
+
     /// <summary>Reasons that count as a failed run and move the rule toward auto-disable.</summary>
     private static readonly HashSet<string> FailingReasons = new(StringComparer.Ordinal) { "access_lost", "owner_inactive" };
 
@@ -119,6 +135,14 @@ public sealed class AutomationExecutor(
             await triggers.CancelForRuleAsync(rule.TenantId, rule.OwnerPrincipalId, rule.Id, AutomationPlanning.PropertySource, cancellationToken)
                 .ConfigureAwait(false);
             return new AutomationExecutionResult(TriggerOutcome.Skipped("throttled"), noted ? throttledRun.Id : null);
+        }
+
+        if (evaluation.Reason is { } unrecorded
+            && (LockedReasons.Contains(unrecorded)
+                || (execution.Origin == AutomationOrigin.Manual && ManualUnrecordedReasons.Contains(unrecorded))))
+        {
+            return new AutomationExecutionResult(
+                TriggerOutcome.Skipped(execution.Origin == AutomationOrigin.Manual ? PublicReason(unrecorded)! : unrecorded), null);
         }
 
         if (evaluation.Reason is { } skipReason)
@@ -220,7 +244,17 @@ public sealed class AutomationExecutor(
         return new AutomationPreview(evaluation.Reason is null, PublicReason(evaluation.Reason), previews);
     }
 
-    private static string? PublicReason(string? reason) => reason == HourlyCapReason ? "throttled" : reason;
+    /// <summary>
+    /// The reason a caller is shown. A lock reads as absence: whoever names an item cannot tell a
+    /// locked one from one that does not exist.
+    /// </summary>
+    private static string? PublicReason(string? reason) => reason switch
+    {
+        HourlyCapReason => "throttled",
+        "item_locked" => "item_gone",
+        "scope_locked" => "scope_gone",
+        _ => reason,
+    };
 
     /// <summary>Records a run and keeps the rule's log to its newest runs; <see langword="false"/> when the key was taken.</summary>
     private async Task<bool> TryRecordAsync(AutomationRun run, CancellationToken cancellationToken)
@@ -272,10 +306,36 @@ public sealed class AutomationExecutor(
             return Evaluation.Skip(rule, context, "access_lost");
         }
 
-        // 3. The triggering item and the scope: present, active, in the workspace, and not under
-        // any lock. Locks bind whoever is asking - the dispatcher holds no credential, and a
+        // 3. The triggering item and the scope: not under any lock, then present, active and in
+        // the workspace. Locks bind whoever is asking - the dispatcher holds no credential, and a
         // grant one browser holds must not let a rule carry an item's text into a notification,
-        // a created item or a run that every device of the owner sees.
+        // a created item or a run that every device of the owner sees. Asked of the ids as given,
+        // before either row is read: whether a lock sits on the item or any ancestor.
+        var lockCandidates = new List<ItemId>(2);
+        if (execution.ItemId is { } candidateId)
+        {
+            lockCandidates.Add(ItemId.From(candidateId));
+        }
+
+        if (rule.ScopeItemId is { } candidateScope)
+        {
+            lockCandidates.Add(candidateScope);
+        }
+
+        if (lockCandidates.Count > 0)
+        {
+            var locked = await locks.LockedAmongAsync(lockCandidates, cancellationToken).ConfigureAwait(false);
+            if (execution.ItemId is { } lockedItem && locked.Contains(ItemId.From(lockedItem)))
+            {
+                return Evaluation.Skip(rule, context, "item_locked");
+            }
+
+            if (rule.ScopeItemId is { } coveredScope && locked.Contains(coveredScope))
+            {
+                return Evaluation.Skip(rule, context, "scope_locked");
+            }
+        }
+
         Item? item = null;
         if (execution.ItemId is { } itemId)
         {
@@ -292,31 +352,6 @@ public sealed class AutomationExecutor(
             if (scope is null || scope.LifecycleState != ItemLifecycleState.Active || scope.WorkspaceId != rule.WorkspaceId)
             {
                 return Evaluation.Skip(rule, context, "scope_gone");
-            }
-        }
-
-        var lockCandidates = new List<ItemId>(2);
-        if (item is not null)
-        {
-            lockCandidates.Add(item.Id);
-        }
-
-        if (rule.ScopeItemId is { } lockedScope)
-        {
-            lockCandidates.Add(lockedScope);
-        }
-
-        if (lockCandidates.Count > 0)
-        {
-            var locked = await locks.LockedAmongAsync(lockCandidates, cancellationToken).ConfigureAwait(false);
-            if (item is not null && locked.Contains(item.Id))
-            {
-                return Evaluation.Skip(rule, context, "item_locked");
-            }
-
-            if (rule.ScopeItemId is { } coveredScope && locked.Contains(coveredScope))
-            {
-                return Evaluation.Skip(rule, context, "scope_locked");
             }
         }
 

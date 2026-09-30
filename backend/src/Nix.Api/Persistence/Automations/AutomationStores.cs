@@ -144,8 +144,26 @@ public sealed class AutomationRuleStore(NixDbContext database) : IAutomationRule
         return rows.Count == 0 ? null : new AutomationFailureOutcome(rows[0].Failures, rows[0].Disabled, rows[0].Revision);
     }
 
+    public async Task<IReadOnlyList<AutomationDateCandidate>> DateCandidatesAsync(
+        TenantId tenantId, Guid ruleId, DateOnly firstDay, DateOnly lastDay, int limit, CancellationToken cancellationToken)
+    {
+        if (limit is < 1 or > AutomationCandidateFinder.MaximumDateCandidates)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit));
+        }
+
+        var rows = await database.Database.SqlQuery<DateCandidateRow>($"""
+            SELECT found.item_id AS "ItemId", found.value_text AS "ValueText", found.cursor_day AS "CursorDay"
+              FROM nix_find_automation_date_candidates({tenantId.Value}, {ruleId}, {firstDay}, {lastDay}, {limit}) found
+            """).ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. rows.Select(row => new AutomationDateCandidate(row.ItemId, row.ValueText, row.CursorDay))];
+    }
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "EF Core materialises SqlQuery rows through reflection.")]
     private sealed record FailureRow(int Failures, bool Disabled, long Revision);
+
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1812:Avoid uninstantiated internal classes", Justification = "EF Core materialises SqlQuery rows through reflection.")]
+    private sealed record DateCandidateRow(Guid ItemId, string? ValueText, string? CursorDay);
 }
 
 /// <summary>Backs <see cref="IAutomationRunStore"/> under the owner's row-level security.</summary>

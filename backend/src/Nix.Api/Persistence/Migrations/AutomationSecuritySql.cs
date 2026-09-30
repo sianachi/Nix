@@ -40,6 +40,13 @@ public static class AutomationSecuritySql
     /// <summary>How many property triggers one transaction may enqueue before the rest of it is noted, not enqueued.</summary>
     internal const int BulkEnqueueBudget = 1000;
 
+    /// <summary>
+    /// The runs kept per rule when the feed records one itself, as <c>AutomationGuards.RunsKeptPerRule</c>
+    /// does for the executor. Stated here rather than referenced, so this migration's SQL never
+    /// changes under it.
+    /// </summary>
+    private const int RunsKeptPerRule = 500;
+
     /// <summary>Applies policies, grants, the property-change trigger, the finders and the purge.</summary>
     public static void Apply(Action<string> emit)
     {
@@ -82,12 +89,49 @@ public static class AutomationSecuritySql
         //
         // A transaction-local budget bounds the fan-out of one bulk write: nix.automation_enqueued
         // counts the triggers this transaction has enqueued. Past BulkEnqueueBudget the rest of
-        // the write enqueues nothing; instead each matching rule records one throttled run
-        // (reason bulk_write, key auto:{rule}:bulk:{txid}) the first time the budget is found
-        // spent in a workspace, and every later row in that workspace returns at once.
+        // the write enqueues nothing; instead every enabled property rule of the workspace records
+        // one throttled run (reason bulk_write, key auto:{rule}:bulk:{txid}) the first time the
+        // budget is found spent there, and every later row in that workspace returns at once.
+        // Every rule, not only those the first row past the budget matched: the rows after it,
+        // which return unread, may change keys that row did not.
         //
         // Past the depth bound (a change made by an automation's action made by an automation's
-        // action) the rule is recorded as suppressed instead of being enqueued.
+        // action) the rule is recorded as suppressed instead of being enqueued - without the item's
+        // id, since nothing has verified the owner may read it, and not at all for an item under a
+        // lock, whose changes no rule may observe.
+        //
+        // The runs the feed records itself are trimmed to the newest RunsKeptPerRule of each rule
+        // it noted, as the executor trims after each run it records: a rule only ever noted here
+        // (suppressed, or bulk_write) is bounded too. Index-backed, as there: the cutoff is the
+        // keep-th newest run's instant, read from ix_automation_run_rule_created.
+        emit($$"""
+            CREATE OR REPLACE FUNCTION nix_trim_noted_automation_runs(p_tenant_id uuid, p_rule_ids uuid[])
+            RETURNS void
+            LANGUAGE sql
+            VOLATILE
+            SECURITY DEFINER
+            SET search_path = pg_catalog, public, pg_temp
+            AS $function$
+                DELETE FROM public.automation_run doomed
+                 USING (
+                     SELECT kept.rule_id,
+                            (SELECT run.created_at
+                               FROM public.automation_run run
+                              WHERE run.tenant_id = p_tenant_id
+                                AND run.rule_id = kept.rule_id
+                              ORDER BY run.created_at DESC
+                             OFFSET {{RunsKeptPerRule - 1}}
+                              LIMIT 1) AS cutoff
+                       FROM unnest(COALESCE(p_rule_ids, ARRAY[]::uuid[])) AS kept(rule_id)
+                 ) bound
+                 WHERE doomed.tenant_id = p_tenant_id
+                   AND doomed.rule_id = bound.rule_id
+                   AND doomed.created_at < bound.cutoff;
+            $function$;
+
+            REVOKE ALL ON FUNCTION nix_trim_noted_automation_runs(uuid, uuid[]) FROM PUBLIC;
+            """);
+
         emit($$"""
             CREATE OR REPLACE FUNCTION nix_enqueue_automation_property_changes()
             RETURNS trigger
@@ -105,6 +149,7 @@ public static class AutomationSecuritySql
                 v_budget_setting text := current_setting('nix.automation_enqueued', true);
                 v_enqueued integer := 0;
                 v_rows integer;
+                v_noted uuid[];
             BEGIN
                 IF NEW.template_id IS NOT NULL OR NEW.lifecycle_state <> 'active' THEN
                     RETURN NULL;
@@ -119,11 +164,23 @@ public static class AutomationSecuritySql
                 END IF;
 
                 IF v_depth > 1 THEN
+                    IF EXISTS (
+                        SELECT 1
+                          FROM public.item_closure covering
+                          JOIN public.item_lock held
+                            ON held.tenant_id = covering.tenant_id
+                           AND held.item_id = covering.ancestor_id
+                         WHERE covering.tenant_id = NEW.tenant_id
+                           AND covering.descendant_id = NEW.id) THEN
+                        RETURN NULL;
+                    END IF;
+
+                    WITH noted AS (
                     INSERT INTO public.automation_run
                         (tenant_id, id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key,
                          origin, depth, status, detail, created_at)
                     SELECT NEW.tenant_id, gen_random_uuid(), matched.id, matched.owner_principal_id,
-                           matched.workspace_id, NEW.id,
+                           matched.workspace_id, NULL,
                            'auto:' || matched.id::text || ':p' || v_depth::text || ':' || NEW.id::text || ':' || v_minute,
                            'property', v_depth, 'suppressed', '{"reason":"chain_depth"}'::jsonb, v_now
                       FROM (
@@ -150,7 +207,10 @@ public static class AutomationSecuritySql
                             ) ranked
                            WHERE ranked.owner_rank <= {{PerOwnerRuleCap}}
                       ) matched
-                    ON CONFLICT (tenant_id, rule_id, trigger_key) DO NOTHING;
+                    ON CONFLICT (tenant_id, rule_id, trigger_key) DO NOTHING
+                    RETURNING rule_id)
+                    SELECT array_agg(noted.rule_id) INTO v_noted FROM noted;
+                    PERFORM public.nix_trim_noted_automation_runs(NEW.tenant_id, v_noted);
                     RETURN NULL;
                 END IF;
 
@@ -160,6 +220,7 @@ public static class AutomationSecuritySql
                     END IF;
 
                     PERFORM set_config('nix.automation_bulk_noted', NEW.workspace_id::text, true);
+                    WITH noted AS (
                     INSERT INTO public.automation_run
                         (tenant_id, id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key,
                          origin, depth, status, detail, created_at)
@@ -171,8 +232,10 @@ public static class AutomationSecuritySql
                        AND r.workspace_id = NEW.workspace_id
                        AND r.enabled
                        AND r.trigger_type = 'property_changed'
-                       AND (OLD.properties -> r.watch_key) IS DISTINCT FROM (NEW.properties -> r.watch_key)
-                    ON CONFLICT (tenant_id, rule_id, trigger_key) DO NOTHING;
+                    ON CONFLICT (tenant_id, rule_id, trigger_key) DO NOTHING
+                    RETURNING rule_id)
+                    SELECT array_agg(noted.rule_id) INTO v_noted FROM noted;
+                    PERFORM public.nix_trim_noted_automation_runs(NEW.tenant_id, v_noted);
                     RETURN NULL;
                 END IF;
 
@@ -275,6 +338,14 @@ public static class AutomationSecuritySql
         // before and two after for any UTC offset, kept only when it parses, keyset on id
         // (cursor_day is null); there is no index on an arbitrary key, so the caller reads it in
         // one call rather than re-scanning the range page by page.
+        //
+        // Neither branch returns an item under a lock - its own or an ancestor's - whoever is
+        // asking, decided exactly as IItemLocks.LockedAmongAsync decides it (ItemLockSql.LockedAmong):
+        // the candidate's closure rows, self edge included, joined to item_lock. Per candidate that
+        // is one probe of the closure's descendant index and one of item_lock per ancestor. On the
+        // 990,000-item corpus with 50 locks in the tenant, the 400,000-item workspace's text-key
+        // read took 62 to 75 ms against 66 ms with none, and due_date about 2 ms either way;
+        // filtering the closure by "ancestor_id = ANY(locked ids)" instead took 178 ms.
         emit($$"""
             CREATE OR REPLACE FUNCTION nix_find_automation_date_candidates(
                 p_tenant_id uuid, p_rule_id uuid, p_from date, p_to date, p_limit integer,
@@ -344,6 +415,13 @@ public static class AutomationSecuritySql
                              WHERE edge.tenant_id = p_tenant_id
                                AND edge.ancestor_id = v_scope
                                AND edge.descendant_id = i.id))
+                       AND NOT EXISTS (
+                            SELECT 1 FROM public.item_closure covering
+                              JOIN public.item_lock held
+                                ON held.tenant_id = covering.tenant_id
+                               AND held.item_id = covering.ancestor_id
+                             WHERE covering.tenant_id = p_tenant_id
+                               AND covering.descendant_id = i.id)
                      ORDER BY i.due_day, i.id
                      LIMIT p_limit;
                     RETURN;
@@ -369,6 +447,13 @@ public static class AutomationSecuritySql
                                WHERE edge.tenant_id = p_tenant_id
                                  AND edge.ancestor_id = v_scope
                                  AND edge.descendant_id = i.id))
+                         AND NOT EXISTS (
+                              SELECT 1 FROM public.item_closure covering
+                                JOIN public.item_lock held
+                                  ON held.tenant_id = covering.tenant_id
+                                 AND held.item_id = covering.ancestor_id
+                               WHERE covering.tenant_id = p_tenant_id
+                                 AND covering.descendant_id = i.id)
                   ) candidate
                  WHERE (length(candidate.value_text) = 10 AND public.nix_safe_date(candidate.value_text) IS NOT NULL)
                     OR public.nix_safe_timestamptz(split_part(candidate.value_text, '[', 1)) IS NOT NULL
@@ -436,6 +521,7 @@ public static class AutomationSecuritySql
              WHERE source IN ('automation.schedule', 'automation.date', 'automation.property');
             DROP TRIGGER IF EXISTS item_automation_property_changed ON item;
             DROP FUNCTION IF EXISTS nix_enqueue_automation_property_changes();
+            DROP FUNCTION IF EXISTS nix_trim_noted_automation_runs(uuid, uuid[]);
             DROP FUNCTION IF EXISTS nix_purge_automation_runs(integer);
             DROP FUNCTION IF EXISTS nix_find_automation_date_candidates(uuid, uuid, date, date, integer, text, uuid);
             DROP FUNCTION IF EXISTS nix_find_planned_automation_rules(integer, uuid);

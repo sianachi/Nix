@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nix.Abstractions.Automations;
 using Nix.Abstractions.Scheduling;
 using Nix.Domain.Automations;
@@ -66,6 +68,71 @@ public static class AutomationPlanning
                 ruleId,
                 occurrence.At < window.Start ? window.Start : occurrence.At,
                 AutomationDedupeKeys.Schedule(ruleId, occurrence.Day));
+        }
+    }
+
+    /// <summary>
+    /// The value days a group of date rules must read to find every instant it may fire in
+    /// <paramref name="window"/>, sized by the group's own offsets rather than the widest offset any
+    /// rule may have.
+    /// </summary>
+    /// <remarks>
+    /// A rule fires at the value's day, at its time in the owner's zone, plus its offset (positive
+    /// is after the day, negative before). That local instant lies between 14 hours before the
+    /// value's UTC day starts and 12 hours after it ends, and a missed instant still fires within
+    /// <see cref="DateLookback"/> of the window's start. So the earliest day that matters is the
+    /// lookback's start less the largest positive offset, less two days; the latest is the
+    /// window's end plus the largest negative offset's magnitude, plus one day. A group whose
+    /// offsets are all zero reads four or five days, not the seventeen a fixed week either side
+    /// did - a cap of candidates filled by items that can no longer fire used to crowd out one that
+    /// could.
+    /// </remarks>
+    internal static (DateOnly From, DateOnly To) DateCandidateDays(PlanWindow window, IEnumerable<int> offsetMinutes)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        var latestAfter = 0;
+        var earliestBefore = 0;
+        foreach (var offset in offsetMinutes)
+        {
+            latestAfter = Math.Max(latestAfter, offset);
+            earliestBefore = Math.Max(earliestBefore, -offset);
+        }
+
+        var earliest = window.Start - DateLookback - TimeSpan.FromMinutes(latestAfter);
+        var latest = window.End + TimeSpan.FromMinutes(earliestBefore);
+        return (DateOnly.FromDateTime(earliest.UtcDateTime).AddDays(-2), DateOnly.FromDateTime(latest.UtcDateTime).AddDays(1));
+    }
+
+    /// <summary>
+    /// The date triggers one rule wants in <paramref name="window"/> from its candidates: every
+    /// instant in it, plus any missed within <see cref="DateLookback"/>, clamped to the window's start.
+    /// </summary>
+    internal static IEnumerable<DesiredTrigger> DateTriggers(
+        TenantId tenantId,
+        WorkspaceId workspaceId,
+        PrincipalId ownerId,
+        Guid ruleId,
+        DateArrivesTrigger trigger,
+        string ownerZone,
+        IEnumerable<AutomationDateCandidate> candidates,
+        PlanWindow window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        var earliest = window.Start - DateLookback;
+        foreach (var candidate in candidates)
+        {
+            var at = AutomationDateInstant.Resolve(candidate.ValueText, trigger.Time, trigger.OffsetMinutes, ownerZone);
+            if (at is { } instant && instant >= earliest && instant < window.End)
+            {
+                yield return new DesiredTrigger(
+                    tenantId,
+                    workspaceId,
+                    ownerId,
+                    candidate.ItemId,
+                    ruleId,
+                    instant < window.Start ? window.Start : instant,
+                    AutomationDedupeKeys.Date(ruleId, candidate.ItemId, instant));
+            }
         }
     }
 
@@ -178,16 +245,21 @@ public sealed class AutomationScheduleSource(
 /// <remarks>
 /// Rules sharing a tenant, workspace, key and scope read their candidates once between them: one
 /// finder call per group per pass, of up to <see cref="AutomationPlanning.MaxDateCandidatesPerRule"/>
-/// items, whose instants each rule then resolves with its own time, offset and owner zone. A group
-/// cut short at that cap marks only its own rules incomplete, so the planner still cancels every
-/// other rule's stale triggers. Planned every <see cref="AutomationPlanning.DatePlanInterval"/>.
+/// items over the days its members' offsets can reach (<see cref="AutomationPlanning.DateCandidateDays"/>),
+/// whose instants each rule then resolves with its own time, offset and owner zone. A group cut
+/// short at that cap marks only its own rules incomplete, so the planner still cancels every other
+/// rule's stale triggers, and is logged by ids, key and counts. Planned every
+/// <see cref="AutomationPlanning.DatePlanInterval"/>.
 /// </remarks>
 public sealed class AutomationDateSource(
     PlannedAutomationRules planned,
     IAutomationCandidateFinder finder,
     IReminderCandidateFinder preferences,
-    AutomationExecutor executor) : ITriggerSource
+    AutomationExecutor executor,
+    ILogger<AutomationDateSource>? logger = null) : ITriggerSource
 {
+    private readonly ILogger<AutomationDateSource> logger = logger ?? NullLogger<AutomationDateSource>.Instance;
+
     /// <inheritdoc />
     public string Name => AutomationPlanning.DateSource;
 
@@ -213,17 +285,13 @@ public sealed class AutomationDateSource(
 
         var zones = await AutomationPlanning.OwnerZonesAsync(preferences, dateRules.Select(entry => entry.Rule), cancellationToken).ConfigureAwait(false);
 
-        // The value's day can be a week either side of the fire instant (the offset), plus a day
-        // for any UTC offset.
-        var from = DateOnly.FromDateTime(window.Start.UtcDateTime).AddDays(-8);
-        var to = DateOnly.FromDateTime(window.End.UtcDateTime).AddDays(8);
-        var earliest = window.Start - AutomationPlanning.DateLookback;
         var desired = new List<DesiredTrigger>();
         var incomplete = new HashSet<Guid>();
         var groups = dateRules.GroupBy(entry => (entry.Rule.TenantId, entry.Rule.WorkspaceId, entry.Trigger.Key, entry.Rule.ScopeItemId));
         foreach (var group in groups)
         {
             var members = group.OrderBy(entry => entry.Rule.RuleId).ToList();
+            var (from, to) = AutomationPlanning.DateCandidateDays(window, members.Select(entry => entry.Trigger.OffsetMinutes));
             var candidates = await finder.FindDateCandidatesAsync(
                 group.Key.TenantId, members[0].Rule.RuleId, from, to, AutomationPlanning.MaxDateCandidatesPerRule + 1,
                 null, null, cancellationToken).ConfigureAwait(false);
@@ -231,26 +299,16 @@ public sealed class AutomationDateSource(
             {
                 incomplete.UnionWith(members.Select(entry => entry.Rule.RuleId));
                 candidates = [.. candidates.Take(AutomationPlanning.MaxDateCandidatesPerRule)];
+                AutomationPlanningLog.DateGroupTruncated(
+                    logger, group.Key.TenantId.Value, group.Key.WorkspaceId.Value, group.Key.Key, members.Count,
+                    AutomationPlanning.MaxDateCandidatesPerRule);
             }
 
             foreach (var (rule, trigger) in members)
             {
                 var zone = zones.GetValueOrDefault(new ReminderRecipient(rule.TenantId, rule.OwnerPrincipalId), "Etc/UTC");
-                foreach (var candidate in candidates)
-                {
-                    var at = AutomationDateInstant.Resolve(candidate.ValueText, trigger.Time, trigger.OffsetMinutes, zone);
-                    if (at is { } instant && instant >= earliest && instant < window.End)
-                    {
-                        desired.Add(new DesiredTrigger(
-                            rule.TenantId,
-                            rule.WorkspaceId,
-                            rule.OwnerPrincipalId,
-                            candidate.ItemId,
-                            rule.RuleId,
-                            instant < window.Start ? window.Start : instant,
-                            AutomationDedupeKeys.Date(rule.RuleId, candidate.ItemId, instant)));
-                    }
-                }
+                desired.AddRange(AutomationPlanning.DateTriggers(
+                    rule.TenantId, rule.WorkspaceId, rule.OwnerPrincipalId, rule.RuleId, trigger, zone, candidates, window));
             }
         }
 
@@ -260,6 +318,14 @@ public sealed class AutomationDateSource(
     /// <inheritdoc />
     public Task<TriggerOutcome> FireAsync(DueTrigger trigger, CancellationToken cancellationToken) =>
         AutomationPlanning.FireAsync(executor, trigger, AutomationOrigin.Date, AutomationKeyKind.Date, cancellationToken);
+}
+
+/// <summary>Structured logs of the automation planning sources: ids, keys and counts, never item text.</summary>
+internal static partial class AutomationPlanningLog
+{
+    [LoggerMessage(5320, LogLevel.Warning,
+        "Date rules on key {Key} in workspace {WorkspaceId} of tenant {TenantId} reached the {Cap}-candidate cap; {RuleCount} rules keep their stale triggers this pass")]
+    internal static partial void DateGroupTruncated(ILogger logger, Guid tenantId, Guid workspaceId, string key, int ruleCount, int cap);
 }
 
 /// <summary>
