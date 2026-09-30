@@ -1,4 +1,5 @@
 import {
+  Button,
   Field,
   Input,
   Select,
@@ -104,6 +105,7 @@ const KNOWN_TYPES = [
   'assignee',
   'formula',
   'rollup',
+  'reminder',
 ] as const;
 
 export function isKnownPropertyType(type: string): boolean {
@@ -161,6 +163,11 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
 
     case 'checkbox':
       return <CheckboxValue {...props} />;
+
+    // Stored exactly as a timestamp is, but it is an instant somebody is told about rather than a
+    // time something happens - see `ReminderValue` for why it is edited in the reader's own zone.
+    case 'reminder':
+      return <ReminderValue {...props} />;
 
     // The task types (3.1) edit through the controls of the shapes they store: a due date IS a
     // date to every hand that touches it, and the meaning lives in the schema, not the control.
@@ -873,6 +880,120 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
           a refusal nobody reads. */}
       {error === null || error.length === 0 ? null : (
         <Text variant="note" role="alert">
+          {error}
+        </Text>
+      )}
+    </div>
+  );
+}
+
+/**
+ * When to be reminded: a date and time in the reader's own zone, and a way to clear it.
+ *
+ * **The reader's zone, not a zone picker.** A reminder is an instant somebody is told about, on
+ * whatever device they are holding; asking which city's clock it follows is a question about a
+ * meeting, not about a nudge. So the field shows the stored instant converted to the reader's clock,
+ * and writes what they pick in that same zone - still as RFC 9557 with its zone, which is the shape
+ * Core's `PropertyType.Reminder` validation accepts (the same check a timestamp gets).
+ *
+ * **Clearing is its own control.** An empty `datetime-local` is easy to produce by accident on some
+ * browsers; a button that says "Clear reminder" is not.
+ */
+function ReminderValue(props: PropertyInputProps): ReactNode {
+  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
+  const controlLabel = controlName(density, item, property);
+  const hintId = useId();
+  const errorId = useId();
+
+  const stored = readTimestampValue(item.properties, property.key);
+  const raw = readPropertyText(item, property.key);
+  const zone = readerZone();
+  const local = stored === null ? '' : stored.at.setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm");
+
+  const [draft, setDraft] = useState(local);
+  const [seen, setSeen] = useState(local);
+  // When the field was drawn, for saying a reminder's time has passed. Read once rather than on
+  // every render, which is what a render has to be: the same output for the same input.
+  const [openedAt] = useState(() => Date.now());
+  if (local !== seen) {
+    setSeen(local);
+    setDraft(local);
+  }
+
+  if (stored === null && raw.length > 0) {
+    return (
+      <ReadOnlyValue
+        {...props}
+        note={`Stored as "${raw}", which is not a time this field can show. It is left as it is rather than being overwritten.`}
+      />
+    );
+  }
+
+  function commit(nextLocal: string): void {
+    if (nextLocal === local) return;
+    if (nextLocal.length === 0) {
+      onCommit(null);
+      return;
+    }
+    const written = writeTimestampValue(nextLocal, zone);
+    if (written !== null) onCommit(written);
+  }
+
+  const passed = stored !== null && stored.at.toMillis() <= openedAt;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          type="datetime-local"
+          aria-label={controlLabel}
+          aria-describedby={
+            [
+              density === 'cell' ? null : hintId,
+              error === null || error.length === 0 ? null : errorId,
+            ]
+              .filter((id) => id !== null)
+              .join(' ') || undefined
+          }
+          tone={density === 'cell' ? 'plain' : 'default'}
+          value={draft}
+          disabled={disabled}
+          aria-invalid={error === null ? undefined : true}
+          className="min-w-0 flex-1"
+          onChange={(event) => {
+            setDraft(event.target.value);
+          }}
+          onBlur={() => {
+            commit(draft);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') commit(draft);
+          }}
+        />
+        {stored === null ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={disabled}
+            aria-label={`Clear reminder for ${controlLabel}`}
+            onClick={() => {
+              setDraft('');
+              onCommit(null);
+            }}
+          >
+            Clear
+          </Button>
+        )}
+      </div>
+      {density === 'cell' ? null : (
+        <Text variant="note" tone="muted" id={hintId}>
+          {passed
+            ? `This time has passed, so it will not remind you again. Times are in ${zone}.`
+            : `You will be notified at this time, in ${zone}.`}
+        </Text>
+      )}
+      {error === null || error.length === 0 ? null : (
+        <Text variant="note" role="alert" id={errorId}>
           {error}
         </Text>
       )}

@@ -20,6 +20,7 @@ const tracker = {
   occurrences: null,
   progress: null,
   months: null,
+  reminderTime: null,
 };
 
 describe('habit chart widgets', () => {

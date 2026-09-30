@@ -9,6 +9,7 @@ import {
   NotebookText,
   Settings,
   Trash2,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
@@ -140,6 +141,15 @@ const ITEMS: readonly RailItem[] = [
     icon: LayoutTemplate,
     group: 'workspace',
     includesChildren: true,
+  },
+  // `Zap` rather than `Workflow`, for the reason the graph note gives: an automation is a rule that
+  // fires, not a flowchart.
+  {
+    kind: 'destination',
+    to: '/automations',
+    label: 'Automations',
+    icon: Zap,
+    group: 'utility',
   },
   { kind: 'destination', to: '/trash', label: 'Trash', icon: Trash2, group: 'utility' },
   { kind: 'action', action: 'import', label: 'Import', icon: FolderInput, group: 'utility' },

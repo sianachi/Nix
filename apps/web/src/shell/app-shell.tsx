@@ -18,6 +18,7 @@ import type { ShellContext } from './shell-context';
 import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
+import { automationsHref } from '../automations/automation-url';
 import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
 import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/use-bookmarks';
@@ -657,6 +658,17 @@ export function AppShell(): ReactNode {
           openShortcuts: () => {
             setShortcutsOpen(true);
           },
+          openAutomations: () => {
+            void navigate(automationsHref(workspaceId, { kind: 'list' }));
+          },
+          automateOpenItem:
+            selectedId === null
+              ? null
+              : () => {
+                  void navigate(
+                    automationsHref(workspaceId, { kind: 'new', scopeItemId: selectedId }),
+                  );
+                },
         })}
         onSelectItem={openPreview}
         onClose={() => {

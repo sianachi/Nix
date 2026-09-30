@@ -49,6 +49,8 @@ import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
 import { publishNotice } from '../lib/notices';
 import { isApplePlatform } from '../lib/shortcuts';
+import { useAutomateEntry } from '../automations/automate-entry';
+import { useMuteRemindersEntry } from '../settings/mute-reminders-entry';
 import { bookmarkEntry, copyLinkEntry } from './item-menu-entries';
 import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
@@ -717,6 +719,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
   // when somebody keeps an unrelated item three folders away.
   const keptIds = useBookmarksStore((state) => state.keptIds);
   const { workspaceId } = useWorkspace();
+  const automateEntry = useAutomateEntry(workspaceId);
+  const muteRemindersEntry = useMuteRemindersEntry();
 
   const {
     item,
@@ -889,6 +893,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
       { kind: 'separator' },
       bookmarkEntry(item.id),
       copyLinkEntry(workspaceId, item.id, title),
+      ...(automateEntry === null ? [] : [automateEntry(item.id)]),
+      ...(muteRemindersEntry === null ? [] : [muteRemindersEntry(item.id, title)]),
       ...(item.parentId === null
         ? []
         : [

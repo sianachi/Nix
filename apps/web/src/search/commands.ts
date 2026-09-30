@@ -1,4 +1,12 @@
-import { CalendarDays, FilePlus, Keyboard, PanelLeft, Star, type LucideIcon } from 'lucide-react';
+import {
+  CalendarDays,
+  FilePlus,
+  Keyboard,
+  PanelLeft,
+  Star,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react';
 
 import { formatShortcut } from '../lib/shortcuts';
 import { shortcutFor, type ShellShortcutId } from '../keyboard/shortcut-registry';
@@ -54,6 +62,12 @@ export interface CommandContext {
 
   readonly openToday: () => void;
   readonly openShortcuts: () => void;
+
+  /** Opens the caller's automations in this workspace. */
+  readonly openAutomations: () => void;
+
+  /** Starts a new automation scoped to the open item, or null when nothing is open. */
+  readonly automateOpenItem: (() => void) | null;
 }
 
 function keysOf(id: ShellShortcutId): string {
@@ -96,6 +110,29 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
       keywords: ['keyboard', 'shortcuts', 'keys', 'hotkeys', 'help'],
       run: context.openShortcuts,
     },
+
+    {
+      id: 'automations',
+      label: 'Automations',
+      hint: 'Rules that act for you',
+      icon: Zap,
+      keywords: ['automation', 'automate', 'rule', 'trigger', 'schedule', 'workflow', 'recurring'],
+      run: context.openAutomations,
+    },
+
+    // Offered only when something is open, for the reason the bookmark command below is.
+    ...(context.automateOpenItem === null
+      ? []
+      : [
+          {
+            id: 'automate-open-item',
+            label: 'Automate this item',
+            hint: 'A new automation for what is inside it',
+            icon: Zap,
+            keywords: ['automate', 'automation', 'rule', 'trigger'],
+            run: context.automateOpenItem,
+          },
+        ]),
 
     // Offered only when there is something to keep. The label names the direction rather than the
     // control, because somebody reading a list of commands is choosing an outcome.
