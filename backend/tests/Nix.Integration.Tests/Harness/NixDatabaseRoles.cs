@@ -96,6 +96,8 @@ internal static class NixDatabaseRoles
         REVOKE CREATE ON SCHEMA public FROM {Application};
         REVOKE CREATE ON SCHEMA public FROM {Collaboration};
 
+        REVOKE TEMPORARY ON DATABASE {Database} FROM PUBLIC;
+
         ALTER DEFAULT PRIVILEGES FOR ROLE {Migrator} IN SCHEMA public
             GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {Application};
         ALTER DEFAULT PRIVILEGES FOR ROLE {Migrator} IN SCHEMA public
