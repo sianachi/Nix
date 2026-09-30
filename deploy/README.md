@@ -267,6 +267,24 @@ image picker/drop/paste and opening/downloading an attachment in the browser. Th
 does not prove browser CORS/CSP, accessibility, embedded sections, page breaks or image fidelity.
 Inspect representative PDF/Word output when changing conversion or editor schemas.
 
+### Installed web clients
+
+The web app's service worker serves the application document from its own cache
+(ADR-0053), so a release reaches an installed client when the person accepts the
+"An update is ready" prompt, not on their next navigation. Two consequences for
+releases:
+
+- An emergency change to `index.html` or its CSP needs a release whose worker
+  activates immediately. Call `self.skipWaiting()` in the install handler for that
+  release only.
+- `NIX_OBJECT_STORE_BUCKET` must not be `w`, `workspaces` or `launch`. The worker
+  answers those paths with the application shell, so capability URLs under them
+  would never reach the object store.
+
+Never restore a document body backup in place under its existing `docId`.
+Browsers reconcile their local copies with the live document, and a rewound
+document would receive the removed content back (ADR-0053).
+
 ## Troubleshooting and rollback
 
 Always use the same project name, env file and release manifest. Example:
