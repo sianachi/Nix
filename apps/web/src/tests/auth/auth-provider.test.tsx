@@ -27,13 +27,14 @@ function anonymous(configured = true): Response {
   });
 }
 
-function authenticated(): Response {
+function authenticated(extra: Record<string, unknown> = {}): Response {
   return json({
     authenticated: true,
     configured: true,
     profile: { subject: 'person-1', name: 'Stored Person' },
     accessToken: 'core-session-token',
     expiresAt: future,
+    ...extra,
   });
 }
 
@@ -54,6 +55,7 @@ function SessionHarness() {
     <div>
       <output>{status}</output>
       <output aria-label="Configured">{auth.isConfigured ? 'Configured' : 'Unconfigured'}</output>
+      <output aria-label="Account page">{auth.accountUrl ?? 'No account page'}</output>
       <button type="button" onClick={() => void auth.signOut()}>
         Sign out
       </button>
@@ -114,6 +116,39 @@ describe('Core-mediated browser sessions', () => {
     await user.click(screen.getByRole('button', { name: 'Read access token' }));
     expect(await screen.findByText('core-session-token')).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('offers the provider account page that Core names', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          authenticated({ accountUrl: 'https://sso.example.test/ui/console/users/me' }),
+        ),
+    );
+
+    renderProvider();
+
+    await waitFor(() => {
+      expect(screen.getByRole('status', { name: 'Account page' })).toHaveTextContent(
+        'https://sso.example.test/ui/console/users/me',
+      );
+    });
+  });
+
+  it('drops an account page that is not a web address but still signs in', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(authenticated({ accountUrl: 'javascript:alert(1)' })),
+    );
+
+    renderProvider();
+
+    expect(await screen.findByText('authenticated')).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Account page' })).toHaveTextContent(
+      'No account page',
+    );
   });
 
   it('reports an unconfigured server only after its authoritative response', async () => {

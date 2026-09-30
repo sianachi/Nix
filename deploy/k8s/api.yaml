@@ -106,6 +106,8 @@ spec:
               value: "${OIDC_CLIENT_ID}"
             - name: Nix__Bff__PublicOrigin
               value: "https://${DOMAIN}"
+            - name: Nix__Bff__AccountPage
+              value: "${OIDC_ISSUER}/ui/console/users/me?id=security"   # the IdP's password and passkey page
             - name: Nix__Bff__DataProtectionKeysPath
               value: /var/lib/nix/data-protection
             - name: Nix__AccessTokens__Issuer

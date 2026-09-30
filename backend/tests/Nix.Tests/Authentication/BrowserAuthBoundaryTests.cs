@@ -45,6 +45,25 @@ public sealed class BrowserAuthBoundaryTests
         Assert.Equal(expected, options.IsConfigured);
     }
 
+    [Theory]
+    [InlineData("https://issuer.example.test/ui/console/users/me", true)]
+    [InlineData("http://localhost:8300/ui/console/users/me", true)]
+    [InlineData("https://issuer.example.test/account?tab=security", true)]
+    [InlineData("", false)]
+    [InlineData("/ui/console/users/me", false)]
+    [InlineData("http://issuer.example.test/ui/console/users/me", false)]
+    [InlineData("https://user@issuer.example.test/ui/console", false)]
+    [InlineData("https://issuer.example.test/ui/console#me", false)]
+    [InlineData("javascript:alert(1)", false)]
+    public void Account_pages_are_absolute_https_except_for_explicit_loopback_development(
+        string account,
+        bool expected)
+    {
+        var options = new BrowserAuthOptions { AccountPage = account };
+
+        Assert.Equal(expected, options.TryAccountPage(out _));
+    }
+
     [Fact]
     public async Task Exact_same_origin_discovery_is_accepted_and_cached()
     {

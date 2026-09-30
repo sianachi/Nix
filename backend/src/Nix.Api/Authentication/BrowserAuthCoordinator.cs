@@ -106,6 +106,9 @@ public sealed class BrowserAuthCoordinator
     /// <summary>The configured same-origin application URL, when valid.</summary>
     public Uri? PublicOrigin => _options.TryPublicOrigin(out var origin) ? origin : null;
 
+    /// <summary>The provider's self-service account page, when one is configured and safe.</summary>
+    public Uri? AccountPage => _options.TryAccountPage(out var account) ? account : null;
+
     /// <summary>Creates a protected PKCE transaction and the provider redirect.</summary>
     public async ValueTask<BrowserLoginStart> BeginAsync(
         string? requestedReturnTo,

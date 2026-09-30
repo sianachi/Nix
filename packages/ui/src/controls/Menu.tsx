@@ -1,4 +1,4 @@
-import { type LucideIcon } from 'lucide-react';
+import { ArrowUpRight, type LucideIcon } from 'lucide-react';
 import {
   Fragment,
   useEffect,
@@ -85,6 +85,12 @@ export interface MenuLink {
   readonly destructive?: boolean;
   /** The destination, in the platform's own vocabulary; `renderLink` renames it for a router. */
   readonly href: string;
+  /**
+   * Leaves the application - an identity provider's account page, say. Drawn as a plain `<a>`
+   * opening a new tab, bypassing `renderLink` since no router owns it, and marked so both sighted
+   * and screen-reader users know before they click: a trailing arrow and "(opens in a new tab)".
+   */
+  readonly external?: boolean;
   /** Anything the caller needs to run alongside navigating, beyond closing the menu. */
   readonly onSelect?: () => void;
 }
@@ -527,6 +533,30 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
         const tone = entry.destructive === true ? 'font-semibold' : undefined;
         const tabIndex = index === activeIndex ? 0 : -1;
         const key = entry.key ?? entry.label;
+
+        if (entry.kind === 'link' && entry.external === true) {
+          return (
+            <a
+              key={key}
+              href={entry.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              role="menuitem"
+              tabIndex={tabIndex}
+              className={cn(itemClass, tone)}
+              onClick={() => {
+                select(entry);
+              }}
+              data-menu-item-index={index}
+            >
+              {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
+              {entry.label} <span className="sr-only">(opens in a new tab)</span>
+              <span className="ml-auto text-muted">
+                <Icon icon={ArrowUpRight} size="sm" />
+              </span>
+            </a>
+          );
+        }
 
         if (entry.kind === 'link') {
           return (

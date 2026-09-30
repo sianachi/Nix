@@ -12,6 +12,8 @@
 #     with the dev redirect URIs. Its generated client ID is written out.
 #   - a developer human user with the credentials specified in .env, so tests
 #     and manual sign-in always have a known account.
+#   - an active SMTP provider pointed at Mailpit and a login policy allowing
+#     password reset and passkeys (deploy/seed/zitadel-self-service.sh).
 #
 # Outputs deploy/.zitadel/oidc.generated.env: issuer, client ID and the dev
 # user's credentials, for the API and web app to consume. That file is
@@ -287,7 +289,9 @@ template_boot_key_file="$out_dir/template-boot-service-account-key.json"
 previous_template_boot_key_file="$out_dir/template-boot-service-account-key.previous"
 template_boot_rotation_journal="$out_dir/template-boot-service-account-key.rotation.json"
 pending_key_file="$out_dir/.template-boot-service-account-key.pending"
+self_service_pat="$out_dir/.bootstrap.pat"
 cleanup_key_tempfiles() {
+  rm -f "$self_service_pat"
   if [ -n "${pending_key_file:-}" ]; then
     rm -f "$pending_key_file"
   fi
@@ -395,6 +399,18 @@ else
   converge_machine_key_rotation "$template_boot_rotation_journal" "$template_boot_key_file"
   echo "zitadel-configure: wrote a $key_action template boot service-account key"
 fi
+
+# ── Self-service: password reset mail and passkeys ──────────────────────────
+# The same script an operator runs against production, pointed at Mailpit so a
+# reset code or passkey link is readable at http://localhost:8325.
+( umask 077 && printf '%s\n' "$pat" > "$self_service_pat" )
+ZITADEL_URL="$base_url" \
+ZITADEL_PAT_FILE="$self_service_pat" \
+NIX_SMTP_HOST="${NIX_DEV_SMTP_HOST:-mailpit:1025}" \
+NIX_SMTP_SENDER="${NIX_DEV_SMTP_SENDER:-no-reply@nix.localhost}" \
+NIX_SMTP_TLS=false \
+  "$script_dir/zitadel-self-service.sh"
+rm -f "$self_service_pat"
 
 # ── Write the generated configuration ───────────────────────────────────────
 cat > "$out_file" <<EOF

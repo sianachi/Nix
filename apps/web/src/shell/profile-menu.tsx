@@ -1,5 +1,5 @@
 import { Icon, Menu, Text, focusRing, type MenuEntry } from '@nix/ui';
-import { ChevronDown, LogOut, Settings, User } from 'lucide-react';
+import { ChevronDown, KeyRound, LogOut, Settings, User } from 'lucide-react';
 import { type ReactNode } from 'react';
 import { Link } from 'react-router';
 
@@ -26,7 +26,7 @@ export interface ProfileMenuProps {
 }
 
 export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
-  const { signOut } = useAuth();
+  const { accountUrl, signOut } = useAuth();
   const { workspaceId } = useWorkspace();
 
   const name = principal.principal?.displayName ?? 'Loading…';
@@ -59,6 +59,20 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
     // Kept here as well as on the nav rail. The rail makes workspace administration findable from
     // anywhere; this path keeps personal access tokens beside the identity they belong to.
     { kind: 'link', label: 'Settings', icon: Settings, href: `/w/${workspaceId}/settings` },
+    // Password, passkeys and second factors belong to the identity provider, not to Nix, so this
+    // leaves for the provider's own page - in a new tab, so unsaved work here survives the visit.
+    // Absent when the deployment names none.
+    ...(accountUrl === null
+      ? []
+      : [
+          {
+            kind: 'link',
+            label: 'Password and security',
+            icon: KeyRound,
+            href: accountUrl,
+            external: true,
+          } satisfies MenuEntry,
+        ]),
     {
       kind: 'action',
       label: 'Sign out',
