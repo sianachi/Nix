@@ -43,7 +43,13 @@ public sealed class ScheduleDispatcher(
         TimeSpan.FromMinutes(30),
     ];
 
-    private const int MaxAttempts = 5;
+    /// <summary>
+    /// How many times a trigger may be leased before it is finalized as skipped instead of tried
+    /// again - by <see cref="HandleFireFailureAsync"/> after an ordinary fire failure, and by
+    /// <c>nix_lease_due_triggers</c> itself for a lease that expired without ever finishing
+    /// because the process holding it died mid-fire (ADR-0051 Amendment 2).
+    /// </summary>
+    internal const int MaxAttempts = 5;
 
     private readonly ILogger<ScheduleDispatcher> logger = logger ?? NullLogger<ScheduleDispatcher>.Instance;
     private readonly string owner = $"schedule-dispatcher:{Environment.MachineName}:{Guid.NewGuid():N}";
@@ -79,7 +85,7 @@ public sealed class ScheduleDispatcher(
     /// <summary>Leases and processes one bounded batch; exposed for operational probes and integration tests.</summary>
     public async Task<int> DispatchOnceAsync(CancellationToken cancellationToken)
     {
-        var due = await leases.LeaseDueAsync(BatchSize, owner, LeaseSeconds, cancellationToken).ConfigureAwait(false);
+        var due = await leases.LeaseDueAsync(BatchSize, owner, LeaseSeconds, MaxAttempts, cancellationToken).ConfigureAwait(false);
         foreach (var trigger in due)
         {
             await ProcessAsync(trigger, cancellationToken).ConfigureAwait(false);
@@ -118,13 +124,18 @@ public sealed class ScheduleDispatcher(
             var transaction = await database.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
             await using (transaction.ConfigureAwait(false))
             {
-                var source = provider.GetServices<ITriggerSource>()
-                    .FirstOrDefault(candidate => candidate.Kind == trigger.Kind);
+                // Resolved by Source, the unique name the planner recorded on this row - never by
+                // Kind, which more than one registered source may share. A row whose source is no
+                // longer registered (retired, or a typo nobody caught) is skipped by name rather
+                // than falling back to guessing at a same-kind source that never planned it.
+                var registered = provider.GetServices<ITriggerSource>().ToArray();
+                TriggerSourceNames.RequireUnique(registered);
+                var source = registered.FirstOrDefault(candidate => candidate.Name == trigger.Source);
                 if (source is null)
                 {
                     await CommitIfStillOwnedAsync(
                         transaction,
-                        await FinishAsync(database, trigger, TriggerStatus.Skipped, "no_source_registered", cancellationToken).ConfigureAwait(false),
+                        await FinishAsync(database, trigger, TriggerStatus.Skipped, "unknown_source", cancellationToken).ConfigureAwait(false),
                         cancellationToken).ConfigureAwait(false);
                     return;
                 }

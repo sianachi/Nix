@@ -11,6 +11,7 @@ public sealed record DueTrigger(
     WorkspaceId? WorkspaceId,
     PrincipalId PrincipalId,
     TriggerKind Kind,
+    string Source,
     Guid? SourceItemId,
     Guid? RuleId,
     DateTimeOffset FireAt,
@@ -27,9 +28,13 @@ public interface IScheduledTriggerLeaseStore
 {
     /// <summary>
     /// Leases up to <paramref name="limit"/> due or lease-expired triggers, marking each leased by
-    /// <paramref name="owner"/> for <paramref name="leaseSeconds"/>.
+    /// <paramref name="owner"/> for <paramref name="leaseSeconds"/>. A trigger whose lease expired
+    /// without ever finishing (its process died mid-fire) and that has already reached
+    /// <paramref name="maxAttempts"/> is finalized as <c>skipped</c> instead of being leased again
+    /// - ADR-0051 Amendment 2: the lease must not re-lease past the attempt cap even when nothing
+    /// ever ran the dispatcher's own failure handling for it.
     /// </summary>
-    public Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, CancellationToken cancellationToken);
+    public Task<IReadOnlyList<DueTrigger>> LeaseDueAsync(int limit, string owner, int leaseSeconds, int maxAttempts, CancellationToken cancellationToken);
 
     /// <summary>
     /// Finishes a trigger this <paramref name="owner"/> currently leases, moving it to
@@ -48,20 +53,21 @@ public interface IScheduledTriggerLeaseStore
 public interface IScheduledTriggerStore
 {
     /// <summary>
-    /// Upserts a pending trigger by <c>(tenant_id, principal_id, dedupe_key)</c>: creates it, or
-    /// moves its <c>fire_at</c> forward if it is still pending. A trigger already leased, fired,
-    /// skipped or cancelled is left alone - replanning must never resurrect or reschedule a row
-    /// the dispatcher is already handling or has finished.
+    /// Upserts a batch of pending triggers of one <paramref name="source"/> by
+    /// <c>(tenant_id, principal_id, dedupe_key)</c> in one statement: creates each, or moves an
+    /// existing one's <c>fire_at</c> (and the ids it carries) if it is still pending and never
+    /// retried, or revives a cancelled one. Returns the number of rows written.
     /// </summary>
-    public Task UpsertPendingAsync(
-        TenantId tenantId,
-        WorkspaceId? workspaceId,
-        PrincipalId principalId,
+    /// <remarks>
+    /// A row is left untouched when it is leased, fired, skipped, pending after a failed attempt
+    /// (its backoff must elapse), already exactly as desired (no rewrite, no dead tuple), or
+    /// planned by a different source - a dedupe-key collision must never let one source take over
+    /// another's row. Duplicate dedupe keys within <paramref name="triggers"/> keep the last.
+    /// </remarks>
+    public Task<int> UpsertPendingAsync(
         TriggerKind kind,
-        Guid? sourceItemId,
-        Guid? ruleId,
-        DateTimeOffset fireAt,
-        string dedupeKey,
+        string source,
+        IReadOnlyCollection<DesiredTrigger> triggers,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -71,16 +77,18 @@ public interface IScheduledTriggerStore
     /// <paramref name="desiredDedupeKeys"/> - the source no longer produces it.
     /// </summary>
     /// <remarks>
-    /// Scoped by workspace as well as principal and kind: a principal can have triggers of the
-    /// same kind in more than one workspace (or none, for a personal reminder), and reconciling
-    /// one workspace's desired set must never cancel another's rows that this planning pass never
-    /// looked at.
+    /// Scoped by workspace and source as well as principal and kind: a principal can have
+    /// triggers of the same kind in more than one workspace (or none, for a personal reminder),
+    /// and reconciling one workspace's desired set must never cancel another's rows that this
+    /// planning pass never looked at; scoping by source too means one source reconciling its own
+    /// desired set never cancels a different source's rows that merely share a kind.
     /// </remarks>
     public Task<int> CancelStaleAsync(
         TenantId tenantId,
         WorkspaceId? workspaceId,
         PrincipalId principalId,
         TriggerKind kind,
+        string source,
         DateTimeOffset windowStart,
         DateTimeOffset windowEnd,
         IReadOnlyCollection<string> desiredDedupeKeys,

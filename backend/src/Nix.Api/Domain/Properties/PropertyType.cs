@@ -215,6 +215,24 @@ public enum PropertyType
     /// </para>
     /// </remarks>
     DateTime = 17,
+
+    /// <summary>
+    /// The instant a reminder should fire, as an RFC 9557 timestamp with its zone. Value-shaped
+    /// exactly like <see cref="Timestamp"/>; the type is the meaning.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Task-semantic, taking the reserved key <c>reminder</c>, for the same reason
+    /// <see cref="DueDate"/> does: the scheduler plans from the declared role, not from a
+    /// workspace-chosen key.
+    /// </para>
+    /// <para>
+    /// <b>Not calendar-placeable.</b> A reminder is when something is announced, not when it
+    /// happens; placing it on a calendar next to the moments it announces would double the item on
+    /// the grid.
+    /// </para>
+    /// </remarks>
+    Reminder = 18,
 }
 
 /// <summary>
@@ -291,6 +309,9 @@ public static class PropertyTypes
             case "datetime":
                 type = PropertyType.DateTime;
                 return true;
+            case "reminder":
+                type = PropertyType.Reminder;
+                return true;
             default:
                 type = default;
                 return false;
@@ -321,6 +342,7 @@ public static class PropertyTypes
         PropertyType.Formula => "formula",
         PropertyType.Rollup => "rollup",
         PropertyType.DateTime => "datetime",
+        PropertyType.Reminder => "reminder",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
@@ -376,5 +398,6 @@ public static class PropertyTypes
     /// </remarks>
     public static bool IsTaskSemantic(this PropertyType type) =>
         type is PropertyType.DueDate or PropertyType.StartDate or PropertyType.Completion
-            or PropertyType.Priority or PropertyType.Estimate or PropertyType.Assignee;
+            or PropertyType.Priority or PropertyType.Estimate or PropertyType.Assignee
+            or PropertyType.Reminder;
 }

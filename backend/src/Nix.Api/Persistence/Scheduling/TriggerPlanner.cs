@@ -58,31 +58,80 @@ public sealed class TriggerPlanner(
         // reader), and PlanAsync itself runs before any recipient's own session is established -
         // no source registered in this lane needs one to plan.
         var planningScope = scopes.CreateAsyncScope();
-        List<(TriggerKind Kind, IReadOnlyList<DesiredTrigger> Desired)> plans;
+        List<(string Name, TriggerKind Kind, TriggerPlan Plan)> plans;
         await using (planningScope.ConfigureAwait(false))
         {
             var registered = planningScope.ServiceProvider.GetServices<ITriggerSource>().ToArray();
-            plans = new List<(TriggerKind Kind, IReadOnlyList<DesiredTrigger> Desired)>(registered.Length);
+            TriggerSourceNames.RequireUnique(registered);
+            plans = new List<(string Name, TriggerKind Kind, TriggerPlan Plan)>(registered.Length);
             foreach (var source in registered)
             {
-                var desired = await source.PlanAsync(window, cancellationToken).ConfigureAwait(false);
-                plans.Add((source.Kind, desired));
+                // One source's failure - a row so malformed its own defenses could not save it,
+                // or any other exception - must not take every other source's planning down with
+                // it. Every source here plans across every tenant at once; a single bad row in
+                // one tenant aborting the whole pass would turn into an outage for every tenant,
+                // for every kind of reminder, not just the one row that was wrong.
+                TriggerPlan plan;
+                try
+                {
+                    plan = await source.PlanAsync(window, cancellationToken).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Justification: isolating one source's failure from every other source's planning is the point.
+                catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    TriggerPlannerLog.SourceFailed(logger, source.Name, exception);
+                    continue;
+                }
+#pragma warning restore CA1031
+
+                if (!plan.Complete)
+                {
+                    TriggerPlannerLog.SourceIncomplete(logger, source.Name, plan.Triggers.Count);
+                }
+
+                plans.Add((source.Name, source.Kind, plan));
             }
         }
 
-        foreach (var (kind, desired) in plans)
+        foreach (var (name, kind, plan) in plans)
         {
-            foreach (var group in desired.GroupBy(trigger => (trigger.TenantId, trigger.WorkspaceId, trigger.PrincipalId)))
+            var owners = 0;
+            var failedOwners = 0;
+            foreach (var group in plan.Triggers.GroupBy(trigger => (trigger.TenantId, trigger.WorkspaceId, trigger.PrincipalId)))
             {
-                await ReconcileOwnerAsync(kind, group.Key, group.ToArray(), window, cancellationToken).ConfigureAwait(false);
+                owners++;
+                var desired = group.ToArray();
+
+                // Each owner reconciles in its own scope, connection and transaction, so one
+                // owner's failure (a recipient deleted between finding and upserting, say, which
+                // fails the principal foreign key) rolls back only that owner's rows; it must
+                // not end the pass for every owner after it, pass after pass.
+                try
+                {
+                    await ReconcileOwnerAsync(name, kind, group.Key, desired, plan.Complete, window, cancellationToken).ConfigureAwait(false);
+                }
+#pragma warning disable CA1031 // Justification: isolating one owner's failure from every other owner's planning is the point.
+                catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+                {
+                    failedOwners++;
+                    TriggerPlannerLog.OwnerFailed(logger, name, group.Key.TenantId.Value, group.Key.PrincipalId.Value, desired.Length, exception);
+                }
+#pragma warning restore CA1031
+            }
+
+            if (failedOwners > 0)
+            {
+                TriggerPlannerLog.OwnersFailed(logger, name, failedOwners, owners);
             }
         }
     }
 
     private async Task ReconcileOwnerAsync(
+        string source,
         TriggerKind kind,
         (Nix.Domain.Tenancy.TenantId TenantId, Nix.Domain.Tenancy.WorkspaceId? WorkspaceId, Nix.Domain.Identity.PrincipalId PrincipalId) owner,
         IReadOnlyList<DesiredTrigger> desired,
+        bool complete,
         PlanWindow window,
         CancellationToken cancellationToken)
     {
@@ -97,29 +146,23 @@ public sealed class TriggerPlanner(
             await using (transaction.ConfigureAwait(false))
             {
                 var store = provider.GetRequiredService<IScheduledTriggerStore>();
-                foreach (var trigger in desired)
+                await store.UpsertPendingAsync(kind, source, desired, cancellationToken).ConfigureAwait(false);
+
+                // An incomplete plan stopped at its page cap: a row it did not reach is not "no
+                // longer desired", so cancelling against it would drop reminders that still hold.
+                if (complete)
                 {
-                    await store.UpsertPendingAsync(
-                        trigger.TenantId,
-                        trigger.WorkspaceId,
-                        trigger.PrincipalId,
+                    await store.CancelStaleAsync(
+                        owner.TenantId,
+                        owner.WorkspaceId,
+                        owner.PrincipalId,
                         kind,
-                        trigger.SourceItemId,
-                        trigger.RuleId,
-                        trigger.FireAt,
-                        trigger.DedupeKey,
+                        source,
+                        window.Start,
+                        window.End,
+                        desired.Select(trigger => trigger.DedupeKey).ToArray(),
                         cancellationToken).ConfigureAwait(false);
                 }
-
-                await store.CancelStaleAsync(
-                    owner.TenantId,
-                    owner.WorkspaceId,
-                    owner.PrincipalId,
-                    kind,
-                    window.Start,
-                    window.End,
-                    desired.Select(trigger => trigger.DedupeKey).ToArray(),
-                    cancellationToken).ConfigureAwait(false);
 
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             }
@@ -131,4 +174,16 @@ internal static partial class TriggerPlannerLog
 {
     [LoggerMessage(5310, LogLevel.Error, "Trigger planning failed and will retry")]
     internal static partial void Failed(ILogger logger, Exception exception);
+
+    [LoggerMessage(5311, LogLevel.Error, "Trigger source {SourceName} failed to plan; every other source still ran")]
+    internal static partial void SourceFailed(ILogger logger, string sourceName, Exception exception);
+
+    [LoggerMessage(5312, LogLevel.Warning, "Trigger source {SourceName} reached its page cap with {TriggerCount} triggers; stale triggers are not cancelled this pass")]
+    internal static partial void SourceIncomplete(ILogger logger, string sourceName, int triggerCount);
+
+    [LoggerMessage(5313, LogLevel.Warning, "Trigger source {SourceName} could not reconcile {TriggerCount} triggers for principal {PrincipalId} in tenant {TenantId}; other owners still ran")]
+    internal static partial void OwnerFailed(ILogger logger, string sourceName, Guid tenantId, Guid principalId, int triggerCount, Exception exception);
+
+    [LoggerMessage(5314, LogLevel.Warning, "Trigger source {SourceName} failed to reconcile {FailedOwners} of {Owners} owners this pass")]
+    internal static partial void OwnersFailed(ILogger logger, string sourceName, int failedOwners, int owners);
 }

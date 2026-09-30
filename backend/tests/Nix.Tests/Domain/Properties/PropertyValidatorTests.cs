@@ -726,4 +726,36 @@ public sealed class PropertyValidatorTests
             "Field must be a date, as yyyy-MM-dd, or a time with its zone, "
                 + "as 2026-03-17T09:00:00+00:00[Europe/London].");
     }
+
+    [Theory]
+    [InlineData("2026-03-17T09:00:00+00:00[Europe/London]")]
+    [InlineData("2026-07-17T09:00:00+01:00[Europe/London]")]
+    public void A_reminder_is_checked_exactly_as_a_timestamp_is(string text)
+    {
+        // Reminder is value-shaped identically to Timestamp - the type is the meaning, not a new
+        // representation - so it defers to the same check rather than parsing a second way.
+        AssertAccepted(PropertyType.Reminder, $"\"{text}\"");
+    }
+
+    [Theory]
+    [InlineData("2026-03-17T09:00:00+00:00")] // missing its zone
+    [InlineData("2026-03-17")] // a bare date, not a moment
+    public void A_reminder_refuses_whatever_a_timestamp_would_refuse(string value)
+    {
+        AssertRefused(
+            PropertyType.Reminder,
+            $"\"{value}\"",
+            "Field must be a time with its zone, as 2026-03-17T09:00:00+00:00[Europe/London].");
+    }
+
+    [Fact]
+    public void A_reminder_refuses_an_offset_the_zone_was_not_using()
+    {
+        // Same failure a Timestamp property reports for the same value: the type reuses the check
+        // rather than parsing a second way, so the two must disagree on nothing.
+        AssertRefused(
+            PropertyType.Reminder,
+            "\"2026-07-17T09:00:00+00:00[Europe/London]\"",
+            "Field has an offset that 'Europe/London' was not using at that moment.");
+    }
 }

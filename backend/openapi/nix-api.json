@@ -11823,6 +11823,12 @@
           },
           "unit": {
             "type": "string"
+          },
+          "reminderTime": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -11946,6 +11952,12 @@
             "items": {
               "$ref": "#/components/schemas/HabitMonthSummary"
             }
+          },
+          "reminderTime": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

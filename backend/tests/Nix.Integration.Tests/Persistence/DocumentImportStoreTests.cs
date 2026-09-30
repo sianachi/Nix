@@ -42,6 +42,27 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
     }
 
     [Fact]
+    public async Task An_imported_due_date_and_reminder_are_attributed_to_the_importer()
+    {
+        // H1a: a set-by value in an imported file names whoever the file's author chose; the
+        // importing principal is the one who set every value that lands.
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "forged.nix", 8, itemCount: 1);
+        var forged = TestTenants.BetaPrincipal.ToString();
+        var note = new ImportEnvelopePlan("note", null, 0, "Imported task", "note",
+            $$"""{"due_date":"2026-12-01","$due_set_by":"{{forged}}","reminder":"2026-12-01T09:00:00+00:00[Etc/UTC]","$reminder_set_by":"{{forged}}"}""",
+            null, null, "active", false, null);
+        var stage = Assert.IsType<DocumentImportStageRecord>(await imports.StageAsync(new StageDocumentImport(
+            DocumentImportId.From(operation.Id), new string('b', 64), digest, [note]), Cancellation));
+
+        var staged = await work.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+            .SingleAsync(item => item.Id == ItemId.From(stage.RootItemId), Cancellation);
+        var bag = Assert.IsType<System.Text.Json.Nodes.JsonObject>(System.Text.Json.Nodes.JsonNode.Parse(staged.Properties!));
+        Assert.Equal(TestTenants.AlphaPrincipal.ToString(), (string?)bag[ItemProperties.DueSetByKey]);
+        Assert.Equal(TestTenants.AlphaPrincipal.ToString(), (string?)bag[ItemProperties.ReminderSetByKey]);
+    }
+
+    [Fact]
     public async Task Finalization_rechecks_finance_properties_on_legacy_staged_items()
     {
         await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);

@@ -19,6 +19,20 @@ public sealed record DesiredTrigger(
     DateTimeOffset FireAt,
     string DedupeKey);
 
+/// <summary>Everything one source wants planned this pass, and whether that is all of it.</summary>
+/// <param name="Triggers">The desired triggers the source found.</param>
+/// <param name="Complete">
+/// Whether <paramref name="Triggers"/> is the source's whole desired set for the window. A source
+/// that stopped at its page cap returns <see langword="false"/>: its missing candidates are not
+/// "no longer desired", so the planner still upserts what it has but must not cancel anything for
+/// that source this pass.
+/// </param>
+public sealed record TriggerPlan(IReadOnlyList<DesiredTrigger> Triggers, bool Complete)
+{
+    /// <summary>Gets a complete plan with nothing to schedule.</summary>
+    public static TriggerPlan Empty { get; } = new([], Complete: true);
+}
+
 /// <summary>What happened when the dispatcher re-verified and fired a trigger.</summary>
 public enum TriggerFireStatus
 {
@@ -43,22 +57,32 @@ public sealed record TriggerOutcome(TriggerFireStatus Status, string Reason)
 
 /// <summary>
 /// A plug-in that both plans triggers for its <see cref="Kind"/> ahead of time and fires them,
-/// re-verified, at the leased instant. Registered per <see cref="TriggerKind"/>; the dispatcher
-/// resolves the one source whose <see cref="Kind"/> matches a leased trigger's kind before firing.
+/// re-verified, at the leased instant. The dispatcher resolves the one source whose
+/// <see cref="Name"/> matches a leased trigger's recorded source before firing.
 /// </summary>
 public interface ITriggerSource
 {
-    /// <summary>Gets the trigger kind this source plans and fires.</summary>
+    /// <summary>
+    /// Gets the unique, stable name the dispatcher resolves this source by - lowercase, dotted,
+    /// at most 64 characters (for example <c>reminder.due</c>). Recorded on every trigger this
+    /// source plans, and the dispatcher's only way of choosing which registered source fires a
+    /// leased row: more than one source may share a <see cref="Kind"/>, so <see cref="Kind"/>
+    /// alone cannot resolve one. Must be unique across every registered source - checked at
+    /// startup, since a collision would make the dispatcher's resolution silently ambiguous.
+    /// </summary>
+    public string Name { get; }
+
+    /// <summary>Gets the trigger kind this source plans and fires - a display/reporting category, not a dispatch key.</summary>
     public TriggerKind Kind { get; }
 
     /// <summary>
     /// Returns every trigger this source currently wants planned within <paramref name="window"/>,
-    /// across whichever recipients it is responsible for. A source that needs to enumerate more
-    /// than its own already-scoped data across tenants must be given a narrow, bounded,
-    /// SECURITY DEFINER-backed way to do so rather than reading tables directly - none of the
-    /// sources registered in this lane need one.
+    /// across whichever recipients it is responsible for, and whether that set is complete. A
+    /// source that needs to enumerate more than its own already-scoped data across tenants must be
+    /// given a narrow, bounded, SECURITY DEFINER-backed way to do so rather than reading tables
+    /// directly.
     /// </summary>
-    public Task<IReadOnlyList<DesiredTrigger>> PlanAsync(PlanWindow window, CancellationToken cancellationToken);
+    public Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken);
 
     /// <summary>
     /// Re-verifies and acts on one leased trigger. Runs inside a transaction already scoped to

@@ -22,6 +22,7 @@ describe('valueShapeOf', () => {
     assignee: 'text',
     formula: 'formula',
     rollup: 'rollup',
+    reminder: 'timestamp',
   };
 
   it.each(PROPERTY_TYPES.map((entry) => entry.value))('resolves the shape of %s', (type) => {

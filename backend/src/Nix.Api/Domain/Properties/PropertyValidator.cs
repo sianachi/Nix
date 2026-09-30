@@ -257,6 +257,11 @@ public static class PropertyValidator
 
         PropertyType.DateTime => CheckDateTime(definition, value),
 
+        // Value-shaped exactly like Timestamp - an RFC 9557 moment with its zone - the type is the
+        // meaning: this is the instant a reminder fires, checked the same way a plain Timestamp
+        // property is.
+        PropertyType.Reminder => CheckTimestamp(definition, value),
+
         // A type this build defines and this switch does not handle is a bug here, not a value the
         // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
         // It used to be `_ => null`, which is "accepted": an unhandled member let any JSON node

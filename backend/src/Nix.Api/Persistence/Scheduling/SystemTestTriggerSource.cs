@@ -23,6 +23,9 @@ public sealed class SystemTestTriggerSource(INotificationWriter notifications) :
     private static readonly ConcurrentDictionary<string, DesiredTrigger> Desired = new(StringComparer.Ordinal);
 
     /// <inheritdoc />
+    public string Name => "system.test";
+
+    /// <inheritdoc />
     public TriggerKind Kind => TriggerKind.System;
 
     /// <summary>Adds or replaces a trigger a test wants the next planning pass to pick up.</summary>
@@ -32,17 +35,29 @@ public sealed class SystemTestTriggerSource(INotificationWriter notifications) :
         Desired[trigger.DedupeKey] = trigger;
     }
 
+    private static volatile bool incomplete;
+
+    /// <summary>
+    /// Makes the next planning passes report their plan as incomplete (as a source that reached its
+    /// page cap would), until <see cref="Reset"/>.
+    /// </summary>
+    public static void ReportIncomplete() => incomplete = true;
+
     /// <summary>Removes every desired trigger a test previously registered, so suites do not leak into each other.</summary>
-    public static void Reset() => Desired.Clear();
+    public static void Reset()
+    {
+        Desired.Clear();
+        incomplete = false;
+    }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<DesiredTrigger>> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
+    public Task<TriggerPlan> PlanAsync(PlanWindow window, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(window);
         IReadOnlyList<DesiredTrigger> matching = Desired.Values
             .Where(trigger => trigger.FireAt >= window.Start && trigger.FireAt < window.End)
             .ToArray();
-        return Task.FromResult(matching);
+        return Task.FromResult(new TriggerPlan(matching, Complete: !incomplete));
     }
 
     /// <inheritdoc />

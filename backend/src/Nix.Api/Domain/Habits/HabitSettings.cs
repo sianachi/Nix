@@ -5,7 +5,14 @@ using System.Text.Json.Nodes;
 namespace Nix.Domain.Habits;
 
 /// <summary>Habit semantics carried by an ordinary item's property bag.</summary>
-public sealed record HabitSettings(string Frequency, IReadOnlyList<int> Weekdays, string Timezone, DateOnly StartDate, decimal Target, string Unit)
+public sealed record HabitSettings(
+    string Frequency,
+    IReadOnlyList<int> Weekdays,
+    string Timezone,
+    DateOnly StartDate,
+    decimal Target,
+    string Unit,
+    string? ReminderTime = null)
 {
     /// <summary>Upper bound shared by targets and daily quantities.</summary>
     public const decimal MaximumQuantity = 1_000_000;
@@ -43,6 +50,10 @@ public sealed record HabitSettings(string Frequency, IReadOnlyList<int> Weekdays
         {
             return "Daily habits have no weekday selection; weekly habits need at least one weekday.";
         }
+        if (ReminderTime is not null && !TimeOnly.TryParseExact(ReminderTime, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
+        {
+            return "A reminder time, if set, must be HH:mm.";
+        }
         return null;
     }
 
@@ -50,7 +61,7 @@ public sealed record HabitSettings(string Frequency, IReadOnlyList<int> Weekdays
     public bool SameSchedule(HabitSettings other)
     {
         ArgumentNullException.ThrowIfNull(other);
-        return Frequency == other.Frequency && Weekdays.Order().SequenceEqual(other.Weekdays.Order()) && Timezone == other.Timezone && StartDate == other.StartDate && Target == other.Target && Unit == other.Unit;
+        return Frequency == other.Frequency && Weekdays.Order().SequenceEqual(other.Weekdays.Order()) && Timezone == other.Timezone && StartDate == other.StartDate && Target == other.Target && Unit == other.Unit && ReminderTime == other.ReminderTime;
     }
 
     /// <summary>Property changes, merged by the ordinary property writer.</summary>
@@ -62,6 +73,7 @@ public sealed record HabitSettings(string Frequency, IReadOnlyList<int> Weekdays
         ["$habit_start_date"] = StartDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
         ["$habit_target"] = Target,
         ["$habit_unit"] = Unit,
+        ["$habit_reminder_time"] = ReminderTime,
     };
 
     /// <summary>Generic property edits must never turn malformed settings into a successful empty tracker.</summary>
@@ -80,7 +92,11 @@ public sealed record HabitSettings(string Frequency, IReadOnlyList<int> Weekdays
                 return null;
             }
             var days = bag["$habit_weekdays"]?.AsArray().Select(node => node!.GetValue<int>()).ToArray() ?? [];
-            var settings = new HabitSettings(frequency, days, timezone, start, target, unit);
+            // Optional, unlike every other member above: a habit saved before this field existed
+            // has no $habit_reminder_time key at all, and that must read as "no reminder set"
+            // rather than as a malformed tracker.
+            var reminderTime = bag["$habit_reminder_time"]?.GetValue<string>();
+            var settings = new HabitSettings(frequency, days, timezone, start, target, unit, reminderTime);
             return settings.Validate() is null ? settings : null;
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or OverflowException or NullReferenceException)

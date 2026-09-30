@@ -181,3 +181,128 @@ public sealed class ItemPropertiesTests
         return Assert.IsType<JsonObject>(JsonNode.Parse(write.Value.Merged));
     }
 }
+
+/// <summary>
+/// The single point every due-date write funnels through: attributing who set
+/// <c>due_date</c>, or clearing that attribution when the date itself is cleared.
+/// </summary>
+public sealed class ItemPropertiesStampSetByTests
+{
+    [Fact]
+    public void Setting_a_due_date_stamps_who_set_it()
+    {
+        var bag = ItemProperties.StampSetBy(
+            """{"title":"Notes","due_date":"2026-07-27"}""",
+            ["due_date"],
+            "00000000-0000-0000-0000-000000000001");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(bag));
+        Assert.Equal(
+            "00000000-0000-0000-0000-000000000001",
+            (string?)parsed[ItemProperties.DueSetByKey]);
+    }
+
+    [Fact]
+    public void A_write_that_does_not_touch_due_date_leaves_any_existing_stamp_alone()
+    {
+        var bag = ItemProperties.StampSetBy(
+            $$"""{"title":"Notes","due_date":"2026-07-27","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["title"],
+            "00000000-0000-0000-0000-000000000002");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(bag));
+        Assert.Equal(
+            "00000000-0000-0000-0000-000000000001",
+            (string?)parsed[ItemProperties.DueSetByKey]);
+    }
+
+    [Fact]
+    public void Clearing_the_due_date_clears_its_attribution_too()
+    {
+        var bag = ItemProperties.StampSetBy(
+            $$"""{"title":"Notes","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["due_date"],
+            "00000000-0000-0000-0000-000000000002");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(bag));
+        Assert.False(parsed.ContainsKey(ItemProperties.DueSetByKey));
+    }
+
+    [Fact]
+    public void Re_setting_a_due_date_re_attributes_it_to_whoever_wrote_it_this_time()
+    {
+        var bag = ItemProperties.StampSetBy(
+            $$"""{"due_date":"2026-08-01","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["due_date"],
+            "00000000-0000-0000-0000-000000000002");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(bag));
+        Assert.Equal(
+            "00000000-0000-0000-0000-000000000002",
+            (string?)parsed[ItemProperties.DueSetByKey]);
+    }
+
+    [Fact]
+    public void Setting_a_reminder_stamps_who_set_it_and_clearing_it_clears_the_stamp()
+    {
+        var set = ItemProperties.StampSetBy(
+            """{"title":"Notes","reminder":"2026-10-01T09:00:00+00:00[Etc/UTC]"}""",
+            ["reminder"],
+            "00000000-0000-0000-0000-000000000001");
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(set));
+        Assert.Equal("00000000-0000-0000-0000-000000000001", (string?)parsed[ItemProperties.ReminderSetByKey]);
+        Assert.False(parsed.ContainsKey(ItemProperties.DueSetByKey));
+
+        var cleared = ItemProperties.StampSetBy(
+            $$"""{"title":"Notes","{{ItemProperties.ReminderSetByKey}}":"00000000-0000-0000-0000-000000000001"}""",
+            ["reminder"],
+            "00000000-0000-0000-0000-000000000002");
+        Assert.False(Assert.IsType<JsonObject>(JsonNode.Parse(cleared)).ContainsKey(ItemProperties.ReminderSetByKey));
+    }
+
+    [Fact]
+    public void A_copied_bag_is_re_attributed_to_the_principal_making_the_copy()
+    {
+        var copied = ItemProperties.RestampCopiedSetBy(
+            $$"""{"due_date":"2026-10-01","reminder":"2026-10-01T09:00:00+00:00[Etc/UTC]","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-00000000000f","{{ItemProperties.ReminderSetByKey}}":"00000000-0000-0000-0000-00000000000f"}""",
+            "00000000-0000-0000-0000-000000000002");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(copied!));
+        Assert.Equal("00000000-0000-0000-0000-000000000002", (string?)parsed[ItemProperties.DueSetByKey]);
+        Assert.Equal("00000000-0000-0000-0000-000000000002", (string?)parsed[ItemProperties.ReminderSetByKey]);
+    }
+
+    [Fact]
+    public void A_copied_set_by_without_its_value_is_dropped_rather_than_kept()
+    {
+        var copied = ItemProperties.RestampCopiedSetBy(
+            $$"""{"title":"Copy","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-00000000000f"}""",
+            "00000000-0000-0000-0000-000000000002");
+
+        Assert.False(Assert.IsType<JsonObject>(JsonNode.Parse(copied!)).ContainsKey(ItemProperties.DueSetByKey));
+    }
+
+    [Fact]
+    public void Template_content_carries_no_set_by_value_at_all()
+    {
+        var stripped = ItemProperties.StripSetBy(
+            $$"""{"due_date":"2026-10-01","{{ItemProperties.DueSetByKey}}":"00000000-0000-0000-0000-00000000000f","{{ItemProperties.ReminderSetByKey}}":"00000000-0000-0000-0000-00000000000f"}""");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(stripped!));
+        Assert.Equal("2026-10-01", (string?)parsed["due_date"]);
+        Assert.False(parsed.ContainsKey(ItemProperties.DueSetByKey));
+        Assert.False(parsed.ContainsKey(ItemProperties.ReminderSetByKey));
+        Assert.Null(ItemProperties.StripSetBy(null));
+    }
+
+    [Theory]
+    [InlineData("$due_set_by", true)]
+    [InlineData("$reminder_set_by", true)]
+    [InlineData("$habit_reminder_time", true)]
+    [InlineData("$habit_check_in_date", true)]
+    [InlineData("due_date", false)]
+    [InlineData("reminder", false)]
+    [InlineData("habit", false)]
+    public void Scheduler_and_habit_keys_are_reserved(string key, bool reserved) =>
+        Assert.Equal(reserved, ItemProperties.IsReservedSchedulingKey(key));
+}

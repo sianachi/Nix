@@ -84,6 +84,11 @@
       "type": "rollup",
       "label": "Rollup (across children)",
       "shape": "rollup"
+    },
+    {
+      "type": "reminder",
+      "label": "Reminder",
+      "shape": "timestamp"
     }
   ],
   "rollupAggregates": [

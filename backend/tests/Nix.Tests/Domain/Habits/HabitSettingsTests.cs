@@ -46,4 +46,34 @@ public sealed class HabitSettingsTests
         Assert.True(settings.SameSchedule(settings with { Weekdays = [1, 5] }));
         Assert.False(settings.SameSchedule(settings with { Target = 1 }));
     }
+
+    [Fact]
+    public void A_reminder_time_round_trips_through_properties()
+    {
+        var settings = new HabitSettings("daily", [], "UTC", new DateOnly(2026, 9, 14), 1, "times", "08:30");
+        var stored = HabitSettings.Read(settings.ToProperties().ToJsonString());
+        Assert.NotNull(stored);
+        Assert.Equal("08:30", stored.ReminderTime);
+    }
+
+    [Fact]
+    public void A_habit_saved_before_reminder_time_existed_reads_as_unset()
+    {
+        // No $habit_reminder_time key at all, exactly what an older tracker's stored bag has.
+        var settings = new HabitSettings("daily", [], "UTC", new DateOnly(2026, 9, 14), 1, "times");
+        var stored = HabitSettings.Read(settings.ToProperties().ToJsonString());
+        Assert.NotNull(stored);
+        Assert.Null(stored.ReminderTime);
+    }
+
+    [Theory]
+    [InlineData("8:30")]
+    [InlineData("08:30:00")]
+    [InlineData("noon")]
+    [InlineData("25:00")]
+    public void An_unparseable_reminder_time_is_refused(string reminderTime)
+    {
+        var settings = new HabitSettings("daily", [], "UTC", new DateOnly(2026, 9, 14), 1, "times", reminderTime);
+        Assert.NotNull(settings.Validate());
+    }
 }

@@ -284,7 +284,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -663,7 +664,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -1195,7 +1197,8 @@
                           "priority",
                           "estimate",
                           "formula",
-                          "rollup"
+                          "rollup",
+                          "reminder"
                         ]
                       },
                       "options": {
@@ -1499,7 +1502,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -1756,7 +1760,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -2033,7 +2038,8 @@
                           "priority",
                           "estimate",
                           "formula",
-                          "rollup"
+                          "rollup",
+                          "reminder"
                         ]
                       },
                       "options": {

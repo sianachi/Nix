@@ -15,7 +15,7 @@ public static class PreferencesValidation
     /// <summary>Gets the document a principal who has never saved preferences reads.</summary>
     public static PreferencesInput Default => new("Etc/UTC", null, null, "09:00", true, true, []);
 
-    /// <summary>Refuses an unknown zone, malformed times, and an over-long mute list.</summary>
+    /// <summary>Refuses an unknown zone, malformed times, an empty quiet window, and an over-long mute list.</summary>
     public static bool IsValid(PreferencesInput? input)
     {
         if (input is null || input.TimeZone is null || Zones.GetZoneOrNull(input.TimeZone) is null
@@ -25,10 +25,22 @@ public static class PreferencesValidation
             return false;
         }
 
-        // Quiet hours are a window: both ends or neither (the database enforces the same).
-        return (input.QuietStart is null) == (input.QuietEnd is null)
-            && (input.QuietStart is null || TryParseTime(input.QuietStart, out _))
-            && (input.QuietEnd is null || TryParseTime(input.QuietEnd, out _));
+        // Quiet hours are a window: both ends or neither (the database enforces the same), and
+        // never empty - a window that starts where it ends has no length, and ReminderQuietHours
+        // could only guess whether it meant none of the day or all of it.
+        if ((input.QuietStart is null) != (input.QuietEnd is null))
+        {
+            return false;
+        }
+
+        if (input.QuietStart is null)
+        {
+            return true;
+        }
+
+        return TryParseTime(input.QuietStart, out var start)
+            && TryParseTime(input.QuietEnd!, out var end)
+            && start != end;
     }
 
     /// <summary>Parses "HH:mm" the same way for validation and for storage.</summary>
