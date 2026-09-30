@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -174,5 +175,69 @@ func TestMicrosoftClientCreateEventAllDaySendsIsAllDay(t *testing.T) {
 	}
 	if externalID != "AAMk-new" || version != "ck-new" {
 		t.Fatalf("CreateEvent = (%q, %q)", externalID, version)
+	}
+}
+
+func TestMicrosoftClientPullRequestsPlainTextBodies(t *testing.T) {
+	client, _ := newMicrosoftFakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if prefer := r.Header.Get("Prefer"); !strings.Contains(prefer, `outlook.body-content-type="text"`) {
+			t.Errorf("Prefer = %q, want outlook.body-content-type=\"text\" so details arrive without HTML", prefer)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"@odata.deltaLink": "https://unused/delta", "value": []any{}})
+	})
+	if _, err := client.Pull(context.Background(), "t", "primary", "", time.Now(), time.Now().Add(time.Hour), ""); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+}
+
+// A deleted Graph event carries only its id and @removed: it must reach Core as a cancelled event
+// with an empty start and a non-zero updatedAt, and pass the C2 validation.
+func TestMicrosoftClientRemovedEventIsAValidCancelledWireEvent(t *testing.T) {
+	client, _ := newMicrosoftFakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"@odata.deltaLink": "https://unused/delta",
+			"value": []map[string]any{
+				{"id": "AAMk-deleted", "@removed": map[string]any{"reason": "deleted"}},
+			},
+		})
+	})
+	page, err := client.Pull(context.Background(), "t", "primary", "", time.Now(), time.Now().Add(time.Hour), "")
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if len(page.Events) != 1 {
+		t.Fatalf("events = %+v", page.Events)
+	}
+	event := page.Events[0]
+	if event.Status != "cancelled" || event.UpdatedAt.IsZero() {
+		t.Fatalf("event = %+v, want cancelled with a non-zero UpdatedAt", event)
+	}
+	wire := toWireEvent(event)
+	if wire.Start != "" || wire.End != nil {
+		t.Fatalf("wire start/end = %q/%v, want empty for a removed event", wire.Start, wire.End)
+	}
+}
+
+// Graph reports reason "changed" when an event only left the delta window; it still exists
+// upstream, so it must not be reported as cancelled (which would trash the item).
+func TestMicrosoftClientSkipsEventsThatOnlyLeftTheWindow(t *testing.T) {
+	client, _ := newMicrosoftFakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"@odata.deltaLink": "https://unused/delta",
+			"value": []map[string]any{
+				{"id": "AAMk-moved", "@removed": map[string]any{"reason": "changed"}},
+				{"id": "AAMk-deleted", "@removed": map[string]any{"reason": "deleted"}},
+			},
+		})
+	})
+	page, err := client.Pull(context.Background(), "t", "primary", "", time.Now(), time.Now().Add(time.Hour), "")
+	if err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+	if len(page.Events) != 1 || page.Events[0].ExternalID != "AAMk-deleted" {
+		t.Fatalf("events = %+v, want only the deleted event", page.Events)
 	}
 }

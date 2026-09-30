@@ -6,8 +6,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
 	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
@@ -84,8 +86,10 @@ type fakeCore struct {
 	sessionErrStatus int
 	sessionErrCode   string
 
-	pullRequests []workerapi.CalendarPullRequest
-	pullResult   workerapi.CalendarPullResult
+	pullRequests  []workerapi.CalendarPullRequest
+	pullResult    workerapi.CalendarPullResult
+	pullErrStatus int
+	pullErrCode   string
 
 	changes workerapi.CalendarChangesResult
 
@@ -114,6 +118,12 @@ func newFakeCore(t *testing.T) *fakeCore {
 		_ = json.NewEncoder(w).Encode(core.session)
 	})
 	mux.HandleFunc("/internal/worker-executions/calendar/links/33333333-3333-3333-3333-333333333333/pull", func(w http.ResponseWriter, r *http.Request) {
+		if core.pullErrStatus != 0 {
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(core.pullErrStatus)
+			_ = json.NewEncoder(w).Encode(map[string]string{"code": core.pullErrCode})
+			return
+		}
 		var request workerapi.CalendarPullRequest
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Fatalf("decode pull request: %v", err)
@@ -324,5 +334,102 @@ func TestHandlerImportOnlyNeverCallsChanges(t *testing.T) {
 	}
 	if len(core.pushedResults) != 0 {
 		t.Fatalf("pushedResults = %+v, want none: import_only links never push", core.pushedResults)
+	}
+}
+
+func runHandlerExpectingJobError(t *testing.T, core *fakeCore, google *fakeProvider) *jobrunner.JobError {
+	t.Helper()
+	handler := NewHandler(core.client(), google, &fakeProvider{name: "microsoft"}, nil)
+	job := workerapi.Job{ID: "job-1", Kind: "calendar.sync", Payload: json.RawMessage(`{"linkId":"33333333-3333-3333-3333-333333333333","full":false}`)}
+	_, err := handler.Handle(context.Background(), job)
+	var typed *jobrunner.JobError
+	if !errors.As(err, &typed) {
+		t.Fatalf("err = %v, want a *jobrunner.JobError", err)
+	}
+	return typed
+}
+
+// Core answers 409 calendar.link_unavailable when the link was deleted, stopped or no longer
+// matches the job. Retrying cannot succeed, so the job must fail terminally.
+func TestHandlerLinkUnavailableAtSessionIsTerminal(t *testing.T) {
+	core := newFakeCore(t)
+	core.sessionErrStatus = http.StatusConflict
+	core.sessionErrCode = "calendar.link_unavailable"
+	typed := runHandlerExpectingJobError(t, core, &fakeProvider{name: "google"})
+	if typed.Code != "calendar_link_unavailable" || typed.Retryable {
+		t.Fatalf("JobError = %+v, want code calendar_link_unavailable and non-retryable", typed)
+	}
+}
+
+func TestHandlerLinkUnavailableDuringPullIsTerminal(t *testing.T) {
+	core := newFakeCore(t)
+	core.session = baseSession("two_way")
+	core.pullErrStatus = http.StatusConflict
+	core.pullErrCode = "calendar.link_unavailable"
+	google := &fakeProvider{name: "google", pages: []Page{{Events: []ProviderEvent{{
+		ExternalID: "evt-1", Status: "confirmed", Start: Bound{AllDay: true, Date: "2026-09-29"}, UpdatedAt: time.Now(),
+	}}}}}
+	typed := runHandlerExpectingJobError(t, core, google)
+	if typed.Code != "calendar_link_unavailable" || typed.Retryable {
+		t.Fatalf("JobError = %+v, want code calendar_link_unavailable and non-retryable", typed)
+	}
+}
+
+func TestHandlerRejectedPullBatchIsTerminal(t *testing.T) {
+	core := newFakeCore(t)
+	core.session = baseSession("two_way")
+	core.pullErrStatus = http.StatusBadRequest
+	core.pullErrCode = "calendar.request_invalid"
+	google := &fakeProvider{name: "google", pages: []Page{{Events: []ProviderEvent{{
+		ExternalID: "evt-1", Status: "confirmed", Start: Bound{AllDay: true, Date: "2026-09-29"}, UpdatedAt: time.Now(),
+	}}}}}
+	typed := runHandlerExpectingJobError(t, core, google)
+	if typed.Code != "calendar_pull_apply_failed" || typed.Retryable {
+		t.Fatalf("JobError = %+v, want code calendar_pull_apply_failed and non-retryable", typed)
+	}
+}
+
+func TestHandlerCoreServerErrorDuringPullIsTransient(t *testing.T) {
+	core := newFakeCore(t)
+	core.session = baseSession("two_way")
+	core.pullErrStatus = http.StatusServiceUnavailable
+	google := &fakeProvider{name: "google", pages: []Page{{Events: []ProviderEvent{{
+		ExternalID: "evt-1", Status: "confirmed", Start: Bound{AllDay: true, Date: "2026-09-29"}, UpdatedAt: time.Now(),
+	}}}}}
+	typed := runHandlerExpectingJobError(t, core, google)
+	if typed.Code != "calendar_pull_apply_failed" || !typed.Retryable {
+		t.Fatalf("JobError = %+v, want code calendar_pull_apply_failed and retryable", typed)
+	}
+}
+
+// A refused worker execution means the lease moved on; it is returned unwrapped like every other
+// worker role so the runner does not record a result for an execution it no longer owns.
+func TestHandlerExecutionRefusedIsReturnedUnwrapped(t *testing.T) {
+	core := newFakeCore(t)
+	core.sessionErrStatus = http.StatusConflict
+	core.sessionErrCode = "worker.execution_refused"
+	handler := NewHandler(core.client(), &fakeProvider{name: "google"}, &fakeProvider{name: "microsoft"}, nil)
+	job := workerapi.Job{ID: "job-1", Kind: "calendar.sync", Payload: json.RawMessage(`{"linkId":"33333333-3333-3333-3333-333333333333","full":false}`)}
+	_, err := handler.Handle(context.Background(), job)
+	var response *workerapi.ResponseError
+	var typed *jobrunner.JobError
+	if !errors.As(err, &response) || response.Code != "worker.execution_refused" || errors.As(err, &typed) {
+		t.Fatalf("err = %v, want the raw worker.execution_refused response error", err)
+	}
+}
+
+// Provider text longer than Core's bounds would fail validation for the whole page and retry
+// forever; it is truncated on a rune boundary instead.
+func TestToWireEventTruncatesProviderTextToContractBounds(t *testing.T) {
+	long := strings.Repeat("é", 5000)
+	wire := toWireEvent(ProviderEvent{
+		ExternalID: "evt-1", Status: "confirmed", Title: long, Location: long, Details: long + long,
+		Start: Bound{AllDay: true, Date: "2026-10-01"}, UpdatedAt: time.Now(),
+	})
+	if len(wire.Title) > 500 || len(wire.Location) > 500 || len(wire.Details) > 8000 {
+		t.Fatalf("lengths title=%d location=%d details=%d exceed the contract bounds", len(wire.Title), len(wire.Location), len(wire.Details))
+	}
+	if !utf8.ValidString(wire.Title) || !utf8.ValidString(wire.Details) {
+		t.Fatal("truncation split a multi-byte character")
 	}
 }

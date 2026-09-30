@@ -182,3 +182,35 @@ func TestGoogleClientRejectsUnconfiguredOrigin(t *testing.T) {
 		t.Fatal("expected the transport to reject a URL outside its configured origin")
 	}
 }
+
+// An incremental (syncToken) round reports a deleted event as status=cancelled with no start or
+// end. It must convert to a cancelled event instead of failing the whole page, which would retry
+// the pull forever.
+func TestGoogleClientPullCancelledIncrementalEventHasNoBounds(t *testing.T) {
+	client := newGoogleFakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("syncToken") != "stored" {
+			t.Errorf("incremental round must carry the syncToken, query=%q", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"nextSyncToken": "next",
+			"items": []map[string]any{
+				{"id": "evt-gone", "etag": `"e9"`, "status": "cancelled"},
+			},
+		})
+	})
+	page, err := client.Pull(context.Background(), "t", "primary", "stored", time.Now(), time.Now().Add(time.Hour), "")
+	if err != nil {
+		t.Fatalf("Pull: %v, want the cancelled event accepted", err)
+	}
+	if len(page.Events) != 1 || page.Events[0].Status != "cancelled" || page.Events[0].ExternalID != "evt-gone" {
+		t.Fatalf("events = %+v, want one cancelled evt-gone", page.Events)
+	}
+	if page.Events[0].UpdatedAt.IsZero() {
+		t.Fatal("cancelled event UpdatedAt is zero; Core requires updatedAt")
+	}
+	wire := toWireEvent(page.Events[0])
+	if wire.Start != "" || wire.End != nil {
+		t.Fatalf("wire start/end = %q/%v, want empty for a cancelled event", wire.Start, wire.End)
+	}
+}

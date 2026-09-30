@@ -26,6 +26,15 @@ const (
 	maxCalendarCursorLength   = 4096
 )
 
+// MaxCalendarPullBodyBytes is Core's request body limit for C2. A batch whose encoding exceeds it
+// is split, since 100 events with long, escape-heavy details can pass every per-field bound and
+// still exceed it.
+const MaxCalendarPullBodyBytes = 2 << 20
+
+// maxCalendarChangesResponseBytes bounds a C3 page. 100 changes with 8000-character details
+// escaped as \uXXXX by Core's JSON encoder reach about 5 MiB.
+const maxCalendarChangesResponseBytes = 8 << 20
+
 // CalendarSyncPayload is the calendar.sync job payload.
 type CalendarSyncPayload struct {
 	LinkID string `json:"linkId"`
@@ -81,7 +90,7 @@ type CalendarChange struct {
 	Op         string    `json:"op"`
 	Title      string    `json:"title"`
 	Start      string    `json:"start"`
-	End        *string   `json:"end,omitempty"`
+	End        *string   `json:"end"`
 	Location   string    `json:"location"`
 	Details    string    `json:"details"`
 	UpdatedAt  time.Time `json:"updatedAt"`
@@ -134,7 +143,9 @@ func (client *Client) StartCalendarSession(ctx context.Context, linkID string) (
 	return &session, nil
 }
 
-// PullCalendarEvents implements C2.
+// PullCalendarEvents implements C2. A batch whose encoded body would exceed
+// MaxCalendarPullBodyBytes is split in halves and the per-request results are summed; every
+// request carries the same Full flag, which Core applies per event.
 func (client *Client) PullCalendarEvents(ctx context.Context, linkID string, request CalendarPullRequest) (*CalendarPullResult, error) {
 	if !canonicalUUID(linkID) || len(request.Events) > maxCalendarEventsPerBatch {
 		return nil, errors.New("calendar pull request is invalid")
@@ -144,9 +155,31 @@ func (client *Client) PullCalendarEvents(ctx context.Context, linkID string, req
 			return nil, err
 		}
 	}
+	if request.Events == nil {
+		request.Events = []CalendarEvent{}
+	}
+	return client.pullCalendarBatch(ctx, linkID, request)
+}
+
+func (client *Client) pullCalendarBatch(ctx context.Context, linkID string, request CalendarPullRequest) (*CalendarPullResult, error) {
 	body, err := json.Marshal(request)
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > MaxCalendarPullBodyBytes {
+		if len(request.Events) < 2 {
+			return nil, errors.New("calendar pull event exceeds the request body limit")
+		}
+		middle := len(request.Events) / 2
+		first, err := client.pullCalendarBatch(ctx, linkID, CalendarPullRequest{Full: request.Full, Events: request.Events[:middle]})
+		if err != nil {
+			return nil, err
+		}
+		second, err := client.pullCalendarBatch(ctx, linkID, CalendarPullRequest{Full: request.Full, Events: request.Events[middle:]})
+		if err != nil {
+			return nil, err
+		}
+		return &CalendarPullResult{Applied: first.Applied + second.Applied, Conflicts: first.Conflicts + second.Conflicts}, nil
 	}
 	path := "/internal/worker-executions/calendar/links/" + linkID + "/pull"
 	var result CalendarPullResult
@@ -166,7 +199,7 @@ func (client *Client) GetCalendarChanges(ctx context.Context, linkID string, lim
 	}
 	path := fmt.Sprintf("/internal/worker-executions/calendar/links/%s/changes?limit=%d", linkID, limit)
 	var result CalendarChangesResult
-	if err := client.requestStrictJSON(ctx, http.MethodGet, path, nil, &result, 1<<20); err != nil {
+	if err := client.requestStrictJSON(ctx, http.MethodGet, path, nil, &result, maxCalendarChangesResponseBytes); err != nil {
 		return nil, err
 	}
 	if len(result.Changes) > limit {
@@ -243,7 +276,12 @@ func (client *Client) LogCalendarEntries(ctx context.Context, linkID string, ent
 		default:
 			return errors.New("calendar log entry direction is invalid")
 		}
-		if strings.TrimSpace(entry.Action) == "" || len(entry.Action) > 64 || len(entry.Detail) > maxCalendarTextLength {
+		switch entry.Action {
+		case "error", "skipped", "conflict":
+		default:
+			return errors.New("calendar log entry action is invalid")
+		}
+		if len(entry.Detail) > maxCalendarTextLength {
 			return errors.New("calendar log entry is invalid")
 		}
 		if entry.ItemID != nil && !canonicalUUID(*entry.ItemID) {
@@ -273,7 +311,10 @@ func validateCalendarEvent(event CalendarEvent) error {
 	if len(event.Title) > maxCalendarTextLength || len(event.Location) > maxCalendarTextLength || len(event.Details) > maxCalendarDetailsLength {
 		return errors.New("calendar event text field is too long")
 	}
-	if strings.TrimSpace(event.Start) == "" {
+	// A cancelled event only identifies what to remove: Google omits start/end on incremental
+	// deletions and Graph sends only the id with @removed, so start is required only when the
+	// event is confirmed.
+	if event.Status == "confirmed" && strings.TrimSpace(event.Start) == "" {
 		return errors.New("calendar event start is required")
 	}
 	if event.UpdatedAt.IsZero() {
