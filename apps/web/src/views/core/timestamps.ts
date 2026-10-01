@@ -93,6 +93,18 @@ export function readerZone(): string {
   return DateTime.local().zoneName;
 }
 
+/** Today as the reader's own calendar day, `yyyy-MM-dd`. */
+export function readerToday(): string {
+  // en-CA formats as YYYY-MM-DD, which is the one locale trick this file allows itself: the
+  // alternative is hand-assembling parts, and both are pinned by the test asserting the shape.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: readerZone(),
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
 /**
  * The day a timestamp falls on, for the reader.
  *

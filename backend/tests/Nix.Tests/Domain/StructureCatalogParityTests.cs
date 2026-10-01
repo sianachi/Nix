@@ -65,33 +65,47 @@ public sealed class StructureCatalogParityTests
             }
 
             Assert.NotNull(descriptor.Requirement);
-            var shape = (string)requires["shape"]!;
 
-            // The catalog names the requirement by the value shape it accepts ("select" or
-            // "date-shaped"), not by which backend predicate enforces it. Rather than compare
-            // delegates by reference - board's and chart's requirements each close over their own
-            // call to CanGroupBy, so they are never the same delegate instance - this checks that
-            // the descriptor's Accepts predicate agrees with the named backend predicate for every
-            // property type, which is what "the same rule" actually means here.
-            var expected = shape switch
-            {
-                "select" => (Func<PropertyType, bool>)PropertyTypes.CanGroupBy,
-                "date-shaped" => PropertyTypes.CanPlaceOnCalendar,
-                _ => throw new Xunit.Sdk.XunitException($"'{shape}' is not a known requirement shape"),
-            };
+            // The catalog lists the property types each requirement accepts, drawn from the web's
+            // own predicates. Comparing that list with the descriptor's Accepts for every
+            // PropertyType is what "the same rule" means: a shape's name ("select",
+            // "date-shaped") says nothing about which types a predicate admits.
+            var accepts = ((JsonArray)requires["accepts"]!)
+                .Select(node => (string)node!)
+                .ToHashSet(StringComparer.Ordinal);
 
             foreach (var type in Enum.GetValues<PropertyType>())
             {
-                Assert.Equal(expected(type), descriptor.Requirement.Accepts(type));
+                Assert.True(
+                    accepts.Contains(PropertyTypes.ToText(type)) == descriptor.Requirement.Accepts(type),
+                    $"'{kind}' and the catalog disagree about '{PropertyTypes.ToText(type)}'.");
             }
+        }
+    }
+
+    [Fact]
+    public void Board_and_chart_requirements_are_CanGroupBy_and_CanChartBy_for_every_property_type()
+    {
+        // Pins which backend predicate each kind is held to, so the catalog comparison above is
+        // also a comparison with CanGroupBy and CanChartBy, the two that must widen apart.
+        var board = ViewKinds.All.Single(candidate => candidate.Kind == ViewKind.Board).Requirement!;
+        var chart = ViewKinds.All.Single(candidate => candidate.Kind == ViewKind.Chart).Requirement!;
+
+        foreach (var type in Enum.GetValues<PropertyType>())
+        {
+            Assert.Equal(type.CanGroupBy(), board.Accepts(type));
+            Assert.Equal(type.CanChartBy(), chart.Accepts(type));
         }
     }
 
     [Fact]
     public void Catalog_query_operators_equal_the_operators_QueryOperators_defines()
     {
+        // The catalog tells the pet what a smart list may filter with, and a smart list is a query
+        // view: compiled to SQL, so it is the compiled set and not the wider container-view set
+        // (ADR-0054) that the two must agree on.
         var catalogOperators = Names(Catalog.Value, "queryOperators", "op");
-        var backendOperators = QueryOperators.All.ToHashSet(StringComparer.Ordinal);
+        var backendOperators = QueryOperators.CompiledByQuery.ToHashSet(StringComparer.Ordinal);
 
         Assert.Equal(backendOperators, catalogOperators);
     }

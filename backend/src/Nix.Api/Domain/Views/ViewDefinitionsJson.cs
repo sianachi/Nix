@@ -103,6 +103,16 @@ public static class ViewDefinitionsJson
     private const string CompanionViewIdKey = "companionViewId";
     private const string CompanionPlacementKey = "companionPlacement";
     private const string InteractiveFormKey = "interactiveForm";
+    private const string SortsKey = "sorts";
+    private const string SortPropertyKey = "property";
+    private const string SortDescendingFlagKey = "descending";
+    private const string CollapsedGroupsKey = "collapsedGroups";
+    private const string GroupLimitsKey = "groupLimits";
+    private const string GroupLimitGroupKey = "group";
+    private const string GroupLimitLimitKey = "limit";
+    private const string AggregatesKey = "aggregates";
+    private const string AggregatePropertyKey = "property";
+    private const string AggregateFunctionKey = "function";
     private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
 
     /// <summary>
@@ -273,6 +283,55 @@ public static class ViewDefinitionsJson
                 entry["habitWidgets"] = JsonSerializer.SerializeToNode(view.HabitWidgets, WebJson);
             }
 
+            // The arrangement fields (ADR-0054), behind the same absent-means-empty guard as
+            // filters: a view nobody has arranged stores none of these keys.
+            if (!view.Sorts.IsDefaultOrEmpty)
+            {
+                var sorts = new JsonArray();
+                foreach (var sort in view.Sorts)
+                {
+                    sorts.Add(new JsonObject
+                    {
+                        [SortPropertyKey] = sort.Property,
+                        [SortDescendingFlagKey] = sort.Descending,
+                    });
+                }
+
+                entry[SortsKey] = sorts;
+            }
+
+            AddStrings(entry, CollapsedGroupsKey, view.CollapsedGroups);
+
+            if (!view.GroupLimits.IsDefaultOrEmpty)
+            {
+                var limits = new JsonArray();
+                foreach (var limit in view.GroupLimits)
+                {
+                    limits.Add(new JsonObject
+                    {
+                        [GroupLimitGroupKey] = limit.Group,
+                        [GroupLimitLimitKey] = limit.Limit,
+                    });
+                }
+
+                entry[GroupLimitsKey] = limits;
+            }
+
+            if (!view.Aggregates.IsDefaultOrEmpty)
+            {
+                var aggregates = new JsonArray();
+                foreach (var aggregate in view.Aggregates)
+                {
+                    aggregates.Add(new JsonObject
+                    {
+                        [AggregatePropertyKey] = aggregate.Property,
+                        [AggregateFunctionKey] = aggregate.Function,
+                    });
+                }
+
+                entry[AggregatesKey] = aggregates;
+            }
+
             stored.Add(entry);
         }
 
@@ -329,7 +388,11 @@ public static class ViewDefinitionsJson
             return null;
         }
 
-        return new ViewDefinition(
+        // Mirrored on read as well as on write: a writer that stores the column without the view
+        // endpoint (a template merge, a document import) may leave the single-key fields naming
+        // something other than the list's first key, and every reader of those fields - the query
+        // runner, an export - must still order by the primary key.
+        return ViewSorting.MirrorPrimary(new ViewDefinition(
             id,
             ReadString(view[NameKey]) ?? id,
             kind,
@@ -350,7 +413,89 @@ public static class ViewDefinitionsJson
             ReadMeasure(view[MeasureKey]),
             ReadString(view[MeasurePropertyKey]),
             ReadHabitWidgets(view["habitWidgets"]),
-            ReadLayout(view[LayoutKey]));
+            ReadLayout(view[LayoutKey]),
+            ReadSorts(view[SortsKey]),
+            ReadStrings(view[CollapsedGroupsKey]),
+            ReadGroupLimits(view[GroupLimitsKey]),
+            ReadAggregates(view[AggregatesKey])));
+    }
+
+    /// <summary>
+    /// Reads stored sort keys, dropping a malformed entry or a repeated key without costing the view.
+    /// </summary>
+    private static ImmutableArray<ViewSort> ReadSorts(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        var sorts = ImmutableArray.CreateBuilder<ViewSort>(array.Count);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in array)
+        {
+            if (entry is JsonObject sort
+                && ReadString(sort[SortPropertyKey]) is { Length: > 0 } property
+                && seen.Add(property))
+            {
+                var descending = sort[SortDescendingFlagKey] is JsonValue flag
+                    && flag.TryGetValue(out bool value)
+                    && value;
+                sorts.Add(new ViewSort(property, descending));
+            }
+        }
+
+        return sorts.ToImmutable();
+    }
+
+    /// <summary>Reads stored group limits, dropping any entry that is not a positive count.</summary>
+    private static ImmutableArray<ViewGroupLimit> ReadGroupLimits(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        var limits = ImmutableArray.CreateBuilder<ViewGroupLimit>(array.Count);
+        foreach (var entry in array)
+        {
+            if (entry is JsonObject limit
+                && ReadString(limit[GroupLimitGroupKey]) is { } group
+                && limit[GroupLimitLimitKey] is JsonValue count
+                && count.TryGetValue(out int value)
+                && value > 0)
+            {
+                limits.Add(new ViewGroupLimit(group, value));
+            }
+        }
+
+        return limits.ToImmutable();
+    }
+
+    /// <summary>
+    /// Reads stored column summaries, dropping a function this build does not define - the footer
+    /// loses that column's summary, never the view.
+    /// </summary>
+    private static ImmutableArray<ViewAggregate> ReadAggregates(JsonNode? node)
+    {
+        if (node is not JsonArray array)
+        {
+            return [];
+        }
+
+        var aggregates = ImmutableArray.CreateBuilder<ViewAggregate>(array.Count);
+        foreach (var entry in array)
+        {
+            if (entry is JsonObject aggregate
+                && ReadString(aggregate[AggregatePropertyKey]) is { Length: > 0 } property
+                && ReadString(aggregate[AggregateFunctionKey]) is { } function
+                && ViewAggregateFunctions.IsValid(function))
+            {
+                aggregates.Add(new ViewAggregate(property, function));
+            }
+        }
+
+        return aggregates.ToImmutable();
     }
 
     private static ImmutableArray<HabitWidgetDefinition> ReadHabitWidgets(JsonNode? node)

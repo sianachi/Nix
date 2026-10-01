@@ -91,4 +91,84 @@ describe('shared structured-view configuration', () => {
     await user.selectOptions(end, 'ends');
     expect(end).toHaveValue('ends');
   });
+
+  it('writes the sort list with the single key, keeping later keys that do not repeat it', async () => {
+    const user = userEvent.setup();
+    let latest: View | null = null;
+
+    function Harness(): ReactNode {
+      const [view, setView] = useState<View>(
+        aView({
+          kind: 'list',
+          sortBy: 'status',
+          sortDescending: true,
+          sorts: [
+            { property: 'status', descending: true },
+            { property: 'priority', descending: false },
+            { property: 'title', descending: true },
+          ],
+        }),
+      );
+      return (
+        <StructuredViewConfiguration
+          view={view}
+          fields={FIELDS}
+          onChange={(next) => {
+            latest = next;
+            setView(next);
+          }}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), 'priority');
+    expect(latest).toMatchObject({
+      sortBy: 'priority',
+      sortDescending: true,
+      sorts: [
+        { property: 'priority', descending: true },
+        { property: 'title', descending: true },
+      ],
+    });
+
+    await user.click(screen.getByRole('checkbox', { name: 'Descending order' }));
+    expect(latest).toMatchObject({
+      sortDescending: false,
+      sorts: [
+        { property: 'priority', descending: false },
+        { property: 'title', descending: true },
+      ],
+    });
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort by' }), '');
+    expect(latest).toMatchObject({ sortBy: null, sorts: [] });
+  });
+
+  it('offers saved filters on every container kind that applies them', () => {
+    for (const kind of ['list', 'sheet', 'board', 'gallery', 'calendar', 'timeline']) {
+      const { unmount } = render(
+        <StructuredViewConfiguration
+          view={aView({ kind })}
+          fields={FIELDS}
+          onChange={() => undefined}
+        />,
+      );
+      expect(screen.getByRole('button', { name: 'Add a filter' })).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('offers a chart no filters, because its bars are counted without them', () => {
+    render(
+      <StructuredViewConfiguration
+        view={aView({ kind: 'chart', groupBy: 'status' })}
+        fields={FIELDS}
+        onChange={() => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Add a filter' })).not.toBeInTheDocument();
+  });
 });

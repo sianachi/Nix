@@ -245,6 +245,8 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
       title: 'No items match the filters',
       detail: `This holds ${countOf(total, 'item')}. The filters in the address are hiding ${total === 1 ? 'it' : 'all of them'}, so the gallery is empty by request rather than because there is nothing here.`,
     }),
+    savedRules: view.filters,
+    view,
     sortBy: viewState.sortBy ?? view.sortBy,
     descending:
       viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',

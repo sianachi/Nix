@@ -4,6 +4,8 @@ using Nix.Domain.Properties;
 using Nix.Domain.Templates;
 using Nix.Domain.Views;
 
+using Nix.Features.Views;
+
 namespace Nix.Features.Templates;
 
 internal static class TemplateMapping
@@ -127,7 +129,17 @@ internal static class TemplateMapping
             view.CompanionViewId,
             view.CompanionPlacement,
             InteractiveForm(view.InteractiveForm),
-            view.Layout);
+            view.Layout,
+            view.Sorts.IsDefaultOrEmpty
+                ? []
+                : view.Sorts.Select(sort => new ViewSortContract(sort.Property, sort.Descending)).ToArray(),
+            view.CollapsedGroups.IsDefaultOrEmpty ? [] : view.CollapsedGroups,
+            view.GroupLimits.IsDefaultOrEmpty
+                ? []
+                : view.GroupLimits.Select(limit => new ViewGroupLimitContract(limit.Group, limit.Limit)).ToArray(),
+            view.Aggregates.IsDefaultOrEmpty
+                ? []
+                : view.Aggregates.Select(aggregate => new ViewAggregateContract(aggregate.Property, aggregate.Function)).ToArray());
 
     private static TemplateInteractiveFormResponse? InteractiveForm(InteractiveFormDefinition? form) =>
         form is null

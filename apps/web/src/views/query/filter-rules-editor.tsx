@@ -3,10 +3,11 @@ import { Trash2 } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 
 import type { PropertyDefinition, ViewFilterRule } from '../core/container-model';
+import { operatorTakesValue } from '../core/filter-rules';
 import { isComputedType } from '../core/property-types';
 
 /**
- * The smallest honest editor for a query view's filters: one row per rule - property, operator,
+ * The smallest honest editor for a view's filters: one row per rule - property, operator,
  * value - with add and remove.
  *
  * **The property is free text with the local schema as suggestions, and the hint says why.** A
@@ -20,8 +21,13 @@ import { isComputedType } from '../core/property-types';
  * disabled-looking extra option rather than silently rewriting it.
  */
 
-/** The operators this build offers, with the words a person sees. */
-const OPERATORS: readonly { readonly value: string; readonly label: string }[] = [
+interface OperatorChoice {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** The operators a query view's SQL compiles, with the words a person sees. */
+const QUERY_OPERATORS: readonly OperatorChoice[] = [
   { value: 'equals', label: 'is' },
   { value: 'not-equals', label: 'is not' },
   { value: 'on', label: 'is on' },
@@ -30,8 +36,44 @@ const OPERATORS: readonly { readonly value: string; readonly label: string }[] =
   { value: 'within-next', label: 'is within the next (days)' },
 ];
 
+/**
+ * Every operator a container view evaluates over its own children (ADR-0054). The six beyond the
+ * compiled ones have no SQL yet, so a query view is never offered them; the server refuses them
+ * there too.
+ */
+const CONTAINER_OPERATORS: readonly OperatorChoice[] = [
+  ...QUERY_OPERATORS,
+  { value: 'contains', label: 'contains' },
+  { value: 'not-contains', label: 'does not contain' },
+  { value: 'greater-than', label: 'is more than' },
+  { value: 'less-than', label: 'is less than' },
+  { value: 'is-empty', label: 'is empty' },
+  { value: 'is-not-empty', label: 'is not empty' },
+];
+
+/** The operators whose value is a number. */
+const NUMBER_OPERATORS: ReadonlySet<string> = new Set(['greater-than', 'less-than']);
+
 /** The operators whose value is a day - `today`, or a date written yyyy-MM-dd. */
 const DAY_OPERATORS: ReadonlySet<string> = new Set(['on', 'before', 'on-or-after']);
+
+/**
+ * The kind of value an operator reads. A value is kept across an operator change only when the
+ * kind stays the same: a day under "is more than" or a number under "is on" would be refused on
+ * save, so it is cleared rather than carried into a grammar it does not fit.
+ */
+function valueKindOf(operator: string): 'none' | 'day' | 'days' | 'number' | 'text' {
+  if (!operatorTakesValue(operator)) {
+    return 'none';
+  }
+  if (DAY_OPERATORS.has(operator)) {
+    return 'day';
+  }
+  if (operator === 'within-next') {
+    return 'days';
+  }
+  return NUMBER_OPERATORS.has(operator) ? 'number' : 'text';
+}
 
 export interface FilterRulesEditorProps {
   readonly rules: readonly ViewFilterRule[];
@@ -48,6 +90,7 @@ export interface FilterRulesEditorProps {
 export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
   const { rules, schema, onChange, scope = 'query' } = props;
   const listId = useId();
+  const operators = scope === 'query' ? QUERY_OPERATORS : CONTAINER_OPERATORS;
 
   function replace(index: number, changes: Partial<ViewFilterRule>): void {
     onChange(rules.map((rule, position) => (position === index ? { ...rule, ...changes } : rule)));
@@ -77,7 +120,7 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
       </datalist>
 
       {rules.map((rule, index) => {
-        const known = OPERATORS.some((operator) => operator.value === rule.operator);
+        const known = operators.some((operator) => operator.value === rule.operator);
 
         return (
           // The index is the identity here: rules have no ids, and reordering is not offered, so
@@ -102,10 +145,18 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
                   {...control}
                   value={rule.operator}
                   onChange={(event) => {
-                    replace(index, { operator: event.target.value });
+                    const operator = event.target.value;
+                    // A value left from an operator that reads another kind of value - or one
+                    // under an operator that takes none - is dropped rather than saved and refused.
+                    replace(
+                      index,
+                      valueKindOf(operator) === valueKindOf(rule.operator)
+                        ? { operator }
+                        : { operator, value: '' },
+                    );
                   }}
                 >
-                  {OPERATORS.map((operator) => (
+                  {operators.map((operator) => (
                     <option key={operator.value} value={operator.value}>
                       {operator.label}
                     </option>
@@ -116,24 +167,31 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
               )}
             </Field>
 
-            <Field
-              label="Value"
-              {...(DAY_OPERATORS.has(rule.operator)
-                ? { hint: "'today', or a date written 2026-08-15" }
-                : rule.operator === 'within-next'
-                  ? { hint: 'A number of days, 1 to 365' }
-                  : {})}
-            >
-              {(control) => (
-                <Input
-                  {...control}
-                  value={rule.value}
-                  onChange={(event) => {
-                    replace(index, { value: event.target.value });
-                  }}
-                />
-              )}
-            </Field>
+            {operatorTakesValue(rule.operator) ? (
+              <Field
+                label="Value"
+                {...(DAY_OPERATORS.has(rule.operator)
+                  ? { hint: "'today', or a date written 2026-08-15" }
+                  : rule.operator === 'within-next'
+                    ? { hint: 'A number of days, 1 to 365' }
+                    : NUMBER_OPERATORS.has(rule.operator)
+                      ? { hint: 'A number, written like 12 or -3.5' }
+                      : {})}
+              >
+                {(control) => (
+                  <Input
+                    {...control}
+                    value={rule.value}
+                    onChange={(event) => {
+                      replace(index, { value: event.target.value });
+                    }}
+                  />
+                )}
+              </Field>
+            ) : (
+              // Keeps the row's grid columns aligned when the value has nothing to ask.
+              <div aria-hidden="true" />
+            )}
 
             <Button
               variant="icon"

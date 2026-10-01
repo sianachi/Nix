@@ -297,7 +297,8 @@ public sealed class TemplateDefinitionValidator
             }
 
             if (view.GroupBy is { } groupBy
-                && (schema.Find(groupBy) is not { } grouping || !grouping.Type.CanGroupBy()))
+                && (schema.Find(groupBy) is not { } grouping
+                    || !(view.Kind == ViewKind.Chart ? grouping.Type.CanChartBy() : grouping.Type.CanGroupBy())))
             {
                 return $"View '{view.Name}' groups by '{groupBy}', which must be a declared single-select property.";
             }

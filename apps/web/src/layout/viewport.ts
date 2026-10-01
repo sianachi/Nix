@@ -124,3 +124,24 @@ export function useDrawerNavigation(): boolean {
 export function useOverlayDetails(): boolean {
   return !useMediaQuery(WIDE_ENOUGH_FOR_INLINE_DETAILS);
 }
+
+/**
+ * Whether the primary pointer is a finger rather than a mouse or a pen.
+ *
+ * **Asked separately from width, because they are separate facts.** Every view's phone arrangement
+ * keys off {@link useNarrowViewport}, which a landscape tablet does not satisfy - so a tablet gets
+ * the desktop layout, which is right, but must not also get desktop gestures: a drag that needs a
+ * mouse, a menu that opens on hover, a 28px control. This answers that second question, and the
+ * layout question stays with width.
+ */
+export function useCoarsePointer(): boolean {
+  return useMediaQuery('(pointer: coarse)');
+}
+
+/**
+ * Whether the primary pointer can hover. False on a touch screen, where a control revealed only on
+ * hover is a control that does not exist.
+ */
+export function useCanHover(): boolean {
+  return useMediaQuery('(hover: hover)');
+}

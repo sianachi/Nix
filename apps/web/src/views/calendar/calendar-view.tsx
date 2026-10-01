@@ -258,6 +258,8 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     }),
     // A calendar is ordered by the grid, not by a column header: within a day, items keep the order
     // somebody arranged them in.
+    savedRules: view.filters,
+    view,
     sortBy: null,
     descending: false,
   });

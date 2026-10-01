@@ -1,5 +1,6 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Text, focusRing } from '@nix/ui';
 import { useMemo, type ReactNode } from 'react';
+import { Link } from 'react-router';
 
 import {
   EmptyPanel,
@@ -7,8 +8,17 @@ import {
   LoadingPanel,
   PartialNotice,
 } from '../../components/states/status-panels';
-import { applyFilters, sortItems, type Item } from './container-model';
+import {
+  applyFilters,
+  sortItems,
+  type Item,
+  type View,
+  type ViewFilterRule,
+} from './container-model';
+import { applyRules } from './filter-rules';
+import { namesReader, useRuleContext } from './use-rule-context';
 import type { ContainerData } from './use-container';
+import { viewConfigureHref } from './view-configure-route';
 import type { ViewStateControl } from './view-state';
 
 /**
@@ -103,6 +113,20 @@ export interface ViewChromeArgs<TValue> {
    */
   readonly filtered: (total: number) => ViewChromeMessage;
 
+  /**
+   * The rules stored on the view itself, applied before the address's filters.
+   *
+   * Required rather than defaulted so a new view kind cannot forget them: a view whose settings say
+   * "only open tasks" and whose screen shows every task is the defect this field exists to end.
+   */
+  readonly savedRules: readonly ViewFilterRule[];
+
+  /**
+   * The view being drawn, so a sentence about its saved filters can link to where they are
+   * changed. Null for a container drawn with no view configured, which has no saved filters.
+   */
+  readonly view: Pick<View, 'id' | 'kind'> | null;
+
   /** How the items are ordered. Null leaves them in the order somebody arranged them by hand. */
   readonly sortBy: string | null;
   readonly descending: boolean;
@@ -164,19 +188,50 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
   // Sorting 3,200 children is measured work, and the returned array's identity is the
   // virtualizer's subscription boundary. Keep both stable across local interaction renders;
   // children, URL filters or the chosen ordering are the only facts that can change the result.
-  const visible = useMemo(
-    () => applyFilters(container.children, viewState.filters),
-    [container.children, viewState.filters],
+  const reader = useRuleContext(args.savedRules);
+  const ruleContext = reader.context;
+  const readerUnknown = reader.needsPrincipal && reader.principal === 'failed';
+  // A rule about the reader that can never be checked is set aside rather than left to hide
+  // everything, and the notice below says so; the rest of the view's rules still apply.
+  const savedRules = useMemo(
+    () => (readerUnknown ? args.savedRules.filter((rule) => !namesReader(rule)) : args.savedRules),
+    [args.savedRules, readerUnknown],
   );
+  const saved = useMemo(
+    () => applyRules(container.children, savedRules, ruleContext),
+    [savedRules, container.children, ruleContext],
+  );
+  const visible = useMemo(
+    () => applyFilters(saved, viewState.filters, ruleContext),
+    [ruleContext, saved, viewState.filters],
+  );
+  const properties = container.schema?.properties;
   const sorted = useMemo(
-    () => sortItems(visible, args.sortBy, args.descending),
-    [args.descending, args.sortBy, visible],
+    () => sortItems(visible, args.sortBy, args.descending, properties),
+    [args.descending, args.sortBy, properties, visible],
   );
 
   const loadState = resolveLoadState(container, args.subject);
   if (loadState !== null) {
     return { kind: 'chrome', node: loadState };
   }
+
+  // A rule naming `me` cannot be evaluated until the reader is known, and evaluating it with
+  // nobody in `me` would flash an empty view - or the "filters hide everything" panel - first.
+  if (reader.needsPrincipal && reader.principal === 'loading') {
+    return { kind: 'chrome', node: <LoadingPanel label={args.subject} /> };
+  }
+
+  const configureHref = args.view === null ? null : viewConfigureHref(container.itemId, args.view);
+  const changeFilters =
+    configureHref === null ? null : (
+      <Link
+        to={configureHref}
+        className={`inline-flex w-fit items-center underline pointer-coarse:min-h-(--control-lg) ${focusRing}`}
+      >
+        Change this view&apos;s filters
+      </Link>
+    );
 
   // Before anything about items: can this be drawn at all? Checked after the two states above, so a
   // view whose schema has not arrived yet is never accused of naming a property that does not
@@ -202,11 +257,38 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     };
   }
 
+  if (saved.length === 0) {
+    // The view's own settings hide everything. Clearing the address would change nothing, so the
+    // way out is named rather than offered as a button that does not work.
+    return {
+      kind: 'chrome',
+      node: (
+        <EmptyPanel
+          title="No items match this view's filters"
+          detail={savedFiltersHideAll(
+            container.children.length,
+            args.subject,
+            container.truncated,
+            changeFilters !== null,
+          )}
+          action={
+            changeFilters === null && args.emptyAction === undefined ? undefined : (
+              <div className="flex flex-wrap items-center gap-3">
+                {changeFilters}
+                {args.emptyAction}
+              </div>
+            )
+          }
+        />
+      ),
+    };
+  }
+
   if (visible.length === 0) {
     // Emptiness we caused rather than emptiness we found, and told apart from it deliberately:
     // somebody who followed a filtered link and is told "nothing in here yet" goes looking for
     // items they think have been deleted.
-    const message = args.filtered(container.children.length);
+    const message = args.filtered(saved.length);
 
     return {
       kind: 'chrome',
@@ -225,7 +307,8 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     };
   }
 
-  const hidden = container.children.length - visible.length;
+  const hiddenBySaved = container.children.length - saved.length;
+  const hiddenByAddress = saved.length - visible.length;
 
   // Truncation is said alongside the filter notice, not instead of it: they are two different
   // partialities. A container past the paging ceiling shows its first pages, and every count a
@@ -235,11 +318,20 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     container.truncated
       ? `Only the first ${String(container.children.length)} items in here are loaded.`
       : null,
-    hidden === 0 ? null : hiddenNotice(hidden),
+    hiddenBySaved === 0 ? null : hiddenNotice(hiddenBySaved, "this view's saved filters"),
+    hiddenByAddress === 0 ? null : hiddenNotice(hiddenByAddress, 'the current filters'),
+    readerUnknown
+      ? 'Rules about you could not be checked, so they are not applied and more items may show.'
+      : null,
   ].filter((sentence): sentence is string => sentence !== null);
 
   const partialityNotice =
-    partiality.length === 0 ? null : <PartialNotice pending={partiality.join(' ')} />;
+    partiality.length === 0 ? null : (
+      <PartialNotice
+        pending={partiality.join(' ')}
+        {...(hiddenBySaved === 0 || changeFilters === null ? {} : { action: changeFilters })}
+      />
+    );
   const backgroundNotice = refreshNotice(
     container.refreshing,
     container.refreshError,
@@ -304,16 +396,35 @@ function refreshNotice(
 }
 
 /**
- * What a view says about the items its filters are holding back.
+ * What a view says about the items its filters are holding back, and which filters those are.
  *
- * Worth saying out loud because nothing else on screen says it: this build carries the filters in
- * the address and nowhere else, so a view drawing four of nine items looks exactly like a container
- * holding four.
+ * Worth saying out loud because nothing else on screen says it: a view drawing four of nine items
+ * looks exactly like a container holding four. The two sources are named apart because they are
+ * undone in different places - the address by clearing it, the view's own rules in its settings.
  */
-function hiddenNotice(hidden: number): string {
+function hiddenNotice(hidden: number, by: string): string {
   return hidden === 1
-    ? 'One more item is here and hidden by the current filters.'
-    : `${String(hidden)} more items are here and hidden by the current filters.`;
+    ? `One more item is here and hidden by ${by}.`
+    : `${String(hidden)} more items are here and hidden by ${by}.`;
+}
+
+function savedFiltersHideAll(
+  total: number,
+  subject: string,
+  truncated: boolean,
+  linked: boolean,
+): string {
+  // With the link beside it, the sentence telling somebody where to go would only repeat it.
+  const where = linked ? '' : " Change them in the view's settings to see more.";
+
+  // A truncated container's count is of what is loaded, not of what is there: "hide all 4,000"
+  // would claim the items past the paging ceiling were checked too.
+  if (truncated) {
+    return `None of the first ${String(total)} loaded items match the filters saved with ${subject}.${where}`;
+  }
+
+  const items = total === 1 ? 'its one item' : `all ${String(total)} of its items`;
+  return `The filters saved with ${subject} hide ${items}.${where}`;
 }
 
 /** "this board" as the first two words of a sentence. */

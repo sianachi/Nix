@@ -15,7 +15,12 @@ export interface StructuredViewConfigurationProps {
   /** Creation recipes deliberately expose columns only for the kinds whose wizard promises them. */
   readonly showColumns?: boolean | undefined;
   /** Creation recipes deliberately expose sorting only where their wizard promises it. */
-  readonly showSortAndFilters?: boolean | undefined;
+  readonly showSort?: boolean | undefined;
+  /**
+   * The saved filters. Defaults to the kinds that apply them to their children, so a kind that
+   * ignores them - a chart - is never offered rules that would change nothing.
+   */
+  readonly showFilters?: boolean | undefined;
   /** A Smart-list wizard owns its starter choices and passes false to avoid a second filter editor. */
   readonly showKindFilters?: boolean | undefined;
 }
@@ -31,10 +36,12 @@ export function StructuredViewConfiguration({
   fields,
   onChange,
   showColumns = !['query', 'interactive_form'].includes(view.kind),
-  showSortAndFilters = !['form', 'interactive_form', 'query'].includes(view.kind),
+  showSort = !['form', 'interactive_form', 'query'].includes(view.kind),
+  showFilters,
   showKindFilters = true,
 }: StructuredViewConfigurationProps): ReactNode {
   const descriptor = findViewKind(view.kind);
+  const showsSavedFilters = showFilters ?? descriptor?.appliesSavedFilters === true;
 
   return (
     <>
@@ -130,18 +137,17 @@ export function StructuredViewConfiguration({
 
       {showColumns ? <ViewColumns view={view} fields={fields} onChange={onChange} /> : null}
 
-      {showSortAndFilters ? (
-        <>
-          <SortChoice view={view} fields={fields} onChange={onChange} />
-          <FilterRulesEditor
-            scope="container"
-            rules={view.filters}
-            schema={fields}
-            onChange={(filters) => {
-              onChange({ ...view, filters: [...filters] });
-            }}
-          />
-        </>
+      {showSort ? <SortChoice view={view} fields={fields} onChange={onChange} /> : null}
+
+      {showsSavedFilters ? (
+        <FilterRulesEditor
+          scope="container"
+          rules={view.filters}
+          schema={fields}
+          onChange={(filters) => {
+            onChange({ ...view, filters: [...filters] });
+          }}
+        />
       ) : showKindFilters && descriptor?.editsFilters === true ? (
         <FilterRulesEditor
           rules={view.filters}
@@ -185,9 +191,20 @@ function SortChoice({
             {...control}
             value={view.sortBy ?? ''}
             onChange={(event) => {
+              const value = event.target.value;
+              // The list's first key is the one this control names; keys after it are kept unless
+              // they repeat the new primary. Written together so the server's mirror of the
+              // primary into sortBy never disagrees with what this control shows.
               onChange({
                 ...view,
-                sortBy: event.target.value.length === 0 ? null : event.target.value,
+                sortBy: value.length === 0 ? null : value,
+                sorts:
+                  value.length === 0
+                    ? []
+                    : [
+                        { property: value, descending: view.sortDescending },
+                        ...(view.sorts ?? []).slice(1).filter((sort) => sort.property !== value),
+                      ],
               });
             }}
           >
@@ -208,7 +225,13 @@ function SortChoice({
           disabled={view.sortBy === null}
           className={focusRing}
           onChange={(event) => {
-            onChange({ ...view, sortDescending: event.target.checked });
+            const descending = event.target.checked;
+            const [primary, ...rest] = view.sorts ?? [];
+            onChange({
+              ...view,
+              sortDescending: descending,
+              ...(primary === undefined ? {} : { sorts: [{ ...primary, descending }, ...rest] }),
+            });
           }}
         />
         Descending order

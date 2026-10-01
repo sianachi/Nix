@@ -247,7 +247,7 @@ public static class ViewKinds
             "chart",
             new ViewRequirement(
                 static view => view.GroupBy,
-                static type => Nix.Domain.Properties.PropertyTypes.CanGroupBy(type),
+                static type => Nix.Domain.Properties.PropertyTypes.CanChartBy(type),
                 "a chart needs a property to group by")),
     ];
 
@@ -420,8 +420,11 @@ public static class GalleryCardSizes
 /// existed has always looked like.
 /// </param>
 /// <param name="Filters">
-/// For a query: the conditions the server compiles and runs, AND-combined. Default and empty both
-/// mean no conditions; on every other kind the field is stored and ignored.
+/// The conditions a view's items must meet, AND-combined; default and empty both mean none. A query
+/// view compiles them to SQL across the workspace; a list, board, calendar, timeline, gallery or
+/// sheet applies them to its own children (ADR-0054, which reverses the earlier "stored and
+/// ignored"). A chart stores them without applying them: its buckets are folded on the server,
+/// which does not read them.
 /// </param>
 /// <remarks>
 /// <para>
@@ -528,7 +531,19 @@ public sealed record ViewDefinition(
     // Last and defaulted, like every field added since the record was first cut. For a drive: list
     // or grid. Null means list, which is what every drive drew before the field existed; the set is
     // closed and policed on write, see DriveLayouts.
-    string? Layout = null)
+    string? Layout = null,
+
+    // The four below are last and defaulted like every field added since the record was cut, and
+    // they are how somebody arranges what a container view shows (ADR-0054). Sorts is the ordered
+    // list of keys; SortBy and SortDescending mirror its first entry so a build that reads only
+    // those still orders by the primary key. CollapsedGroups and GroupLimits name groups by the
+    // grouping property's stored value, the empty string standing for the "no value" group.
+    // Aggregates are what a list or sheet summarises per column. None of them is a placement: a
+    // card's position is still its value and its sibling order.
+    ImmutableArray<ViewSort> Sorts = default,
+    ImmutableArray<string> CollapsedGroups = default,
+    ImmutableArray<ViewGroupLimit> GroupLimits = default,
+    ImmutableArray<ViewAggregate> Aggregates = default)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.
@@ -564,3 +579,86 @@ public sealed record ViewDefinition(
 
 /// <summary>A saved habit chart and its inclusive local-date range.</summary>
 public sealed record HabitWidgetDefinition(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);
+
+/// <summary>Rules about a view's ordering that every writer applies alike.</summary>
+public static class ViewSorting
+{
+    /// <summary>
+    /// Mirrors the first of a view's sort keys into its single-key fields.
+    /// </summary>
+    /// <param name="view">The view as written.</param>
+    /// <returns>The view with <c>SortBy</c> and <c>SortDescending</c> naming its primary key.</returns>
+    /// <remarks>
+    /// So a reader that knows only the single-key fields - an older build, an export, the query
+    /// runner - still orders by the primary key. With no sort list the single-key fields are the
+    /// whole statement, as they were before the list existed.
+    /// </remarks>
+    public static ViewDefinition MirrorPrimary(ViewDefinition view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+
+        return view.Sorts.IsDefaultOrEmpty
+            ? view
+            : view with { SortBy = view.Sorts[0].Property, SortDescending = view.Sorts[0].Descending };
+    }
+}
+
+/// <summary>One key a view orders its items by.</summary>
+/// <param name="Property">The property key, or <c>title</c>.</param>
+/// <param name="Descending">Which way.</param>
+public sealed record ViewSort(string Property, bool Descending);
+
+/// <summary>A soft limit on how many items one group should hold.</summary>
+/// <param name="Group">The grouping property's stored value; empty for the "no value" group.</param>
+/// <param name="Limit">The count past which the group is shown as over its limit.</param>
+/// <remarks>
+/// A signal, never a refusal: moving an item into a full group still succeeds. A board that
+/// refused the move would make the limit a lock on the work rather than a prompt about it.
+/// </remarks>
+public sealed record ViewGroupLimit(string Group, int Limit);
+
+/// <summary>What a list or sheet shows beneath one column.</summary>
+/// <param name="Property">The property key the summary folds.</param>
+/// <param name="Function">One of <see cref="ViewAggregateFunctions"/>' closed set.</param>
+public sealed record ViewAggregate(string Property, string Function);
+
+/// <summary>The summaries a column may show, and the limits on a view's arrangement fields.</summary>
+/// <remarks>
+/// Folded on the client over the rows it shows; stored as text for the same reason every token in
+/// this file is, so a summary a newer build adds costs an older one the footer, not the view.
+/// </remarks>
+public static class ViewAggregateFunctions
+{
+    /// <summary>How many rows.</summary>
+    public const string Count = "count";
+
+    /// <summary>How many rows have no value.</summary>
+    public const string CountEmpty = "count-empty";
+
+    /// <summary>How many rows have a value.</summary>
+    public const string CountFilled = "count-filled";
+
+    /// <summary>The total of a number column.</summary>
+    public const string Sum = "sum";
+
+    /// <summary>The mean of a number column.</summary>
+    public const string Average = "average";
+
+    /// <summary>The smallest value.</summary>
+    public const string Min = "min";
+
+    /// <summary>The largest value.</summary>
+    public const string Max = "max";
+
+    /// <summary>The share of a checkbox column that is checked.</summary>
+    public const string PercentChecked = "percent-checked";
+
+    /// <summary>Every function this build defines.</summary>
+    public static readonly ImmutableArray<string> All =
+        [Count, CountEmpty, CountFilled, Sum, Average, Min, Max, PercentChecked];
+
+    /// <summary>Whether the function is one this build defines.</summary>
+    /// <param name="value">The stored text.</param>
+    /// <returns><see langword="true"/> when it is in <see cref="All"/>.</returns>
+    public static bool IsValid(string value) => All.Contains(value);
+}
