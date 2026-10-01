@@ -239,12 +239,15 @@ async function toResponseError(
   telemetry: NixTelemetry | undefined,
 ): Promise<NixApiError> {
   const contentType = response.headers['content-type'] ?? '';
-  if (!contentType.includes(PROBLEM_CONTENT_TYPE)) return NixApiError.fromStatus(response.status);
+  const retryAfter = retryAfterSeconds(response.headers['retry-after']);
+  if (!contentType.includes(PROBLEM_CONTENT_TYPE)) {
+    return NixApiError.fromStatus(response.status, undefined, retryAfter);
+  }
   try {
     let problemBody = response.body;
     if (typeof Blob !== 'undefined' && problemBody instanceof globalThis.Blob) {
       if (problemBody.size > MAX_PROBLEM_DETAILS_BYTES) {
-        return NixApiError.fromStatus(response.status);
+        return NixApiError.fromStatus(response.status, undefined, retryAfter);
       }
       const text = await problemBody.text();
       try {
@@ -259,8 +262,17 @@ async function toResponseError(
       status: response.status,
       telemetry,
     });
-    return NixApiError.fromProblemDetails(response.status, problem);
+    return NixApiError.fromProblemDetails(response.status, problem, retryAfter);
   } catch {
-    return NixApiError.fromStatus(response.status);
+    return NixApiError.fromStatus(response.status, undefined, retryAfter);
   }
+}
+
+/**
+ * `Retry-After` as whole seconds. Only the delta-seconds form is read: Core sends nothing else,
+ * and an HTTP date from an intermediary is rare enough that "no hint" is the honest answer.
+ */
+function retryAfterSeconds(header: string | undefined): number | undefined {
+  if (header === undefined || !/^\d{1,9}$/.test(header.trim())) return undefined;
+  return Number(header.trim());
 }

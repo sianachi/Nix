@@ -30,17 +30,32 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
 {
     private readonly NixSqlExecutor _sql;
     private readonly INixSessionContextAccessor _session;
+    private readonly CredentialSessionContext _credential;
+    private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="WorkspaceGraphReader"/> class.</summary>
     /// <param name="sql">The executor sharing this unit of work's connection and transaction.</param>
     /// <param name="session">The tenant this request runs as.</param>
-    public WorkspaceGraphReader(NixSqlExecutor sql, INixSessionContextAccessor session)
+    /// <param name="credential">
+    /// The credential this request authenticated with: which locks it has opened decides which
+    /// nodes under a lock the graph may draw (ADR-0056).
+    /// </param>
+    /// <param name="clock">Judges lock-grant expiry.</param>
+    public WorkspaceGraphReader(
+        NixSqlExecutor sql,
+        INixSessionContextAccessor session,
+        CredentialSessionContext credential,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(sql);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(credential);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _sql = sql;
         _session = session;
+        _credential = credential;
+        _clock = clock;
     }
 
     private TenantId Tenant => (_session.Current
@@ -85,6 +100,9 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
                 new NpgsqlParameter("node_limit", NpgsqlDbType.Integer) { Value = nodeLimit },
                 new NpgsqlParameter("link_limit", NpgsqlDbType.Integer) { Value = linkLimit },
                 await LockFilterParameters.AllLocksAsync(_sql, Tenant, cancellationToken).ConfigureAwait(false),
+                await LockFilterParameters
+                    .ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken)
+                    .ConfigureAwait(false),
             ],
             cancellationToken);
 

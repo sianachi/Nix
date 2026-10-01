@@ -56,9 +56,15 @@ internal sealed class ItemLinkConfiguration : IEntityTypeConfiguration<ItemLink>
             .HasPrincipalKey(item => new { item.TenantId, item.Id })
             .OnDelete(DeleteBehavior.Cascade);
 
-        // The backlinks query reads by target: "what points at the item I am looking at". The
-        // primary key leads with the source, so it cannot serve that direction at all.
-        builder.HasIndex(link => new { link.TenantId, link.TargetItemId })
-            .HasDatabaseName("ix_item_link_target");
+        // The backlinks and related-items reads go by target: "what points at the item I am
+        // looking at", most-referring first. The primary key leads with the source, so it cannot
+        // serve that direction at all. Ordered by occurrences (descending) and then source, so a
+        // hub's sources come off the index already in the order both reads rank them and a
+        // bounded read stops after its limit instead of sorting every edge into the hub; the
+        // source column also makes the related read's first stage index-only. SearchSql records
+        // the measured plans.
+        builder.HasIndex(link => new { link.TenantId, link.TargetItemId, link.Occurrences, link.SourceItemId })
+            .IsDescending(false, false, true, false)
+            .HasDatabaseName("ix_item_link_target_occurrences");
     }
 }

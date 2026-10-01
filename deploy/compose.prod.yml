@@ -176,6 +176,7 @@ services:
       Nix__ForwardedHeaders__ForwardLimit: "2"
       Nix__RateLimits__WritesPerMinute: "120"
       Nix__RateLimits__PublicFormSubmissionsPerMinute: "20"
+      Nix__RateLimits__SuggestionsPerMinute: "60"
       Nix__GoWorkers__ExportEnabled: "true"
       Nix__GoWorkers__ImportEnabled: "true"
       Nix__Search__OpenSearchEnabled: ${NIX_SEARCH_OPENSEARCH_ENABLED:-false}

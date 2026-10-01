@@ -7,10 +7,20 @@ import {
   type ListboxOption,
 } from '@nix/ui';
 import { FileText } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { Editor } from '@tiptap/react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { frecencyScores, recordPick } from '../lib/frecency';
+import { choiceOrderOn } from '../settings/suggestion-preferences';
+import { rankReferences } from '../lib/suggest/rank-references';
+import {
+  coCitationSource,
+  RELATED_WAIT_MS,
+  withinWait,
+  type CoCitationSource,
+} from './related-items';
 
 /**
  * The reference picker: `[[` and `@`, an item search, and a `reference` node.
@@ -48,6 +58,58 @@ const DEBOUNCE_MS = 150;
 
 /** The most candidates to offer. A picker is scanned, not read. */
 const RESULT_LIMIT = 8;
+
+/**
+ * How many candidates to ask the server for, of which `RESULT_LIMIT` are shown.
+ *
+ * The pool is what gives the re-rank (`rank-references.ts`) something to choose between: an item
+ * the person links to every day but which the server ranked eleventh can only be promoted if the
+ * eleventh result was fetched. Twenty-five is half the server's ceiling
+ * (`SearchItemsHandler.MaximumLimit`), enough to reach past a page of near-identical title matches
+ * without asking for rows nobody will see.
+ */
+export const CANDIDATE_POOL = 25;
+
+/**
+ * The most nodes read when collecting what this note already links to.
+ *
+ * The scan runs once per search answer, not per keystroke, and stops here so a very long note
+ * costs a bounded walk: the links it misses past the budget only lose a small ranking boost.
+ */
+const LINK_SCAN_BUDGET = 20_000;
+
+/** The frecency namespace for links made in one workspace. Picks never rank another workspace. */
+export function linkFrecencyNamespace(workspaceId: string): string {
+  return `links:${workspaceId}`;
+}
+
+/**
+ * The ids of the items `doc` already references, reading at most `budget` nodes.
+ *
+ * Exported for its own tests.
+ */
+export function linkedTargets(
+  doc: ProseMirrorNode,
+  budget: number = LINK_SCAN_BUDGET,
+): ReadonlySet<string> {
+  const targets = new Set<string>();
+  let visited = 0;
+  doc.descendants((node) => {
+    visited += 1;
+    if (visited > budget) {
+      return false;
+    }
+    if (node.type.name === 'reference') {
+      const target: unknown = node.attrs.targetId;
+      if (typeof target === 'string' && target.length > 0) {
+        targets.add(target);
+      }
+      return false;
+    }
+    return true;
+  });
+  return targets;
+}
 
 /**
  * The shortest query sent to the server, matching `SearchItemsHandler.MinimumQueryLength`.
@@ -125,8 +187,43 @@ interface OpenTrigger extends FoundTrigger {
   readonly bottom: number;
 }
 
-export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNode {
+export interface ReferenceMenuProps {
+  readonly editor: Editor;
+  /**
+   * The workspace the note belongs to. Scopes the pick history that ranks candidates; without it
+   * the picker still works and shows the server's order adjusted only by this note's own links.
+   */
+  readonly workspaceId?: string | undefined;
+  /** The note being written in, for the re-rank's placement and co-citation signals. */
+  readonly itemId?: string | undefined;
+  /**
+   * The note's parent, as the page already knows it from the workspace tree: `null` at a
+   * workspace root, `undefined` when unknown. Ranks the note's siblings and parent a little higher.
+   */
+  readonly parentId?: string | null | undefined;
+}
+
+export function ReferenceMenu({
+  editor,
+  workspaceId,
+  itemId,
+  parentId,
+}: ReferenceMenuProps): ReactNode {
   const client = useApiClient();
+  // One co-citation source per note, created and disposed with it. A ref because only effects
+  // read it - it never decides what renders.
+  const coCitations = useRef<CoCitationSource | null>(null);
+  useEffect(() => {
+    if (itemId === undefined) {
+      return;
+    }
+    const source = coCitationSource(client, itemId);
+    coCitations.current = source;
+    return () => {
+      source.dispose();
+      coCitations.current = null;
+    };
+  }, [client, itemId]);
   const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -199,6 +296,14 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
   const hits = current?.hits ?? EMPTY_HITS;
   const failed = current?.failed ?? false;
 
+  // Opening the picker is when co-citations are first worth having; the request starts now, so it
+  // has usually landed by the time enough has been typed to search.
+  useEffect(() => {
+    if (open) {
+      void coCitations.current?.get();
+    }
+  }, [open]);
+
   useEffect(() => {
     if (!open) {
       return;
@@ -212,12 +317,38 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const response = await client.query(search.searchItems(query, RESULT_LIMIT), {
+          const related = withinWait(
+            coCitations.current?.get() ?? Promise.resolve(undefined),
+            RELATED_WAIT_MS,
+          );
+          const response = await client.query(search.searchItems(query, CANDIDATE_POOL), {
             signal: controller.signal,
           });
+          const coCited = await related;
+          if (controller.signal.aborted) {
+            return;
+          }
+          // Ranked once, here, against the document and the pick history as they stand when the
+          // answer arrives - not on every render. The order then holds still while somebody
+          // arrows through it, which a ranking recomputed per transaction could not promise.
+          const ranked = rankReferences(
+            response.results,
+            {
+              query,
+              frecency:
+                workspaceId === undefined || !choiceOrderOn()
+                  ? undefined
+                  : frecencyScores(linkFrecencyNamespace(workspaceId)),
+              linkedHere: linkedTargets(editor.state.doc),
+              currentItemId: itemId,
+              currentParentId: parentId,
+              coCited,
+            },
+            RESULT_LIMIT,
+          );
           setAnswer({
             query,
-            hits: response.results,
+            hits: ranked.map((entry) => entry.candidate),
             failed: false,
           });
         } catch (cause) {
@@ -238,7 +369,7 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
       controller.abort();
       clearTimeout(timer);
     };
-  }, [client, open, query]);
+  }, [client, editor, itemId, open, parentId, query, workspaceId]);
 
   const options: readonly ListboxOption[] = hits.map((hit) => ({
     id: hit.id,
@@ -267,6 +398,12 @@ export function ReferenceMenu({ editor }: { readonly editor: Editor }): ReactNod
         { type: 'text', text: ' ' },
       ])
       .run();
+
+    // Remembered by id only, in this workspace's namespace: the next search in this workspace
+    // ranks it higher, and no other workspace's picker ever sees it.
+    if (workspaceId !== undefined && choiceOrderOn()) {
+      recordPick(linkFrecencyNamespace(workspaceId), hit.id);
+    }
   });
 
   // The keys are taken off the editor's own element, because that is what holds the focus. Capture

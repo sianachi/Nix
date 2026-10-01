@@ -85,6 +85,12 @@ public sealed class AccessTokenScopePolicyTests
         ["GetCanvasLibrary"] = Requirement.Read,
         ["SearchItems"] = Requirement.Read,
         ["ResolveReferences"] = Requirement.Read,
+        ["GetRelatedItems"] = Requirement.Read,
+
+        // A POST only because a passage of text does not fit in a URL. It reads titles and changes
+        // nothing, so it is a read: classified as the default write, a write-only ingest token
+        // would be admitted to a route that returns titles.
+        ["FindMentions"] = Requirement.Read,
         ["ListTenantRoles"] = Requirement.Read,
         ["ListWorkspaces"] = Requirement.Read,
         ["GetWorkspace"] = Requirement.Read,
@@ -308,6 +314,28 @@ public sealed class AccessTokenScopePolicyTests
 
         Assert.Equal(Requirement.Admin, requirement);
         Assert.False(Satisfies([AccessTokenScopes.Read, AccessTokenScopes.Write], requirement));
+    }
+
+    [Theory]
+    [InlineData("/api/v1/search/mentions")]
+    [InlineData("/api/v1/search/mentions/")]
+    [InlineData("/API/V1/SEARCH/MENTIONS")]
+    public void Matching_mentions_is_a_read_even_though_it_is_a_post(string path) =>
+        Assert.Equal(Requirement.Read, Classify("POST", path));
+
+    [Theory]
+    [InlineData("POST", "/api/v1/search/mentions/extra")]
+    [InlineData("POST", "/api/v1/search")]
+    [InlineData("PUT", "/api/v1/search/mentions")]
+    [InlineData("DELETE", "/api/v1/search/mentions")]
+    public void Only_the_exact_mentions_post_is_relaxed_to_a_read(string method, string path) =>
+        Assert.Equal(Requirement.Write, Classify(method, path));
+
+    [Fact]
+    public void A_write_only_token_cannot_match_mentions()
+    {
+        Assert.False(Satisfies([AccessTokenScopes.Write], Classify("POST", "/api/v1/search/mentions")));
+        Assert.True(Satisfies([AccessTokenScopes.Read], Classify("POST", "/api/v1/search/mentions")));
     }
 
     [Theory]

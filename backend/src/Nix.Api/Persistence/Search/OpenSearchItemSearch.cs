@@ -1,5 +1,6 @@
 using Nix.Abstractions;
 using Nix.Domain.Items;
+using Nix.Domain.Links;
 using Nix.Domain.Tenancy;
 
 namespace Nix.Persistence.Search;
@@ -47,10 +48,12 @@ public sealed class OpenSearchItemSearch : IItemSearch
         }
 
         // OpenSearch filters before ranking, but it is derived and can lag a move, deletion, or
-        // permission change. Resolve only the ranked candidate IDs through authoritative
-        // Postgres/RLS, then retain the OpenSearch order while returning current metadata.
+        // permission change, and it knows nothing of which locks this credential has opened.
+        // Resolve only the ranked candidate IDs through authoritative Postgres/RLS - dropping
+        // anything under a closed lock, as the Postgres title arm does (ADR-0056) - then retain
+        // the OpenSearch order while returning current metadata.
         var authoritative = await _postgres
-            .ResolveAsync(identifiers, readableWorkspaces, cancellationToken)
+            .ResolveSearchCandidatesAsync(identifiers, readableWorkspaces, cancellationToken)
             .ConfigureAwait(false);
         if (authoritative.Count == 0)
         {
@@ -101,4 +104,18 @@ public sealed class OpenSearchItemSearch : IItemSearch
         IReadOnlyList<WorkspaceId> readableWorkspaces,
         CancellationToken cancellationToken) =>
         _postgres.ResolveAsync(itemIds, readableWorkspaces, cancellationToken);
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Always Postgres. Mentions are an equality match on the authoritative title, and the derived
+    /// index can lag a rename - a stale title would be a suggestion for a name the item no longer
+    /// has.
+    /// </remarks>
+    public ValueTask<IReadOnlyList<TitleMention>> MentionsAsync(
+        IReadOnlyList<string> phrases,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        IReadOnlyList<ItemId> excludedItems,
+        int limit,
+        CancellationToken cancellationToken) =>
+        _postgres.MentionsAsync(phrases, readableWorkspaces, excludedItems, limit, cancellationToken);
 }

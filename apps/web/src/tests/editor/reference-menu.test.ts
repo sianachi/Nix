@@ -1,6 +1,8 @@
+import { getSchema } from '@tiptap/core';
+import { nixEditingExtensions } from '@nix/editor-schema';
 import { describe, expect, it } from 'vitest';
 
-import { findTrigger } from '../../editor/reference-menu';
+import { findTrigger, linkedTargets, linkFrecencyNamespace } from '../../editor/reference-menu';
 
 describe('finding a reference trigger in the text before the caret', () => {
   it('opens on a double bracket, for an item', () => {
@@ -57,5 +59,37 @@ describe('finding a reference trigger in the text before the caret', () => {
   it('finds nothing in ordinary prose', () => {
     expect(findTrigger('Just some words')).toBeNull();
     expect(findTrigger('')).toBeNull();
+  });
+});
+
+describe('what a note already links to', () => {
+  const schema = getSchema([...nixEditingExtensions]);
+
+  function noteWith(...targets: string[]) {
+    return schema.nodeFromJSON({
+      type: 'doc',
+      content: targets.map((targetId) => ({
+        type: 'paragraph',
+        content: [
+          { type: 'text', text: 'See ' },
+          { type: 'reference', attrs: { kind: 'item', targetId, label: targetId } },
+        ],
+      })),
+    });
+  }
+
+  it('collects every referenced item once', () => {
+    expect([...linkedTargets(noteWith('a', 'b', 'a'))].sort()).toEqual(['a', 'b']);
+  });
+
+  it('stops reading at its budget, so a very long note costs a bounded walk', () => {
+    // Each paragraph is three nodes: the paragraph, its text and its reference.
+    const targets = Array.from({ length: 10 }, (_, index) => `item-${String(index)}`);
+
+    expect(linkedTargets(noteWith(...targets), 6).size).toBe(2);
+  });
+
+  it('scopes pick history to one workspace', () => {
+    expect(linkFrecencyNamespace('w1')).not.toBe(linkFrecencyNamespace('w2'));
   });
 });

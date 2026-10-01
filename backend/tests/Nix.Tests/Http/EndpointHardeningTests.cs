@@ -7,7 +7,8 @@ using Nix.Tests.Harness;
 namespace Nix.Tests.Http;
 
 /// <summary>
-/// Every route that mutates state carries the writes rate-limit policy, and the one route with a
+/// Every route that mutates state carries the writes rate-limit policy (or the narrower policy its
+/// route names below - the mention lookup is a POST that reads, and has its own), and the one route with a
 /// legitimately large payload declares its own body bound - proven against the real application's
 /// route table, so a new mutating endpoint registered without the policy fails here rather than
 /// shipping unlimited.
@@ -16,6 +17,9 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
     : IClassFixture<ContractHostFactory>
 {
     private static readonly string[] MutatingMethods = ["POST", "PUT", "PATCH", "DELETE"];
+
+    private static readonly System.Text.Json.JsonSerializerOptions WebJson =
+        new(System.Text.Json.JsonSerializerDefaults.Web);
 
     [Fact]
     public void Every_mutating_endpoint_requires_its_expected_rate_limit_policy()
@@ -66,6 +70,32 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
     }
 
     [Fact]
+    public void The_mention_lookup_declares_a_body_bound_its_largest_legitimate_request_fits_under()
+    {
+        var endpoint = Assert.Single(
+            MutatingEndpoints(),
+            e => e.RoutePattern.RawText == "/api/v1/search/mentions");
+        var declared = endpoint.Metadata.GetMetadata<RequestBodyLimitMetadata>();
+        Assert.NotNull(declared);
+        Assert.Equal(48 * 1024, declared.MaxRequestBodyBytes);
+
+        // The worst a well-behaved client can send: the longest passage with every character
+        // escaped by the web serialiser ('<' becomes \u003C) and the most exclusions. It must fit,
+        // and a body of twice as many exclusions must not - which is what the 413 refuses.
+        static int Size(int exclusions) => System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new
+            {
+                text = new string('<', Nix.Features.Search.FindMentionsHandler.MaximumTextLength),
+                workspaceId = Guid.NewGuid(),
+                excludeIds = Enumerable.Range(0, exclusions).Select(_ => Guid.NewGuid()).ToArray(),
+            },
+            WebJson).Length;
+
+        Assert.True(Size(Nix.Features.Search.FindMentionsHandler.MaximumExclusions) <= declared.MaxRequestBodyBytes);
+        Assert.True(Size(4 * Nix.Features.Search.FindMentionsHandler.MaximumExclusions) > declared.MaxRequestBodyBytes);
+    }
+
+    [Fact]
     public void No_read_endpoint_declares_a_raised_body_bound()
     {
         // A raised bound on a GET would say some read expects a body, which none does; the raise
@@ -94,6 +124,10 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
             RateLimitRefusal.LockPasswordPolicyName,
         "/api/v1/items/{itemId:guid}/unlock" when !IsDelete(endpoint) =>
             RateLimitRefusal.LockPasswordPolicyName,
+
+        // A read sent as a POST: its own window, so lookups while typing never spend the writes
+        // window a person's saves draw on.
+        "/api/v1/search/mentions" => RateLimitRefusal.SuggestionsPolicyName,
         _ => RateLimitRefusal.WritesPolicyName,
     };
 

@@ -31,4 +31,16 @@ public static class SearchErrors
     /// <summary>A value in the identifier list is not an identifier.</summary>
     public static NixError MalformedReferences(string detail) =>
         new(SearchEndpoints.MalformedReferencesCode, detail);
+
+    /// <summary>A mention request's text is longer than one request may match.</summary>
+    public static NixError MentionTextTooLong(string detail) =>
+        new(SearchEndpoints.MentionTextTooLongCode, detail);
+
+    /// <summary>A mention request named no workspace to match in.</summary>
+    public static NixError MentionWorkspaceRequired(string detail) =>
+        new(SearchEndpoints.MentionWorkspaceRequiredCode, detail);
+
+    /// <summary>A mention request excluded more items than one request may.</summary>
+    public static NixError TooManyMentionExclusions(string detail) =>
+        new(SearchEndpoints.TooManyMentionExclusionsCode, detail);
 }

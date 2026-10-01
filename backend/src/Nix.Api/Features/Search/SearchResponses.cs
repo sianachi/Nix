@@ -8,7 +8,18 @@ namespace Nix.Features.Search;
 /// What it is called, or <see langword="null"/> when it has never been named. The client decides
 /// what to draw for an unnamed item; the server does not invent a name for it.
 /// </param>
-internal sealed record SearchHitResponse(Guid Id, Guid WorkspaceId, string Type, string? Title);
+/// <param name="ParentId">
+/// The item it sits under, or <see langword="null"/> for a workspace root - the same value the item
+/// read returns, so a picker can rank siblings of the note being edited first.
+/// </param>
+/// <param name="UpdatedAt">When the item was last modified, for ranking by recency.</param>
+internal sealed record SearchHitResponse(
+    Guid Id,
+    Guid WorkspaceId,
+    string Type,
+    string? Title,
+    Guid? ParentId,
+    DateTimeOffset UpdatedAt);
 
 /// <summary>What a search returned.</summary>
 /// <param name="Query">The query as it was interpreted, echoed so a client can discard a stale response.</param>
@@ -59,3 +70,54 @@ internal sealed record BacklinksResponse(
     IReadOnlyList<BacklinkResponse> Backlinks,
     int Limit,
     bool Truncated);
+
+/// <summary>One item the documents linking to the item being read also link to.</summary>
+/// <param name="Item">The co-cited item.</param>
+/// <param name="SharedSources">
+/// How many readable, unlocked documents link to both. Documents the caller may not read are left
+/// out of the count, not just out of a list.
+/// </param>
+internal sealed record RelatedItemResponse(SearchHitResponse Item, int SharedSources);
+
+/// <summary>What a related-items read returned.</summary>
+/// <param name="Related">The co-cited items, most shared sources first.</param>
+/// <param name="Limit">The ceiling that was applied.</param>
+/// <param name="Truncated">
+/// Whether the ceiling was reached. The ranking itself always considers at most the target's
+/// <see cref="GetRelatedItemsHandler.MaximumSources"/> most-referring readable documents.
+/// </param>
+internal sealed record RelatedItemsResponse(
+    IReadOnlyList<RelatedItemResponse> Related,
+    int Limit,
+    bool Truncated);
+
+/// <summary>The passage to look for mentions in, and where.</summary>
+/// <param name="Text">
+/// The text, at most <see cref="FindMentionsHandler.MaximumTextLength"/> UTF-16 code units. A
+/// missing or blank text finds nothing rather than failing.
+/// </param>
+/// <param name="WorkspaceId">
+/// The workspace the passage is written in; only its titles are matched. Required. A workspace the
+/// caller cannot read finds nothing.
+/// </param>
+/// <param name="ExcludeIds">
+/// Items never to return, at most <see cref="FindMentionsHandler.MaximumExclusions"/>: the note
+/// being written and the items it already links to.
+/// </param>
+internal sealed record MentionsRequest(string? Text, Guid? WorkspaceId, IReadOnlyList<Guid>? ExcludeIds);
+
+/// <summary>One readable item whose title the passage names.</summary>
+/// <param name="Item">The item.</param>
+/// <param name="Phrase">
+/// The words in the passage that matched, as they appear there (after Unicode NFC normalisation),
+/// so a client can find and highlight them.
+/// </param>
+internal sealed record MentionResponse(SearchHitResponse Item, string Phrase);
+
+/// <summary>What a mention match returned.</summary>
+/// <param name="Mentions">The matches, longest phrase first.</param>
+/// <param name="Truncated">
+/// Whether the answer may be partial: the result ceiling was reached, or the passage held more
+/// candidate phrases than are matched in one request and its tail was not considered.
+/// </param>
+internal sealed record MentionsResponse(IReadOnlyList<MentionResponse> Mentions, bool Truncated);

@@ -9,7 +9,13 @@ function headingId(group: string): string {
   return `shortcut-group-${group.toLowerCase().replaceAll(' ', '-')}`;
 }
 
-const GROUPS: readonly ShortcutEntry['group'][] = ['General', 'Panes and tabs', 'Workspace tree'];
+const GROUPS: readonly ShortcutEntry['group'][] = [
+  'General',
+  'Editor',
+  'Views',
+  'Panes and tabs',
+  'Workspace tree',
+];
 
 /**
  * The keyboard shortcut sheet: every chord the application answers to, written the way this

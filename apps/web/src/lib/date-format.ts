@@ -18,6 +18,11 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
+const calendarDayFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeZone: 'UTC',
+});
+
 const shortDateFormatters = new Map<string, Intl.DateTimeFormat>();
 
 /** `en-CA` sorts `year`/`month`/`day` into `yyyy-mm-dd`, which is what every short-date call site
@@ -54,6 +59,21 @@ export function formatDateTime(date: Date): string {
 /** A `yyyy-mm-dd` calendar date for the given IANA timezone - "2026-09-22". */
 export function formatShortDate(date: Date, timeZone: string): string {
   return shortDateFormatter(timeZone).format(date);
+}
+
+/**
+ * A stored `yyyy-mm-dd` calendar day in the reader's own locale - "Sep 1, 2026" - or `undefined`
+ * when the value is not one. Read and written in UTC so the day never shifts with the reader's
+ * timezone: a calendar day has no time to shift.
+ */
+export function formatCalendarDay(day: string): string | undefined {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (match === null) return undefined;
+  const instant = new Date(`${day}T00:00:00Z`);
+  if (Number.isNaN(instant.getTime()) || instant.toISOString().slice(0, 10) !== day) {
+    return undefined;
+  }
+  return calendarDayFormatter.format(instant);
 }
 
 /** The reader's own IANA timezone, as their runtime resolves it. */

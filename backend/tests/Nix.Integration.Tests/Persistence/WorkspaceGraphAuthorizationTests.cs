@@ -164,6 +164,30 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_graph_cannot_rebuild_the_listing_of_a_folder_under_a_closed_lock()
+    {
+        var opener = new Guid("6a4a4000-1111-4111-8111-6a4a400000cc");
+        await AddLockedBodyEdgesAsync();
+        await LockVisibleRootAsync(grantedTo: opener);
+
+        // ADR-0056: nodes carry title and parent, so drawing what sits under a closed lock would
+        // list the locked folder's children - the listing the children read refuses. The folder
+        // itself stays; the edge into the hidden child goes with it.
+        var closed = await ReadGraphAsync(OpenWorkspace);
+        Assert.Contains(closed.Nodes, node => node.Id == ItemId.From(VisibleRoot));
+        Assert.DoesNotContain(closed.Nodes, node => node.Id == ItemId.From(VisibleChild));
+        Assert.DoesNotContain(closed.Nodes, node => node.ParentId == ItemId.From(VisibleRoot));
+        Assert.DoesNotContain(closed.Links, link => link.TargetId == ItemId.From(VisibleChild));
+
+        // The credential that opened the lock is shown the folder's contents, as its listing is.
+        var opened = await ReadGraphAsync(OpenWorkspace, credential: opener);
+        Assert.Contains(opened.Nodes, node => node.Id == ItemId.From(VisibleChild));
+        Assert.Contains(opened.Links, link => link.TargetId == ItemId.From(VisibleChild));
+        Assert.DoesNotContain(opened.Links, link => link.SourceId == ItemId.From(VisibleRoot));
+        Assert.DoesNotContain(opened.Links, link => link.SourceId == ItemId.From(VisibleChild));
+    }
+
+    [Fact]
     public async Task A_hidden_early_node_does_not_spend_the_node_ceiling()
     {
         await SetSequenceAsync(VisibleChild, 1);
@@ -348,11 +372,16 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
         }
     }
 
-    private async Task<WorkspaceGraph> ReadGraphAsync(WorkspaceId workspaceId)
+    private async Task<WorkspaceGraph> ReadGraphAsync(WorkspaceId workspaceId, Guid? credential = null)
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
+            if (credential is { } id)
+            {
+                work.Resolve<CredentialSessionContext>().Set(id);
+            }
+
             var result = await work.Resolve<NixDispatcher>()
                 .QueryAsync<GetWorkspaceGraph, Result<WorkspaceGraphResults>>(
                     new GetWorkspaceGraph(workspaceId),
@@ -360,6 +389,42 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
 
             Assert.True(result.IsSuccess);
             return result.Value.Graph;
+        }
+    }
+
+    private async Task AddLockedBodyEdgesAsync()
+    {
+        var sql = $"""
+            INSERT INTO item_link (tenant_id, source_item_id, target_item_id, occurrences, seq)
+            VALUES
+                ({Literal(M0SchemaSeed.Alpha.TenantId)}, {Literal(VisibleRoot)}, {Literal(VisibleSource)}, 1, 1),
+                ({Literal(M0SchemaSeed.Alpha.TenantId)}, {Literal(VisibleChild)}, {Literal(VisibleSource)}, 1, 1);
+            """;
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, sql);
+        }
+    }
+
+    /// <summary>Locks <see cref="VisibleRoot"/>, with an open grant for one credential.</summary>
+    private async Task LockVisibleRootAsync(Guid grantedTo)
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var principal = Literal(M0SchemaSeed.Alpha.PrincipalId);
+        var root = Literal(VisibleRoot);
+        var sql = $"""
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            VALUES ({root}, {tenant},
+                    'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                    {principal}, now());
+            INSERT INTO item_unlock (item_id, credential_id, tenant_id, principal_id, expires_at)
+            VALUES ({root}, {Literal(grantedTo)}, {tenant}, {principal}, now() + interval '10 minutes');
+            """;
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, sql);
         }
     }
 

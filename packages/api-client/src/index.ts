@@ -98,6 +98,10 @@ export {
   backlinksSchema,
   referenceResolutionSchema,
   referencesSchema,
+  mentionSchema,
+  mentionsSchema,
+  relatedItemSchema,
+  relatedItemsSchema,
   emptyTemplateInitialization,
   templateApplicationRequestSchema,
   templateApplicationResultSchema,
@@ -150,6 +154,10 @@ export type {
   QueryResultRow,
   SearchHit,
   SearchResults,
+  Mention,
+  Mentions,
+  RelatedItem,
+  RelatedItems,
   KeptItem,
   CalendarEntryKind,
   GraphLink,
@@ -314,6 +322,12 @@ export * as views from './resources/views.js';
 export * as structure from './resources/structure.js';
 export * as search from './resources/search.js';
 export * as references from './resources/references.js';
+export * as suggestions from './resources/suggestions.js';
+export {
+  MAXIMUM_MENTION_EXCLUSIONS,
+  MAXIMUM_MENTION_TEXT_LENGTH,
+  type MentionLookup,
+} from './resources/suggestions.js';
 export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemChart from './resources/item-chart.js';
 export * as itemQuery from './resources/item-query.js';

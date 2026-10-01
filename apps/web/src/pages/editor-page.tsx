@@ -848,7 +848,12 @@ export function OpenItem({
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
-              <NoteEditor itemId={itemId} cacheBody={!lock.locked} />
+              <NoteEditor
+                itemId={itemId}
+                cacheBody={!lock.locked}
+                // From the tree the page already holds: no fetch, only a ranking hint.
+                parentId={tree.find(itemId)?.parentId}
+              />
             )
           ) : (
             <section aria-label="Container" className={paneColumn}>

@@ -1,15 +1,19 @@
 import { TOGGLE_LEVELS, nixEditingExtensions } from '@nix/editor-schema';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type ReactNode } from 'react';
 
 import {
   SLASH_COMMANDS,
+  SLASH_FRECENCY_NAMESPACE,
   filterSlashCommands,
   findSlashTrigger,
+  rankSlashCommands,
   SlashMenu,
 } from '../../editor/slash-menu';
+import { frecencyScores, recordPick } from '../../lib/frecency';
+import { useChoiceOrderPreference } from '../../settings/suggestion-preferences';
 
 describe('the slash menu', () => {
   it('offers every block the schema defines a way to insert', () => {
@@ -367,5 +371,129 @@ describe('the slash menu over a real document', () => {
     // Two floating menus over one caret would fight for the same arrow keys; the more specific
     // trigger wins.
     expect(screen.queryByRole('listbox', { name: 'Insert a block' })).not.toBeInTheDocument();
+  });
+});
+
+describe('ordering matches by what this person picks', () => {
+  const ids = (commands: readonly { id: string }[]): string[] =>
+    commands.map((command) => command.id);
+
+  // For "list", Bulleted and Numbered list carry the keyword exactly; Task list only contains it
+  // in its label. That gives one query with both tiers.
+
+  it('changes nothing without history when the exact matches already lead', () => {
+    expect(ids(rankSlashCommands(filterSlashCommands('list'), 'list', new Map()))).toEqual([
+      'bullet-list',
+      'ordered-list',
+      'task-list',
+    ]);
+  });
+
+  it('puts the more often picked of two exact matches first', () => {
+    const scores = new Map([['ordered-list', 3]]);
+
+    expect(ids(rankSlashCommands(filterSlashCommands('list'), 'list', scores))).toEqual([
+      'ordered-list',
+      'bullet-list',
+      'task-list',
+    ]);
+  });
+
+  it('never lifts a partial match above an exact one, however often it was picked', () => {
+    const scores = new Map([['task-list', 50]]);
+
+    expect(ids(rankSlashCommands(filterSlashCommands('list'), 'list', scores)).at(-1)).toBe(
+      'task-list',
+    );
+  });
+
+  it('hoists an exact match over a partial one that comes earlier in the input', () => {
+    // The catalogue happens never to list a partial match before an exact one, so the input is
+    // reordered here to prove the tier rule rather than the catalogue's arrangement.
+    const byId = (id: string) => SLASH_COMMANDS.find((command) => command.id === id);
+    const input = [byId('task-list'), byId('bullet-list')].filter(
+      (command) => command !== undefined,
+    );
+
+    expect(ids(rankSlashCommands(input, 'list', new Map()))).toEqual(['bullet-list', 'task-list']);
+  });
+
+  it('orders partial matches by history', () => {
+    const scores = new Map([['task-list', 2]]);
+
+    expect(ids(rankSlashCommands(filterSlashCommands('lis'), 'lis', scores))[0]).toBe('task-list');
+  });
+
+  it('leaves the full menu in catalogue order, because it is browsed rather than searched', () => {
+    const scores = new Map([['divider', 100]]);
+
+    expect(ids(rankSlashCommands(SLASH_COMMANDS, '', scores))).toEqual(ids(SLASH_COMMANDS));
+  });
+});
+
+describe('remembering slash commands', () => {
+  function memoryStorage(): Storage {
+    const values = new Map<string, string>();
+    return {
+      get length() {
+        return values.size;
+      },
+      clear: () => {
+        values.clear();
+      },
+      getItem: (key) => values.get(key) ?? null,
+      key: (index) => [...values.keys()][index] ?? null,
+      removeItem: (key) => {
+        values.delete(key);
+      },
+      setItem: (key, value) => {
+        values.set(key, value);
+      },
+    };
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal('localStorage', memoryStorage());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('records the command that ran, by id', async () => {
+    const editor = await openWith('/quote');
+    await screen.findByRole('listbox', { name: 'Insert a block' });
+
+    fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+
+    expect(frecencyScores(SLASH_FRECENCY_NAMESPACE).get('blockquote')).toBeCloseTo(1);
+  });
+
+  it('offers the command picked most often first among the matches', async () => {
+    recordPick(SLASH_FRECENCY_NAMESPACE, 'ordered-list');
+    recordPick(SLASH_FRECENCY_NAMESPACE, 'ordered-list');
+
+    await openWith('/lis');
+
+    const options = await screen.findAllByRole('option');
+    expect(options[0]).toHaveTextContent('Numbered list');
+  });
+
+  it('keeps the catalogue order and records nothing when ordering by picks is off', async () => {
+    useChoiceOrderPreference.setState({ setting: 'off', saved: true });
+    recordPick(SLASH_FRECENCY_NAMESPACE, 'ordered-list');
+    recordPick(SLASH_FRECENCY_NAMESPACE, 'ordered-list');
+
+    try {
+      const editor = await openWith('/lis');
+      const options = await screen.findAllByRole('option');
+      expect(options[0]).not.toHaveTextContent('Numbered list');
+
+      fireEvent.keyDown(editor.view.dom, { key: 'Enter' });
+      expect(frecencyScores(SLASH_FRECENCY_NAMESPACE).get('ordered-list')).toBeCloseTo(2);
+      expect([...frecencyScores(SLASH_FRECENCY_NAMESPACE).keys()]).toEqual(['ordered-list']);
+    } finally {
+      useChoiceOrderPreference.setState({ setting: 'on', saved: true });
+    }
   });
 });

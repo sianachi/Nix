@@ -2143,8 +2143,9 @@ namespace Nix.Persistence.Migrations.Generated
 
                     b.HasKey("TenantId", "SourceItemId", "TargetItemId");
 
-                    b.HasIndex("TenantId", "TargetItemId")
-                        .HasDatabaseName("ix_item_link_target");
+                    b.HasIndex("TenantId", "TargetItemId", "Occurrences", "SourceItemId")
+                        .IsDescending(false, false, true, false)
+                        .HasDatabaseName("ix_item_link_target_occurrences");
 
                     b.ToTable("item_link", (string)null);
                 });

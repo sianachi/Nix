@@ -47,6 +47,7 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Integer("node_limit", 501),
                 Integer("link_limit", 501),
                 Uuids("lock_ids", [_itemIds[^1]]),
+                Uuids("closed_lock_ids", [_itemIds[^1]]),
             ]);
 
         RecordAndAssert("Graph", plan);
@@ -64,9 +65,10 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Text("query", "visibility"),
                 Integer("limit", 50),
 
-                // No locks: the case this plan was recorded for, in which the lock probe folds
+                // No locks: the case this plan was recorded for, in which the lock probes fold
                 // away. The backlink and graph cases below carry a lock and run the probe.
                 Uuids("lock_ids", []),
+                Uuids("closed_lock_ids", []),
             ]);
 
         RecordAndAssert("Search", plan);
@@ -94,7 +96,7 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Uuids("lock_ids", [_itemIds[^1]]),
             ]);
         RecordAndAssert("Backlinks", backlinkPlan);
-        Assert.Contains("ix_item_link_target", backlinkPlan, StringComparison.Ordinal);
+        Assert.Contains("ix_item_link_target_occurrences", backlinkPlan, StringComparison.Ordinal);
     }
 
     [Fact]

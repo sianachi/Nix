@@ -41,4 +41,32 @@ public interface IItemLinks
         IReadOnlyList<WorkspaceId> readableWorkspaces,
         int limit,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The items most often linked from the same documents that link to an item, most shared
+    /// sources first.
+    /// </summary>
+    /// <param name="targetId">The item whose co-citations are wanted. Never returned itself.</param>
+    /// <param name="readableWorkspaces">Where the caller is allowed to look.</param>
+    /// <param name="sourceLimit">
+    /// The most referring documents considered, taken most-referring first. This is the bound on
+    /// the work: a hub linked from thousands of documents is read as its top sources, not all of
+    /// them.
+    /// </param>
+    /// <param name="limit">The most related items to return.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The related items, which may be empty.</returns>
+    /// <remarks>
+    /// <b>The workspace filter applies twice</b>: to each source, because a source's links are a
+    /// statement about that document and only a readable, unlocked one may contribute to a count;
+    /// and to each result, because a result is disclosed. Being entitled to the target says
+    /// nothing about either. A result under a lock this credential has not opened is left out as
+    /// well, because a lock hides the titles under it (ADR-0056).
+    /// </remarks>
+    public ValueTask<IReadOnlyList<RelatedItem>> RelatedAsync(
+        ItemId targetId,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        int sourceLimit,
+        int limit,
+        CancellationToken cancellationToken);
 }

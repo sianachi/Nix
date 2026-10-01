@@ -76,6 +76,8 @@ function stubReferences(): void {
                       workspaceId: '00000000-0000-4000-8000-000000000001',
                       type: 'note',
                       title: 'Quarterly ledger',
+                      parentId: null,
+                      updatedAt: '2026-09-01T12:00:00Z',
                     },
                   }
                 : { id, readable: false, item: null },

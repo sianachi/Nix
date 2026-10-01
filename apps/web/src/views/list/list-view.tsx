@@ -26,6 +26,7 @@ import {
   type ViewFilterRule,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { suggestSourceOf } from '../suggest/suggest-source';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
@@ -211,7 +212,12 @@ export function ListView(props: ListViewProps): ReactNode {
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
           enter the row-header inventory that eleven assertions compare against exactly - so it
           would be a create affordance that broke tests about columns. */}
-      <CreateItemControl label="Add an item" onCreate={container.create} className="mt-2" />
+      <CreateItemControl
+        label="Add an item"
+        onCreate={container.create}
+        suggest={suggestSourceOf(container, onOpen)}
+        className="mt-2"
+      />
     </div>
   );
 }

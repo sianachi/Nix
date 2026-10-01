@@ -16,6 +16,11 @@ import {
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import { canGroupBy } from '../core/property-types';
+import { staleMembers, type StaleMember } from '../../lib/suggest/staleness';
+import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
+import { suggestSourceOf, type CreateSuggestSource } from '../suggest/suggest-source';
+import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { StaleCardHint } from './stale-card-hint';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
@@ -79,6 +84,15 @@ export function BoardView(props: BoardViewProps): ReactNode {
   // returned to the column it was in" over a field edit that never touched the column, so the
   // move failure is tracked locally instead and the shared channel is left alone.
   const [moveError, setMoveError] = useState<string | null>(null);
+
+  // The stale-card hint's clock and its dismissals. The clock is read once per mount rather than
+  // per render: ages that crept forward on every keystroke would re-sort nothing and only make the
+  // sentence's day count jump at midnight mid-gesture. Dismissals are remembered in this browser
+  // under a key that includes the card's `updatedAt` (`staleDismissalKey`), so a waved-away note
+  // stays away until the card changes and goes stale again; read once here, written on dismiss.
+  const [mountedAt] = useState(() => Date.now());
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+  const [dismissedStale, setDismissedStale] = useState<ReadonlySet<string>>(() => readDismissals());
 
   // Whether the board can be drawn at all is resolved before the chrome so the chrome can report
   // it, and handed back by the chrome so this does not have to check it twice. An empty board and a
@@ -148,6 +162,21 @@ export function BoardView(props: BoardViewProps): ReactNode {
   const selectedColumn = columns.find((column) => columnId(column) === mobileColumn) ?? columns[0];
   const visibleColumns = narrow && selectedColumn ? [selectedColumn] : columns;
 
+  // Cards untouched far longer than their column's usual, by `updatedAt` - see `StaleCardHint` for
+  // why that is the only clock available and why no "move it to" suggestion comes with it. The
+  // unset column is a column like any other here: an item nobody has triaged in a month is exactly
+  // what the hint is for.
+  //
+  // The usual is the whole column's, bucketed by the same grouping value from every loaded child,
+  // never just the cards a filter leaves on screen: a filter that shows only old cards would make
+  // them look ordinary, and one that shows a few would leave too few to judge. The filtered cards
+  // only decide which hints are drawn, by id. A truncated container's columns are a sample, and a
+  // median over a sample is a guess, so then nothing is said at all.
+  const stale: ReadonlyMap<string, StaleMember> =
+    viewSuggestions === 'off' || container.truncated
+      ? NO_STALE
+      : staleMembers(columnAges(container.children, key, mountedAt));
+
   const placed = new Set<string | null>([...chosen, null]);
   const hidden = [...buckets].filter(([value]) => !placed.has(value)).flatMap(([, items]) => items);
 
@@ -211,6 +240,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
         {visibleColumns.map((column) => (
           <BoardColumnPanel
             onCreate={container.create}
+            suggest={suggestSourceOf(container, onOpen)}
             groupKey={key}
             key={column.value ?? UNSET_VALUE}
             column={column}
@@ -225,6 +255,13 @@ export function BoardView(props: BoardViewProps): ReactNode {
               container.setProperties(itemId, { [propertyKey]: value })
             }
             onOpen={onOpen}
+            stale={stale}
+            dismissedStale={dismissedStale}
+            onDismissStale={(item) => {
+              const key = staleDismissalKey(item);
+              rememberDismissal(key);
+              setDismissedStale((current) => new Set([...current, key]));
+            }}
           />
         ))}
       </div>
@@ -252,6 +289,14 @@ interface BoardColumnPanelProps {
     properties?: Record<string, unknown>,
   ) => Promise<string | null>;
   readonly groupKey: string;
+
+  /** What the column's create field learns its suggestions from; see `CreateItemControl`. */
+  readonly suggest: CreateSuggestSource;
+
+  /** Cards untouched far longer than their column's usual, and the ones whose note was waved away. */
+  readonly stale: ReadonlyMap<string, StaleMember>;
+  readonly dismissedStale: ReadonlySet<string>;
+  readonly onDismissStale: (item: Item) => void;
 }
 
 function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
@@ -268,6 +313,10 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
     onOpen,
     onCreate,
     groupKey,
+    suggest,
+    stale,
+    dismissedStale,
+    onDismissStale,
   } = props;
 
   const [dropTarget, setDropTarget] = useState(false);
@@ -344,6 +393,9 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
           onMove={onMove}
           onWrite={onWrite}
           onOpen={onOpen}
+          stale={stale}
+          dismissedStale={dismissedStale}
+          onDismissStale={onDismissStale}
         />
       )}
 
@@ -358,6 +410,7 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
         }
         properties={{ [groupKey]: column.value }}
         onCreate={onCreate}
+        suggest={suggest}
         className="mt-1 self-start"
       />
     </section>
@@ -380,6 +433,9 @@ interface BoardCardListProps {
     value: PropertyValue,
   ) => Promise<string | null>;
   readonly onOpen: (itemId: string) => void;
+  readonly stale: ReadonlyMap<string, StaleMember>;
+  readonly dismissedStale: ReadonlySet<string>;
+  readonly onDismissStale: (item: Item) => void;
 }
 
 function BoardCardList(props: BoardCardListProps): ReactNode {
@@ -454,6 +510,11 @@ function boardCard(
       onMove={props.onMove}
       onWrite={props.onWrite}
       onOpen={props.onOpen}
+      columnLabel={props.label}
+      stale={
+        props.dismissedStale.has(staleDismissalKey(item)) ? undefined : props.stale.get(item.id)
+      }
+      onDismissStale={props.onDismissStale}
       position={index + 1}
       setSize={props.items.length}
       {...(virtualIndex === undefined ? {} : { virtualIndex })}
@@ -479,6 +540,13 @@ interface BoardCardProps {
   readonly position: number;
   readonly setSize: number;
   readonly virtualIndex?: number;
+
+  /** The column the card sits in, for the stale note's sentence. */
+  readonly columnLabel: string;
+
+  /** Set when the card has gone untouched far longer than its column's usual and not been waved off. */
+  readonly stale: StaleMember | undefined;
+  readonly onDismissStale: (item: Item) => void;
 }
 
 function BoardCard(props: BoardCardProps): ReactNode {
@@ -496,10 +564,14 @@ function BoardCard(props: BoardCardProps): ReactNode {
     position,
     setSize,
     virtualIndex,
+    columnLabel,
+    stale,
+    onDismissStale,
   } = props;
   const itemActions = useItemContextActions(onOpen);
 
   const current = readSelectValue(item, property.key);
+  const titleRef = useRef<HTMLButtonElement>(null);
 
   // The view's `columns` are the properties worth showing on a card face. An absent value renders
   // as nothing rather than as an empty row: a card is a summary, and a column of blank labels
@@ -540,6 +612,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
               }}
             >
               <button
+                ref={titleRef}
                 type="button"
                 onClick={() => {
                   onOpen(item.id);
@@ -551,6 +624,21 @@ function BoardCard(props: BoardCardProps): ReactNode {
                 </Text>
               </button>
             </div>
+
+            {stale === undefined ? null : (
+              <StaleCardHint
+                title={item.title}
+                columnLabel={columnLabel}
+                ageMs={stale.ageMs}
+                medianMs={stale.medianMs}
+                onDismiss={() => {
+                  onDismissStale(item);
+                  // The dismiss button goes with the note; focus lands on the card it was about
+                  // rather than falling to the document (WCAG 2.4.3).
+                  titleRef.current?.focus();
+                }}
+              />
+            )}
 
             {fields.length === 0 ? null : (
               <div className="flex flex-col gap-1">
@@ -614,6 +702,36 @@ function BoardCard(props: BoardCardProps): ReactNode {
       )}
     </ContextMenu>
   );
+}
+
+const NO_STALE: ReadonlyMap<string, StaleMember> = new Map();
+
+/** Every loaded child's age, bucketed by its grouping value: one group per board column. */
+function columnAges(
+  children: readonly Item[],
+  key: string,
+  now: number,
+): readonly (readonly { readonly id: string; readonly ageMs: number }[])[] {
+  const groups = new Map<string | null, { id: string; ageMs: number }[]>();
+  for (const item of children) {
+    const value = readSelectValue(item, key);
+    const member = { id: item.id, ageMs: Math.max(0, now - Date.parse(item.updatedAt)) };
+    const group = groups.get(value);
+    if (group === undefined) {
+      groups.set(value, [member]);
+    } else {
+      group.push(member);
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
+ * What a stale-card dismissal is about: this card, as it was when the note was waved away. An edit
+ * moves `updatedAt`, which makes the key new, so the note can return if the card goes stale again.
+ */
+function staleDismissalKey(item: Item): string {
+  return `stale:${item.workspaceId}:${item.id}:${item.updatedAt}`;
 }
 
 /**

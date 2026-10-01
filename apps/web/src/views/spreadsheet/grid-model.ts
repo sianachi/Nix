@@ -10,6 +10,7 @@ import {
   type View,
 } from '../core/container-model';
 import { dayFor, formatTime, readTimestampValue, readerZone } from '../core/timestamps';
+import { continueSeries, type SeriesKind } from '../../lib/suggest/fill-series';
 
 export { TITLE_COLUMN_KEY } from '../core/columns';
 
@@ -343,6 +344,211 @@ export function fillPlan(
     items,
     columns,
   );
+}
+
+/** What a series fill would do to one column of the selection, for the sentence offering it. */
+export interface SeriesColumnFill {
+  readonly column: SpreadsheetColumn;
+  readonly kind: SeriesKind;
+  readonly describe: string;
+
+  /** The filled-in cells the seed already holds, in order. */
+  readonly seed: readonly string[];
+
+  /** What the rows below the seed would receive, in order. */
+  readonly values: readonly string[];
+}
+
+/** A fill the grid can offer: the plan to apply, and per column what it would write. */
+export interface SeriesFill {
+  readonly plan: WritePlan;
+  readonly columns: readonly SeriesColumnFill[];
+
+  /** Rows that would receive a value. */
+  readonly rows: number;
+
+  /** Whether any column continues a real pattern rather than repeating its last value. */
+  readonly patterned: boolean;
+}
+
+/**
+ * Fill down by pattern: each column of the range continued from the filled cells at its top.
+ *
+ * The seed of a column is the run of non-empty cells from the range's first row down; the rest of
+ * the range receives the continuation `lib/suggest/fill-series.ts` finds for it - an arithmetic
+ * series, a date step, a numbered label - or, when none fits, the seed's last value repeated. A
+ * column whose seed is empty, or that has no rows below its seed inside the range, contributes
+ * nothing. Read-only columns are skipped exactly as `pastePlan` skips them.
+ *
+ * Values go through the same `coerceCellText` a typed cell does, so a filled cell stores exactly
+ * what typing the same text would have stored. Null when nothing in the range can be filled.
+ */
+export function seriesFillPlan(
+  range: CellRange,
+  items: readonly Item[],
+  columns: readonly SpreadsheetColumn[],
+): SeriesFill | null {
+  const fills: SeriesColumnFill[] = [];
+  const bags = new Map<number, Record<string, PropertyValue>>();
+  let unusable = 0;
+
+  for (const column of columnsIn(range, columns)) {
+    if (!column.editable) {
+      continue;
+    }
+
+    const seed: string[] = [];
+    let row = range.startRow;
+    for (; row <= range.endRow; row += 1) {
+      const item = items[row];
+      const text = item === undefined ? '' : cellText(item, column).trim();
+      if (text.length === 0) {
+        break;
+      }
+      seed.push(text);
+    }
+
+    const count = range.endRow - row + 1;
+    const continuation = continueSeries(seed, count);
+    if (continuation === null) {
+      continue;
+    }
+
+    fills.push({
+      column,
+      kind: continuation.kind,
+      describe: continuation.describe,
+      seed,
+      values: continuation.values,
+    });
+
+    continuation.values.forEach((text, offset) => {
+      const coerced = coerceCellText(text, column.type);
+      if (!coerced.ok) {
+        unusable += 1;
+        return;
+      }
+      const target = row + offset;
+      const bag = bags.get(target) ?? {};
+      bag[column.key] = coerced.value;
+      bags.set(target, bag);
+    });
+  }
+
+  if (fills.length === 0) {
+    return null;
+  }
+
+  const writes: RowWrite[] = [];
+  for (const [index, bag] of [...bags].sort((a, b) => a[0] - b[0])) {
+    const item = items[index];
+    if (item !== undefined) {
+      writes.push({ item, bag });
+    }
+  }
+
+  return {
+    plan: { writes, readOnly: 0, unusable },
+    columns: fills,
+    rows: writes.length,
+    patterned: fills.some((fill) => fill.kind !== 'repeat'),
+  };
+}
+
+/** How many continued values an offer spells out; the sentence elides the rest. */
+export const SERIES_PREVIEW_VALUES = 3;
+
+/** One column of a series-fill offer: what was found and the first values it would write. */
+export interface SeriesColumnOffer {
+  readonly column: SpreadsheetColumn;
+  readonly kind: SeriesKind;
+  readonly describe: string;
+  readonly seed: readonly string[];
+
+  /** At most {@link SERIES_PREVIEW_VALUES} continued values, in order. */
+  readonly preview: readonly string[];
+}
+
+/** What the unprompted offer needs to say, and nothing it would only need to write. */
+export interface SeriesFillOffer {
+  readonly columns: readonly SeriesColumnOffer[];
+
+  /** Rows below the seeds that would receive a value. */
+  readonly rows: number;
+
+  /** Whether any column continues a real pattern rather than repeating its last value. */
+  readonly patterned: boolean;
+}
+
+/**
+ * Whether the selection is worth offering a series fill for, without building the fill.
+ *
+ * The same seed and continuation `seriesFillPlan` finds, but only a short preview of it is
+ * computed and nothing is coerced, so the grid can ask on every render. **Only offered into empty
+ * cells**: an unprompted button that overwrote somebody's values would be one click from losing
+ * them, so a selection with any filled target cell gets no offer at all - Ctrl/Cmd+Shift+D, asked
+ * for explicitly, still fills it. Null when there is nothing to offer.
+ */
+export function seriesFillOffer(
+  range: CellRange,
+  items: readonly Item[],
+  columns: readonly SpreadsheetColumn[],
+): SeriesFillOffer | null {
+  const offered: SeriesColumnOffer[] = [];
+  let rows = 0;
+
+  for (const column of columnsIn(range, columns)) {
+    if (!column.editable) {
+      continue;
+    }
+
+    const seed: string[] = [];
+    let row = range.startRow;
+    for (; row <= range.endRow; row += 1) {
+      const item = items[row];
+      const text = item === undefined ? '' : cellText(item, column).trim();
+      if (text.length === 0) {
+        break;
+      }
+      seed.push(text);
+    }
+
+    const count = range.endRow - row + 1;
+    if (seed.length === 0 || count <= 0) {
+      continue;
+    }
+
+    for (let target = row; target <= range.endRow; target += 1) {
+      const item = items[target];
+      if (item !== undefined && cellText(item, column).trim().length > 0) {
+        return null;
+      }
+    }
+
+    const continuation = continueSeries(seed, Math.min(count, SERIES_PREVIEW_VALUES));
+    if (continuation === null) {
+      continue;
+    }
+
+    offered.push({
+      column,
+      kind: continuation.kind,
+      describe: continuation.describe,
+      seed,
+      preview: continuation.values,
+    });
+    rows = Math.max(rows, count);
+  }
+
+  if (offered.length === 0) {
+    return null;
+  }
+
+  return {
+    columns: offered,
+    rows,
+    patterned: offered.some((offer) => offer.kind !== 'repeat'),
+  };
 }
 
 /** A cleared range: every editable cell in it, written to nothing, one bag per row. */

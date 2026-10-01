@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  formatCalendarDay,
   formatDateTime,
   formatFullDate,
   formatShortDate,
@@ -73,4 +74,21 @@ describe('localTimeZone', () => {
   it('matches the exact resolvedOptions() read habit-tracker-view.tsx used to hand-build', () => {
     expect(localTimeZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
+});
+
+describe('formatCalendarDay', () => {
+  it('keeps the stored day in the reader’s locale', () => {
+    const expected = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeZone: 'UTC',
+    }).format(new Date('2026-09-01T00:00:00Z'));
+    expect(formatCalendarDay('2026-09-01')).toBe(expected);
+  });
+
+  it.each(['2026-02-30', '2026-13-01', '2026-09-00', 'not a day'])(
+    'rejects invalid day %s',
+    (day) => {
+      expect(formatCalendarDay(day)).toBeUndefined();
+    },
+  );
 });

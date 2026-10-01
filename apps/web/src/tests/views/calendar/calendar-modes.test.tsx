@@ -196,3 +196,24 @@ describe('placing a moment', () => {
     expect(within(band).getByRole('button', { name: /review/i })).toBeInTheDocument();
   });
 });
+
+describe('the free slot offered when rescheduling on the hour grid', () => {
+  it('is offered when every child is loaded', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render({ children: [LONDON_STANDUP], truncated: false }, viewOf({ mode: 'week' }));
+
+    await user.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    expect(screen.getByText(/Next free slot here/)).toBeInTheDocument();
+  });
+
+  it('is not offered when the container is truncated, since a slot may only look free', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render({ children: [LONDON_STANDUP], truncated: true }, viewOf({ mode: 'week' }));
+
+    await user.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
+
+    expect(screen.getByRole('dialog', { name: 'Reschedule Standup' })).toBeInTheDocument();
+    expect(screen.queryByText(/Next free slot here/)).not.toBeInTheDocument();
+  });
+});

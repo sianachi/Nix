@@ -1,5 +1,6 @@
 using Nix.Abstractions;
 using Nix.Domain.Items;
+using Nix.Domain.Links;
 using Nix.Domain.Tenancy;
 using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
@@ -30,17 +31,32 @@ public sealed class ItemSearch : IItemSearch
 {
     private readonly NixSqlExecutor _sql;
     private readonly INixSessionContextAccessor _session;
+    private readonly CredentialSessionContext _credential;
+    private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="ItemSearch"/> class.</summary>
     /// <param name="sql">The executor sharing this unit of work's connection and transaction.</param>
     /// <param name="session">The tenant this request runs as.</param>
-    public ItemSearch(NixSqlExecutor sql, INixSessionContextAccessor session)
+    /// <param name="credential">
+    /// The credential this request authenticated with: which locks it has opened decides which
+    /// titles under a lock a search may return (ADR-0056).
+    /// </param>
+    /// <param name="clock">Judges lock-grant expiry.</param>
+    public ItemSearch(
+        NixSqlExecutor sql,
+        INixSessionContextAccessor session,
+        CredentialSessionContext credential,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(sql);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(credential);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _sql = sql;
         _session = session;
+        _credential = credential;
+        _clock = clock;
     }
 
     private TenantId Tenant => (_session.Current
@@ -77,6 +93,7 @@ public sealed class ItemSearch : IItemSearch
                 new NpgsqlParameter("query", NpgsqlDbType.Text) { Value = query },
                 new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit },
                 await LockFilterParameters.AllLocksAsync(_sql, Tenant, cancellationToken).ConfigureAwait(false),
+                await ClosedLocksAsync(cancellationToken).ConfigureAwait(false),
             ],
             cancellationToken);
 
@@ -97,23 +114,127 @@ public sealed class ItemSearch : IItemSearch
             return [];
         }
 
-        var identifiers = new Guid[itemIds.Count];
-        for (var index = 0; index < itemIds.Count; index++)
-        {
-            identifiers[index] = itemIds[index].Value;
-        }
-
         var rows = _sql.QueryAsync<ItemDigest, DigestMapper>(
             SearchSql.ReadableItemsById,
             default,
             [
                 Uuid("tenant_id", Tenant.Value),
-                new NpgsqlParameter("item_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
+                ItemIdArray("item_ids", itemIds),
                 UuidArray("workspace_ids", readableWorkspaces),
             ],
             cancellationToken);
 
         return await CollectAsync(rows, itemIds.Count, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The readable items among a derived index's ranked candidates, minus anything under a lock
+    /// this credential has not opened: what <see cref="FindAsync"/>'s title arm would have let
+    /// through.
+    /// </summary>
+    /// <param name="itemIds">The candidates, at most a search page.</param>
+    /// <param name="readableWorkspaces">Where the caller is allowed to look.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>A digest per surviving candidate, in no particular order.</returns>
+    /// <remarks>
+    /// Not on <see cref="IItemSearch"/>: it exists for the OpenSearch adapter, which ranks in an
+    /// index that knows nothing of locks. <see cref="ResolveAsync"/> stays a read by name, which a
+    /// lock does not hide (ADR-0056).
+    /// </remarks>
+    internal async ValueTask<IReadOnlyList<ItemDigest>> ResolveSearchCandidatesAsync(
+        IReadOnlyList<ItemId> itemIds,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(itemIds);
+        ArgumentNullException.ThrowIfNull(readableWorkspaces);
+
+        if (itemIds.Count == 0 || readableWorkspaces.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = _sql.QueryAsync<ItemDigest, DigestMapper>(
+            SearchSql.SearchCandidatesById,
+            default,
+            [
+                Uuid("tenant_id", Tenant.Value),
+                ItemIdArray("item_ids", itemIds),
+                UuidArray("workspace_ids", readableWorkspaces),
+                await ClosedLocksAsync(cancellationToken).ConfigureAwait(false),
+            ],
+            cancellationToken);
+
+        return await CollectAsync(rows, itemIds.Count, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The most title matches the mention statement probes for locks and visibility before
+    /// ranking.
+    /// </summary>
+    /// <remarks>
+    /// Ten times the largest mention result. It exists to bound what the planner may assume about
+    /// an expression it has no statistics for; <see cref="SearchSql.ItemsTitledAs"/> records the
+    /// measurement behind it.
+    /// </remarks>
+    internal const int MentionCandidateLimit = 200;
+
+    /// <summary>The most items one phrase may contribute to a mention answer.</summary>
+    /// <remarks>
+    /// Applied before <see cref="MentionCandidateLimit"/>, so a title shared by hundreds of items
+    /// ("Meeting notes", a date) cannot take every candidate slot. Three is enough to offer a
+    /// choice between same-named notes; more would be a list nobody reads under one underline.
+    /// </remarks>
+    internal const int MentionsPerPhrase = 3;
+
+    /// <inheritdoc />
+    public async ValueTask<IReadOnlyList<TitleMention>> MentionsAsync(
+        IReadOnlyList<string> phrases,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        IReadOnlyList<ItemId> excludedItems,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(phrases);
+        ArgumentNullException.ThrowIfNull(readableWorkspaces);
+        ArgumentNullException.ThrowIfNull(excludedItems);
+
+        if (phrases.Count == 0 || readableWorkspaces.Count == 0)
+        {
+            return [];
+        }
+
+        var values = new string[phrases.Count];
+        for (var index = 0; index < phrases.Count; index++)
+        {
+            values[index] = phrases[index];
+        }
+
+        var rows = _sql.QueryAsync<TitleMention, MentionMapper>(
+            SearchSql.ItemsTitledAs,
+            default,
+            [
+                Uuid("tenant_id", Tenant.Value),
+                UuidArray("workspace_ids", readableWorkspaces),
+                new NpgsqlParameter("phrases", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = values },
+                ItemIdArray("exclude_ids", excludedItems),
+                new NpgsqlParameter("per_phrase_limit", NpgsqlDbType.Integer) { Value = MentionsPerPhrase },
+                new NpgsqlParameter("candidate_limit", NpgsqlDbType.Integer)
+                {
+                    Value = Math.Max(limit, MentionCandidateLimit),
+                },
+                new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit },
+                await ClosedLocksAsync(cancellationToken).ConfigureAwait(false),
+            ],
+            cancellationToken);
+
+        var mentions = new List<TitleMention>(limit);
+        await foreach (var mention in rows.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            mentions.Add(mention);
+        }
+
+        return mentions;
     }
 
     /// <summary>
@@ -156,8 +277,22 @@ public sealed class ItemSearch : IItemSearch
         return digests;
     }
 
+    private ValueTask<NpgsqlParameter> ClosedLocksAsync(CancellationToken cancellationToken) =>
+        LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken);
+
     private static NpgsqlParameter Uuid(string name, Guid value) =>
         new(name, NpgsqlDbType.Uuid) { Value = value };
+
+    private static NpgsqlParameter ItemIdArray(string name, IReadOnlyList<ItemId> values)
+    {
+        var identifiers = new Guid[values.Count];
+        for (var index = 0; index < values.Count; index++)
+        {
+            identifiers[index] = values[index].Value;
+        }
+
+        return new NpgsqlParameter(name, NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers };
+    }
 
     private static NpgsqlParameter UuidArray(string name, IReadOnlyList<WorkspaceId> values)
     {
@@ -170,25 +305,27 @@ public sealed class ItemSearch : IItemSearch
         return new NpgsqlParameter(name, NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers };
     }
 
-    /// <summary>Reads the four columns every item listing projects.</summary>
+    /// <summary>Reads the digest columns every item listing projects.</summary>
     /// <remarks>
     /// A struct so the query loop devirtualises and allocates nothing per row beyond the record
-    /// itself. The title is nullable in the database and stays nullable here: an item that has
-    /// never been named is a real state, and inventing "Untitled" in the persistence layer would
-    /// put a piece of user-facing copy where nothing can translate it.
+    /// itself. The column contract lives in <see cref="ItemDigestColumns"/>.
     /// </remarks>
     private readonly struct DigestMapper : INixRowMapper<ItemDigest>
     {
         /// <inheritdoc />
-        public ItemDigest Map(NpgsqlDataReader reader)
+        public ItemDigest Map(NpgsqlDataReader reader) => ItemDigestColumns.Read(reader);
+    }
+
+    /// <summary>Reads a title match and the phrase it matched.</summary>
+    /// <remarks>A struct so the query loop devirtualises and allocates nothing per row.</remarks>
+    private readonly struct MentionMapper : INixRowMapper<TitleMention>
+    {
+        /// <inheritdoc />
+        public TitleMention Map(NpgsqlDataReader reader)
         {
             ArgumentNullException.ThrowIfNull(reader);
 
-            return new ItemDigest(
-                ItemId.From(reader.GetGuid(0)),
-                WorkspaceId.From(reader.GetGuid(1)),
-                reader.GetString(2),
-                reader.IsDBNull(3) ? null : reader.GetString(3));
+            return new TitleMention(ItemDigestColumns.Read(reader), reader.GetString(ItemDigestColumns.Count));
         }
     }
 }

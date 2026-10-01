@@ -4544,6 +4544,68 @@
         }
       }
     },
+    "/api/v1/search/mentions": {
+      "post": {
+        "tags": [
+          "Search"
+        ],
+        "summary": "Find the items whose titles a passage of text names",
+        "description": "Takes 'text' (at most 4000 characters) and 'workspaceId', and returns up to 20 items in that workspace whose title appears in the text as a whole-word phrase, ignoring case, longest phrase first and at most three per phrase (the most recently modified) - the editor's 'unlinked mentions'. The server cuts the text into word phrases of one to six words itself; single words under four characters and phrases made only of numbers are ignored, and phrases do not span a line break or sentence punctuation. A workspace the caller may not read finds nothing. Items listed in 'excludeIds' (at most 256: the note itself and what it already links to) are never returned, and an item under a lock the caller has not opened is never matched. A POST because the text is too long for a URL; it reads and changes nothing, so a read-scoped token may call it. 'truncated' is set when 20 matches were found or the text held more phrases than one request matches. Refusals: 'search.mention_text_too_long', 'search.mention_workspace_required', 'search.too_many_mention_exclusions', 413 for a body over 48 KiB. Has its own per-address rate limit ('suggestions', 60 a minute by default), separate from writes; send it when typing pauses and wait out a 429's Retry-After.",
+        "operationId": "FindMentions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MentionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MentionsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/backlinks": {
       "get": {
         "tags": [
@@ -4583,6 +4645,62 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BacklinksResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/related": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "summary": "The items most often linked alongside an item",
+        "description": "Returns the items that the documents linking to this one also link to, ranked by how many such documents they share, then by title. 'limit' defaults to 10 and is capped at 25. Only referring documents the caller may read, and that are not locked, count towards a ranking - a locked document's links come from its body - and only items the caller may read are returned. The ranking considers the item's 200 most-referring readable documents, so a heavily linked item is ranked from its strongest sources rather than all of them. An item the caller may not read is reported as not found.",
+        "operationId": "GetRelatedItems",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelatedItemsResponse"
                 }
               }
             }
@@ -13904,6 +14022,72 @@
           }
         }
       },
+      "MentionResponse": {
+        "required": [
+          "item",
+          "phrase"
+        ],
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/SearchHitResponse"
+          },
+          "phrase": {
+            "type": "string"
+          }
+        }
+      },
+      "MentionsRequest": {
+        "required": [
+          "text",
+          "workspaceId",
+          "excludeIds"
+        ],
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workspaceId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "excludeIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "MentionsResponse": {
+        "required": [
+          "mentions",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "mentions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MentionResponse"
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "MonthChecklistResponse": {
         "required": [
           "month",
@@ -15412,6 +15596,53 @@
           }
         }
       },
+      "RelatedItemResponse": {
+        "required": [
+          "item",
+          "sharedSources"
+        ],
+        "type": "object",
+        "properties": {
+          "item": {
+            "$ref": "#/components/schemas/SearchHitResponse"
+          },
+          "sharedSources": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "RelatedItemsResponse": {
+        "required": [
+          "related",
+          "limit",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "related": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RelatedItemResponse"
+            }
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "RemovePushSubscriptionRequest": {
         "required": [
           "endpoint"
@@ -15565,7 +15796,9 @@
           "id",
           "workspaceId",
           "type",
-          "title"
+          "title",
+          "parentId",
+          "updatedAt"
         ],
         "type": "object",
         "properties": {
@@ -15585,6 +15818,17 @@
               "null",
               "string"
             ]
+          },
+          "parentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

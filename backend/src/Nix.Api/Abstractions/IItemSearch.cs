@@ -1,4 +1,5 @@
 using Nix.Domain.Items;
+using Nix.Domain.Links;
 using Nix.Domain.Tenancy;
 
 namespace Nix.Abstractions;
@@ -42,7 +43,8 @@ public interface IItemSearch
     /// <remarks>
     /// A title match ranks above a body match: somebody typing into a palette is usually trying to
     /// reach a document they can already name, and the note merely mentioning the word must not
-    /// come above the note called it.
+    /// come above the note called it. Nothing under a lock the credential has not opened is
+    /// returned, by title or by body (ADR-0056).
     /// </remarks>
     public ValueTask<IReadOnlyList<ItemDigest>> FindAsync(
         string query,
@@ -70,5 +72,36 @@ public interface IItemSearch
     public ValueTask<IReadOnlyList<ItemDigest>> ResolveAsync(
         IReadOnlyList<ItemId> itemIds,
         IReadOnlyList<WorkspaceId> readableWorkspaces,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The readable items whose title, lower-cased, equals one of <paramref name="phrases"/>,
+    /// longest title first, a few per phrase.
+    /// </summary>
+    /// <param name="phrases">
+    /// Normalised phrases cut from a passage by <c>MentionPhrases</c>. Never a caller's list, never
+    /// a pattern.
+    /// </param>
+    /// <param name="readableWorkspaces">
+    /// Where to look: the workspace the passage is written in, already intersected with what the
+    /// caller may read.
+    /// </param>
+    /// <param name="excludedItems">
+    /// Items never to return - the note being written and what it already links to - left out
+    /// before any cap so they spend no slot.
+    /// </param>
+    /// <param name="limit">The most mentions to return.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>Each matching item with the phrase it matched.</returns>
+    /// <remarks>
+    /// Titles only, so the body rule a lock carries does not apply; the title rule does
+    /// (ADR-0056): nothing under a lock this credential has not opened is returned, exactly as for
+    /// <see cref="FindAsync"/>'s title arm. The locked item's own title is.
+    /// </remarks>
+    public ValueTask<IReadOnlyList<TitleMention>> MentionsAsync(
+        IReadOnlyList<string> phrases,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        IReadOnlyList<ItemId> excludedItems,
+        int limit,
         CancellationToken cancellationToken);
 }
