@@ -45,6 +45,28 @@ describe('the view switcher', () => {
     expect(screen.getByRole('button', { name: /^all$/i })).not.toHaveAttribute('aria-current');
   });
 
+  it('brings the current view into the scrolled strip when it changes', () => {
+    const scrolled = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrolled;
+
+    try {
+      const { rerender } = render(
+        <ViewSwitcher views={VIEWS} unrenderable={[]} activeViewId="all" onSelect={vi.fn()} />,
+      );
+      scrolled.mockClear();
+
+      rerender(
+        <ViewSwitcher views={VIEWS} unrenderable={[]} activeViewId="schedule" onSelect={vi.fn()} />,
+      );
+
+      expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
+      expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('button', { name: /schedule/i }));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('reports which view was chosen', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

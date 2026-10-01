@@ -1,11 +1,13 @@
 import { useNarrowViewport } from '../../layout/viewport';
 import {
   Button,
+  ContextMenu,
   Text,
   Table,
   Select,
   cn,
   focusRing,
+  type ContextMenuTargetProps,
   type MenuEntry,
   type TableColumn,
   type TableSort,
@@ -193,6 +195,7 @@ export function ListView(props: ListViewProps): ReactNode {
           columns={columns}
           sort={sort}
           onSortChange={onSortChange}
+          rowContextMenu={rowContextMenu}
         />
       ) : (
         <ListRows
@@ -408,7 +411,13 @@ function cellRefusalKey(itemId: string, key: string): string {
   return `${itemId}\u0000${key}`;
 }
 
-function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): ReactNode {
+function MobileListRows({
+  items,
+  columns,
+  sort,
+  onSortChange,
+  rowContextMenu,
+}: ListRowsProps): ReactNode {
   const [limit, setLimit] = useState(40);
   return (
     <section aria-label="Items in this one" className="flex flex-col gap-3">
@@ -451,28 +460,23 @@ function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): 
         </Button>
       </label>
       <ul className="divide-y divide-divider">
-        {items.slice(0, limit).map((item) => (
-          <li key={item.id} className="py-3">
-            <div className="py-2">{columns[0]?.cell(item)}</div>
-            {columns.length > 1 ? (
-              <details>
-                <summary className="cursor-default py-2">Fields</summary>
-                <dl className="flex flex-col gap-3">
-                  {columns.slice(1).map((column) => (
-                    <div key={column.key} className="min-w-0">
-                      <dt>
-                        <Text as="span" variant="caption" tone="muted">
-                          {column.header}
-                        </Text>
-                      </dt>
-                      <dd className="min-w-0 py-1">{column.cell(item)}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </details>
-            ) : null}
-          </li>
-        ))}
+        {items.slice(0, limit).map((item) =>
+          // A long press is the phone's right-click: the same actions the desktop rows offer, so a
+          // row on a phone is not the one place an item cannot be moved, pinned or deleted from.
+          rowContextMenu === undefined ? (
+            <MobileRow key={item.id} item={item} columns={columns} />
+          ) : (
+            <ContextMenu
+              key={item.id}
+              label={`${item.title || 'Untitled'} actions`}
+              items={() => rowContextMenu(item)}
+            >
+              {(contextTarget) => (
+                <MobileRow item={item} columns={columns} target={contextTarget} />
+              )}
+            </ContextMenu>
+          ),
+        )}
       </ul>
       {items.length > limit ? (
         <Button
@@ -485,5 +489,37 @@ function MobileListRows({ items, columns, sort, onSortChange }: ListRowsProps): 
         </Button>
       ) : null}
     </section>
+  );
+}
+
+/** One phone row: the first column's cell, and the rest folded under "Fields". */
+function MobileRow(props: {
+  readonly item: Item;
+  readonly columns: ListRowsProps['columns'];
+  readonly target?: ContextMenuTargetProps;
+}): ReactNode {
+  const { item, columns, target } = props;
+
+  return (
+    <li {...target} className="py-3">
+      <div className="py-2">{columns[0]?.cell(item)}</div>
+      {columns.length > 1 ? (
+        <details>
+          <summary className="cursor-default py-2">Fields</summary>
+          <dl className="flex flex-col gap-3">
+            {columns.slice(1).map((column) => (
+              <div key={column.key} className="min-w-0">
+                <dt>
+                  <Text as="span" variant="caption" tone="muted">
+                    {column.header}
+                  </Text>
+                </dt>
+                <dd className="min-w-0 py-1">{column.cell(item)}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+    </li>
   );
 }
