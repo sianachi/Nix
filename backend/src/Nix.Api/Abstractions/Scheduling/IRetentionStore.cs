@@ -15,4 +15,11 @@ public interface IRetentionStore
 
     /// <summary>Deletes up to <paramref name="limit"/> automation runs older than 30 days. Returns how many were removed.</summary>
     public Task<int> PurgeAutomationRunsAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes up to <paramref name="limit"/> calendar sync log rows older than 30 days and up to as
+    /// many event-map tombstones older than 30 days. Returns the larger of the two counts, so a
+    /// caller repeating while a full batch comes back drains both.
+    /// </summary>
+    public Task<int> PurgeCalendarSyncLogAsync(int limit, CancellationToken cancellationToken);
 }

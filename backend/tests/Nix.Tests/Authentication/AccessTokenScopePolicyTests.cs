@@ -213,6 +213,21 @@ public sealed class AccessTokenScopePolicyTests
         ["RunAutomation"] = Requirement.Admin,
         ["TestAutomation"] = Requirement.Admin,
 
+        // Calendar sync (ADR-0052): a token may read accounts, calendars, links and the log;
+        // connecting or disconnecting an account is interactive-only (it hands a third party an
+        // OAuth grant); creating, changing or deleting a link is admin (a link pushes workspace
+        // data to a third party unattended); asking a link to sync now is an ordinary write.
+        ["ListCalendarConnections"] = Requirement.Read,
+        ["ListExternalCalendars"] = Requirement.Read,
+        ["ListCalendarLinks"] = Requirement.Read,
+        ["ListCalendarLinkLog"] = Requirement.Read,
+        ["AuthorizeCalendarConnection"] = Requirement.InteractiveOnly,
+        ["DeleteCalendarConnection"] = Requirement.InteractiveOnly,
+        ["CreateCalendarLink"] = Requirement.Admin,
+        ["UpdateCalendarLink"] = Requirement.Admin,
+        ["DeleteCalendarLink"] = Requirement.Admin,
+        ["SyncCalendarLink"] = Requirement.Write,
+
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,
         ["CreateAccessToken"] = Requirement.InteractiveOnly,
@@ -301,6 +316,18 @@ public sealed class AccessTokenScopePolicyTests
     [InlineData("/api/v1/automations/00000000-0000-0000-0000-000000000002/runs")]
     public void Reading_automations_is_a_read(string path) =>
         Assert.Equal(Requirement.Read, Classify("GET", path));
+
+    [Theory]
+    [InlineData("POST", "/api/v1/me/calendar/connections/google/authorize/", Requirement.InteractiveOnly)]
+    [InlineData("DELETE", "/api/v1/me/calendar/connections/00000000-0000-0000-0000-000000000001/", Requirement.InteractiveOnly)]
+    [InlineData("POST", "/api/v1/me/calendar/links/", Requirement.Admin)]
+    [InlineData("PATCH", "/api/v1/me/calendar/links/00000000-0000-0000-0000-000000000002", Requirement.Admin)]
+    [InlineData("DELETE", "/api/v1/me/calendar/links/00000000-0000-0000-0000-000000000002/", Requirement.Admin)]
+    [InlineData("POST", "/api/v1/me/calendar/links/00000000-0000-0000-0000-000000000002/sync/", Requirement.Write)]
+    [InlineData("GET", "/api/v1/me/calendar/links/00000000-0000-0000-0000-000000000002/log", Requirement.Read)]
+    [InlineData("GET", "/api/v1/me/calendar/connections/00000000-0000-0000-0000-000000000001/calendars", Requirement.Read)]
+    public void Calendar_routes_are_classified_whatever_their_trailing_slash(string method, string path, Requirement expected) =>
+        Assert.Equal(expected, Classify(method, path));
 
     [Theory]
     [InlineData("GET", "/api/v1/me/tokens")]

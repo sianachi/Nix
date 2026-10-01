@@ -402,6 +402,381 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("bookmark", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarConnection", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("AccessTokenExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("access_token_expires_at");
+
+                    b.Property<byte[]>("AccessTokenProtected")
+                        .HasColumnType("bytea")
+                        .HasColumnName("access_token_protected");
+
+                    b.Property<string>("AccountEmail")
+                        .IsRequired()
+                        .HasMaxLength(320)
+                        .HasColumnType("character varying(320)")
+                        .HasColumnName("account_email");
+
+                    b.Property<string>("AccountSubject")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)")
+                        .HasColumnName("account_subject");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_error");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("provider");
+
+                    b.Property<byte[]>("RefreshTokenProtected")
+                        .HasColumnType("bytea")
+                        .HasColumnName("refresh_token_protected");
+
+                    b.Property<string>("Scopes")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)")
+                        .HasColumnName("scopes");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_calendar_connection");
+
+                    b.HasIndex("TenantId", "PrincipalId", "Provider", "AccountSubject")
+                        .IsUnique()
+                        .HasDatabaseName("ux_calendar_connection_account");
+
+                    b.ToTable("calendar_connection", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_calendar_connection_bounded", "provider IN ('google', 'microsoft') AND status IN ('active', 'needs_reauth', 'revoked') AND char_length(account_subject) BETWEEN 1 AND 255 AND char_length(account_email) <= 320 AND char_length(scopes) <= 1000 AND (last_error IS NULL OR char_length(last_error) <= 500)");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarEventMap", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("deleted_at");
+
+                    b.Property<string>("ExternalEventId")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("external_event_id");
+
+                    b.Property<DateTimeOffset?>("ExternalUpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("external_updated_at");
+
+                    b.Property<string>("ExternalVersion")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("external_version");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<byte[]>("LastSyncedHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("last_synced_hash");
+
+                    b.Property<Guid>("LinkId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("link_id");
+
+                    b.Property<DateTimeOffset?>("NixVersion")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("nix_version");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<short>("PushFailures")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)0)
+                        .HasColumnName("push_failures");
+
+                    b.Property<byte[]>("PushHash")
+                        .HasColumnType("bytea")
+                        .HasColumnName("push_hash");
+
+                    b.Property<DateTimeOffset?>("PushNixVersion")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("push_nix_version");
+
+                    b.Property<string>("PushOp")
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("push_op");
+
+                    b.Property<string>("SeenExecution")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("seen_execution");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_calendar_event_map");
+
+                    b.HasIndex("DeletedAt")
+                        .HasDatabaseName("ix_calendar_event_map_deleted_at")
+                        .HasFilter("deleted_at IS NOT NULL");
+
+                    b.HasIndex("TenantId", "LinkId", "ExternalEventId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_calendar_event_map_external")
+                        .HasFilter("external_event_id IS NOT NULL");
+
+                    b.HasIndex("TenantId", "LinkId", "ItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_calendar_event_map_item");
+
+                    b.ToTable("calendar_event_map", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_calendar_event_map_bounded", "(external_event_id IS NULL OR char_length(external_event_id) BETWEEN 1 AND 500) AND (external_version IS NULL OR char_length(external_version) <= 4096) AND (seen_execution IS NULL OR char_length(seen_execution) <= 128) AND (last_synced_hash IS NULL OR octet_length(last_synced_hash) = 32) AND (push_hash IS NULL OR octet_length(push_hash) = 32) AND (push_op IS NULL OR push_op IN ('create', 'update', 'delete')) AND push_failures >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarLink", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("ConnectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("connection_id");
+
+                    b.Property<Guid>("ContainerItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("container_item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<DateTimeOffset?>("CursorWindowEnd")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cursor_window_end");
+
+                    b.Property<DateTimeOffset?>("CursorWindowStart")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cursor_window_start");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("direction");
+
+                    b.Property<string>("ExternalCalendarId")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("external_calendar_id");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("last_error");
+
+                    b.Property<Guid?>("LastJobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("last_job_id");
+
+                    b.Property<DateTimeOffset?>("LastSyncedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_synced_at");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<int>("Revision")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("revision");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("SyncCursor")
+                        .HasMaxLength(4096)
+                        .HasColumnType("character varying(4096)")
+                        .HasColumnName("sync_cursor");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<short>("WindowFutureDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)365)
+                        .HasColumnName("window_future_days");
+
+                    b.Property<short>("WindowPastDays")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("smallint")
+                        .HasDefaultValue((short)30)
+                        .HasColumnName("window_past_days");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_calendar_link");
+
+                    b.HasIndex("Id")
+                        .HasDatabaseName("ix_calendar_link_active")
+                        .HasFilter("status = 'active'");
+
+                    b.HasIndex("TenantId", "ContainerItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_calendar_link_container");
+
+                    b.HasIndex("TenantId", "WorkspaceId")
+                        .HasDatabaseName("ix_calendar_link_workspace");
+
+                    b.HasIndex("TenantId", "ConnectionId", "ExternalCalendarId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_calendar_link_calendar");
+
+                    b.ToTable("calendar_link", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_calendar_link_bounded", "direction IN ('two_way', 'import_only') AND status IN ('active', 'paused', 'stopped', 'error') AND window_past_days BETWEEN 0 AND 365 AND window_future_days BETWEEN 1 AND 730 AND char_length(external_calendar_id) BETWEEN 1 AND 500 AND char_length(name) BETWEEN 1 AND 200 AND (sync_cursor IS NULL OR char_length(sync_cursor) <= 4096) AND (last_error IS NULL OR char_length(last_error) <= 500) AND revision >= 1");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarSyncLogEntry", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("action");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("at");
+
+                    b.Property<string>("Detail")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("detail");
+
+                    b.Property<string>("Direction")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("direction");
+
+                    b.Property<string>("ExternalEventId")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("external_event_id");
+
+                    b.Property<Guid?>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<Guid>("LinkId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("link_id");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_calendar_sync_log");
+
+                    b.HasIndex("At")
+                        .HasDatabaseName("ix_calendar_sync_log_at");
+
+                    b.HasIndex("TenantId", "LinkId", "At", "Id")
+                        .IsDescending(false, false, true, true)
+                        .HasDatabaseName("ix_calendar_sync_log_link_at");
+
+                    b.ToTable("calendar_sync_log", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_calendar_sync_log_bounded", "direction IN ('pull', 'push') AND action IN ('created', 'updated', 'deleted', 'conflict', 'skipped', 'error') AND char_length(detail) <= 500 AND (external_event_id IS NULL OR char_length(external_event_id) <= 500)");
+                        });
+                });
+
             modelBuilder.Entity("Nix.Domain.Content.CanvasLibrary", b =>
                 {
                     b.Property<Guid>("PrincipalId")
@@ -2554,7 +2929,7 @@ namespace Nix.Persistence.Migrations.Generated
 
                     b.ToTable("scheduled_trigger", null, t =>
                         {
-                            t.HasCheckConstraint("scheduled_trigger_bounded", "kind IN ('reminder', 'automation', 'system') AND status IN ('pending', 'leased', 'fired', 'skipped', 'cancelled') AND attempts >= 0 AND char_length(dedupe_key) <= 200 AND (lease_owner IS NULL OR char_length(lease_owner) <= 128) AND char_length(source) <= 64 AND source ~ '^[a-z0-9._-]+$'");
+                            t.HasCheckConstraint("scheduled_trigger_bounded", "kind IN ('reminder', 'automation', 'system', 'calendar') AND status IN ('pending', 'leased', 'fired', 'skipped', 'cancelled') AND attempts >= 0 AND char_length(dedupe_key) <= 200 AND (lease_owner IS NULL OR char_length(lease_owner) <= 128) AND char_length(source) <= 64 AND source ~ '^[a-z0-9._-]+$'");
                         });
                 });
 
@@ -3455,6 +3830,63 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarConnection", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_calendar_connection_principal");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarEventMap", b =>
+                {
+                    b.HasOne("Nix.Domain.Calendar.CalendarLink", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "LinkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_calendar_event_map_link");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarLink", b =>
+                {
+                    b.HasOne("Nix.Domain.Calendar.CalendarConnection", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ConnectionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_calendar_link_connection");
+
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ContainerItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_calendar_link_container_item");
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_calendar_link_workspace");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Calendar.CalendarSyncLogEntry", b =>
+                {
+                    b.HasOne("Nix.Domain.Calendar.CalendarLink", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "LinkId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_calendar_sync_log_link");
                 });
 
             modelBuilder.Entity("Nix.Domain.Content.CanvasLibrary", b =>

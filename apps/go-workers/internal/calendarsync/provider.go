@@ -17,7 +17,8 @@ var ErrGone = errors.New("calendar event no longer exists upstream")
 
 // ProviderEvent is one event pulled from Google or Microsoft, already normalized to the shape
 // contract C2 needs: a status, a title, a start/end Bound pair, free text fields and the
-// provider's own concurrency version.
+// provider's own concurrency version. NixItemID is the item id an event Nix created was stamped
+// with (see PushEvent), or "" for any other event.
 type ProviderEvent struct {
 	ExternalID string
 	Version    string // Google etag or Graph changeKey
@@ -29,16 +30,20 @@ type ProviderEvent struct {
 	End        *Bound
 	ReadOnly   bool
 	UpdatedAt  time.Time
+	NixItemID  string
 }
 
 // PushEvent is what the worker sends upstream when creating or updating a provider event from a
-// Nix item change.
+// Nix item change. NixItemID is set on a create: the provider stores it with the event (Google as
+// the client-supplied event id, Graph as transactionId plus a single-value extended property) and
+// it is read back on pull, so a create whose C4 report is lost is never mirrored or pushed twice.
 type PushEvent struct {
-	Title    string
-	Location string
-	Details  string
-	Start    Bound
-	End      *Bound
+	Title     string
+	Location  string
+	Details   string
+	Start     Bound
+	End       *Bound
+	NixItemID string
 }
 
 // Page is one page of a provider pull. Next is true when PageToken must be used to fetch the
@@ -62,7 +67,9 @@ type Provider interface {
 	// Pull fetches one page of changes. cursor is the stored syncToken/deltaLink, or "" for a
 	// first/full round; pageToken continues a round already in progress ("" for its first page).
 	Pull(ctx context.Context, accessToken, calendarID, cursor string, windowStart, windowEnd time.Time, pageToken string) (Page, error)
-	// CreateEvent creates a new upstream event and returns its external id and version.
+	// CreateEvent creates a new upstream event stamped with event.NixItemID and returns its external
+	// id and version. Creating again for the same item is not an error: the provider's existing
+	// event for that item is returned instead.
 	CreateEvent(ctx context.Context, accessToken, calendarID string, event PushEvent) (externalID, version string, err error)
 	// UpdateEvent patches an existing upstream event guarded by its last known version, and
 	// returns the event's new version. It returns ErrConflict or ErrGone as described above.

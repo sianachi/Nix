@@ -108,8 +108,22 @@ spec:
               value: "https://${DOMAIN}"
             - name: Nix__Bff__AccountPage
               value: "${OIDC_ISSUER}/ui/console/users/me?id=security"   # the IdP's password and passkey page
+            # Also protects stored calendar refresh tokens (ADR-0052). Scaling Core past one
+            # replica needs this key ring on shared storage, or connections must be reconnected.
             - name: Nix__Bff__DataProtectionKeysPath
               value: /var/lib/nix/data-protection
+            # Two-way calendar sync. The secret and each key are optional: a provider without a
+            # client id and secret is reported unavailable. See create-secrets.sh --calendar-only.
+            - name: Nix__Calendar__Google__ClientId
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: google-client-id, optional: true } }
+            - name: Nix__Calendar__Google__ClientSecret
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: google-client-secret, optional: true } }
+            - name: Nix__Calendar__Microsoft__ClientId
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-client-id, optional: true } }
+            - name: Nix__Calendar__Microsoft__ClientSecret
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-client-secret, optional: true } }
+            - name: Nix__Calendar__Microsoft__Tenant
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-tenant, optional: true } }
             - name: Nix__AccessTokens__Issuer
               value: "https://${DOMAIN}"
             - name: Nix__AccessTokens__Audience

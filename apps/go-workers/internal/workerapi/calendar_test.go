@@ -28,6 +28,22 @@ func TestValidateCalendarEventRequiresStartOnlyForConfirmedEvents(t *testing.T) 
 	}
 }
 
+func TestValidateCalendarEventAcceptsOnlyACanonicalItemStamp(t *testing.T) {
+	event := CalendarEvent{ExternalID: "evt-1", Status: "confirmed", Start: "2026-10-01", UpdatedAt: time.Now()}
+	for _, stamp := range []string{"not-a-uuid", "66666666-6666-4666-8666-66666666666G", "66666666-6666-4666-8666-666666666666 "} {
+		value := stamp
+		event.NixItemID = &value
+		if err := validateCalendarEvent(event); err == nil {
+			t.Fatalf("stamp %q was accepted", stamp)
+		}
+	}
+	valid := "66666666-6666-4666-8666-666666666666"
+	event.NixItemID = &valid
+	if err := validateCalendarEvent(event); err != nil {
+		t.Fatalf("canonical stamp: %v", err)
+	}
+}
+
 func TestLogCalendarEntriesAcceptsOnlyTheWorkerActions(t *testing.T) {
 	client := New("http://127.0.0.1:1", "secret", "worker", time.Second)
 	for _, action := range []string{"created", "updated", "deleted", "anything"} {

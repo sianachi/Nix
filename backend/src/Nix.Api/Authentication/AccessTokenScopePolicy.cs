@@ -80,6 +80,24 @@ public static class AccessTokenScopePolicy
             return Requirement.InteractiveOnly;
         }
 
+        // Connecting or disconnecting a calendar account hands a third party an OAuth grant, or
+        // takes it away: an interactive-user boundary, like managing tokens. Listing accounts and
+        // their calendars remains Read through the shortcut below.
+        if (!IsRead(method)
+            && path.StartsWithSegments("/api/v1/me/calendar/connections", StringComparison.OrdinalIgnoreCase))
+        {
+            return Requirement.InteractiveOnly;
+        }
+
+        // A calendar link pushes workspace data to a third party unattended, as its owner, every
+        // few minutes (ADR-0052): creating, changing or deleting one is an admin capability for a
+        // token, never an ordinary write. Asking an existing link to sync now is an ordinary write.
+        if (!IsRead(method)
+            && path.StartsWithSegments("/api/v1/me/calendar/links", StringComparison.OrdinalIgnoreCase))
+        {
+            return value.EndsWith("/sync", StringComparison.OrdinalIgnoreCase) ? Requirement.Write : Requirement.Admin;
+        }
+
         // Admin surfaces, whichever method reaches them, because each changes or exposes who can
         // see what rather than what there is to see:
         //  - `/public-link` publishes a view to the anonymous internet, and its GET reads back a

@@ -43,6 +43,9 @@ public sealed record SetItemProperties(ItemId ItemId, string Changes) : ICommand
     // The same kind of trusted marker for the habit handlers, which alone may write $habit_ keys.
     // It never admits a scheduler set-by key.
     internal bool HabitWrite { get; init; }
+
+    // And for the calendar sync pull, which alone may write $cal_ keys.
+    internal bool CalendarWrite { get; init; }
 }
 
 /// <summary>Handles <see cref="SetItemProperties"/>.</summary>
@@ -103,7 +106,7 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
-        if (ContainsKeyMatching(changes, name => SchedulingReservedProperties.IsRefused(name, command.HabitWrite)))
+        if (ContainsKeyMatching(changes, name => SchedulingReservedProperties.IsRefused(name, command.HabitWrite, command.CalendarWrite)))
         {
             return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }

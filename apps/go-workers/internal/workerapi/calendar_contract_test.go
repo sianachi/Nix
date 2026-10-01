@@ -122,12 +122,13 @@ func TestCalendarContractC2PullRequestMatchesFixture(t *testing.T) {
 	core, client := newContractCore(t)
 	timedEnd := "2026-10-01T09:15:00-04:00[America/New_York]"
 	allDayEnd := "2026-10-06"
+	stamp := "66666666-6666-4666-8666-666666666666"
 	request := CalendarPullRequest{Full: false, Events: []CalendarEvent{
 		{
 			ExternalID: "evt-timed", Version: `"3181161784712000"`, Status: "confirmed", Title: "Standup",
 			Start: "2026-10-01T09:00:00-04:00[America/New_York]", End: &timedEnd,
 			Location: "Room 4", Details: "Agenda\nNotes", ReadOnly: false,
-			UpdatedAt: contractTime(t, "2026-09-30T12:00:00Z"),
+			UpdatedAt: contractTime(t, "2026-09-30T12:00:00Z"), NixItemID: &stamp,
 		},
 		{
 			ExternalID: "evt-allday", Version: "ck-2", Status: "confirmed", Title: "Offsite",

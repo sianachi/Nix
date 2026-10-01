@@ -11,7 +11,8 @@
       "location": "Room 4",
       "details": "Agenda\nNotes",
       "readOnly": false,
-      "updatedAt": "2026-09-30T12:00:00Z"
+      "updatedAt": "2026-09-30T12:00:00Z",
+      "nixItemId": "66666666-6666-4666-8666-666666666666"
     },
     {
       "externalId": "evt-allday",

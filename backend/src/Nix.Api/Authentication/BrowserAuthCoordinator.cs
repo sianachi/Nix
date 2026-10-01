@@ -396,13 +396,7 @@ public sealed class BrowserAuthCoordinator
             && CryptographicOperations.FixedTimeEquals(leftBytes, rightBytes);
     }
 
-    private static string SafeReturnTo(string? value) =>
-        value is { Length: > 0 and <= 2048 }
-        && value[0] == '/'
-        && (value.Length == 1 || value[1] != '/')
-        && !value.Any(char.IsControl)
-            ? value
-            : "/";
+    private static string SafeReturnTo(string? value) => ReturnToPath.Sanitize(value);
 
     private sealed record OidcTokenPair(string AccessToken, string IdToken);
 

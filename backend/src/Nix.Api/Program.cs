@@ -79,6 +79,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(PetJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(NotificationsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(AutomationJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(Nix.Features.CalendarSync.CalendarSyncJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(GraphJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(CalendarJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(RecurrenceJsonContext.Default);
@@ -405,6 +406,12 @@ if (!persistenceConfigured)
 {
     ApiLog.PersistenceNotConfigured(app.Logger, nixConnectionStringName);
 }
+else
+{
+    // A calendar provider that is configured but unusable (an unsafe origin, keys not persisted)
+    // says so once here rather than silently reporting itself unavailable.
+    Nix.Features.CalendarSync.CalendarSyncServiceCollectionExtensions.LogCalendarProviders(app.Services, app.Logger);
+}
 
 // First, ahead of everything: the body-limit middleware, the rate limiter and the failed-
 // authentication throttle all read Connection.RemoteIpAddress, and this is what makes that the
@@ -443,6 +450,7 @@ app.MapHealthEndpoints();
 if (persistenceConfigured)
 {
     app.MapBrowserAuthEndpoints();
+    Nix.Features.CalendarSync.CalendarOAuthCallbackEndpoint.MapCalendarOAuthCallback(app);
 }
 
 // Everything below this line runs inside a tenant-scoped transaction and requires a bearer token.
@@ -518,6 +526,7 @@ app.MapCanvasEndpoints();
 app.MapPetEndpoints();
 app.MapNotificationEndpoints();
 app.MapAutomationEndpoints();
+Nix.Features.CalendarSync.CalendarSyncEndpoints.MapCalendarSyncEndpoints(app);
 app.MapGraphEndpoints();
 app.MapCalendarEndpoints();
 app.MapRecurrenceEndpoints();

@@ -55,7 +55,9 @@ type CalendarSession struct {
 }
 
 // CalendarEvent is one pulled event in the C2 pull request, a DateOrTimestamp per field being
-// either a bare yyyy-MM-dd date or an RFC 9557 timestamp with an IANA zone.
+// either a bare yyyy-MM-dd date or an RFC 9557 timestamp with an IANA zone. NixItemID is present
+// only for an event Nix created: the item id it was stamped with, so Core can recognise a create
+// whose C4 report was lost.
 type CalendarEvent struct {
 	ExternalID string    `json:"externalId"`
 	Version    string    `json:"version"`
@@ -67,6 +69,7 @@ type CalendarEvent struct {
 	Details    string    `json:"details"`
 	ReadOnly   bool      `json:"readOnly"`
 	UpdatedAt  time.Time `json:"updatedAt"`
+	NixItemID  *string   `json:"nixItemId,omitempty"`
 }
 
 // CalendarPullRequest is the C2 request body.
@@ -319,6 +322,9 @@ func validateCalendarEvent(event CalendarEvent) error {
 	}
 	if event.UpdatedAt.IsZero() {
 		return errors.New("calendar event updatedAt is required")
+	}
+	if event.NixItemID != nil && !canonicalUUID(*event.NixItemID) {
+		return errors.New("calendar event nixItemId is invalid")
 	}
 	return nil
 }

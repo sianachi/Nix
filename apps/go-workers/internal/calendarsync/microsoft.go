@@ -22,6 +22,12 @@ import (
 // Prefer: odata.maxpagesize=50, outlook.timezone="UTC" and outlook.body-content-type="text"
 // (so details arrive as plain text, not HTML); all-day events have isAllDay=true with midnight start/end, and
 // the Graph end for an all-day event is exclusive, like Google's.
+// graphItemPropertyID names the single-value extended property a created event carries the Nix
+// item id in, beside transactionId. Graph's calendarView delta returns transactionId but cannot
+// expand extended properties ($expand is unsupported there), so pull reads transactionId and
+// falls back to the property only when a response happens to include it.
+const graphItemPropertyID = "String {6f1c2d8e-4b7a-4e39-9c55-2a7d3e1b9f40} Name NixItemId"
+
 type MicrosoftClient struct {
 	transport *transport
 	logger    *slog.Logger
@@ -43,19 +49,26 @@ type graphDateTime struct {
 }
 
 type graphEvent struct {
-	ID                    string         `json:"id"`
-	ChangeKey             string         `json:"changeKey"`
-	Subject               string         `json:"subject"`
-	Body                  *graphBody     `json:"body"`
-	Location              *graphLocation `json:"location"`
-	Start                 graphDateTime  `json:"start"`
-	End                   graphDateTime  `json:"end"`
-	IsAllDay              bool           `json:"isAllDay"`
-	LastModifiedDateTime  time.Time      `json:"lastModifiedDateTime"`
-	OriginalStartTimeZone string         `json:"originalStartTimeZone"`
-	OriginalEndTimeZone   string         `json:"originalEndTimeZone"`
-	IsOrganizer           *bool          `json:"isOrganizer"`
-	Removed               *graphRemoved  `json:"@removed"`
+	ID                    string          `json:"id"`
+	ChangeKey             string          `json:"changeKey"`
+	Subject               string          `json:"subject"`
+	Body                  *graphBody      `json:"body"`
+	Location              *graphLocation  `json:"location"`
+	Start                 graphDateTime   `json:"start"`
+	End                   graphDateTime   `json:"end"`
+	IsAllDay              bool            `json:"isAllDay"`
+	LastModifiedDateTime  time.Time       `json:"lastModifiedDateTime"`
+	OriginalStartTimeZone string          `json:"originalStartTimeZone"`
+	OriginalEndTimeZone   string          `json:"originalEndTimeZone"`
+	IsOrganizer           *bool           `json:"isOrganizer"`
+	TransactionID         string          `json:"transactionId"`
+	ExtendedProperties    []graphProperty `json:"singleValueExtendedProperties"`
+	Removed               *graphRemoved   `json:"@removed"`
+}
+
+type graphProperty struct {
+	ID    string `json:"id"`
+	Value string `json:"value"`
 }
 
 type graphBody struct {
@@ -168,7 +181,22 @@ func (client *MicrosoftClient) convert(item graphEvent) ProviderEvent {
 		End:        &end,
 		ReadOnly:   readOnly,
 		UpdatedAt:  item.LastModifiedDateTime,
+		NixItemID:  graphItemStamp(item),
 	}
+}
+
+// graphItemStamp reads the Nix item id a created event was stamped with: its transactionId, or the
+// extended property when present. Another app's transactionId is not a canonical UUID and yields "".
+func graphItemStamp(item graphEvent) string {
+	if canonicalUUID(item.TransactionID) {
+		return item.TransactionID
+	}
+	for _, property := range item.ExtendedProperties {
+		if property.ID == graphItemPropertyID && canonicalUUID(property.Value) {
+			return property.Value
+		}
+	}
+	return ""
 }
 
 // graphBound converts one Graph dateTimeTimeZone into a Bound. Graph's dateTime string carries
@@ -198,8 +226,16 @@ func graphBound(value graphDateTime, zone string, allDay, isEnd bool) Bound {
 	return Bound{Instant: instant.In(loc), Zone: zone}
 }
 
+// CreateEvent posts the event stamped with the Nix item id twice over: transactionId (which Graph
+// documents as its guard against a client retrying the same create) and a single-value extended
+// property.
 func (client *MicrosoftClient) CreateEvent(ctx context.Context, accessToken, calendarID string, event PushEvent) (string, string, error) {
-	body, err := json.Marshal(graphEventBody(event))
+	payload := graphEventBody(event)
+	if canonicalUUID(event.NixItemID) {
+		payload["transactionId"] = event.NixItemID
+		payload["singleValueExtendedProperties"] = []graphProperty{{ID: graphItemPropertyID, Value: event.NixItemID}}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", err
 	}
