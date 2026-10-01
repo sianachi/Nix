@@ -168,13 +168,16 @@ public sealed class ViewDefinitionTests
     [InlineData(PropertyType.Date)]
     [InlineData(PropertyType.Timestamp)]
     [InlineData(PropertyType.Checkbox)]
+    [InlineData(PropertyType.Completion)]
+    [InlineData(PropertyType.Priority)]
+    [InlineData(PropertyType.Assignee)]
     [InlineData(PropertyType.Url)]
     [InlineData(PropertyType.Image)]
     public void A_board_grouping_by_a_type_that_cannot_be_grouped_cannot_render(PropertyType type)
     {
         // Retyping a select to text is one edit in a schema panel and it is enough. Grouping by
-        // free text would draw a column per distinct value; grouping by a multi-select would put
-        // one card in several columns at once.
+        // free text would draw a column per distinct value. The bounded types after Text and
+        // Number are decided for grouping (ADR-0054) and staged until the web board can draw them.
         Assert.False(Board("status").CanRender(SchemaOf(Property("status", type))));
     }
 

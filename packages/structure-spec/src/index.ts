@@ -11,6 +11,8 @@ export type {
 } from './types.js';
 
 export {
+  canChartBy,
+  canGroupBy,
   foldNeedsProperty,
   isComputedType,
   isDateShaped,
@@ -68,6 +70,7 @@ export type {
   CatalogRecipe,
   CatalogRollupAggregate,
   CatalogSmartList,
+  CatalogViewKind,
   FlatWorkspaceToolArgs,
   FormRules,
   HabitRules,

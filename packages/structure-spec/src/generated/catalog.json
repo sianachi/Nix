@@ -218,7 +218,8 @@
       "label": "Board",
       "requires": {
         "field": "groupBy",
-        "shape": "select"
+        "shape": "select",
+        "accepts": ["select"]
       },
       "optional": [],
       "description": "Cards grouped into columns by a single select property."
@@ -228,7 +229,8 @@
       "label": "Calendar",
       "requires": {
         "field": "date",
-        "shape": "date-shaped"
+        "shape": "date-shaped",
+        "accepts": ["date", "timestamp", "datetime", "due_date", "start_date"]
       },
       "optional": [],
       "description": "Items placed on a day, week or month by a date property."
@@ -238,7 +240,8 @@
       "label": "Timeline",
       "requires": {
         "field": "date",
-        "shape": "date-shaped"
+        "shape": "date-shaped",
+        "accepts": ["date", "timestamp", "datetime", "due_date", "start_date"]
       },
       "optional": [
         {
@@ -293,7 +296,8 @@
       "label": "Chart",
       "requires": {
         "field": "groupBy",
-        "shape": "select"
+        "shape": "select",
+        "accepts": ["select"]
       },
       "optional": [
         {

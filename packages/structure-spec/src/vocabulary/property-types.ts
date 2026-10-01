@@ -118,6 +118,27 @@ export function isDateShaped(type: string): boolean {
 }
 
 /**
+ * Whether a board, list, sheet or gallery may group by a property of this type. The server's
+ * counterpart is `PropertyTypes.CanGroupBy` (PropertyType.cs); the two must widen together, and
+ * the catalog lists what each accepts so the C# parity test can hold them to it.
+ *
+ * Single select only for now. Grouping by a multi-select, checkbox, completion, priority or
+ * assignee is decided (ADR-0054) but lands with the web board work that can draw it.
+ */
+export function canGroupBy(type: string): boolean {
+  return type === 'select';
+}
+
+/**
+ * Whether a chart may bucket its bars by a property of this type: single select, because the
+ * server folds the buckets and reads one select value per item. The server's counterpart is
+ * `PropertyTypes.CanChartBy`; it stays narrower than `canGroupBy` once grouping widens.
+ */
+export function canChartBy(type: string): boolean {
+  return type === 'select';
+}
+
+/**
  * Whether a property's values are computed on read rather than written.
  *
  * The server's counterpart is `PropertyTypes.IsComputed` (PropertyType.cs), and the two must widen

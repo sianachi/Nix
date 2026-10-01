@@ -114,6 +114,28 @@ describe('the capability catalog', () => {
     }
   });
 
+  it('lists the property types each view requirement accepts, for the C# parity test to check', () => {
+    const catalog = buildCatalog();
+    const accepts = new Map(
+      catalog.viewKinds.flatMap((kind) =>
+        kind.requires === null ? [] : [[kind.kind, kind.requires.accepts]],
+      ),
+    );
+    // Board grouping is single select until the web board learns the other types (ADR-0054).
+    expect(accepts.get('board')).toEqual(['select']);
+    expect(accepts.get('chart')).toEqual(['select']);
+    // Assignee is listed even though the pet may not declare one: the list is checked against
+    // every PropertyType the backend defines.
+    expect(accepts.get('calendar')).toEqual([
+      'date',
+      'timestamp',
+      'datetime',
+      'due_date',
+      'start_date',
+    ]);
+    expect(accepts.get('timeline')).toEqual(accepts.get('calendar'));
+  });
+
   it('matches a fresh build to the committed generated catalog.json', () => {
     const committed = JSON.parse(
       readFileSync(resolve(packageRoot, 'src/generated/catalog.json'), 'utf8'),

@@ -18,6 +18,7 @@ import { rollupAggregateLabel } from '../views/core/property-types';
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/core/timestamps';
 
 import { ImageValue } from './image-value';
+import { PRIORITY_LEVELS } from './priority-levels';
 
 import {
   UNSET_LABEL,
@@ -630,14 +631,6 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
   );
 }
 
-/** The priority scale, drawn once: the number is the value, the word is what it means. */
-const PRIORITY_LEVELS = [
-  { value: 1, label: '1 - Urgent' },
-  { value: 2, label: '2 - High' },
-  { value: 3, label: '3 - Normal' },
-  { value: 4, label: '4 - Low' },
-] as const;
-
 /**
  * A priority is a closed four-step scale, so it is chosen, never typed: a free number box would
  * invite the 0 and the 7 the server refuses, and refusal after the fact is a worse control than a
@@ -670,7 +663,7 @@ function PriorityValue(props: PropertyInputProps): ReactNode {
 
             {PRIORITY_LEVELS.map((level) => (
               <option key={level.value} value={String(level.value)}>
-                {level.label}
+                {`${String(level.value)} - ${level.word}`}
               </option>
             ))}
           </select>
@@ -690,7 +683,7 @@ function PriorityValue(props: PropertyInputProps): ReactNode {
 
             {PRIORITY_LEVELS.map((level) => (
               <option key={level.value} value={String(level.value)}>
-                {level.label}
+                {`${String(level.value)} - ${level.word}`}
               </option>
             ))}
           </Select>

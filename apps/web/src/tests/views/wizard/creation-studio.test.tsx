@@ -246,8 +246,10 @@ describe('the guided creation studio', () => {
     expect(request).toBeDefined();
     const body = jsonRequestBody(request?.[1]) as { views: readonly unknown[] };
     expect(body.views).toHaveLength(2);
-    expect(body.views[0]).toEqual(primary);
-    expect(body.views[1]).toEqual(companion);
+    // Every field the fixtures carry, plus the arrangement lists the write shape always sends.
+    const arranged = { sorts: [], collapsedGroups: [], groupLimits: [], aggregates: [] };
+    expect(body.views[0]).toEqual({ ...arranged, ...primary });
+    expect(body.views[1]).toEqual({ ...arranged, ...companion });
 
     delayed.release();
     await waitFor(() => {
@@ -452,6 +454,19 @@ describe('the guided creation studio', () => {
     expect(screen.getByRole('heading', { name: /set up/i })).toHaveFocus();
     expect(screen.getByRole('button', { name: /add a filter/i })).toBeVisible();
   });
+
+  it.each(['board', 'gallery', 'calendar', 'timeline', 'sheet'])(
+    'offers saved filters on the %s set-up step, because the view applies them',
+    async (recipe) => {
+      const user = userEvent.setup();
+      stubCoreApi();
+      renderAt(<App />, `/new/${recipe}`);
+
+      await user.click(await screen.findByRole('button', { name: /continue/i }));
+
+      expect(screen.getByRole('button', { name: /add a filter/i })).toBeVisible();
+    },
+  );
 
   it('keeps a field-name control mounted while its generated property key changes', async () => {
     const user = userEvent.setup();

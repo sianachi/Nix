@@ -62,6 +62,33 @@ public static class QueryOperators
     /// <summary>The stored date falls within the next N days, today included.</summary>
     public const string WithinNext = "within-next";
 
+    /// <summary>
+    /// For text, the stored value contains the literal as a substring, ignoring case. For a
+    /// multi-select, the literal is one of the stored options exactly, case included - an option
+    /// is a declared name, not text to search.
+    /// </summary>
+    /// <remarks>
+    /// Evaluated today only by the web, over a container's own children
+    /// (<c>apps/web/src/views/core/filter-rules.ts</c>), whose tests pin both halves; the SQL arm
+    /// arrives with ADR-0055 and must keep this meaning.
+    /// </remarks>
+    public const string Contains = "contains";
+
+    /// <summary>The negation of <see cref="Contains"/>, absence included.</summary>
+    public const string NotContains = "not-contains";
+
+    /// <summary>The stored number is greater than the literal.</summary>
+    public const string GreaterThan = "greater-than";
+
+    /// <summary>The stored number is less than the literal.</summary>
+    public const string LessThan = "less-than";
+
+    /// <summary>The property is absent, empty text or an empty list. Takes no value.</summary>
+    public const string IsEmpty = "is-empty";
+
+    /// <summary>The negation of <see cref="IsEmpty"/>. Takes no value.</summary>
+    public const string IsNotEmpty = "is-not-empty";
+
     /// <summary>The token a stored rule keeps where a concrete day would go.</summary>
     /// <remarks>
     /// Resolved at read time from the caller's own <c>today</c> parameter, never from the server
@@ -99,7 +126,32 @@ public static class QueryOperators
     /// <see cref="Me"/>, which are value tokens, never an operator.
     /// </summary>
     public static readonly ImmutableArray<string> All =
+        [EqualTo, NotEqualTo, On, Before, OnOrAfter, WithinNext,
+            Contains, NotContains, GreaterThan, LessThan, IsEmpty, IsNotEmpty];
+
+    /// <summary>
+    /// The operators a query view's SQL compiles today - <see cref="All"/> before ADR-0054 widened
+    /// it for container views.
+    /// </summary>
+    /// <remarks>
+    /// A container view evaluates its rules over children already read, so every operator in
+    /// <see cref="All"/> is meaningful there. A query view compiles its rules to SQL, and
+    /// <c>QuerySql</c> has an arm for these and no others; a query view naming one of the rest is
+    /// refused on write and refused again before it runs, rather than reaching the compiler's
+    /// "unknown operator" throw.
+    /// </remarks>
+    public static readonly ImmutableArray<string> CompiledByQuery =
         [EqualTo, NotEqualTo, On, Before, OnOrAfter, WithinNext];
+
+    /// <summary>Whether an operator takes no value at all.</summary>
+    /// <param name="operator">The operator text.</param>
+    /// <returns><see langword="true"/> for the emptiness pair.</returns>
+    public static bool TakesNoValue(string @operator) => @operator is IsEmpty or IsNotEmpty;
+
+    /// <summary>Whether an operator reads its value as a number.</summary>
+    /// <param name="operator">The operator text.</param>
+    /// <returns><see langword="true"/> for the numeric comparisons.</returns>
+    public static bool ReadsNumber(string @operator) => @operator is GreaterThan or LessThan;
 
     /// <summary>The most days <see cref="WithinNext"/> may look ahead.</summary>
     public const int MaximumWithinDays = 365;
@@ -148,6 +200,12 @@ public static class QueryOperators
             return $"'{rule.Operator}' is not a filter operator";
         }
 
+        if (TakesNoValue(rule.Operator))
+        {
+            // Nothing to compare against, and a value here would be a second, ignored meaning.
+            return rule.Value.Length == 0 ? null : $"'{rule.Operator}' takes no value";
+        }
+
         if (rule.Value.Length == 0)
         {
             return "a filter needs a value to compare against";
@@ -165,6 +223,11 @@ public static class QueryOperators
             return $"'{rule.Operator}' reads a day: '{Today}' or a date written yyyy-MM-dd";
         }
 
+        if (ReadsNumber(rule.Operator) && !IsFiniteNumber(rule.Value))
+        {
+            return $"'{rule.Operator}' reads a number, written like 12 or -3.5";
+        }
+
         if (string.Equals(rule.Operator, WithinNext, StringComparison.Ordinal)
             && (!int.TryParse(rule.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var days)
                 || days < 1
@@ -175,6 +238,10 @@ public static class QueryOperators
 
         return null;
     }
+
+    private static bool IsFiniteNumber(string value) =>
+        double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+        && double.IsFinite(number);
 
     private static bool IsCalendarDay(string value) =>
         DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);

@@ -81,44 +81,38 @@ public sealed class PropertyTypeTests
 
     [Theory]
     [InlineData(PropertyType.Select, true)]
-    [InlineData(PropertyType.MultiSelect, true)]
+    [InlineData(PropertyType.MultiSelect, false)]
+    [InlineData(PropertyType.Checkbox, false)]
+    [InlineData(PropertyType.Completion, false)]
+    [InlineData(PropertyType.Priority, false)]
+    [InlineData(PropertyType.Assignee, false)]
     [InlineData(PropertyType.Text, false)]
     [InlineData(PropertyType.Number, false)]
+    [InlineData(PropertyType.Estimate, false)]
     [InlineData(PropertyType.Date, false)]
-    [InlineData(PropertyType.Checkbox, false)]
     [InlineData(PropertyType.Url, false)]
     [InlineData(PropertyType.Timestamp, false)]
     [InlineData(PropertyType.Image, false)]
     [InlineData(PropertyType.DateTime, false)]
     [InlineData(PropertyType.Reminder, false)]
-    public void Only_the_select_types_draw_their_values_from_a_declared_list(
+    [InlineData(PropertyType.Formula, false)]
+    public void Only_a_single_select_groups_a_view_until_the_board_can_draw_the_other_bounded_types(
         PropertyType type,
         bool expected)
     {
-        Assert.Equal(expected, type.HasOptions());
+        // Free text and numbers are the refusals that last: a group per distinct value is a board
+        // nobody can read. Multi-select, checkbox, completion, priority and assignee are decided
+        // (ADR-0054) but staged behind the web board work, so they are refused here until then.
+        Assert.Equal(expected, type.CanGroupBy());
     }
 
     [Theory]
     [InlineData(PropertyType.Select, true)]
     [InlineData(PropertyType.MultiSelect, false)]
-    [InlineData(PropertyType.Text, false)]
-    [InlineData(PropertyType.Number, false)]
-    [InlineData(PropertyType.Date, false)]
+    [InlineData(PropertyType.Assignee, false)]
     [InlineData(PropertyType.Checkbox, false)]
-    [InlineData(PropertyType.Url, false)]
-    [InlineData(PropertyType.Timestamp, false)]
-    [InlineData(PropertyType.Image, false)]
-    [InlineData(PropertyType.DateTime, false)]
-    [InlineData(PropertyType.Reminder, false)]
-    public void Only_a_single_select_gives_a_board_a_bounded_set_of_columns(
-        PropertyType type,
-        bool expected)
-    {
-        // Multi-select is the interesting refusal: it has options, so it looks groupable, but one
-        // card would land in several columns at once and dragging it between them would mean
-        // nothing in particular.
-        Assert.Equal(expected, type.CanGroupBy());
-    }
+    public void Only_a_single_select_buckets_a_chart(PropertyType type, bool expected) =>
+        Assert.Equal(expected, type.CanChartBy());
 
     [Theory]
     [InlineData(PropertyType.Date, true)]

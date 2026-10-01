@@ -1,6 +1,13 @@
 import { FORMULA_FUNCTION_NAMES, PROPERTY_FORMULA_HELP, type SheetErrorCode } from '@nix/sheet';
 
-import { PROPERTY_TYPES, ROLLUP_AGGREGATES, valueShapeOf } from '../vocabulary/property-types.js';
+import {
+  canChartBy,
+  canGroupBy,
+  isDateShaped,
+  PROPERTY_TYPES,
+  ROLLUP_AGGREGATES,
+  valueShapeOf,
+} from '../vocabulary/property-types.js';
 import { STRUCTURED_RECIPES } from '../vocabulary/recipes.js';
 import { SMART_LISTS } from '../vocabulary/smart-lists.js';
 import {
@@ -22,6 +29,7 @@ import {
   type QueryOperatorRule,
   type RecurrenceRules,
   type StructureOperationsByMode,
+  type ViewKindRequirement,
   type ViewKindRule,
 } from './tables.js';
 
@@ -56,12 +64,24 @@ export interface CatalogRollupAggregate {
   readonly label: string;
 }
 
+/**
+ * A view kind as the catalog states it: its rule, with the requirement carrying the property types
+ * it accepts. The list is drawn from the same predicates the validator uses, over every type the
+ * vocabulary defines (assignee included), so the C# parity test can compare it against
+ * `ViewKinds.All` type by type rather than trusting a shape's name.
+ */
+export interface CatalogViewKind extends Omit<ViewKindRule, 'requires'> {
+  readonly requires:
+    | (NonNullable<ViewKindRequirement> & { readonly accepts: readonly string[] })
+    | null;
+}
+
 export interface Catalog {
   readonly propertyTypes: readonly CatalogPropertyType[];
   readonly rollupAggregates: readonly CatalogRollupAggregate[];
   readonly recipes: readonly CatalogRecipe[];
   readonly smartLists: readonly CatalogSmartList[];
-  readonly viewKinds: readonly ViewKindRule[];
+  readonly viewKinds: readonly CatalogViewKind[];
   readonly queryOperators: readonly QueryOperatorRule[];
   readonly formRules: FormRules;
   readonly structureOperations: StructureOperationsByMode;
@@ -109,7 +129,7 @@ export function buildCatalog(): Catalog {
     rollupAggregates,
     recipes,
     smartLists,
-    viewKinds: VIEW_KIND_RULES,
+    viewKinds: VIEW_KIND_RULES.map(withAccepts),
     queryOperators: QUERY_OPERATORS,
     formRules: FORM_RULES,
     structureOperations: STRUCTURE_OPERATIONS,
@@ -124,7 +144,32 @@ export function buildCatalog(): Catalog {
   };
 }
 
-function viewKindLine(kind: ViewKindRule): string {
+/** The predicate a kind's requirement is held to, matching the validator in `view-rules.ts`. */
+function requirementAccepts(kind: ViewKindRule): ((type: string) => boolean) | null {
+  if (kind.requires === null) {
+    return null;
+  }
+  if (kind.requires.field === 'date') {
+    return isDateShaped;
+  }
+  return kind.kind === 'chart' ? canChartBy : canGroupBy;
+}
+
+function withAccepts(kind: ViewKindRule): CatalogViewKind {
+  const accepts = requirementAccepts(kind);
+  if (kind.requires === null || accepts === null) {
+    return { ...kind, requires: null };
+  }
+  return {
+    ...kind,
+    requires: {
+      ...kind.requires,
+      accepts: PROPERTY_TYPES.map((entry) => entry.value).filter((type) => accepts(type)),
+    },
+  };
+}
+
+function viewKindLine(kind: CatalogViewKind): string {
   const requirement =
     kind.requires === null ? 'no required field' : `needs a ${kind.requires.shape} property`;
   const optional = kind.optional.length

@@ -15,6 +15,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { canGroupBy } from '../core/property-types';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import type { ContainerData } from '../core/use-container';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
@@ -106,6 +107,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
       detail: `This holds ${String(total)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because there is nothing here.`,
     }),
     savedRules: view.filters,
+    view,
     sortBy: viewState.sortBy ?? view.sortBy,
     descending:
       viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',
@@ -638,7 +640,7 @@ function resolveGrouping(container: ContainerData, view: View): Grouping {
     return { kind: 'missing', key: view.groupBy };
   }
 
-  if (property.type !== 'select') {
+  if (!canGroupBy(property.type)) {
     return { kind: 'wrongType', property };
   }
 

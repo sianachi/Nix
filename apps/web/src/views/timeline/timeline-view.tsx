@@ -158,6 +158,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
     // address or on the view decides it, and sibling order is what somebody arranged by hand when
     // neither says anything. The calendar pins this to null because a day cell is not a list.
     savedRules: view.filters,
+    view,
     sortBy: viewState.sortBy ?? view.sortBy,
     descending:
       viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',

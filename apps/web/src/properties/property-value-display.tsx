@@ -1,11 +1,12 @@
 import { Avatar, Icon, Tag, Text } from '@nix/ui';
-import { Check, Square } from 'lucide-react';
+import { AlarmClock, Check, Square } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { PropertyDefinition, PropertyOwner } from '../views/core/container-model';
 import { isComputedType, valueShapeOf } from '../views/core/property-types';
 import { readTimestampValue, readerToday, readerZone } from '../views/core/timestamps';
-import { useMemberName } from './member-directory';
+import { useMember } from './member-directory';
+import { priorityWord } from './priority-levels';
 
 /**
  * One property value, read rather than edited: a chip for a choice, a glyph for a checkbox, a date
@@ -28,14 +29,6 @@ export interface PropertyValueDisplayProps {
   /** `chip` wraps freely, for a card; `cell` stays on one line and truncates, for a grid. */
   readonly density?: ValueDensity;
 }
-
-/** The priority scale's words. The number is the value; this is what it means. */
-export const PRIORITY_LABELS: Readonly<Record<number, string>> = {
-  1: 'Urgent',
-  2: 'High',
-  3: 'Normal',
-  4: 'Low',
-};
 
 const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
@@ -71,7 +64,7 @@ export function PropertyValueDisplay(props: PropertyValueDisplayProps): ReactNod
   if (isComputedType(property.type)) {
     return (
       <Text as="span" variant="caption" tone="muted" truncate={density === 'cell'}>
-        {typeof value === 'number' ? numberFormat.format(value) : String(value)}
+        {typeof value === 'number' ? numberFormat.format(value) : plainText(value)}
       </Text>
     );
   }
@@ -80,7 +73,7 @@ export function PropertyValueDisplay(props: PropertyValueDisplayProps): ReactNod
     case 'priority':
       return typeof value === 'number' ? (
         <Tag tone={value === 1 ? 'accent' : 'neutral'}>
-          {`P${String(value)} ${PRIORITY_LABELS[value] ?? ''}`.trim()}
+          {`P${String(value)} ${priorityWord(value) ?? ''}`.trim()}
         </Tag>
       ) : null;
     case 'assignee':
@@ -129,7 +122,7 @@ export function PropertyValueDisplay(props: PropertyValueDisplayProps): ReactNod
           variant="caption"
           {...(density === 'cell' ? { truncate: true } : { lines: 2 })}
         >
-          {Array.isArray(value) ? value.join(', ') : String(value)}
+          {Array.isArray(value) ? value.map(plainText).join(', ') : plainText(value)}
         </Text>
       );
   }
@@ -147,7 +140,18 @@ function AssigneeDisplay(props: {
   readonly id: string;
   readonly density: ValueDensity;
 }): ReactNode {
-  const name = useMemberName(props.id);
+  const member = useMember(props.id);
+
+  // Still loading: the square alone, so the card does not reflow when the name arrives and does
+  // not call somebody unknown who is merely not looked up yet.
+  if (member.status === 'loading') {
+    return <Avatar name="?" />;
+  }
+
+  // "Unknown member" is a claim that the member list was read and they are not in it. With no
+  // directory, or a read that failed, that claim cannot be made - only that somebody is assigned.
+  const name = member.status === 'ready' ? member.name : null;
+  const shown = name ?? (member.status === 'ready' ? 'Unknown member' : 'Assigned');
 
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -158,7 +162,7 @@ function AssigneeDisplay(props: {
         truncate={props.density === 'cell'}
         tone={name === null ? 'muted' : 'default'}
       >
-        {name ?? 'Unknown member'}
+        {shown}
       </Text>
     </span>
   );
@@ -219,7 +223,8 @@ function DateDisplay(props: {
       : momentFormat.format(stamp.at.setZone(readerZone()).toJSDate());
 
   // Overdue is a fact about a due date, not about every date: a start date in the past is simply a
-  // start. Said in words as well as tone, so it is not colour alone.
+  // start. Never colour alone: a glyph before the date says it to the eye, the hidden word says it
+  // to a screen reader, and the tone is the third cue rather than the only one.
   const overdue = property.type === 'due_date' && day < readerToday();
 
   return (
@@ -227,12 +232,20 @@ function DateDisplay(props: {
       as="span"
       variant="caption"
       tone={overdue ? 'accent' : 'default'}
-      className="tabular-nums"
+      className="inline-flex items-center gap-1 tabular-nums"
     >
+      {overdue ? <Icon icon={AlarmClock} size="sm" /> : null}
       {shown}
       {overdue ? <span className="sr-only"> (overdue)</span> : null}
     </Text>
   );
+}
+
+/** A stored value as text: scalars as written, anything structured as its JSON. */
+function plainText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value);
 }
 
 function formatDay(value: string): string {

@@ -118,6 +118,7 @@ export function ListView(props: ListViewProps): ReactNode {
       detail: hiddenByFilters(total),
     }),
     savedRules: view?.filters ?? NO_RULES,
+    view: view ?? null,
     sortBy,
     descending: direction === 'descending',
   });

@@ -19,7 +19,7 @@ import { BoardView } from '../board/board-view';
 import { ChartView } from '../chart/chart-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
-import { isDateShaped } from './property-types';
+import { canChartBy, canGroupBy, isDateShaped } from './property-types';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import {
   DEFAULT_DRIVE_LAYOUT,
@@ -221,6 +221,13 @@ export interface ViewKindDescriptor {
    * it.
    */
   readonly editsFilters?: true;
+
+  /**
+   * Whether this kind applies the filters saved on it to its own children (ADR-0054), and so
+   * whether the editor offers them. A kind whose renderer ignores them - a chart's bars are counted
+   * on the server without them - must not offer rules that would change nothing on screen.
+   */
+  readonly appliesSavedFilters?: true;
 }
 
 /**
@@ -266,6 +273,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     render: (props) => <ListView {...props} />,
     configures: [],
     chooses: [],
+    appliesSavedFilters: true,
   },
   {
     kind: 'board',
@@ -279,11 +287,12 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         emptyHint: 'There is no select property yet. Add one under Properties first.',
         hint: 'Only a select property can become columns.',
         emptyChoice: 'Choose a property',
-        accepts: (property) => property.type === 'select',
+        accepts: (property) => canGroupBy(property.type),
         clears: { groupOrder: [] },
       },
     ],
     chooses: [],
+    appliesSavedFilters: true,
   },
   {
     kind: 'calendar',
@@ -319,6 +328,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
       },
     ],
     chooses: [],
+    appliesSavedFilters: true,
   },
   {
     kind: 'gallery',
@@ -361,6 +371,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         fallback: DEFAULT_CARD_SIZE,
       },
     ],
+    appliesSavedFilters: true,
   },
   {
     kind: 'timeline',
@@ -402,6 +413,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
       },
     ],
     chooses: [],
+    appliesSavedFilters: true,
   },
   {
     // Stored as "sheet", labelled "Spreadsheet". The body kind `item.type === 'spreadsheet'`
@@ -416,6 +428,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     render: (props) => <SpreadsheetView {...props} />,
     configures: [],
     chooses: [],
+    appliesSavedFilters: true,
   },
   {
     // The intake shape: the schema as fields, each submission a new child. Requirement-free by
@@ -472,7 +485,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         // The view is genuinely waiting on this one: with nothing to group by there are no bars,
         // and the server refuses to draw rather than answering with none.
         emptyChoice: 'Choose a property',
-        accepts: (property) => property.type === 'select',
+        accepts: (property) => canChartBy(property.type),
       },
       {
         field: 'measureProperty',

@@ -180,6 +180,10 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
     onClose(true);
   };
 
+  // Justification: `jsx-a11y` classes `dialog` as non-interactive, but Escape closing a dialog is
+  // the WAI-ARIA dialog pattern itself, and it has to be heard on the panel so the innermost open
+  // thing closes first (see `onKeyDown`). No interactive role carries dialog semantics.
+  /* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
   return (
     <div
       id={id}
@@ -202,4 +206,5 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
       {children}
     </div>
   );
+  /* eslint-enable jsx-a11y/no-noninteractive-element-interactions */
 }

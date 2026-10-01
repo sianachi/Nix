@@ -4,11 +4,13 @@ import type { PropertyOwner, ViewFilterRule } from './container-model';
 /**
  * A view's stored filter rules, evaluated against the children already loaded.
  *
- * The grammar is the server's (`QueryOperators` in FilterRule.cs) and so are the meanings, operator
- * for operator: a query view compiles these rules to SQL, and a board filtered by the same rule has
- * to show the same items or the two views of one thing disagree. Where this goes further than the
- * SQL - an `equals` against a multi-select matches an item carrying that option among others - the
- * SQL is the one that is narrower, and the server half is the place to widen it.
+ * The grammar is the server's (`QueryOperators.All` in FilterRule.cs) and so are the meanings,
+ * operator for operator: a query view compiles the first six to SQL, and a board filtered by the
+ * same rule has to show the same items or the two views of one thing disagree. The other six
+ * (ADR-0054) are evaluated only here until the server-side container query gives them SQL; the
+ * server validates them on write and refuses them on a query view. Where this goes further than
+ * the SQL - an `equals` against a multi-select matches an item carrying that option among others -
+ * the SQL is the one that is narrower, and the server half is the place to widen it.
  *
  * **Rules AND together**, as they do on the server (ADR-0039).
  */
@@ -19,10 +21,11 @@ export interface RuleContext {
   readonly today: string;
 
   /**
-   * The signed-in principal's id, which `me` resolves to, or null while it is unknown.
+   * The signed-in principal's id, which `me` resolves to, or null when it is unknown.
    *
-   * Unknown resolves `me` to nothing at all - not to "anybody" - so a rule reading "assigned to me"
-   * shows no items until the answer arrives rather than flashing everyone's.
+   * Unknown resolves `me` to nothing at all - not to "anybody". The shared view chrome does not
+   * let that be the last word: it waits while the answer is on its way, and when it cannot be had
+   * it sets the rules about the reader aside and says so (`useRuleContext`).
    */
   readonly principalId: string | null;
 }
@@ -31,7 +34,10 @@ export interface RuleContext {
 export const TODAY_TOKEN = 'today';
 export const ME_TOKEN = 'me';
 
-/** Every operator this build evaluates. The server's set, plus the ones this phase adds. */
+/**
+ * Every operator this build evaluates: the server's `QueryOperators.All`, the six a query view
+ * compiles followed by the six only container views evaluate (ADR-0054).
+ */
 export const RULE_OPERATORS = [
   'equals',
   'not-equals',
@@ -141,18 +147,18 @@ function equals(value: unknown, expected: string | null): boolean {
   return false;
 }
 
-/** Case-insensitive substring for text; membership for a multi-select. */
+/**
+ * The meaning `QueryOperators.Contains` documents: a case-insensitive substring of stored text, and
+ * exact option membership for a multi-select. An option is a declared word, not text to search, so
+ * "Urg" does not hold "Urgent" and "urgent" is not that option. Anything else contains nothing.
+ */
 function contains(value: unknown, needle: string): boolean {
-  const lowered = needle.toLocaleLowerCase();
-
   if (Array.isArray(value)) {
-    return value.some(
-      (entry) => typeof entry === 'string' && entry.toLocaleLowerCase().includes(lowered),
-    );
+    return value.some((entry) => entry === needle);
   }
 
-  if (typeof value === 'string' || typeof value === 'number') {
-    return String(value).toLocaleLowerCase().includes(lowered);
+  if (typeof value === 'string') {
+    return value.toLocaleLowerCase().includes(needle.toLocaleLowerCase());
   }
 
   return false;

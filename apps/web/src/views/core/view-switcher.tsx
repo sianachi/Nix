@@ -64,8 +64,9 @@ function ViewStrip(props: ViewSwitcherProps): ReactNode {
   useEffect(() => {
     const strip = stripRef.current;
     const current = strip?.querySelector<HTMLElement>('[aria-current="page"]');
-    // `nearest` so a tab already on screen does not move; `scrollIntoView` is absent in jsdom.
-    current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    // `nearest` so a tab already on screen does not move. jsdom has no `scrollIntoView`; the test
+    // setup supplies one.
+    current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [activeViewId]);
 
   return (

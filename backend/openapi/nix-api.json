@@ -17194,6 +17194,42 @@
               "null",
               "string"
             ]
+          },
+          "sorts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewSortContract"
+            }
+          },
+          "collapsedGroups": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupLimits": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewGroupLimitContract"
+            }
+          },
+          "aggregates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewAggregateContract"
+            }
           }
         }
       },
@@ -17450,6 +17486,41 @@
           }
         }
       },
+      "ViewAggregateContract": {
+        "required": [
+          "property",
+          "function"
+        ],
+        "type": "object",
+        "properties": {
+          "property": {
+            "type": "string"
+          },
+          "function": {
+            "type": "string"
+          }
+        }
+      },
+      "ViewGroupLimitContract": {
+        "required": [
+          "group",
+          "limit"
+        ],
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "ViewRequest": {
         "required": [
           "id",
@@ -17601,6 +17672,42 @@
               "null",
               "string"
             ]
+          },
+          "sorts": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewSortContract"
+            }
+          },
+          "collapsedGroups": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupLimits": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewGroupLimitContract"
+            }
+          },
+          "aggregates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ViewAggregateContract"
+            }
           }
         }
       },
@@ -17624,7 +17731,11 @@
           "companionPlacement",
           "interactiveForm",
           "measure",
-          "measureProperty"
+          "measureProperty",
+          "sorts",
+          "collapsedGroups",
+          "groupLimits",
+          "aggregates"
         ],
         "type": "object",
         "properties": {
@@ -17734,6 +17845,30 @@
               "string"
             ]
           },
+          "sorts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewSortContract"
+            }
+          },
+          "collapsedGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "groupLimits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewGroupLimitContract"
+            }
+          },
+          "aggregates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ViewAggregateContract"
+            }
+          },
           "habitWidgets": {
             "type": [
               "null",
@@ -17748,6 +17883,21 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "ViewSortContract": {
+        "required": [
+          "property",
+          "descending"
+        ],
+        "type": "object",
+        "properties": {
+          "property": {
+            "type": "string"
+          },
+          "descending": {
+            "type": "boolean"
           }
         }
       },

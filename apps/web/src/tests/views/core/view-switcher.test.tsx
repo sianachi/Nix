@@ -46,9 +46,7 @@ describe('the view switcher', () => {
   });
 
   it('brings the current view into the scrolled strip when it changes', () => {
-    const scrolled = vi.fn();
-    const original = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = scrolled;
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
 
     try {
       const { rerender } = render(
@@ -63,7 +61,7 @@ describe('the view switcher', () => {
       expect(scrolled).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' });
       expect(scrolled.mock.contexts[0]).toBe(screen.getByRole('button', { name: /schedule/i }));
     } finally {
-      Element.prototype.scrollIntoView = original;
+      scrolled.mockRestore();
     }
   });
 

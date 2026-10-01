@@ -8,6 +8,21 @@ public static class ViewDefinitionRules
     /// <summary>The most filter rules one view may carry.</summary>
     public const int MaximumFilters = 8;
 
+    /// <summary>The most keys one view may sort by.</summary>
+    public const int MaximumSorts = 3;
+
+    /// <summary>The most groups one view may remember as collapsed or limited.</summary>
+    public const int MaximumGroupSettings = 64;
+
+    /// <summary>The largest soft limit a group may carry.</summary>
+    public const int MaximumGroupLimit = 999;
+
+    /// <summary>The most column summaries one view may carry.</summary>
+    public const int MaximumAggregates = 32;
+
+    /// <summary>The longest property key or group value an arrangement field may name.</summary>
+    public const int MaximumKeyLength = 128;
+
     /// <summary>The block kinds an interactive form page may declare.</summary>
     public static readonly ImmutableArray<string> FormBlockKinds = ["field", "heading", "paragraph"];
 
@@ -110,7 +125,17 @@ public static class ViewDefinitionRules
                     {
                         return $"'{view.Name}': {reason}.";
                     }
+
+                    if (view.Kind == ViewKind.Query && !QueryOperators.CompiledByQuery.Contains(rule.Operator))
+                    {
+                        return $"'{view.Name}': a query view cannot filter with '{rule.Operator}' yet.";
+                    }
                 }
+            }
+
+            if (RefuseArrangement(view) is { } arrangement)
+            {
+                return $"'{view.Name}': {arrangement}.";
             }
         }
 
@@ -151,6 +176,104 @@ public static class ViewDefinitionRules
             && !ids.Contains(chosen))
         {
             return $"'{chosen}' is not one of these views, so it cannot be the one that opens.";
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Refuses a malformed sort, collapsed-group, group-limit or summary list (ADR-0054).
+    /// </summary>
+    /// <remarks>
+    /// Grammar and bounds only. Whether a key names a declared property is not asked, for the same
+    /// reason a board's <c>GroupBy</c> is not: a view may be configured before its property is
+    /// declared, and one naming a removed property draws without it rather than failing to save.
+    /// </remarks>
+    private static string? RefuseArrangement(ViewDefinition view)
+    {
+        if (!view.Sorts.IsDefaultOrEmpty)
+        {
+            if (view.Sorts.Length > MaximumSorts)
+            {
+                return $"a view may sort by at most {MaximumSorts} keys";
+            }
+
+            var keys = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var sort in view.Sorts)
+            {
+                if (sort is null || sort.Property.Length == 0 || sort.Property.Length > MaximumKeyLength)
+                {
+                    return "every sort needs a property key of at most "
+                        + $"{MaximumKeyLength} characters";
+                }
+
+                if (!keys.Add(sort.Property))
+                {
+                    return $"'{sort.Property}' is sorted by more than once";
+                }
+            }
+        }
+
+        if (!view.CollapsedGroups.IsDefaultOrEmpty)
+        {
+            if (view.CollapsedGroups.Length > MaximumGroupSettings)
+            {
+                return $"a view may remember at most {MaximumGroupSettings} collapsed groups";
+            }
+
+            if (view.CollapsedGroups.Any(group => group is null || group.Length > MaximumKeyLength))
+            {
+                return $"a collapsed group's value may be at most {MaximumKeyLength} characters";
+            }
+        }
+
+        if (!view.GroupLimits.IsDefaultOrEmpty)
+        {
+            if (view.GroupLimits.Length > MaximumGroupSettings)
+            {
+                return $"a view may limit at most {MaximumGroupSettings} groups";
+            }
+
+            var groups = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var limit in view.GroupLimits)
+            {
+                if (limit is null || limit.Group.Length > MaximumKeyLength || !groups.Add(limit.Group))
+                {
+                    return "each group may carry one limit, named by a value of at most "
+                        + $"{MaximumKeyLength} characters";
+                }
+
+                if (limit.Limit < 1 || limit.Limit > MaximumGroupLimit)
+                {
+                    return $"a group's limit must be from 1 to {MaximumGroupLimit}";
+                }
+            }
+        }
+
+        if (!view.Aggregates.IsDefaultOrEmpty)
+        {
+            if (view.Aggregates.Length > MaximumAggregates)
+            {
+                return $"a view may summarise at most {MaximumAggregates} columns";
+            }
+
+            var columns = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var aggregate in view.Aggregates)
+            {
+                if (aggregate is null
+                    || aggregate.Property.Length == 0
+                    || aggregate.Property.Length > MaximumKeyLength
+                    || !columns.Add(aggregate.Property))
+                {
+                    return "each column may carry one summary, named by a key of at most "
+                        + $"{MaximumKeyLength} characters";
+                }
+
+                if (!ViewAggregateFunctions.IsValid(aggregate.Function))
+                {
+                    return $"'{aggregate.Function}' is not a summary a column can show";
+                }
+            }
         }
 
         return null;

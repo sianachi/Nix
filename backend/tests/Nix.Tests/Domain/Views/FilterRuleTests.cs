@@ -15,11 +15,17 @@ public sealed class FilterRuleTests
     [InlineData("before")]
     [InlineData("on-or-after")]
     [InlineData("within-next")]
+    [InlineData("contains")]
+    [InlineData("not-contains")]
+    [InlineData("greater-than")]
+    [InlineData("less-than")]
+    [InlineData("is-empty")]
+    [InlineData("is-not-empty")]
     public void Every_operator_the_contract_publishes_is_known(string @operator) =>
         Assert.True(QueryOperators.IsKnown(@operator));
 
     [Theory]
-    [InlineData("contains")]
+    [InlineData("CONTAINS")]
     [InlineData("EQUALS")]
     [InlineData("")]
     [InlineData("or")]
@@ -117,5 +123,39 @@ public sealed class FilterRuleTests
 
         Assert.NotNull(reason);
         Assert.Contains("reads a number of days", reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("12")]
+    [InlineData("-3.5")]
+    [InlineData("0")]
+    public void A_numeric_comparison_takes_a_number(string value)
+    {
+        Assert.Null(QueryOperators.Refuse(new FilterRule("points", "greater-than", value)));
+        Assert.Null(QueryOperators.Refuse(new FilterRule("points", "less-than", value)));
+    }
+
+    [Theory]
+    [InlineData("twelve")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    public void A_numeric_comparison_refuses_what_is_not_a_finite_number(string value) =>
+        Assert.NotNull(QueryOperators.Refuse(new FilterRule("points", "greater-than", value)));
+
+    [Fact]
+    public void The_emptiness_pair_takes_no_value_and_refuses_one()
+    {
+        Assert.Null(QueryOperators.Refuse(new FilterRule("owner", "is-empty", "")));
+        Assert.Null(QueryOperators.Refuse(new FilterRule("owner", "is-not-empty", "")));
+        Assert.NotNull(QueryOperators.Refuse(new FilterRule("owner", "is-empty", "x")));
+    }
+
+    [Fact]
+    public void A_query_compiles_only_the_operators_it_had_before_container_views_widened_the_set()
+    {
+        Assert.Equal(
+            ["equals", "not-equals", "on", "before", "on-or-after", "within-next"],
+            QueryOperators.CompiledByQuery);
+        Assert.All(QueryOperators.CompiledByQuery, op => Assert.Contains(op, QueryOperators.All));
     }
 }

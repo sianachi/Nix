@@ -277,12 +277,12 @@ internal static class SetContainerViewsEndpoint
         HttpContext httpContext,
         [FromServices] NixDispatcher dispatcher)
     {
-        if (!ViewMapping.TryToDomain(request, out var views, out var unknownKind))
+        if (!ViewMapping.TryToDomain(request, out var views, out var viewsRefusal))
         {
             return TypedResults.Problem(
                 StructureEndpoints.Problem(
                     httpContext,
-                    PropertyErrors.InvalidViews($"'{unknownKind}' is not a view kind.")));
+                    PropertyErrors.InvalidViews(viewsRefusal)));
         }
 
         var stored = await dispatcher

@@ -59,7 +59,7 @@ describe('Popover', () => {
 
   it('closes on a press outside it, and from its own content', async () => {
     const user = userEvent.setup();
-    const onOpenChange = vi.fn();
+    const onOpenChange = vi.fn<(open: boolean) => void>();
     render(<Subject onOpenChange={onOpenChange} />);
 
     await user.click(screen.getByRole('button', { name: 'Filter' }));

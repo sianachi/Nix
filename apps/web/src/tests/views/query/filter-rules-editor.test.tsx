@@ -17,7 +17,10 @@ const SCHEMA: readonly PropertyDefinition[] = [
   { key: 'status', label: 'Status', type: 'select', options: ['Doing'], required: false },
 ];
 
-function editorWith(initial: readonly ViewFilterRule[]): {
+function editorWith(
+  initial: readonly ViewFilterRule[],
+  scope: 'query' | 'container' = 'query',
+): {
   current: () => readonly ViewFilterRule[];
 } {
   let latest: readonly ViewFilterRule[] = initial;
@@ -29,6 +32,7 @@ function editorWith(initial: readonly ViewFilterRule[]): {
       <FilterRulesEditor
         rules={rules}
         schema={SCHEMA}
+        scope={scope}
         onChange={(next) => {
           setRules(next);
         }}
@@ -88,5 +92,73 @@ describe('the filter rules editor', () => {
     editorWith([]);
 
     expect(screen.getByText(/across every container you can read/)).toBeInTheDocument();
+  });
+
+  it('offers a query view only the six operators its SQL compiles', () => {
+    editorWith([{ property: 'status', operator: 'equals', value: 'Doing' }]);
+
+    const offered = screen
+      .getAllByRole('option')
+      .filter((option) => option.closest('select') !== null)
+      .map((option) => option.textContent);
+    expect(offered).toEqual([
+      'is',
+      'is not',
+      'is on',
+      'is before',
+      'is on or after',
+      'is within the next (days)',
+    ]);
+  });
+
+  it('offers a container view the six operators it evaluates beyond the compiled ones', () => {
+    editorWith([{ property: 'status', operator: 'equals', value: 'Doing' }], 'container');
+
+    for (const label of [
+      'contains',
+      'does not contain',
+      'is more than',
+      'is less than',
+      'is empty',
+      'is not empty',
+    ]) {
+      expect(screen.getByRole('option', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it('hides the value for an operator that takes none, and clears a value left behind', () => {
+    const rules = editorWith(
+      [{ property: 'status', operator: 'contains', value: 'Do' }],
+      'container',
+    );
+
+    expect(screen.getByLabelText('Value')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Condition'), { target: { value: 'is-empty' } });
+
+    expect(screen.queryByLabelText('Value')).not.toBeInTheDocument();
+    expect(rules.current()).toEqual([{ property: 'status', operator: 'is-empty', value: '' }]);
+  });
+
+  it('clears the value when the new operator reads a different kind of value', () => {
+    // A day left under "is more than", or a number under "is on", is refused on save; the value
+    // is dropped rather than carried into a grammar it does not fit.
+    const rules = editorWith([{ property: 'due', operator: 'on', value: 'today' }], 'container');
+
+    fireEvent.change(screen.getByLabelText('Condition'), { target: { value: 'greater-than' } });
+    expect(rules.current()).toEqual([{ property: 'due', operator: 'greater-than', value: '' }]);
+
+    fireEvent.change(screen.getByLabelText('Value'), { target: { value: '3' } });
+    fireEvent.change(screen.getByLabelText('Condition'), { target: { value: 'contains' } });
+    expect(rules.current()).toEqual([{ property: 'due', operator: 'contains', value: '' }]);
+  });
+
+  it('keeps the value when the new operator reads the same kind of value', () => {
+    const rules = editorWith([{ property: 'due', operator: 'on', value: 'today' }], 'container');
+
+    fireEvent.change(screen.getByLabelText('Condition'), { target: { value: 'before' } });
+    expect(rules.current()).toEqual([{ property: 'due', operator: 'before', value: 'today' }]);
+
+    fireEvent.change(screen.getByLabelText('Condition'), { target: { value: 'within-next' } });
+    expect(rules.current()).toEqual([{ property: 'due', operator: 'within-next', value: '' }]);
   });
 });

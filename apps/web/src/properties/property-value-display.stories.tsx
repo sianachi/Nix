@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import type { PropertyDefinition } from '../views/core/container-model';
 import { PropertyValueDisplay } from './property-value-display';
 
@@ -44,7 +46,7 @@ export default { title: 'Nix/Views/Property value display', parameters: { layout
 
 /** Every common type, stacked as a card face would show them. */
 export const CardFace = {
-  render: () => (
+  render: (): ReactNode => (
     <div className="flex w-64 flex-col gap-2 p-3">
       {PROPERTIES.map((entry) => (
         <PropertyValueDisplay key={entry.key} item={ITEM} property={entry} />
@@ -55,11 +57,30 @@ export const CardFace = {
 
 /** One line per value, truncating, as a grid cell shows them. */
 export const Cells = {
-  render: () => (
+  render: (): ReactNode => (
     <div className="flex w-40 flex-col gap-2 p-3">
       {PROPERTIES.map((entry) => (
         <PropertyValueDisplay key={entry.key} item={ITEM} property={entry} density="cell" />
       ))}
+    </div>
+  ),
+};
+
+/**
+ * A due date already past beside one still ahead. Overdue is told by a glyph and a hidden word as
+ * well as the accent tone, so the two read apart without colour.
+ */
+export const OverdueAndOnTime = {
+  render: (): ReactNode => (
+    <div className="flex w-64 flex-col gap-2 p-3">
+      <PropertyValueDisplay
+        item={{ title: 'Late', properties: { due: '2000-01-01' } }}
+        property={property('due', 'Due', 'due_date')}
+      />
+      <PropertyValueDisplay
+        item={{ title: 'On time', properties: { due: '2999-01-01' } }}
+        property={property('due', 'Due', 'due_date')}
+      />
     </div>
   ),
 };

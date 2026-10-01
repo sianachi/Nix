@@ -255,9 +255,37 @@ export const ViewSchema = z.object({
   companionViewId: z.string().nullable().default(null),
   companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
   interactiveForm: InteractiveFormSchema.nullable().default(null),
+
+  /**
+   * How somebody has arranged the view (ADR-0054): several sort keys (the first mirrored into
+   * `sortBy`), which groups are folded away, the soft limit a group is shown against, and the
+   * summary under each column. Defaulted so a server from before the fields answers views without
+   * them and absence costs nothing.
+   */
+  sorts: z.array(z.object({ property: z.string(), descending: z.boolean() })).default([]),
+  collapsedGroups: z.array(z.string()).default([]),
+  groupLimits: z
+    .array(
+      z.object({
+        group: z.string(),
+        // int32, which the generated contract admits as number or string.
+        limit: z.union([z.number(), z.string()]).transform(Number),
+      }),
+    )
+    .default([]),
+  aggregates: z.array(z.object({ property: z.string(), function: z.string() })).default([]),
 });
 
 type ParsedView = z.infer<typeof ViewSchema>;
+
+/** One sort key of a view. */
+export type ViewSort = ParsedView['sorts'][number];
+
+/** One group's soft limit. */
+export type ViewGroupLimit = ParsedView['groupLimits'][number];
+
+/** One column's summary. */
+export type ViewAggregate = ParsedView['aggregates'][number];
 
 /** New layout/form fields are optional in drafts; parsed server views always receive null defaults. */
 export type View = Omit<
@@ -268,6 +296,10 @@ export type View = Omit<
   | 'interactiveForm'
   | 'measure'
   | 'measureProperty'
+  | 'sorts'
+  | 'collapsedGroups'
+  | 'groupLimits'
+  | 'aggregates'
 > &
   Partial<
     Pick<
@@ -278,6 +310,10 @@ export type View = Omit<
       | 'interactiveForm'
       | 'measure'
       | 'measureProperty'
+      | 'sorts'
+      | 'collapsedGroups'
+      | 'groupLimits'
+      | 'aggregates'
     >
   > & {};
 
@@ -294,6 +330,10 @@ export function toViewRequest(view: View): ParsedView {
     interactiveForm: view.interactiveForm ?? null,
     measure: view.measure ?? null,
     measureProperty: view.measureProperty ?? null,
+    sorts: [...(view.sorts ?? [])],
+    collapsedGroups: [...(view.collapsedGroups ?? [])],
+    groupLimits: [...(view.groupLimits ?? [])],
+    aggregates: [...(view.aggregates ?? [])],
   };
 }
 

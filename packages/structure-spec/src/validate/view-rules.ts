@@ -6,7 +6,13 @@ import type {
   StructureProperty,
   StructureView,
 } from '../types.js';
-import { isComputedType, isDateShaped, valueShapeOf } from '../vocabulary/property-types.js';
+import {
+  canChartBy,
+  canGroupBy,
+  isComputedType,
+  isDateShaped,
+  valueShapeOf,
+} from '../vocabulary/property-types.js';
 import { isRealCalendarDay } from './values.js';
 
 /** `ViewDefinitionsJson.MaximumViews` (`backend/src/Nix.Api/Domain/Views/ViewDefinitionsJson.cs:79`). */
@@ -60,7 +66,8 @@ function findByKey(
 }
 
 /**
- * A board or chart needs a single-select property to group by, and a calendar or timeline needs a
+ * A board needs a property it can group by (`canGroupBy`) and a chart one it can bucket by
+ * (`canChartBy`) - both a single select for now - and a calendar or timeline needs a
  * date-shaped one to place items by - the same requirement `ViewKinds.All`
  * (`backend/src/Nix.Api/Domain/Views/ViewDefinition.cs:182-252`) declares per kind. Stricter than
  * `ViewDefinitionRules.Refuse` actually enforces on write, though: that check only asks whether
@@ -75,10 +82,17 @@ function refuseKindRequirement(
   view: StructureView,
   effective: readonly StructureProperty[],
 ): string | null {
-  if (view.kind === 'board' || view.kind === 'chart') {
+  if (view.kind === 'board') {
     const property = findByKey(effective, view.groupBy);
-    if (property?.type !== 'select') {
-      return `'${view.name}': a ${view.kind} needs a property to group by.`;
+    if (property === undefined || !canGroupBy(property.type)) {
+      return `'${view.name}': a board needs a property to group by.`;
+    }
+  }
+
+  if (view.kind === 'chart') {
+    const property = findByKey(effective, view.groupBy);
+    if (property === undefined || !canChartBy(property.type)) {
+      return `'${view.name}': a chart needs a property to group by.`;
     }
   }
 

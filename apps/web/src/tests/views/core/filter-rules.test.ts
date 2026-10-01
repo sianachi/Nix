@@ -98,4 +98,23 @@ describe('client-side filter rules', () => {
       ),
     ).toEqual([items[0]]);
   });
+
+  it('reads contains as a case-insensitive substring of text', () => {
+    const named = owner({ name: 'Quarterly Plan' });
+
+    expect(evaluateRule(named, rule('name', 'contains', 'PLAN'), CONTEXT)).toBe(true);
+    expect(evaluateRule(named, rule('name', 'contains', 'arter'), CONTEXT)).toBe(true);
+    expect(evaluateRule(named, rule('name', 'not-contains', 'plan'), CONTEXT)).toBe(false);
+    expect(evaluateRule(owner({}), rule('name', 'not-contains', 'plan'), CONTEXT)).toBe(true);
+  });
+
+  it('reads contains on a multi-select as exact option membership, as the server documents it', () => {
+    const tagged = owner({ tags: ['Urgent', 'Home'] });
+
+    expect(evaluateRule(tagged, rule('tags', 'contains', 'Urgent'), CONTEXT)).toBe(true);
+    // Neither a fragment of an option nor another spelling of it is that option.
+    expect(evaluateRule(tagged, rule('tags', 'contains', 'Urg'), CONTEXT)).toBe(false);
+    expect(evaluateRule(tagged, rule('tags', 'contains', 'urgent'), CONTEXT)).toBe(false);
+    expect(evaluateRule(tagged, rule('tags', 'not-contains', 'Work'), CONTEXT)).toBe(true);
+  });
 });

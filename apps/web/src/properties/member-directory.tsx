@@ -1,6 +1,9 @@
 import { createContext, use, useMemo, type ReactNode } from 'react';
 
-import { useWorkspaceMembers } from '../settings/use-workspace-members';
+import {
+  useWorkspaceMembers,
+  type WorkspaceMembersStatus,
+} from '../settings/use-workspace-members';
 
 /**
  * Who each workspace member is, loaded once for a whole view.
@@ -9,30 +12,51 @@ import { useWorkspaceMembers } from '../settings/use-workspace-members';
  * page through the member list two hundred times. So a view that shows people mounts one directory
  * above its cards, and every value display reads names out of it.
  *
- * **Absent is not an error.** Outside a directory - a story, a component test, a view whose schema
- * declares no assignee - a name resolves to null and the display falls back to saying it does not
- * know, exactly as it does for an identifier that is no longer a member.
+ * **Absent is not an error, and neither is it an answer.** Outside a directory - a story, a
+ * component test, a view whose schema declares no assignee - nothing has been asked, so nothing
+ * may be said to be unknown. Only a directory whose read succeeded can say an identifier is not a
+ * member; while it is loading, or after it failed, the display says less rather than something
+ * false.
  */
 
-const MemberNamesContext = createContext<ReadonlyMap<string, string> | null>(null);
+/** Where a member lookup has got to. */
+export type MemberLookup =
+  | { readonly status: 'absent' | 'loading' | 'error' }
+  | { readonly status: 'ready'; readonly name: string | null };
+
+interface MemberDirectoryValue {
+  readonly status: WorkspaceMembersStatus;
+  readonly names: ReadonlyMap<string, string>;
+}
+
+const MemberNamesContext = createContext<MemberDirectoryValue | null>(null);
 
 export function MemberDirectory(props: { readonly children: ReactNode }): ReactNode {
-  const { members } = useWorkspaceMembers();
-  const names = useMemo(
-    () => new Map(members.map((member) => [member.subjectId, member.subjectDisplayName])),
-    [members],
+  const { status, members } = useWorkspaceMembers();
+  const value = useMemo(
+    () => ({
+      status,
+      names: new Map(members.map((member) => [member.subjectId, member.subjectDisplayName])),
+    }),
+    [members, status],
   );
 
-  return <MemberNamesContext value={names}>{props.children}</MemberNamesContext>;
+  return <MemberNamesContext value={value}>{props.children}</MemberNamesContext>;
 }
 
-/** A member's display name, or null when no directory is mounted or the id is not a member. */
-export function useMemberName(subjectId: string | null): string | null {
-  const names = use(MemberNamesContext);
-  return subjectId === null ? null : (names?.get(subjectId) ?? null);
+/** A member's display name, as far as the directory above can answer for it. */
+export function useMember(subjectId: string): MemberLookup {
+  const directory = use(MemberNamesContext);
+  if (directory === null) return { status: 'absent' };
+  if (directory.status !== 'ready') return { status: directory.status };
+  return { status: 'ready', name: directory.names.get(subjectId) ?? null };
 }
 
-/** The whole map, for code that resolves many names at once - grouping, sorting. */
+/**
+ * The whole map, for code that resolves many names at once - grouping, sorting. Null until a
+ * directory has read its members.
+ */
 export function useMemberNames(): ReadonlyMap<string, string> | null {
-  return use(MemberNamesContext);
+  const directory = use(MemberNamesContext);
+  return directory?.status === 'ready' ? directory.names : null;
 }
