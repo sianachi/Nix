@@ -21,6 +21,7 @@ import {
   type PropertyDefinition,
   type PropertyValue,
   type View,
+  type ViewFilterRule,
 } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
 import { useItemContextActions } from '../core/use-item-context-actions';
@@ -61,6 +62,9 @@ const ESTIMATED_ROW_HEIGHT = 45;
  * component reads the sort out of `useViewState` and writes a header click back to it; between
  * those two the state is the address bar's, and React re-renders because the address changed.
  */
+
+/** A stable empty rule set for the container that defines no view, so the filter memo holds. */
+const NO_RULES: readonly ViewFilterRule[] = [];
 
 export interface ListViewProps {
   readonly container: ContainerData;
@@ -111,6 +115,7 @@ export function ListView(props: ListViewProps): ReactNode {
       // item was empty all along, and the count is the proof that it was not.
       detail: hiddenByFilters(total),
     }),
+    savedRules: view?.filters ?? NO_RULES,
     sortBy,
     descending: direction === 'descending',
   });

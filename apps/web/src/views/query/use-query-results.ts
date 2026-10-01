@@ -10,7 +10,7 @@ import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { useStaleWhileRevalidate } from '../../lib/use-stale-while-revalidate';
-import { readerZone } from '../core/timestamps';
+import { readerToday } from '../core/timestamps';
 
 /**
  * One run of a saved query, refreshed on demand.
@@ -24,17 +24,8 @@ import { readerZone } from '../core/timestamps';
  * new day the moment it reloads.
  */
 
-/** Today as the reader's own calendar day, `yyyy-MM-dd`. */
-export function readerToday(): string {
-  // en-CA formats as YYYY-MM-DD, which is the one locale trick this file allows itself: the
-  // alternative is hand-assembling parts, and both are pinned by the test asserting the shape.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: readerZone(),
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
+/** Moved beside the zone it reads; re-exported because callers and tests import it from here. */
+export { readerToday };
 
 /**
  * Why a failed run failed, in words a reader can act on - keyed on the problem's `code`, not the

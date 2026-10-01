@@ -7,7 +7,9 @@ import {
   LoadingPanel,
   PartialNotice,
 } from '../../components/states/status-panels';
-import { applyFilters, sortItems, type Item } from './container-model';
+import { applyFilters, sortItems, type Item, type ViewFilterRule } from './container-model';
+import { applyRules } from './filter-rules';
+import { useRuleContext } from './use-rule-context';
 import type { ContainerData } from './use-container';
 import type { ViewStateControl } from './view-state';
 
@@ -103,6 +105,14 @@ export interface ViewChromeArgs<TValue> {
    */
   readonly filtered: (total: number) => ViewChromeMessage;
 
+  /**
+   * The rules stored on the view itself, applied before the address's filters.
+   *
+   * Required rather than defaulted so a new view kind cannot forget them: a view whose settings say
+   * "only open tasks" and whose screen shows every task is the defect this field exists to end.
+   */
+  readonly savedRules: readonly ViewFilterRule[];
+
   /** How the items are ordered. Null leaves them in the order somebody arranged them by hand. */
   readonly sortBy: string | null;
   readonly descending: boolean;
@@ -164,13 +174,19 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
   // Sorting 3,200 children is measured work, and the returned array's identity is the
   // virtualizer's subscription boundary. Keep both stable across local interaction renders;
   // children, URL filters or the chosen ordering are the only facts that can change the result.
-  const visible = useMemo(
-    () => applyFilters(container.children, viewState.filters),
-    [container.children, viewState.filters],
+  const ruleContext = useRuleContext(args.savedRules);
+  const saved = useMemo(
+    () => applyRules(container.children, args.savedRules, ruleContext),
+    [args.savedRules, container.children, ruleContext],
   );
+  const visible = useMemo(
+    () => applyFilters(saved, viewState.filters, ruleContext),
+    [ruleContext, saved, viewState.filters],
+  );
+  const properties = container.schema?.properties;
   const sorted = useMemo(
-    () => sortItems(visible, args.sortBy, args.descending),
-    [args.descending, args.sortBy, visible],
+    () => sortItems(visible, args.sortBy, args.descending, properties),
+    [args.descending, args.sortBy, properties, visible],
   );
 
   const loadState = resolveLoadState(container, args.subject);
@@ -202,11 +218,25 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     };
   }
 
+  if (saved.length === 0) {
+    // The view's own settings hide everything. Clearing the address would change nothing, so the
+    // way out is named rather than offered as a button that does not work.
+    return {
+      kind: 'chrome',
+      node: (
+        <EmptyPanel
+          title="No items match this view's filters"
+          detail={savedFiltersHideAll(container.children.length, args.subject)}
+        />
+      ),
+    };
+  }
+
   if (visible.length === 0) {
     // Emptiness we caused rather than emptiness we found, and told apart from it deliberately:
     // somebody who followed a filtered link and is told "nothing in here yet" goes looking for
     // items they think have been deleted.
-    const message = args.filtered(container.children.length);
+    const message = args.filtered(saved.length);
 
     return {
       kind: 'chrome',
@@ -225,7 +255,8 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     };
   }
 
-  const hidden = container.children.length - visible.length;
+  const hiddenBySaved = container.children.length - saved.length;
+  const hiddenByAddress = saved.length - visible.length;
 
   // Truncation is said alongside the filter notice, not instead of it: they are two different
   // partialities. A container past the paging ceiling shows its first pages, and every count a
@@ -235,7 +266,8 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     container.truncated
       ? `Only the first ${String(container.children.length)} items in here are loaded.`
       : null,
-    hidden === 0 ? null : hiddenNotice(hidden),
+    hiddenBySaved === 0 ? null : hiddenNotice(hiddenBySaved, "this view's saved filters"),
+    hiddenByAddress === 0 ? null : hiddenNotice(hiddenByAddress, 'the current filters'),
   ].filter((sentence): sentence is string => sentence !== null);
 
   const partialityNotice =
@@ -304,16 +336,21 @@ function refreshNotice(
 }
 
 /**
- * What a view says about the items its filters are holding back.
+ * What a view says about the items its filters are holding back, and which filters those are.
  *
- * Worth saying out loud because nothing else on screen says it: this build carries the filters in
- * the address and nowhere else, so a view drawing four of nine items looks exactly like a container
- * holding four.
+ * Worth saying out loud because nothing else on screen says it: a view drawing four of nine items
+ * looks exactly like a container holding four. The two sources are named apart because they are
+ * undone in different places - the address by clearing it, the view's own rules in its settings.
  */
-function hiddenNotice(hidden: number): string {
+function hiddenNotice(hidden: number, by: string): string {
   return hidden === 1
-    ? 'One more item is here and hidden by the current filters.'
-    : `${String(hidden)} more items are here and hidden by the current filters.`;
+    ? `One more item is here and hidden by ${by}.`
+    : `${String(hidden)} more items are here and hidden by ${by}.`;
+}
+
+function savedFiltersHideAll(total: number, subject: string): string {
+  const items = total === 1 ? 'its one item' : `all ${String(total)} of its items`;
+  return `The filters saved with ${subject} hide ${items}. Change them in the view's settings to see more.`;
 }
 
 /** "this board" as the first two words of a sentence. */

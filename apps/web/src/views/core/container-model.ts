@@ -8,6 +8,9 @@ import type {
 } from '@nix/api-client';
 import { z } from 'zod';
 
+import { evaluateRule, type RuleContext } from './filter-rules';
+import { compareSortKeys, sortKeyFor, type ViewSortKey } from './compare-values';
+
 /**
  * What every view renders from: the container's schema, its views, and its children.
  *
@@ -466,25 +469,23 @@ export function readDateValue(item: PropertyOwner, key: string): string | null {
 export function applyFilters(
   items: readonly Item[],
   filters: readonly { propertyKey: string; values: readonly string[] }[],
+  context: RuleContext = { today: '', principalId: null },
 ): readonly Item[] {
   if (filters.length === 0) {
     return items;
   }
 
+  // Each address filter is an OR of `equals` over its values, judged exactly as a stored rule is -
+  // so a checkbox filtered to `true` and a number filtered to `3` match, which comparing strings
+  // alone never did.
   return items.filter((item) =>
-    filters.every((filter) => {
-      if (filter.values.length === 0) {
-        return true;
-      }
-
-      const value = item.properties[filter.propertyKey];
-
-      if (Array.isArray(value)) {
-        return value.some((entry) => typeof entry === 'string' && filter.values.includes(entry));
-      }
-
-      return typeof value === 'string' && filter.values.includes(value);
-    }),
+    filters.every(
+      (filter) =>
+        filter.values.length === 0 ||
+        filter.values.some((value) =>
+          evaluateRule(item, { property: filter.propertyKey, operator: 'equals', value }, context),
+        ),
+    ),
   );
 }
 
@@ -504,46 +505,61 @@ function compareSeq(left: Item['seq'], right: Item['seq']): number {
 }
 
 /**
- * One collator, hoisted, rather than an options object passed to `localeCompare` per comparison.
- *
- * Passing options to `localeCompare` resolves a collator on every call - roughly n log n of them
- * per sort. Measured at 3,000 items sorted by a text property: 61.65ms per sort the old way,
- * 2.65ms with the collator hoisted, byte-identical ordering (perf review of goal 1.6, harness in
- * its report). A sort runs on every write once a header is clicked, so this is a hot path, not a
- * micro-optimisation.
- */
-const textCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-/**
  * Sorts items by a property, or by sibling order when no property is named.
  *
  * Sibling order is the default because it is the order somebody arranged by hand, and replacing
- * that with an arbitrary alphabetisation is the sort of helpfulness people undo.
+ * that with an arbitrary alphabetisation is the sort of helpfulness people undo. The one-key form
+ * of {@link sortItemsBy}, kept because most callers name exactly one.
  */
 export function sortItems(
   items: readonly Item[],
   sortBy: string | null,
   descending: boolean,
+  properties: readonly PropertyDefinition[] = [],
 ): readonly Item[] {
-  const sorted = [...items];
+  return sortItemsBy(items, sortBy === null ? [] : [{ property: sortBy, descending }], properties);
+}
 
-  if (sortBy === null) {
-    sorted.sort((left, right) => compareSeq(left.seq, right.seq));
-    return sorted;
+/**
+ * Sorts items by each key in turn, then by sibling order.
+ *
+ * Each key compares by the property's type - see `compare-values.ts` for why text was not enough -
+ * and sibling order breaks the final tie, so two items equal on every key keep the order somebody
+ * arranged them in rather than whatever the engine's sort happened to leave.
+ *
+ * Keys are derived once per item and the array of keys is what gets sorted: a timestamp parse or
+ * an option lookup per comparison would be the whole cost of the sort.
+ */
+export function sortItemsBy(
+  items: readonly Item[],
+  sorts: readonly ViewSortKey[],
+  properties: readonly PropertyDefinition[],
+): readonly Item[] {
+  if (sorts.length === 0) {
+    return [...items].sort((left, right) => compareSeq(left.seq, right.seq));
   }
 
-  sorted.sort((left, right) => {
-    const a = sortBy === 'title' ? left.title : readPropertyText(left, sortBy);
-    const b = sortBy === 'title' ? right.title : readPropertyText(right, sortBy);
+  const definitions = sorts.map((sort) =>
+    properties.find((candidate) => candidate.key === sort.property),
+  );
+  const decorated = items.map((item) => ({
+    item,
+    keys: sorts.map((sort, index) => sortKeyFor(item, sort.property, definitions[index])),
+  }));
 
-    // Empty values sort last in both directions. A column of blanks at the top tells nobody
-    // anything, and flipping the direction should not make the blanks the headline.
-    if (a === '' && b !== '') return 1;
-    if (b === '' && a !== '') return -1;
+  decorated.sort((left, right) => {
+    for (let index = 0; index < sorts.length; index += 1) {
+      const sort = sorts[index];
+      const a = left.keys[index];
+      const b = right.keys[index];
+      if (sort === undefined || a === undefined || b === undefined) continue;
 
-    const comparison = textCollator.compare(a, b);
-    return descending ? -comparison : comparison;
+      const comparison = compareSortKeys(a, b, sort.descending);
+      if (comparison !== 0) return comparison;
+    }
+
+    return compareSeq(left.item.seq, right.item.seq);
   });
 
-  return sorted;
+  return decorated.map((entry) => entry.item);
 }

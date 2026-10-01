@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
 import { aContainer } from '../../container-fixture';
-import type { Item } from '../../../views/core/container-model';
+import type { Item, ViewFilterRule } from '../../../views/core/container-model';
 import type { ContainerData } from '../../../views/core/use-container';
 import {
   drawable,
@@ -21,6 +21,8 @@ import { useViewState } from '../../../views/core/view-state';
  * Driven at a URL rather than by handing filters in, because the filters live in the address and a
  * test that reached past it would be testing a function this application does not call.
  */
+
+const NO_RULES: readonly ViewFilterRule[] = [];
 
 function item(id: string, title: string, seq: number, properties: Record<string, unknown>): Item {
   return {
@@ -50,6 +52,7 @@ const DONE = item('item-d', 'Done one', 2, { status: 'done' });
 function Subject(props: {
   readonly container: ContainerData;
   readonly drawable?: Drawable<string>;
+  readonly savedRules?: readonly ViewFilterRule[];
 }): ReactNode {
   const viewState = useViewState();
 
@@ -64,6 +67,7 @@ function Subject(props: {
       title: 'No items match the filters',
       detail: `This holds ${String(total)} items and the filters are hiding all of them.`,
     }),
+    savedRules: props.savedRules ?? NO_RULES,
     sortBy: null,
     descending: false,
   });
@@ -104,6 +108,33 @@ describe('the shared view chrome', () => {
     expect(filtered).toHaveTextContent('No items match the filters');
     expect(filtered).toHaveTextContent('This holds 2 items');
     expect(filtered).not.toHaveTextContent('Nothing in here yet');
+  });
+
+  it('applies the rules saved on the view, and names them apart from the address filters', () => {
+    renderAt(
+      <Subject
+        container={aContainer({ children: [OPEN, DONE] })}
+        savedRules={[{ property: 'status', operator: 'equals', value: 'open' }]}
+      />,
+    );
+
+    expect(screen.getByText('Open one')).toBeVisible();
+    expect(screen.queryByText('Done one')).not.toBeInTheDocument();
+    expect(screen.getByText(/hidden by this view's saved filters/)).toBeVisible();
+  });
+
+  it('does not offer to clear the address when the saved rules hide everything', () => {
+    renderAt(
+      <Subject
+        container={aContainer({ children: [OPEN, DONE] })}
+        savedRules={[{ property: 'status', operator: 'equals', value: 'archived' }]}
+      />,
+    );
+
+    const panel = screen.getByRole('status');
+    expect(panel).toHaveTextContent("No items match this view's filters");
+    expect(panel).toHaveTextContent('hide all 2 of its items');
+    expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument();
   });
 
   it('reports a container that could not be read instead of drawing an empty one', async () => {

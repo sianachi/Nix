@@ -105,6 +105,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
       title: 'No items match the filters',
       detail: `This holds ${String(total)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because there is nothing here.`,
     }),
+    savedRules: view.filters,
     sortBy: viewState.sortBy ?? view.sortBy,
     descending:
       viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',
