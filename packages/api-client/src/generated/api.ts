@@ -1139,6 +1139,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/search/mentions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Find the items whose titles a passage of text names
+     * @description Takes 'text' (at most 4000 characters) and 'workspaceId', and returns up to 20 items in that workspace whose title appears in the text as a whole-word phrase, ignoring case, longest phrase first and at most three per phrase (the most recently modified) - the editor's 'unlinked mentions'. The server cuts the text into word phrases of one to six words itself; single words under four characters and phrases made only of numbers are ignored, and phrases do not span a line break or sentence punctuation. A workspace the caller may not read finds nothing. Items listed in 'excludeIds' (at most 256: the note itself and what it already links to) are never returned, and an item under a lock the caller has not opened is never matched. A POST because the text is too long for a URL; it reads and changes nothing, so a read-scoped token may call it. 'truncated' is set when 20 matches were found or the text held more phrases than one request matches. Refusals: 'search.mention_text_too_long', 'search.mention_workspace_required', 'search.too_many_mention_exclusions', 413 for a body over 48 KiB. Has its own per-address rate limit ('suggestions', 60 a minute by default), separate from writes; send it when typing pauses and wait out a 429's Retry-After.
+     */
+    post: operations['FindMentions'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/backlinks': {
     parameters: {
       query?: never;
@@ -1151,6 +1171,26 @@ export interface paths {
      * @description Returns the items whose documents link to this one, most-referring first. Only referring documents the caller may read are included, and they are excluded from the count as well as from the list: being able to read an item does not entitle you to know that a document elsewhere mentions it. Backlinks are derived from documents when they are snapshotted, so a link made moments ago may not have been published yet.
      */
     get: operations['GetBacklinks'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/related': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The items most often linked alongside an item
+     * @description Returns the items that the documents linking to this one also link to, ranked by how many such documents they share, then by title. 'limit' defaults to 10 and is capped at 25. Only referring documents the caller may read, and that are not locked, count towards a ranking - a locked document's links come from its body - and only items the caller may read are returned. The ranking considers the item's 200 most-referring readable documents, so a heavily linked item is ranked from its strongest sources rather than all of them. An item the caller may not read is reported as not found.
+     */
+    get: operations['GetRelatedItems'];
     put?: never;
     post?: never;
     delete?: never;
@@ -3502,6 +3542,20 @@ export interface components {
       /** Format: double */
       balanceAfterMonth: number | string;
     };
+    MentionResponse: {
+      item: components['schemas']['SearchHitResponse'];
+      phrase: string;
+    };
+    MentionsRequest: {
+      text: null | string;
+      /** Format: uuid */
+      workspaceId: null | string;
+      excludeIds: null | string[];
+    };
+    MentionsResponse: {
+      mentions: components['schemas']['MentionResponse'][];
+      truncated: boolean;
+    };
     MonthChecklistResponse: {
       month: string;
       closed: boolean;
@@ -3872,6 +3926,17 @@ export interface components {
     ReferencesResponse: {
       references: components['schemas']['ReferenceResolutionResponse'][];
     };
+    RelatedItemResponse: {
+      item: components['schemas']['SearchHitResponse'];
+      /** Format: int32 */
+      sharedSources: number | string;
+    };
+    RelatedItemsResponse: {
+      related: components['schemas']['RelatedItemResponse'][];
+      /** Format: int32 */
+      limit: number | string;
+      truncated: boolean;
+    };
     RemovePushSubscriptionRequest: {
       endpoint: string;
     };
@@ -3916,6 +3981,10 @@ export interface components {
       workspaceId: string;
       type: string;
       title: null | string;
+      /** Format: uuid */
+      parentId: null | string;
+      /** Format: date-time */
+      updatedAt: string;
     };
     SearchResponse: {
       query: string;
@@ -7867,6 +7936,57 @@ export interface operations {
       };
     };
   };
+  FindMentions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['MentionsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MentionsResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Payload Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   GetBacklinks: {
     parameters: {
       query?: {
@@ -7887,6 +8007,39 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['BacklinksResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetRelatedItems: {
+    parameters: {
+      query?: {
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RelatedItemsResponse'];
         };
       };
       /** @description Not Found */

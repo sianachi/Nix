@@ -95,6 +95,16 @@ export {
   type SearchResults,
 } from './search.js';
 export {
+  mentionSchema,
+  mentionsSchema,
+  relatedItemSchema,
+  relatedItemsSchema,
+  type Mention,
+  type Mentions,
+  type RelatedItem,
+  type RelatedItems,
+} from './suggestions.js';
+export {
   ACCESS_TOKEN_SCOPES,
   accessTokenListSchema,
   accessTokenSchema,

@@ -89,10 +89,10 @@ public sealed class OpenSearchItemQueryClient
     /// The readable workspaces returned by the server's permission resolver. This value must not
     /// be bound directly from a client request.
     /// </param>
-    /// <param name="limit">The maximum number of digests to return, from one through one hundred.</param>
+    /// <param name="limit">The maximum number of candidates to return, from one through one hundred.</param>
     /// <param name="cancellationToken">Cancels the outbound request and response read.</param>
-    /// <returns>Validated item digests that remain inside the supplied authorization scope.</returns>
-    public async ValueTask<IReadOnlyList<ItemDigest>> FindAsync(
+    /// <returns>Validated ranked candidates that remain inside the supplied authorization scope.</returns>
+    public async ValueTask<IReadOnlyList<OpenSearchItemCandidate>> FindAsync(
         string query,
         IReadOnlyList<WorkspaceId> serverResolvedReadableWorkspaces,
         int limit,
@@ -358,7 +358,7 @@ public sealed class OpenSearchItemQueryClient
         writer.WriteEndObject();
     }
 
-    private static async ValueTask<IReadOnlyList<ItemDigest>> ReadAndValidateAsync(
+    private static async ValueTask<IReadOnlyList<OpenSearchItemCandidate>> ReadAndValidateAsync(
         HttpContent content,
         TenantId tenantId,
         IReadOnlyList<Guid> workspaces,
@@ -427,14 +427,14 @@ public sealed class OpenSearchItemQueryClient
             $"The OpenSearch response exceeded {MaximumResponseBytes} bytes.");
     }
 
-    private static List<ItemDigest> ValidateHits(
+    private static List<OpenSearchItemCandidate> ValidateHits(
         OpenSearchHit[] hits,
         TenantId tenantId,
         IReadOnlyList<Guid> workspaces)
     {
         var readable = new HashSet<Guid>(workspaces);
         var seenItems = new HashSet<Guid>();
-        var digests = new List<ItemDigest>(hits.Length);
+        var candidates = new List<OpenSearchItemCandidate>(hits.Length);
         for (var index = 0; index < hits.Length; index++)
         {
             var source = hits[index].Source
@@ -463,14 +463,14 @@ public sealed class OpenSearchItemQueryClient
                 throw new InvalidDataException("An OpenSearch hit has invalid digest or visibility fields.");
             }
 
-            digests.Add(new ItemDigest(
+            candidates.Add(new OpenSearchItemCandidate(
                 ItemId.From(itemId),
                 WorkspaceId.From(workspaceId),
                 source.Type!,
                 source.Title));
         }
 
-        return digests;
+        return candidates;
     }
 
     private static bool TryGuid(string? value, out Guid identifier) =>

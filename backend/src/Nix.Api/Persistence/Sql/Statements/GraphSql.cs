@@ -26,7 +26,7 @@ namespace Nix.Persistence.Sql.Statements;
 /// </para>
 /// <para>
 /// Index dependencies: <c>IX_item_tenant_id_workspace_id</c> for the node set,
-/// <c>PK_item_link</c> and <c>ix_item_link_target</c> for the edges.
+/// <c>PK_item_link</c> and <c>ix_item_link_target_occurrences</c> for the edges.
 /// </para>
 /// </remarks>
 public static class GraphSql

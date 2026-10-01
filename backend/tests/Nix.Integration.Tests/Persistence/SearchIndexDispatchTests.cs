@@ -237,6 +237,76 @@ public sealed class SearchIndexDispatchTests(
         Assert.Equal(expectHit, results.Any(result => result.Id.Value == M0SchemaSeed.Alpha.ItemId));
     }
 
+    /// <summary>
+    /// ADR-0056: a lock hides the titles under it from search. The index knows nothing of which
+    /// locks a credential has opened, so a title hit under a closed lock must be dropped when the
+    /// candidates are re-read - and kept for the credential that holds the lock open.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OpenSearch_title_hits_under_a_closed_lock_are_dropped_until_it_is_opened(bool opened)
+    {
+        var child = new Guid("0c1d0000-1111-4111-8111-0c1d00000001");
+        var credential = new Guid("0c1d0000-1111-4111-8111-0c1d000000cc");
+        await ExecuteAsMigratorAsync(
+            """
+            INSERT INTO item
+                (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                 purge_after, created_by, last_modified_by, created_at, last_modified_at)
+            VALUES (@child_id, @tenant_id, @workspace_id, 'note', @item_id, 990001,
+                    jsonb_build_object('title', 'Diary page'), 'active', NULL,
+                    @principal_id, @principal_id, now(), now());
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            VALUES (@child_id, @child_id, @tenant_id, @workspace_id, 0),
+                   (@child_id, @item_id, @tenant_id, @workspace_id, 1);
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            VALUES (@item_id, @tenant_id,
+                    'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                    @principal_id, now());
+            INSERT INTO item_unlock (item_id, credential_id, tenant_id, principal_id, expires_at)
+            VALUES (@item_id, @credential_id, @tenant_id, @principal_id, now() + interval '10 minutes');
+            """,
+            new NpgsqlParameter("tenant_id", M0SchemaSeed.Alpha.TenantId),
+            new NpgsqlParameter("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
+            new NpgsqlParameter("item_id", M0SchemaSeed.Alpha.ItemId),
+            new NpgsqlParameter("child_id", child),
+            new NpgsqlParameter("credential_id", credential),
+            new NpgsqlParameter("principal_id", M0SchemaSeed.Alpha.PrincipalId));
+
+        var response = $$$"""
+            {"hits":{"hits":[
+              {"_source":{"tenant_id":"{{{M0SchemaSeed.Alpha.TenantId:D}}}","workspace_id":"{{{M0SchemaSeed.Alpha.WorkspaceId:D}}}","item_id":"{{{child:D}}}","type":"note","title":"Diary page","lifecycle_state":"active","hidden":false,"deleted":false}}
+            ]}}
+            """;
+        using var handler = new StaticOpenSearchHandler(response);
+        using var httpClient = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://search.example.test/"),
+            Timeout = Timeout.InfiniteTimeSpan,
+        };
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext,
+            Cancellation);
+        if (opened)
+        {
+            work.Resolve<CredentialSessionContext>().Set(credential);
+        }
+
+        var search = new OpenSearchItemSearch(
+            new OpenSearchItemQueryClient(httpClient, work.Resolve<INixSessionContextAccessor>(), "nix-items"),
+            work.Resolve<ItemSearch>(),
+            work.Resolve<IItemLocks>());
+
+        var results = await search.FindAsync(
+            "diary page",
+            [WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId)],
+            20,
+            Cancellation);
+
+        Assert.Equal(opened, results.Any(result => result.Id.Value == child));
+    }
+
     [Fact]
     public async Task Exact_metadata_hydration_is_measured_against_a_realistic_workspace()
     {

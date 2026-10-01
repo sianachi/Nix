@@ -4,6 +4,9 @@ import { useRef, useState, type ReactNode } from 'react';
 
 import { readDateValue, type Item } from '../core/container-model';
 import { readTimestampValue, writeTimestampValue } from '../core/timestamps';
+import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { FreeSlotHint } from './free-slot-hint';
+import { suggestSlot } from './schedule-slot';
 
 /**
  * The keyboard road to the same write a drag performs, in a modal.
@@ -77,6 +80,18 @@ export interface RescheduleDialogProps {
    * properties disagree on shape is a configuration the editor does not offer today.
    */
   readonly endDateProperty?: string | null;
+
+  /**
+   * Every item the calendar holds, when it wants the dialog to suggest the next free slot: the
+   * container's unfiltered children, and only when none were left unloaded - a filter or a
+   * truncated page would hide an item and make its time look free.
+   *
+   * Only read for a calendar that places by time - a day has no slot to be free in - and only as
+   * a suggestion: "Use" fills the fields, Move still writes. Absent, no slot is offered, which is
+   * what the collated calendar wants, since it shows several containers and a slot free in one
+   * proves nothing about the others.
+   */
+  readonly siblings?: readonly Item[] | undefined;
 }
 
 /**
@@ -110,6 +125,7 @@ export function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
     onMove,
     canRemove = true,
     endDateProperty = null,
+    siblings,
   } = props;
   const [draft, setDraft] = useState(() => readDraft(item, dateProperty, placesByTime, zone));
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +134,17 @@ export function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
   );
   const [endError, setEndError] = useState<string | null>(null);
   const fieldRef = useRef<HTMLInputElement>(null);
+
+  // Worked out once, when the dialog opens: the suggestion is about the moment somebody asked, and
+  // a slot that slid forward while they read it would be a moving target. A state initialiser
+  // rather than a render-time call because the search walks every sibling's span and the dialog
+  // re-renders on every keystroke in its fields.
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+  const [slot] = useState(() =>
+    placesByTime && siblings !== undefined
+      ? suggestSlot(item, siblings, dateProperty, endDateProperty, Date.now(), zone)
+      : null,
+  );
 
   function submit(): void {
     let startValue: string;
@@ -239,6 +266,23 @@ export function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
             />
           )}
         </Field>
+
+        {slot === null || viewSuggestions === 'off' ? null : (
+          <FreeSlotHint
+            label={slot.label}
+            onUse={() => {
+              setDraft(slot.start);
+              setError(null);
+              if (endDateProperty !== null) {
+                setEndDraft(slot.end);
+                setEndError(null);
+              }
+              // Focus the start it just filled, so the new value is read out where it now sits
+              // rather than the change happening silently behind the button.
+              fieldRef.current?.focus();
+            }}
+          />
+        )}
 
         {endDateProperty === null ? null : (
           // Only when the view names a second property to close the span with - a view that never

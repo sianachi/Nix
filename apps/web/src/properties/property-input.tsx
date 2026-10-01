@@ -18,6 +18,7 @@ import { rollupAggregateLabel } from '../views/core/property-types';
 import { readTimestampValue, readerZone, writeTimestampValue } from '../views/core/timestamps';
 
 import { ImageValue } from './image-value';
+import { useSelectFrecency } from './use-select-frecency';
 
 import {
   UNSET_LABEL,
@@ -460,14 +461,30 @@ function SelectValue(props: PropertyInputProps): ReactNode {
   const { item, property, onCommit, disabled = false, density = 'panel' } = props;
 
   const current = readSelectValue(item, property.key);
+  const frecency = useSelectFrecency(property.key);
 
   // The declared options, plus whatever this item actually holds if the schema has moved on since
   // it was written. Dropping the stored value would make the control report some other option as
-  // the current one, which is a lie about the item.
+  // the current one, which is a lie about the item. The declared order is kept; what this person
+  // usually picks is repeated ahead of it (see `use-select-frecency.ts`).
   const options =
     current !== null && !property.options.includes(current)
       ? [current, ...property.options]
       : property.options;
+  const recent = frecency.recent(options, (option) => option);
+  const choices = (
+    <ChoiceGroups
+      recent={recent.map((option) => ({ id: option, label: option }))}
+      all={options.map((option) => ({ id: option, label: option }))}
+    />
+  );
+
+  function choose(next: string): void {
+    if (next !== UNSET_VALUE) {
+      frecency.remember(next);
+    }
+    onCommit(next === UNSET_VALUE ? null : next);
+  }
 
   return (
     <ValueShell {...props}>
@@ -480,8 +497,7 @@ function SelectValue(props: PropertyInputProps): ReactNode {
             required={property.required}
             disabled={disabled}
             onChange={(event) => {
-              const next = event.target.value;
-              onCommit(next === UNSET_VALUE ? null : next);
+              choose(event.target.value);
             }}
             className={cellSelectClasses}
           >
@@ -489,11 +505,7 @@ function SelectValue(props: PropertyInputProps): ReactNode {
                 filled in by mistake is otherwise permanent. */}
             <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {options.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
+            {choices}
           </select>
         ) : (
           <Select
@@ -503,19 +515,14 @@ function SelectValue(props: PropertyInputProps): ReactNode {
             required={property.required}
             disabled={disabled}
             onChange={(event) => {
-              const next = event.target.value;
-              onCommit(next === UNSET_VALUE ? null : next);
+              choose(event.target.value);
             }}
           >
             {/* Clearing has to be reachable from the control that set it: a property somebody
                 filled in by mistake is otherwise permanent. */}
             <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {options.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
+            {choices}
           </Select>
         )
       }
@@ -527,6 +534,40 @@ function SelectValue(props: PropertyInputProps): ReactNode {
 interface AssigneeOption {
   readonly id: string;
   readonly label: string;
+}
+
+/**
+ * A choice list's options: the declared list as it is, preceded - when this person has a history
+ * here - by a "Recent" group repeating their usual picks. Two `<option>`s may then share a value;
+ * the browser selects the first, which shows the same label.
+ */
+function ChoiceGroups({
+  recent,
+  all,
+}: {
+  readonly recent: readonly AssigneeOption[];
+  readonly all: readonly AssigneeOption[];
+}): ReactNode {
+  const options = all.map((option) => (
+    <option key={option.id} value={option.id}>
+      {option.label}
+    </option>
+  ));
+  if (recent.length === 0) {
+    return options;
+  }
+  return (
+    <>
+      <optgroup label="Recent">
+        {recent.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="All options">{options}</optgroup>
+    </>
+  );
 }
 
 /**
@@ -562,10 +603,21 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
     label: member.subjectDisplayName,
   }));
 
+  const frecency = useSelectFrecency(property.key);
   const options: readonly AssigneeOption[] =
     current !== null && known === null
       ? [{ id: current, label: current }, ...memberOptions]
       : memberOptions;
+  const choices = (
+    <ChoiceGroups recent={frecency.recent(options, (option) => option.id)} all={options} />
+  );
+
+  function choose(next: string): void {
+    if (next !== UNSET_VALUE) {
+      frecency.remember(next);
+    }
+    onCommit(next === UNSET_VALUE ? null : next);
+  }
 
   const hint =
     status === 'loading'
@@ -587,8 +639,7 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
             required={property.required}
             disabled={disabled}
             onChange={(event) => {
-              const next = event.target.value;
-              onCommit(next === UNSET_VALUE ? null : next);
+              choose(event.target.value);
             }}
             className={cellSelectClasses}
           >
@@ -596,11 +647,7 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
                 filled in by mistake is otherwise permanent. */}
             <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
+            {choices}
           </select>
         ) : (
           <Select
@@ -610,19 +657,14 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
             required={property.required}
             disabled={disabled}
             onChange={(event) => {
-              const next = event.target.value;
-              onCommit(next === UNSET_VALUE ? null : next);
+              choose(event.target.value);
             }}
           >
             {/* Clearing has to be reachable from the control that set it: a property somebody
                 filled in by mistake is otherwise permanent. */}
             <option value={UNSET_VALUE}>{UNSET_LABEL}</option>
 
-            {options.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
+            {choices}
           </Select>
         )
       }
@@ -630,8 +672,11 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
   );
 }
 
-/** The priority scale, drawn once: the number is the value, the word is what it means. */
-const PRIORITY_LEVELS = [
+/**
+ * The priority scale, drawn once: the number is the value, the word is what it means. Exported so
+ * anything else naming a priority (the form's usual-value hint) says the same words.
+ */
+export const PRIORITY_LEVELS = [
   { value: 1, label: '1 - Urgent' },
   { value: 2, label: '2 - High' },
   { value: 3, label: '3 - Normal' },
@@ -710,6 +755,8 @@ function MultiSelectValue(props: PropertyInputProps): ReactNode {
 
   const { selection, toggle } = useMultiSelectDraft(stored, onCommit);
 
+  // Declared order, always: a checkbox list has no "Recent" group to offer, and reordering the
+  // boxes themselves would move a box out from under somebody ticking several in a row.
   const options = [
     ...property.options,
     // Same reason as the select: a value the schema no longer declares is still on the item, and a

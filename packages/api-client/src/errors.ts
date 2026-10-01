@@ -71,6 +71,7 @@ export interface NixApiErrorOptions {
   readonly traceId?: string | undefined;
   readonly validationErrors?: Readonly<Record<string, readonly string[]>> | undefined;
   readonly issues?: readonly ParseIssue[] | undefined;
+  readonly retryAfterSeconds?: number | undefined;
   readonly cause?: unknown;
 }
 
@@ -94,6 +95,11 @@ export class NixApiError extends Error {
   readonly validationErrors: Readonly<Record<string, readonly string[]>>;
   /** Schema issues, populated only for `response_validation`. */
   readonly issues: readonly ParseIssue[];
+  /**
+   * The response's `Retry-After`, in whole seconds, when it carried one as a number - a 429 from
+   * one of Core's rate limits always does. A caller that polls waits this long before asking again.
+   */
+  readonly retryAfterSeconds: number | undefined;
 
   constructor(options: NixApiErrorOptions) {
     super(options.message, options.cause === undefined ? undefined : { cause: options.cause });
@@ -107,11 +113,17 @@ export class NixApiError extends Error {
     this.traceId = options.traceId;
     this.validationErrors = options.validationErrors ?? NO_VALIDATION_ERRORS;
     this.issues = options.issues ?? NO_ISSUES;
+    this.retryAfterSeconds = options.retryAfterSeconds;
   }
 
   /** Core answered with a problem document; `code` is Core's stable code. */
-  static fromProblemDetails(status: number, problem: ProblemDetails): NixApiError {
+  static fromProblemDetails(
+    status: number,
+    problem: ProblemDetails,
+    retryAfterSeconds?: number,
+  ): NixApiError {
     return new NixApiError({
+      retryAfterSeconds,
       kind: NixErrorKind.Problem,
       code: problem.code,
       message: problem.title ?? problem.code,
@@ -126,8 +138,9 @@ export class NixApiError extends Error {
   }
 
   /** Non-2xx response without a usable problem document. */
-  static fromStatus(status: number, detail?: string): NixApiError {
+  static fromStatus(status: number, detail?: string, retryAfterSeconds?: number): NixApiError {
     return new NixApiError({
+      retryAfterSeconds,
       kind: NixErrorKind.Http,
       code: httpStatusCode(status),
       message: `Request failed with status ${String(status)}`,

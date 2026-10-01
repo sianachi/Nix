@@ -13,6 +13,13 @@ import {
 import type { ContainerData } from '../core/use-container';
 import { resolveLoadState } from '../core/view-chrome';
 import type { ViewRendererProps } from '../core/view-kinds';
+import { useOptionalApiClient } from '../../api/api-client-provider';
+import { useOptionalWorkspace } from '../../workspaces/workspace-context';
+import { rememberSubmission, usualValues, type UsualValue } from './form-memory';
+import { MemberNames } from '../suggest/member-name';
+import { valueText } from '../suggest/value-text';
+import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { UsualValueHint, UsualValuesSummary } from './usual-value-hint';
 
 /**
  * The form view: the container's schema as fields, and every submission a new child.
@@ -36,6 +43,11 @@ import type { ViewRendererProps } from '../core/view-kinds';
  * consequence that nothing tells anyone an item is incomplete. This form is the first surface
  * that partially closes that gap, as its own submit-time promise rather than a relay of a server
  * rule; the other create paths (the list's quick add, a board's column create) still owe nothing.
+ *
+ * **Usual values are offered, not filled.** After each successful submit the choice fields' values
+ * are remembered for this form in this browser (`form-memory.ts` says why that is the only
+ * honest record of "this person's" submissions), and an empty choice field then shows "Your usual:
+ * ..." with a button. The field stays empty until that button is pressed.
  */
 
 export function FormView(props: ViewRendererProps): ReactNode {
@@ -129,6 +141,44 @@ function EntryForm({
   const fieldsRef = useRef<HTMLDivElement>(null);
 
   const { offered, unavailable } = resolveFields(view, container.schema);
+
+  // The remembered habits, read once when the form mounts and again after each submission that
+  // added to them - not per keystroke, since they cannot change in between. Without a workspace
+  // (nothing to scope the memory to) there are none.
+  const workspace = useOptionalWorkspace();
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+  // The member list is read once for the whole form, and only when a field holds a person.
+  const canName =
+    useOptionalApiClient() !== null &&
+    workspace !== null &&
+    offered.some((definition) => definition.type === 'assignee');
+  const [usual, setUsual] = useState<ReadonlyMap<string, UsualValue>>(() =>
+    workspace === null ? new Map() : usualValues(workspace.workspaceId, view.id, offered),
+  );
+
+  // Each field's wrapper, so a usual value that is used can hand focus to the control it filled -
+  // the hint's button unmounts the moment it is pressed (WCAG 2.4.3).
+  const fieldBoxes = useRef(new Map<string, HTMLDivElement>());
+  function focusField(key: string | undefined): void {
+    if (key === undefined) {
+      return;
+    }
+    fieldBoxes.current
+      .get(key)
+      ?.querySelector<HTMLElement>('select, input, textarea, button')
+      ?.focus();
+  }
+
+  function pendingHabit(key: string): UsualValue | undefined {
+    return bag[key] === undefined && viewSuggestions === 'on' ? usual.get(key) : undefined;
+  }
+
+  // Three or more waiting values become one summary line rather than a hint under every field.
+  const pending = offered.flatMap((definition) => {
+    const habit = pendingHabit(definition.key);
+    return habit === undefined ? [] : [{ definition, habit }];
+  });
+  const summarise = pending.length >= 3;
 
   // A blocked submit whose sentence has not changed re-renders nothing, so a live region says
   // nothing the second time - focus is the feedback that works on every attempt, and it also
@@ -227,6 +277,10 @@ function EntryForm({
 
       // A clean slate for the next entry, with focus back at the top (via the effect above): the
       // whole point of the shape is the second submission.
+      if (workspace !== null) {
+        rememberSubmission(workspace.workspaceId, view.id, offered, sent);
+        setUsual(usualValues(workspace.workspaceId, view.id, offered));
+      }
       setTitle('');
       setBag({});
       setSubmissions((current) => current + 1);
@@ -275,18 +329,61 @@ function EntryForm({
           )}
         </Field>
 
-        {offered.map((definition) => (
-          <PropertyInput
-            key={definition.key}
-            item={{ title, properties: bag }}
-            property={definition}
-            density="panel"
-            error={fieldErrors[definition.key] ?? null}
-            onCommit={(value) => {
-              setValue(definition.key, value);
+        {summarise ? (
+          <UsualValuesSummary
+            fieldLabels={pending.map(({ definition }) => definition.label)}
+            onUseAll={() => {
+              for (const { definition, habit } of pending) {
+                setValue(definition.key, habit.stored);
+              }
+              // The summary goes as soon as it is used; focus moves to the first field it filled.
+              focusField(pending[0]?.definition.key);
             }}
           />
-        ))}
+        ) : null}
+
+        <MemberNames enabled={canName}>
+          {(memberName) =>
+            offered.map((definition) => {
+              const habit = summarise ? undefined : pendingHabit(definition.key);
+              return (
+                <div
+                  key={definition.key}
+                  ref={(node) => {
+                    if (node === null) {
+                      fieldBoxes.current.delete(definition.key);
+                    } else {
+                      fieldBoxes.current.set(definition.key, node);
+                    }
+                  }}
+                  className="flex flex-col gap-1"
+                >
+                  <PropertyInput
+                    item={{ title, properties: bag }}
+                    property={definition}
+                    density="panel"
+                    error={fieldErrors[definition.key] ?? null}
+                    onCommit={(value) => {
+                      setValue(definition.key, value);
+                    }}
+                  />
+                  {habit === undefined ? null : (
+                    <UsualValueHint
+                      fieldLabel={definition.label}
+                      valueText={valueText(definition, habit.key, memberName)}
+                      value={valueText(definition, habit.key, memberName)}
+                      onUse={() => {
+                        setValue(definition.key, habit.stored);
+                        // The hint unmounts with its button; focus goes to the field it just filled.
+                        focusField(definition.key);
+                      }}
+                    />
+                  )}
+                </div>
+              );
+            })
+          }
+        </MemberNames>
       </div>
 
       {offered.length === 0 ? (

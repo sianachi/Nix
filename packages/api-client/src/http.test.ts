@@ -230,6 +230,42 @@ describe('error mapping', () => {
     });
   });
 
+  it('carries a rate-limit refusal’s Retry-After seconds onto the typed error', async () => {
+    server.use(
+      http.post(testUrl('/search/mentions'), () =>
+        HttpResponse.json(
+          { title: 'Too many requests', status: 429, code: 'request.rate_limited' },
+          {
+            status: 429,
+            headers: { 'content-type': 'application/problem+json', 'retry-after': '37' },
+          },
+        ),
+      ),
+    );
+    const client = withErrorMapping(transport(), undefined);
+
+    const error = await captureFailure(
+      client.send({ method: 'POST', path: '/search/mentions', body: {} }),
+    );
+
+    expect(error.code).toBe('request.rate_limited');
+    expect(error.retryAfterSeconds).toBe(37);
+  });
+
+  it('leaves Retry-After unset when the header is absent or not a whole number of seconds', async () => {
+    server.use(
+      http.get(
+        testUrl('/items'),
+        () => new HttpResponse('busy', { status: 503, headers: { 'retry-after': 'soon' } }),
+      ),
+    );
+    const client = withErrorMapping(transport(), undefined);
+
+    const error = await captureFailure(client.send({ method: 'GET', path: '/items' }));
+
+    expect(error.retryAfterSeconds).toBeUndefined();
+  });
+
   it('falls back to a status code error when the failure is not a problem document', async () => {
     server.use(
       http.get(testUrl('/items'), () => new HttpResponse('<html>gateway</html>', { status: 502 })),

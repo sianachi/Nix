@@ -1,6 +1,8 @@
 import { z } from 'zod';
 
 import { browserStorage } from '../lib/browser-storage';
+import { clearFrecency } from '../lib/frecency';
+import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
 
 /**
  * A local copy of document bodies this browser has already opened, so reopening one paints its
@@ -161,6 +163,93 @@ async function transaction<T>(
 
 const always = (): boolean => true;
 
+/**
+ * What must be forgotten, said to anything in memory that was derived from body copies.
+ *
+ * The phrase library (`phrase-library.ts`) learns from bodies this store admits, and what it
+ * learned is document content in another shape. It has to follow every rule this store follows,
+ * and the only way to guarantee that is to hear about every forgetting from the place that does
+ * it - so each forgetting below announces itself, synchronously and before its IndexedDB work, so
+ * memory is cleared even when the disk refuses.
+ */
+export type BodyForgetting =
+  /** Sign-out, or a different person signing in: every body. */
+  | { readonly kind: 'everything' }
+  /** One body: refused by the collaboration service, or joined to a different document. */
+  | { readonly kind: 'scope'; readonly scope: string }
+  /** Every body of one item, which is now known to carry a lock. `prefix` is its scope prefix. */
+  | { readonly kind: 'item'; readonly prefix: string }
+  /** Every body outside the workspaces this person can still reach. */
+  | {
+      readonly kind: 'unreachable';
+      readonly subject: string;
+      readonly reachableWorkspaceIds: ReadonlySet<string>;
+    };
+
+const forgettingListeners = new Set<(forgetting: BodyForgetting) => void>();
+
+/** Hears every forgetting this store performs. Returns the unsubscribe. */
+export function onBodyForgetting(listener: (forgetting: BodyForgetting) => void): () => void {
+  forgettingListeners.add(listener);
+  return () => {
+    forgettingListeners.delete(listener);
+  };
+}
+
+function announceForgetting(forgetting: BodyForgetting): void {
+  for (const listener of forgettingListeners) {
+    try {
+      listener(forgetting);
+    } catch (cause) {
+      // One listener failing must not stop the others forgetting, or the store itself.
+      console.warn('A body-forgetting listener failed.', cause);
+    }
+  }
+}
+
+/**
+ * Whether a body under `scope` may be held right now: its person is the one signed in and its
+ * item is not sealed. The same rule every read and write here applies, for derived holders to ask.
+ */
+export function bodyCacheAdmits(scope: string): boolean {
+  return admits(scope);
+}
+
+/**
+ * The scopes of the most recently saved copies in one workspace, newest first, at most `limit`.
+ *
+ * Keys only: the index cursor never loads a body, so listing costs the same however large the
+ * bodies are. Reading one is still `readBodyCache`, with every check that applies.
+ */
+export async function listBodyCacheScopes(
+  subject: string,
+  workspaceId: string,
+  limit: number,
+): Promise<string[]> {
+  const prefix = `${JSON.stringify([subject, workspaceId]).slice(0, -1)},`;
+  return transaction<string[]>(
+    'readonly',
+    () => currentSubject() === subject,
+    [],
+    (store, done) => {
+      const found: string[] = [];
+      const cursor = store.index('savedAt').openKeyCursor(null, 'prev');
+      cursor.onsuccess = () => {
+        const current = cursor.result;
+        if (current === null || found.length >= limit) {
+          done(found);
+          return;
+        }
+        const scope = current.primaryKey;
+        if (typeof scope === 'string' && scope.startsWith(prefix) && admits(scope)) {
+          found.push(scope);
+        }
+        current.continue();
+      };
+    },
+  );
+}
+
 export async function readBodyCache(scope: string): Promise<BodyCacheRecord | null> {
   return transaction<BodyCacheRecord | null>(
     'readonly',
@@ -215,6 +304,7 @@ export async function writeBodyCache(record: BodyCacheRecord): Promise<void> {
 
 /** Forgetting is always allowed: refusing to delete is never the safe direction. */
 export async function discardBodyCache(scope: string): Promise<void> {
+  announceForgetting({ kind: 'scope', scope });
   await transaction<undefined>('readwrite', always, undefined, (store, done) => {
     store.delete(scope);
     done(undefined);
@@ -231,12 +321,18 @@ export async function openBodyCache(subject: string): Promise<void> {
   if (storage === undefined || currentSubject() === subject) return;
   // Closed while clearing, so neither person's editors read or write in between.
   storage.removeItem(SUBJECT_MARKER);
+  announceForgetting({ kind: 'everything' });
+  // The same person rule for the browser-local suggestion memory: pick history (which includes
+  // option labels and remembered form values) and dismissals belong to whoever wrote them.
+  clearFrecency();
+  clearSuggestionDismissals();
   if (typeof indexedDB !== 'undefined') await clearRecords();
   storage.setItem(SUBJECT_MARKER, subject);
 }
 
 /** Closes the store and removes every cached body. Called on sign-out, here or in another tab. */
 export async function clearBodyCache(): Promise<void> {
+  announceForgetting({ kind: 'everything' });
   try {
     browserStorage()?.removeItem(SUBJECT_MARKER);
   } catch {
@@ -264,6 +360,7 @@ export async function sealItemBodies(
 ): Promise<void> {
   const prefix = itemPrefix(subject, workspaceId, itemId);
   sealedItems.add(prefix);
+  announceForgetting({ kind: 'item', prefix });
   await transaction<undefined>('readwrite', always, undefined, (store, done) => {
     store.delete(IDBKeyRange.bound(prefix, `${prefix}\uffff`));
     done(undefined);
@@ -279,6 +376,7 @@ export async function pruneBodyCache(
   reachableWorkspaceIds: readonly string[],
 ): Promise<void> {
   const reachable = new Set(reachableWorkspaceIds);
+  announceForgetting({ kind: 'unreachable', subject, reachableWorkspaceIds: reachable });
   const oldest = Date.now() - MAX_AGE_MS;
   await transaction<undefined>('readwrite', always, undefined, (store, done) => {
     const cursor = store.openCursor();

@@ -1,4 +1,6 @@
 import { clearBodyCache, openBodyCache } from '../editor/body-cache';
+import { clearFrecency } from '../lib/frecency';
+import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
 import { clearDrafts } from '../editor/draft-journal';
 import { clearInterruptedImport } from '../import/import-interrupted-notice';
 import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -271,6 +273,10 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       accessTokenRef.current = null;
       refreshRef.current = null;
       signedOut();
+      // Shared localStorage, already cleared by the signing-out tab; clearing again also drops
+      // this tab's in-memory frecency cache.
+      clearFrecency();
+      clearSuggestionDismissals();
       // The signing-out tab already cleared the shared store; clearing here as well stops this
       // tab's editors from writing a copy back after it did.
       if (typeof indexedDB !== 'undefined') void clearBodyCache().catch(() => undefined);
@@ -302,6 +308,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
 
       signOut: async () => {
         clearInterruptedImport();
+        clearFrecency();
+        clearSuggestionDismissals();
         await unsubscribePushBeforeSignOut(accessTokenRef.current?.value ?? null);
         const draftsCleared =
           typeof indexedDB === 'undefined' ||

@@ -1,6 +1,16 @@
 import { Icon, Input, Text } from '@nix/ui';
 import { Plus } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+
+import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import type { CreateSuggestSource } from '../suggest/suggest-source';
+import type { PropertyValue } from './container-model';
+
+/**
+ * Loaded on first use, not with the view: the classifier and the similarity search are only worth
+ * their bytes once somebody opens a create field, and most visits to a view never do.
+ */
+const CreateSuggestions = lazy(() => import('../suggest/create-suggestions'));
 
 /**
  * Making a child from inside a view.
@@ -18,6 +28,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  *
  * **Closed until asked for.** A text field in every column and every day would be forty input
  * fields on a month, all reachable by tab, none of them wanted. The button opens one.
+ *
+ * **Suggestions, when the view supplies something to learn from.** Given `suggest`, the open field
+ * offers likely property values for the title being typed and says when a similar item already
+ * exists (`suggest/create-suggestions.tsx`), unless "Suggestions in views" is switched off. Those
+ * lines add buttons and one `sr-only` polite count, never a landmark, region or status, so the
+ * inventory promise above still holds. Until the suggestion code has loaded nothing is drawn in
+ * their place: they are an aid, and the field works without them. An accepted value
+ * rides along with the create's own properties; nothing is written for a suggestion nobody took.
  */
 
 export interface CreateItemControlProps {
@@ -43,15 +61,26 @@ export interface CreateItemControlProps {
 
   /** Renders as an icon-only button, for somewhere too tight for a word. */
   readonly compact?: boolean;
+
+  /**
+   * What the view knows that lets the field suggest property values and spot a duplicate. Absent,
+   * the control is exactly the plain button and field it always was.
+   */
+  readonly suggest?: CreateSuggestSource;
 }
 
 export function CreateItemControl(props: CreateItemControlProps): ReactNode {
-  const { label, properties, onCreate, className, compact = false } = props;
+  const { label, properties, onCreate, className, compact = false, suggest } = props;
 
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [refusal, setRefusal] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+
+  // Values the person took from a suggestion for the item about to be made. Local to the open field
+  // and gone with it: a suggestion accepted for one title is not a decision about the next one.
+  const [accepted, setAccepted] = useState<Readonly<Record<string, PropertyValue>>>({});
   const buttonRef = useRef<HTMLButtonElement>(null);
   const fieldRef = useRef<HTMLInputElement>(null);
   const returnFocus = useRef(false);
@@ -80,6 +109,7 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
     setOpen(false);
     setTitle('');
     setRefusal(null);
+    setAccepted({});
   }
 
   async function submit(event: { preventDefault: () => void }): Promise<void> {
@@ -93,7 +123,13 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
     setSaving(true);
     setRefusal(null);
 
-    const reason = await onCreate(named, properties);
+    // The placement's own values win over an accepted suggestion for the same key, which cannot
+    // happen in practice - suggestions skip every key the placement sets - but is stated so the
+    // column a card was created in can never be overruled by a guess.
+    const reason = await onCreate(
+      named,
+      Object.keys(accepted).length === 0 ? properties : { ...accepted, ...properties },
+    );
 
     setSaving(false);
 
@@ -106,6 +142,7 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
 
     // Emptied but left open, because the reason to add one thing is usually to add another.
     setTitle('');
+    setAccepted({});
   }
 
   if (!open) {
@@ -168,6 +205,28 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
         }}
         className="text-sm"
       />
+
+      {suggest === undefined || viewSuggestions === 'off' ? null : (
+        <Suspense fallback={null}>
+          <CreateSuggestions
+            title={title}
+            source={suggest}
+            fixed={properties}
+            accepted={accepted}
+            onAccept={(key, value) => {
+              setAccepted((current) => ({ ...current, [key]: value }));
+            }}
+            onUndo={(key) => {
+              setAccepted((current) =>
+                Object.fromEntries(Object.entries(current).filter(([entry]) => entry !== key)),
+              );
+            }}
+            returnFocus={() => {
+              fieldRef.current?.focus();
+            }}
+          />
+        </Suspense>
+      )}
 
       {refusal === null ? null : (
         <Text variant="caption" as="p" role="alert" className="px-1">

@@ -13,6 +13,11 @@ import {
 
 import { type Item, type View } from '../core/container-model';
 import { CreateItemControl } from '../core/create-item-control';
+import { FILL_SERIES_SHORTCUT } from '../../keyboard/shortcut-registry';
+import { formatShortcut } from '../../lib/shortcuts';
+import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { FillSeriesOffer } from './fill-series-offer';
+import { suggestSourceOf } from '../suggest/suggest-source';
 import type { ContainerData, PlanOutcome, PlanWrite } from '../core/use-container';
 import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState, type SortDirection } from '../core/view-state';
@@ -38,6 +43,8 @@ import {
   pastePlan,
   rangeTextMap,
   resolveColumns,
+  seriesFillOffer,
+  seriesFillPlan,
   type SpreadsheetColumn,
   type WritePlan,
 } from './grid-model';
@@ -139,7 +146,12 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
         onOpen={onOpen}
       />
 
-      <CreateItemControl label="Add an item" onCreate={container.create} className="mt-2" />
+      <CreateItemControl
+        label="Add an item"
+        onCreate={container.create}
+        suggest={suggestSourceOf(container, onOpen)}
+        className="mt-2"
+      />
     </div>
   );
 }
@@ -266,6 +278,44 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
 
   const range = selectedRange(selection);
   const rangeIsCell = range.startRow === range.endRow && range.startCol === range.endCol;
+
+  /**
+   * The unprompted offer to continue a pattern: detection only - the seed, its step and a short
+   * preview - and only when every target cell is empty, so the button can never overwrite. Cheap
+   * enough to derive on each render (a walk down the selected columns that stops at the first
+   * filled target), so it carries no memo and no dependency on the item list's identity; the plan
+   * itself is built only when somebody asks for it, in `fillSeries`.
+   */
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+  const rangeKey = `${String(range.startRow)}:${String(range.startCol)}:${String(range.endRow)}:${String(range.endCol)}`;
+
+  // Which selection's offer was dismissed. Keyed by the range so selecting somewhere else offers
+  // again; a dismissal is about this guess, not about the feature.
+  const [dismissedFill, setDismissedFill] = useState<string | null>(null);
+  const fillOffer =
+    viewSuggestions === 'on' &&
+    selection.mode === 'nav' &&
+    range.endRow > range.startRow &&
+    dismissedFill !== rangeKey
+      ? seriesFillOffer(range, items, columns)
+      : null;
+  const patternedColumn =
+    fillOffer?.patterned === true
+      ? (fillOffer.columns.find((fill) => fill.kind !== 'repeat') ?? null)
+      : null;
+
+  /**
+   * Builds and applies the series fill for the current selection: the full plan, every value
+   * coerced, computed here rather than on render because only the click and the shortcut need it.
+   */
+  function fillSeries(): boolean {
+    const fill = range.endRow > range.startRow ? seriesFillPlan(range, items, columns) : null;
+    if (fill === null || fill.rows === 0) {
+      return false;
+    }
+    applyPlan(fill.plan, 'filled');
+    return true;
+  }
 
   const gridId = useId();
   const hintId = `${gridId}-hint`;
@@ -474,6 +524,20 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     }
     const meta = event.metaKey || event.ctrlKey;
 
+    if (meta && event.shiftKey && (event.key === 'd' || event.key === 'D')) {
+      // Fill by pattern: each selected column continued from the filled cells at its top - the
+      // series `seriesFillPlan` finds, or the last value repeated when there is none. Shift is the
+      // only difference from the plain fill below, which copies the first row verbatim.
+      event.preventDefault();
+      setTrapsTab(true);
+      if (!fillSeries()) {
+        setNotice(
+          'Select a column with filled cells at the top and rows below them to continue a series.',
+        );
+      }
+      return;
+    }
+
     if (meta && (event.key === 'd' || event.key === 'D')) {
       // Fill down: the range's first row repeated over the rows below it - the fill the goal
       // names, on the incumbents' own key. On a single cell there is nothing below the pattern,
@@ -558,9 +622,10 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
       <p id={hintId} className="sr-only">
         Arrow keys move the active cell, and Shift extends the selection. Typing replaces a cell;
         Enter edits it, or opens the item on a title. Control or Command with C copies and V pastes
-        the selection as tab-separated text, D fills down from the selection’s first row. Delete
-        clears the selection. Tab and Shift+Tab move between cells rather than leaving the grid;
-        press Escape, then Tab, to move focus out of it.
+        the selection as tab-separated text, D fills down from the selection’s first row, and Shift
+        with D continues a series such as Week 1, Week 2 down the selection. Delete clears the
+        selection. Tab and Shift+Tab move between cells rather than leaving the grid; press Escape,
+        then Tab, to move focus out of it.
       </p>
 
       {/* The same model, findable by sight: a tap or a click alone reaches selection, editing
@@ -576,7 +641,8 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           <Text as="p" variant="note" tone="muted">
             Arrows move, Shift extends. Type to replace a cell, Enter to edit it (on a title, Enter
             opens the item). Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes tab-separated text, Ctrl/Cmd+D
-            fills down, Delete clears. Escape, then Tab, leaves the grid.
+            fills down, Ctrl/Cmd+Shift+D continues a series, Delete clears. Escape, then Tab, leaves
+            the grid.
           </Text>
         </details>
 
@@ -838,6 +904,26 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           ) : null}
         </div>
       </div>
+
+      {fillOffer === null || patternedColumn === null ? null : (
+        <FillSeriesOffer
+          columnLabel={patternedColumn.column.label}
+          describe={patternedColumn.describe}
+          preview={patternedColumn.preview}
+          rows={fillOffer.rows}
+          otherColumns={fillOffer.columns.length - 1}
+          shortcut={formatShortcut(FILL_SERIES_SHORTCUT)}
+          onFill={() => {
+            fillSeries();
+            setDismissedFill(rangeKey);
+            scrollerRef.current?.focus();
+          }}
+          onDismiss={() => {
+            setDismissedFill(rangeKey);
+            scrollerRef.current?.focus();
+          }}
+        />
+      )}
 
       {/* Always mounted so the announcement fires the moment a sentence appears; the visible
           chrome only draws when there is something to read, so an empty region is not a stray

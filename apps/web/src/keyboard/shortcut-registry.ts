@@ -10,7 +10,20 @@ import type { Shortcut } from '../lib/shortcuts';
 export type ShellShortcutId =
   'search' | 'new-note' | 'toggle-sidebar' | 'back' | 'forward' | 'shortcuts';
 
-type Group = 'General' | 'Panes and tabs' | 'Workspace tree';
+type Group = 'General' | 'Editor' | 'Views' | 'Panes and tabs' | 'Workspace tree';
+
+/**
+ * Links the underlined item name at the caret (`editor/unlinked-mentions.ts`). Exported so the
+ * bubble and the settings copy name the chord the handler listens for, the way the platform
+ * writes it.
+ */
+export const LINK_MENTION_SHORTCUT: Shortcut = { key: 'Enter', alt: true };
+
+/**
+ * Fills a series down a spreadsheet column, overwriting whatever the target cells hold - the
+ * explicit route, where the unprompted offer only appears over empty cells.
+ */
+export const FILL_SERIES_SHORTCUT: Shortcut = { key: 'd', mod: true, shift: true };
 
 interface Entry {
   readonly label: string;
@@ -93,6 +106,18 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     label: 'Actions for the focused row, tab or card',
     group: 'General',
     keys: [{ key: 'F10', shift: true }, { key: 'ContextMenu' }],
+    handledBy: 'local',
+  },
+  {
+    label: 'Link the underlined item name at the caret',
+    group: 'Editor',
+    keys: [LINK_MENTION_SHORTCUT],
+    handledBy: 'local',
+  },
+  {
+    label: 'Fill the selected spreadsheet cells down as a series',
+    group: 'Views',
+    keys: [FILL_SERIES_SHORTCUT],
     handledBy: 'local',
   },
   { label: 'Next pane', group: 'Panes and tabs', keys: [{ key: 'F6' }], handledBy: 'local' },

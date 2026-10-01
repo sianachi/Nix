@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   clearBodyCache,
+  discardBodyCache,
   documentScope,
+  listBodyCacheScopes,
+  onBodyForgetting,
+  type BodyForgetting,
   MAX_AGE_MS,
   MAX_RECORDS,
   openBodyCache,
@@ -13,6 +17,8 @@ import {
   writeBodyCache,
   type BodyCacheRecord,
 } from '../../editor/body-cache';
+import { frecencyScores, recordPick } from '../../lib/frecency';
+import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
 
 const ADA = 'subject-ada';
 const BO = 'subject-bo';
@@ -116,6 +122,24 @@ describe('the document body store', () => {
     expect(await readBodyCache(scope(ADA, 'a'))).toBeNull();
   });
 
+  it('forgets pick history and dismissed suggestions when a different person signs in', async () => {
+    recordPick('select:w1:status', 'Done');
+    rememberDismissal('mention:w1:item-1');
+
+    await openBodyCache(BO);
+
+    expect(frecencyScores('select:w1:status').size).toBe(0);
+    expect(readDismissals().size).toBe(0);
+  });
+
+  it('keeps pick history when the same person opens the store again', async () => {
+    recordPick('slash', 'heading');
+
+    await openBodyCache(ADA);
+
+    expect(frecencyScores('slash').get('heading')).toBeGreaterThan(0);
+  });
+
   it('prunes copies in workspaces the person can no longer reach', async () => {
     await writeBodyCache(record(scope(ADA, 'kept', 'workspace-1')));
     await writeBodyCache(record(scope(ADA, 'gone', 'workspace-2')));
@@ -159,5 +183,37 @@ describe('the document body store', () => {
     );
     expect(documentScope(undefined, 'workspace', 'item', 'note')).toBeUndefined();
     expect(documentScope('person', undefined, 'item', 'note')).toBeUndefined();
+  });
+});
+
+describe('what derived holders are told', () => {
+  it('lists one workspace’s copies newest first, without reading their bodies', async () => {
+    const now = Date.now();
+    await writeBodyCache(record(scope(ADA, 'older'), now - 2_000));
+    await writeBodyCache(record(scope(ADA, 'newer'), now - 1_000));
+    await writeBodyCache(record(scope(ADA, 'elsewhere', 'workspace-2'), now));
+
+    expect(await listBodyCacheScopes(ADA, 'workspace-1', 10)).toEqual([
+      scope(ADA, 'newer'),
+      scope(ADA, 'older'),
+    ]);
+    expect(await listBodyCacheScopes(ADA, 'workspace-1', 1)).toEqual([scope(ADA, 'newer')]);
+    expect(await listBodyCacheScopes(BO, 'workspace-1', 10)).toEqual([]);
+  });
+
+  it('announces every forgetting before it touches the disk', async () => {
+    const heard: BodyForgetting['kind'][] = [];
+    const stop = onBodyForgetting((forgetting) => {
+      heard.push(forgetting.kind);
+    });
+
+    await discardBodyCache(scope(ADA, 'a'));
+    await sealItemBodies(ADA, 'workspace-1', 'b');
+    await pruneBodyCache(ADA, ['workspace-1']);
+    await clearBodyCache();
+    stop();
+    await clearBodyCache();
+
+    expect(heard).toEqual(['scope', 'item', 'unreachable', 'everything']);
   });
 });

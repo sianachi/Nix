@@ -3,7 +3,12 @@ import type { DraftState } from './draft-journal';
 import { MobileNoteToolbar } from './mobile-note-toolbar';
 import { useDrawerNavigation } from '../layout/viewport';
 import { nixEditingExtensions, readWidth } from '@nix/editor-schema';
-import { files as fileResources, items as coreItems, type NixClient } from '@nix/api-client';
+import {
+  files as fileResources,
+  items as coreItems,
+  suggestions,
+  type NixClient,
+} from '@nix/api-client';
 import { Icon, Text } from '@nix/ui';
 import { mergeAttributes, type Editor } from '@tiptap/core';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
@@ -42,6 +47,12 @@ import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
 import { EmacsKeymap } from './emacs-keymap';
+import { GhostText, setGhostTextContext } from './ghost-text';
+import { useGhostTextPreference } from './ghost-text-preference';
+import { warmPhraseLibrary } from './phrase-library';
+import { MentionBubble } from './mention-bubble';
+import { useMentionPreference } from './mention-preference';
+import { setMentionContext, UnlinkedMentions } from './unlinked-mentions';
 import { MoveBlock } from './move-block';
 import { useKeyboardModeStore } from './keyboard-mode-store';
 import { documentScope } from './body-cache';
@@ -92,6 +103,12 @@ export interface NoteEditorProps {
    * carries no lock, and a locked body is never kept on disk.
    */
   readonly cacheBody?: boolean;
+  /**
+   * The note's parent as the page already knows it (`null` at a workspace root, `undefined` when
+   * the page does not know). A ranking hint for the reference picker only, so a stale value after a
+   * move costs nothing but a slightly different order.
+   */
+  readonly parentId?: string | null | undefined;
 }
 
 /**
@@ -396,6 +413,7 @@ export function NoteEditor({
   onSync,
   mobileActions,
   cacheBody = false,
+  parentId,
 }: NoteEditorProps): ReactNode {
   const narrow = useDrawerNavigation();
   const { getAccessToken } = useAuth();
@@ -425,6 +443,8 @@ export function NoteEditor({
   const [addressRequest, setAddressRequest] = useState<EditorAddressKind | null>(null);
   const keyboardMode = useKeyboardModeStore((state) => state.mode);
   const vimDescriptionId = useId();
+  const ghostSetting = useGhostTextPreference((state) => state.setting);
+  const mentionSetting = useMentionPreference((state) => state.setting);
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -597,6 +617,13 @@ export function NoteEditor({
         // never rebuilds this editor or its Yjs binding.
         EmacsKeymap,
         VimMotions,
+        // Phrase suggestions as muted text at the caret; a decoration, never document content.
+        // Told what it needs (the preference, the scope) by an effect below, through its storage,
+        // so changing the preference never rebuilds this editor or its Yjs binding.
+        GhostText,
+        // Item titles written but not linked, underlined; decorations again, told what they need
+        // by an effect below.
+        UnlinkedMentions,
         // Mod-Shift-ArrowUp/Down: the keyboard's way to reorder a block, beside the pointer-only
         // drag handle below.
         MoveBlock,
@@ -662,6 +689,50 @@ export function NoteEditor({
   useEffect(() => {
     if (stale) editor.setEditable(false);
   }, [editor, stale]);
+
+  // The mention underlines' view of this note. The lookup goes through the client like every
+  // other request; read-only and offline are checked where it is called.
+  useEffect(() => {
+    setMentionContext(editor, {
+      enabled: mentionSetting === 'on' && !stale,
+      workspaceId,
+      currentItemId: itemId,
+      find:
+        workspaceId === undefined
+          ? undefined
+          : (lookup, signal) =>
+              client.execute(
+                suggestions.findMentions({
+                  text: lookup.text,
+                  workspaceId,
+                  excludeIds: lookup.excludeIds,
+                }),
+                { signal },
+              ),
+    });
+  }, [client, editor, itemId, mentionSetting, stale, workspaceId]);
+
+  // The phrase suggestions' view of this note. `learnable` is the body cache's own permission:
+  // only a body the page may keep a local copy of may be learned into the session library.
+  useEffect(() => {
+    const scope = documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'note');
+    setGhostTextContext(editor, {
+      enabled: ghostSetting === 'on' && !stale,
+      subject: profile?.subject,
+      workspaceId,
+      scope,
+      learnable: cacheBody && scope !== undefined,
+    });
+    if (ghostSetting !== 'on' || profile?.subject === undefined || workspaceId === undefined) {
+      return;
+    }
+    // On idle, learn the notes this browser already keeps copies of in this workspace.
+    const controller = new AbortController();
+    warmPhraseLibrary(profile.subject, workspaceId, scope, controller.signal);
+    return () => {
+      controller.abort();
+    };
+  }, [cacheBody, documentPath, editor, ghostSetting, itemId, profile?.subject, stale, workspaceId]);
 
   useEffect(() => {
     setVimEnabled(editor.view, keyboardMode === 'vim');
@@ -941,7 +1012,12 @@ export function NoteEditor({
                   setAddressRequest('image');
                 }}
               />
-              <ReferenceMenu editor={editor} />
+              <ReferenceMenu
+                editor={editor}
+                workspaceId={workspaceId}
+                itemId={itemId}
+                parentId={parentId}
+              />
               {/*
             The block handle: hover a block and a grip appears in the margin; dragging it moves
             the block. The component registers the drag-handle plugin itself and portals this
@@ -1006,6 +1082,7 @@ export function NoteEditor({
               </div>
               {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
               <BubbleMenu editor={editor} />
+              <MentionBubble editor={editor} />
               <TableMenu editor={editor} />
             </PaneViewport>
 

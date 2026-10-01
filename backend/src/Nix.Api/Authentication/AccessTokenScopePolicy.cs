@@ -118,6 +118,17 @@ public static class AccessTokenScopePolicy
             return Requirement.Read;
         }
 
+        // A read sent as a POST only because its input - a passage of text - is too long for a
+        // URL. Classified as a read, by exact path, because the default here would be wrong in the
+        // dangerous direction: scopes are independent, so a write-only ingest token would be
+        // admitted to a route that returns titles, and a read-only agent refused one that changes
+        // nothing. Exact match rather than a prefix, so nothing later nested under it inherits it.
+        if (HttpMethods.IsPost(method)
+            && string.Equals(value, "/api/v1/search/mentions", StringComparison.OrdinalIgnoreCase))
+        {
+            return Requirement.Read;
+        }
+
         // Workspace membership administration changes who can reach an entire item tree. The
         // database role remains the authority; an admin-scoped token is an additional ceiling.
         if (value.Contains("/members", StringComparison.OrdinalIgnoreCase)

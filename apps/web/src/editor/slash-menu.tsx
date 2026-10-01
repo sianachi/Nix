@@ -24,10 +24,20 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 
+import { frecencyScores, recordPick } from '../lib/frecency';
+import { useChoiceOrderPreference } from '../settings/suggestion-preferences';
 import {
   MAX_QUERY as REFERENCE_MAX_QUERY,
   findTrigger as findReferenceTrigger,
 } from './reference-menu';
+
+/**
+ * The frecency namespace for slash commands. One for every workspace: a command is not workspace
+ * data, and somebody who reaches for tables in one workspace reaches for them everywhere.
+ */
+export const SLASH_FRECENCY_NAMESPACE = 'slash';
+
+const NO_SCORES: ReadonlyMap<string, number> = new Map();
 
 /**
  * Everything `/` can insert.
@@ -294,6 +304,48 @@ export function filterSlashCommands(query: string): readonly SlashCommand[] {
 }
 
 /**
+ * The filtered commands in the order to offer them, given what was typed and how often each
+ * command has been picked.
+ *
+ * **What it may change, and what it may not.** Two tiers, in this order:
+ *
+ * 1. An exact match - the query *is* a command's label or one of its keywords. Typing the whole
+ *    name of a command has to put that command under Enter (the "columns" bug on `table` is the
+ *    reason that is a contract and not a nicety), so no history ever lifts a partial match above
+ *    an exact one.
+ * 2. Every other match.
+ *
+ * Within a tier, the higher frecency score goes first, and equal scores - including the common
+ * case of no history at all - keep the catalogue's order. So with no history this is
+ * `filterSlashCommands` with exact matches hoisted, and history only reorders commands the query
+ * already found equally well.
+ *
+ * An empty query is left in catalogue order: the full menu is browsed rather than searched, and a
+ * list that reshuffles itself under the pointer is harder to browse than a fixed one.
+ */
+export function rankSlashCommands(
+  commands: readonly SlashCommand[],
+  query: string,
+  scores: ReadonlyMap<string, number>,
+): readonly SlashCommand[] {
+  const needle = query.trim().toLowerCase();
+  if (needle.length === 0) {
+    return commands;
+  }
+  const exact = (command: SlashCommand): number =>
+    command.label.toLowerCase() === needle || command.keywords.includes(needle) ? 0 : 1;
+  return commands
+    .map((command, index) => ({
+      command,
+      index,
+      tier: exact(command),
+      score: scores.get(command.id) ?? 0,
+    }))
+    .sort((a, b) => a.tier - b.tier || b.score - a.score || a.index - b.index)
+    .map((entry) => entry.command);
+}
+
+/**
  * How far into `/` somebody can type before it stops being a command and goes back to being
  * prose. Longer than any label or keyword, with room for a typo; past it, this is a sentence
  * that happens to start with a slash.
@@ -450,13 +502,24 @@ export function SlashMenu({
   const open = trigger !== null && trigger.from !== dismissed;
   const query = trigger?.query ?? '';
 
-  const commands = filterSlashCommands(query).filter((command) => {
+  const orderByPicks = useChoiceOrderPreference((state) => state.setting === 'on');
+  const available = filterSlashCommands(query).filter((command) => {
     if (['attachment', 'embed-note', 'subpage'].includes(command.id))
       return onInsertItem !== undefined;
     if (command.id === 'page-break')
       return onPageBreak !== undefined && editor.state.selection.$from.depth <= 1;
     return true;
   });
+  // Read per render while the menu is open, which is per keystroke into its query: a parse of at
+  // most `MAX_ENTRIES` short records, and the scores only change when a command runs, which closes
+  // the menu - so the order cannot shift under the highlight.
+  const commands = open
+    ? rankSlashCommands(
+        available,
+        query,
+        orderByPicks ? frecencyScores(SLASH_FRECENCY_NAMESPACE) : NO_SCORES,
+      )
+    : available;
   const options = commands.map((command) => ({
     id: command.id,
     label: command.label,
@@ -475,6 +538,9 @@ export function SlashMenu({
     // touched, which is what the field-based version got wrong: its arithmetic deleted characters
     // the document actually owned.
     editor.chain().focus().deleteRange({ from: trigger.from, to: trigger.to }).run();
+    if (orderByPicks) {
+      recordPick(SLASH_FRECENCY_NAMESPACE, command.id);
+    }
     command.run(editor, {
       insertImage: onInsertImage,
       insertItem: onInsertItem,

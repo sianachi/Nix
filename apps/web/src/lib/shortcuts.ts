@@ -73,6 +73,8 @@ const APPLE_KEY_NAMES: Readonly<Record<string, string>> = {
   // The keys as a Mac keyboard labels them: its Backspace is marked "delete".
   backspace: '⌫',
   delete: '⌦',
+  // A Mac keyboard labels it "return"; "Enter" there is the keypad key.
+  enter: 'Return',
   arrowup: '↑',
   arrowdown: '↓',
   arrowleft: '←',

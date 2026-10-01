@@ -6,6 +6,8 @@ import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider, useAuth } from '../../auth/auth-provider';
+import { frecencyScores, recordPick } from '../../lib/frecency';
+import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
 import { useSessionStore } from '../../auth/session-store';
 import * as registerServiceWorker from '../../pwa/register-service-worker';
 
@@ -441,4 +443,64 @@ describe('Core-mediated browser sessions', () => {
       'Your session expired. Sign in again to continue.',
     );
   });
+
+  it('forgets pick history and dismissed suggestions when another tab signs out', async () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(authenticated()));
+    renderProvider();
+    await screen.findByText('authenticated');
+    recordPick('select:w1:status', 'Done');
+    rememberDismissal('mention:w1:item-1');
+
+    window.dispatchEvent(new Event('nix:signed-out-elsewhere'));
+
+    expect(await screen.findByText('anonymous')).toBeInTheDocument();
+    expect(frecencyScores('select:w1:status').size).toBe(0);
+    expect(readDismissals().size).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  it('forgets pick history and dismissed suggestions on sign-out', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('localStorage', memoryStorage());
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(authenticated())
+        .mockResolvedValueOnce(new Response(null, { status: 204 })),
+    );
+    renderProvider();
+    await screen.findByText('authenticated');
+    recordPick('slash', 'heading');
+    rememberDismissal('mention:w1:item-1');
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    await screen.findByText('anonymous');
+    expect(frecencyScores('slash').size).toBe(0);
+    expect(readDismissals().size).toBe(0);
+    vi.unstubAllGlobals();
+  });
 });
+
+/** An in-memory `Storage`: the test environment's global is not a usable one. */
+function memoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => {
+      values.clear();
+    },
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    setItem: (key, value) => {
+      values.set(key, value);
+    },
+  };
+}

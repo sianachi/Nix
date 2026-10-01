@@ -623,6 +623,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           <HourGrid
             days={mode === 'week' ? weekOf(anchor) : [anchor]}
             items={items}
+            siblings={container.truncated ? undefined : container.children}
             dateProperty={dateProperty}
             endDateProperty={endDateProperty}
             zone={zone}
@@ -679,6 +680,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           dateProperty={dateProperty}
           endDateProperty={endDateProperty}
           placesByTime={reschedulingPlacesByTime}
+          siblings={container.truncated ? undefined : container.children}
           zone={zone}
           onCancel={() => {
             setRescheduling(null);

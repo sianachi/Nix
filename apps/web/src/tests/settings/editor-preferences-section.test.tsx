@@ -2,9 +2,16 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { readGhostTextSetting, useGhostTextPreference } from '../../editor/ghost-text-preference';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { usePageGuidePreference } from '../../editor/page-guide-preference';
 import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
+import {
+  readChoiceOrderSetting,
+  readViewSuggestionSetting,
+  useChoiceOrderPreference,
+  useViewSuggestionPreference,
+} from '../../settings/suggestion-preferences';
 
 describe('editor preferences', () => {
   beforeEach(() => {
@@ -103,5 +110,87 @@ describe('page guides', () => {
 
     expect(usePageGuidePreference.getState().visibility).toBe('hidden');
     expect(toggle).not.toBeChecked();
+  });
+});
+
+describe('phrase suggestions', () => {
+  it('are off until asked for, and say how to accept and where they learn', async () => {
+    const user = userEvent.setup();
+    useGhostTextPreference.setState({ setting: 'off', saved: true });
+    render(<EditorPreferencesSection />);
+
+    const toggle = screen.getByRole('checkbox', { name: 'Suggest phrase completions' });
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText(/Press Right Arrow to accept it or Escape/i)).toBeVisible();
+    expect(screen.getByText(/in memory only/i)).toBeVisible();
+
+    await user.click(toggle);
+
+    expect(useGhostTextPreference.getState().setting).toBe('on');
+    expect(toggle).toBeChecked();
+  });
+
+  it('read as off when nothing, or anything unexpected, is stored', () => {
+    expect(readGhostTextSetting(undefined)).toBe('off');
+    const storage = { getItem: () => 'maybe' } as unknown as Storage;
+    expect(readGhostTextSetting(storage)).toBe('off');
+  });
+});
+
+describe('suggestion switches', () => {
+  it('turn view suggestions off and describe what they cover', async () => {
+    const user = userEvent.setup();
+    useViewSuggestionPreference.setState({ setting: 'on', saved: true });
+    render(<EditorPreferencesSection />);
+
+    const toggle = screen.getByRole('checkbox', { name: 'Suggestions in views' });
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/fill-series offer/i);
+
+    await user.click(toggle);
+
+    expect(useViewSuggestionPreference.getState().setting).toBe('off');
+  });
+
+  it('turn ordering by picks off and describe what it covers', async () => {
+    const user = userEvent.setup();
+    useChoiceOrderPreference.setState({ setting: 'on', saved: true });
+    render(<EditorPreferencesSection />);
+
+    const toggle = screen.getByRole('checkbox', { name: 'Order choices by what I pick most' });
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(/Recent group/i);
+
+    await user.click(toggle);
+
+    expect(useChoiceOrderPreference.getState().setting).toBe('off');
+  });
+
+  it('describe every switch to assistive technology', () => {
+    render(<EditorPreferencesSection />);
+
+    for (const name of [
+      'Hide mobile tools while writing',
+      'Show page guides',
+      'Suggest phrase completions',
+      'Underline item names that are not linked',
+    ]) {
+      expect(screen.getByRole('checkbox', { name })).toHaveAccessibleDescription(/\w/);
+    }
+  });
+
+  it('say that phrase completions need a keyboard', () => {
+    render(<EditorPreferencesSection />);
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Suggest phrase completions' }),
+    ).toHaveAccessibleDescription(/Needs a keyboard\./);
+  });
+
+  it('read as on when nothing, or anything unexpected, is stored', () => {
+    expect(readViewSuggestionSetting(undefined)).toBe('on');
+    expect(readChoiceOrderSetting(undefined)).toBe('on');
+    const storage = { getItem: () => 'maybe' } as unknown as Storage;
+    expect(readViewSuggestionSetting(storage)).toBe('on');
   });
 });

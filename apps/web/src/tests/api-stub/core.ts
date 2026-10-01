@@ -703,18 +703,22 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     return `a9000000-0000-4000-8000-${String(durableTemplateImportSequence).padStart(12, '0')}`;
   }
 
-  /** The four fields every item listing projects, as Core returns them. */
+  /** The six fields every item listing projects, as Core returns them. */
   function digest(item: StubItem): {
     id: string;
     workspaceId: string;
     type: string;
     title: string | null;
+    parentId: string | null;
+    updatedAt: string;
   } {
     return {
       id: item.id,
       workspaceId: item.workspaceId,
       type: item.type,
       title: item.title.length === 0 ? null : item.title,
+      parentId: item.parentId,
+      updatedAt: item.updatedAt,
     };
   }
 

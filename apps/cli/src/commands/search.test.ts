@@ -11,7 +11,14 @@ import { runSearch } from './search.ts';
 const API = 'http://nix.test';
 
 function hit(id: string, title: string): Record<string, unknown> {
-  return { id, workspaceId: '22222222-2222-4222-8222-222222222222', type: 'note', title };
+  return {
+    id,
+    workspaceId: '22222222-2222-4222-8222-222222222222',
+    type: 'note',
+    title,
+    parentId: null,
+    updatedAt: '2026-09-01T12:00:00Z',
+  };
 }
 
 const server = setupServer(

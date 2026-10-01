@@ -15,4 +15,7 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(SearchResponse))]
 [JsonSerializable(typeof(ReferencesResponse))]
 [JsonSerializable(typeof(BacklinksResponse))]
+[JsonSerializable(typeof(RelatedItemsResponse))]
+[JsonSerializable(typeof(MentionsRequest))]
+[JsonSerializable(typeof(MentionsResponse))]
 internal sealed partial class SearchJsonContext : JsonSerializerContext;

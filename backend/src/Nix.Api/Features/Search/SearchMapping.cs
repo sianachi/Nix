@@ -6,7 +6,7 @@ namespace Nix.Features.Search;
 /// Turns the domain's item projections into the shapes this feature publishes.
 /// </summary>
 /// <remarks>
-/// One place, because three endpoints return the same four fields and a fourth will. The mapping
+/// One place, because five endpoints return the same six fields and a sixth will. The mapping
 /// is deliberately dull: no defaulting, no formatting, no "Untitled" invented for an item that has
 /// never been named. A name a person did not choose is copy, and copy belongs where it can be
 /// translated.
@@ -24,7 +24,9 @@ internal static class SearchMapping
             digest.Id.Value,
             digest.WorkspaceId.Value,
             digest.Type,
-            digest.Title);
+            digest.Title,
+            digest.ParentId?.Value,
+            digest.UpdatedAt);
     }
 
     /// <summary>Maps a list of item projections, preserving order.</summary>

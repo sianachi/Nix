@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Mvc;
 using Nix.Domain.Primitives;
 using Nix.Errors;
+using Nix.Http;
 
 namespace Nix.Features.Search;
 
 /// <summary>
 /// Route registration for the search feature: finding items, resolving what a document points at,
-/// and reading what points back.
+/// reading what points back, what is cited alongside, and which titles a passage names.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -29,6 +30,26 @@ internal static class SearchEndpoints
 
     /// <summary>Stable code for a resolution request whose identifier list will not parse.</summary>
     internal const string MalformedReferencesCode = "search.malformed_references";
+
+    /// <summary>Stable code for a mention request whose text exceeds the accepted length.</summary>
+    internal const string MentionTextTooLongCode = "search.mention_text_too_long";
+
+    /// <summary>Stable code for a mention request that names no workspace.</summary>
+    internal const string MentionWorkspaceRequiredCode = "search.mention_workspace_required";
+
+    /// <summary>Stable code for a mention request excluding more items than one request may.</summary>
+    internal const string TooManyMentionExclusionsCode = "search.too_many_mention_exclusions";
+
+    /// <summary>
+    /// The largest mention request body accepted, in bytes.
+    /// </summary>
+    /// <remarks>
+    /// Four thousand characters is at most 24 KiB of JSON even if every one is escaped as
+    /// <c>\uXXXX</c>, and 256 excluded identifiers are about 10 KiB more; 48 KiB leaves room for
+    /// the envelope and refuses anything larger before it is buffered, well under the host-wide
+    /// ceiling.
+    /// </remarks>
+    internal const long MentionRequestBodyLimit = 48 * 1024;
 
     /// <summary>
     /// Registers the search feature's routes on <paramref name="endpoints"/>.
@@ -66,6 +87,40 @@ internal static class SearchEndpoints
             .Produces<ReferencesResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest);
 
+        search.MapPost("/mentions", FindMentionsEndpoint.Handle)
+            .WithName("FindMentions")
+            .WithSummary("Find the items whose titles a passage of text names")
+            .WithDescription(
+                "Takes 'text' (at most 4000 characters) and 'workspaceId', and returns up to 20 "
+                + "items in that workspace whose title appears in the text as a whole-word phrase, "
+                + "ignoring case, longest phrase first and at most three per phrase (the most "
+                + "recently modified) - the editor's 'unlinked mentions'. The server cuts the text "
+                + "into word phrases of one to six words itself; single words under four "
+                + "characters and phrases made only of numbers are ignored, and phrases do not "
+                + "span a line break or sentence punctuation. A workspace the caller may not read "
+                + "finds nothing. Items listed in 'excludeIds' (at most 256: the note itself and "
+                + "what it already links to) are never returned, and an item under a lock the "
+                + "caller has not opened is never matched. A POST because the text is too long for "
+                + "a URL; it reads and changes nothing, so a read-scoped token may call it. "
+                + "'truncated' is set when 20 matches were found or the text held more phrases "
+                + "than one request matches. Refusals: 'search.mention_text_too_long', "
+                + "'search.mention_workspace_required', 'search.too_many_mention_exclusions', 413 "
+                + "for a body over 48 KiB. Has its own per-address rate limit ('suggestions', 60 a "
+                + "minute by default), separate from writes; send it when typing pauses and wait "
+                + "out a 429's Retry-After.")
+            .Accepts<MentionsRequest>("application/json")
+            .Produces<MentionsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .WithRequestBodyLimit(MentionRequestBodyLimit)
+
+            // A read, but a POST that scans a workspace per call, so it carries a per-address
+            // window rather than being the one unthrottled way to make the server work. Its own
+            // window, not the one writes share: a burst of lookups while somebody types must never
+            // cost them a save.
+            .RequireRateLimiting(RateLimitRefusal.SuggestionsPolicyName);
+
         var items = endpoints.MapGroup("/api/v1/items").WithTags("Search");
 
         items.MapGet("/{itemId:guid}/backlinks", GetBacklinksEndpoint.Handle)
@@ -79,6 +134,21 @@ internal static class SearchEndpoints
                 + "derived from documents when they are snapshotted, so a link made moments ago "
                 + "may not have been published yet.")
             .Produces<BacklinksResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+
+        items.MapGet("/{itemId:guid}/related", GetRelatedItemsEndpoint.Handle)
+            .WithName("GetRelatedItems")
+            .WithSummary("The items most often linked alongside an item")
+            .WithDescription(
+                "Returns the items that the documents linking to this one also link to, ranked by "
+                + "how many such documents they share, then by title. 'limit' defaults to 10 and is "
+                + "capped at 25. Only referring documents the caller may read, and that are not "
+                + "locked, count towards a ranking - a locked document's links come from its body "
+                + "- and only items the caller may read are returned. The ranking considers the "
+                + "item's 200 most-referring readable documents, so a heavily linked item is "
+                + "ranked from its strongest sources rather than all of them. An item the caller "
+                + "may not read is reported as not found.")
+            .Produces<RelatedItemsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         return endpoints;
@@ -103,7 +173,9 @@ internal static class SearchEndpoints
         var status = error.Code switch
         {
             NotFoundCode => StatusCodes.Status404NotFound,
-            TooManyReferencesCode or MalformedReferencesCode => StatusCodes.Status400BadRequest,
+            TooManyReferencesCode or MalformedReferencesCode or MentionTextTooLongCode
+                or MentionWorkspaceRequiredCode or TooManyMentionExclusionsCode
+                => StatusCodes.Status400BadRequest,
             _ => StatusCodes.Status500InternalServerError,
         };
 

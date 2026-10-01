@@ -4,7 +4,8 @@
  * `truncated` is carried as its own field, never folded into the result list: a cut result set is an
  * honest partial answer, and a caller (the CLI, the MCP server) must be able to say "there are more"
  * rather than present a capped list as complete. Each hit is the identity a caller needs to open the
- * item — its id, its workspace, its body kind and its title — and nothing heavier.
+ * item — its id, its workspace, its body kind and its title — plus its parent and modification time,
+ * which a picker uses to rank, and nothing heavier.
  */
 
 import { z } from 'zod';
@@ -15,6 +16,10 @@ export const searchHitSchema = z.object({
   workspaceId: z.string(),
   type: z.string(),
   title: z.string().nullable(),
+  /** The item it sits under, or null for a workspace root; ranks siblings of the open note first. */
+  parentId: z.string().nullable(),
+  /** When the item was last modified (ISO 8601), for ranking by recency. */
+  updatedAt: z.string(),
 });
 
 export type SearchHit = z.infer<typeof searchHitSchema>;

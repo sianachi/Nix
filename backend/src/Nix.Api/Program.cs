@@ -2,6 +2,7 @@ using System.Net;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
 using Nix;
 using Nix.Authentication;
 using Nix.Errors;
@@ -204,6 +205,9 @@ var tokenExchangesPerMinute = builder.Configuration.GetValue(
 var lockPasswordAttemptsPerMinute = builder.Configuration.GetValue(
     "Nix:RateLimits:LockPasswordAttemptsPerMinute",
     20);
+var suggestionsPerMinute = builder.Configuration.GetValue(
+    "Nix:RateLimits:SuggestionsPerMinute",
+    60);
 
 // One window, named once: the limiter's window and the fallback the rejection reports are the same
 // interval by definition, and two literals would eventually disagree.
@@ -272,22 +276,42 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    // Reads sent as POSTs because their input is too long for a URL (mention matching). Per
+    // address for the same pre-authentication reason as writes, but a window of its own: an editor
+    // asks after each pause in typing, and those lookups must never use up the window a person's
+    // saves draw on. A refusal costs a suggestion, never a write.
+    options.AddPolicy<IPAddress>(RateLimitRefusal.SuggestionsPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey.For(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = suggestionsPerMinute,
+                Window = writesWindow,
+                QueueLimit = 0,
+            }));
+
     options.OnRejected = (context, cancellationToken) =>
     {
         var retryAfter = context.Lease.TryGetMetadata(MetadataName.RetryAfter, out var value)
             ? value
             : writesWindow;
 
+        // Named after the policy that refused, so a suggestions burst is not logged as a writes
+        // one; every policy here uses the same window, so the fallback above holds for all.
+        var limiter = context.HttpContext.GetEndpoint()
+            ?.Metadata.GetMetadata<EnableRateLimitingAttribute>()
+            ?.PolicyName ?? RateLimitRefusal.WritesPolicyName;
+
         // Information: a client meeting a write limit is a runaway or a burst, not a security
         // event, and one line per refused request at Warning would bury the ones that are.
         var logger = context.HttpContext.RequestServices
             .GetRequiredService<ILoggerFactory>()
-            .CreateLogger(RateLimitRefusal.WritesPolicyName);
+            .CreateLogger(limiter);
 
         return new ValueTask(RateLimitRefusal.WriteAsync(
             context.HttpContext,
             logger,
-            RateLimitRefusal.WritesPolicyName,
+            limiter,
             retryAfter,
             LogLevel.Information,
             cancellationToken));

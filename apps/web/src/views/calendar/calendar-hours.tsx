@@ -135,6 +135,13 @@ export interface HourGridProps {
   /** Everything the container holds that this grid might place. */
   readonly items: readonly Item[];
 
+  /**
+   * Every child of the container, unfiltered, for the reschedule dialog's free-slot suggestion -
+   * or undefined when the caller cannot vouch for the whole set (a truncated container, or the
+   * collated calendar reading across several), and then no slot is offered.
+   */
+  readonly siblings?: readonly Item[] | undefined;
+
   /** The property that places an item. */
   readonly dateProperty: string;
 
@@ -229,6 +236,7 @@ export function HourGrid(props: HourGridProps): ReactNode {
     onCreate,
     dragged,
     onMove,
+    siblings,
   } = props;
 
   // One tab stop for all 168 hour-slot create controls, with the arrow keys moving which slot it
@@ -372,6 +380,7 @@ export function HourGrid(props: HourGridProps): ReactNode {
           // to decide the row, so nothing reaches this dialog without one. The end field, when the
           // view has one, is assumed to be the same shape - see `RescheduleDialogProps.endDateProperty`.
           placesByTime
+          siblings={siblings}
           zone={zone}
           onCancel={() => {
             setRescheduling(null);
