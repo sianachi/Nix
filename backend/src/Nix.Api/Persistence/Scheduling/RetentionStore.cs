@@ -20,6 +20,9 @@ public sealed class RetentionStore(NpgsqlDataSource dataSource) : IRetentionStor
     public Task<int> PurgeAutomationRunsAsync(int limit, CancellationToken cancellationToken) =>
         PurgeAsync("SELECT nix_purge_automation_runs(@limit)", limit, cancellationToken);
 
+    public Task<int> PurgeCalendarSyncLogAsync(int limit, CancellationToken cancellationToken) =>
+        PurgeAsync("SELECT nix_purge_calendar_sync_log(@limit)", limit, cancellationToken);
+
     private async Task<int> PurgeAsync(string sql, int limit, CancellationToken cancellationToken)
     {
         if (limit is < 1 or > 10_000)

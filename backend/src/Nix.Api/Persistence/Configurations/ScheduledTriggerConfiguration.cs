@@ -12,7 +12,7 @@ internal sealed class ScheduledTriggerConfiguration : IEntityTypeConfiguration<S
         ArgumentNullException.ThrowIfNull(builder);
         builder.ToTable(NixTables.ScheduledTrigger, table => table.HasCheckConstraint(
             "scheduled_trigger_bounded",
-            "kind IN ('reminder', 'automation', 'system')"
+            "kind IN ('reminder', 'automation', 'system', 'calendar')"
                 + " AND status IN ('pending', 'leased', 'fired', 'skipped', 'cancelled')"
                 + " AND attempts >= 0 AND char_length(dedupe_key) <= 200"
                 + " AND (lease_owner IS NULL OR char_length(lease_owner) <= 128)"

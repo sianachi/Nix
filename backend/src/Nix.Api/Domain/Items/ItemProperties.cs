@@ -153,6 +153,23 @@ public static class ItemProperties
     /// <summary>The prefix of the keys only the habit endpoints write.</summary>
     public const string HabitPrefix = "$habit_";
 
+    /// <summary>
+    /// The prefix of the keys only calendar sync writes (<c>$cal_source</c>, <c>$cal_link</c>,
+    /// <c>$cal_readonly</c>; ADR-0052). They say which external event an item mirrors and whether
+    /// it may be pushed, so a client that could write them could forge a mirror or unlock a
+    /// read-only event.
+    /// </summary>
+    public const string CalendarPrefix = "$cal_";
+
+    /// <summary>The calendar sync key naming the provider an item was pulled from.</summary>
+    public const string CalendarSourceKey = "$cal_source";
+
+    /// <summary>The calendar sync key naming the link an item belongs to.</summary>
+    public const string CalendarLinkKey = "$cal_link";
+
+    /// <summary>The calendar sync key marking an event the owner cannot edit upstream.</summary>
+    public const string CalendarReadOnlyKey = "$cal_readonly";
+
     /// <summary>Each scheduled key paired with the system key that records who set it.</summary>
     private static readonly (string Key, string SetByKey)[] SetByPairs =
     [
@@ -175,7 +192,8 @@ public static class ItemProperties
         ArgumentNullException.ThrowIfNull(key);
         return string.Equals(key, DueSetByKey, StringComparison.Ordinal)
             || string.Equals(key, ReminderSetByKey, StringComparison.Ordinal)
-            || key.StartsWith(HabitPrefix, StringComparison.Ordinal);
+            || key.StartsWith(HabitPrefix, StringComparison.Ordinal)
+            || key.StartsWith(CalendarPrefix, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -263,7 +281,8 @@ public static class ItemProperties
     /// <remarks>
     /// A copied set-by value is never trusted: it names whoever set the value in the source, or
     /// whatever the author of an imported file chose, and keeping it would send the copy's
-    /// reminders to that principal.
+    /// reminders to that principal. Calendar sync keys (<see cref="CalendarPrefix"/>) are dropped
+    /// too: a copy mirrors no external event.
     /// </remarks>
     public static string? RestampCopiedSetBy(string? bag, string principalId)
     {
@@ -284,7 +303,8 @@ public static class ItemProperties
     private static string? RewriteSetBy(string? bag, string? principalId)
     {
         if (bag is null
-            || !SetByPairs.Any(pair => bag.Contains(pair.Key, StringComparison.Ordinal) || bag.Contains(pair.SetByKey, StringComparison.Ordinal)))
+            || (!SetByPairs.Any(pair => bag.Contains(pair.Key, StringComparison.Ordinal) || bag.Contains(pair.SetByKey, StringComparison.Ordinal))
+                && !bag.Contains(CalendarPrefix, StringComparison.Ordinal)))
         {
             return bag;
         }
@@ -306,6 +326,13 @@ public static class ItemProperties
                 {
                     Attribute(document, key, setByKey, principalId);
                 }
+            }
+
+            foreach (var calendarKey in document.Select(pair => pair.Key)
+                .Where(key => key.StartsWith(CalendarPrefix, StringComparison.Ordinal))
+                .ToList())
+            {
+                document.Remove(calendarKey);
             }
 
             return document.ToJsonString();

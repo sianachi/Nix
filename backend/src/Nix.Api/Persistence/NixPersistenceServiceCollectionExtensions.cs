@@ -308,6 +308,10 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<Nix.Features.Automations.RunAutomation, Nix.Features.Automations.AutomationRunResponse>, Nix.Features.Automations.RunAutomationHandler>();
         services.AddScoped<ICommandHandler<Nix.Features.Automations.TestAutomation, Nix.Features.Automations.AutomationTestResponse>, Nix.Features.Automations.TestAutomationHandler>();
 
+        // Two-way calendar sync (ADR-0052, lane D2): the owner-private store, the planned and
+        // dirty trigger sources, the worker-execution engine and the connect/link handlers.
+        Nix.Features.CalendarSync.CalendarSyncServiceCollectionExtensions.AddNixCalendarSync(services);
+
         if (options.SchedulingEnabled)
         {
             services.AddSingleton<Nix.Persistence.Scheduling.ScheduleDispatcher>();

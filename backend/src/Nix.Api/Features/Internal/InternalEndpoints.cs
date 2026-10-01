@@ -52,6 +52,7 @@ internal static class InternalEndpoints
         ObjectCleanupEndpoints.Map(group.MapGroup("/worker-executions"));
         WorkspacePurgeEndpoints.Map(group.MapGroup("/worker-executions"));
         NotificationDeliveryEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
+        CalendarSyncWorkerEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
 
         return endpoints;
     }

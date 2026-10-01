@@ -42,6 +42,12 @@ public sealed record CreateItem(
     /// never request-bound, and never a way to write a scheduler set-by key.
     /// </summary>
     internal bool HabitWrite { get; init; }
+
+    /// <summary>
+    /// Internal capability for the calendar sync pull, allowing <c>$cal_</c> keys; never
+    /// request-bound, and never a way to write a scheduler set-by key.
+    /// </summary>
+    internal bool CalendarWrite { get; init; }
 }
 
 /// <summary>
@@ -115,7 +121,7 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
-        if (properties?.Any(pair => SchedulingReservedProperties.IsRefused(pair.Key, command.HabitWrite)) == true)
+        if (properties?.Any(pair => SchedulingReservedProperties.IsRefused(pair.Key, command.HabitWrite, command.CalendarWrite)) == true)
         {
             return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }

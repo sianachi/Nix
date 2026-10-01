@@ -354,9 +354,41 @@ public sealed class ItemPropertiesStampSetByTests
     [InlineData("$reminder_set_by", true)]
     [InlineData("$habit_reminder_time", true)]
     [InlineData("$habit_check_in_date", true)]
+    [InlineData("$cal_source", true)]
+    [InlineData("$cal_link", true)]
+    [InlineData("$cal_readonly", true)]
     [InlineData("due_date", false)]
+    [InlineData("cal_source", false)]
     [InlineData("reminder", false)]
     [InlineData("habit", false)]
     public void Scheduler_and_habit_keys_are_reserved(string key, bool reserved) =>
         Assert.Equal(reserved, ItemProperties.IsReservedSchedulingKey(key));
+
+    [Fact]
+    public void A_copied_bag_drops_every_calendar_sync_key()
+    {
+        // A copy is not the synced event: keeping $cal_link would make a template application or an
+        // import claim to mirror an external event it has no map row for.
+        var copied = ItemProperties.RestampCopiedSetBy(
+            """{"title":"Standup","start":"2026-10-01","$cal_source":"google","$cal_link":"0199a000-0000-7000-8000-000000000001","$cal_readonly":true}""",
+            "00000000-0000-0000-0000-000000000002");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(copied!));
+        Assert.Equal("2026-10-01", (string?)parsed["start"]);
+        Assert.False(parsed.ContainsKey("$cal_source"));
+        Assert.False(parsed.ContainsKey("$cal_link"));
+        Assert.False(parsed.ContainsKey("$cal_readonly"));
+    }
+
+    [Fact]
+    public void Template_content_carries_no_calendar_sync_key()
+    {
+        var stripped = ItemProperties.StripSetBy(
+            """{"title":"Standup","$cal_source":"microsoft","$cal_link":"0199a000-0000-7000-8000-000000000001"}""");
+
+        var parsed = Assert.IsType<JsonObject>(JsonNode.Parse(stripped!));
+        Assert.Equal("Standup", (string?)parsed["title"]);
+        Assert.False(parsed.ContainsKey("$cal_source"));
+        Assert.False(parsed.ContainsKey("$cal_link"));
+    }
 }

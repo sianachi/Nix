@@ -131,7 +131,8 @@ public sealed class ScheduleDispatcher(
     }
 
     /// <summary>
-    /// Purges expired notifications, finished triggers and old automation runs at most once every
+    /// Purges expired notifications, finished triggers, old automation runs and old calendar sync
+    /// log rows and tombstones at most once every
     /// <see cref="RetentionInterval"/>, in bounded batches - retention is opportunistic background
     /// work, not correctness-critical, so it rides the same loop rather than a service of its own.
     /// </summary>
@@ -153,6 +154,7 @@ public sealed class ScheduleDispatcher(
         await DrainAsync(retention.PurgeOldNotificationsAsync, started, cancellationToken).ConfigureAwait(false);
         await DrainAsync(retention.PurgeFinishedTriggersAsync, started, cancellationToken).ConfigureAwait(false);
         await DrainAsync(retention.PurgeAutomationRunsAsync, started, cancellationToken).ConfigureAwait(false);
+        await DrainAsync(retention.PurgeCalendarSyncLogAsync, started, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task DrainAsync(Func<int, CancellationToken, Task<int>> purge, long started, CancellationToken cancellationToken)

@@ -14,6 +14,9 @@ public enum TriggerKind
 
     /// <summary>A trigger used only by tests to exercise the plan -&gt; fire -&gt; notify path end to end.</summary>
     System,
+
+    /// <summary>A calendar link's planned poll or a write in its container (ADR-0052).</summary>
+    Calendar,
 }
 
 /// <summary>Where a scheduled trigger is in its lease lifecycle.</summary>
@@ -47,6 +50,7 @@ public static class TriggerStorage
         TriggerKind.Reminder => "reminder",
         TriggerKind.Automation => "automation",
         TriggerKind.System => "system",
+        TriggerKind.Calendar => "calendar",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown trigger kind."),
     };
 
@@ -56,6 +60,7 @@ public static class TriggerStorage
         "reminder" => TriggerKind.Reminder,
         "automation" => TriggerKind.Automation,
         "system" => TriggerKind.System,
+        "calendar" => TriggerKind.Calendar,
         _ => throw new InvalidOperationException($"Unknown stored trigger kind '{text}'."),
     };
 

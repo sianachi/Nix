@@ -126,6 +126,27 @@ create_observability_secret() {
   kubectl "${observability_secret_args[@]}"
 }
 
+# Calendar sync OAuth clients (ADR-0052). Every value is optional: a provider without a client id
+# and secret is reported unavailable. The api Deployment reads this secret with optional keys, so a
+# cluster without it still starts. Redirect URIs to register at the providers:
+#   https://$DOMAIN/auth/calendar/callback/google and https://$DOMAIN/auth/calendar/callback/microsoft
+create_calendar_secret() {
+  local update_existing="$1"
+  local -a calendar_secret_args=(
+    -n nix create secret generic nix-calendar
+    --from-literal=google-client-id="${NIX_CALENDAR_GOOGLE_CLIENT_ID:-}"
+    --from-literal=google-client-secret="${NIX_CALENDAR_GOOGLE_CLIENT_SECRET:-}"
+    --from-literal=microsoft-client-id="${NIX_CALENDAR_MICROSOFT_CLIENT_ID:-}"
+    --from-literal=microsoft-client-secret="${NIX_CALENDAR_MICROSOFT_CLIENT_SECRET:-}"
+    --from-literal=microsoft-tenant="${NIX_CALENDAR_MICROSOFT_TENANT:-common}"
+  )
+  if [ "$update_existing" = true ]; then
+    kubectl "${calendar_secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
+  else
+    kubectl "${calendar_secret_args[@]}"
+  fi
+}
+
 case "${1:-}" in
   --rabbitmq-only)
     create_rabbitmq_secret true
@@ -141,9 +162,14 @@ case "${1:-}" in
     create_observability_secret true
     exit 0
     ;;
+  --calendar-only)
+    create_calendar_secret true
+    echo "Calendar OAuth clients updated. Run deploy/k8s/deploy.sh to roll them out."
+    exit 0
+    ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--observability-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--observability-only|--calendar-only]" >&2
     exit 2
     ;;
 esac
@@ -172,6 +198,7 @@ kubectl -n nix create secret generic nix-internal \
 create_rabbitmq_secret false
 create_object_store_secret false
 create_observability_secret false
+create_calendar_secret false
 
 auth_key_file="$(mktemp)"
 trap 'rm -f "$auth_key_file"' EXIT

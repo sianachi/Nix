@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -157,6 +158,7 @@ func (client *GoogleClient) convert(item googleEvent) (ProviderEvent, error) {
 		End:        end,
 		ReadOnly:   readOnly,
 		UpdatedAt:  item.Updated,
+		NixItemID:  googleItemStamp(item.ID),
 	}, nil
 }
 
@@ -188,8 +190,19 @@ func googleBound(value googleEventDateTime, isEnd bool) (Bound, error) {
 	return Bound{Instant: instant.In(loc), Zone: zone}, nil
 }
 
+// CreateEvent inserts the event under a client-supplied id derived from the Nix item id (Google
+// allows base32hex ids of 5 to 1024 characters; a UUID's 32 lowercase hex digits are such an id).
+// A 409 means an event with that id already exists - this item's own create landed before and its
+// report was lost, or the event was deleted upstream and Google keeps the id - so the event is
+// patched back to the pushed fields with status confirmed (which also restores a deleted one) and
+// returned as the created event.
 func (client *GoogleClient) CreateEvent(ctx context.Context, accessToken, calendarID string, event PushEvent) (string, string, error) {
-	body, err := json.Marshal(googleEventBody(event))
+	payload := googleEventBody(event)
+	id := googleEventID(event.NixItemID)
+	if id != "" {
+		payload["id"] = id
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return "", "", err
 	}
@@ -202,6 +215,9 @@ func (client *GoogleClient) CreateEvent(ctx context.Context, accessToken, calend
 	if err != nil {
 		return "", "", err
 	}
+	if response.StatusCode == http.StatusConflict && id != "" {
+		return client.reviveEvent(ctx, accessToken, calendarID, id, event)
+	}
 	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusCreated {
 		return "", "", googleAPIError(response.StatusCode, responseBody)
 	}
@@ -210,6 +226,55 @@ func (client *GoogleClient) CreateEvent(ctx context.Context, accessToken, calend
 		return "", "", fmt.Errorf("decode google calendar create response: %w", err)
 	}
 	return created.ID, created.ETag, nil
+}
+
+// reviveEvent patches the event this item already created back to the pushed fields, confirmed.
+func (client *GoogleClient) reviveEvent(ctx context.Context, accessToken, calendarID, id string, event PushEvent) (string, string, error) {
+	payload := googleEventBody(event)
+	payload["status"] = "confirmed"
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", "", err
+	}
+	path := "/calendar/v3/calendars/" + url.PathEscape(calendarID) + "/events/" + url.PathEscape(id)
+	response, err := client.transport.do(ctx, http.MethodPatch, path, bearerJSONHeaders(accessToken), bytes.NewReader(body))
+	if err != nil {
+		return "", "", err
+	}
+	responseBody, err := readBoundedBody(response.Body)
+	if err != nil {
+		return "", "", err
+	}
+	if response.StatusCode != http.StatusOK {
+		return "", "", googleAPIError(response.StatusCode, responseBody)
+	}
+	var revived googleEvent
+	if err := json.Unmarshal(responseBody, &revived); err != nil {
+		return "", "", fmt.Errorf("decode google calendar revive response: %w", err)
+	}
+	return id, revived.ETag, nil
+}
+
+// googleEventID is the client-supplied event id for a Nix item: its UUID without dashes, or ""
+// when there is no item id to stamp.
+func googleEventID(itemID string) string {
+	if !canonicalUUID(itemID) {
+		return ""
+	}
+	return strings.ReplaceAll(itemID, "-", "")
+}
+
+// googleItemStamp reads the Nix item id back out of an event id googleEventID made; any other id
+// (Google's own, or a recurring instance's "{id}_{time}") yields "".
+func googleItemStamp(eventID string) string {
+	if len(eventID) != 32 {
+		return ""
+	}
+	itemID := eventID[0:8] + "-" + eventID[8:12] + "-" + eventID[12:16] + "-" + eventID[16:20] + "-" + eventID[20:32]
+	if !canonicalUUID(itemID) {
+		return ""
+	}
+	return itemID
 }
 
 func (client *GoogleClient) UpdateEvent(ctx context.Context, accessToken, calendarID, externalID, version string, event PushEvent) (string, error) {

@@ -325,6 +325,10 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new AutomationRuleConfiguration());
         modelBuilder.ApplyConfiguration(new AutomationRunConfiguration());
         modelBuilder.ApplyConfiguration(new AutomationItemStateConfiguration());
+        modelBuilder.ApplyConfiguration(new CalendarConnectionConfiguration());
+        modelBuilder.ApplyConfiguration(new CalendarLinkConfiguration());
+        modelBuilder.ApplyConfiguration(new CalendarEventMapConfiguration());
+        modelBuilder.ApplyConfiguration(new CalendarSyncLogConfiguration());
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLockConfiguration());
         modelBuilder.ApplyConfiguration(new ItemUnlockConfiguration());

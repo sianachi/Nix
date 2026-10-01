@@ -1415,6 +1415,134 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/calendar/connections': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListCalendarConnections'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/calendar/connections/{provider}/authorize': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AuthorizeCalendarConnection'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/calendar/connections/{connectionId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations['DeleteCalendarConnection'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/calendar/connections/{connectionId}/calendars': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListExternalCalendars'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/calendar/links': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListCalendarLinks'];
+    put?: never;
+    post: operations['CreateCalendarLink'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/calendar/links/{linkId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    delete: operations['DeleteCalendarLink'];
+    options?: never;
+    head?: never;
+    patch: operations['UpdateCalendarLink'];
+    trace?: never;
+  };
+  '/api/v1/me/calendar/links/{linkId}/sync': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['SyncCalendarLink'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/calendar/links/{linkId}/log': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListCalendarLinkLog'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/graph': {
     parameters: {
       query?: never;
@@ -2171,6 +2299,12 @@ export interface components {
       makeDefault: boolean;
       publishInteractiveFormViewId: null | string;
     };
+    AuthorizeCalendarRequest: {
+      returnTo: null | string;
+    };
+    AuthorizeCalendarResponse: {
+      authorizationUrl: string;
+    };
     AutomationActionPreview: {
       /** Format: int32 */
       index: number | string;
@@ -2412,6 +2546,21 @@ export interface components {
       lines: components['schemas']['BudgetLineRowResponse'][];
       totals: components['schemas']['BudgetCellResponse'][];
     };
+    CalendarConnectionResponse: {
+      /** Format: uuid */
+      id: string;
+      provider: string;
+      accountEmail: string;
+      status: string;
+      scopes: string[];
+      /** Format: date-time */
+      createdAt: string;
+      lastError: null | string;
+    };
+    CalendarConnectionsResponse: {
+      providers: components['schemas']['CalendarProviderResponse'][];
+      connections: components['schemas']['CalendarConnectionResponse'][];
+    };
     CalendarEntryResponse: {
       /** Format: uuid */
       itemId: string;
@@ -2424,6 +2573,63 @@ export interface components {
       kind: string;
       generated: boolean;
       completed: null | boolean;
+    };
+    CalendarLinkContainerRequest: {
+      /** Format: uuid */
+      itemId: null | string;
+      create: null | components['schemas']['CalendarLinkNewContainer'];
+    };
+    CalendarLinkNewContainer: {
+      /** Format: uuid */
+      parentId: null | string;
+      title: string;
+    };
+    CalendarLinkResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      connectionId: string;
+      provider: string;
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      containerItemId: string;
+      externalCalendarId: string;
+      name: string;
+      direction: string;
+      /** Format: int32 */
+      windowPastDays: number | string;
+      /** Format: int32 */
+      windowFutureDays: number | string;
+      status: string;
+      /** Format: date-time */
+      lastSyncedAt: null | string;
+      lastError: null | string;
+      /** Format: int32 */
+      revision: number | string;
+    };
+    CalendarLinksResponse: {
+      links: components['schemas']['CalendarLinkResponse'][];
+    };
+    CalendarProviderResponse: {
+      provider: string;
+      available: boolean;
+    };
+    CalendarSyncLogEntryResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: date-time */
+      at: string;
+      direction: string;
+      action: string;
+      /** Format: uuid */
+      itemId: null | string;
+      externalId: null | string;
+      detail: string;
+    };
+    CalendarSyncLogPageResponse: {
+      entries: components['schemas']['CalendarSyncLogEntryResponse'][];
+      nextCursor: null | string;
     };
     CanvasLibraryResponse: {
       items: components['schemas']['JsonArray'];
@@ -2532,6 +2738,19 @@ export interface components {
       scopes: null | string[];
       /** Format: int32 */
       expiresInDays: null | number | string;
+    };
+    CreateCalendarLinkRequest: {
+      /** Format: uuid */
+      connectionId: string;
+      externalCalendarId: string;
+      /** Format: uuid */
+      workspaceId: string;
+      container: components['schemas']['CalendarLinkContainerRequest'];
+      direction: string;
+      /** Format: int32 */
+      windowPastDays: null | number | string;
+      /** Format: int32 */
+      windowFutureDays: null | number | string;
     };
     CreatedAccessTokenResponse: {
       token: string;
@@ -2713,6 +2932,15 @@ export interface components {
       completedAt: null | string;
       /** Format: date-time */
       expiresAt: null | string;
+    };
+    ExternalCalendarResponse: {
+      id: string;
+      name: string;
+      primary: boolean;
+      readOnly: boolean;
+    };
+    ExternalCalendarsResponse: {
+      calendars: components['schemas']['ExternalCalendarResponse'][];
     };
     FileDownloadCapabilityResponse: {
       /** Format: uri */
@@ -3745,6 +3973,13 @@ export interface components {
       answers: null | Record<string, never>;
       website: null | string;
     };
+    SyncCalendarLinkRequest: {
+      full: null | boolean;
+    };
+    SyncCalendarLinkResponse: {
+      /** Format: uuid */
+      jobId: string;
+    };
     TemplateAdditionsResponse: {
       /** Format: int32 */
       fields: number | string;
@@ -4086,6 +4321,17 @@ export interface components {
       /** Format: int64 */
       expectedRevision: number | string;
       rule: components['schemas']['AutomationRuleInput'];
+    };
+    UpdateCalendarLinkRequest: {
+      /** Format: int32 */
+      revision: number | string;
+      name: null | string;
+      direction: null | string;
+      status: null | string;
+      /** Format: int32 */
+      windowPastDays: null | number | string;
+      /** Format: int32 */
+      windowFutureDays: null | number | string;
     };
     UpdateItemRequest: {
       title: string;
@@ -8188,6 +8434,237 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['AutomationTestResponse'];
+        };
+      };
+    };
+  };
+  ListCalendarConnections: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CalendarConnectionsResponse'];
+        };
+      };
+    };
+  };
+  AuthorizeCalendarConnection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        provider: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': null | components['schemas']['AuthorizeCalendarRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AuthorizeCalendarResponse'];
+        };
+      };
+    };
+  };
+  DeleteCalendarConnection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        connectionId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ListExternalCalendars: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        connectionId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ExternalCalendarsResponse'];
+        };
+      };
+    };
+  };
+  ListCalendarLinks: {
+    parameters: {
+      query?: {
+        workspaceId?: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CalendarLinksResponse'];
+        };
+      };
+    };
+  };
+  CreateCalendarLink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateCalendarLinkRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CalendarLinkResponse'];
+        };
+      };
+    };
+  };
+  DeleteCalendarLink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        linkId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  UpdateCalendarLink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        linkId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateCalendarLinkRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CalendarLinkResponse'];
+        };
+      };
+    };
+  };
+  SyncCalendarLink: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        linkId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: {
+      content: {
+        'application/json': null | components['schemas']['SyncCalendarLinkRequest'];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SyncCalendarLinkResponse'];
+        };
+      };
+    };
+  };
+  ListCalendarLinkLog: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        linkId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CalendarSyncLogPageResponse'];
         };
       };
     };

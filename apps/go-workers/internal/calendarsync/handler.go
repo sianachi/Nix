@@ -188,6 +188,7 @@ func (handler *Handler) pushOne(ctx context.Context, provider Provider, session 
 	if eventErr != nil {
 		return workerapi.CalendarPushResult{ItemID: change.ItemID, ExternalID: externalID, Version: version, Status: "failed", Detail: truncate(eventErr.Error(), 500)}
 	}
+	event.NixItemID = change.ItemID
 	if externalID == "" {
 		newID, newVersion, err := provider.CreateEvent(ctx, session.AccessToken, session.ExternalCalendarID, event)
 		if err != nil {
@@ -238,6 +239,10 @@ func toWireEvent(event ProviderEvent) workerapi.CalendarEvent {
 		Details:    truncateText(event.Details, maxDetailsBytes),
 		ReadOnly:   event.ReadOnly,
 		UpdatedAt:  event.UpdatedAt,
+	}
+	if canonicalUUID(event.NixItemID) {
+		stamp := event.NixItemID
+		wire.NixItemID = &stamp
 	}
 	if event.Status == "cancelled" {
 		return wire

@@ -113,6 +113,18 @@ public static class NixTables
     /// <summary>What a property rule last saw on one item.</summary>
     public const string AutomationItemState = "automation_item_state";
 
+    /// <summary>One principal's OAuth grant to an external calendar account (ADR-0052).</summary>
+    public const string CalendarConnection = "calendar_connection";
+
+    /// <summary>A binding between an external calendar and a Nix container.</summary>
+    public const string CalendarLink = "calendar_link";
+
+    /// <summary>Which item mirrors which external event.</summary>
+    public const string CalendarEventMap = "calendar_event_map";
+
+    /// <summary>The visible calendar sync log, retained 30 days.</summary>
+    public const string CalendarSyncLog = "calendar_sync_log";
+
     /// <summary>One row per item a principal has kept.</summary>
     public const string Bookmark = "bookmark";
 
@@ -200,6 +212,10 @@ public static class NixTables
         AutomationRule,
         AutomationRun,
         AutomationItemState,
+        CalendarConnection,
+        CalendarLink,
+        CalendarEventMap,
+        CalendarSyncLog,
         Bookmark,
         ItemLock,
         ItemUnlock,
@@ -366,6 +382,15 @@ public static class NixTables
             [AutomationRule] = FullDml,
             [AutomationRun] = FullDml,
             [AutomationItemState] = FullDml,
+
+            // An owner's own calendar grants, links, event map and sync log, read and written by
+            // Core alone under the owner's session (a request, a worker execution or the
+            // dispatcher's per-trigger one); cross-owner work (planning, retention, the dirty
+            // feed) goes only through the SECURITY DEFINER functions in CalendarSyncSecuritySql.
+            [CalendarConnection] = FullDml,
+            [CalendarLink] = FullDml,
+            [CalendarEventMap] = FullDml,
+            [CalendarSyncLog] = FullDml,
 
             // Revoked, never deleted: the rows are the audit of what has been able to act as a
             // principal, and an application that can erase that record can erase evidence.
