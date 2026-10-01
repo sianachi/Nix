@@ -83,9 +83,9 @@ public sealed class BulkItemVisibilityStatementTests
         // Other stages may have their own fences; pin the one protecting each ancestor probe.
         Assert.Equal(
             expectedPredicates,
-            System.Text.RegularExpressions.Regex.Matches(
+            System.Text.RegularExpressions.Regex.Count(
                 sql,
-                @"stored_ancestor.lifecycle_state IS DISTINCT FROM 'active'\)\s*OFFSET 0").Count);
+                @"stored_ancestor.lifecycle_state IS DISTINCT FROM 'active'\)\s*OFFSET 0"));
     }
 
     [Fact]
