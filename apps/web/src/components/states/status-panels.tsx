@@ -116,13 +116,23 @@ export function ErrorPanel({
  * Rendered alongside real content, never instead of it: what is on screen is
  * usable, and this says which part of it is not ready yet.
  */
-export function PartialNotice({ pending }: { readonly pending: string }): ReactElement {
+export function PartialNotice({
+  pending,
+  action,
+}: {
+  readonly pending: string;
+  /** Where the missing part is put right, when there is somewhere to send somebody. */
+  readonly action?: ReactNode;
+}): ReactElement {
   return (
     <div role="status" className="flex items-start gap-2 border border-divider p-3">
       <Icon icon={TriangleAlert} className="size-4 text-accent-text" />
-      <Text variant="note" as="span" tone="accent">
-        {pending}
-      </Text>
+      <div className="flex flex-col items-start gap-1">
+        <Text variant="note" as="span" tone="accent">
+          {pending}
+        </Text>
+        {action}
+      </div>
     </div>
   );
 }

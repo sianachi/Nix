@@ -121,6 +121,8 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
           ? 'The one item in here is hidden by the current filters.'
           : `All ${String(total)} items in here are hidden by the current filters.`,
     }),
+    savedRules: view.filters,
+    view,
     sortBy,
     descending: direction === 'descending',
   });

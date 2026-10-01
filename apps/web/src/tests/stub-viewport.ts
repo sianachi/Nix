@@ -9,8 +9,8 @@
  * whichever width a test wants, it calls this itself, in the test that wants it - the same way
  * `pane-state.test.tsx`'s own `panesAt` always has.
  *
- * A `pointer` query is answered separately, and always as a mouse would answer it - fine yes,
- * coarse no - regardless of `wide`.
+ * A `pointer` or `hover` query is answered separately, and always as a mouse would answer it - fine
+ * yes, coarse no, hover yes - regardless of `wide`.
  * This helper is about screen width; a caller asking for a wide viewport is not also claiming a
  * touch input device, and `wide`'s boolean mode previously answered every query alike, so a mouse
  * test that never mentioned pointers at all was silently also a coarse-pointer test. A suite that
@@ -26,9 +26,11 @@ export function stubViewport(wide: boolean | number): void {
     ({
       matches: query.includes('pointer')
         ? query.includes('fine')
-        : typeof wide === 'boolean'
-          ? wide
-          : wide >= Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0),
+        : query.includes('hover')
+          ? true
+          : typeof wide === 'boolean'
+            ? wide
+            : wide >= Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0),
       media: query,
       onchange: null,
       addEventListener: () => undefined,

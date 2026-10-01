@@ -104,6 +104,27 @@ public sealed class RunItemQueryTests
     }
 
     [Fact]
+    public async Task A_stored_container_only_operator_on_a_query_view_refuses_to_run()
+    {
+        // "contains" validates as a rule (ADR-0054) but QuerySql has no arm for it. The write path
+        // refuses it on a query view; one that reached the column another way - an import, a
+        // template, a hand edit - must stop here and never reach the compiler or the rows.
+        var views = """
+            {"views":[{"id":"q","name":"Q","kind":"query","filters":[
+                {"property":"title","operator":"contains","value":"plan"}]}]}
+            """;
+        var query = new RecordingQuery();
+        var handler = Handler(query, ItemWithViews(views));
+
+        var result = await handler.HandleAsync(new RunItemQuery(SmartList, "q", "2026-08-15"), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("query.invalid_rules", result.Error.Code);
+        Assert.Contains("contains", result.Error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, query.Calls);
+    }
+
+    [Fact]
     public async Task A_view_on_an_item_the_caller_has_not_unlocked_is_refused_and_never_queried()
     {
         // A lock withholds an item's views along with its body; a saved query is one of them.

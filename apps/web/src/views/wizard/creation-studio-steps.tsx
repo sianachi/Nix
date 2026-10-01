@@ -95,7 +95,7 @@ export function SetupStep({
           view={draft.view}
           fields={fields}
           showColumns={['board', 'list', 'sheet'].includes(draft.view.kind)}
-          showSortAndFilters={['list', 'sheet'].includes(draft.view.kind)}
+          showSort={['list', 'sheet'].includes(draft.view.kind)}
           showKindFilters={false}
           onChange={(view) => {
             onChange({ ...draft, view });

@@ -110,3 +110,20 @@ it('browses board columns individually and keeps unassigned cards reachable', as
   expect(screen.getByRole('button', { name: 'Unassigned idea' })).toBeInTheDocument();
   expect(screen.queryByRole('region', { name: 'Todo' })).not.toBeInTheDocument();
 });
+
+it('opens the item actions from a phone list row, as the desktop rows do', async () => {
+  renderAt(
+    <ContainerView
+      container={aContainer({ children: [note] })}
+      view={aView({ kind: 'list' })}
+      onOpen={vi.fn()}
+    />,
+  );
+
+  const row = screen.getByRole('listitem');
+  // A long press on a touch screen raises the same `contextmenu` the right mouse button does on
+  // iOS-less platforms; the ContextMenu primitive's own suite covers the timed touch path.
+  row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+
+  expect(await screen.findByRole('menu', { name: 'Release plan actions' })).toBeVisible();
+});

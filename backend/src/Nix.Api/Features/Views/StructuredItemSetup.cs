@@ -467,11 +467,11 @@ internal static class StructuredItemSetupEndpoints
                 PropertyErrors.InvalidSchema($"'{unknownType}' is not a property type.")));
         }
 
-        if (!ViewMapping.TryToDomain(request.Views, out var views, out var unknownKind))
+        if (!ViewMapping.TryToDomain(request.Views, out var views, out var viewsRefusal))
         {
             return TypedResults.Problem(StructureEndpoints.Problem(
                 httpContext,
-                PropertyErrors.InvalidViews($"'{unknownKind}' is not a view kind.")));
+                PropertyErrors.InvalidViews(viewsRefusal)));
         }
 
         var result = await dispatcher.SendAsync<CreateStructuredItem, Item>(
@@ -536,11 +536,11 @@ internal static class StructuredItemSetupEndpoints
         }
 
         var viewsRequest = new SetViewsRequest(request.Views, null);
-        if (!ViewMapping.TryToDomain(viewsRequest, out var views, out var unknownKind))
+        if (!ViewMapping.TryToDomain(viewsRequest, out var views, out var viewsRefusal))
         {
             return TypedResults.Problem(StructureEndpoints.Problem(
                 httpContext,
-                PropertyErrors.InvalidViews($"'{unknownKind}' is not a view kind.")));
+                PropertyErrors.InvalidViews(viewsRefusal)));
         }
 
         var result = await dispatcher.SendAsync<AppendViewSetup, Item>(
@@ -610,11 +610,11 @@ internal static class StructuredItemSetupEndpoints
         }
 
         var viewsRequest = new SetViewsRequest(request.Views, null);
-        if (!ViewMapping.TryToDomain(viewsRequest, out var views, out var unknownKind))
+        if (!ViewMapping.TryToDomain(viewsRequest, out var views, out var viewsRefusal))
         {
             return TypedResults.Problem(StructureEndpoints.Problem(
                 httpContext,
-                PropertyErrors.InvalidViews($"'{unknownKind}' is not a view kind.")));
+                PropertyErrors.InvalidViews(viewsRefusal)));
         }
 
         var result = await dispatcher.SendAsync<ReplaceViewSetup, Item>(

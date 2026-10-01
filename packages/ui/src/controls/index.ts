@@ -6,6 +6,7 @@
  * below already provides. See `primitives/index.ts` for why each layer carries its own barrel.
  */
 
+export { Avatar, initialsOf, type AvatarProps, type AvatarSize } from './Avatar';
 export { Button, type ButtonProps, type ButtonVariant } from './Button';
 export { Card, type CardProps } from './Card';
 export { Checkbox, type CheckboxProps } from './Checkbox';
@@ -24,6 +25,12 @@ export {
   type MenuSeparator,
   type MenuTriggerRenderProps,
 } from './Menu';
+export {
+  Popover,
+  type PopoverHelpers,
+  type PopoverProps,
+  type PopoverTriggerRenderProps,
+} from './Popover';
 export { PaneDivider, type PaneDividerOrientation, type PaneDividerProps } from './PaneDivider';
 export { Segmented, type SegmentedOption, type SegmentedProps } from './Segmented';
 export { Select, type SelectProps } from './Select';

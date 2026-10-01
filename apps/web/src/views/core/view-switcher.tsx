@@ -1,7 +1,7 @@
 import { Icon, focusRing } from '@nix/ui';
 import { FileText, List as ListIcon, TriangleAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 import { DOCUMENT_VIEW, type View } from './container-model';
 import { findViewKind } from './view-kinds';
@@ -47,6 +47,29 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
   }
 
   return (
+    <ViewStrip
+      views={views}
+      unrenderable={unrenderable}
+      activeViewId={activeViewId}
+      onSelect={onSelect}
+      {...(documentLabel === undefined ? {} : { documentLabel })}
+    />
+  );
+}
+
+function ViewStrip(props: ViewSwitcherProps): ReactNode {
+  const { views, unrenderable, activeViewId, onSelect, documentLabel } = props;
+  const stripRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const strip = stripRef.current;
+    const current = strip?.querySelector<HTMLElement>('[aria-current="page"]');
+    // `nearest` so a tab already on screen does not move. jsdom has no `scrollIntoView`; the test
+    // setup supplies one.
+    current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeViewId]);
+
+  return (
     // px-8, not px-4: this nav's own box sits in the same left-reading edge as the item header
     // above it (`ItemHeader`, `px-8 pb-3 pt-4`) and the document body below it (`NoteEditor`,
     // `px-8 py-6`) - the first tab's border, not its label, is what lines up at that edge, the
@@ -56,7 +79,16 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
     // view's own content (board, gallery, list, calendar, timeline) carries no horizontal padding
     // of its own at all, and this correction widens rather than closes that separate mismatch - see
     // the rhythm specimen's own note on the point (`rhythm-specimen.tsx`).
-    <nav aria-label="Views" className="flex items-center gap-1 px-8 py-1.5">
+    //
+    // **One row that scrolls, never one that wraps.** A container with six views on a phone used to
+    // push the strip onto three lines above the content it switches between. The row now scrolls
+    // sideways, snapping to tabs, and the current tab is brought into view when it changes - so a
+    // view chosen at the far end is not selected somewhere off screen.
+    <nav
+      ref={stripRef}
+      aria-label="Views"
+      className="flex snap-x items-center gap-1 overflow-x-auto px-8 py-1.5"
+    >
       {documentLabel === undefined ? null : (
         <SwitcherTab
           icon={FileText}
@@ -111,7 +143,9 @@ function SwitcherTab({ icon, label, active, broken, onSelect }: SwitcherTabProps
       aria-current={active ? 'page' : undefined}
       onClick={onSelect}
       className={[
-        'flex items-center gap-1.5 border px-2 py-1 text-sm',
+        // Shrink-free and snapping, so a scrolled strip stops on a tab rather than half of one, and
+        // a full touch target on a coarse pointer, where 28px is smaller than a fingertip.
+        'flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap border px-2 py-1 text-sm pointer-coarse:min-h-(--control-lg)',
         focusRing,
         active
           ? 'border-divider bg-foreground/7 text-foreground'

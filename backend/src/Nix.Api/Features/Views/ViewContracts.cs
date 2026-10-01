@@ -53,9 +53,10 @@ namespace Nix.Features.Views;
 /// looked like. Anything else is refused on write; the set is closed.
 /// </param>
 /// <param name="Filters">
-/// Query views: the conditions the server compiles and runs, AND-combined. Empty means no
-/// conditions - for a query view, everything the reader can see, newest first. Stored and ignored
-/// on every other kind.
+/// The conditions a view's items must meet, AND-combined. Empty means no conditions - for a query
+/// view, everything the reader can see, newest first. A query view compiles them across the
+/// workspace; a list, board, calendar, timeline, gallery or sheet applies them to the container's
+/// own children. A chart stores them without applying them (ADR-0054).
 /// </param>
 /// <remarks>
 /// <b>There is no placement or layout field, and there will not be one.</b> Where a card sits is
@@ -83,20 +84,47 @@ internal sealed record ViewResponse(
     InteractiveFormContract? InteractiveForm,
     string? Measure,
     string? MeasureProperty,
+    IReadOnlyList<ViewSortContract> Sorts,
+    IReadOnlyList<string> CollapsedGroups,
+    IReadOnlyList<ViewGroupLimitContract> GroupLimits,
+    IReadOnlyList<ViewAggregateContract> Aggregates,
     IReadOnlyList<HabitWidgetContract>? HabitWidgets = null,
     string? Layout = null);
 
-/// <summary>One condition of a query view.</summary>
+/// <summary>One key a view orders by; the first is mirrored into <c>sortBy</c>.</summary>
+/// <param name="Property">The property key, or <c>title</c>.</param>
+/// <param name="Descending">Which way.</param>
+internal sealed record ViewSortContract(string Property, bool Descending);
+
+/// <summary>A soft limit on one group's size, shown and never enforced.</summary>
+/// <param name="Group">The grouping property's stored value; empty for the "no value" group.</param>
+/// <param name="Limit">From 1 to 999.</param>
+internal sealed record ViewGroupLimitContract(string Group, int Limit);
+
+/// <summary>The summary a list or sheet shows beneath one column.</summary>
+/// <param name="Property">The property key.</param>
+/// <param name="Function">
+/// One of: <c>count</c>, <c>count-empty</c>, <c>count-filled</c>, <c>sum</c>, <c>average</c>,
+/// <c>min</c>, <c>max</c>, <c>percent-checked</c>.
+/// </param>
+internal sealed record ViewAggregateContract(string Property, string Function);
+
+/// <summary>One condition of a view's filter.</summary>
 /// <param name="Property">The property key the condition tests, matched across containers.</param>
 /// <param name="Operator">
 /// One of: <c>equals</c>, <c>not-equals</c>, <c>on</c>, <c>before</c>, <c>on-or-after</c>,
-/// <c>within-next</c>. A closed set, refused outside it.
+/// <c>within-next</c>, <c>contains</c>, <c>not-contains</c>, <c>greater-than</c>, <c>less-than</c>,
+/// <c>is-empty</c>, <c>is-not-empty</c>. A closed set, refused outside it. A query view may use only
+/// the first six.
 /// </param>
 /// <param name="Value">
 /// What the operator compares against: a literal for the equality pair; <c>today</c> or a
 /// <c>yyyy-MM-dd</c> date for <c>on</c>/<c>before</c>/<c>on-or-after</c>; a day count from 1 to
-/// 365 for <c>within-next</c>. <c>today</c> is resolved at read time from the caller's own
-/// <c>today</c> parameter, so a saved query stays a rule rather than a date.
+/// 365 for <c>within-next</c>; a literal for <c>contains</c>/<c>not-contains</c>, matched as a
+/// case-insensitive substring of text or as one multi-select option exactly; a finite invariant
+/// number for <c>greater-than</c>/<c>less-than</c>; empty for <c>is-empty</c>/<c>is-not-empty</c>.
+/// <c>today</c> is resolved at read time from the caller's own <c>today</c> parameter, so a saved
+/// query stays a rule rather than a date.
 /// </param>
 /// <remarks>
 /// Rules combine with AND. Whether the property exists is deliberately not checked - the query
@@ -216,7 +244,11 @@ internal sealed record ViewRequest(
     string? Measure = null,
     string? MeasureProperty = null,
     IReadOnlyList<HabitWidgetContract>? HabitWidgets = null,
-    string? Layout = null);
+    string? Layout = null,
+    IReadOnlyList<ViewSortContract>? Sorts = null,
+    IReadOnlyList<string>? CollapsedGroups = null,
+    IReadOnlyList<ViewGroupLimitContract>? GroupLimits = null,
+    IReadOnlyList<ViewAggregateContract>? Aggregates = null);
 
 /// <summary>A configured embedded habit chart.</summary>
 internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);

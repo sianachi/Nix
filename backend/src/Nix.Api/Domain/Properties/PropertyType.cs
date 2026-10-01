@@ -134,11 +134,13 @@ public enum PropertyType
     /// which is the property a binding actually needs.
     /// </para>
     /// <para>
-    /// <b>Not groupable and not calendar-placeable.</b> Grouping a board by a raw identifier would
-    /// title every column with a UUID nobody can read - the same reason <see cref="Select"/> and
-    /// not <see cref="Text"/> is what a board groups by. It carries no options either: the set of
-    /// principals somebody could assign to is a workspace membership fact, not a per-schema
-    /// declared list, and offering it belongs to the surface that reads membership.
+    /// <b>Not groupable yet, and not chartable or calendar-placeable.</b> Grouping a board by it is
+    /// decided (ADR-0054) - each column titled by the member's name, resolved on the client from
+    /// workspace membership - and lands with the web board work that can draw it. A chart's
+    /// server-folded buckets would be titled by the raw identifier, so charts will not. It carries
+    /// no options either: the set of principals somebody could assign to is a workspace membership
+    /// fact, not a per-schema declared list, and offering it belongs to the surface that reads
+    /// membership.
     /// </para>
     /// <para>
     /// <b>Task-semantic</b>, taking the reserved key <c>assignee</c> under ADR-0042's rule: a
@@ -369,15 +371,35 @@ public static class PropertyTypes
     public static bool HasOptions(this PropertyType type) =>
         type is PropertyType.Select or PropertyType.MultiSelect;
 
-    /// <summary>Whether a board may group by this type.</summary>
+    /// <summary>Whether a board, list, sheet or gallery may group by this type.</summary>
     /// <param name="type">The type.</param>
-    /// <returns><see langword="true"/> when grouping produces a bounded set of columns.</returns>
+    /// <returns><see langword="true"/> when grouping produces a bounded set of groups.</returns>
     /// <remarks>
-    /// Single-select only. Grouping by free text would produce a column per distinct value, which
-    /// is a board nobody can read; grouping by a multi-select would put one card in several
-    /// columns, and then dragging it between them has no defined meaning.
+    /// <para>
+    /// Single-select only for now. Grouping by free text or a number would produce a group per
+    /// distinct value, which is a board nobody can read.
+    /// </para>
+    /// <para>
+    /// Grouping by a multi-select, checkbox, completion, priority or assignee is decided
+    /// (ADR-0054): a multi-select item sits in each group it carries and a move swaps one option
+    /// for the other, and an assignee group is titled by the member's name on the client. It
+    /// widens here together with the web board that can draw those groups, and with
+    /// <c>canGroupBy</c> in <c>packages/structure-spec</c>; the catalog parity test holds the two
+    /// to the same list.
+    /// </para>
     /// </remarks>
     public static bool CanGroupBy(this PropertyType type) => type is PropertyType.Select;
+
+    /// <summary>Whether a chart may bucket its bars by this type.</summary>
+    /// <param name="type">The type.</param>
+    /// <returns><see langword="true"/> for a single select.</returns>
+    /// <remarks>
+    /// Kept apart from <see cref="CanGroupBy"/> so the two can widen apart: a chart's buckets are
+    /// folded on the server (<c>RunItemChart</c>), which reads one select value per item. A
+    /// multi-select would count an item in several bars and an assignee bar would be labelled by
+    /// an identifier.
+    /// </remarks>
+    public static bool CanChartBy(this PropertyType type) => type is PropertyType.Select;
 
     /// <summary>Whether a calendar may place items by this type.</summary>
     /// <param name="type">The type.</param>

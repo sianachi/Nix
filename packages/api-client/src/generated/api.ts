@@ -4350,6 +4350,10 @@ export interface components {
       companionPlacement: null | string;
       interactiveForm: null | components['schemas']['TemplateInteractiveFormResponse'];
       layout?: null | string;
+      sorts?: null | components['schemas']['ViewSortContract'][];
+      collapsedGroups?: null | string[];
+      groupLimits?: null | components['schemas']['ViewGroupLimitContract'][];
+      aggregates?: null | components['schemas']['ViewAggregateContract'][];
     };
     TokenExchangeRequest: {
       token: null | string;
@@ -4413,6 +4417,15 @@ export interface components {
       effect: string;
       breaksInheritance: boolean;
     };
+    ViewAggregateContract: {
+      property: string;
+      function: string;
+    };
+    ViewGroupLimitContract: {
+      group: string;
+      /** Format: int32 */
+      limit: number | string;
+    };
     ViewRequest: {
       id: string;
       name: string;
@@ -4435,6 +4448,10 @@ export interface components {
       measureProperty?: null | string;
       habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
       layout?: null | string;
+      sorts?: null | components['schemas']['ViewSortContract'][];
+      collapsedGroups?: null | string[];
+      groupLimits?: null | components['schemas']['ViewGroupLimitContract'][];
+      aggregates?: null | components['schemas']['ViewAggregateContract'][];
     };
     ViewResponse: {
       id: string;
@@ -4456,8 +4473,16 @@ export interface components {
       interactiveForm: null | components['schemas']['InteractiveFormContract'];
       measure: null | string;
       measureProperty: null | string;
+      sorts: components['schemas']['ViewSortContract'][];
+      collapsedGroups: string[];
+      groupLimits: components['schemas']['ViewGroupLimitContract'][];
+      aggregates: components['schemas']['ViewAggregateContract'][];
       habitWidgets?: null | components['schemas']['HabitWidgetContract'][];
       layout?: null | string;
+    };
+    ViewSortContract: {
+      property: string;
+      descending: boolean;
     };
     WatchItemResponse: {
       /** Format: uuid */

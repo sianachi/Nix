@@ -1,4 +1,4 @@
-import { PRIORITY_LEVELS } from '../../properties/property-input';
+import { PRIORITY_LEVELS } from '../../properties/priority-levels';
 import type { PropertyDefinition } from '../core/container-model';
 import { unnamedMember, type MemberNameOf } from './member-name';
 
@@ -16,7 +16,8 @@ export function valueText(
   memberName: MemberNameOf = unnamedMember,
 ): string {
   if (definition?.type === 'priority') {
-    return PRIORITY_LEVELS.find((level) => String(level.value) === stored)?.label ?? stored;
+    const level = PRIORITY_LEVELS.find((candidate) => String(candidate.value) === stored);
+    return level === undefined ? stored : `${String(level.value)} - ${level.word}`;
   }
   if (definition?.type === 'assignee') {
     return memberName(stored);

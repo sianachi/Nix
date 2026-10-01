@@ -4,6 +4,7 @@ export {
   type CatalogRecipe,
   type CatalogRollupAggregate,
   type CatalogSmartList,
+  type CatalogViewKind,
   buildCatalog,
   renderChat,
   renderConsult,

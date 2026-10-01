@@ -19,7 +19,7 @@ import {
   focusRingInset,
   inkWashStates,
 } from '../primitives/interaction';
-import { placeFloatingMenu, readViewportBounds } from '../primitives/placement';
+import { useAnchoredPanel } from './use-anchored-panel';
 
 /**
  * <Menu> - a button that discloses a list of actions and links.
@@ -323,9 +323,9 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
 
   // The latest callbacks, read by effects that must not re-run - and re-place or re-bind - every
   // time a caller passes a fresh closure.
-  const latest = useRef({ anchor, onClose });
+  const latest = useRef({ onClose });
   useEffect(() => {
-    latest.current = { anchor, onClose };
+    latest.current = { onClose };
   });
 
   const moveActive = (direction: 1 | -1): void => {
@@ -375,58 +375,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
 
   // Placement: anchored below its anchor, flipped above and clamped 8px inside the visual
   // viewport - see `<Menu>`'s doc comment for why `visualViewport` and not `window` alone.
-  useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-
-    const margin = 8;
-
-    const place = (): void => {
-      const desktop =
-        typeof matchMedia === 'function' ? matchMedia('(min-width: 640px)').matches : true;
-      if (!desktop) {
-        // Below `sm`, the panel is a bottom sheet laid out entirely in CSS (see `panelClass`
-        // below); an inline position here would only have to be cleared again above.
-        panel.style.removeProperty('top');
-        panel.style.removeProperty('left');
-        panel.style.removeProperty('transform');
-        panel.style.removeProperty('max-height');
-        return;
-      }
-
-      const anchorRect = latest.current.anchor();
-      if (anchorRect === null) return;
-      const panelRect = panel.getBoundingClientRect();
-
-      // `minHeight` set to the panel's own measured height (plus the same margin) flips it
-      // whenever there is not enough room below for the panel as rendered.
-      const placement = placeFloatingMenu(anchorRect, panelRect.width, readViewportBounds(), {
-        minHeight: panelRect.height + margin,
-      });
-
-      // A long menu (for example the workspace creator with many templates) can be taller than
-      // either side of its anchor. Cap it to the side we chose before positioning, then let the
-      // panel's existing overflow-y-auto make the entries reachable by scrolling.
-      panel.style.setProperty('max-height', `${String(placement.maxHeight)}px`);
-      panel.style.setProperty('left', `${String(placement.left)}px`);
-      panel.style.setProperty(
-        'top',
-        `${String(placement.above ? placement.top - 4 : placement.top + 4)}px`,
-      );
-      panel.style.setProperty('transform', placement.above ? 'translateY(-100%)' : 'none');
-    };
-
-    place();
-    const viewport = window.visualViewport;
-    window.addEventListener('resize', place);
-    viewport?.addEventListener('resize', place);
-    viewport?.addEventListener('scroll', place);
-    return () => {
-      window.removeEventListener('resize', place);
-      viewport?.removeEventListener('resize', place);
-      viewport?.removeEventListener('scroll', place);
-    };
-  }, [items.length]);
+  useAnchoredPanel(panelRef, anchor, items.length);
 
   // Attached once, to the panel, rather than once per item: it is what lets Escape close the menu
   // from a `content` entry's own controls (the profile menu's appearance radios, the workspace

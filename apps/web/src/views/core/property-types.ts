@@ -7,6 +7,8 @@
  */
 
 export {
+  canChartBy,
+  canGroupBy,
   foldNeedsProperty,
   isComputedType,
   isDateShaped,

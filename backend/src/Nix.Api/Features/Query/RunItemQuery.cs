@@ -162,6 +162,16 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
                         $"A stored filter no longer validates ({reason}), so the query was not "
                         + "run. Edit the view's filters and save them again."));
             }
+
+            // The write path refuses these on a query view; a rule that reached the column some
+            // other way is refused here rather than at the compiler, which has no arm for it.
+            if (!QueryOperators.CompiledByQuery.Contains(rule.Operator))
+            {
+                return Result.Failure<ItemQueryResults>(
+                    QueryErrors.InvalidRules(
+                        $"A query view cannot yet filter with '{rule.Operator}', so the query was "
+                        + "not run. Edit the view's filters and save them again."));
+            }
         }
 
         // Resolved here, not in the compiler: QuerySql is a static class with no session to read

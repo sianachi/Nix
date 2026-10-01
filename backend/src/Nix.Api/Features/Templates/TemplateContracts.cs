@@ -3,6 +3,8 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Nix.Domain.Templates;
 
+using Nix.Features.Views;
+
 namespace Nix.Features.Templates;
 
 [JsonConverter(typeof(JsonStringEnumConverter<TemplateOriginResponse>))]
@@ -132,7 +134,11 @@ internal sealed record TemplateViewResponse(
     string? CompanionViewId,
     string? CompanionPlacement,
     TemplateInteractiveFormResponse? InteractiveForm,
-    string? Layout = null);
+    string? Layout = null,
+    IReadOnlyList<ViewSortContract>? Sorts = null,
+    IReadOnlyList<string>? CollapsedGroups = null,
+    IReadOnlyList<ViewGroupLimitContract>? GroupLimits = null,
+    IReadOnlyList<ViewAggregateContract>? Aggregates = null);
 
 internal sealed record TemplateStoredViewsResponse(
     IReadOnlyList<TemplateViewResponse> Views,

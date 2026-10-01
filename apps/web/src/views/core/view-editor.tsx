@@ -7,15 +7,8 @@ import { STRUCTURED_RECIPES } from '../wizard/structured-recipes';
 import type { View } from './container-model';
 import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
+import { viewConfigureHref } from './view-configure-route';
 import { findViewKind } from './view-kinds';
-
-function guidedRecipeFor(kind: string): (typeof STRUCTURED_RECIPES)[number] | null {
-  return (
-    STRUCTURED_RECIPES.find((recipe) => recipe.viewKind === kind && recipe.menu === 'structured') ??
-    STRUCTURED_RECIPES.find((recipe) => recipe.viewKind === kind) ??
-    null
-  );
-}
 
 /**
  * Adding and configuring the ways a folder can be looked at.
@@ -150,13 +143,11 @@ export function ViewEditor({
 
               <Button
                 variant="secondary"
-                disabled={container.itemId === null || guidedRecipeFor(view.kind) === null}
+                disabled={viewConfigureHref(container.itemId, view) === null}
                 onClick={() => {
-                  const guidedRecipe = guidedRecipeFor(view.kind);
-                  if (container.itemId !== null && guidedRecipe !== null) {
-                    void navigate(
-                      `/items/${container.itemId}/views/${encodeURIComponent(view.id)}/edit/${guidedRecipe.id}`,
-                    );
+                  const href = viewConfigureHref(container.itemId, view);
+                  if (href !== null) {
+                    void navigate(href);
                   }
                 }}
               >

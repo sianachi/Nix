@@ -130,6 +130,22 @@ describe('validateSpec create_structured', () => {
     expect(report.problems.some((problem) => problem.path === 'views[0]')).toBe(true);
   });
 
+  // Grouping by a multi-select is decided (ADR-0054) but staged: the web board cannot draw one
+  // item in several columns yet, so a board refuses it here exactly as a chart does.
+  it.each(['board', 'chart'])('refuses a %s grouped by a multi-select', (kind) => {
+    const report = validateSpec(
+      'create_structured',
+      {
+        recipe: 'sheet',
+        fields: [{ label: 'Tags', type: 'multi_select', options: ['Red', 'Blue'] }],
+        views: [{ kind, groupBy: 'tags' }],
+      },
+      context(),
+    );
+    expect(report.ok).toBe(false);
+    expect(report.problems.some((problem) => problem.path === 'views[0]')).toBe(true);
+  });
+
   it('reports an unknown form field at its page and block indices', () => {
     const report = validateSpec(
       'create_structured',
