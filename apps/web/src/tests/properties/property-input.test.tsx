@@ -10,6 +10,10 @@ import {
   type WorkspaceMembersState,
 } from '../../settings/use-workspace-members';
 
+// A date-or-time property is read and written in the reader's own zone, so it needs one fixed for
+// the round trip to be predictable - the same reason collated-calendar.test.tsx fixes one.
+process.env.TZ = 'Pacific/Honolulu';
+
 /**
  * The hook is mocked at the module boundary rather than driven through a real fetch: everything
  * this file needs to assert is how `PropertyInput` renders each of the hook's states, not how the
@@ -339,6 +343,99 @@ describe('a property input', () => {
     expect(control).toHaveValue('next Tuesday');
     expect(control).toHaveAttribute('readonly');
     expect(screen.getByText(/is not a date this field can show/)).toBeVisible();
+  });
+
+  it('shows a date-or-time property holding a bare date as all-day, with no time filled in', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ starts: '2026-03-17' })}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Starts')).toHaveValue('2026-03-17');
+    expect(screen.getByLabelText('Time for Starts')).toHaveValue('');
+  });
+
+  it('shows a date-or-time property holding a moment as its date and time in the reader zone', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ starts: '2026-03-17T09:00:00-10:00[Pacific/Honolulu]' })}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Starts')).toHaveValue('2026-03-17');
+    expect(screen.getByLabelText('Time for Starts')).toHaveValue('09:00');
+  });
+
+  it('commits a bare date when no time is given, exactly as a date property would', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.type(screen.getByLabelText('Starts'), '2026-03-17');
+
+    expect(onCommit).toHaveBeenCalledWith('2026-03-17');
+  });
+
+  it('commits an RFC 9557 timestamp, in the reader zone, once a time is given', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ starts: '2026-03-17' })}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.type(screen.getByLabelText('Time for Starts'), '0900AM');
+
+    expect(onCommit).toHaveBeenCalledWith('2026-03-17T09:00:00-10:00[Pacific/Honolulu]');
+  });
+
+  it('returns a timed value to all-day when the time is cleared', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+
+    render(
+      <PropertyInput
+        item={itemWith({ starts: '2026-03-17T09:00:00-10:00[Pacific/Honolulu]' })}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    await person.clear(screen.getByLabelText('Time for Starts'));
+    await person.tab();
+
+    expect(onCommit).toHaveBeenCalledWith('2026-03-17');
+  });
+
+  it('leaves a stored value that is neither a date nor a time alone rather than offering to overwrite it', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ starts: 'next Tuesday' })}
+        property={propertyOf({ key: 'starts', label: 'Starts', type: 'datetime' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    const control = screen.getByRole('textbox', { name: 'Starts' });
+    expect(control).toHaveValue('next Tuesday');
+    expect(control).toHaveAttribute('readonly');
+    expect(screen.getByText(/is not a date or a time this field can show/)).toBeVisible();
   });
 
   it('shows a type it does not know as the value that is stored, read-only, and says so', () => {
@@ -794,5 +891,51 @@ describe('a rollup property', () => {
     );
 
     expect(screen.getByText(/How many of the items inside this one/)).toBeVisible();
+  });
+
+  it('writes a reminder as an RFC 9557 moment in the reader’s zone, which is what Core accepts', () => {
+    const onCommit = vi.fn();
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    const control = screen.getByLabelText('Reminder');
+    fireEvent.change(control, { target: { value: '2099-03-17T09:30' } });
+    fireEvent.blur(control);
+
+    expect(onCommit).toHaveBeenCalledWith('2099-03-17T09:30:00-10:00[Pacific/Honolulu]');
+    expect(screen.getByText(/in Pacific\/Honolulu/)).toBeVisible();
+  });
+
+  it('shows a stored reminder on the reader’s own clock and clears it with its own control', async () => {
+    const person = userEvent.setup();
+    const onCommit = vi.fn();
+    render(
+      <PropertyInput
+        item={itemWith({ reminder: '2099-03-17T19:30:00+00:00[Europe/London]' })}
+        property={propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' })}
+        onCommit={onCommit}
+      />,
+    );
+
+    expect(screen.getByLabelText('Reminder')).toHaveValue('2099-03-17T09:30');
+    await person.click(screen.getByRole('button', { name: 'Clear reminder for Reminder' }));
+    expect(onCommit).toHaveBeenCalledWith(null);
+  });
+
+  it('says when a reminder’s time has already passed', () => {
+    render(
+      <PropertyInput
+        item={itemWith({ reminder: '2020-01-01T09:00:00-10:00[Pacific/Honolulu]' })}
+        property={propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' })}
+        onCommit={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/This time has passed/)).toBeVisible();
   });
 });

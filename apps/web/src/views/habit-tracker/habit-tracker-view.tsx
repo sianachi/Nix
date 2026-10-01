@@ -886,6 +886,9 @@ function HabitSetup({
     new Set(initial?.weekdays ?? [1, 2, 3, 4, 5]),
   );
   const [timezone, setTimezone] = useState(initial?.timezone ?? localTimeZone());
+  // Empty means no reminder. Core fires it at this local time, in the habit's own zone, on a
+  // scheduled day that has no check-in yet (ADR-0051 section 4).
+  const [reminderTime, setReminderTime] = useState(initial?.reminderTime ?? '');
   return (
     <form
       className="flex flex-wrap items-end gap-3 border border-divider p-4"
@@ -900,6 +903,7 @@ function HabitSetup({
           startDate,
           target: Number(target),
           unit: unit.trim() || 'times',
+          reminderTime: reminderTime === '' ? null : reminderTime,
         }).then((refusal) => {
           setError(refusal);
           setPending(false);
@@ -974,6 +978,18 @@ function HabitSetup({
             value={timezone}
             onChange={(event) => {
               setTimezone(event.target.value);
+            }}
+          />
+        )}
+      </Field>
+      <Field label="Reminder time" hint="Leave empty for no reminder.">
+        {(control) => (
+          <Input
+            {...control}
+            type="time"
+            value={reminderTime}
+            onChange={(event) => {
+              setReminderTime(event.target.value);
             }}
           />
         )}

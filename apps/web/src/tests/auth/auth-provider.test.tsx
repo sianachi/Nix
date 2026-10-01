@@ -3,10 +3,11 @@ import * as drafts from '../../editor/draft-journal';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode, useState } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthProvider, useAuth } from '../../auth/auth-provider';
 import { useSessionStore } from '../../auth/session-store';
+import * as registerServiceWorker from '../../pwa/register-service-worker';
 
 const future = '2099-01-01T00:00:00+00:00';
 
@@ -83,6 +84,10 @@ function renderProvider(strict = false): ReturnType<typeof render> {
 
 beforeEach(() => {
   useSessionStore.setState({ status: 'unknown', profile: null, error: null });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('Core-mediated browser sessions', () => {
@@ -344,6 +349,71 @@ describe('Core-mediated browser sessions', () => {
     expect(useSessionStore.getState().error).toBeNull();
     await user.click(screen.getByRole('button', { name: 'Read access token' }));
     expect(await screen.findByText('No token')).toBeInTheDocument();
+  });
+
+  it('unsubscribes this device from push, and reports it to Core, before the Core session ends', async () => {
+    const user = userEvent.setup();
+    const unsubscribe = vi.fn().mockResolvedValue(true);
+    const getSubscription = vi
+      .fn()
+      .mockResolvedValue({ endpoint: 'https://push.example/device-1', unsubscribe });
+    vi.spyOn(registerServiceWorker, 'getServiceWorkerRegistration').mockReturnValue({
+      pushManager: { getSubscription },
+    } as unknown as ServiceWorkerRegistration);
+
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(authenticated())
+      .mockResolvedValueOnce(new Response(null, { status: 204 })) // the push-subscription DELETE
+      .mockResolvedValueOnce(new Response(null, { status: 204 })) // /auth/logout
+      .mockResolvedValueOnce(json({}, 401));
+    vi.stubGlobal('fetch', fetch);
+    renderProvider();
+    await screen.findByText('authenticated');
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByText('anonymous')).toBeInTheDocument();
+
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/v1/me/push-subscriptions', {
+      method: 'DELETE',
+      credentials: 'include',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer core-session-token',
+      },
+      body: JSON.stringify({ endpoint: 'https://push.example/device-1' }),
+    });
+    // The unsubscribe runs before the bearer token is cleared, and before the cookie session
+    // ends - the whole point is to still be able to authenticate the DELETE.
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      '/auth/logout',
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
+
+  it('signs out normally when there is no push subscription to remove', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(registerServiceWorker, 'getServiceWorkerRegistration').mockReturnValue(undefined);
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(authenticated())
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(json({}, 401));
+    vi.stubGlobal('fetch', fetch);
+    renderProvider();
+    await screen.findByText('authenticated');
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByText('anonymous')).toBeInTheDocument();
+    // No registration means nothing to unsubscribe - straight to /auth/logout as the first call.
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      '/auth/logout',
+      expect.objectContaining({ method: 'POST' }),
+    );
   });
 
   it('explains that the session expired when a renew finds it gone, unlike a deliberate sign-out', async () => {

@@ -135,6 +135,18 @@ public sealed class AccessTokenScopePolicyTests
         ["GetPetConnection"] = Requirement.InteractiveOnly,
         ["PetRuntime"] = Requirement.InteractiveOnly,
         ["WatchPetRuntime"] = Requirement.InteractiveOnly,
+
+        // Reading either is a normal Read; a PAT-driven automation should never be able to
+        // change where reminders are pushed or which devices receive them.
+        ["GetPreferences"] = Requirement.Read,
+        ["SavePreferences"] = Requirement.InteractiveOnly,
+        ["ListNotifications"] = Requirement.Read,
+        ["MarkNotificationRead"] = Requirement.Write,
+        ["MarkAllNotificationsRead"] = Requirement.Write,
+        ["WatchNotifications"] = Requirement.Read,
+        ["AddPushSubscription"] = Requirement.InteractiveOnly,
+        ["RemovePushSubscription"] = Requirement.InteractiveOnly,
+        ["GetPushPublicKey"] = Requirement.Read,
         ["CreateItem"] = Requirement.Write,
         ["CreateStructuredItem"] = Requirement.Write,
         ["SubmitPublicForm"] = Requirement.Write,
@@ -189,6 +201,18 @@ public sealed class AccessTokenScopePolicyTests
         ["SetWorkspacePluginEnabled"] = Requirement.Admin,
         ["ReplaceWorkspacePluginCapabilities"] = Requirement.Admin,
 
+        // Automations act later as their owner, unattended, with that owner's write access
+        // (ADR-0051 section 6): creating, changing, running or deleting one is an admin-scope
+        // capability for a token, never an ordinary write. Reading them stays a read.
+        ["ListAutomations"] = Requirement.Read,
+        ["GetAutomation"] = Requirement.Read,
+        ["ListAutomationRuns"] = Requirement.Read,
+        ["CreateAutomation"] = Requirement.Admin,
+        ["UpdateAutomation"] = Requirement.Admin,
+        ["DeleteAutomation"] = Requirement.Admin,
+        ["RunAutomation"] = Requirement.Admin,
+        ["TestAutomation"] = Requirement.Admin,
+
         // A token never manages tokens, whatever it holds.
         ["ListAccessTokens"] = Requirement.InteractiveOnly,
         ["CreateAccessToken"] = Requirement.InteractiveOnly,
@@ -233,6 +257,50 @@ public sealed class AccessTokenScopePolicyTests
         var stale = ExpectedByOperation.Keys.Except(seen, StringComparer.Ordinal).ToList();
         Assert.True(stale.Count == 0, "Classified but not in the contract: " + string.Join(", ", stale));
     }
+
+    [Theory]
+    [InlineData("PUT", "/api/v1/me/preferences")]
+    [InlineData("PUT", "/api/v1/me/preferences/")]
+    [InlineData("POST", "/api/v1/me/push-subscriptions/")]
+    [InlineData("DELETE", "/api/v1/me/push-subscriptions//")]
+    public void A_trailing_slash_does_not_turn_an_interactive_only_write_into_a_token_write(string method, string path)
+    {
+        // ASP.NET routing treats "/x/" as "/x", so the classifier must too.
+        var requirement = Classify(method, path);
+
+        Assert.Equal(Requirement.InteractiveOnly, requirement);
+        Assert.False(Satisfies([AccessTokenScopes.Read, AccessTokenScopes.Write, AccessTokenScopes.Admin], requirement));
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/v1/items/00000000-0000-0000-0000-000000000001/move/")]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/leave/")]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/archive/")]
+    [InlineData("GET", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/invitees/")]
+    public void A_trailing_slash_does_not_lower_an_admin_route(string method, string path) =>
+        Assert.Equal(Requirement.Admin, Classify(method, path));
+
+    [Theory]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/automations")]
+    [InlineData("POST", "/api/v1/workspaces/00000000-0000-0000-0000-000000000001/automations/")]
+    [InlineData("PUT", "/api/v1/automations/00000000-0000-0000-0000-000000000002")]
+    [InlineData("DELETE", "/api/v1/automations/00000000-0000-0000-0000-000000000002/")]
+    [InlineData("POST", "/api/v1/automations/00000000-0000-0000-0000-000000000002/run")]
+    [InlineData("POST", "/api/v1/automations/00000000-0000-0000-0000-000000000002/test")]
+    public void Automation_writes_need_admin_even_for_a_write_scoped_token(string method, string path)
+    {
+        var requirement = Classify(method, path);
+
+        Assert.Equal(Requirement.Admin, requirement);
+        Assert.False(Satisfies([AccessTokenScopes.Read, AccessTokenScopes.Write], requirement));
+    }
+
+    [Theory]
+    [InlineData("/api/v1/workspaces/00000000-0000-0000-0000-000000000001/automations")]
+    [InlineData("/api/v1/automations/00000000-0000-0000-0000-000000000002")]
+    [InlineData("/api/v1/automations/00000000-0000-0000-0000-000000000002/runs")]
+    public void Reading_automations_is_a_read(string path) =>
+        Assert.Equal(Requirement.Read, Classify("GET", path));
 
     [Theory]
     [InlineData("GET", "/api/v1/me/tokens")]

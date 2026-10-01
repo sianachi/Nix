@@ -274,6 +274,7 @@
                       "multi_select",
                       "date",
                       "timestamp",
+                      "datetime",
                       "checkbox",
                       "url",
                       "image",
@@ -283,7 +284,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -652,6 +654,7 @@
                       "multi_select",
                       "date",
                       "timestamp",
+                      "datetime",
                       "checkbox",
                       "url",
                       "image",
@@ -661,7 +664,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -1183,6 +1187,7 @@
                           "multi_select",
                           "date",
                           "timestamp",
+                          "datetime",
                           "checkbox",
                           "url",
                           "image",
@@ -1192,7 +1197,8 @@
                           "priority",
                           "estimate",
                           "formula",
-                          "rollup"
+                          "rollup",
+                          "reminder"
                         ]
                       },
                       "options": {
@@ -1486,6 +1492,7 @@
                       "multi_select",
                       "date",
                       "timestamp",
+                      "datetime",
                       "checkbox",
                       "url",
                       "image",
@@ -1495,7 +1502,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -1742,6 +1750,7 @@
                       "multi_select",
                       "date",
                       "timestamp",
+                      "datetime",
                       "checkbox",
                       "url",
                       "image",
@@ -1751,7 +1760,8 @@
                       "priority",
                       "estimate",
                       "formula",
-                      "rollup"
+                      "rollup",
+                      "reminder"
                     ]
                   },
                   "options": {
@@ -2018,6 +2028,7 @@
                           "multi_select",
                           "date",
                           "timestamp",
+                          "datetime",
                           "checkbox",
                           "url",
                           "image",
@@ -2027,7 +2038,8 @@
                           "priority",
                           "estimate",
                           "formula",
-                          "rollup"
+                          "rollup",
+                          "reminder"
                         ]
                       },
                       "options": {

@@ -18,12 +18,18 @@ export function TemplateItemPicker({
   value,
   loadedItems,
   onChange,
+  choiceLabel = 'Choose item',
+  noneLabel = 'No item selected',
 }: {
   readonly label: string;
   readonly hint?: string;
   readonly value: string;
   readonly loadedItems: readonly TreeItem[];
   readonly onChange: (value: string | null) => void;
+  /** Names the chooser; a page with several pickers gives each its own so no two share a name. */
+  readonly choiceLabel?: string;
+  /** What choosing nothing means here, such as "The whole workspace". */
+  readonly noneLabel?: string;
 }): ReactNode {
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
@@ -107,11 +113,17 @@ export function TemplateItemPicker({
     void client
       .query(coreItems.itemById(value), { signal: controller.signal, forceRefresh: true })
       .then((item) => {
-        if (!controller.signal.aborted && item.workspaceId === workspaceId) {
-          setSelected({ id: item.id, title: item.title });
-        }
+        if (controller.signal.aborted) return;
+        setSelected({
+          id: item.id,
+          title: item.workspaceId === workspaceId ? item.title : 'An item in another workspace',
+        });
       })
-      .catch(() => undefined);
+      .catch((cause: unknown) => {
+        if (controller.signal.aborted || isCanceledError(cause)) return;
+        // Still the chosen value: say so rather than let the chooser fall back to "none".
+        setSelected({ id: value, title: 'An item that could not be loaded' });
+      });
     return () => {
       controller.abort();
     };
@@ -122,8 +134,11 @@ export function TemplateItemPicker({
     for (const item of loadedItems) byId.set(item.id, { id: item.id, title: item.title });
     for (const item of visibleResults) byId.set(item.id, item);
     if (currentSelection !== null) byId.set(currentSelection.id, currentSelection);
+    // A chosen item whose title has not arrived yet is still chosen; without an option for it the
+    // select would show the first option and claim nothing was.
+    else if (value.length > 0) byId.set(value, { id: value, title: 'Loading the chosen item…' });
     return [...byId.values()].sort((left, right) => left.title.localeCompare(right.title));
-  }, [currentSelection, loadedItems, visibleResults]);
+  }, [currentSelection, loadedItems, value, visibleResults]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -140,7 +155,7 @@ export function TemplateItemPicker({
           />
         )}
       </Field>
-      <Field label="Choose item">
+      <Field label={choiceLabel}>
         {(control) => (
           <Select
             {...control}
@@ -149,7 +164,7 @@ export function TemplateItemPicker({
               onChange(event.target.value.length === 0 ? null : event.target.value);
             }}
           >
-            <option value="">No item selected</option>
+            <option value="">{noneLabel}</option>
             {choices.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.title}

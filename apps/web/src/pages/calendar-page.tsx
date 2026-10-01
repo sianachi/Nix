@@ -80,7 +80,7 @@ export function CalendarPage(): ReactElement {
   const anchor = anchorOf(params.get('on'), today);
   const window = windowFor(grain, anchor);
 
-  const { status, calendar, error, reload, reschedule, create } = useWorkspaceCalendar(
+  const { status, calendar, error, reload, reschedule, create, complete } = useWorkspaceCalendar(
     window.from,
     window.to,
   );
@@ -197,6 +197,9 @@ export function CalendarPage(): ReactElement {
           void reschedule(entry.itemId, entry.dateProperty, value);
         }}
         onCreate={create}
+        onComplete={(entry, occurredOn) => {
+          void complete(entry.itemId, occurredOn);
+        }}
       />
     </CalendarFrame>
   );

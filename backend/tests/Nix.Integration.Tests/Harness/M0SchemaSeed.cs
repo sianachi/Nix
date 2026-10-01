@@ -165,6 +165,8 @@ internal static class M0SchemaSeed
         var templateApplication = Literal(rows.TemplateApplicationId);
         var templateSource = Literal(rows.TemplateSourceId);
         var slug = rows.Slug;
+        const string automationTrigger = """{"type":"schedule","freq":"daily","interval":1,"time":"09:00","startDate":"2026-01-01"}""";
+        const string automationActions = """[{"type":"notify","title":"Seeded","body":""}]""";
         var pluginDigest = new string(slug == "alpha" ? 'A' : 'B', 64);
         var browserSessionHash = new string(slug == "alpha" ? 'a' : 'b', BrowserSession.TokenHashLength);
 
@@ -288,6 +290,77 @@ internal static class M0SchemaSeed
             -- seed holds one item per tenant, so this is the only pair there is to make.
             INSERT INTO bookmark (principal_id, tenant_id, item_id, created_at)
             VALUES ({principal}, {tenant}, {item}, now());
+
+            -- Upgrade tests also seed schemas from before reminders and the inbox existed.
+            DO $notifications$
+            BEGIN
+                IF to_regclass('public.principal_preferences') IS NOT NULL THEN
+                    INSERT INTO principal_preferences
+                        (tenant_id, principal_id, time_zone, quiet_start, quiet_end,
+                         due_reminder_time, due_reminders, habit_reminders, muted_container_ids, revision)
+                    VALUES ({tenant}, {principal}, 'Etc/UTC', NULL, NULL, '09:00', true, true, ARRAY[]::uuid[], 1);
+                END IF;
+
+                IF to_regclass('public.notification') IS NOT NULL THEN
+                    INSERT INTO notification
+                        (tenant_id, id, principal_id, kind, title, body, item_id, workspace_id, created_at, dedupe_key)
+                    VALUES ({tenant}, {auditEvent}, {principal}, 'system', '{slug} notification',
+                            '{slug} notification body', {item}, {workspace}, now(), '{slug}-notification-seed');
+                END IF;
+
+                IF to_regclass('public.push_subscription') IS NOT NULL THEN
+                    INSERT INTO push_subscription
+                        (tenant_id, id, principal_id, endpoint, p256dh, auth, user_agent, created_at, last_success_at, failures)
+                    VALUES ({tenant}, {acl}, {principal}, 'https://fcm.googleapis.com/fcm/send/{slug}',
+                            '{new string(slug == "alpha" ? 'p' : 'q', 87)}', '{new string(slug == "alpha" ? 'k' : 'j', 22)}',
+                            '{slug}-agent', now(), NULL, 0);
+                END IF;
+
+                IF to_regclass('public.notification_inbox') IS NOT NULL THEN
+                    INSERT INTO notification_inbox (tenant_id, principal_id, revision)
+                    VALUES ({tenant}, {principal}, 1);
+                END IF;
+            END $notifications$;
+
+            -- Upgrade tests also seed schemas from before the scheduler existed.
+            DO $scheduling$
+            BEGIN
+                IF to_regclass('public.scheduled_trigger') IS NOT NULL THEN
+                    INSERT INTO scheduled_trigger
+                        (tenant_id, id, workspace_id, principal_id, kind, source, source_item_id,
+                         rule_id, fire_at, dedupe_key, status, lease_owner, lease_until, attempts,
+                         detail, created_at, updated_at)
+                    VALUES ({tenant}, gen_random_uuid(), {workspace}, {principal}, 'system',
+                            'system.test', NULL, NULL, now() + interval '1 hour',
+                            '{slug}-trigger-seed', 'pending', NULL, NULL, 0, NULL, now(), now());
+                END IF;
+            END $scheduling$;
+
+            -- Upgrade tests also seed schemas from before automations existed. One owner-private
+            -- schedule rule, one run and one per-item state row per tenant, so the isolation
+            -- theories have a row of each to see and to try to relabel.
+            DO $automations$
+            BEGIN
+                IF to_regclass('public.automation_rule') IS NOT NULL THEN
+                    INSERT INTO automation_rule
+                        (id, tenant_id, workspace_id, owner_principal_id, name, enabled, scope_item_id,
+                         trigger_type, watch_key, trigger, conditions, actions, schema_version, revision,
+                         consecutive_failures, disabled_reason, last_run_at, created_at, updated_at)
+                    VALUES ({group}, {tenant}, {workspace}, {principal}, '{slug} rule', false, NULL,
+                            'schedule', NULL,
+                            '{automationTrigger}'::jsonb,
+                            '[]'::jsonb, '{automationActions}'::jsonb, 1, 1,
+                            0, NULL, NULL, now(), now());
+                    INSERT INTO automation_run
+                        (id, tenant_id, rule_id, owner_principal_id, workspace_id, item_id, trigger_key,
+                         origin, depth, status, detail, created_at)
+                    VALUES (gen_random_uuid(), {tenant}, {group}, {principal}, {workspace}, {item},
+                            '{slug}-run-seed', 'manual', 0, 'succeeded', NULL, now());
+                    INSERT INTO automation_item_state
+                        (tenant_id, rule_id, item_id, owner_principal_id, last_value_hash, last_fired_at)
+                    VALUES ({tenant}, {group}, {item}, {principal}, NULL, now());
+                END IF;
+            END $automations$;
 
             -- One published capability so the generic tenant-isolation theories exercise the
             -- public link table exactly as they do every other tenant-scoped table.

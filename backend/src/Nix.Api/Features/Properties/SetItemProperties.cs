@@ -39,6 +39,10 @@ public sealed record SetItemProperties(ItemId ItemId, string Changes) : ICommand
     // The trusted marker lives on the command, never the HTTP DTO. Only finance handlers in this
     // assembly set it after validating their domain write.
     internal bool FinanceWrite { get; init; }
+
+    // The same kind of trusted marker for the habit handlers, which alone may write $habit_ keys.
+    // It never admits a scheduler set-by key.
+    internal bool HabitWrite { get; init; }
 }
 
 /// <summary>Handles <see cref="SetItemProperties"/>.</summary>
@@ -99,6 +103,11 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(new NixError("finance.reserved_property", "Finance properties may only be written through the finance endpoints."));
         }
 
+        if (ContainsKeyMatching(changes, name => SchedulingReservedProperties.IsRefused(name, command.HabitWrite)))
+        {
+            return Result.Failure<Item>(SchedulingReservedProperties.Error);
+        }
+
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
@@ -150,10 +159,17 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(PropertyErrors.InvalidProperties(violations));
         }
 
+        // The one point this write's scheduled values, if any, are attributed - see
+        // ItemProperties.StampSetBy.
+        var stamped = ItemProperties.StampSetBy(
+            merged.Merged,
+            merged.Touched,
+            context.PrincipalId.ToString());
+
         await _tree
             .UpdatePropertiesAsync(
                 itemId,
-                merged.Merged,
+                stamped,
                 context.PrincipalId,
                 _clock.GetUtcNow(),
                 cancellationToken)
@@ -166,13 +182,16 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             : Result.Success(written);
     }
 
-    private static bool ContainsReservedFinanceKey(string changes)
+    private static bool ContainsReservedFinanceKey(string changes) =>
+        ContainsKeyMatching(changes, name => name.StartsWith("$fin_", StringComparison.Ordinal));
+
+    private static bool ContainsKeyMatching(string changes, Func<string, bool> matches)
     {
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(changes);
             return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
-                && document.RootElement.EnumerateObject().Any(property => property.Name.StartsWith("$fin_", StringComparison.Ordinal));
+                && document.RootElement.EnumerateObject().Any(property => matches(property.Name));
         }
         catch (System.Text.Json.JsonException)
         {

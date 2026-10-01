@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -16,31 +17,35 @@ type Settings struct {
 	CompanionConsultEffort string
 	// CompanionTrace turns on the full-content companion trace (NIX_COMPANION_TRACE); see
 	// companion/diagnostics.go. Off by default: it writes prompts and workspace content to disk.
-	CompanionTrace       bool
-	Address              string
-	InternalSecret       string
-	MaxInputBytes        int64
-	MaxLineBytes         int
-	MaxRecords           int
-	MaxTokens            int
-	RequestTimeout       time.Duration
-	InternalAPIURL       string
-	CollaborationURL     string
-	PollInterval         time.Duration
-	WorkerID             string
-	MaxConcurrency       int
-	OpenSearchURL        string
-	OpenSearchIndex      string
-	RabbitMQURL          string
-	WorkerRoles          string
-	LeaseDuration        time.Duration
-	RenewInterval        time.Duration
-	MaxMessageBytes      int
-	ObjectOrigins        []string
-	PluginMaxModuleBytes int64
-	PluginMemoryPages    int
-	PluginTimeout        time.Duration
-	PluginMaxHostCalls   int
+	CompanionTrace          bool
+	Address                 string
+	InternalSecret          string
+	MaxInputBytes           int64
+	MaxLineBytes            int
+	MaxRecords              int
+	MaxTokens               int
+	RequestTimeout          time.Duration
+	InternalAPIURL          string
+	CollaborationURL        string
+	PollInterval            time.Duration
+	WorkerID                string
+	MaxConcurrency          int
+	OpenSearchURL           string
+	OpenSearchIndex         string
+	RabbitMQURL             string
+	WorkerRoles             string
+	LeaseDuration           time.Duration
+	RenewInterval           time.Duration
+	MaxMessageBytes         int
+	ObjectOrigins           []string
+	PluginMaxModuleBytes    int64
+	PluginMemoryPages       int
+	PluginTimeout           time.Duration
+	PluginMaxHostCalls      int
+	CalendarGoogleOrigin    string
+	CalendarMicrosoftOrigin string
+	PushVAPIDPrivateKey     []byte
+	PushVAPIDSubject        string
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -104,37 +109,45 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_PLUGIN_MAX_HOST_CALLS: %w", err)
 	}
+	pushVAPIDPrivateKey, err := parseBase64URL(getenv("NIX_PUSH_VAPID_PRIVATE_KEY"))
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_PUSH_VAPID_PRIVATE_KEY: %w", err)
+	}
 	settings := Settings{
-		CompanionDataDir:       getenv("NIX_COMPANION_DATA_DIR"),
-		CompanionBinary:        valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
-		CompanionConsultModels: parseTrimmedList(getenv("NIX_COMPANION_CONSULT_MODELS")),
-		CompanionChatEffort:    valueOr(getenv("NIX_COMPANION_CHAT_EFFORT"), "low"),
-		CompanionConsultEffort: getenv("NIX_COMPANION_CONSULT_EFFORT"),
-		CompanionTrace:         getenv("NIX_COMPANION_TRACE") == "true" || getenv("NIX_COMPANION_TRACE") == "1",
-		Address:                valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
-		InternalSecret:         getenv("NIX_WORKER_INTERNAL_SECRET"),
-		MaxInputBytes:          maxInputBytes,
-		MaxLineBytes:           maxLineBytes,
-		MaxRecords:             maxRecords,
-		MaxTokens:              maxTokens,
-		RequestTimeout:         time.Duration(requestTimeoutSeconds) * time.Second,
-		InternalAPIURL:         strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
-		CollaborationURL:       strings.TrimRight(getenv("NIX_WORKER_COLLAB_URL"), "/"),
-		PollInterval:           time.Duration(pollSeconds) * time.Second,
-		WorkerID:               valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
-		MaxConcurrency:         maxConcurrency,
-		OpenSearchURL:          strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
-		OpenSearchIndex:        valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
-		RabbitMQURL:            getenv("NIX_RABBITMQ_URL"),
-		WorkerRoles:            valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index,plugin-events"),
-		LeaseDuration:          time.Duration(leaseSeconds) * time.Second,
-		RenewInterval:          time.Duration(renewSeconds) * time.Second,
-		MaxMessageBytes:        maxMessageBytes,
-		ObjectOrigins:          objectOrigins,
-		PluginMaxModuleBytes:   pluginMaxModuleBytes,
-		PluginMemoryPages:      pluginMemoryPages,
-		PluginTimeout:          time.Duration(pluginTimeoutMilliseconds) * time.Millisecond,
-		PluginMaxHostCalls:     pluginMaxHostCalls,
+		CompanionDataDir:        getenv("NIX_COMPANION_DATA_DIR"),
+		CompanionBinary:         valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
+		CompanionConsultModels:  parseTrimmedList(getenv("NIX_COMPANION_CONSULT_MODELS")),
+		CompanionChatEffort:     valueOr(getenv("NIX_COMPANION_CHAT_EFFORT"), "low"),
+		CompanionConsultEffort:  getenv("NIX_COMPANION_CONSULT_EFFORT"),
+		CompanionTrace:          getenv("NIX_COMPANION_TRACE") == "true" || getenv("NIX_COMPANION_TRACE") == "1",
+		Address:                 valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
+		InternalSecret:          getenv("NIX_WORKER_INTERNAL_SECRET"),
+		MaxInputBytes:           maxInputBytes,
+		MaxLineBytes:            maxLineBytes,
+		MaxRecords:              maxRecords,
+		MaxTokens:               maxTokens,
+		RequestTimeout:          time.Duration(requestTimeoutSeconds) * time.Second,
+		InternalAPIURL:          strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
+		CollaborationURL:        strings.TrimRight(getenv("NIX_WORKER_COLLAB_URL"), "/"),
+		PollInterval:            time.Duration(pollSeconds) * time.Second,
+		WorkerID:                valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
+		MaxConcurrency:          maxConcurrency,
+		OpenSearchURL:           strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
+		OpenSearchIndex:         valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
+		RabbitMQURL:             getenv("NIX_RABBITMQ_URL"),
+		WorkerRoles:             valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index,plugin-events"),
+		LeaseDuration:           time.Duration(leaseSeconds) * time.Second,
+		RenewInterval:           time.Duration(renewSeconds) * time.Second,
+		MaxMessageBytes:         maxMessageBytes,
+		ObjectOrigins:           objectOrigins,
+		PluginMaxModuleBytes:    pluginMaxModuleBytes,
+		PluginMemoryPages:       pluginMemoryPages,
+		PluginTimeout:           time.Duration(pluginTimeoutMilliseconds) * time.Millisecond,
+		PluginMaxHostCalls:      pluginMaxHostCalls,
+		CalendarGoogleOrigin:    valueOr(getenv("NIX_CALENDAR_GOOGLE_ORIGIN"), "https://www.googleapis.com"),
+		CalendarMicrosoftOrigin: valueOr(getenv("NIX_CALENDAR_MICROSOFT_ORIGIN"), "https://graph.microsoft.com"),
+		PushVAPIDPrivateKey:     pushVAPIDPrivateKey,
+		PushVAPIDSubject:        getenv("NIX_PUSH_VAPID_SUBJECT"),
 	}
 	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 || settings.PluginMaxModuleBytes <= 0 || settings.PluginMaxModuleBytes > 32<<20 || settings.PluginMemoryPages <= 0 || settings.PluginMemoryPages > 4096 || settings.PluginTimeout <= 0 || settings.PluginTimeout > 5*time.Second || settings.PluginMaxHostCalls <= 0 || settings.PluginMaxHostCalls > 256 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
@@ -174,6 +187,13 @@ func parseTrimmedList(value string) []string {
 		}
 	}
 	return result
+}
+
+func parseBase64URL(value string) ([]byte, error) {
+	if value == "" {
+		return nil, nil
+	}
+	return base64.RawURLEncoding.DecodeString(strings.TrimRight(value, "="))
 }
 
 func valueOr(value, fallback string) string {

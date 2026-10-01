@@ -49,6 +49,7 @@ describe('the navigation rail', () => {
       'Graph',
       'Bookmarks',
       'Templates',
+      'Automations',
       'Trash',
       'Import',
       'Settings',
@@ -60,6 +61,10 @@ describe('the navigation rail', () => {
     expect(within(rail()).getByRole('link', { name: 'Calendar' })).toHaveAttribute(
       'href',
       '/w/00000000-0000-4000-8000-000000000001/calendar',
+    );
+    expect(within(rail()).getByRole('link', { name: 'Automations' })).toHaveAttribute(
+      'href',
+      '/w/00000000-0000-4000-8000-000000000001/automations',
     );
     expect(within(rail()).getByRole('link', { name: 'Trash' })).toHaveAttribute(
       'href',
@@ -124,6 +129,7 @@ describe('the navigation rail', () => {
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    const automations = within(rail()).getByRole('link', { name: 'Automations' });
     const trash = within(rail()).getByRole('link', { name: 'Trash' });
     const importControl = within(rail()).getByRole('button', { name: 'Import' });
     const settings = within(rail()).getByRole('link', { name: 'Settings' });
@@ -134,6 +140,7 @@ describe('the navigation rail', () => {
     expect(graph).toHaveAttribute('tabindex', '-1');
     expect(bookmarks).toHaveAttribute('tabindex', '-1');
     expect(templates).toHaveAttribute('tabindex', '-1');
+    expect(automations).toHaveAttribute('tabindex', '-1');
     expect(trash).toHaveAttribute('tabindex', '-1');
     expect(importControl).toHaveAttribute('tabindex', '-1');
     expect(settings).toHaveAttribute('tabindex', '-1');
@@ -159,6 +166,7 @@ describe('the navigation rail', () => {
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    const automations = within(rail()).getByRole('link', { name: 'Automations' });
     const trash = within(rail()).getByRole('link', { name: 'Trash' });
     const importControl = within(rail()).getByRole('button', { name: 'Import' });
     const settings = within(rail()).getByRole('link', { name: 'Settings' });
@@ -185,6 +193,9 @@ describe('the navigation rail', () => {
     expect(graph).toHaveFocus();
 
     templates.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(automations).toHaveFocus();
+
     await user.keyboard('{ArrowDown}');
     expect(trash).toHaveFocus();
 
@@ -260,7 +271,15 @@ describe('the navigation rail', () => {
       'aria-current',
       'page',
     );
-    for (const label of ['Calendar', 'Graph', 'Bookmarks', 'Templates', 'Trash', 'Settings']) {
+    for (const label of [
+      'Calendar',
+      'Graph',
+      'Bookmarks',
+      'Templates',
+      'Automations',
+      'Trash',
+      'Settings',
+    ]) {
       expect(within(rail()).getByRole('link', { name: label })).not.toHaveAttribute('aria-current');
     }
     expect(within(rail()).getByRole('button', { name: 'Import' })).not.toHaveAttribute(
@@ -332,7 +351,7 @@ describe('the navigation rail on a narrow screen', () => {
 
     expect(screen.queryByRole('navigation', { name: /destinations/i })).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
-    expect(within(rail()).getAllByRole('link')).toHaveLength(8);
+    expect(within(rail()).getAllByRole('link')).toHaveLength(9);
     expect(within(rail()).getByRole('button', { name: 'Import' })).toBeVisible();
   });
 

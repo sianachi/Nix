@@ -21,6 +21,10 @@ export const PROPERTY_TYPES = [
   { value: 'multi_select', label: 'Multi-select (any of a list)' },
   { value: 'date', label: 'Date' },
   { value: 'timestamp', label: 'Date and time' },
+  // A synced calendar event toggles between all-day and timed from one edit to the next on the
+  // provider's side, so the property holding it has to accept either shape without its declared
+  // type changing underneath it - see PropertyType.DateTime in PropertyType.cs.
+  { value: 'datetime', label: 'Date or time' },
   { value: 'checkbox', label: 'Checkbox' },
   { value: 'url', label: 'Link' },
   // Told apart from a link because everything downstream reads them differently: a link is text
@@ -46,6 +50,10 @@ export const PROPERTY_TYPES = [
   // Goal 2.2, and the other half of the computed pair: folded across the item's children by the
   // server, because an aggregate belongs where the rows are (ADR-0044).
   { value: 'rollup', label: 'Rollup (across children)' },
+  // ADR-0051 section 4. Value-shaped exactly like `timestamp` - the type is the meaning, the
+  // reserved key `reminder` under goal 3.1's rule - but deliberately not calendar-placeable (see
+  // isDateShaped below): a reminder is when something is announced, not when it happens.
+  { value: 'reminder', label: 'Reminder' },
 ] as const;
 
 /**
@@ -64,6 +72,7 @@ export type PropertyValueShape =
   | 'checkbox'
   | 'url'
   | 'image'
+  | 'datetime'
   | (string & {});
 
 export function valueShapeOf(type: string): PropertyValueShape {
@@ -81,6 +90,10 @@ export function valueShapeOf(type: string): PropertyValueShape {
     // is what keeps width and clearing on the same one switch as everything else string-shaped.
     case 'assignee':
       return 'text';
+    // Value-shaped exactly like a timestamp - an RFC 9557 moment with its zone - so parsing,
+    // formatting and cell coercion take the same path a plain Timestamp property does.
+    case 'reminder':
+      return 'timestamp';
     default:
       return type;
   }
@@ -89,10 +102,19 @@ export function valueShapeOf(type: string): PropertyValueShape {
 /**
  * Whether a property of this type can sit on a calendar or a timeline. The server's counterpart
  * is `PropertyTypes.CanPlaceOnCalendar` (PropertyType.cs); the two must widen together.
+ *
+ * `reminder` is excluded explicitly rather than by shape: it shares its value shape with
+ * `timestamp` (so parsing and formatting agree) but is deliberately not placeable - a reminder is
+ * when something is announced, not when it happens, and placing it next to the moment it
+ * announces would double the item on the grid.
  */
 export function isDateShaped(type: string): boolean {
+  if (type === 'reminder') {
+    return false;
+  }
+
   const shape = valueShapeOf(type);
-  return shape === 'date' || shape === 'timestamp';
+  return shape === 'date' || shape === 'timestamp' || shape === 'datetime';
 }
 
 /**

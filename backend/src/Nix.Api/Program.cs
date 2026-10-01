@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Nix;
 using Nix.Authentication;
 using Nix.Errors;
+using Nix.Features.Automations;
 using Nix.Features.Bookmarks;
 using Nix.Features.BrowserAuth;
 using Nix.Features.Calendar;
@@ -21,6 +22,7 @@ using Nix.Features.Health;
 using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Locks;
+using Nix.Features.Notifications;
 using Nix.Features.Operations;
 using Nix.Features.Permissions;
 using Nix.Features.Pets;
@@ -75,6 +77,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(SearchJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(CanvasJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(PetJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(NotificationsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(AutomationJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(GraphJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(CalendarJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(RecurrenceJsonContext.Default);
@@ -130,6 +134,7 @@ builder.Services
         AutomaticDecompression = System.Net.DecompressionMethods.None,
     });
 builder.Services.AddSingleton<OidcMetadataClient>();
+builder.Services.AddSingleton<NotificationWatchGate>();
 builder.Services.AddHttpClient<PetWorkerClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler { AllowAutoRedirect = false });
 
@@ -318,7 +323,11 @@ var nixConnectionString = builder.Configuration.GetConnectionString(nixConnectio
 var persistenceConfigured = !string.IsNullOrWhiteSpace(nixConnectionString);
 if (persistenceConfigured)
 {
-    builder.Services.AddNixPersistence(nixConnectionString!);
+    builder.Services.AddNixPersistence(new Nix.Persistence.NixPersistenceOptions
+    {
+        ConnectionString = nixConnectionString!,
+        SchedulingEnabled = builder.Configuration.GetValue("Nix:Scheduling:Enabled", true),
+    });
     builder.Services.AddNixSearch(builder.Configuration);
     builder.Services.AddNixRabbitMq(builder.Configuration);
 
@@ -507,6 +516,8 @@ app.MapInternalEndpoints();
 app.MapSearchEndpoints();
 app.MapCanvasEndpoints();
 app.MapPetEndpoints();
+app.MapNotificationEndpoints();
+app.MapAutomationEndpoints();
 app.MapGraphEndpoints();
 app.MapCalendarEndpoints();
 app.MapRecurrenceEndpoints();

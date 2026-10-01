@@ -43,6 +43,29 @@ describe('toFailure', () => {
     expect(toFailure(error).code).toBe(ExitCode.Refused);
   });
 
+  it('keeps an out-of-scope refusal in Core its own words and adds how to fix it', () => {
+    const detail =
+      "Principal 'p' is authenticated, but personal access token 't' does not reach PUT " +
+      '/api/v1/automations/r: it requires admin.';
+    const error = NixApiError.fromProblemDetails(403, {
+      code: 'auth.insufficient_scope',
+      title: 'Access token out of scope',
+      detail,
+    });
+    const failure = toFailure(error);
+    expect(failure.code).toBe(ExitCode.Refused);
+    expect(failure.message.startsWith(detail)).toBe(true);
+    expect(failure.message).toContain('nixctl auth login');
+  });
+
+  it('adds no hint to a 403 that is not about token scope', () => {
+    const error = NixApiError.fromProblemDetails(403, {
+      code: 'items.forbidden',
+      detail: 'You cannot edit this item.',
+    });
+    expect(toFailure(error).message).toBe('You cannot edit this item.');
+  });
+
   it('maps a 401 to the refused code', () => {
     const error = NixApiError.fromProblemDetails(401, {
       code: 'auth.token_revoked',

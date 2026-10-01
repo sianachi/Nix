@@ -14,10 +14,12 @@ const config: StorybookConfig = {
   stories: [
     '../src/**/*.stories.@(ts|tsx)',
     '../../../apps/web/src/pets/*.stories.tsx',
+    '../../../apps/web/src/shell/notifications/*.stories.tsx',
     '../../../apps/web/src/editor/*.stories.tsx',
     '../../../apps/web/src/plugins/*.stories.tsx',
     '../../../apps/web/src/templates/*.stories.tsx',
     '../../../apps/web/src/views/finance/*.stories.tsx',
+    '../../../apps/web/src/automations/*.stories.tsx',
   ],
   staticDirs: [{ from: '../../../apps/web/public/pets', to: '/pets' }],
   addons: ['@storybook/addon-a11y', '@storybook/addon-docs', '@storybook/addon-vitest'],

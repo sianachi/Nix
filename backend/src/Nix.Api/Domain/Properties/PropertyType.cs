@@ -194,6 +194,45 @@ public enum PropertyType
     /// </para>
     /// </remarks>
     Rollup = 16,
+
+    /// <summary>
+    /// A date or a moment: either <c>yyyy-MM-dd</c> (all-day) or an RFC 9557 timestamp. What a
+    /// synced calendar's <c>start</c> and <c>end</c> are declared as, because an upstream event may
+    /// be either shape and the property that holds it must accept whichever one arrives.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>One type spanning two shapes, rather than two properties.</b> <see cref="Date"/> and
+    /// <see cref="Timestamp"/> stay as they are - a schema author who always means one or the other
+    /// keeps the narrower, more precise type - but a synced event toggles between all-day and timed
+    /// from one edit to the next on the provider's side, and Nix has to be able to receive either
+    /// without the property's declared type changing underneath it.
+    /// </para>
+    /// <para>
+    /// Value-shaped as the union: <see cref="PropertyValidator"/> accepts whichever of
+    /// <see cref="Date"/>'s or <see cref="Timestamp"/>'s check the value passes, reusing both checks
+    /// rather than inventing a third. Calendar-placeable, like both of the types it unions.
+    /// </para>
+    /// </remarks>
+    DateTime = 17,
+
+    /// <summary>
+    /// The instant a reminder should fire, as an RFC 9557 timestamp with its zone. Value-shaped
+    /// exactly like <see cref="Timestamp"/>; the type is the meaning.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Task-semantic, taking the reserved key <c>reminder</c>, for the same reason
+    /// <see cref="DueDate"/> does: the scheduler plans from the declared role, not from a
+    /// workspace-chosen key.
+    /// </para>
+    /// <para>
+    /// <b>Not calendar-placeable.</b> A reminder is when something is announced, not when it
+    /// happens; placing it on a calendar next to the moments it announces would double the item on
+    /// the grid.
+    /// </para>
+    /// </remarks>
+    Reminder = 18,
 }
 
 /// <summary>
@@ -267,6 +306,12 @@ public static class PropertyTypes
             case "rollup":
                 type = PropertyType.Rollup;
                 return true;
+            case "datetime":
+                type = PropertyType.DateTime;
+                return true;
+            case "reminder":
+                type = PropertyType.Reminder;
+                return true;
             default:
                 type = default;
                 return false;
@@ -296,6 +341,8 @@ public static class PropertyTypes
         PropertyType.Assignee => "assignee",
         PropertyType.Formula => "formula",
         PropertyType.Rollup => "rollup",
+        PropertyType.DateTime => "datetime",
+        PropertyType.Reminder => "reminder",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 
@@ -337,7 +384,7 @@ public static class PropertyTypes
     /// <returns><see langword="true"/> for the date-shaped types.</returns>
     public static bool CanPlaceOnCalendar(this PropertyType type) =>
         type is PropertyType.Date or PropertyType.Timestamp
-            or PropertyType.DueDate or PropertyType.StartDate;
+            or PropertyType.DueDate or PropertyType.StartDate or PropertyType.DateTime;
 
     /// <summary>
     /// Whether a type names a task-semantic role, of which a schema may declare at most one.
@@ -351,5 +398,6 @@ public static class PropertyTypes
     /// </remarks>
     public static bool IsTaskSemantic(this PropertyType type) =>
         type is PropertyType.DueDate or PropertyType.StartDate or PropertyType.Completion
-            or PropertyType.Priority or PropertyType.Estimate or PropertyType.Assignee;
+            or PropertyType.Priority or PropertyType.Estimate or PropertyType.Assignee
+            or PropertyType.Reminder;
 }

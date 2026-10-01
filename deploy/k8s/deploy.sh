@@ -53,7 +53,7 @@ if ! kubectl -n nix get secret nix-observability >/dev/null 2>&1; then
   echo "secret nix-observability not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
-for rabbitmq_key in api-password import-password export-password index-password plugin-password api-url import-url export-url index-url plugin-url; do
+for rabbitmq_key in api-password import-password export-password index-password plugin-password calendar-password notify-password api-url import-url export-url index-url plugin-url calendar-url notify-url; do
   rabbitmq_value="$(kubectl -n nix get secret nix-rabbitmq -o "jsonpath={.data['$rabbitmq_key']}")"
   if [ -z "$rabbitmq_value" ]; then
     echo "secret nix-rabbitmq is missing $rabbitmq_key - run deploy/k8s/create-secrets.sh --rabbitmq-only" >&2
@@ -149,6 +149,8 @@ kubectl -n nix rollout status deployment/nix-import-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-export-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-indexer --timeout=180s
 kubectl -n nix rollout status deployment/nix-plugin-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-calendar-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-notify-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-web --timeout=180s
 
 kubectl -n nix get "persistentvolumeclaim/$TEMPLATE_BOOT_PVC" >/dev/null

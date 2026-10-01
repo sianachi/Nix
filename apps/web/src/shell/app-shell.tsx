@@ -18,6 +18,7 @@ import type { ShellContext } from './shell-context';
 import { focusPane } from '../panes/pane-params';
 import { usePanes } from '../panes/pane-state';
 import { useSelectedItem } from '../routing/selected-item';
+import { automationsHref } from '../automations/automation-url';
 import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
 import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/use-bookmarks';
@@ -34,6 +35,8 @@ import { TemplateLibraryProvider } from '../templates/template-library-context';
 import { ShellHeader } from './shell-header';
 import { KeyboardShortcutsDialog } from '../keyboard/keyboard-shortcuts-dialog';
 import { useRevealOpenPanes, useShellShortcuts } from './shell-effects';
+import { NotificationInboxPanel } from './notifications/notification-inbox-panel';
+import { useNotificationsInbox } from './notifications/use-notifications-inbox';
 import { ShellSidebar } from './shell-sidebar';
 import { ShellToasts, useShellToasts } from './shell-toasts';
 import { useWorkspace } from '../workspaces/workspace-context';
@@ -128,11 +131,17 @@ export function AppShell(): ReactNode {
     void navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [launchState, location.pathname, location.search, navigate]);
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
-  useBackDismiss(narrow && (sidebar.visible || searchOpen || workspaceImportOpen), () => {
-    setWorkspaceImportOpen(false);
-    setSearchOpen(false);
-    if (sidebar.visible) sidebar.toggle();
-  });
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const notificationsInbox = useNotificationsInbox();
+  useBackDismiss(
+    narrow && (sidebar.visible || searchOpen || workspaceImportOpen || inboxOpen),
+    () => {
+      setWorkspaceImportOpen(false);
+      setSearchOpen(false);
+      setInboxOpen(false);
+      if (sidebar.visible) sidebar.toggle();
+    },
+  );
 
   // What Escape and a scrim tap - the two "never mind" exits from the drawer - focus afterwards.
   // Unlike `closeDrawerAfter` above, these are not "there, that one": nothing was chosen, so focus
@@ -179,6 +188,37 @@ export function AppShell(): ReactNode {
         pushToast(notice);
       }),
     [pushToast],
+  );
+
+  // A notification that arrives while the app is open and focused surfaces immediately as a
+  // shell toast, with an Open action to the item it names - the inbox panel itself only needs to
+  // be opened when the person goes looking, not for every arrival while they are already here.
+  useEffect(
+    () =>
+      notificationsInbox.onArrived((arrived) => {
+        for (const notification of arrived) {
+          const itemId = notification.itemId;
+          shellToasts.push({
+            key: `notification-${notification.id}`,
+            message: notification.title,
+            ...(itemId === null
+              ? {}
+              : {
+                  action: {
+                    label: 'Open',
+                    onAction: () => {
+                      openPreview(itemId);
+                    },
+                  },
+                }),
+          });
+        }
+      }),
+    // shellToasts.push is stable across renders (see use-shell-toasts's own state setter), and
+    // openPreview is a useCallback from useOpenItem - only the inbox's own subscription needs to
+    // move when the client that backs it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [notificationsInbox],
   );
 
   // A screen that got torn down mid-import - a session expiring underneath it, chief among the
@@ -462,9 +502,13 @@ export function AppShell(): ReactNode {
               sidebarToggleRef={sidebarToggleRef}
               workspaceId={workspaceId}
               principal={principal}
+              unreadNotifications={notificationsInbox.unread}
               onToggleSidebar={sidebar.toggle}
               onOpenSearch={() => {
                 setSearchOpen(true);
+              }}
+              onOpenInbox={() => {
+                setInboxOpen(true);
               }}
             />
           </div>
@@ -546,6 +590,7 @@ export function AppShell(): ReactNode {
             workspaceId={workspaceId}
             treeOpen={sidebar.visible}
             creating={tree.isCreating}
+            unreadNotifications={notificationsInbox.unread}
             onTree={sidebar.toggle}
             onSearch={() => {
               setSearchOpen(true);
@@ -553,6 +598,9 @@ export function AppShell(): ReactNode {
             onCreate={() => {
               if (sidebar.visible) sidebar.toggle();
               setCaptureOpen(true);
+            }}
+            onOpenInbox={() => {
+              setInboxOpen(true);
             }}
           />
         ) : null}
@@ -610,11 +658,31 @@ export function AppShell(): ReactNode {
           openShortcuts: () => {
             setShortcutsOpen(true);
           },
+          openAutomations: () => {
+            void navigate(automationsHref(workspaceId, { kind: 'list' }));
+          },
+          automateOpenItem:
+            selectedId === null
+              ? null
+              : () => {
+                  void navigate(
+                    automationsHref(workspaceId, { kind: 'new', scopeItemId: selectedId }),
+                  );
+                },
         })}
         onSelectItem={openPreview}
         onClose={() => {
           setSearchOpen(false);
         }}
+      />
+
+      <NotificationInboxPanel
+        open={inboxOpen}
+        onClose={() => {
+          setInboxOpen(false);
+        }}
+        inbox={notificationsInbox}
+        onOpenItem={openPreview}
       />
 
       <KeyboardShortcutsDialog

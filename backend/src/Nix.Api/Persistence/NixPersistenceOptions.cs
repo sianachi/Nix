@@ -22,4 +22,16 @@ public sealed class NixPersistenceOptions
     /// timeout means a retry rather than a request hanging on to a pooled connection.
     /// </remarks>
     public TimeSpan CommandTimeout { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Gets whether <c>ScheduleDispatcher</c> and <c>TriggerPlanner</c> run as hosted services.
+    /// </summary>
+    /// <remarks>
+    /// Defaults to <see langword="false"/> here so a caller that does not think about scheduling
+    /// - most of today's integration and unit test hosts - gets exactly what it got before this
+    /// option existed. <c>Program.cs</c> is where the production default of <c>true</c> lives,
+    /// read from <c>Nix:Scheduling:Enabled</c>; a test host that wants the dispatcher and planner
+    /// running sets this explicitly.
+    /// </remarks>
+    public bool SchedulingEnabled { get; init; }
 }

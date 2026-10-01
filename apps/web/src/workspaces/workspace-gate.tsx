@@ -14,7 +14,11 @@ import { SHARE_PARAMETERS } from '../launch/launch-intent';
 import { readLastWorkspaceId } from './last-workspace';
 import { useAccessibleWorkspaces, WorkspaceProvider } from './workspace-context';
 
-const INDEPENDENT_QUERY = /^(?:state|grain|on|notes|q)$/;
+// `tab` joins this list for the same reason `state`, `grain`, `on` and `notes` are here: it picks
+// a view within a page - the settings screen's own tabs - rather than naming a resource, so a
+// bare, not-yet-workspace-scoped deep link (`/settings?tab=notifications`) should carry it through
+// the legacy redirect below rather than silently drop it.
+const INDEPENDENT_QUERY = /^(?:state|grain|on|notes|q|tab)$/;
 const RESOURCE_QUERY =
   /^(?:item\d*|view\d*|mode\d*|sort\d*|dir\d*|filter(?:\.|\d)|split|sizes|parent|target|sourceItem)$/;
 

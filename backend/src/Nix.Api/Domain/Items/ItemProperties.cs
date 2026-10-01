@@ -124,6 +124,216 @@ public static class ItemProperties
     /// <summary>The property an item's display name is stored under.</summary>
     public const string TitleKey = "title";
 
+    /// <summary>The reserved key of the due-date task type, fixed by <c>PropertySchemaRules</c>.</summary>
+    public const string DueDateKey = "due_date";
+
+    /// <summary>The reserved key of the reminder task type, fixed by <c>PropertySchemaRules</c>.</summary>
+    public const string ReminderKey = "reminder";
+
+    /// <summary>
+    /// The system property recording which principal set an item's <see cref="DueDateKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// Written only by <see cref="StampSetBy"/> and <see cref="RestampCopiedSetBy"/> - never by a
+    /// client directly (<see cref="IsReservedSchedulingKey"/>). ADR-0051 section 4: the recipient
+    /// of a due-task reminder is the principal named here when it is an active principal of the
+    /// item's own tenant, falling back to <see cref="Item.CreatedBy"/> otherwise.
+    /// </remarks>
+    public const string DueSetByKey = "$due_set_by";
+
+    /// <summary>
+    /// The system property recording which principal set an item's <see cref="ReminderKey"/>, with
+    /// exactly the same mechanics and recipient rule as <see cref="DueSetByKey"/>.
+    /// </summary>
+    public const string ReminderSetByKey = "$reminder_set_by";
+
+    /// <summary>The reserved key of the completion task type.</summary>
+    public const string CompletionKey = "completion";
+
+    /// <summary>The prefix of the keys only the habit endpoints write.</summary>
+    public const string HabitPrefix = "$habit_";
+
+    /// <summary>Each scheduled key paired with the system key that records who set it.</summary>
+    private static readonly (string Key, string SetByKey)[] SetByPairs =
+    [
+        (DueDateKey, DueSetByKey),
+        (ReminderKey, ReminderSetByKey),
+    ];
+
+    /// <summary>
+    /// Whether a property key belongs to the scheduler or the habit endpoints and must never be
+    /// written by a generic client property write.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DueSetByKey"/> and <see cref="ReminderSetByKey"/> choose who receives a reminder,
+    /// so a client that could write them could send notifications to another principal.
+    /// <see cref="HabitPrefix"/> keys are validated only by the habit endpoints
+    /// (<c>HabitSettings.Validate</c>, check-in rules), so a generic write would bypass them.
+    /// </remarks>
+    public static bool IsReservedSchedulingKey(string key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+        return string.Equals(key, DueSetByKey, StringComparison.Ordinal)
+            || string.Equals(key, ReminderSetByKey, StringComparison.Ordinal)
+            || key.StartsWith(HabitPrefix, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Stamps or clears <see cref="DueSetByKey"/> and <see cref="ReminderSetByKey"/> on a bag, for
+    /// each of <see cref="DueDateKey"/> and <see cref="ReminderKey"/> this write names among the
+    /// keys it touched.
+    /// </summary>
+    /// <param name="bag">The property bag this write is about to store, as JSON.</param>
+    /// <param name="touchedKeys">The keys this specific write named.</param>
+    /// <param name="principalId">The principal making this write.</param>
+    /// <returns>The bag, with each set-by key set or removed as its scheduled key requires.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>The single point every scheduled-key write funnels through.</b> A write that
+    /// sets a scheduled key to a value stamps who set it; a write that clears it (an explicit null,
+    /// or - for create - simply not naming it) removes the stamp too, so a value and its setter
+    /// cannot drift apart. A write that never names a scheduled key leaves its existing stamp
+    /// untouched, because it is not a write of that key at all.
+    /// </para>
+    /// <para>
+    /// Called once per write, after the bag for that write is known and before it is stored -
+    /// after <see cref="Merge"/> for an edit, and against the incoming bag itself for a create -
+    /// so both callers land on the one rule rather than restating it.
+    /// </para>
+    /// <para>
+    /// <b>Reopening a dated item is a schedule write too.</b> A write that names
+    /// <see cref="CompletionKey"/> and leaves it anything but <see langword="true"/> on an item
+    /// with a <see cref="DueDateKey"/> brings that item's due reminders back, so it re-attributes
+    /// <see cref="DueSetByKey"/> to whoever reopened it (ADR-0051 Amendment 4). Completing an item
+    /// only suppresses reminders and changes no attribution.
+    /// </para>
+    /// </remarks>
+    public static string StampSetBy(
+        string bag,
+        IReadOnlyCollection<string> touchedKeys,
+        string principalId)
+    {
+        ArgumentNullException.ThrowIfNull(bag);
+        ArgumentNullException.ThrowIfNull(touchedKeys);
+        ArgumentNullException.ThrowIfNull(principalId);
+
+        var reopens = touchedKeys.Contains(CompletionKey);
+        if (!reopens && !SetByPairs.Any(pair => touchedKeys.Contains(pair.Key)))
+        {
+            return bag;
+        }
+
+        JsonObject document;
+        try
+        {
+            document = JsonNode.Parse(bag) as JsonObject ?? [];
+        }
+        catch (JsonException)
+        {
+            return bag;
+        }
+
+        foreach (var (key, setByKey) in SetByPairs)
+        {
+            if (touchedKeys.Contains(key))
+            {
+                Attribute(document, key, setByKey, principalId);
+            }
+        }
+
+        if (reopens
+            && !IsTrue(document[CompletionKey])
+            && document[DueDateKey] is not null)
+        {
+            document[DueSetByKey] = principalId;
+        }
+
+        return document.ToJsonString();
+    }
+
+    private static bool IsTrue(JsonNode? node) =>
+        node is JsonValue value && value.TryGetValue<bool>(out var flag) && flag;
+
+    /// <summary>
+    /// Re-attributes a bag copied from another source (a template application, a document
+    /// import) to the principal performing the copy: any set-by value the source carried is
+    /// dropped, and each scheduled key that survived the copy is stamped with
+    /// <paramref name="principalId"/>.
+    /// </summary>
+    /// <remarks>
+    /// A copied set-by value is never trusted: it names whoever set the value in the source, or
+    /// whatever the author of an imported file chose, and keeping it would send the copy's
+    /// reminders to that principal.
+    /// </remarks>
+    public static string? RestampCopiedSetBy(string? bag, string principalId)
+    {
+        ArgumentNullException.ThrowIfNull(principalId);
+        return RewriteSetBy(bag, principalId);
+    }
+
+    /// <summary>
+    /// Removes every set-by value from a bag that is about to become template content, where no
+    /// principal is attributed until the template is applied.
+    /// </summary>
+    /// <remarks>
+    /// A bag that is not a readable JSON object, or that names a member twice, comes back
+    /// unchanged for the caller's envelope validation to refuse; see <see cref="WithTitle"/>.
+    /// </remarks>
+    public static string? StripSetBy(string? bag) => RewriteSetBy(bag, principalId: null);
+
+    private static string? RewriteSetBy(string? bag, string? principalId)
+    {
+        if (bag is null
+            || !SetByPairs.Any(pair => bag.Contains(pair.Key, StringComparison.Ordinal) || bag.Contains(pair.SetByKey, StringComparison.Ordinal)))
+        {
+            return bag;
+        }
+
+        try
+        {
+            if (JsonNode.Parse(bag) is not JsonObject document)
+            {
+                return bag;
+            }
+
+            foreach (var (key, setByKey) in SetByPairs)
+            {
+                if (principalId is null)
+                {
+                    document.Remove(setByKey);
+                }
+                else
+                {
+                    Attribute(document, key, setByKey, principalId);
+                }
+            }
+
+            return document.ToJsonString();
+        }
+        catch (JsonException)
+        {
+            return bag;
+        }
+        catch (ArgumentException)
+        {
+            // A member named twice parses, then throws on first use of the object. Returned
+            // unchanged so the caller's envelope validation refuses it as a 4xx, as Merge does.
+            return bag;
+        }
+    }
+
+    private static void Attribute(JsonObject document, string key, string setByKey, string principalId)
+    {
+        if (document.TryGetPropertyValue(key, out var value) && value is not null)
+        {
+            document[setByKey] = principalId;
+        }
+        else
+        {
+            document.Remove(setByKey);
+        }
+    }
+
     /// <summary>
     /// Reads the title out of a property bag.
     /// </summary>
@@ -160,9 +370,17 @@ public static class ItemProperties
     /// <param name="title">The title to store.</param>
     /// <returns>The updated JSON object.</returns>
     /// <remarks>
+    /// <para>
     /// Preserving the rest matters: a rename must not silently drop properties a later goal added,
     /// and "read, replace one key, write the whole bag" is the only shape that survives a schema
     /// this code does not yet know about.
+    /// </para>
+    /// <para>
+    /// A bag naming a member twice is returned unchanged, without the title: it cannot be
+    /// rewritten, and every caller that can receive one (document and template imports, template
+    /// drafts) validates the result with <c>TemplateDefinitionValidator.ValidateEnvelope</c>, which
+    /// refuses it - a 4xx, never an unhandled exception.
+    /// </para>
     /// </remarks>
     public static string WithTitle(string? properties, string title)
     {
@@ -180,7 +398,15 @@ public static class ItemProperties
             bag = [];
         }
 
-        bag[TitleKey] = title;
+        try
+        {
+            bag[TitleKey] = title;
+        }
+        catch (ArgumentException)
+        {
+            return properties!;
+        }
+
         return bag.ToJsonString();
     }
 }

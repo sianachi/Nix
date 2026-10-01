@@ -7,6 +7,7 @@ import type { CurrentPrincipalState } from '../session/use-current-principal';
 import { formatShortcut } from '../lib/shortcuts';
 import { WorkspaceSwitcher } from '../workspaces/workspace-switcher';
 import { shortcutFor } from '../keyboard/shortcut-registry';
+import { NotificationBell } from './notifications/notification-bell';
 import { ProfileMenu } from './profile-menu';
 
 export interface ShellHeaderProps {
@@ -14,8 +15,10 @@ export interface ShellHeaderProps {
   readonly sidebarToggleRef: RefObject<HTMLButtonElement | null>;
   readonly workspaceId: string;
   readonly principal: CurrentPrincipalState;
+  readonly unreadNotifications: number;
   readonly onToggleSidebar: () => void;
   readonly onOpenSearch: () => void;
+  readonly onOpenInbox: () => void;
 }
 
 /**
@@ -52,8 +55,10 @@ export function ShellHeader({
   sidebarToggleRef,
   workspaceId,
   principal,
+  unreadNotifications,
   onToggleSidebar,
   onOpenSearch,
+  onOpenInbox,
 }: ShellHeaderProps): ReactNode {
   return (
     <header
@@ -96,6 +101,8 @@ export function ShellHeader({
           {SEARCH_KEYS.map((keys) => formatShortcut(keys)).join(' ')}
         </kbd>
       </button>
+
+      <NotificationBell unread={unreadNotifications} onClick={onOpenInbox} />
 
       <ProfileMenu principal={principal} />
     </header>

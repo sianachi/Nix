@@ -35,6 +35,7 @@ describe('the capability catalog', () => {
       'multi_select',
       'date',
       'timestamp',
+      'datetime',
       'checkbox',
       'url',
       'image',
@@ -45,6 +46,7 @@ describe('the capability catalog', () => {
       'estimate',
       'formula',
       'rollup',
+      'reminder',
     ]);
   });
 

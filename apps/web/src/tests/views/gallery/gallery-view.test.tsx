@@ -37,6 +37,8 @@ const { beginUploadMock, uploadAndCompleteFileMock } = vi.hoisted(() => ({
 
 vi.mock('../../../api/api-client-provider', () => ({
   useApiClient: () => ({ execute: vi.fn(() => Promise.resolve({ id: 'upload-1' })) }),
+  // The card menu's reminder entry asks for an optional client; none here leaves it out.
+  useOptionalApiClient: () => null,
 }));
 
 vi.mock('@nix/api-client', async () => {

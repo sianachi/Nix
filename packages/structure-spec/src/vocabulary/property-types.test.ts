@@ -10,6 +10,7 @@ describe('valueShapeOf', () => {
     multi_select: 'multi_select',
     date: 'date',
     timestamp: 'timestamp',
+    datetime: 'datetime',
     checkbox: 'checkbox',
     url: 'url',
     image: 'image',
@@ -21,6 +22,7 @@ describe('valueShapeOf', () => {
     assignee: 'text',
     formula: 'formula',
     rollup: 'rollup',
+    reminder: 'timestamp',
   };
 
   it.each(PROPERTY_TYPES.map((entry) => entry.value))('resolves the shape of %s', (type) => {
@@ -29,8 +31,8 @@ describe('valueShapeOf', () => {
 });
 
 describe('isDateShaped', () => {
-  it('is true only for date, timestamp, due_date and start_date', () => {
-    const dateShaped = new Set(['date', 'timestamp', 'due_date', 'start_date']);
+  it('is true only for date, timestamp, datetime, due_date and start_date', () => {
+    const dateShaped = new Set(['date', 'timestamp', 'datetime', 'due_date', 'start_date']);
     for (const entry of PROPERTY_TYPES) {
       expect(isDateShaped(entry.value)).toBe(dateShaped.has(entry.value));
     }

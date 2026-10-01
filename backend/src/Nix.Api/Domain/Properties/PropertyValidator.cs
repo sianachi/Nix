@@ -255,6 +255,13 @@ public static class PropertyValidator
         PropertyType.Rollup =>
             $"{definition.Label} is rolled up from this item's children and cannot be set.",
 
+        PropertyType.DateTime => CheckDateTime(definition, value),
+
+        // Value-shaped exactly like Timestamp - an RFC 9557 moment with its zone - the type is the
+        // meaning: this is the instant a reminder fires, checked the same way a plain Timestamp
+        // property is.
+        PropertyType.Reminder => CheckTimestamp(definition, value),
+
         // A type this build defines and this switch does not handle is a bug here, not a value the
         // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
         // It used to be `_ => null`, which is "accepted": an unhandled member let any JSON node
@@ -349,6 +356,33 @@ public static class PropertyValidator
             && DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
             ? null
             : $"{definition.Label} must be a date, as yyyy-MM-dd.";
+    }
+
+    /// <summary>
+    /// A date-or-time is accepted whenever either half of the union it names would accept it: a
+    /// bare <c>yyyy-MM-dd</c> date, or an RFC 9557 timestamp with its zone.
+    /// </summary>
+    /// <remarks>
+    /// Reuses <see cref="CheckDate"/> and <see cref="CheckTimestamp"/> rather than parsing the
+    /// value a third way, so this type can never accept something neither of the types it unions
+    /// would - the two checks it defers to are exactly what a plain <see cref="Date"/> or
+    /// <see cref="Timestamp"/> property already enforces. The date shape is tried first because a
+    /// synced calendar's all-day events are the common case; either order accepts the same set.
+    /// </remarks>
+    private static string? CheckDateTime(PropertyDefinition definition, JsonNode? value)
+    {
+        if (CheckDate(definition, value) is null)
+        {
+            return null;
+        }
+
+        if (CheckTimestamp(definition, value) is null)
+        {
+            return null;
+        }
+
+        return $"{definition.Label} must be a date, as yyyy-MM-dd, or a time with its zone, " +
+            "as 2026-03-17T09:00:00+00:00[Europe/London].";
     }
 
     /// <summary>

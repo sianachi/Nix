@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nix.Abstractions;
@@ -26,6 +27,7 @@ using Nix.Features.Identity;
 using Nix.Features.Internal;
 using Nix.Features.Items;
 using Nix.Features.Locks;
+using Nix.Features.Notifications;
 using Nix.Features.Pets;
 using Nix.Features.Properties;
 using Nix.Features.Query;
@@ -47,6 +49,7 @@ using Nix.Persistence.Identity;
 using Nix.Persistence.Items;
 using Nix.Persistence.Links;
 using Nix.Persistence.Locks;
+using Nix.Persistence.Notifications;
 using Nix.Persistence.ObjectStorage;
 using Nix.Persistence.Plugins;
 using Nix.Persistence.Properties;
@@ -119,6 +122,13 @@ public static class NixPersistenceServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(options);
+
+        // TryAdd, not Add: the real host already registered its own IConfiguration before calling
+        // this method, and that registration must win. A composition-root test that builds a bare
+        // ServiceCollection has none, so an empty stand-in is what lets every configuration-reading
+        // store (here, the notify.push gate on Nix:Push:VapidPublicKey) resolve without one - the
+        // same reading a missing section gets in production: unset, so push stays unavailable.
+        services.TryAddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
 
         var connectionString = AssertRuntimeConnectionString(options.ConnectionString);
 
@@ -238,6 +248,75 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IPetPreferencesStore, PetPreferencesStore>();
         services.AddScoped<IQueryHandler<GetPetSettings, PetSettingsResponse>, GetPetSettingsHandler>();
         services.AddScoped<ICommandHandler<SavePetSettings, PetSettingsResponse>, SavePetSettingsHandler>();
+        services.AddScoped<IPrincipalPreferencesStore, PrincipalPreferencesStore>();
+        services.AddScoped<IQueryHandler<GetPreferences, PrincipalPreferencesResponse>, GetPreferencesHandler>();
+        services.AddScoped<ICommandHandler<SavePreferences, PrincipalPreferencesResponse>, SavePreferencesHandler>();
+        services.AddScoped<NotificationStore>();
+        services.AddScoped<INotificationStore>(provider => provider.GetRequiredService<NotificationStore>());
+        services.AddScoped<INotificationWriter>(provider => provider.GetRequiredService<NotificationStore>());
+        services.AddScoped<IQueryHandler<GetNotifications, NotificationsPageResponse>, GetNotificationsHandler>();
+        services.AddScoped<IQueryHandler<WatchNotifications, NotificationsPageResponse>, WatchNotificationsHandler>();
+        services.AddScoped<ICommandHandler<MarkNotificationRead, NotificationReadResponse>, MarkNotificationReadHandler>();
+        services.AddScoped<ICommandHandler<MarkAllNotificationsRead, NotificationReadResponse>, MarkAllNotificationsReadHandler>();
+        services.AddScoped<IPushSubscriptionStore, PushSubscriptionStore>();
+        services.AddScoped<ICommandHandler<AddPushSubscription, PushSubscriptionDto>, AddPushSubscriptionHandler>();
+        services.AddScoped<ICommandHandler<RemovePushSubscription, bool>, RemovePushSubscriptionHandler>();
+
+        // The scheduler (ADR-0051 section 1). The lease store calls the cross-tenant SECURITY
+        // DEFINER functions directly against the pool, exactly like AbandonedObjectOperationStore;
+        // the plain store is RLS-scoped and used only inside a session already scoped to the
+        // trigger's own tenant and principal.
+        services.AddSingleton<Nix.Persistence.Scheduling.ScheduledTriggerLeaseStore>();
+        services.AddSingleton<Nix.Abstractions.Scheduling.IScheduledTriggerLeaseStore>(
+            provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ScheduledTriggerLeaseStore>());
+        services.AddScoped<Nix.Abstractions.Scheduling.IScheduledTriggerStore, Nix.Persistence.Scheduling.ScheduledTriggerStore>();
+        services.AddSingleton<Nix.Abstractions.Scheduling.IRetentionStore, Nix.Persistence.Scheduling.RetentionStore>();
+
+        // The three reminder sources (ADR-0051 section 4, lane B1). The candidate finder crosses
+        // every tenant, exactly like the lease store above; the mute checker is ordinary RLS-scoped
+        // reads inside the session already scoped to a trigger's recipient at fire time.
+        services.AddSingleton<Nix.Persistence.Scheduling.ReminderCandidateFinder>();
+        services.AddSingleton<Nix.Abstractions.Scheduling.IReminderCandidateFinder>(
+            provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ReminderCandidateFinder>());
+        services.AddScoped<Nix.Abstractions.Scheduling.IMutedContainerChecker, Nix.Persistence.Scheduling.MutedContainerChecker>();
+        services.AddScoped<Nix.Abstractions.Scheduling.IPrincipalStatusChecker, Nix.Persistence.Scheduling.PrincipalStatusChecker>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.ExplicitReminderSource>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.DueTaskReminderSource>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Persistence.Scheduling.HabitReminderSource>();
+
+        // Automations (ADR-0051 section 6, lane C1). The finder crosses every tenant like the
+        // reminder finder; everything else is scoped and runs under the rule owner's session - a
+        // request's, or the dispatcher's per-trigger one.
+        services.AddSingleton<Nix.Persistence.Automations.AutomationCandidateFinder>();
+        services.AddSingleton<Nix.Abstractions.Automations.IAutomationCandidateFinder>(
+            provider => provider.GetRequiredService<Nix.Persistence.Automations.AutomationCandidateFinder>());
+        services.AddScoped<Nix.Abstractions.Automations.IAutomationRuleStore, Nix.Persistence.Automations.AutomationRuleStore>();
+        services.AddScoped<Nix.Abstractions.Automations.IAutomationRunStore, Nix.Persistence.Automations.AutomationRunStore>();
+        services.AddScoped<Nix.Abstractions.Automations.IAutomationActionScope, Nix.Persistence.Automations.AutomationActionScope>();
+        services.AddScoped<Nix.Features.Automations.AutomationExecutor>();
+        services.AddScoped<Nix.Features.Automations.PlannedAutomationRules>();
+        services.AddScoped<Nix.Features.Automations.AutomationRuleSupport>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Features.Automations.AutomationScheduleSource>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Features.Automations.AutomationDateSource>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, Nix.Features.Automations.AutomationPropertySource>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.ListAutomations, Nix.Features.Automations.AutomationListResponse>, Nix.Features.Automations.ListAutomationsHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.CreateAutomation, Nix.Features.Automations.AutomationRuleResponse>, Nix.Features.Automations.CreateAutomationHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.GetAutomation, Nix.Features.Automations.AutomationRuleResponse>, Nix.Features.Automations.GetAutomationHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.UpdateAutomation, Nix.Features.Automations.AutomationRuleResponse>, Nix.Features.Automations.UpdateAutomationHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.DeleteAutomation, bool>, Nix.Features.Automations.DeleteAutomationHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.ListAutomationRuns, Nix.Features.Automations.AutomationRunsPageResponse>, Nix.Features.Automations.ListAutomationRunsHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.RunAutomation, Nix.Features.Automations.AutomationRunResponse>, Nix.Features.Automations.RunAutomationHandler>();
+        services.AddScoped<ICommandHandler<Nix.Features.Automations.TestAutomation, Nix.Features.Automations.AutomationTestResponse>, Nix.Features.Automations.TestAutomationHandler>();
+
+        if (options.SchedulingEnabled)
+        {
+            services.AddSingleton<Nix.Persistence.Scheduling.ScheduleDispatcher>();
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(
+                provider => provider.GetRequiredService<Nix.Persistence.Scheduling.ScheduleDispatcher>());
+            services.AddSingleton<Nix.Persistence.Scheduling.TriggerPlanner>();
+            services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(
+                provider => provider.GetRequiredService<Nix.Persistence.Scheduling.TriggerPlanner>());
+        }
         services.AddScoped<IWorkspaceGraph, WorkspaceGraphReader>();
         services.AddScoped<IWorkspaceCalendar, WorkspaceCalendarReader>();
         services.AddScoped<IRecurrenceCandidates, RecurrenceCandidateReader>();

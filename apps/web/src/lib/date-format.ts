@@ -60,3 +60,30 @@ export function formatShortDate(date: Date, timeZone: string): string {
 export function localTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
+
+const relativeTimeFormatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+
+const RELATIVE_TIME_UNITS: readonly {
+  readonly unit: Intl.RelativeTimeFormatUnit;
+  readonly ms: number;
+}[] = [
+  { unit: 'year', ms: 365 * 24 * 60 * 60 * 1000 },
+  { unit: 'month', ms: 30 * 24 * 60 * 60 * 1000 },
+  { unit: 'week', ms: 7 * 24 * 60 * 60 * 1000 },
+  { unit: 'day', ms: 24 * 60 * 60 * 1000 },
+  { unit: 'hour', ms: 60 * 60 * 1000 },
+  { unit: 'minute', ms: 60 * 1000 },
+];
+
+/** How long ago (or, for a future instant, how soon) `date` is relative to `now` - "3 minutes
+ * ago", "yesterday", "in 2 days". Falls back to seconds only for anything under a minute, which
+ * `Intl.RelativeTimeFormat` renders as "now". */
+export function formatRelativeTime(date: Date, now: Date = new Date()): string {
+  const diffMs = date.getTime() - now.getTime();
+  for (const { unit, ms } of RELATIVE_TIME_UNITS) {
+    if (Math.abs(diffMs) >= ms) {
+      return relativeTimeFormatter.format(Math.round(diffMs / ms), unit);
+    }
+  }
+  return relativeTimeFormatter.format(Math.round(diffMs / 1000), 'second');
+}

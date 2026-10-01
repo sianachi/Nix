@@ -1223,6 +1223,198 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/preferences': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPreferences'];
+    put: operations['SavePreferences'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListNotifications'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications/{notificationId}/read': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['MarkNotificationRead'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications/read-all': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['MarkAllNotificationsRead'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/notifications/watch': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['WatchNotifications'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/push-subscriptions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AddPushSubscription'];
+    delete: operations['RemovePushSubscription'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/push/public-key': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPushPublicKey'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/automations': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListAutomations'];
+    put?: never;
+    post: operations['CreateAutomation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/automations/{ruleId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetAutomation'];
+    put: operations['UpdateAutomation'];
+    post?: never;
+    delete: operations['DeleteAutomation'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/automations/{ruleId}/runs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListAutomationRuns'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/automations/{ruleId}/run': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['RunAutomation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/automations/{ruleId}/test': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['TestAutomation'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/graph': {
     parameters: {
       query?: never;
@@ -1968,11 +2160,90 @@ export interface components {
       /** Format: uuid */
       inheritedFromItemId: null | string;
     };
+    AddPushSubscriptionRequest: {
+      endpoint: string;
+      p256dh: string;
+      auth: string;
+    };
     AppendViewSetupRequest: {
       properties: components['schemas']['PropertyDefinitionRequest'][];
       views: components['schemas']['ViewRequest'][];
       makeDefault: boolean;
       publishInteractiveFormViewId: null | string;
+    };
+    AutomationActionPreview: {
+      /** Format: int32 */
+      index: number | string;
+      type: string;
+      /** Format: uuid */
+      itemId: null | string;
+      key: null | string;
+      title: null | string;
+      body: null | string;
+    };
+    AutomationItemRequest: {
+      /** Format: uuid */
+      itemId: null | string;
+    };
+    AutomationListResponse: {
+      items: components['schemas']['AutomationRuleResponse'][];
+    };
+    AutomationRuleInput: {
+      name: string;
+      enabled: boolean;
+      /** Format: uuid */
+      scopeItemId: null | string;
+      trigger: components['schemas']['JsonObject'];
+      conditions: null | components['schemas']['JsonArray'];
+      actions: components['schemas']['JsonArray'];
+    };
+    AutomationRuleResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      name: string;
+      enabled: boolean;
+      /** Format: uuid */
+      scopeItemId: null | string;
+      trigger: components['schemas']['JsonObject'];
+      conditions: components['schemas']['JsonArray'];
+      actions: components['schemas']['JsonArray'];
+      /** Format: int64 */
+      revision: number | string;
+      /** Format: int32 */
+      consecutiveFailures: number | string;
+      disabledReason: null | string;
+      /** Format: date-time */
+      lastRunAt: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+    };
+    AutomationRunResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      ruleId: string;
+      /** Format: uuid */
+      itemId: null | string;
+      origin: string;
+      /** Format: int32 */
+      depth: number | string;
+      status: string;
+      reason: null | string;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    AutomationRunsPageResponse: {
+      items: components['schemas']['AutomationRunResponse'][];
+      nextCursor: null | string;
+    };
+    AutomationTestResponse: {
+      wouldRun: boolean;
+      reason: null | string;
+      actions: components['schemas']['AutomationActionPreview'][];
     };
     BacklinkResponse: {
       source: components['schemas']['SearchHitResponse'];
@@ -2816,6 +3087,7 @@ export interface components {
       /** Format: double */
       target: number | string;
       unit: string;
+      reminderTime?: null | string;
     };
     HabitStatusRequest: {
       status: string;
@@ -2843,6 +3115,7 @@ export interface components {
       occurrences?: null | components['schemas']['HabitOccurrence'][];
       progress?: null | components['schemas']['HabitProgress'];
       months?: null | components['schemas']['HabitMonthSummary'][];
+      reminderTime?: null | string;
     };
     HabitWeekSummary: {
       /** Format: date */
@@ -3034,6 +3307,33 @@ export interface components {
       /** Format: uuid */
       afterId: null | string;
     };
+    NotificationDto: {
+      /** Format: uuid */
+      id: string;
+      kind: string;
+      title: string;
+      body: string;
+      /** Format: uuid */
+      itemId: null | string;
+      /** Format: uuid */
+      workspaceId: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      readAt: null | string;
+    };
+    NotificationReadResponse: {
+      /** Format: int32 */
+      unread: number | string;
+    };
+    NotificationsPageResponse: {
+      items: components['schemas']['NotificationDto'][];
+      nextCursor: null | string;
+      /** Format: int32 */
+      unread: number | string;
+      /** Format: int64 */
+      revision: number | string;
+    };
     OperationResponse: {
       /** Format: uuid */
       id: string;
@@ -3196,6 +3496,26 @@ export interface components {
       /** Format: int32 */
       skipped: number | string;
     };
+    PreferencesInput: {
+      timeZone: string;
+      quietStart: null | string;
+      quietEnd: null | string;
+      dueReminderTime: string;
+      dueReminders: boolean;
+      habitReminders: boolean;
+      mutedContainerIds: string[];
+    };
+    PrincipalPreferencesResponse: {
+      /** Format: int64 */
+      revision: number | string;
+      timeZone: string;
+      quietStart: null | string;
+      quietEnd: null | string;
+      dueReminderTime: string;
+      dueReminders: boolean;
+      habitReminders: boolean;
+      mutedContainerIds: string[];
+    };
     ProblemDetails: {
       type?: null | string;
       title?: null | string;
@@ -3267,6 +3587,19 @@ export interface components {
       form: components['schemas']['PublicFormDefinitionResponse'];
       fields: components['schemas']['PublicFormPropertyResponse'][];
     };
+    PushPublicKeyResponse: {
+      publicKey: string;
+    };
+    PushSubscriptionDto: {
+      /** Format: uuid */
+      id: string;
+      endpoint: string;
+      userAgent: string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      lastSuccessAt: null | string;
+    };
     QueryResultResponse: {
       /** Format: uuid */
       id: string;
@@ -3311,6 +3644,9 @@ export interface components {
     ReferencesResponse: {
       references: components['schemas']['ReferenceResolutionResponse'][];
     };
+    RemovePushSubscriptionRequest: {
+      endpoint: string;
+    };
     RenameWorkspaceRequest: {
       name: string;
     };
@@ -3339,6 +3675,11 @@ export interface components {
       /** Format: int64 */
       expectedRevision: number | string;
       settings: components['schemas']['PetSettings'];
+    };
+    SavePreferencesRequest: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+      preferences: components['schemas']['PreferencesInput'];
     };
     SearchHitResponse: {
       /** Format: uuid */
@@ -3740,6 +4081,11 @@ export interface components {
       /** Format: double */
       amount: number | string;
       posted: boolean;
+    };
+    UpdateAutomationRequest: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+      rule: components['schemas']['AutomationRuleInput'];
     };
     UpdateItemRequest: {
       title: string;
@@ -7435,6 +7781,413 @@ export interface operations {
         };
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetPreferences: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PrincipalPreferencesResponse'];
+        };
+      };
+    };
+  };
+  SavePreferences: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SavePreferencesRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PrincipalPreferencesResponse'];
+        };
+      };
+    };
+  };
+  ListNotifications: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        unreadOnly?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationsPageResponse'];
+        };
+      };
+    };
+  };
+  MarkNotificationRead: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        notificationId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationReadResponse'];
+        };
+      };
+    };
+  };
+  MarkAllNotificationsRead: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationReadResponse'];
+        };
+      };
+    };
+  };
+  WatchNotifications: {
+    parameters: {
+      query?: {
+        after?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationsPageResponse'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AddPushSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AddPushSubscriptionRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PushSubscriptionDto'];
+        };
+      };
+    };
+  };
+  RemovePushSubscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RemovePushSubscriptionRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  GetPushPublicKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PushPublicKeyResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListAutomations: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationListResponse'];
+        };
+      };
+    };
+  };
+  CreateAutomation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutomationRuleInput'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationRuleResponse'];
+        };
+      };
+    };
+  };
+  GetAutomation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ruleId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationRuleResponse'];
+        };
+      };
+    };
+  };
+  UpdateAutomation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ruleId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateAutomationRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationRuleResponse'];
+        };
+      };
+    };
+  };
+  DeleteAutomation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ruleId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  ListAutomationRuns: {
+    parameters: {
+      query?: {
+        cursor?: string;
+      };
+      header?: never;
+      path: {
+        ruleId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationRunsPageResponse'];
+        };
+      };
+    };
+  };
+  RunAutomation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ruleId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutomationItemRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationRunResponse'];
+        };
+      };
+    };
+  };
+  TestAutomation: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        ruleId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AutomationItemRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AutomationTestResponse'];
         };
       };
     };

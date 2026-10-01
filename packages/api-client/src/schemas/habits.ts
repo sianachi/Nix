@@ -9,6 +9,9 @@ export const habitSettingsSchema = z.object({
   startDate: z.iso.date(),
   target: z.number().positive(),
   unit: z.string(),
+  /** The local time (HH:mm, in the habit's own zone) a reminder fires on an unchecked scheduled
+   * day, or null for no reminder. Defaulted so a server from before the field still parses. */
+  reminderTime: z.string().nullable().default(null),
 });
 
 export const habitCheckInSchema = z.object({

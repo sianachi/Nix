@@ -284,6 +284,116 @@ describe('rescheduling a month cell by tap rather than by drag', () => {
  * The same "Show N more" behaviour `DayCell` gives the container calendar's own month grid,
  * extended to the collated one so a busy day does not grow the whole cell without bound.
  */
+/**
+ * A generated occurrence has no row of its own - it is drawn from a recurrence rule, not read from
+ * storage - so it must not offer the writes only a stored row supports (drag, the reschedule
+ * dialog), and it must say so with a marker a reader can see rather than leaving the two kinds of
+ * entry looking alike. "Mark done" is the one write it does offer, through the recurrence
+ * completion endpoint the goal 3.2 lane added.
+ */
+describe('a generated occurrence', () => {
+  function generatedEntry(completed: boolean | null): CalendarEntry {
+    return {
+      itemId: 'c1',
+      title: 'Water the plants',
+      containerId: CONTAINER_ONE,
+      containerTitle: 'Chores',
+      dateProperty: 'due',
+      value: '2026-03-12',
+      kind: 'date',
+      generated: true,
+      completed,
+    };
+  }
+
+  it('is not draggable and offers no reschedule button, only a "Repeats" marker', () => {
+    render(
+      <CollatedCalendar
+        entries={[generatedEntry(false)]}
+        grain="month"
+        onGrain={noop}
+        anchor={MARCH}
+        onAnchor={noop}
+        today={MARCH}
+        onOpen={noop}
+        onReschedule={noop}
+      />,
+    );
+
+    const button = screen.getByRole('button', { name: /water the plants/i });
+    expect(button).toHaveAttribute('aria-label', 'Water the plants, in Chores, repeats');
+    expect(button).not.toHaveAttribute('draggable', 'true');
+    expect(
+      screen.queryByRole('button', { name: 'Reschedule Water the plants' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('offers "Mark done", calling back with the entry and the day it occurred on', async () => {
+    const onComplete = vi.fn();
+    render(
+      <CollatedCalendar
+        entries={[generatedEntry(false)]}
+        grain="month"
+        onGrain={noop}
+        anchor={MARCH}
+        onAnchor={noop}
+        today={MARCH}
+        onOpen={noop}
+        onReschedule={noop}
+        onComplete={onComplete}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Mark Water the plants done' }));
+
+    expect(onComplete).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: 'c1' }),
+      '2026-03-12',
+    );
+  });
+
+  it('offers no "Mark done" control when the caller has not wired one', () => {
+    render(
+      <CollatedCalendar
+        entries={[generatedEntry(false)]}
+        grain="month"
+        onGrain={noop}
+        anchor={MARCH}
+        onAnchor={noop}
+        today={MARCH}
+        onOpen={noop}
+        onReschedule={noop}
+      />,
+    );
+
+    expect(
+      screen.queryByRole('button', { name: 'Mark Water the plants done' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('renders a completed occurrence as done, with no further "Mark done" control', () => {
+    const onComplete = vi.fn();
+    render(
+      <CollatedCalendar
+        entries={[generatedEntry(true)]}
+        grain="month"
+        onGrain={noop}
+        anchor={MARCH}
+        onAnchor={noop}
+        today={MARCH}
+        onOpen={noop}
+        onReschedule={noop}
+        onComplete={onComplete}
+      />,
+    );
+
+    expect(screen.getByRole('img', { name: 'Done' })).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Mark Water the plants done' }),
+    ).not.toBeInTheDocument();
+  });
+});
+
 describe('a busy month cell', () => {
   function entryOn(id: string, day: string): CalendarEntry {
     return {

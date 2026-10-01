@@ -70,3 +70,28 @@ export async function readStdin(): Promise<string> {
   }
   return Buffer.concat(chunks).toString('utf8');
 }
+
+const TIME_OF_DAY = /^([01]\d|2[0-3]):[0-5]\d$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Checks an IANA zone name against the zones this runtime knows; Core still has the last word. */
+export function parseTimeZone(value: string, flag: string): string {
+  const zone = value.trim();
+  if (zone === '') throw new Error(`${flag} cannot be empty.`);
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+  } catch {
+    throw new Error(`${flag} must be an IANA time zone such as Europe/London - got '${value}'.`);
+  }
+  return zone;
+}
+
+export function parseTimeOfDay(value: string, flag: string): string {
+  if (!TIME_OF_DAY.test(value)) throw new Error(`${flag} must be HH:mm - got '${value}'.`);
+  return value;
+}
+
+export function parseUuid(value: string, flag: string): string {
+  if (!UUID.test(value)) throw new Error(`${flag} must be a UUID - got '${value}'.`);
+  return value.toLowerCase();
+}

@@ -864,6 +864,54 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Applying_a_template_attributes_its_due_date_and_reminder_to_the_applier()
+    {
+        // H1a: a set-by value inside a template (imported from a file, or captured from someone
+        // else's item) must never route the applied item's reminders to the principal it names.
+        var forged = TestTenants.BetaPrincipal.ToString();
+        var root = Items()[0] with
+        {
+            Properties = $$"""{"title":"Template root","answer":"workspace-answer","due_date":"2026-12-01","$due_set_by":"{{forged}}","reminder":"2026-12-01T09:00:00+00:00[Etc/UTC]","$reminder_set_by":"{{forged}}"}""",
+        };
+        TemplateId templateId;
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var begun = await store.BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), "forged-set-by-import", Descriptor(), [root, Items()[1]], Cancellation);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+            var finalized = await store.FinalizeOperationAsync(begun.Value.OperationId!.Value, [], Cancellation);
+            Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+            templateId = finalized.Value;
+            await work.CommitAsync(Cancellation);
+        }
+
+        var apply = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (apply.ConfigureAwait(false))
+        {
+            var template = await apply.DbContext.WorkspaceTemplates.AsNoTracking()
+                .SingleAsync(candidate => candidate.Id == templateId, Cancellation);
+            var templateRoot = await apply.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(item => item.Id == template.RootItemId, Cancellation);
+            var templateBag = Assert.IsType<JsonObject>(JsonNode.Parse(templateRoot.Properties!));
+            Assert.False(templateBag.ContainsKey(ItemProperties.DueSetByKey));
+            Assert.False(templateBag.ContainsKey(ItemProperties.ReminderSetByKey));
+            Assert.Equal("2026-12-01", (string?)templateBag["due_date"]);
+
+            var begun = await apply.Resolve<TemplateStore>().BeginApplicationAsync(
+                templateId, TemplateApplicationMode.Create, null, null, "Applied with a due date", "apply-forged-set-by", Cancellation);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+            var createdIds = begun.Value.CreatedItems.Select(mapping => mapping.ItemId).ToArray();
+            var appliedRoot = await apply.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(item => createdIds.Contains(item.Id) && item.ParentId == null, Cancellation);
+            var appliedBag = Assert.IsType<JsonObject>(JsonNode.Parse(appliedRoot.Properties!));
+            Assert.Equal(TestTenants.AlphaPrincipal.ToString(), (string?)appliedBag[ItemProperties.DueSetByKey]);
+            Assert.Equal(TestTenants.AlphaPrincipal.ToString(), (string?)appliedBag[ItemProperties.ReminderSetByKey]);
+        }
+    }
+
+    [Fact]
     public async Task Import_persists_initialization_and_authored_root_properties_for_preflight()
     {
         var initialization = new TemplateInitialization(
@@ -2468,6 +2516,58 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
 
             Assert.True(imported.IsFailure);
             Assert.Contains("property bag may be at most", imported.Error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task Import_refuses_a_bag_naming_a_member_twice_rather_than_failing_the_request()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var child = Items()[1] with
+            {
+                Properties = "{\"due_date\":\"2026-12-01\",\"due_date\":\"2026-12-02\"}",
+            };
+
+            var imported = await work.Resolve<TemplateStore>().BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace),
+                "import-duplicate-member",
+                Descriptor(),
+                [Items()[0], child],
+                Cancellation);
+
+            Assert.True(imported.IsFailure);
+            Assert.Equal(TemplateErrors.Invalid("x").Code, imported.Error.Code);
+        }
+    }
+
+    [Fact]
+    public async Task A_draft_item_edit_cannot_carry_a_set_by_value_into_template_content()
+    {
+        var templateId = await ImportAndFinalizeAsync("draft-strips-set-by");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var draft = await store.BeginDraftAsync(templateId, "draft-strips-set-by", Cancellation);
+            Assert.True(draft.IsSuccess);
+
+            var updated = await store.UpdateDraftItemAsync(
+                templateId,
+                draft.Value.OperationId,
+                ChildSource,
+                null,
+                $$"""{"title":"Child","due_date":"2026-12-01","{{ItemProperties.DueSetByKey}}":"{{TestTenants.BetaPrincipal}}","{{ItemProperties.ReminderSetByKey}}":"{{TestTenants.BetaPrincipal}}"}""",
+                null,
+                null,
+                Cancellation);
+
+            Assert.True(updated.IsSuccess, updated.IsFailure ? updated.Error.Message : string.Empty);
+            var bag = Assert.IsType<JsonObject>(JsonNode.Parse(updated.Value.Properties!));
+            Assert.Equal("2026-12-01", (string?)bag["due_date"]);
+            Assert.False(bag.ContainsKey(ItemProperties.DueSetByKey));
+            Assert.False(bag.ContainsKey(ItemProperties.ReminderSetByKey));
         }
     }
 

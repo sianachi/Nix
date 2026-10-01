@@ -64,7 +64,21 @@ public static class AccessTokenScopePolicy
             return Requirement.InteractiveOnly;
         }
 
-        var value = path.Value ?? string.Empty;
+        // ASP.NET routing matches a path with a trailing slash to the same endpoint, so every
+        // suffix and exact-path rule below compares the path with trailing slashes removed;
+        // otherwise "/move/" or "/api/v1/me/preferences/" would slip past the rule meant for it.
+        var value = (path.Value ?? string.Empty).TrimEnd('/');
+
+        // Preferences writes and registering or removing a push device are interactive-user
+        // boundaries: a personal access token used by an automation should never be able to
+        // change where a person's reminders are pushed or silence their notifications. Reading
+        // either remains Read through the shortcut below.
+        if (!IsRead(method)
+            && (path.StartsWithSegments("/api/v1/me/preferences", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWithSegments("/api/v1/me/push-subscriptions", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Requirement.InteractiveOnly;
+        }
 
         // Admin surfaces, whichever method reaches them, because each changes or exposes who can
         // see what rather than what there is to see:
@@ -102,7 +116,11 @@ public static class AccessTokenScopePolicy
                 && value.StartsWith("/api/v1/workspaces/", StringComparison.OrdinalIgnoreCase))
             // Plugin writes pin publisher trust or grant executable components access to
             // workspace data. Listing installations remains a read through the shortcut above.
-            || value.Contains("/plugins", StringComparison.OrdinalIgnoreCase))
+            || value.Contains("/plugins", StringComparison.OrdinalIgnoreCase)
+            // Automation rules act later, unattended, with their owner's write access
+            // (ADR-0051 section 6): a token may read them, but creating, changing, running or
+            // deleting one is an admin capability, never an ordinary write.
+            || value.Contains("/automations", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }
