@@ -21,6 +21,9 @@ assert s['nix-web']['environment']['NIX_OBJECT_STORE_BUCKET']=='nix-worker-jobs'
 assert 'NIX_COLLAB_MIGRATOR_CONNECTION_STRING' not in s['nix-collab']['environment']
 assert s['nix-collab-migrate']['environment']['NIX_COLLAB_MIGRATOR_CONNECTION_STRING']
 assert s['nix-api']['environment']['Nix__Pets__WorkerUrl'] == 'http://nix-import-worker:8301'
+assert s['nix-api']['environment']['Nix__Push__VapidPublicKey'] == 'replace-me-public-key'
+assert 'NIX_PUSH_VAPID_PRIVATE_KEY' not in s['nix-api']['environment']
+assert s['nix-notify-worker']['environment']['NIX_PUSH_VAPID_PRIVATE_KEY'] == 'replace-me'
 # The api image is chiseled: it holds only /usr/bin/dotnet (no shell, wget, curl or /dev/tcp).
 api_check = s['nix-api'].get('healthcheck', {}).get('test', [])
 assert not api_check or (api_check[0] == 'CMD' and api_check[1] not in ('wget', 'curl', 'sh', 'bash')), api_check
