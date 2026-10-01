@@ -313,7 +313,9 @@ export function dismissMention(editor: Editor, mention: ActiveMention): void {
     rememberDismissal(mentionDismissalKey(workspaceId, mention.itemId));
   }
   withdraw(editor, mention.itemId);
-  announce(`${mention.title} will not be suggested in this workspace again.`);
+  announce(
+    `${mention.title} will not be suggested in this workspace again. You can bring it back in Settings.`,
+  );
 }
 
 /** Tells an editor's mention underlines what they need. Call from an effect. */

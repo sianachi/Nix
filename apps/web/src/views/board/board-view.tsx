@@ -166,17 +166,16 @@ export function BoardView(props: BoardViewProps): ReactNode {
   // why that is the only clock available and why no "move it to" suggestion comes with it. The
   // unset column is a column like any other here: an item nobody has triaged in a month is exactly
   // what the hint is for.
+  //
+  // The usual is the whole column's, bucketed by the same grouping value from every loaded child,
+  // never just the cards a filter leaves on screen: a filter that shows only old cards would make
+  // them look ordinary, and one that shows a few would leave too few to judge. The filtered cards
+  // only decide which hints are drawn, by id. A truncated container's columns are a sample, and a
+  // median over a sample is a guess, so then nothing is said at all.
   const stale: ReadonlyMap<string, StaleMember> =
-    viewSuggestions === 'off'
+    viewSuggestions === 'off' || container.truncated
       ? NO_STALE
-      : staleMembers(
-          columns.map((column) =>
-            column.items.map((item) => ({
-              id: item.id,
-              ageMs: Math.max(0, mountedAt - Date.parse(item.updatedAt)),
-            })),
-          ),
-        );
+      : staleMembers(columnAges(container.children, key, mountedAt));
 
   const placed = new Set<string | null>([...chosen, null]);
   const hidden = [...buckets].filter(([value]) => !placed.has(value)).flatMap(([, items]) => items);
@@ -706,6 +705,26 @@ function BoardCard(props: BoardCardProps): ReactNode {
 }
 
 const NO_STALE: ReadonlyMap<string, StaleMember> = new Map();
+
+/** Every loaded child's age, bucketed by its grouping value: one group per board column. */
+function columnAges(
+  children: readonly Item[],
+  key: string,
+  now: number,
+): readonly (readonly { readonly id: string; readonly ageMs: number }[])[] {
+  const groups = new Map<string | null, { id: string; ageMs: number }[]>();
+  for (const item of children) {
+    const value = readSelectValue(item, key);
+    const member = { id: item.id, ageMs: Math.max(0, now - Date.parse(item.updatedAt)) };
+    const group = groups.get(value);
+    if (group === undefined) {
+      groups.set(value, [member]);
+    } else {
+      group.push(member);
+    }
+  }
+  return [...groups.values()];
+}
 
 /**
  * What a stale-card dismissal is about: this card, as it was when the note was waved away. An edit

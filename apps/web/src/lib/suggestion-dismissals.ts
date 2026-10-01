@@ -68,11 +68,14 @@ export function rememberDismissal(key: string): void {
   }
 }
 
-/** Forgets every dismissal. Called whenever the signed-in subject changes. */
-export function clearSuggestionDismissals(): void {
+/** Forgets every dismissal; reports whether browser storage accepted the removal. */
+export function clearSuggestionDismissals(): boolean {
+  const storage = browserStorage();
+  if (storage === undefined) return false;
   try {
-    browserStorage()?.removeItem(STORAGE_KEY);
+    storage.removeItem(STORAGE_KEY);
+    return true;
   } catch {
-    // Storage refused the removal; nothing else holds the entries.
+    return false;
   }
 }

@@ -113,19 +113,56 @@ public sealed class SuggestionStatementTests
             StringComparison.Ordinal);
     }
 
-    [Theory]
-    [InlineData(nameof(SearchSql.MatchingItems))]
-    [InlineData(nameof(SearchSql.SearchCandidatesById))]
-    [InlineData(nameof(SearchSql.CoCitedItems))]
-    [InlineData(nameof(SearchSql.ItemsTitledAs))]
-    public void Every_title_search_leaves_out_what_sits_under_a_closed_lock(string statement)
+    [Fact]
+    public void The_search_candidate_re_read_leaves_out_what_sits_under_a_closed_lock()
     {
-        // ADR-0056: a lock hides the titles under it from every title search, exactly as it hides
-        // them from the listing. Proper descendants only - the locked item itself keeps its title -
-        // and only the locks this credential has not opened.
-        var text = Statement(statement);
+        // ADR-0056. At most a page of identifiers, so a point probe per row is the right shape.
+        Assert.Contains(ItemLockSql.ItemIsNotUnderClosedLock, SearchSql.SearchCandidatesById, StringComparison.Ordinal);
+    }
 
-        Assert.Contains(ItemLockSql.ItemIsNotUnderClosedLock, text, StringComparison.Ordinal);
+    [Theory]
+    [InlineData(nameof(SearchSql.MatchingItems), "matches AS (", "UNION ALL", "item.id")]
+    [InlineData(nameof(SearchSql.ItemsTitledAs), "matches AS MATERIALIZED (", "ranked AS", "candidate.id")]
+    [InlineData(nameof(SearchSql.CoCitedItems), "co_cited AS MATERIALIZED (", "GROUP BY", "candidate.id")]
+    public void Every_title_scan_drops_what_sits_under_a_closed_lock_before_any_cap(
+        string statement,
+        string stageStart,
+        string stageEnd,
+        string row)
+    {
+        // ADR-0056: a lock hides the titles under it from every title search. Read once as a
+        // materialised set and anti-joined in the scanning stage - before a per-phrase, candidate
+        // or result cap, so a hidden item can neither spend a slot nor be detected by the gap it
+        // leaves - rather than probed per row, which the planner costs against the whole scan.
+        ArgumentNullException.ThrowIfNull(stageStart);
+        ArgumentNullException.ThrowIfNull(stageEnd);
+        var text = Statement(statement);
+        Assert.Contains(ItemLockSql.ClosedLockDescendants, text, StringComparison.Ordinal);
+
+        var stage = Stage(text, stageStart, stageEnd);
+        Assert.Contains(
+            $"WHERE hidden.descendant_id = {row}",
+            stage,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(ItemLockSql.ItemIsNotUnderClosedLock, text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_graph_drops_nodes_under_a_closed_lock_before_its_node_ceiling()
+    {
+        var visible = Stage(GraphSql.WorkspaceGraph, "visible AS (", "LIMIT @node_limit");
+
+        Assert.Contains(ItemLockSql.ClosedLockDescendants, GraphSql.WorkspaceGraph, StringComparison.Ordinal);
+        Assert.Contains("WHERE hidden.descendant_id = item.id", visible, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_hidden_set_is_proper_descendants_of_the_closed_locks_only()
+    {
+        // The locked item itself keeps its title: depth > 0.
+        Assert.Contains("lock_edge.ancestor_id = ANY(@closed_lock_ids)", ItemLockSql.ClosedLockDescendants, StringComparison.Ordinal);
+        Assert.Contains("lock_edge.depth > 0", ItemLockSql.ClosedLockDescendants, StringComparison.Ordinal);
+        Assert.Contains("MATERIALIZED", ItemLockSql.ClosedLockDescendants, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -139,10 +176,11 @@ public sealed class SuggestionStatementTests
     [Fact]
     public void The_title_arm_of_search_takes_the_closed_lock_rule_and_the_body_arm_every_lock()
     {
-        var titleArm = Stage(SearchSql.MatchingItems, "WITH matches AS", "UNION ALL");
+        var titleArm = Stage(SearchSql.MatchingItems, "matches AS (", "UNION ALL");
         var bodyArm = Stage(SearchSql.MatchingItems, "UNION ALL", "ranked AS");
 
-        Assert.Contains("@closed_lock_ids", titleArm, StringComparison.Ordinal);
+        Assert.Contains("closed_lock_descendants AS hidden", titleArm, StringComparison.Ordinal);
+        Assert.DoesNotContain("closed_lock_descendants", bodyArm, StringComparison.Ordinal);
         Assert.DoesNotContain("@lock_ids", titleArm, StringComparison.Ordinal);
         Assert.Contains("lock_edge.ancestor_id = ANY(@lock_ids)", bodyArm, StringComparison.Ordinal);
     }

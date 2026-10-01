@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { NixClient } from '@nix/api-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -140,6 +140,10 @@ describe('the file item viewer', () => {
     render(<FileViewer itemId={ITEM} />);
 
     expect(await screen.findByRole('status')).toHaveTextContent(/loading the authorized preview/i);
+    // Loading starts before the capability lookup completes and fetch has a resolver to release.
+    await waitFor(() => {
+      expect(release).toBeDefined();
+    });
     release?.(new Response('payload', { status: 200, headers: { 'content-type': 'image/png' } }));
     expect(await screen.findByRole('img', { name: 'diagram.png' })).toHaveAttribute(
       'src',

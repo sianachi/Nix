@@ -35,18 +35,31 @@ function cards(ages: readonly number[]): Item[] {
   );
 }
 
-function renderBoard(ages: readonly number[] | readonly Item[]) {
+const TAG: PropertyDefinition = {
+  key: 'tag',
+  label: 'Tag',
+  type: 'select',
+  options: ['a', 'b'],
+  required: false,
+};
+
+function renderBoard(
+  ages: readonly number[] | readonly Item[],
+  options: { readonly url?: string; readonly truncated?: boolean } = {},
+) {
   const children = typeof ages[0] === 'number' ? cards(ages as number[]) : (ages as Item[]);
   return renderAt(
     <BoardView
       container={aContainer({
-        schema: { properties: [STATUS], declared: [STATUS], inherit: true },
+        schema: { properties: [STATUS, TAG], declared: [STATUS, TAG], inherit: true },
         views: views([]),
         children,
+        truncated: options.truncated ?? false,
       })}
       view={aView({ kind: 'board', groupBy: 'status' })}
       onOpen={vi.fn()}
     />,
+    options.url,
   );
 }
 
@@ -107,6 +120,37 @@ describe('the stale card note', () => {
     renderBoard(edited);
 
     expect(screen.getByText(/No changes in/)).toHaveTextContent('No changes in 29 days.');
+  });
+
+  it('judges a card against its whole column, not just the cards a filter leaves on screen', () => {
+    // The column usually changes within two days. A filter leaves only three old cards showing:
+    // judged among themselves they look ordinary (and are too few to judge at all), but against
+    // the column they belong to every one of them is stale.
+    const young = [1, 1, 2, 2].map((days, index) =>
+      anItem(
+        `Young ${String(index + 1)}`,
+        { status: 'Doing', tag: 'b' },
+        { updatedAt: daysAgo(days) },
+      ),
+    );
+    const old = [20, 21, 30].map((days, index) =>
+      anItem(
+        `Old ${String(index + 1)}`,
+        { status: 'Doing', tag: 'a' },
+        { updatedAt: daysAgo(days) },
+      ),
+    );
+
+    renderBoard([...young, ...old], { url: '/?f.tag=a' });
+
+    expect(screen.getAllByText(/No changes in/)).toHaveLength(3);
+    expect(screen.queryByText('Young 1')).not.toBeInTheDocument();
+  });
+
+  it('says nothing about ages when only part of the container is loaded', () => {
+    // A truncated container's columns are a sample; a median over a sample is a guess.
+    renderBoard([1, 1.5, 1.5, 2, 30], { truncated: true });
+    expect(screen.queryByText(/No changes in/)).not.toBeInTheDocument();
   });
 
   it('is not shown when suggestions in views are switched off', () => {

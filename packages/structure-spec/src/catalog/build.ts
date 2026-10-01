@@ -72,8 +72,7 @@ export interface CatalogRollupAggregate {
  */
 export interface CatalogViewKind extends Omit<ViewKindRule, 'requires'> {
   readonly requires:
-    | (NonNullable<ViewKindRequirement> & { readonly accepts: readonly string[] })
-    | null;
+    (NonNullable<ViewKindRequirement> & { readonly accepts: readonly string[] }) | null;
 }
 
 export interface Catalog {

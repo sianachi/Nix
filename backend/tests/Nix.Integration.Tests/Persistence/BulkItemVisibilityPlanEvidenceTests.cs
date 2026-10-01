@@ -47,6 +47,7 @@ public sealed class BulkItemVisibilityPlanEvidenceTests : IAsyncLifetime
                 Integer("node_limit", 501),
                 Integer("link_limit", 501),
                 Uuids("lock_ids", [_itemIds[^1]]),
+                Uuids("closed_lock_ids", [_itemIds[^1]]),
             ]);
 
         RecordAndAssert("Graph", plan);

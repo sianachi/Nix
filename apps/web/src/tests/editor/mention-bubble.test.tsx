@@ -1,10 +1,11 @@
 import type { Mentions } from '@nix/api-client';
 import { nixEditingExtensions } from '@nix/editor-schema';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { useAnnouncement } from '../../a11y/announcer';
 import { MentionBubble } from '../../editor/mention-bubble';
 import {
   IDLE_MS,
@@ -140,7 +141,9 @@ describe('the mention bubble', () => {
     moveCaretInto(editor);
 
     expect(screen.getByRole('button', { name: 'Link to Project Atlas' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Don’t suggest this' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Don’t suggest linking Project Atlas' }),
+    ).toBeInTheDocument();
   });
 
   it('hides for that mention on Escape', async () => {
@@ -156,11 +159,47 @@ describe('the mention bubble', () => {
     expect(screen.queryByRole('button', { name: /Link to/ })).not.toBeInTheDocument();
   });
 
+  it('keeps Escape to itself while it is shown, so nothing behind the note also closes', async () => {
+    const editor = await underlinedByTyping();
+    moveCaretInto(editor);
+    const outer = vi.fn();
+    document.addEventListener('keydown', outer);
+
+    fireEvent.keyDown(editor.view.dom, { key: 'Escape' });
+    document.removeEventListener('keydown', outer);
+
+    expect(outer).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Link to/ })).not.toBeInTheDocument();
+  });
+
+  it('lets Escape through when it is not shown', async () => {
+    const editor = await underlinedByTyping();
+    const outer = vi.fn();
+    document.addEventListener('keydown', outer);
+
+    fireEvent.keyDown(editor.view.dom, { key: 'Escape' });
+    document.removeEventListener('keydown', outer);
+
+    expect(outer).toHaveBeenCalledTimes(1);
+  });
+
+  it('says where a dismissed suggestion can be brought back', async () => {
+    const editor = await underlinedByTyping();
+    moveCaretInto(editor);
+    const { result } = renderHook(() => useAnnouncement());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Don’t suggest linking Project Atlas' }));
+
+    expect(result.current.text.trim()).toBe(
+      'Project Atlas will not be suggested in this workspace again. You can bring it back in Settings.',
+    );
+  });
+
   it('stops suggesting the item in this workspace when asked to', async () => {
     const editor = await underlinedByTyping();
     moveCaretInto(editor);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Don’t suggest this' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Don’t suggest linking Project Atlas' }));
 
     expect(readDismissals().has(`mention:${WORKSPACE}:${ATLAS}`)).toBe(true);
     expect(mentionsIn(editor.state)).toHaveLength(0);

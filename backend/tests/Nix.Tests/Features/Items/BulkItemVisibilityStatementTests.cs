@@ -80,7 +80,12 @@ public sealed class BulkItemVisibilityStatementTests
             expectedPredicates,
             Count(sql, "stored_ancestor.lifecycle_state IS DISTINCT FROM 'active'"));
         Assert.Equal(expectedPredicates, Count(sql, "LIMIT 1\n"));
-        Assert.Equal(expectedPredicates, Count(sql, "OFFSET 0"));
+        // Other stages may have their own fences; pin the one protecting each ancestor probe.
+        Assert.Equal(
+            expectedPredicates,
+            System.Text.RegularExpressions.Regex.Matches(
+                sql,
+                @"stored_ancestor.lifecycle_state IS DISTINCT FROM 'active'\)\s*OFFSET 0").Count);
     }
 
     [Fact]

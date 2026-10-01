@@ -1,9 +1,13 @@
 import { Button, Text, cn, focusRing } from '@nix/ui';
 import { useEffect, useRef, type ReactNode } from 'react';
 
+import { useOptionalApiClient } from '../../api/api-client-provider';
+import { formatCalendarDay } from '../../lib/date-format';
 import type { InferredFilters, InferredRule } from '../../lib/suggest/infer-filters';
+import { useOptionalWorkspace } from '../../workspaces/workspace-context';
 import type { PropertyDefinition, ViewFilterRule } from '../core/container-model';
 import { SuggestionHint } from '../suggest/suggestion-hint';
+import { MemberNames, unnamedMember, type MemberNameOf } from '../suggest/member-name';
 import { valueText } from '../suggest/value-text';
 import { FilterRulesEditor } from './filter-rules-editor';
 
@@ -63,10 +67,19 @@ export function describeInferredRule(
   rule: InferredRule,
   considered: number,
   schema: readonly PropertyDefinition[],
+  memberName: MemberNameOf = unnamedMember,
 ): string {
   const definition = schema.find((candidate) => candidate.key === rule.property);
   const label = definition?.label ?? rule.property;
-  return `${label} ${OPERATOR_WORDS[rule.operator]} ${valueText(definition, rule.value)} - ${String(rule.remaining)} of ${String(considered)} remain`;
+  // The date operators compare calendar days, so their value is one: said in the reader's format.
+  const value =
+    definition?.type === 'date' ||
+    rule.operator === 'on' ||
+    rule.operator === 'before' ||
+    rule.operator === 'on-or-after'
+      ? (formatCalendarDay(rule.value) ?? rule.value)
+      : valueText(definition, rule.value, memberName);
+  return `${label} ${OPERATOR_WORDS[rule.operator]} ${value} - ${String(rule.remaining)} of ${String(considered)} remain`;
 }
 
 /**
@@ -93,6 +106,15 @@ export default function QueryByExamplePanel(props: QueryByExamplePanelProps): Re
   } = props;
 
   const over = truncated ? 'the items shown (more match than are shown)' : 'the items shown';
+  // The member list is read once for the panel, and only when a proposed rule names a person.
+  const client = useOptionalApiClient();
+  const workspace = useOptionalWorkspace();
+  const canName =
+    client !== null &&
+    workspace !== null &&
+    inferred.rules.some(
+      (rule) => schema.find((definition) => definition.key === rule.property)?.type === 'assignee',
+    );
   const panelRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -123,15 +145,19 @@ export default function QueryByExamplePanel(props: QueryByExamplePanelProps): Re
             {over} from {String(inferred.considered)} to {String(inferred.matching)}. They have been
             added below for you to check; nothing changes until you save.
           </SuggestionHint>
-          <ul className="flex flex-col gap-0.5 pl-6">
-            {inferred.rules.map((rule) => (
-              <li key={`${rule.property}:${rule.operator}`}>
-                <Text variant="caption" tone="muted" as="span">
-                  {describeInferredRule(rule, inferred.considered, schema)}
-                </Text>
-              </li>
-            ))}
-          </ul>
+          <MemberNames enabled={canName}>
+            {(memberName) => (
+              <ul className="flex flex-col gap-0.5 pl-6">
+                {inferred.rules.map((rule) => (
+                  <li key={`${rule.property}:${rule.operator}`}>
+                    <Text variant="caption" tone="muted" as="span">
+                      {describeInferredRule(rule, inferred.considered, schema, memberName)}
+                    </Text>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </MemberNames>
         </>
       )}
 

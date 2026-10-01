@@ -227,4 +227,59 @@ describe('a proposed rule in words', () => {
       ),
     ).toBe('mood is not grim - 1 of 2 remain');
   });
+
+  it('names a person by the member lookup it is given, never by identifier', () => {
+    const OWNER: PropertyDefinition = {
+      key: 'owner',
+      label: 'Owner',
+      type: 'assignee',
+      options: [],
+      required: false,
+    };
+    expect(
+      describeInferredRule(
+        { property: 'owner', operator: 'equals', value: 'subject-7', remaining: 2 },
+        5,
+        [OWNER],
+        (subject) => (subject === 'subject-7' ? 'Ada Lovelace' : 'someone else'),
+      ),
+    ).toBe('Owner is Ada Lovelace - 2 of 5 remain');
+  });
+
+  it('formats a timestamp rule’s compared calendar day', () => {
+    const expected = new Intl.DateTimeFormat(undefined, {
+      dateStyle: 'medium',
+      timeZone: 'UTC',
+    }).format(Date.UTC(2026, 8, 1));
+    expect(
+      describeInferredRule(
+        { property: 'updatedAt', operator: 'on', value: '2026-09-01', remaining: 1 },
+        2,
+        [{ key: 'updatedAt', label: 'Updated', type: 'timestamp', options: [], required: false }],
+      ),
+    ).toBe(`Updated is on ${expected} - 1 of 2 remain`);
+  });
+
+  it.each(['equals', 'not-equals', 'on-or-after', 'before'] as const)(
+    'writes a %s date rule in the reader’s date format, on the stored calendar day',
+    (operator) => {
+      const DUE: PropertyDefinition = {
+        key: 'due',
+        label: 'Due',
+        type: 'date',
+        options: [],
+        required: false,
+      };
+      const expected = new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeZone: 'UTC',
+      }).format(Date.UTC(2026, 8, 1));
+
+      expect(
+        describeInferredRule({ property: 'due', operator, value: '2026-09-01', remaining: 4 }, 9, [
+          DUE,
+        ]),
+      ).toContain(`${expected} - 4 of 9 remain`);
+    },
+  );
 });

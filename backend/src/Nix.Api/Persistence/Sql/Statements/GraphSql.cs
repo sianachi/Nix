@@ -58,15 +58,38 @@ public static class GraphSql
     /// is itself a node, so a truncated graph is a smaller graph rather than a broken one.
     /// </para>
     /// <para>
-    /// <b>An edge needs both ends.</b> <c>item_link</c> is joined to <c>visible</c> twice, so a
+    /// <b>An edge needs both ends.</b> <c>item_link</c> joins the target to <c>visible</c> and checks
+    /// source membership, so a
     /// reference to an item outside this workspace, outside the caller's entitlement, or outside
     /// the ceiling produces no row at all. It is not returned with the far end blanked: that would
     /// disclose that something is there, which for a graph is most of what there is to disclose.
     /// </para>
     /// <para>
-    /// <b>A locked item, and anything under one, draws as a node with no outgoing edges.</b> Its edges were extracted from
-    /// its body, and drawing them would say what the locked body refers to. Edges <i>into</i> it
-    /// come from other bodies and stay.
+    /// <b>A locked item, and anything under one, draws no outgoing edges.</b> Its edges were
+    /// extracted from its body, and drawing them would say what the locked body refers to. Edges
+    /// <i>into</i> it come from other bodies and stay. Not relaxed for a credential that holds the
+    /// lock open, like every body-derived answer.
+    /// </para>
+    /// <para>
+    /// <b>Nothing under a lock this credential has not opened is drawn at all</b> (ADR-0056). A
+    /// node carries its title and its parent, so drawing the contents of a closed folder would list
+    /// them - the listing the children read refuses. The hidden set
+    /// (<see cref="ItemLockSql.ClosedLockDescendants"/>) is read once and anti-joined before the
+    /// node ceiling, so hidden nodes never spend it, and an edge into a hidden node goes with it
+    /// because an edge needs both ends. The locked item itself is still drawn.
+    /// </para>
+    /// <para>
+    /// <b>The ancestor probe runs lazily, in node order.</b> The candidates are sorted by
+    /// <c>seq</c> behind an <c>OFFSET 0</c> fence, and the per-row deleted-or-template-ancestor
+    /// probe runs on them in that order until the node ceiling is met, rather than on every item in
+    /// the workspace before the sort. A fenced lateral eligibility check preserves the lazy probe
+    /// and avoids estimating half the candidates as rejected. Source membership avoids duplicate
+    /// join estimates for the unique node identifiers in the materialised set. Body lock descendants
+    /// are materialised once, including closed ids from the second
+    /// preload so a lock added between preloads still withholds its own outgoing edges.
+    /// Measured as the runtime role with RLS on a throwaway database (150,000 items, 30 closed
+    /// locks, ceilings 2,001 and 4,001): 35,117 shared buffers, 76 ms warm, no JIT. The candidate sort still scans the workspace and spills about 10 MB;
+    /// the ceiling bounds ancestor probes and output, not that initial sort.
     /// </para>
     /// <para>
     /// The ordering is stable so the same workspace draws the same way twice, and so the ceiling
@@ -75,19 +98,42 @@ public static class GraphSql
     /// of the tree rather than an arbitrary sample of it.
     /// </para>
     /// </remarks>
-    public const string WorkspaceGraph = """
-        WITH visible AS (
+    public const string WorkspaceGraph = $$"""
+        WITH {{ItemLockSql.ClosedLockDescendants}},
+        body_locked_nodes AS MATERIALIZED (
+            SELECT lock_edge.descendant_id
+            FROM item_closure AS lock_edge
+            WHERE lock_edge.tenant_id = @tenant_id
+              AND lock_edge.ancestor_id = ANY(@lock_ids || @closed_lock_ids)
+        ),
+        visible AS (
             SELECT item.id AS id,
                    item.parent_id AS parent_id,
                    item.type AS type,
-                   item.properties ->> 'title' AS title
-            FROM item
-            WHERE item.tenant_id = @tenant_id
-              AND item.workspace_id = @workspace_id
-              AND item.workspace_id = ANY(@workspace_ids)
-              AND item.lifecycle_state = 'active'
-              AND item.template_id IS NULL
-              AND NOT EXISTS (
+                   item.title AS title
+            FROM (
+                SELECT item.id,
+                       item.parent_id,
+                       item.type,
+                       item.properties ->> 'title' AS title,
+                       item.seq
+                FROM item
+                WHERE item.tenant_id = @tenant_id
+                  AND item.workspace_id = @workspace_id
+                  AND item.workspace_id = ANY(@workspace_ids)
+                  AND item.lifecycle_state = 'active'
+                  AND item.template_id IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM closed_lock_descendants AS hidden
+                      WHERE hidden.descendant_id = item.id
+                  )
+                ORDER BY item.seq, item.id
+                OFFSET 0
+            ) AS item
+            CROSS JOIN LATERAL (
+                SELECT 1
+                WHERE NOT EXISTS (
                   SELECT 1
                   FROM item_closure AS visibility_edge
                   LEFT JOIN LATERAL (
@@ -105,6 +151,8 @@ public static class GraphSql
                          OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
                   OFFSET 0
               )
+                OFFSET 0
+            ) AS allowed
             ORDER BY item.seq, item.id
             LIMIT @node_limit
         ),
@@ -112,17 +160,14 @@ public static class GraphSql
             SELECT link.source_item_id AS source_id,
                    link.target_item_id AS target_id
             FROM item_link AS link
-            JOIN visible AS source ON source.id = link.source_item_id
             JOIN visible AS target ON target.id = link.target_item_id
             WHERE link.tenant_id = @tenant_id
-              AND (cardinality(@lock_ids) = 0
-                 OR NOT EXISTS (
+              AND link.source_item_id IN (SELECT source.id FROM visible AS source)
+              AND NOT EXISTS (
                   SELECT 1
-                  FROM item_closure AS lock_edge
-                  WHERE lock_edge.tenant_id = @tenant_id
-                    AND lock_edge.descendant_id = link.source_item_id
-                    AND lock_edge.ancestor_id = ANY(@lock_ids)
-                 ))
+                  FROM body_locked_nodes AS locked
+                  WHERE locked.descendant_id = link.source_item_id
+              )
             ORDER BY link.source_item_id, link.target_item_id
             LIMIT @link_limit
         )

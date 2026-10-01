@@ -31,6 +31,7 @@ public sealed class SuggestionPlanEvidenceTests : IAsyncLifetime
 {
     private const int CorpusSize = 3_200;
     private const int HubSources = 300;
+    private const int ClosedLockCount = 30;
 
     private static readonly Guid Root = new("5a9e0000-1111-4111-8111-5a9e00000001");
 
@@ -72,7 +73,7 @@ public sealed class SuggestionPlanEvidenceTests : IAsyncLifetime
                 Integer("per_phrase_limit", 3),
                 Integer("candidate_limit", 200),
                 Integer("limit", 20),
-                Uuids("closed_lock_ids", [_itemIds[^1]]),
+                Uuids("closed_lock_ids", ClosedLockIds()),
             ]);
 
         RecordAndAssert("Mentions", plan);
@@ -96,14 +97,59 @@ public sealed class SuggestionPlanEvidenceTests : IAsyncLifetime
                 Integer("source_limit", 200),
                 Integer("candidate_limit", 200),
                 Integer("limit", 10),
-                Uuids("lock_ids", [_itemIds[^1]]),
-                Uuids("closed_lock_ids", [_itemIds[^1]]),
+                Uuids("lock_ids", ClosedLockIds()),
+                Uuids("closed_lock_ids", ClosedLockIds()),
             ]);
 
         RecordAndAssert("Related items", plan);
         Assert.Contains("ix_item_link_target_occurrences", plan, StringComparison.Ordinal);
         Assert.Contains("PK_item_link", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Seq Scan on item_link", plan, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Search_with_closed_locks_reads_the_hidden_set_once_and_anti_joins_the_title_arm()
+    {
+        // The data review's case: a query matching nothing, by someone with closed locks. A per-row
+        // lock probe in the title arm was costed against the whole scan and JIT-compiled every
+        // search; the materialised hidden set is read once and costs one anti-join.
+        var plan = await ExplainAsync(
+            SearchSql.MatchingItems,
+            [
+                Uuids("workspace_ids", [M0SchemaSeed.Alpha.WorkspaceId]),
+                Text("title_pattern", "%zzqx%"),
+                Text("query", "zzqx"),
+                Integer("limit", 50),
+                Uuids("lock_ids", ClosedLockIds()),
+                Uuids("closed_lock_ids", ClosedLockIds()),
+            ]);
+
+        _output.WriteLine("Search q=zzqx with closed locks, runtime role:");
+        _output.WriteLine(plan);
+        Assert.Contains("CTE closed_lock_descendants", plan, StringComparison.Ordinal);
+        Assert.Contains("IX_item_closure_tenant_id_ancestor_id_depth", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("JIT:", plan, StringComparison.Ordinal);
+    }
+
+    private Guid[] ClosedLockIds() => _itemIds[^ClosedLockCount..];
+
+    [Fact]
+    public async Task Graph_with_closed_locks_excludes_hidden_nodes_without_jit()
+    {
+        var plan = await ExplainAsync(
+            GraphSql.WorkspaceGraph,
+            [
+                Uuid("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
+                Uuids("workspace_ids", [M0SchemaSeed.Alpha.WorkspaceId]),
+                Integer("node_limit", 2_001),
+                Integer("link_limit", 4_001),
+                Uuids("lock_ids", ClosedLockIds()),
+                Uuids("closed_lock_ids", ClosedLockIds()),
+            ]);
+
+        RecordAndAssert("Graph with closed locks", plan);
+        Assert.Contains("CTE closed_lock_descendants", plan, StringComparison.Ordinal);
+        Assert.Contains("CTE body_locked_nodes", plan, StringComparison.Ordinal);
     }
 
     private void RecordAndAssert(string operation, string plan)
@@ -172,7 +218,7 @@ public sealed class SuggestionPlanEvidenceTests : IAsyncLifetime
     /// Seeds, as the migrator: a root in the Alpha workspace with 3,200 children (400 titled
     /// "Weekly review", 40 "Planning", the rest distinct), the same count in the other tenant
     /// under the same titles, a hub (the seeded Alpha item) linked from 300 of the children that
-    /// each link to ten others, and one lock on a leaf so every lock probe runs against a row.
+    /// each link to ten others, and 30 closed locks, one with two children, so the exclusion sets contain real rows.
     /// </summary>
     private async Task SeedCorpusAsync()
     {
@@ -247,7 +293,27 @@ public sealed class SuggestionPlanEvidenceTests : IAsyncLifetime
                    'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
                    {{alphaPrincipal}}, now()
             FROM item
-            WHERE tenant_id = {{alphaTenant}} AND seq = {{600000 + CorpusSize}};
+            WHERE tenant_id = {{alphaTenant}}
+              AND seq BETWEEN {{600000 + CorpusSize - ClosedLockCount + 1}} AND {{600000 + CorpusSize}};
+
+            -- Two children under a closed lock exercise both node and body exclusion sets.
+            UPDATE item SET parent_id = (
+                SELECT id FROM item WHERE tenant_id = {{alphaTenant}} AND seq = {{600000 + CorpusSize}}
+            )
+            WHERE tenant_id = {{alphaTenant}} AND seq IN (600001, 600002);
+
+            UPDATE item_closure SET depth = 2
+            WHERE tenant_id = {{alphaTenant}}
+              AND ancestor_id = {{Literal(Root)}}
+              AND descendant_id IN (
+                  SELECT id FROM item WHERE tenant_id = {{alphaTenant}} AND seq IN (600001, 600002)
+              );
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT child.id, parent.id, child.tenant_id, child.workspace_id, 1
+            FROM item AS child
+            JOIN item AS parent ON parent.tenant_id = child.tenant_id AND parent.id = child.parent_id
+            WHERE child.tenant_id = {{alphaTenant}} AND child.seq IN (600001, 600002);
 
             ANALYZE item;
             ANALYZE item_lock;

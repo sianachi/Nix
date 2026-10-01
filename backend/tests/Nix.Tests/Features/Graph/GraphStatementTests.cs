@@ -52,13 +52,13 @@ public sealed class GraphStatementTests
     }
 
     [Fact]
-    public void Both_ends_of_every_edge_are_joined_to_the_visible_node_set()
+    public void Both_ends_of_every_edge_belong_to_the_visible_node_set()
     {
         // An edge is disclosed only when the caller may read what is at each end. Joining one end
         // and projecting the other would publish the identifier of an item they cannot see - which
         // in a graph is most of what there is to publish.
         Assert.Contains(
-            "JOIN visible AS source ON source.id = link.source_item_id",
+            "link.source_item_id IN (SELECT source.id FROM visible AS source)",
             GraphSql.WorkspaceGraph,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -107,6 +107,6 @@ public sealed class GraphStatementTests
         // Postgres materialises a CTE referenced more than once, so the nodes the edges are joined
         // against are the nodes that are returned. Two copies of the same limited, ordered SELECT
         // would be equal only by luck.
-        Assert.Contains("WITH visible AS", GraphSql.WorkspaceGraph, StringComparison.Ordinal);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(GraphSql.WorkspaceGraph, @"\bvisible AS \("));
     }
 }

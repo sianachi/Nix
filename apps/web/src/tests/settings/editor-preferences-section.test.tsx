@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readGhostTextSetting, useGhostTextPreference } from '../../editor/ghost-text-preference';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { usePageGuidePreference } from '../../editor/page-guide-preference';
+import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
+import { memoryStorage } from '../views/suggest/suggest-fixtures';
 import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
 import {
   readChoiceOrderSetting,
@@ -160,10 +162,42 @@ describe('suggestion switches', () => {
     const toggle = screen.getByRole('checkbox', { name: 'Order choices by what I pick most' });
     expect(toggle).toBeChecked();
     expect(toggle).toHaveAccessibleDescription(/Recent group/i);
+    expect(toggle).toHaveAccessibleDescription(/nothing is reordered by what you have picked/);
 
     await user.click(toggle);
 
     expect(useChoiceOrderPreference.getState().setting).toBe('off');
+  });
+
+  it('clear dismissed suggestions so they can come back', async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal('localStorage', memoryStorage());
+    rememberDismissal('mention:workspace-1:item-1');
+    render(<EditorPreferencesSection />);
+
+    await user.click(screen.getByRole('button', { name: 'Clear dismissed suggestions' }));
+
+    expect(readDismissals().size).toBe(0);
+    expect(screen.getByText('Dismissed suggestions cleared.')).toBeInTheDocument();
+  });
+
+  it('reports a refused dismissal reset and keeps the dismissals for retry', async () => {
+    const user = userEvent.setup();
+    const storage = memoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    rememberDismissal('mention:workspace-1:item-1');
+    vi.spyOn(storage, 'removeItem').mockImplementation(() => {
+      throw new Error('Storage refused');
+    });
+    render(<EditorPreferencesSection />);
+
+    await user.click(screen.getByRole('button', { name: 'Clear dismissed suggestions' }));
+
+    expect(readDismissals().size).toBe(1);
+    expect(
+      screen.getByText('Browser storage could not clear dismissed suggestions. Try again.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Dismissed suggestions cleared.')).not.toBeInTheDocument();
   });
 
   it('describe every switch to assistive technology', () => {

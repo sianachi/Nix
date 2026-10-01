@@ -356,6 +356,22 @@ public sealed class SearchSuggestionAuthorizationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Hidden_same_title_items_never_crowd_out_a_readable_one()
+    {
+        // The security review's reproduction. The three newest "Weekly review" items move into
+        // Folder, which is then locked. Were the per-phrase cap (three, newest first) applied
+        // before the lock, all three slots would go to hidden items and the readable one would
+        // vanish - and its absence would say that three or more hidden items with that title were
+        // edited more recently. Hidden items are dropped before any cap, so it is still returned.
+        await MoveUnderFolderAsync(WeeklyReviews[1], WeeklyReviews[2], WeeklyReviews[3]);
+        await LockAsync(Folder);
+
+        var found = await MentionsAsync("Notes from the weekly review.");
+
+        Assert.Equal(ItemId.From(WeeklyReviews[0]), Assert.Single(found.Mentions).Item.Id);
+    }
+
+    [Fact]
     public async Task A_locked_item_s_own_title_is_still_a_mention()
     {
         await LockAsync(Folder);
@@ -559,6 +575,25 @@ public sealed class SearchSuggestionAuthorizationTests : IAsyncLifetime
 
             Assert.True(result.IsSuccess, result.IsFailure ? result.Error.Message : string.Empty);
             return result.Value.Hits;
+        }
+    }
+
+    /// <summary>Re-parents root items under <see cref="Folder"/>, closure included, as the migrator.</summary>
+    private async Task MoveUnderFolderAsync(params Guid[] items)
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var open = Literal(M0SchemaSeed.Alpha.WorkspaceId);
+        var sql = new StringBuilder();
+        foreach (var item in items)
+        {
+            sql.Append(CultureInfo.InvariantCulture, $"UPDATE item SET parent_id = {Literal(Folder)} WHERE id = {Literal(item)};\n");
+            sql.Append(CultureInfo.InvariantCulture, $"INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth) VALUES ({Literal(item)}, {Literal(Folder)}, {tenant}, {open}, 1);\n");
+        }
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, sql.ToString());
         }
     }
 

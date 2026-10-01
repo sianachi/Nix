@@ -253,6 +253,39 @@ public static class ItemLockSql
               ))
         """;
 
+    /// <summary>
+    /// A common table expression, <c>closed_lock_descendants</c>: every item with a proper
+    /// ancestor among <c>@closed_lock_ids</c>, read once. A bulk statement lists it in its
+    /// <c>WITH</c> and anti-joins it -
+    /// <c>NOT EXISTS (SELECT 1 FROM closed_lock_descendants AS hidden WHERE hidden.descendant_id = x.id)</c>
+    /// - where a per-row <see cref="ItemIsNotUnderClosedLock"/> probe would be costed against every
+    /// row the statement scans.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why a set rather than a probe, for scans.</b> The probe is cheap per row, but the planner
+    /// charges its subplan to every row it expects, and over a title scan of a large readable
+    /// corpus that pushed the estimate to about 1.96 million and JIT-compiled every search for
+    /// anyone with a closed lock (about +180 ms). Materialised, the set costs one walk of
+    /// <c>IX_item_closure_tenant_id_ancestor_id_depth</c> per closed lock, bounded by what those
+    /// locks cover, and the anti-join is a hash lookup per row. With no closed lock the set is
+    /// empty and the anti-join removes nothing.
+    /// </para>
+    /// <para>
+    /// The same rule as <see cref="ItemIsNotUnderClosedLock"/>: proper descendants only, so a
+    /// locked item itself is not in the set. Binds <c>@tenant_id</c> and <c>@closed_lock_ids</c>.
+    /// </para>
+    /// </remarks>
+    public const string ClosedLockDescendants = """
+        closed_lock_descendants AS MATERIALIZED (
+            SELECT lock_edge.descendant_id
+            FROM item_closure AS lock_edge
+            WHERE lock_edge.tenant_id = @tenant_id
+              AND lock_edge.ancestor_id = ANY(@closed_lock_ids)
+              AND lock_edge.depth > 0
+        )
+        """;
+
     /// <summary>The stored verifier, or no row when the item is not locked.</summary>
     public const string Verifier = """
         SELECT password_hash FROM item_lock

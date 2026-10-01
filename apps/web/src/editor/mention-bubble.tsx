@@ -136,8 +136,9 @@ export function MentionBubbleView({
         }}
         onKeyDown={onKeyDown}
         onClick={onDismiss}
+        aria-label={`Don’t suggest linking ${title}`}
       >
-        Don’t suggest this
+        Don’t suggest linking
       </Button>
     </div>
   );
@@ -155,6 +156,8 @@ export function MentionBubble({ editor }: { readonly editor: Editor }): ReactNod
   /** The mention Escape hid, by position and item. */
   const [hidden, setHidden] = useState<string | null>(null);
   const bubble = useRef<HTMLDivElement>(null);
+  /** Which mention the bubble is showing right now, for the Escape listener to compare against. */
+  const shownKey = useRef<string | null>(null);
 
   useEffect(() => {
     function onFocus(): void {
@@ -181,7 +184,12 @@ export function MentionBubble({ editor }: { readonly editor: Editor }): ReactNod
     function onKeyDown(event: globalThis.KeyboardEvent): void {
       if (event.key !== 'Escape') return;
       const current = activeMention(editor.state);
-      if (current !== null) setHidden(mentionKey(current));
+      if (current === null) return;
+      const key = mentionKey(current);
+      // While the bubble is up, Escape is its answer and nothing else's: a dialog or panel behind
+      // the note must not close on the same keypress. When it is not shown, Escape passes through.
+      if (shownKey.current === key) event.stopPropagation();
+      setHidden(key);
     }
     const dom = editor.view.dom;
     editor.on('focus', onFocus);
@@ -199,6 +207,10 @@ export function MentionBubble({ editor }: { readonly editor: Editor }): ReactNod
 
   const shown =
     mention !== null && navigated && focused && editor.isEditable && hidden !== mentionKey(mention);
+
+  useEffect(() => {
+    shownKey.current = shown ? mentionKey(mention) : null;
+  });
   const announcement = shown
     ? `${mention.title} names an item this note does not link to yet. Press ${spokenShortcut()} to link it.`
     : null;

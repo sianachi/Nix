@@ -2,12 +2,14 @@ import { useGhostTextPreference } from '../editor/ghost-text-preference';
 import { useMentionPreference } from '../editor/mention-preference';
 import { useMobileToolbarPreference } from '../editor/mobile-toolbar-preference';
 import { usePageGuidePreference } from '../editor/page-guide-preference';
-import { Field, Select, Text } from '@nix/ui';
-import { useId, type ChangeEvent, type ReactElement } from 'react';
+import { Button, Field, Select, Text } from '@nix/ui';
+import { useId, useState, type ChangeEvent, type ReactElement } from 'react';
 
+import { announce } from '../a11y/announcer';
 import { KeyboardModeSchema, useKeyboardModeStore } from '../editor/keyboard-mode-store';
 import { LINK_MENTION_SHORTCUT } from '../keyboard/shortcut-registry';
 import { formatShortcut } from '../lib/shortcuts';
+import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
 import { useChoiceOrderPreference, useViewSuggestionPreference } from './suggestion-preferences';
 
 const modeGuidance = {
@@ -153,14 +155,46 @@ export function EditorPreferencesSection(): ReactElement {
         onChange={(checked) => {
           setChoiceSetting(checked ? 'on' : 'off');
         }}
-        description="Remembers what you pick on this device: a select property offers your usual values again in a Recent group above its options, and the slash menu and link picker list what you use most first. Off, nothing new is remembered and every list keeps its usual order."
+        description="Remembers what you pick on this device: a select property offers your usual values again in a Recent group above its options, and the slash menu and link picker list what you use most first. Off, nothing new is remembered and nothing is reordered by what you have picked."
         unsaved={
           choiceSaved
             ? null
             : 'The choice order preference applies to this session; browser storage is unavailable.'
         }
       />
+      <ClearDismissedSuggestions />
     </section>
+  );
+}
+
+/**
+ * Brings back every suggestion waved away on this browser - mentions marked "Don't suggest this",
+ * dismissed stale-card notes - which is what the dismissal announcement points to.
+ */
+const CLEARED = 'Dismissed suggestions cleared.';
+
+function ClearDismissedSuggestions(): ReactElement {
+  const [result, setResult] = useState<string | null>(null);
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        variant="secondary"
+        onClick={() => {
+          const message = clearSuggestionDismissals()
+            ? CLEARED
+            : 'Browser storage could not clear dismissed suggestions. Try again.';
+          setResult(message);
+          announce(message);
+        }}
+      >
+        Clear dismissed suggestions
+      </Button>
+      {result !== null ? (
+        <Text as="p" variant="note" tone="muted">
+          {result}
+        </Text>
+      ) : null}
+    </div>
   );
 }
 

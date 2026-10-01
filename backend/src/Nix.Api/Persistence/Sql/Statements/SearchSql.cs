@@ -85,6 +85,19 @@ public static class SearchSql
     /// credential: once the folder is open its children are listed, so they are searchable too.
     /// </para>
     /// <para>
+    /// <b>The hidden set is read once and anti-joined, never probed per row.</b>
+    /// <see cref="ItemLockSql.ClosedLockDescendants"/> materialises what the closed locks cover, and
+    /// the title arm anti-joins it. A per-row probe was costed against every row the title scan
+    /// might return - about 1.96 million over a 190,000-item readable corpus - and JIT-compiled
+    /// every search for anyone with a closed lock. Measured as the runtime role with RLS on a
+    /// throwaway database (190,000 readable items, 30 closed locks covering 60 items), a query
+    /// matching nothing (<c>zzqx</c>): 8,375 shared buffers, no JIT, 50 to 62 ms per execution on
+    /// a heavily loaded machine (load average about 15), where the same statement with no locks took
+    /// 65 to 68 ms and the statement before this work, with no title lock rule at all, 70 to 76 ms.
+    /// The time is the title scan, not the lock rule. Re-run without the competing CPU load:
+    /// 8,375 buffers, 29 ms warm, no JIT, below the 10,000-buffer and 40-ms gates.
+    /// </para>
+    /// <para>
     /// The title arm alone reaches items with no document body at all, which is most of a freshly
     /// imported workspace. Its rank is a constant rather than a computed one - a title match is
     /// ordered ahead of every body match by <c>title_matched</c> before rank is consulted at all,
@@ -107,7 +120,8 @@ public static class SearchSql
     /// </para>
     /// </remarks>
     public const string MatchingItems = $$"""
-        WITH matches AS (
+        WITH {{ItemLockSql.ClosedLockDescendants}},
+        matches AS (
             SELECT item.id AS item_id,
                    true AS title_matched,
                    0::real AS rank
@@ -117,7 +131,11 @@ public static class SearchSql
               AND item.lifecycle_state = 'active'
               AND item.template_id IS NULL
               AND (item.properties ->> 'title') ILIKE @title_pattern ESCAPE '\'
-              AND {{ItemLockSql.ItemIsNotUnderClosedLock}}
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM closed_lock_descendants AS hidden
+                  WHERE hidden.descendant_id = item.id
+              )
 
             UNION ALL
 
@@ -386,7 +404,9 @@ public static class SearchSql
     /// <para>
     /// <b>A result under a closed lock is left out too</b> (ADR-0056): a related item is a title
     /// disclosed by a search, and a lock hides the titles under it until this credential opens it.
-    /// The locked item itself may still be returned - its own title is outside its lock.
+    /// The locked item itself may still be returned - its own title is outside its lock. The hidden
+    /// set (<see cref="ItemLockSql.ClosedLockDescendants"/>) is anti-joined in <c>co_cited</c>,
+    /// before the count is ranked and capped, so a hidden item never takes a candidate slot.
     /// </para>
     /// <para>
     /// <b>Bounded in stages, so a hub cannot turn this into a corpus scan.</b> The sources are
@@ -401,17 +421,17 @@ public static class SearchSql
     /// source that would then be discarded.
     /// </para>
     /// <para>
-    /// <b>The cheap result predicates run before ranking; the lock and ancestor probes run last,
-    /// lazily.</b> Workspace, lifecycle and template are point checks on the candidate's own row,
-    /// so they filter before the count is ranked and an unreadable item can never take a
-    /// candidate slot. The closed-lock and derived-visibility probes are subplans the planner costs
-    /// per row it assumes, and charged against every co-cited item they pushed the estimate past
+    /// <b>The cheap result predicates run before ranking; the ancestor probe runs last, lazily.</b>
+    /// Workspace, lifecycle, template and the closed-lock set are checks on the candidate's own row,
+    /// so they filter before the count is ranked and a hidden or unreadable item can never take a
+    /// candidate slot. The derived-visibility probe is a subplan the planner costs per row it
+    /// assumes, and charged against every co-cited item it pushed the estimate past
     /// <c>jit_above_cost</c>; ranking first and keeping only the top <c>@candidate_limit</c> bounds
     /// that. The outer query then reads the candidates through a subquery already in the result
     /// order, so the nested loop keeps that order and the <c>LIMIT</c> stops it as soon as
-    /// <c>@limit</c> rows have passed both probes: a ten-row panel probes about a dozen candidates,
-    /// not two hundred. Only an active item hidden by a lock, or by a deleted or template
-    /// ancestor, is probed and skipped.
+    /// <c>@limit</c> rows have passed: a ten-row panel probes about a dozen candidates, not two
+    /// hundred. Only an active item below a deleted or template ancestor can spend a candidate slot
+    /// and then be skipped; such an item is in the trash or a template, not behind a lock.
     /// </para>
     /// <para>
     /// Measured as the runtime role with RLS on a throwaway database built from the migrations
@@ -422,7 +442,9 @@ public static class SearchSql
     /// lock and ancestor probes for the 10 rows returned; 10,971 shared buffers, 6.3 ms warm, no
     /// JIT. A target with 249,769 sources costs 9,088 buffers and 4.7 ms, because the first stage
     /// reads the index in order and stops at its limit. Probing all 200 candidates, as the
-    /// previous shape did, cost 16,622 buffers for the 3,001-source target.
+    /// previous shape did, cost 16,622 buffers for the 3,001-source target. With the closed-lock
+    /// set anti-joined before ranking (a second throwaway build of the same corpus, a 3,000-source
+    /// target), 9,401 buffers and 11 ms under load, no JIT.
     /// </para>
     /// <para>
     /// The target never counts as its own source (a self-reference says what the target's own body
@@ -434,7 +456,8 @@ public static class SearchSql
     /// </para>
     /// </remarks>
     public const string CoCitedItems = $$"""
-        WITH sources AS (
+        WITH {{ItemLockSql.ClosedLockDescendants}},
+        sources AS (
             SELECT link.source_item_id AS source_id
             FROM item_link AS link
             JOIN item AS source
@@ -494,6 +517,11 @@ public static class SearchSql
               AND candidate.workspace_id = ANY(@workspace_ids)
               AND candidate.lifecycle_state = 'active'
               AND candidate.template_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM closed_lock_descendants AS hidden
+                  WHERE hidden.descendant_id = candidate.id
+              )
             GROUP BY candidate.id
             ORDER BY count(*) DESC, min(candidate.properties ->> 'title'), candidate.id
             LIMIT @candidate_limit
@@ -515,8 +543,7 @@ public static class SearchSql
         JOIN item
           ON item.tenant_id = @tenant_id
          AND item.id = ranked.item_id
-        WHERE {{ItemLockSql.ItemIsNotUnderClosedLock}}
-          AND NOT EXISTS (
+        WHERE NOT EXISTS (
               SELECT 1
               FROM item_closure AS visibility_edge
               LEFT JOIN LATERAL (
@@ -564,14 +591,22 @@ public static class SearchSql
     /// is read here, so the body rule (every lock, opened or not) does not apply.
     /// </para>
     /// <para>
+    /// <b>Hidden items are dropped in <c>matches</c>, before the per-phrase cap.</b> The cap keeps
+    /// the newest three per phrase; were the lock checked after it, three hidden items with a title
+    /// would take all three slots and the readable one would vanish - and its absence would tell
+    /// the caller that at least three hidden items with that title were edited more recently. So
+    /// the closed-lock set (<see cref="ItemLockSql.ClosedLockDescendants"/>) is anti-joined in the
+    /// scan itself.
+    /// </para>
+    /// <para>
     /// <b>Four stages, each bounding the next.</b> <c>matches</c> is every equal title in the
     /// workspace minus <c>@exclude_ids</c> (the note being written and what it already links to,
     /// at most 256), materialised so the scan runs once. <c>ranked</c> numbers each phrase's
     /// matches newest first, and <c>candidates</c> keeps at most <c>@per_phrase_limit</c> of each
     /// before the <c>@candidate_limit</c> cap, so one common title ("Meeting notes", a date) cannot
     /// fill the candidate set and starve every other phrase. Only then does the outer query run
-    /// the per-row lock and visibility probes, reading the candidates through a subquery already
-    /// in the result order so the nested loop keeps it and the <c>LIMIT</c> stops after
+    /// the per-row deleted-or-template-ancestor probe, reading the candidates through a subquery
+    /// already in the result order so the nested loop keeps it and the <c>LIMIT</c> stops after
     /// <c>@limit</c> rows have passed: a twenty-row answer probes about twenty candidates.
     /// </para>
     /// <para>
@@ -580,10 +615,12 @@ public static class SearchSql
     /// workspace matches, and it charges the per-row visibility subplan to every guessed row.
     /// Written as one flat <c>WHERE</c>, that pushed the estimate past <c>jit_above_cost</c> and
     /// JIT compilation cost about 100 ms on a statement whose scan took 6 ms. The cap bounds what
-    /// the planner may assume. A per-phrase slot or a candidate slot can be spent on an item that
-    /// the probes then discard (one under a closed lock or a deleted ancestor), so a phrase can
-    /// come back short when its newest matches are all hidden; that is a missed suggestion, never
-    /// a disclosed one.
+    /// the planner may assume. The ancestor probe stays after the caps because it is the costly
+    /// one; so a per-phrase or candidate slot can still be spent on an active item below a
+    /// deleted or template ancestor, and a phrase whose newest matches all sit in the trash can
+    /// come back short. What that gap can reveal is that trashed or template items with the title
+    /// exist in a workspace the caller may read - recorded in ADR-0056 - never anything behind a
+    /// lock, which cannot spend a slot.
     /// </para>
     /// <para>
     /// <b>Bound.</b> No index serves <c>lower(title) = ANY(...)</c>: <c>ix_item_title</c> leads
@@ -605,7 +642,10 @@ public static class SearchSql
     /// locks): a bitmap heap scan through <c>IX_item_tenant_id_workspace_id</c> (6,602 buffers)
     /// finding 19,127 equal titles, 1,735 left after the per-phrase cap, 200 candidates, and 23
     /// lazy lock and ancestor probes for the 20 rows returned; 7,348 shared buffers, about 62 ms
-    /// per warm execution, no JIT. Nearly all of the time is evaluating <c>lower()</c> and the
+    /// per warm execution, no JIT. With the closed-lock set anti-joined in the scan (a second
+    /// build of the same corpus, under load average about 15): 7,326 buffers, 77 to 103 ms under
+    /// <c>EXPLAIN ANALYZE</c>, no JIT. Re-run without the competing CPU load: 7,364 buffers,
+    /// 66 ms warm, no JIT, below the 10,000-buffer and 100-ms gates. Nearly all of the time is evaluating <c>lower()</c> and the
     /// hashed phrase array over the workspace's rows. Probing all 200 candidates, as the previous
     /// shape did, cost 12,979 buffers. The figures are for a custom plan, which is what Core gets:
     /// it does not prepare statements, so every execution is planned with its parameters. A
@@ -619,7 +659,8 @@ public static class SearchSql
     /// </para>
     /// </remarks>
     public const string ItemsTitledAs = $$"""
-        WITH matches AS MATERIALIZED (
+        WITH {{ItemLockSql.ClosedLockDescendants}},
+        matches AS MATERIALIZED (
             SELECT candidate.id,
                    lower(candidate.properties ->> 'title') AS matched_phrase,
                    candidate.last_modified_at
@@ -630,6 +671,11 @@ public static class SearchSql
               AND candidate.template_id IS NULL
               AND candidate.id <> ALL(@exclude_ids)
               AND lower(candidate.properties ->> 'title') = ANY(@phrases)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM closed_lock_descendants AS hidden
+                  WHERE hidden.descendant_id = candidate.id
+              )
         ),
         ranked AS (
             SELECT matches.id,
@@ -665,8 +711,7 @@ public static class SearchSql
         JOIN item
           ON item.tenant_id = @tenant_id
          AND item.id = ordered.id
-        WHERE {{ItemLockSql.ItemIsNotUnderClosedLock}}
-          AND NOT EXISTS (
+        WHERE NOT EXISTS (
               SELECT 1
               FROM item_closure AS visibility_edge
               LEFT JOIN LATERAL (
