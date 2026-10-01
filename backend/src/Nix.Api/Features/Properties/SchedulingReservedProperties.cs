@@ -12,13 +12,15 @@ internal static class SchedulingReservedProperties
     /// <summary>The error a generic write naming a reserved scheduling key receives.</summary>
     internal static NixError Error { get; } = new(
         "scheduling.reserved_property",
-        "Reminder attribution and habit properties are written by the server and cannot be written directly.");
+        "Reminder attribution, habit and calendar sync properties are written by the server and cannot be written directly.");
 
     /// <summary>
     /// Whether a generic write must refuse <paramref name="key"/>. A trusted habit dispatch may
-    /// write <c>$habit_</c> keys; nothing may write a set-by key directly.
+    /// write <c>$habit_</c> keys and a trusted calendar sync dispatch <c>$cal_</c> keys; nothing
+    /// may write a set-by key directly.
     /// </summary>
-    internal static bool IsRefused(string key, bool habitWrite) =>
+    internal static bool IsRefused(string key, bool habitWrite, bool calendarWrite = false) =>
         ItemProperties.IsReservedSchedulingKey(key)
-        && !(habitWrite && key.StartsWith(ItemProperties.HabitPrefix, StringComparison.Ordinal));
+        && !(habitWrite && key.StartsWith(ItemProperties.HabitPrefix, StringComparison.Ordinal))
+        && !(calendarWrite && key.StartsWith(ItemProperties.CalendarPrefix, StringComparison.Ordinal));
 }

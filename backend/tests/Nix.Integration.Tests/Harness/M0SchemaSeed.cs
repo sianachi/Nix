@@ -362,6 +362,41 @@ internal static class M0SchemaSeed
                 END IF;
             END $automations$;
 
+            -- Upgrade tests also seed schemas from before calendar sync existed. One owner-private
+            -- connection, link, event map row and log row per tenant, so the isolation theories
+            -- have a row of each to see and to try to relabel. The link is paused, so writes other
+            -- tests make under the seeded item never mark it dirty.
+            DO $calendar$
+            BEGIN
+                IF to_regclass('public.calendar_link') IS NOT NULL THEN
+                    INSERT INTO calendar_connection
+                        (tenant_id, id, principal_id, provider, account_subject, account_email, status,
+                         refresh_token_protected, access_token_protected, access_token_expires_at, scopes,
+                         last_error, created_at, updated_at)
+                    VALUES ({tenant}, {acl}, {principal}, 'google', '{slug}-calendar-subject',
+                            '{slug}@example.test', 'active', NULL, NULL, NULL, 'openid email', NULL, now(), now());
+                    INSERT INTO calendar_link
+                        (tenant_id, id, principal_id, connection_id, workspace_id, container_item_id,
+                         external_calendar_id, name, direction, window_past_days, window_future_days,
+                         sync_cursor, cursor_window_start, cursor_window_end, status, last_synced_at,
+                         last_error, last_job_id, revision, created_at, updated_at)
+                    VALUES ({tenant}, {acl}, {principal}, {acl}, {workspace}, {item}, 'primary',
+                            '{slug} calendar', 'two_way', 30, 365, NULL, NULL, NULL, 'paused', NULL,
+                            NULL, NULL, 1, now(), now());
+                    INSERT INTO calendar_event_map
+                        (tenant_id, id, link_id, principal_id, item_id, external_event_id, external_version,
+                         external_updated_at, nix_version, last_synced_hash, push_nix_version, push_hash,
+                         push_op, push_failures, seen_execution, deleted_at, created_at, updated_at)
+                    VALUES ({tenant}, {acl}, {acl}, {principal}, {item}, '{slug}-event-seed', NULL, NULL,
+                            NULL, NULL, NULL, NULL, NULL, 0, NULL, NULL, now(), now());
+                    INSERT INTO calendar_sync_log
+                        (tenant_id, id, link_id, principal_id, at, direction, action, item_id,
+                         external_event_id, detail)
+                    VALUES ({tenant}, {acl}, {acl}, {principal}, now(), 'pull', 'created', {item},
+                            '{slug}-event-seed', 'seeded');
+                END IF;
+            END $calendar$;
+
             -- One published capability so the generic tenant-isolation theories exercise the
             -- public link table exactly as they do every other tenant-scoped table.
             INSERT INTO public_form_link
