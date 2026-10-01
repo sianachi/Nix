@@ -620,10 +620,11 @@ public sealed class CalendarWorkerContractTests(NixPostgresFixture fixture) : IA
 
         var (next, nextExecution) = await _host.ClaimJobAsync(Alpha, link);
         Assert.Equal((1, 0), await PullAsync(link, next, nextExecution,
-            $$"""{"externalId":"evt-stamped","version":"","status":"cancelled","title":"","start":"","location":"","details":"","readOnly":false,"updatedAt":"2026-09-30T12:05:00Z","nixItemId":"{{itemId:D}}"}"""));
+            $$"""{"externalId":"{{itemId:N}}","version":"","status":"cancelled","title":"","start":"","location":"","details":"","readOnly":false,"updatedAt":"2026-09-30T12:05:00Z","nixItemId":"{{itemId:D}}"}"""));
 
+        // The event id is the stamp itself, as the Google id the worker chose for the create.
         Assert.Equal("deleted", await TextAsync($"SELECT lifecycle_state FROM item WHERE id = '{itemId}'"));
-        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM calendar_event_map WHERE item_id = '{itemId}' AND external_event_id = 'evt-stamped' AND deleted_at IS NOT NULL"));
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM calendar_event_map WHERE item_id = '{itemId}' AND external_event_id = '{itemId:N}' AND deleted_at IS NOT NULL"));
         Assert.Empty(await ChangesAsync(link, next, nextExecution));
     }
 

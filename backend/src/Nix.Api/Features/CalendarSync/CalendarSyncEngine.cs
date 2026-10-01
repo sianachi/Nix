@@ -217,8 +217,8 @@ public sealed class CalendarSyncEngine(
             // second item (and never re-created upstream). Adoption never writes the item: a stamp
             // is not proof of origin (a calendar writer can set a Graph transactionId), so only an
             // event holding exactly what was pushed is confirmed as the report would have confirmed
-            // it. Any other is paired with Nix as the winner - no nix_version, so the next push
-            // restores the item's content over it, guarded by the version seen here.
+            // it. Any other is paired with Nix as the winner - no nix_version and no synced hash, so
+            // the next push restores the item's content over it, guarded by the version seen here.
             var unchanged = unconfirmed.PushHash is { } pushed && pushed.AsSpan().SequenceEqual(hash);
             map = unconfirmed with
             {
@@ -226,7 +226,7 @@ public sealed class CalendarSyncEngine(
                 ExternalVersion = EmptyToNull(pulled.Version),
                 ExternalUpdatedAt = pulled.UpdatedAt,
                 NixVersion = unchanged ? unconfirmed.PushNixVersion : null,
-                LastSyncedHash = unconfirmed.PushHash,
+                LastSyncedHash = unchanged ? unconfirmed.PushHash : null,
                 PushOp = null,
                 PushHash = null,
                 PushFailures = 0,
