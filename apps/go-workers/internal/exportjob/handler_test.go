@@ -126,6 +126,79 @@ func TestHandlerObtainsLeaseBoundCapabilitiesAndPublishesAnImmutableExport(t *te
 	}
 }
 
+func TestNixExportReadsFileVersionsFromObjectStorageNotCollaboration(t *testing.T) {
+	const jobID = "123e4567-e89b-12d3-a456-426614174098"
+	const executionID = "exporter:execution"
+	root := "123e4567-e89b-12d3-a456-426614174010"
+	fileBytes := []byte("attachment bytes held in object storage")
+	fileDigest := sha256.Sum256(fileBytes)
+	bundleStream := `{"format":"nix-archive","formatVersion":1,"schemaVersion":3,"exportedAt":"2026-08-31T00:00:00Z","root":"` + root + `","rootEffectiveSchema":null,"includesDeleted":false,"items":[{"id":"` + root + `","parentId":null,"seq":"1","title":"Attachment","type":"file"}],"omitted":[],"loss":[]}` + "\n" +
+		`{"id":"` + root + `","parentId":null,"workspaceId":"workspace","type":"file","title":"Attachment","seq":"1","lifecycleState":"active","createdAt":"2026-08-31T00:00:00Z","updatedAt":"2026-08-31T00:00:00Z","properties":{},"schema":null,"views":null,"viewRows":[],"viewRowsTruncated":false,"body":null}` + "\n" +
+		`{"end":true,"items":1}` + "\n"
+
+	// Object storage and Collaboration are different origins in every real deployment, so the
+	// worker allows each transfer client only its own origin.
+	uploaded := make(chan []byte, 1)
+	objects := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/file":
+			_, _ = response.Write(fileBytes)
+		case "/result":
+			body, _ := io.ReadAll(request.Body)
+			uploaded <- body
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer objects.Close()
+	var collab *httptest.Server
+	collab = httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/internal/worker-executions/exports/" + jobID:
+			writeJSON(t, response, map[string]any{
+				"exportId": jobID, "format": "nix", "sourceUrl": collab.URL + "/bundle",
+				"bearerToken": "delegated-token", "delegationExpiresAt": time.Now().Add(time.Minute),
+			})
+		case "/bundle":
+			_, _ = io.WriteString(response, bundleStream)
+		case "/internal/worker-executions/exports/" + jobID + "/files/" + root + "/versions":
+			writeJSON(t, response, map[string]any{"itemId": root, "versions": []map[string]any{{
+				"version": 1, "current": true, "fileName": "attachment.txt", "mediaType": "text/plain",
+				"byteLength": len(fileBytes), "sha256": hex.EncodeToString(fileDigest[:]), "previewable": false,
+				"downloadUrl": objects.URL + "/file", "expiresAt": time.Now().Add(time.Minute),
+			}}})
+		case "/internal/worker-executions/exports/" + jobID + "/destination":
+			writeJSON(t, response, map[string]any{
+				"exportId": jobID, "attemptId": "33333333-3333-4333-8333-333333333334", "format": "nix", "objectKey": "exports/results/tenant/result.nix",
+				"uploadUrl": objects.URL + "/result", "readUrl": objects.URL + "/result",
+				"deleteUrl": objects.URL + "/result", "capabilityExpiresAt": time.Now().Add(time.Minute),
+			})
+		default:
+			response.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer collab.Close()
+
+	payload, _ := json.Marshal(Payload{
+		ItemID: root, WorkspaceID: "123e4567-e89b-12d3-a456-426614174001", Format: "nix",
+		Scope: "item", Title: "Attachment", Extension: "nix", MediaType: "application/vnd.nix.archive+zip",
+	})
+	handler := New(
+		workerapi.New(collab.URL, "secret", "exporter", time.Second),
+		objecttransfer.New(time.Second, collab.URL),
+		objecttransfer.New(time.Second, objects.URL),
+		"secret",
+		stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10})
+	ctx := workerapi.WithExecution(context.Background(), jobID, executionID)
+	if _, err := handler.Handle(ctx, workerapi.Job{ID: jobID, Kind: "export.nix", Payload: payload}); err != nil {
+		t.Fatalf("a .nix export with an attachment failed: %v", err)
+	}
+	if output := <-uploaded; !bytes.Contains(output, fileBytes) {
+		t.Fatal("the attachment bytes are absent from the exported archive")
+	}
+}
+
 func TestHandlerRefusesLegacyPayloadCapabilities(t *testing.T) {
 	payload := json.RawMessage(`{"sourceUrl":"https://objects.example/source","destinationUrl":"https://objects.example/result","format":"pdf"}`)
 	handler := New(nil, nil, nil, "", stream.Limits{MaxBytes: 1 << 20, MaxLine: 1 << 20, MaxRecords: 10})
