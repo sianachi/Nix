@@ -136,7 +136,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 				if maximum == 0 {
 					maximum = 1
 				}
-				capability, err := handler.source.Download(ctx, url, maximum)
+				capability, err := handler.destination.Download(ctx, url, maximum)
 				if err != nil {
 					return nixarchive.FileVersionEntry{}, nil, false, err
 				}
