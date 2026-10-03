@@ -204,13 +204,40 @@ Use the [Compose deployment runbook](deploy/README.md) for immutable builds, mig
 storage, rollback and mandatory import/export verification. Kubernetes tooling is retained but is
 not part of the default release workflow.
 
-## Quick Start
+## Local development
 
-Install Docker, mise and the pinned toolchain, then bootstrap packages and infrastructure:
+Install Docker, mise and the pinned toolchain once:
 
 ```sh
 mise install                     # Node 22, pnpm 10, .NET 10, Go 1.26
 pnpm install --frozen-lockfile
+```
+
+Then run everything with one command:
+
+```sh
+pnpm dev                         # same as: bash scripts/dev.sh
+```
+
+`scripts/dev.sh` runs stack-up (below), then starts Core, Collaboration, the Go worker and the web
+dev server in the same terminal. Each line of output is prefixed with its process name and also
+written to `.local/logs/<name>.log`. Ctrl-C stops everything, and if one process exits the others
+are stopped too. Open <http://localhost:5173> once the web server is ready.
+
+```sh
+bash scripts/dev.sh --skip-stack     # infrastructure is already up; start the four processes
+bash scripts/dev.sh api web          # only the named processes (api, collab, worker, web)
+bash scripts/dev.sh --help
+```
+
+The sections below describe what the script does step by step, for port overrides, debugging a
+single process, or running each process in its own terminal.
+
+### Quick Start
+
+Bootstrap infrastructure on its own:
+
+```sh
 bash scripts/dev-stack-up.sh
 ```
 
@@ -235,15 +262,17 @@ bash deploy/seed/zitadel-configure.sh
 ```
 
 Run that setup command again whenever `NIX_WEB_ORIGIN` changes so the OIDC redirect origin stays
-in sync. Then start the same four host processes below. The Vite command reads `NIX_WEB_PORT`; do
-not add an extra `--` before Vite arguments. Infrastructure ports still need their matching
-Compose overrides and dependent URLs in `.env`.
+in sync. Then run `bash scripts/dev.sh --skip-stack` from the same shell, or start the four host
+processes below. The Vite command reads `NIX_WEB_PORT`; do not add an extra `--` before Vite
+arguments. Infrastructure ports still need their matching Compose overrides and dependent URLs in
+`.env`.
 
 See [local sign-in and setup](docs/dev-signing-in.md) for generated identity configuration.
 
-## Usage
+### Usage
 
-Start each process in its own terminal after stack-up:
+To run the processes separately instead of through `scripts/dev.sh`, start each in its own
+terminal after stack-up:
 
 ```sh
 bash scripts/dev-api.sh                     # :5014 by default, BFF and service configuration
@@ -268,7 +297,7 @@ interactive session token rather than expanding personal-access-token permission
 `--workspace-tools` only when you want the companion to propose Nix workspace actions; each action
 still requires approval in the companion panel.
 
-## Debugging (Rider)
+### Debugging (Rider)
 
 Open the repository root containing `Nix.slnx` and `pnpm-workspace.yaml`. Local run
 configurations may be present under `.idea/`, but that directory is ignored and configurations

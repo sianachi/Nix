@@ -74,3 +74,4 @@ deploy/.dev-access-token-key.pem
 /apps/go-workers/nix-worker
 /apps/go-workers/nix-worker.exe
 /.local/companion/
+/.local/logs/
