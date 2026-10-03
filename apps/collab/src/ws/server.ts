@@ -140,6 +140,15 @@ function handleConnection(
   let token: string | null = null;
   let alive = true;
 
+  // The handshake spans awaits, and the client can act during them: send its auth frame again, or
+  // go away. `establishing` keeps a second frame from starting a second join; `closed` tells the
+  // awaits that resume afterwards that there is no longer anybody to serve.
+  let establishing = false;
+  let closed = false;
+  // A function, not the bare flag: the checks below sit after awaits, and the compiler would
+  // otherwise carry the first check's narrowing across them as if nothing could have closed.
+  const isClosed = (): boolean => closed;
+
   metrics?.openSockets.inc();
 
   // The clock starts at accept: a socket that connects and says nothing is holding a file
@@ -169,7 +178,15 @@ function handleConnection(
 
   socket.on('message', (data: RawData, isBinary: boolean) => {
     if (session === null) {
-      void establish(data, isBinary);
+      if (establishing) {
+        // Nothing is interpreted before the session stands. Sync after `ready` reconciles
+        // anything a client sent early, and a repeated auth frame has nothing left to say.
+        return;
+      }
+      establishing = true;
+      void establish(data, isBinary).finally(() => {
+        establishing = false;
+      });
       return;
     }
 
@@ -183,6 +200,7 @@ function handleConnection(
   });
 
   socket.on('close', () => {
+    closed = true;
     clearTimeout(authTimer);
     clearInterval(pinger);
     clearInterval(reauthTimer);
@@ -207,6 +225,9 @@ function handleConnection(
     }
 
     const result = await sessions.authenticate(frame.token, authorizationKey);
+    if (isClosed()) {
+      return;
+    }
     if (!result.ok) {
       if (result.reason === 'unauthenticated') {
         close(CLOSE_CODES.unauthenticated, 'The token could not be validated.');
@@ -238,6 +259,14 @@ function handleConnection(
     }
 
     const joined = await hub.join(candidate);
+    if (isClosed()) {
+      // The close handler already ran, with no session to leave. The join attached one anyway,
+      // and only this can release it.
+      if (joined.ok) {
+        hub.leave(candidate);
+      }
+      return;
+    }
     if (!joined.ok) {
       close(joined.closeCode, joined.reason);
       return;

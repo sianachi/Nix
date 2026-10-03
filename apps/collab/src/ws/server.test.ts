@@ -392,4 +392,69 @@ describe('the websocket handshake', () => {
     expect(JSON.parse(decoding.readVarString(decoder))).toMatchObject({ code: 'read_only' });
     expect(socket.readyState).toBe(WebSocket.OPEN);
   });
+
+  it('leaves the hub when the client disconnects while its join is still running', async () => {
+    // Without this, the close handler runs before a session exists and has nothing to leave, the
+    // join then attaches a socket that is already gone, and the document holds it forever: never
+    // idle, never evicted, its ownership claim and its capacity never released.
+    let joinStarted: () => void = () => undefined;
+    const started = new Promise<void>((resolve) => {
+      joinStarted = resolve;
+    });
+    let finishJoin: () => void = () => undefined;
+    const left: SocketSession[] = [];
+    const hub: SessionHub = {
+      join: () => {
+        joinStarted();
+        return new Promise<JoinResult>((resolve) => {
+          finishJoin = () => {
+            resolve({ ok: true, docId: 'd1000000-0000-4000-8000-000000000041', schemaVersion: 1 });
+          };
+        });
+      },
+      handleMessage: () => undefined,
+      leave: (session) => {
+        left.push(session);
+      },
+    };
+    const { url } = await listen({ hub });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('valid'));
+    });
+
+    await started;
+    const closed = closedWith(socket);
+    socket.close();
+    await closed;
+    await new Promise((settle) => setTimeout(settle, 20));
+    finishJoin();
+
+    await until(() => left.length > 0);
+    expect(left).toHaveLength(1);
+  });
+
+  it('joins once when a client sends its auth frame twice', async () => {
+    const hub = acceptingHub();
+    const { url } = await listen({ hub });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('valid'));
+      socket.send(authFrame('valid'));
+    });
+
+    await nextMessage(socket);
+    await new Promise((settle) => setTimeout(settle, 50));
+
+    expect(hub.joined).toHaveLength(1);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+  });
 });
+
+async function until(check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!check()) {
+    if (Date.now() > deadline) return;
+    await new Promise((settle) => setTimeout(settle, 10));
+  }
+}
