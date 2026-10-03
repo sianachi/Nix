@@ -5,7 +5,7 @@ import { withTenantScope } from '../../db/tenant-scope.ts';
 import { strategyFor } from '../../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, openDocument } from '../../documents/service.ts';
-import { establish, type RouteDependencies } from '../context.ts';
+import { establish, refreshResident, type RouteDependencies } from '../context.ts';
 import { decodeBase64, parseSeq } from '../params.ts';
 import { problem } from '../replies.ts';
 
@@ -102,7 +102,7 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
       return problem(reply, 400, 'invalid_body', "'update' is not valid base64.");
     }
 
-    return await withTenantScope(deps.pool, context.scope, async (sql) => {
+    const outcome = await withTenantScope(deps.pool, context.scope, async (sql) => {
       const doc = await openDocument(
         sql,
         context.scope.tenantId,
@@ -112,7 +112,7 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
       );
 
       if (doc === null) {
-        return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+        return null;
       }
 
       const applied = await applyUpdate(sql, {
@@ -132,15 +132,25 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
         strategy: strategyFor(context.bodyKind),
       });
 
-      if (!applied.ok) {
-        return problem(reply, applied.error.status, applied.error.code, applied.error.detail);
-      }
+      return { docId: doc.doc_id, applied };
+    });
 
-      return reply.code(202).send({
-        docId: doc.doc_id,
-        seq: applied.value.seq.toString(),
-        snapshotWritten: applied.value.snapshotWritten,
-      });
+    if (outcome === null) {
+      return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+    }
+    const { docId, applied } = outcome;
+    if (!applied.ok) {
+      return problem(reply, applied.error.status, applied.error.code, applied.error.detail);
+    }
+
+    // After the commit, never inside it: a session reading the log from within this transaction's
+    // lifetime would not see the row yet.
+    await refreshResident(request, deps, context.itemId);
+
+    return reply.code(202).send({
+      docId,
+      seq: applied.value.seq.toString(),
+      snapshotWritten: applied.value.snapshotWritten,
     });
   });
 }

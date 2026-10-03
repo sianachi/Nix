@@ -13,7 +13,7 @@ import { withTenantScope } from '../../db/tenant-scope.ts';
 import { strategyFor } from '../../documents/body-kinds.ts';
 import { rejection } from '../../documents/limits.ts';
 import { openDocument, restoreDocument } from '../../documents/service.ts';
-import { establish, type RouteDependencies } from '../context.ts';
+import { establish, refreshResident, type RouteDependencies } from '../context.ts';
 import { parseLimit, parseOptionalSeq, parseSeqBody, parseSeqParam } from '../params.ts';
 import { problem } from '../replies.ts';
 
@@ -135,7 +135,7 @@ export function registerHistoryRoutes(app: FastifyInstance, deps: RouteDependenc
         return problem(reply, 400, 'history_seq_invalid', "'seq' must be a non-negative integer.");
       }
 
-      return await withTenantScope(deps.pool, context.scope, async (sql) => {
+      const restored = await withTenantScope(deps.pool, context.scope, async (sql) => {
         const doc = await openDocument(
           sql,
           context.scope.tenantId,
@@ -145,10 +145,10 @@ export function registerHistoryRoutes(app: FastifyInstance, deps: RouteDependenc
         );
 
         if (doc === null) {
-          return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+          return null;
         }
 
-        const restored = await restoreDocument(sql, {
+        return await restoreDocument(sql, {
           tenantId: context.scope.tenantId,
           doc,
           seq,
@@ -158,13 +158,20 @@ export function registerHistoryRoutes(app: FastifyInstance, deps: RouteDependenc
           clientId: `restore:${randomUUID()}`,
           strategy: strategyFor(context.bodyKind),
         });
-
-        if (!restored.ok) {
-          return problem(reply, restored.error.status, restored.error.code, restored.error.detail);
-        }
-
-        return reply.send({ headSeq: restored.value.seq.toString() });
       });
+
+      if (restored === null) {
+        return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+      }
+      if (!restored.ok) {
+        return problem(reply, restored.error.status, restored.error.code, restored.error.detail);
+      }
+
+      // A restore is an edit like any other, and the editors who have this document open are the
+      // people most likely to have asked for it.
+      await refreshResident(request, deps, context.itemId);
+
+      return reply.send({ headSeq: restored.value.seq.toString() });
     },
   );
 

@@ -50,6 +50,12 @@ export interface SessionHub {
    */
   ready?(session: SocketSession): void;
 
+  /**
+   * Tells a resident document that its log moved underneath it - a REST write or a restore - so
+   * it catches up and shows the change to everyone editing it. A no-op when nothing is resident.
+   */
+  refresh?(itemId: string): Promise<void>;
+
   /** Drains whatever the hub holds. Called on server close, after the sockets are told. */
   shutdown?(): Promise<void>;
 }

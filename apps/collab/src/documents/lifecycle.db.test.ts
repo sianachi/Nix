@@ -17,7 +17,7 @@ import {
 import { withTenantScope } from '../db/tenant-scope.ts';
 import { createDocumentRegistry } from './registry.ts';
 import { LIMITS } from './limits.ts';
-import { openDocument } from './service.ts';
+import { applyUpdate, openDocument } from './service.ts';
 import { DocumentSession } from './session.ts';
 import {
   FAST,
@@ -170,6 +170,99 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
       [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
     );
     expect(links.rows).toEqual([{ target_item_id: TENANTS.alpha.targetItemId, occurrences: 1 }]);
+  });
+
+  it('shows a REST write to the editors already in the document', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+    typeParagraph(alice.doc, 'Typed in the editor.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1,
+      'the editor flush',
+    );
+
+    const authored = new Y.Doc();
+    typeParagraph(authored, 'Written over REST.');
+    const response = await fetch(
+      `${harness.url.replace('ws://', 'http://')}/documents/${TENANTS.alpha.itemId}/updates`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          update: Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64'),
+          clientId: 'rest-writer',
+        }),
+      },
+    );
+    expect(response.status).toBe(202);
+
+    await until(
+      () => textOf(alice.doc).includes('Written over REST.'),
+      'the open editor to receive the REST write',
+    );
+  });
+
+  it('keeps a write another process logged while the document was resident', async () => {
+    // The resident session holds the document in memory and snapshots that memory. A write that
+    // reaches the log by any other route - another instance, or a REST request racing a load -
+    // takes a sequence the session never saw. Its next flush moves the head past that sequence,
+    // and a snapshot labelled with the new head but built without the foreign update would make
+    // every later load skip it: the update stays in the log and vanishes from the document.
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+    typeParagraph(alice.doc, 'Before the foreign write.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1,
+      'the first flush',
+    );
+
+    const foreign = new Y.Doc();
+    typeParagraph(foreign, 'Logged by someone else.');
+    const pool = collabPool();
+    try {
+      const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+      await withTenantScope(pool, scope, async (sql) => {
+        const doc = await openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => {
+            throw new Error('The document already exists.');
+          },
+        );
+        if (doc === null) throw new Error('The document is not visible.');
+        const applied = await applyUpdate(sql, {
+          tenantId: scope.tenantId,
+          doc,
+          updateBytes: Y.encodeStateAsUpdate(foreign),
+          actorId: scope.principalId,
+          clientId: 'another-process',
+          snapshotEvery: 1_000,
+        });
+        expect(applied.ok).toBe(true);
+      });
+    } finally {
+      await pool.end();
+    }
+
+    typeParagraph(alice.doc, 'After the foreign write.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 3,
+      'the second flush',
+    );
+    alice.close();
+    await until(() => harness.registry.size === 0, 'the idle sweep to evict');
+
+    const reader = open(harness.url, TENANTS.alpha.itemId);
+    await reader.ready;
+    await until(
+      () => textOf(reader.doc).includes('After the foreign write.'),
+      'the reload to catch up',
+    );
+    expect(textOf(reader.doc)).toContain('Logged by someone else.');
   });
 
   it('flushes one batch that advances the head once, and says so to Core once', async () => {

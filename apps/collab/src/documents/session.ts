@@ -8,8 +8,8 @@ import * as encoding from 'lib0/encoding';
 import type { Pool } from 'pg';
 import * as Y from 'yjs';
 
-import { appendUpdates, type ContentDocRow } from '../db/documents.ts';
-import { withTenantScope } from '../db/tenant-scope.ts';
+import { appendUpdates, updatesAfter, type ContentDocRow } from '../db/documents.ts';
+import { withTenantScope, type ScopedQuery } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import {
   MESSAGE_AWARENESS,
@@ -23,7 +23,7 @@ import {
 import type { SocketSession } from '../ws/server.ts';
 import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
 import { LIMITS, rejection, type RateWindow, type Rejection } from './limits.ts';
-import { loadDocument, writeSnapshotNow } from './service.ts';
+import { CATCH_UP_LIMIT, loadDocument, writeSnapshotNow } from './service.ts';
 
 /** The thresholds a resident document lives by. All of them configuration, none of them lore. */
 export interface SessionConfig {
@@ -66,12 +66,19 @@ export interface SessionContext {
    * Growth may be refused before the Yjs document is mutated; shrinkage is always accepted.
    */
   readonly resizeResident?:
-    ((session: DocumentSession, nextEstimatedBytes: number) => boolean) | undefined;
+    | ((session: DocumentSession, nextEstimatedBytes: number, force?: boolean) => boolean)
+    | undefined;
 
   readonly now?: (() => number) | undefined;
 }
 
 type LifecycleState = 'active' | 'draining' | 'unloaded';
+
+/**
+ * The origin of updates read back from the log rather than received from a socket: broadcast to
+ * every editor, never queued for persistence, because they are already persisted.
+ */
+const LOG_ORIGIN = Symbol('log');
 
 interface PendingUpdate {
   readonly bytes: Uint8Array;
@@ -96,6 +103,9 @@ export class DocumentSession {
   readonly itemId: string;
   readonly docRow: ContentDocRow;
   readonly tenantId: string;
+
+  /** The principal the document was loaded as, for log reads no writer is behind. */
+  readonly #loadedBy: string;
 
   /** How this body is validated and materialised - the item's `type`, resolved once at load. */
   readonly strategy: BodyKindStrategy;
@@ -145,14 +155,15 @@ export class DocumentSession {
   private constructor(
     itemId: string,
     docRow: ContentDocRow,
-    tenantId: string,
+    scope: { tenantId: string; principalId: string },
     doc: Y.Doc,
     context: SessionContext,
     strategy: BodyKindStrategy,
   ) {
     this.itemId = itemId;
     this.docRow = docRow;
-    this.tenantId = tenantId;
+    this.tenantId = scope.tenantId;
+    this.#loadedBy = scope.principalId;
     this.strategy = strategy;
     this.#doc = doc;
     this.#context = context;
@@ -189,7 +200,7 @@ export class DocumentSession {
       loadDocument(sql, scope.tenantId, docRow),
     );
 
-    return new DocumentSession(itemId, docRow, scope.tenantId, doc, context, strategy);
+    return new DocumentSession(itemId, docRow, scope, doc, context, strategy);
   }
 
   get state(): LifecycleState {
@@ -647,63 +658,142 @@ export class DocumentSession {
    * always a single run, so the batching survives the honesty.
    */
   async flush(): Promise<void> {
+    await this.#exclusive(async () => {
+      try {
+        const queue = this.#pending;
+        if (queue.length === 0) {
+          // An empty queue does not mean nothing is owed. The last reader leaving asks for a
+          // snapshot whatever the cadence says, and by then the queue is almost always already
+          // empty - the 500 ms timer will have drained it seconds before the tab closed. Returning
+          // here unconditionally, as this did, is what would leave a document's links and its
+          // searchable text unpublished until the session was evicted five minutes later.
+          await this.#maybeSnapshot();
+          return;
+        }
+        this.#pending = [];
+        const queueBytes = this.#pendingBytes;
+        this.#pendingBytes = 0;
+        this.#flushingBytes += queueBytes;
+        this.#context.resizeResident?.(this, this.estimatedBytes);
+        if (this.#flushTimer !== null) {
+          clearTimeout(this.#flushTimer);
+          this.#flushTimer = null;
+        }
+
+        const started = this.now();
+
+        for (const run of principalRuns(queue)) {
+          const { lastSeq } = await withTenantScope(
+            this.#context.pool,
+            { tenantId: this.tenantId, principalId: run.principalId },
+            async (sql) => {
+              const appended = await appendUpdates(sql, {
+                tenantId: this.tenantId,
+                docId: this.docRow.doc_id,
+                updates: run.updates,
+                actorId: run.principalId,
+              });
+              // Sequences between the head this session knew and the first one just allocated
+              // were written by somebody else. They must be in memory before the head moves past
+              // them: a snapshot labelled with the new head and built without them would make
+              // every later load skip them.
+              await this.#applyLogged(sql, this.#headSeq, appended.firstSeq - 1n);
+              return appended;
+            },
+          );
+          this.#headSeq = lastSeq;
+          this.#context.metrics?.updatesAppendedTotal.inc(run.updates.length);
+        }
+
+        await this.#maybeSnapshot();
+
+        this.#context.metrics?.flushSeconds.observe((this.now() - started) / 1000);
+        this.#context.onFlushed?.(this);
+      } finally {
+        // The local queue remains strongly referenced throughout the database append. It leaves
+        // the process-wide byte account only here, not when it moves out of `#pending` above.
+        if (this.#flushingBytes > 0) {
+          this.#flushingBytes = 0;
+          this.#context.resizeResident?.(this, this.estimatedBytes);
+        }
+      }
+    });
+  }
+
+  /**
+   * Brings the resident document up to the log's head: applies, and broadcasts, every update
+   * another writer appended since this session last touched the log.
+   *
+   * Called after a REST write or a restore lands for a document that is open here, so the people
+   * editing it see the change now rather than after reloading. Serialised with flushes, which
+   * read and advance the same head.
+   */
+  async catchUp(): Promise<void> {
+    if (this.#state === 'unloaded') {
+      return;
+    }
+    await this.#exclusive(async () => {
+      if (this.#state === 'unloaded') {
+        return;
+      }
+      await withTenantScope(
+        this.#context.pool,
+        { tenantId: this.tenantId, principalId: this.#loadedBy },
+        (sql) => this.#applyLogged(sql, this.#headSeq, null),
+      );
+    });
+  }
+
+  /**
+   * Applies the logged updates after `afterSeq`, up to and including `throughSeq` (or the end of
+   * the log when null), and moves the head to the last one applied.
+   *
+   * They are persisted already, so they are applied under {@link LOG_ORIGIN}: every socket
+   * receives them and the pending queue does not. Yjs merges idempotently, so an update the
+   * resident state already holds - one the load replayed past its recorded head - costs nothing.
+   */
+  async #applyLogged(sql: ScopedQuery, afterSeq: bigint, throughSeq: bigint | null): Promise<void> {
+    let from = afterSeq;
+    for (;;) {
+      if (throughSeq !== null && from >= throughSeq) {
+        break;
+      }
+      const page = await updatesAfter(sql, this.tenantId, this.docRow.doc_id, from, CATCH_UP_LIMIT);
+      const wanted =
+        throughSeq === null ? page : page.filter((row) => BigInt(row.seq) <= throughSeq);
+      if (wanted.length > 0) {
+        this.#doc.transact(() => {
+          for (const row of wanted) {
+            Y.applyUpdate(this.#doc, new Uint8Array(row.update_bytes), LOG_ORIGIN);
+          }
+        }, LOG_ORIGIN);
+      }
+      const last = wanted[wanted.length - 1];
+      if (last !== undefined) {
+        from = BigInt(last.seq);
+        if (from > this.#headSeq) {
+          this.#headSeq = from;
+        }
+      }
+      if (wanted.length < CATCH_UP_LIMIT) {
+        break;
+      }
+    }
+    // Already durable, so never refused: the account has to describe what is resident.
+    this.#context.resizeResident?.(this, this.estimatedBytes, true);
+  }
+
+  /** Runs log I/O one piece at a time: flushes and catch-ups read and advance the same head. */
+  async #exclusive(work: () => Promise<void>): Promise<void> {
     const previous = this.#flushing;
     let release: () => void = () => undefined;
     this.#flushing = new Promise((resolve) => {
       release = resolve;
     });
     await previous;
-
     try {
-      const queue = this.#pending;
-      if (queue.length === 0) {
-        // An empty queue does not mean nothing is owed. The last reader leaving asks for a
-        // snapshot whatever the cadence says, and by then the queue is almost always already
-        // empty - the 500 ms timer will have drained it seconds before the tab closed. Returning
-        // here unconditionally, as this did, is what would leave a document's links and its
-        // searchable text unpublished until the session was evicted five minutes later.
-        await this.#maybeSnapshot();
-        return;
-      }
-      this.#pending = [];
-      const queueBytes = this.#pendingBytes;
-      this.#pendingBytes = 0;
-      this.#flushingBytes += queueBytes;
-      this.#context.resizeResident?.(this, this.estimatedBytes);
-      if (this.#flushTimer !== null) {
-        clearTimeout(this.#flushTimer);
-        this.#flushTimer = null;
-      }
-
-      const started = this.now();
-
-      for (const run of principalRuns(queue)) {
-        const { lastSeq } = await withTenantScope(
-          this.#context.pool,
-          { tenantId: this.tenantId, principalId: run.principalId },
-          (sql) =>
-            appendUpdates(sql, {
-              tenantId: this.tenantId,
-              docId: this.docRow.doc_id,
-              updates: run.updates,
-              actorId: run.principalId,
-            }),
-        );
-        this.#headSeq = lastSeq;
-        this.#context.metrics?.updatesAppendedTotal.inc(run.updates.length);
-      }
-
-      await this.#maybeSnapshot();
-
-      this.#context.metrics?.flushSeconds.observe((this.now() - started) / 1000);
-      this.#context.onFlushed?.(this);
+      await work();
     } finally {
-      // The local queue remains strongly referenced throughout the database append. It leaves the
-      // process-wide byte account only here, not when it moves out of `#pending` above.
-      if (this.#flushingBytes > 0) {
-        this.#flushingBytes = 0;
-        this.#context.resizeResident?.(this, this.estimatedBytes);
-      }
       release();
     }
   }

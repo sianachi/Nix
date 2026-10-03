@@ -70,6 +70,7 @@ export interface ServerDependencies {
 export interface RouteDependencies extends ServerDependencies {
   readonly rateWindow: RateWindow;
   readonly newDocId: () => string;
+  readonly hub: SessionHub;
 }
 
 export interface RequestContext {
@@ -78,6 +79,24 @@ export interface RequestContext {
   readonly canWrite: boolean;
   readonly bodyKind: string;
   readonly scope: { tenantId: string; principalId: string };
+}
+
+/**
+ * Tells a document open on this server that a write just committed to its log, so the people
+ * editing it see the change now. Best-effort: the write is durable and the session would still
+ * pick it up at its next flush, so a failure here is logged rather than turned into a refusal of a
+ * write that succeeded.
+ */
+export async function refreshResident(
+  request: FastifyRequest,
+  deps: RouteDependencies,
+  itemId: string,
+): Promise<void> {
+  try {
+    await deps.hub.refresh?.(itemId);
+  } catch (error) {
+    request.log.warn({ err: error, itemId }, 'Could not bring the open document up to date.');
+  }
 }
 
 /**

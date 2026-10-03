@@ -81,7 +81,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
 
   app.get('/healthz', () => ({ status: 'healthy', schema: describeSchema() }));
 
-  const routes: RouteDependencies = { ...deps, rateWindow, newDocId };
+  const routes: RouteDependencies = { ...deps, rateWindow, newDocId, hub };
 
   registerInternalImportRoutes(app, routes);
 

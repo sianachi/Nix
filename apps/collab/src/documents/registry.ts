@@ -107,7 +107,11 @@ export function createDocumentRegistry(deps: {
     accountedBytes.delete(itemId);
   }
 
-  function resizeResident(session: DocumentSession, nextEstimatedBytes: number): boolean {
+  function resizeResident(
+    session: DocumentSession,
+    nextEstimatedBytes: number,
+    force = false,
+  ): boolean {
     const current = accountedBytes.get(session.itemId);
     if (current === undefined) {
       // Loads cannot receive frames before publication. A direct DocumentSession test has no
@@ -116,7 +120,11 @@ export function createDocumentRegistry(deps: {
     }
 
     const nextTotal = residentBytes - current + nextEstimatedBytes;
-    if (nextEstimatedBytes > current && nextTotal + reservedBytes > deps.config.maxResidentBytes) {
+    if (
+      !force &&
+      nextEstimatedBytes > current &&
+      nextTotal + reservedBytes > deps.config.maxResidentBytes
+    ) {
       return false;
     }
 
@@ -318,6 +326,10 @@ export function createDocumentRegistry(deps: {
     leave(socket: SocketSession): void {
       sessions.get(socket.itemId)?.detach(socket);
       publishGauges();
+    },
+
+    async refresh(itemId: string): Promise<void> {
+      await sessions.get(itemId)?.catchUp();
     },
 
     async shutdown(): Promise<void> {
