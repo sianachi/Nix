@@ -21,7 +21,7 @@ import {
   readBinaryFrame,
 } from '../ws/protocol.ts';
 import type { SocketSession } from '../ws/server.ts';
-import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
+import { noteStrategy, type BodyKindStrategy, type Measurement } from './body-kinds.ts';
 import { LIMITS, rejection, type RateWindow, type Rejection } from './limits.ts';
 import { CATCH_UP_LIMIT, loadDocument, writeSnapshotNow } from './service.ts';
 
@@ -1249,7 +1249,7 @@ export function judgeCandidate(
   }
 
   if (after.nodes > ceilings.nodes || after.bytes > ceilings.bytes) {
-    const before = strategy.measure(resident);
+    const before = measureCopy(resident, strategy);
     const grew = before === null || after.nodes > before.nodes || after.bytes > before.bytes;
 
     if (grew) {
@@ -1285,12 +1285,17 @@ export function judgeCandidate(
  * and on exactly the documents where the answer matters most.
  */
 function parsesAlone(resident: Y.Doc, strategy: BodyKindStrategy): boolean {
+  return measureCopy(resident, strategy) !== null;
+}
+
+/** The resident's measurement, taken on a copy for the reason {@link parsesAlone} gives. */
+function measureCopy(resident: Y.Doc, strategy: BodyKindStrategy): Measurement | null {
   const copy = new Y.Doc();
   try {
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(resident));
-    return strategy.measure(copy) !== null;
+    return strategy.measure(copy);
   } catch {
-    return false;
+    return null;
   } finally {
     copy.destroy();
   }
