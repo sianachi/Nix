@@ -38,7 +38,17 @@ export interface SessionConfig {
 
   /** How long an active document may go without a snapshot, whatever the update count. */
   readonly snapshotIntervalMs: number;
+
+  /**
+   * The encoded size from which a document keeps a standing mirror to judge updates against,
+   * instead of copying itself for every one. Below it the copy is cheaper than the memory.
+   * Defaults to {@link MIRROR_FROM_BYTES}.
+   */
+  readonly mirrorFromBytes?: number | undefined;
 }
+
+/** Where a standing mirror starts paying for itself: about a thousand paragraphs of prose. */
+export const MIRROR_FROM_BYTES = 64 * 1024;
 
 export interface SessionContext {
   readonly pool: Pool;
@@ -158,6 +168,9 @@ export class DocumentSession {
   #encodedBase: number;
   #bytesSinceEncode = 0;
 
+  /** Created once the document is big enough for copying it per update to hurt. */
+  #mirror: CandidateMirror | null = null;
+
   private constructor(
     itemId: string,
     docRow: ContentDocRow,
@@ -230,7 +243,29 @@ export class DocumentSession {
    * safe direction for a capacity decision.
    */
   get estimatedBytes(): number {
-    return this.#encodedBase + this.#bytesSinceEncode + this.#pendingBytes + this.#flushingBytes;
+    return (
+      this.#encodedBase +
+      this.#bytesSinceEncode +
+      this.#mirrorBytes() +
+      this.#pendingBytes +
+      this.#flushingBytes
+    );
+  }
+
+  /** The mirror is a second copy of the document, and is counted as one. */
+  #mirrorBytes(): number {
+    return this.#mirror === null ? 0 : this.#encodedBase + this.#bytesSinceEncode;
+  }
+
+  #scratch(): CandidateMirror | undefined {
+    if (this.#mirror === null) {
+      const from = this.#context.config.mirrorFromBytes ?? MIRROR_FROM_BYTES;
+      if (this.#encodedBase + this.#bytesSinceEncode < from) {
+        return undefined;
+      }
+      this.#mirror = new CandidateMirror(this.#doc);
+    }
+    return this.#mirror;
   }
 
   /**
@@ -388,9 +423,11 @@ export class DocumentSession {
       return;
     }
 
+    const scratch = this.#scratch();
     const verdict = judgeCandidate(this.#doc, update, {
       strategy: this.strategy,
       pin: this.docRow.schema_version,
+      scratch,
       diagnose: (reason) => {
         this.#context.log?.(
           `A ${this.strategy.kind} update from principal ` +
@@ -421,7 +458,8 @@ export class DocumentSession {
     // An accepted update lives twice until it is flushed: once in Yjs's resident history and
     // once in the pending persistence queue. This is the same deliberately conservative estimate
     // exposed by `estimatedBytes`, projected before mutating the document.
-    const projectedBytes = this.estimatedBytes + verdict.persistedUpdateBytes * 2;
+    const copies = this.#mirror === null ? 2 : 3;
+    const projectedBytes = this.estimatedBytes + verdict.persistedUpdateBytes * copies;
     if (this.#context.resizeResident?.(this, projectedBytes) === false) {
       this.#context.log?.(
         `Refused an update from principal ${socket.authorization.principalId} on item ` +
@@ -443,6 +481,10 @@ export class DocumentSession {
         this.#applyWithRepair(socket, update);
       } else {
         Y.applyUpdate(this.#doc, update, socket);
+        // The mirror took this same update to judge it, so the two are equal again. A repair, a
+        // refusal or anything else that returns before here leaves it out of step, and it is
+        // rebuilt on the next candidate.
+        scratch?.settle();
       }
     } catch (cause) {
       // A judged Yjs update is deterministic, so this is a bug path. Restore the byte account
@@ -1016,6 +1058,8 @@ export class DocumentSession {
       this.#flushTimer = null;
     }
     this.#awareness.destroy();
+    this.#mirror?.destroy();
+    this.#mirror = null;
     this.#doc.destroy();
     return true;
   }
@@ -1039,6 +1083,8 @@ export class DocumentSession {
       this.#flushTimer = null;
     }
     this.#awareness.destroy();
+    this.#mirror?.destroy();
+    this.#mirror = null;
     this.#doc.destroy();
   }
 
@@ -1065,6 +1111,14 @@ export class DocumentSession {
 export interface CandidateJudgement {
   readonly strategy?: BodyKindStrategy;
   readonly ceilings?: { nodes: number; bytes: number };
+
+  /**
+   * Where the merged document is built for the main measurement. Defaults to a fresh copy of the
+   * resident, thrown away afterwards; a session passes its {@link CandidateMirror} so a large
+   * document is not copied for every keystroke. The rarer paths - repair, diagnosis, the ceiling's
+   * growth check - always use fresh copies.
+   */
+  readonly scratch?: CandidateScratch | undefined;
 
   /** The document's stored `schema_version`. Defaults to what this build speaks. */
   readonly pin?: number;
@@ -1120,9 +1174,10 @@ export function judgeCandidate(
   const ceilings = judgement.ceilings ?? strategy.ceilings;
   const pin = judgement.pin ?? SCHEMA_VERSION;
 
+  const scratch = judgement.scratch ?? freshScratch(resident);
   let fork: Y.Doc;
   try {
-    fork = forkWith(resident, update);
+    fork = scratch.fork(update);
   } catch (cause) {
     return {
       ok: false,
@@ -1136,7 +1191,7 @@ export function judgeCandidate(
 
   let persistedUpdateBytes = update.byteLength;
   let after = strategy.measure(fork);
-  fork.destroy();
+  scratch.release(fork);
 
   // The floor, before the refusal. A merged document that holds nothing is the one unparseable
   // outcome a client can reach without having written anything wrong - the Yjs undo manager
@@ -1325,6 +1380,97 @@ const MAX_RETRY_DELAY_MS = 30_000;
 
 function describe(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** Builds the resident-plus-candidate document that a judgement measures. */
+export interface CandidateScratch {
+  /** The resident with `update` applied. Throws when the update does not decode. */
+  fork(update: Uint8Array): Y.Doc;
+
+  /** Done measuring what {@link fork} returned. */
+  release(fork: Y.Doc): void;
+}
+
+function freshScratch(resident: Y.Doc): CandidateScratch {
+  return {
+    fork: (update) => forkWith(resident, update),
+    release: (fork) => {
+      fork.destroy();
+    },
+  };
+}
+
+/** The origin of everything the mirror applies itself, so it can tell when a measure wrote. */
+const MIRROR_ORIGIN = Symbol('mirror');
+
+/**
+ * A standing copy of the resident document, kept equal to it, for judging candidates against.
+ *
+ * Judging needs the resident *plus* the candidate, and Yjs has no undo, so the plain way is to copy
+ * the resident for every update - which on a large document is most of the cost of a keystroke.
+ * The mirror is that copy, made once: a candidate is applied to it and measured there, and when the
+ * resident accepts the same update the two are equal again without copying anything.
+ *
+ * **It is either known equal to the resident, or rebuilt.** {@link fork} takes it out of step; only
+ * {@link settle}, called once the resident has applied exactly that candidate, puts it back. While
+ * in step it follows every other resident update - log catch-up, a repair - by applying them too.
+ * A measurement that wrote to it (prose conversion drops nodes the schema does not know) also
+ * leaves it out of step. Out of step, the next fork rebuilds it from the resident, which is the
+ * cost the mirror exists to avoid, paid only on refusals and repairs.
+ */
+export class CandidateMirror implements CandidateScratch {
+  readonly #resident: Y.Doc;
+  #doc: Y.Doc | null = null;
+  #inStep = false;
+  #written = false;
+  readonly #follow = (update: Uint8Array): void => {
+    if (this.#doc !== null && this.#inStep) {
+      Y.applyUpdate(this.#doc, update, MIRROR_ORIGIN);
+    }
+  };
+
+  constructor(resident: Y.Doc) {
+    this.#resident = resident;
+    resident.on('update', this.#follow);
+  }
+
+  fork(update: Uint8Array): Y.Doc {
+    const doc = this.#doc !== null && this.#inStep ? this.#doc : this.#rebuild();
+    this.#inStep = false;
+    this.#written = false;
+    Y.applyUpdate(doc, update, MIRROR_ORIGIN);
+    return doc;
+  }
+
+  release(): void {
+    // Kept, not destroyed: whether it can be reused is for `settle` to say.
+  }
+
+  /** The resident has applied exactly the candidate last forked; the two are equal again. */
+  settle(): void {
+    this.#inStep = this.#doc !== null && !this.#written;
+  }
+
+  destroy(): void {
+    this.#resident.off('update', this.#follow);
+    this.#doc?.destroy();
+    this.#doc = null;
+    this.#inStep = false;
+  }
+
+  #rebuild(): Y.Doc {
+    this.#doc?.destroy();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.#resident), MIRROR_ORIGIN);
+    doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin !== MIRROR_ORIGIN) {
+        this.#written = true;
+        this.#inStep = false;
+      }
+    });
+    this.#doc = doc;
+    return doc;
+  }
 }
 
 interface PrincipalRun {

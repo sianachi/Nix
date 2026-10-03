@@ -79,6 +79,9 @@ export const FAST: RegistryConfig = {
   maxDocs: 50,
   maxResidentBytes: 256 * 1024 * 1024,
   sweepMs: 60,
+  // Every test document is mirrored, however small, so the suites exercise the path production
+  // takes for large documents; the fresh-copy path is covered by judging candidates directly.
+  mirrorFromBytes: 0,
 };
 
 export interface LiveHarness {
