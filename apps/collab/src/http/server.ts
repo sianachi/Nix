@@ -61,6 +61,9 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     // oversized update still reaches the refusal that names the limit.
     maxPayloadBytes: LIMITS.updateBytes * 2,
     metrics: deps.metrics,
+    log: (message) => {
+      app.log.warn(message);
+    },
   });
 
   // preClose, not onClose: Fastify only runs onClose once the HTTP server has closed its

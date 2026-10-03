@@ -81,6 +81,9 @@ export interface WebSocketOptions {
   readonly pingMs?: number | undefined;
 
   readonly metrics?: CollabMetrics | undefined;
+
+  /** Where failures nobody awaits are reported. Defaults to silence. */
+  readonly log?: ((message: string) => void) | undefined;
 }
 
 const WS_PATH =
@@ -179,10 +182,15 @@ function handleConnection(
   // Re-checked on a wall-clock timer, not on traffic: an idle socket held by a
   // deprovisioned principal is exactly the leak the re-check exists to close.
   const reauthTimer = setInterval(() => {
-    // A re-check that cannot reach Core keeps the authorization it already has until the next
-    // tick, bounded as ever by the token's own expiry, which is checked before Core is asked.
-    // Closing every socket because Core blinked would turn its outage into everyone's.
-    recheck().catch(() => undefined);
+    // **This fails closed.** The authorizer answers an unreachable Core, a timeout or any error
+    // status with a refusal, and a refused re-check closes the socket as revoked - a Core outage
+    // disconnects editors rather than letting a socket outlive a permission nobody could confirm.
+    // What reaches this catch is a fault in the re-check itself; it is logged, and the socket is
+    // judged again on the next tick. Keeping a socket open through an unconfirmed re-check would
+    // be a policy change that needs an ADR, with a staleness bound, not an edit here.
+    recheck().catch((cause: unknown) => {
+      options.log?.(`The authorization re-check failed: ${describe(cause)}`);
+    });
   }, options.reauthMs);
 
   socket.on('pong', () => {
@@ -198,7 +206,8 @@ function handleConnection(
       }
       establishing = true;
       establish(data, isBinary)
-        .catch(() => {
+        .catch((cause: unknown) => {
+          options.log?.(`A handshake failed on the server's side: ${describe(cause)}`);
           // Authorization or the document load failed on this side - Core unreachable, the
           // database refusing. The client is owed a close it reconnects from, not a socket that
           // never answers, and the process is owed not being ended by an unhandled rejection.
@@ -376,6 +385,10 @@ function handleConnection(
     }
     socket.close(code, reason);
   }
+}
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function rawDataToString(data: RawData): string | null {
