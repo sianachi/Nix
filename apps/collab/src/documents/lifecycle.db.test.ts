@@ -445,6 +445,68 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     }
   });
 
+  it('keeps a batch whose append failed and writes it once the database is back', async () => {
+    // The flush timer is nobody's caller. Its rejection used to go unhandled, which ends a Node
+    // 22 process - every resident document with it - and the batch it had already taken off the
+    // queue was gone either way: on every screen, in no log.
+    const pool = collabPool();
+    const outage = { on: false };
+    const flaky = new Proxy(pool, {
+      get(target, property) {
+        if (property === 'connect' && outage.on) {
+          return () => Promise.reject(new Error('The database is unavailable.'));
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      },
+    });
+    const logged: string[] = [];
+    try {
+      const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+      const docRow = await withTenantScope(pool, scope, (sql) =>
+        openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => TENANTS.alpha.docId,
+        ),
+      );
+      if (docRow === null) {
+        throw new Error('The seeded item has no document body.');
+      }
+
+      const session = await DocumentSession.load(TENANTS.alpha.itemId, docRow, scope, {
+        pool: flaky,
+        config: { ...FAST, flushMs: 20 },
+        log: (message) => {
+          logged.push(message);
+        },
+      });
+      const socket = fakeSocketSession(TENANTS.alpha);
+      session.attach(socket);
+
+      outage.on = true;
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Typed during the outage.');
+      session.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(edit)));
+
+      await until(() => logged.some((line) => line.includes('Could not flush')), 'a failed flush');
+      expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(0);
+
+      outage.on = false;
+      await until(
+        async () => (await countUpdates(verifyPool, TENANTS.alpha)) === 1,
+        'the retry to land the batch',
+      );
+
+      session.detach(socket);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
   it('refuses the whole load, loudly, when the server is at document capacity', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha, { maxDocs: 0 }));
 

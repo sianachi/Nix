@@ -142,12 +142,19 @@ export function createDocumentRegistry(deps: {
         continue;
       }
 
-      const unloaded = await session.drain();
-      if (unloaded) {
-        sessions.delete(itemId);
-        sessionGenerations.delete(itemId);
-        removeResident(itemId);
-        await deps.locks.release(session.docRow.doc_id);
+      // One document failing to drain - its flush refused, its lock release lost - must not stop
+      // the sweep from reaching the rest, or end the process from an unwatched timer. It stays
+      // resident and the next sweep tries again.
+      try {
+        const unloaded = await session.drain();
+        if (unloaded) {
+          sessions.delete(itemId);
+          sessionGenerations.delete(itemId);
+          removeResident(itemId);
+          await deps.locks.release(session.docRow.doc_id);
+        }
+      } catch (cause) {
+        deps.log?.(`Could not evict idle item ${itemId}; will retry: ${describe(cause)}`);
       }
     }
     publishGauges();
@@ -336,11 +343,17 @@ export function createDocumentRegistry(deps: {
       clearInterval(sweeper);
       for (const [itemId, session] of [...sessions]) {
         session.closeSockets(CLOSE_CODES.draining, 'The server is shutting down.');
-        await session.drain();
+        try {
+          await session.drain();
+        } catch (cause) {
+          // Every other document still deserves its final flush. What this one could not write is
+          // still on its clients, which re-send it to whichever instance they reach next.
+          deps.log?.(`Could not drain item ${itemId} at shutdown: ${describe(cause)}`);
+        }
         sessions.delete(itemId);
         sessionGenerations.delete(itemId);
         removeResident(itemId);
-        await deps.locks.release(session.docRow.doc_id);
+        await deps.locks.release(session.docRow.doc_id).catch(() => undefined);
       }
       publishGauges();
     },
@@ -408,6 +421,10 @@ export function createDocumentRegistry(deps: {
       publishGauges();
     },
   };
+}
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 interface LoadSlot {

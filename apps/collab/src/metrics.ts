@@ -31,6 +31,9 @@ export interface CollabMetrics {
   /** How long a flush takes, queue to committed. */
   readonly flushSeconds: Histogram;
 
+  /** Flushes whose append failed and whose updates went back on the queue. */
+  readonly flushFailuresTotal: Counter;
+
   /** Updates appended to the log, socket and HTTP paths alike. */
   readonly updatesAppendedTotal: Counter;
 
@@ -80,6 +83,11 @@ export function createMetrics(): CollabMetrics {
       name: 'nix_collab_flush_seconds',
       help: 'Flush duration, queue to committed.',
       buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5],
+      registers: [registry],
+    }),
+    flushFailuresTotal: new Counter({
+      name: 'nix_collab_flush_failures_total',
+      help: 'Flushes whose append to the log failed; their updates were queued again for retry.',
       registers: [registry],
     }),
     updatesAppendedTotal: new Counter({

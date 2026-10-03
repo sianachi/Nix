@@ -169,7 +169,10 @@ function handleConnection(
   // Re-checked on a wall-clock timer, not on traffic: an idle socket held by a
   // deprovisioned principal is exactly the leak the re-check exists to close.
   const reauthTimer = setInterval(() => {
-    void recheck();
+    // A re-check that cannot reach Core keeps the authorization it already has until the next
+    // tick, bounded as ever by the token's own expiry, which is checked before Core is asked.
+    // Closing every socket because Core blinked would turn its outage into everyone's.
+    recheck().catch(() => undefined);
   }, options.reauthMs);
 
   socket.on('pong', () => {
@@ -184,9 +187,21 @@ function handleConnection(
         return;
       }
       establishing = true;
-      void establish(data, isBinary).finally(() => {
-        establishing = false;
-      });
+      establish(data, isBinary)
+        .catch(() => {
+          // Authorization or the document load failed on this side - Core unreachable, the
+          // database refusing. The client is owed a close it reconnects from, not a socket that
+          // never answers, and the process is owed not being ended by an unhandled rejection.
+          if (!isClosed()) {
+            close(
+              CLOSE_CODES.unavailable,
+              'The server could not open this document. Retry shortly.',
+            );
+          }
+        })
+        .finally(() => {
+          establishing = false;
+        });
       return;
     }
 

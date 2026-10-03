@@ -132,6 +132,9 @@ export class DocumentSession {
 
   #idleSince: number | null = null;
 
+  /** How long the next retry waits after a failed append. Zero while appends are succeeding. */
+  #retryDelayMs = 0;
+
   /**
    * A snapshot the cadence did not ask for but the last reader leaving did.
    *
@@ -289,7 +292,9 @@ export class DocumentSession {
         }
         return;
       case MESSAGE_PERSISTED:
-        void this.#persistBarrier(socket, frame.decoder);
+        // A failed flush is logged by `flush` and leaves the barrier unanswered, which is the
+        // honest reply: the client keeps its edits and asks again.
+        this.#persistBarrier(socket, frame.decoder).catch(() => undefined);
         return;
       default:
         return;
@@ -569,7 +574,10 @@ export class DocumentSession {
     this.#pendingBytes += update.byteLength;
     this.#lastWriter = { principalId: origin.authorization.principalId, token: origin.token };
 
-    if (this.#pendingBytes >= this.#context.config.flushBytes) {
+    if (this.#retryDelayMs > 0) {
+      // The log is refusing appends. Typing must not turn the backoff into a flush per keystroke.
+      this.scheduleFlush(this.#retryDelayMs);
+    } else if (this.#pendingBytes >= this.#context.config.flushBytes) {
       this.scheduleFlush(0);
     } else {
       this.scheduleFlush(this.#context.config.flushMs);
@@ -640,12 +648,12 @@ export class DocumentSession {
         clearTimeout(this.#flushTimer);
         this.#flushTimer = null;
       }
-      void this.flush();
+      this.#flushInBackground();
       return;
     }
     this.#flushTimer ??= setTimeout(() => {
       this.#flushTimer = null;
-      void this.flush();
+      this.#flushInBackground();
     }, inMs);
   }
 
@@ -682,28 +690,36 @@ export class DocumentSession {
 
         const started = this.now();
 
-        for (const run of principalRuns(queue)) {
-          const { lastSeq } = await withTenantScope(
-            this.#context.pool,
-            { tenantId: this.tenantId, principalId: run.principalId },
-            async (sql) => {
-              const appended = await appendUpdates(sql, {
-                tenantId: this.tenantId,
-                docId: this.docRow.doc_id,
-                updates: run.updates,
-                actorId: run.principalId,
-              });
-              // Sequences between the head this session knew and the first one just allocated
-              // were written by somebody else. They must be in memory before the head moves past
-              // them: a snapshot labelled with the new head and built without them would make
-              // every later load skip them.
-              await this.#applyLogged(sql, this.#headSeq, appended.firstSeq - 1n);
-              return appended;
-            },
-          );
-          this.#headSeq = lastSeq;
-          this.#context.metrics?.updatesAppendedTotal.inc(run.updates.length);
+        let appendedCount = 0;
+        try {
+          for (const run of principalRuns(queue)) {
+            const { lastSeq } = await withTenantScope(
+              this.#context.pool,
+              { tenantId: this.tenantId, principalId: run.principalId },
+              async (sql) => {
+                const appended = await appendUpdates(sql, {
+                  tenantId: this.tenantId,
+                  docId: this.docRow.doc_id,
+                  updates: run.updates,
+                  actorId: run.principalId,
+                });
+                // Sequences between the head this session knew and the first one just allocated
+                // were written by somebody else. They must be in memory before the head moves past
+                // them: a snapshot labelled with the new head and built without them would make
+                // every later load skip them.
+                await this.#applyLogged(sql, this.#headSeq, appended.firstSeq - 1n);
+                return appended;
+              },
+            );
+            this.#headSeq = lastSeq;
+            appendedCount += run.updates.length;
+            this.#context.metrics?.updatesAppendedTotal.inc(run.updates.length);
+          }
+        } catch (cause) {
+          this.#requeue(queue.slice(appendedCount));
+          throw cause;
         }
+        this.#retryDelayMs = 0;
 
         await this.#maybeSnapshot();
 
@@ -717,6 +733,47 @@ export class DocumentSession {
           this.#context.resizeResident?.(this, this.estimatedBytes);
         }
       }
+    });
+  }
+
+  /**
+   * Puts updates whose append failed back at the front of the queue, in order, and schedules the
+   * retry.
+   *
+   * They are already in the resident document and already broadcast, so dropping them - which is
+   * what leaving them out of the queue did - kept them on every screen and out of the log: a crash
+   * before the next snapshot lost them, and the log stopped describing the document. Runs appended
+   * before the failure are committed and are not requeued.
+   */
+  #requeue(updates: readonly PendingUpdate[]): void {
+    if (updates.length === 0 || this.#state === 'unloaded') {
+      return;
+    }
+    this.#pending = [...updates, ...this.#pending];
+    for (const update of updates) {
+      this.#pendingBytes += update.bytes.byteLength;
+    }
+    this.#context.metrics?.flushFailuresTotal.inc();
+    // Backing off: a database that refused this append is unlikely to accept the same one a
+    // flush window later, and a tight loop of failing transactions makes its recovery harder.
+    this.#retryDelayMs = Math.min(
+      MAX_RETRY_DELAY_MS,
+      Math.max(this.#context.config.flushMs, this.#retryDelayMs * 2),
+    );
+    this.scheduleFlush(this.#retryDelayMs);
+  }
+
+  /**
+   * A flush nobody waits for: a timer's, or the last reader leaving. Its failure is reported here
+   * and recovered by the retry `#requeue` scheduled, never left to reject unhandled - which would
+   * end the process, and every other document resident in it.
+   */
+  #flushInBackground(): void {
+    this.flush().catch((cause: unknown) => {
+      this.#context.log?.(
+        `Could not flush item ${this.itemId} in tenant ${this.tenantId}; retrying in ` +
+          `${String(this.#retryDelayMs)} ms: ${describe(cause)}`,
+      );
     });
   }
 
@@ -879,7 +936,7 @@ export class DocumentSession {
       // has almost always already drained the queue, so the snapshot this asks for was never
       // reached. Flush on disconnect is one of the three §17 triggers, and it still is; it now
       // also carries the snapshot request, and `flush` handles an empty queue itself.
-      void this.flush();
+      this.#flushInBackground();
     }
   }
 
@@ -893,8 +950,16 @@ export class DocumentSession {
   async drain(): Promise<boolean> {
     this.#state = 'draining';
 
-    await this.flush();
-    await this.#snapshotNow();
+    try {
+      await this.flush();
+      await this.#snapshotNow();
+    } catch (cause) {
+      // Not unloaded, and not left draining either: the sweep passes over a draining document, so
+      // one failed attempt would otherwise pin it in memory for good. Active and idle, the next
+      // sweep tries again, and the requeued updates retry on their own clock meanwhile.
+      this.#state = 'active';
+      throw cause;
+    }
 
     if (this.#sockets.size > 0) {
       this.#state = 'active';
@@ -1208,6 +1273,13 @@ function forkWith(resident: Y.Doc, update: Uint8Array): Y.Doc {
     throw cause;
   }
   return fork;
+}
+
+/** The longest a failing flush waits before trying again. */
+const MAX_RETRY_DELAY_MS = 30_000;
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 interface PrincipalRun {
