@@ -368,6 +368,9 @@ export function createDocumentRegistry(deps: {
         // lock whoever owns the document - and it is the last chance these updates get.
         await session.flush().catch(() => undefined);
         session.closeSockets(CLOSE_CODES.ownedElsewhere, 'This server lost its ownership session.');
+        // Out of the registry, so nothing would ever evict it. What its last flush could not write
+        // is on its clients, which re-send it to whichever instance owns the document now.
+        session.invalidate();
       }
       publishGauges();
     },
@@ -395,8 +398,17 @@ export function createDocumentRegistry(deps: {
         sessionGenerations.delete(itemId);
         removeResident(itemId);
         session.closeSockets(CLOSE_CODES.revoked, 'This template draft is being saved.');
-        await session.drain();
-        await deps.locks.release(session.docRow.doc_id);
+        try {
+          await session.drain();
+        } finally {
+          // Out of the registry already, so nothing else would ever unload it. A drain that failed,
+          // or that a socket still closing kept from unloading, would otherwise leave it retrying
+          // and holding memory for the life of the process. The save sees the failure and refuses.
+          if (session.state !== 'unloaded') {
+            session.invalidate();
+          }
+          await deps.locks.release(session.docRow.doc_id);
+        }
       }
       publishGauges();
     },

@@ -591,6 +591,56 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     }
   });
 
+  it('lets go of a sealed document whose final flush failed, instead of retrying it forever', async () => {
+    // Sealing removes the document from the registry before draining it. A drain that failed used
+    // to leave the session alive anyway - its retry timer re-arming against the database for the
+    // life of the process, its memory and its mirror counted nowhere, its lock never released.
+    const pool = collabPool();
+    const outage = { on: false };
+    let attempts = 0;
+    const flaky = new Proxy(pool, {
+      get(target, property) {
+        if (property === 'connect' && outage.on) {
+          return () => {
+            attempts += 1;
+            return Promise.reject(new Error('The database is unavailable.'));
+          };
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      },
+    });
+    const locks = await connectDocumentLocks({
+      databaseUrl: TEST_DATABASE_URL,
+      onSessionLost: () => undefined,
+    });
+    const registry = createDocumentRegistry({
+      pool: flaky,
+      locks,
+      config: { ...FAST, flushMs: 20, idleEvictMs: 3_600_000 },
+    });
+    try {
+      const socket = fakeSocketSession(TENANTS.alpha);
+      expect(await registry.join(socket)).toMatchObject({ ok: true });
+      outage.on = true;
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Pending when the save began.');
+      registry.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(edit)));
+
+      await expect(registry.sealItems([TENANTS.alpha.itemId])).rejects.toThrow();
+      expect(registry.size).toBe(0);
+
+      attempts = 0;
+      await new Promise((settle) => setTimeout(settle, 300));
+      expect(attempts).toBe(0);
+    } finally {
+      outage.on = false;
+      await registry.shutdown();
+      await locks.close();
+      await pool.end();
+    }
+  });
+
   it('refuses the whole load, loudly, when the server is at document capacity', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha, { maxDocs: 0 }));
 

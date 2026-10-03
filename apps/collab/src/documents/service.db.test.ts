@@ -4,7 +4,7 @@ import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { findDocByItem, updatesAfter } from '../db/documents.ts';
+import { appendUpdates, findDocByItem, updatesAfter } from '../db/documents.ts';
 import {
   DB_TESTS_ENABLED,
   TENANTS,
@@ -292,6 +292,37 @@ describe.skipIf(!DB_TESTS_ENABLED)('the collaboration service, against Postgres'
     const text = reloaded.getXmlFragment(FRAGMENT_NAME).toString();
     expect(text).toContain('this request');
     expect(text).toContain('committed in between');
+  });
+
+  it('appends a run longer than one statement can carry', async () => {
+    // Three parameters a row, and Postgres takes at most 65,535 in a statement: one INSERT tops
+    // out near 21,800 updates. A flush requeued through a long outage reaches that with one person
+    // typing, and every retry after recovery would fail on the protocol limit rather than the
+    // database - the batch could never be written.
+    const alpha = await open(TENANTS.alpha);
+    const count = 22_000;
+    const updates = Array.from({ length: count }, () => ({
+      bytes: updateTyping('x'),
+      clientId: 'long-run',
+    }));
+
+    const appended = await withTenantScope(pool, scopeOf(TENANTS.alpha), (sql) =>
+      appendUpdates(sql, {
+        tenantId: TENANTS.alpha.tenantId,
+        docId: alpha.doc_id,
+        updates,
+        actorId: TENANTS.alpha.principalId,
+      }),
+    );
+
+    expect(appended).toEqual({ firstSeq: 1n, lastSeq: BigInt(count) });
+    const rows = await withTenantScope(pool, scopeOf(TENANTS.alpha), (sql) =>
+      sql.query<{ count: string; max: string }>(
+        'SELECT count(*)::text AS count, max(seq)::text AS max FROM content_update WHERE doc_id = $1',
+        [alpha.doc_id],
+      ),
+    );
+    expect(rows.rows[0]).toEqual({ count: String(count), max: String(count) });
   });
 
   it('refuses an update that is not a Yjs payload at all', async () => {
