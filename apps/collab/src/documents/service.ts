@@ -201,6 +201,20 @@ export async function applyUpdate(
     clientId: input.clientId,
   });
 
+  // The log was read before the row lock that allocated `seq`. A writer that committed between
+  // the two took a lower sequence this state never saw, and the snapshot below is labelled `seq`:
+  // without those updates it would make every later load start past them. The lock is held now,
+  // so everything below `seq` is committed and visible; re-applying what the load already had is
+  // a no-op.
+  await applyLoggedBetween(
+    sql,
+    input.tenantId,
+    input.doc.doc_id,
+    state,
+    BigInt(input.doc.head_seq),
+    seq,
+  );
+
   const snapshotWritten = await maybeSnapshot(sql, {
     tenantId: input.tenantId,
     docId: input.doc.doc_id,
@@ -212,6 +226,36 @@ export async function applyUpdate(
   });
 
   return { ok: true, value: { seq, snapshotWritten } };
+}
+
+/** Applies the logged updates with `after < seq < before` to `state`, page by page. */
+async function applyLoggedBetween(
+  sql: ScopedQuery,
+  tenantId: string,
+  docId: string,
+  state: Y.Doc,
+  after: bigint,
+  before: bigint,
+): Promise<void> {
+  let from = after;
+  while (from < before - 1n) {
+    const page = (await updatesAfter(sql, tenantId, docId, from, CATCH_UP_LIMIT)).filter(
+      (row) => BigInt(row.seq) < before,
+    );
+    if (page.length === 0) {
+      return;
+    }
+    Y.transact(state, () => {
+      for (const row of page) {
+        Y.applyUpdate(state, new Uint8Array(row.update_bytes));
+      }
+    });
+    const last = page[page.length - 1];
+    if (last === undefined) {
+      return;
+    }
+    from = BigInt(last.seq);
+  }
 }
 
 /**
