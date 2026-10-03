@@ -263,6 +263,17 @@ export class DocumentSession {
       if (this.#encodedBase + this.#bytesSinceEncode < from) {
         return undefined;
       }
+      // Reserved before it is built: a mirror is a second copy of the document, and building it
+      // first would let it exist uncounted - or be refused only after it had been paid for. Near
+      // capacity, judging against a throwaway copy is the slower answer that fits.
+      if (
+        this.#context.resizeResident?.(
+          this,
+          this.estimatedBytes + this.#encodedBase + this.#bytesSinceEncode,
+        ) === false
+      ) {
+        return undefined;
+      }
       this.#mirror = new CandidateMirror(this.#doc);
     }
     return this.#mirror;
@@ -323,7 +334,11 @@ export class DocumentSession {
           const update = decoding.readVarUint8Array(frame.decoder);
           // Presence is relayed to every socket here, so its size and its rate are everyone's
           // cost. Over either, the message is dropped: the next one carries the full state anyway.
-          if (update.byteLength > LIMITS.awarenessBytes || !this.#spendAwareness(socket)) {
+          if (
+            update.byteLength > LIMITS.awarenessBytes ||
+            !this.#spendAwareness(socket) ||
+            !this.#mayClaimPresence(socket, update)
+          ) {
             return;
           }
           awarenessProtocol.applyAwarenessUpdate(this.#awareness, update, socket);
@@ -554,10 +569,50 @@ export class DocumentSession {
         );
         this.detach(socket);
         socket.socket.close(CLOSE_CODES.tooSlow, 'Too far behind. Reconnect to catch up.');
+        // Terminated as well: a close frame queues behind everything the reader is not reading,
+        // and the backlog this exists to free would be held until ws's own close timeout.
+        socket.socket.terminate();
       }
       return;
     }
     socket.socket.send(data);
+  }
+
+  /**
+   * Whether every presence identity in `update` is this socket's to set: one it already holds, or a
+   * new one within its allowance. An identity another socket holds is refused, so no client can
+   * move or erase somebody else's cursor.
+   */
+  #mayClaimPresence(socket: SocketSession, update: Uint8Array): boolean {
+    const owned = this.#clientIdsBySocket.get(socket);
+    if (owned === undefined) {
+      return false;
+    }
+    try {
+      const decoder = decoding.createDecoder(update);
+      const entries = decoding.readVarUint(decoder);
+      let claimed = owned.size;
+      for (let index = 0; index < entries; index += 1) {
+        const clientId = decoding.readVarUint(decoder);
+        decoding.readVarUint(decoder);
+        decoding.readVarString(decoder);
+        if (owned.has(clientId)) {
+          continue;
+        }
+        for (const [other, ids] of this.#clientIdsBySocket) {
+          if (other !== socket && ids.has(clientId)) {
+            return false;
+          }
+        }
+        claimed += 1;
+        if (claimed > LIMITS.awarenessClientsPerSocket) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   #spendAwareness(socket: SocketSession): boolean {
@@ -1006,6 +1061,13 @@ export class DocumentSession {
 
     if (this.#sockets.size === 0) {
       this.#idleSince = this.now();
+      // Only socket updates are judged against the mirror. A document nobody is editing would
+      // otherwise hold twice its memory until eviction; the next editor rebuilds it on first use.
+      if (this.#mirror !== null) {
+        this.#mirror.destroy();
+        this.#mirror = null;
+        this.#context.resizeResident?.(this, this.estimatedBytes);
+      }
       // A snapshot is what publishes a document's link edges and its searchable text, so the
       // moment the last person stops editing is exactly when they are owed. Without this the
       // cadence decides - every two hundred updates or every five minutes - and somebody who
