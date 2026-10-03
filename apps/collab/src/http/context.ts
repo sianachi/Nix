@@ -10,7 +10,9 @@ import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
 import type { TemplateService } from '../templates/service.ts';
 import type { SessionHub } from '../ws/server.ts';
 import type { SessionAuthenticator } from '../ws/session-auth.ts';
-import { bearer, isUuid, problem } from './replies.ts';
+import { requestToken } from './auth.ts';
+import { isUuid } from './params.ts';
+import { problem } from './replies.ts';
 
 export interface ServerDependencies {
   readonly pool: Pool;
@@ -74,6 +76,8 @@ export interface RouteDependencies extends ServerDependencies {
 }
 
 export interface RequestContext {
+  /** The caller's bearer token, for routes that act on Core as the caller. */
+  readonly token: string;
   readonly itemId: string;
   readonly workspaceId: string;
   readonly canWrite: boolean;
@@ -111,9 +115,8 @@ export async function establish(
   reply: FastifyReply,
   deps: ServerDependencies,
 ): Promise<RequestContext | null> {
-  const token = bearer(request.headers.authorization);
+  const token = requestToken(request, reply);
   if (token === null) {
-    problem(reply, 401, 'unauthenticated', 'A bearer token is required.');
     return null;
   }
 
@@ -142,6 +145,7 @@ export async function establish(
   deps.onTenantSeen?.(scope);
 
   return {
+    token,
     itemId,
     workspaceId: authorization.workspaceId,
     canWrite: authorization.canWrite,

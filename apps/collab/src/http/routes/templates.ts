@@ -17,7 +17,9 @@ import {
 } from '../../templates/http-contracts.ts';
 import type { TemplateService } from '../../templates/service.ts';
 import type { RouteDependencies } from '../context.ts';
-import { internalCaller, isUuid, problem, requestToken } from '../replies.ts';
+import { internalCaller, requestToken } from '../auth.ts';
+import { isUuid } from '../params.ts';
+import { problem } from '../replies.ts';
 
 /** Template export, capture, application, drafts, imports and managed-template upkeep. */
 export function registerTemplateRoutes(

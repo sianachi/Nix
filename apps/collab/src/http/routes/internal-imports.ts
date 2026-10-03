@@ -6,7 +6,9 @@ import { CoreImportError } from '../../imports/core.ts';
 import { TemplateImportBodyError } from '../../template-imports/bodies.ts';
 import { CoreTemplateImportError } from '../../template-imports/core.ts';
 import type { RouteDependencies } from '../context.ts';
-import { internalCaller, isUuid, problem, stringHeader } from '../replies.ts';
+import { internalCaller } from '../auth.ts';
+import { isUuid, stringHeader } from '../params.ts';
+import { problem } from '../replies.ts';
 
 /** The worker-facing body writes for staged document and template imports. Internal only. */
 export function registerInternalImportRoutes(app: FastifyInstance, deps: RouteDependencies): void {

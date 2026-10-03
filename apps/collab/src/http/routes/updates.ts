@@ -6,7 +6,7 @@ import { strategyFor } from '../../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, openDocument } from '../../documents/service.ts';
 import { establish, refreshResident, type RouteDependencies } from '../context.ts';
-import { decodeBase64, parseSeq } from '../params.ts';
+import { decodeBase64, parseAfterCursor } from '../params.ts';
 import { problem } from '../replies.ts';
 
 /** The update log over plain HTTP: catch up from a sequence, and append one update. */
@@ -20,7 +20,7 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
     }
 
     const { after } = request.query as { after?: string };
-    const afterSeq = parseSeq(after);
+    const afterSeq = parseAfterCursor(after);
     if (afterSeq === null) {
       return problem(reply, 400, 'invalid_cursor', "'after' must be a non-negative integer.");
     }

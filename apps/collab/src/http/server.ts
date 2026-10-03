@@ -20,10 +20,11 @@ export type { ServerDependencies } from './context.ts';
  * The collaboration service's HTTP surface and the WebSocket endpoint it hosts.
  *
  * This file owns the Fastify instance, the socket attachment and shutdown; each route group
- * lives under `routes/`. **Every route is authorized by Core.** Nothing here decides who may
- * read or write a document; it forwards the caller's token and believes the answer. That
- * keeps one authorization code path in the system, which is the property that stops two
- * services drifting into disagreeing about the same permission.
+ * lives under `routes/`. **Every document route is authorized by Core**, through `establish`
+ * in `context.ts`: nothing here decides who may read or write a document; it forwards the
+ * caller's token and believes the answer, which keeps one authorization code path in the
+ * system. `/healthz` and `/metrics` are open. The internal routes are gated by the service
+ * secret (`internalCaller` in `auth.ts`), and those acting for a user also forward their token.
  */
 export function createServer(deps: ServerDependencies): FastifyInstance {
   const app = Fastify({

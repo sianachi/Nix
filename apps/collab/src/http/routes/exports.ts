@@ -11,7 +11,8 @@ import {
   type PreparedExport,
 } from '../../export/prepare.ts';
 import { establish, type RouteDependencies } from '../context.ts';
-import { bearer, internalCaller, problem } from '../replies.ts';
+import { internalCaller } from '../auth.ts';
+import { problem } from '../replies.ts';
 
 export function registerExportRoutes(app: FastifyInstance, deps: RouteDependencies): void {
   /**
@@ -118,12 +119,6 @@ async function establishExport(
     return null;
   }
 
-  const token = bearer(request.headers.authorization);
-  if (token === null) {
-    problem(reply, 401, 'unauthenticated', 'A bearer token is required.');
-    return null;
-  }
-
   // No tenant scope is opened here. The tree is walked against Core, as the caller, and the scope
   // is opened by the bundle stream itself and held for as long as it is being read - so a refused
   // export never reaches the database, and no transaction is held open across a Core round trip.
@@ -131,7 +126,7 @@ async function establishExport(
     core: deps.core,
     pool: deps.pool,
     tenant: context.scope,
-    token,
+    token: context.token,
     itemId: context.itemId,
     scope,
     includeDeleted: false,

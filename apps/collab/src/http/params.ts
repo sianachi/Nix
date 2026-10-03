@@ -1,4 +1,10 @@
-export function parseSeq(value: string | undefined): bigint | null {
+import type { FastifyRequest } from 'fastify';
+
+/**
+ * The catch-up cursor, `after`: a sequence as a bigint, because it is compared against `head_seq`
+ * directly. Absent means from the start, so it defaults to 0 rather than being optional.
+ */
+export function parseAfterCursor(value: string | undefined): bigint | null {
   if (value === undefined) {
     return 0n;
   }
@@ -73,4 +79,15 @@ export function decodeBase64(value: string): Uint8Array | null {
   }
 
   return new Uint8Array(Buffer.from(value, 'base64'));
+}
+
+export function stringHeader(request: FastifyRequest, name: string): string | null {
+  const value = request.headers[name];
+  return typeof value === 'string' && value.length > 0 && value.length <= 200 ? value : null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isUuid(value: string): boolean {
+  return UUID.test(value);
 }
