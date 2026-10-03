@@ -70,6 +70,13 @@ export interface WebSocketOptions {
   /** How long the client has to send its auth frame. Defaults to ten seconds. */
   readonly authTimeoutMs?: number | undefined;
 
+  /**
+   * The largest frame accepted, before authentication or after. `ws` buffers a whole message
+   * before anything here sees it, and its own default is 100 MiB - a ceiling any unauthenticated
+   * client could make this process allocate. Defaults to 2 MiB.
+   */
+  readonly maxPayloadBytes?: number | undefined;
+
   /** Keepalive ping interval. A socket that misses one is dead, not idle. */
   readonly pingMs?: number | undefined;
 
@@ -96,7 +103,10 @@ export function attachWebSocketServer(
   httpServer: HttpServer,
   options: WebSocketOptions,
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: options.maxPayloadBytes ?? 2 * 1024 * 1024,
+  });
   const authTimeoutMs = options.authTimeoutMs ?? 10_000;
   const pingMs = options.pingMs ?? 30_000;
 

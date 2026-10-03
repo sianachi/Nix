@@ -56,6 +56,9 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
     sessions: deps.sessions,
     hub,
     reauthMs: deps.reauthMs ?? 60_000,
+    // The same headroom the HTTP body limit gives: the update ceiling plus its envelope, so an
+    // oversized update still reaches the refusal that names the limit.
+    maxPayloadBytes: LIMITS.updateBytes * 2,
     metrics: deps.metrics,
   });
 

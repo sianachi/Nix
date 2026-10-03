@@ -149,6 +149,9 @@ export class DocumentSession {
   readonly #awarenessDirty = new Set<number>();
   #awarenessTimer: NodeJS.Timeout | null = null;
 
+  /** Each socket's presence budget for the current second. */
+  readonly #awarenessBudget = new Map<SocketSession, { second: number; count: number }>();
+
   /** Which rate windows each socket has been refused in; three distinct ones is abuse. */
   readonly #abusedWindows = new Map<SocketSession, Set<number>>();
 
@@ -255,7 +258,7 @@ export class DocumentSession {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, this.#doc);
-    socket.socket.send(encoding.toUint8Array(encoder));
+    this.#send(socket, encoding.toUint8Array(encoder));
 
     const states = this.#awareness.getStates();
     if (states.size > 0) {
@@ -265,7 +268,7 @@ export class DocumentSession {
         awarenessEncoder,
         awarenessProtocol.encodeAwarenessUpdate(this.#awareness, [...states.keys()]),
       );
-      socket.socket.send(encoding.toUint8Array(awarenessEncoder));
+      this.#send(socket, encoding.toUint8Array(awarenessEncoder));
     }
   }
 
@@ -282,11 +285,13 @@ export class DocumentSession {
         return;
       case MESSAGE_AWARENESS:
         try {
-          awarenessProtocol.applyAwarenessUpdate(
-            this.#awareness,
-            decoding.readVarUint8Array(frame.decoder),
-            socket,
-          );
+          const update = decoding.readVarUint8Array(frame.decoder);
+          // Presence is relayed to every socket here, so its size and its rate are everyone's
+          // cost. Over either, the message is dropped: the next one carries the full state anyway.
+          if (update.byteLength > LIMITS.awarenessBytes || !this.#spendAwareness(socket)) {
+            return;
+          }
+          awarenessProtocol.applyAwarenessUpdate(this.#awareness, update, socket);
         } catch {
           // A malformed awareness payload costs its sender their cursor, nothing more.
         }
@@ -311,7 +316,7 @@ export class DocumentSession {
     if (barrierId.length === 0 || barrierId.length > 100) return;
     await this.flush();
     if (this.#sockets.has(socket) && socket.socket.readyState === 1) {
-      socket.socket.send(encodePersisted(barrierId));
+      this.#send(socket, encodePersisted(barrierId));
     }
   }
 
@@ -335,7 +340,7 @@ export class DocumentSession {
         this.#refuse(socket, rejection('update_unreadable', 'The state vector does not decode.'));
         return;
       }
-      socket.socket.send(encoding.toUint8Array(encoder));
+      this.#send(socket, encoding.toUint8Array(encoder));
       return;
     }
 
@@ -480,7 +485,7 @@ export class DocumentSession {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(this.#doc, before));
-    socket.socket.send(encoding.toUint8Array(encoder));
+    this.#send(socket, encoding.toUint8Array(encoder));
 
     this.#context.log?.(
       `Repaired an emptied ${this.strategy.kind} document from principal ` +
@@ -490,8 +495,42 @@ export class DocumentSession {
     );
   }
 
+  /**
+   * Sends to one socket, unless it has fallen too far behind to be worth sending to.
+   *
+   * `ws` queues whatever the network has not taken yet, without limit. A tab on a dead link, or a
+   * client that stopped reading, would accumulate every broadcast for as long as its socket stays
+   * open. Past the bound it is closed instead; reconnecting syncs it from the document, so what it
+   * missed is not lost.
+   */
+  #send(socket: SocketSession, data: Uint8Array): void {
+    if (socket.socket.bufferedAmount > LIMITS.socketBufferedBytes) {
+      if (this.#sockets.has(socket)) {
+        this.#context.log?.(
+          `Closing a socket that fell behind (${String(socket.socket.bufferedAmount)} bytes ` +
+            `unsent): principal ${socket.authorization.principalId} on item ${this.itemId}.`,
+        );
+        this.detach(socket);
+        socket.socket.close(CLOSE_CODES.tooSlow, 'Too far behind. Reconnect to catch up.');
+      }
+      return;
+    }
+    socket.socket.send(data);
+  }
+
+  #spendAwareness(socket: SocketSession): boolean {
+    const second = Math.floor(this.now() / 1000);
+    const budget = this.#awarenessBudget.get(socket);
+    if (budget?.second !== second) {
+      this.#awarenessBudget.set(socket, { second, count: 1 });
+      return true;
+    }
+    budget.count += 1;
+    return budget.count <= LIMITS.awarenessPerSecond;
+  }
+
   #refuse(socket: SocketSession, refusal: Rejection): void {
-    socket.socket.send(encodeNotice(refusal));
+    this.#send(socket, encodeNotice(refusal));
   }
 
   /**
@@ -558,7 +597,7 @@ export class DocumentSession {
 
     for (const socket of this.#sockets) {
       if (socket !== origin) {
-        socket.socket.send(message);
+        this.#send(socket, message);
       }
     }
 
@@ -634,7 +673,7 @@ export class DocumentSession {
     this.#awarenessDirty.clear();
 
     for (const socket of this.#sockets) {
-      socket.socket.send(message);
+      this.#send(socket, message);
     }
   }
 
@@ -918,6 +957,7 @@ export class DocumentSession {
     this.#clientIdsBySocket.delete(socket);
     this.#writerIdBySocket.delete(socket);
     this.#abusedWindows.delete(socket);
+    this.#awarenessBudget.delete(socket);
     if (owned !== undefined && owned.size > 0) {
       awarenessProtocol.removeAwarenessStates(this.#awareness, [...owned], null);
     }

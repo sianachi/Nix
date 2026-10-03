@@ -4,6 +4,9 @@ import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { nixSchema } from '@nix/editor-schema';
+import * as decoding from 'lib0/decoding';
+import * as encoding from 'lib0/encoding';
+import * as awarenessProtocol from 'y-protocols/awareness';
 
 import { connectDocumentLocks } from '../db/advisory-lock.ts';
 import {
@@ -15,6 +18,7 @@ import {
   seedTenants,
 } from '../db/testing.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
+import { CLOSE_CODES, MESSAGE_AWARENESS } from '../ws/protocol.ts';
 import { createDocumentRegistry } from './registry.ts';
 import { LIMITS } from './limits.ts';
 import { applyUpdate, openDocument } from './service.ts';
@@ -507,6 +511,86 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     }
   });
 
+  it('closes a socket that has fallen too far behind, and keeps serving the rest', async () => {
+    const pool = collabPool();
+    try {
+      const session = await loadAlpha(pool);
+      const writer = fakeSocketSession(TENANTS.alpha);
+      const stalled = fakeSocketSession(TENANTS.alpha);
+      session.attach(writer);
+      session.attach(stalled);
+      (stalled.socket as unknown as { bufferedAmount: number }).bufferedAmount =
+        LIMITS.socketBufferedBytes + 1;
+
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Broadcast to a reader that stopped reading.');
+      session.handleMessage(writer, updateFrame(Y.encodeStateAsUpdate(edit)));
+
+      expect(stalled.closedWith.map((close) => close.code)).toEqual([CLOSE_CODES.tooSlow]);
+      expect(stalled.sent).toHaveLength(0);
+      expect(session.socketCount).toBe(1);
+
+      session.detach(writer);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('relays presence within its size and rate, and drops the excess', async () => {
+    const pool = collabPool();
+    try {
+      // A clock that never moves: every message below lands in the same one-second budget.
+      const session = await loadAlpha(pool, () => 1_000_000);
+      const sender = fakeSocketSession(TENANTS.alpha);
+      const watcher = fakeSocketSession(TENANTS.alpha);
+      session.attach(sender);
+      session.attach(watcher);
+
+      const local = new awarenessProtocol.Awareness(new Y.Doc());
+      const presence = (state: Record<string, unknown>): Uint8Array => {
+        local.setLocalState(state);
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+        encoding.writeVarUint8Array(
+          encoder,
+          awarenessProtocol.encodeAwarenessUpdate(local, [local.clientID]),
+        );
+        return encoding.toUint8Array(encoder);
+      };
+
+      const isPresence = (frame: Uint8Array): boolean =>
+        decoding.readVarUint(decoding.createDecoder(frame)) === MESSAGE_AWARENESS;
+
+      session.handleMessage(sender, presence({ note: 'x'.repeat(LIMITS.awarenessBytes) }));
+      await new Promise((settle) => setTimeout(settle, 80));
+      expect(watcher.sent.filter(isPresence)).toHaveLength(0);
+
+      for (let index = 1; index <= LIMITS.awarenessPerSecond + 5; index += 1) {
+        session.handleMessage(sender, presence({ cursor: index }));
+      }
+      await new Promise((settle) => setTimeout(settle, 80));
+
+      const seen = new awarenessProtocol.Awareness(new Y.Doc());
+      for (const frame of watcher.sent) {
+        const decoder = decoding.createDecoder(frame);
+        if (decoding.readVarUint(decoder) === MESSAGE_AWARENESS) {
+          awarenessProtocol.applyAwarenessUpdate(seen, decoding.readVarUint8Array(decoder), null);
+        }
+      }
+      // The oversized state never arrived, and the last state relayed is the last one in budget.
+      expect(seen.getStates().get(local.clientID)).toEqual({
+        cursor: LIMITS.awarenessPerSecond,
+      });
+
+      session.detach(sender);
+      session.detach(watcher);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
   it('refuses the whole load, loudly, when the server is at document capacity', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha, { maxDocs: 0 }));
 
@@ -729,3 +813,21 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     expect(await countUpdates(verifyPool, TENANTS.alpha)).toBeGreaterThan(0);
   });
 });
+
+/** Alpha's document, resident in a session of its own: no registry, no sockets, no server. */
+async function loadAlpha(pool: Pool, now?: () => number): Promise<DocumentSession> {
+  const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+  const docRow = await withTenantScope(pool, scope, (sql) =>
+    openDocument(
+      sql,
+      scope.tenantId,
+      TENANTS.alpha.itemId,
+      TENANTS.alpha.workspaceId,
+      () => TENANTS.alpha.docId,
+    ),
+  );
+  if (docRow === null) {
+    throw new Error('The seeded item has no document body.');
+  }
+  return DocumentSession.load(TENANTS.alpha.itemId, docRow, scope, { pool, config: FAST, now });
+}

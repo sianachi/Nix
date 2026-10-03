@@ -30,6 +30,20 @@ export const LIMITS = {
   /** Serialised size of the merged document. */
   documentBytes: 8 * 1024 * 1024,
 
+  /**
+   * Bytes a socket may have queued and unsent before it is closed. A reader that cannot keep up
+   * with the document would otherwise hold every broadcast in this process's memory, outside the
+   * resident-byte account. Twice the snapshot ceiling, so the full state a joiner receives on its
+   * first sync never trips it by itself.
+   */
+  socketBufferedBytes: 32 * 1024 * 1024,
+
+  /** One presence message. A cursor and a name are a few hundred bytes. */
+  awarenessBytes: 64 * 1024,
+
+  /** Presence messages one socket may send per second; the rest are dropped. */
+  awarenessPerSecond: 60,
+
   /** Updates one principal may post to one document per window, and the window. */
   updatesPerWindow: 600,
   windowMs: 60_000,

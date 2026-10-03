@@ -77,6 +77,7 @@ async function listen(options: {
   hub?: SessionHub;
   reauthMs?: number;
   authTimeoutMs?: number;
+  maxPayloadBytes?: number;
   cacheTtlMs?: number;
   draftItems?: {
     authorize(
@@ -108,6 +109,7 @@ async function listen(options: {
     hub: options.hub ?? acceptingHub(),
     reauthMs: options.reauthMs ?? 60_000,
     authTimeoutMs: options.authTimeoutMs,
+    maxPayloadBytes: options.maxPayloadBytes,
   });
 
   await new Promise<void>((resolve) => {
@@ -432,6 +434,17 @@ describe('the websocket handshake', () => {
 
     await until(() => left.length > 0);
     expect(left).toHaveLength(1);
+  });
+
+  it('closes a connection whose frame is over the payload ceiling, before authentication', async () => {
+    const { url } = await listen({ maxPayloadBytes: 1024 });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send('x'.repeat(4096));
+    });
+
+    // 1009 is the protocol's "message too big": `ws` refuses the frame before buffering it whole.
+    expect(await closedWith(socket)).toBe(1009);
   });
 
   it('joins once when a client sends its auth frame twice', async () => {
