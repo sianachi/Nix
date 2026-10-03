@@ -18,7 +18,7 @@ import type { CollabMetrics } from '../metrics.ts';
  * this service holds no role that bypasses it - `migrate-documents.ts` documents that the
  * migrator role is "the one place in the service that reads across tenants", deliberately kept
  * out of the process that also serves traffic. So `startRetentionSweep` is handed the tenants to
- * walk rather than discovering them itself: `apps/collab/src/http/server.ts` reports the scope
+ * walk rather than discovering them itself: `apps/collab/src/http/context.ts` reports the scope
  * of every request it authorizes through `ServerDependencies.onTenantSeen`, and `index.ts` wires
  * that into the `activeScopes` this sweep reads on each tick. A tenant with no request against
  * this process since it started is not swept by it - which is the correct amount of harm for a
