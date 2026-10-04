@@ -74,6 +74,7 @@ import { renderToggleButton, toggleSummaryView } from './toggle-button';
 import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
+import { PendingReferenceNotice } from './pending-reference-notice';
 import { LOCAL_COPY_STALE, StaleCopyNotice } from './stale-copy-notice';
 
 /**
@@ -964,6 +965,7 @@ export function NoteEditor({
             )}
 
             {stale ? <StaleCopyNotice noun="note" /> : null}
+            <PendingReferenceNotice itemId={itemId} editor={editor} />
             {refusal === null ? null : (
               <Text
                 variant="caption"
