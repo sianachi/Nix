@@ -182,9 +182,9 @@ function handleConnection(
   // Re-checked on a wall-clock timer, not on traffic: an idle socket held by a
   // deprovisioned principal is exactly the leak the re-check exists to close.
   const reauthTimer = setInterval(() => {
-    // **This fails closed.** The authorizer answers an unreachable Core, a timeout or any error
-    // status with a refusal, and a refused re-check closes the socket as revoked - a Core outage
-    // disconnects editors rather than letting a socket outlive a permission nobody could confirm.
+    // **This fails closed.** An unreachable Core, a timeout or a Core-side error is answered
+    // `unavailable`, and the socket closes - with the code that says "reconnect", not "revoked" -
+    // rather than outliving a permission nobody could confirm.
     // What reaches this catch is a fault in the re-check itself; it is logged, and the socket is
     // judged again on the next tick. Keeping a socket open through an unconfirmed re-check would
     // be a policy change that needs an ADR, with a staleness bound, not an edit here.
@@ -267,6 +267,8 @@ function handleConnection(
         close(CLOSE_CODES.unauthenticated, 'The token could not be validated.');
       } else if (result.reason === 'locked') {
         close(CLOSE_CODES.bodyLocked, 'This document is locked. Unlock it first.');
+      } else if (result.reason === 'unavailable') {
+        close(CLOSE_CODES.unavailable, 'Access could not be confirmed. Retry shortly.');
       } else {
         close(CLOSE_CODES.notFound, 'No such document.');
       }
@@ -349,6 +351,11 @@ function handleConnection(
     if (!rechecked.ok) {
       if (rechecked.reason === 'locked') {
         close(CLOSE_CODES.bodyLocked, 'This document was locked. Unlock it to keep editing.');
+      } else if (rechecked.reason === 'unavailable') {
+        // Still closed - nothing outlives a permission that could not be confirmed - but not as
+        // revoked. A client told "revoked" discards its cached body and its unsaved drafts; one
+        // told the server is unavailable keeps them and reconnects.
+        close(CLOSE_CODES.unavailable, 'Access could not be confirmed. Reconnect shortly.');
       } else {
         close(CLOSE_CODES.revoked, 'This session is no longer authorized.');
       }

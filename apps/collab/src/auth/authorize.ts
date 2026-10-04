@@ -33,8 +33,16 @@ export interface Authorizer {
    * `'locked'` means the caller may see the item but its body is locked to this session. Core
    * says so only after its read check, to somebody who could ask its lock route the same thing,
    * so passing it on discloses nothing - and lets a client say "unlock it" rather than "missing".
+   *
+   * `'unavailable'` means Core could not answer at all - unreachable, too slow, or failing on its
+   * own side. It is still not a yes: every caller refuses on it. What it changes is the reason
+   * given, because "you may not" makes a client discard what it holds and stop, and a Core outage
+   * is no reason for anyone to lose their unsaved work.
    */
-  authorize(token: string, itemId: string): Promise<ItemAuthorization | 'locked' | null>;
+  authorize(
+    token: string,
+    itemId: string,
+  ): Promise<ItemAuthorization | 'locked' | 'unavailable' | null>;
 }
 
 /**
@@ -61,7 +69,10 @@ export function createAuthorizer(options: {
   const timeoutMs = options.timeoutMs ?? 5_000;
 
   return {
-    async authorize(token: string, itemId: string): Promise<ItemAuthorization | 'locked' | null> {
+    async authorize(
+      token: string,
+      itemId: string,
+    ): Promise<ItemAuthorization | 'locked' | 'unavailable' | null> {
       let response: Response;
       try {
         response = await doFetch(`${options.coreBaseUrl}/internal/authz/items/${itemId}`, {
@@ -75,7 +86,17 @@ export function createAuthorizer(options: {
           signal: AbortSignal.timeout(timeoutMs),
         });
       } catch {
-        return null;
+        return 'unavailable';
+      }
+
+      // An accepted, narrow existence signal: Core answers a missing or foreign item with a cheap
+      // 404 before any further work, so a fault later in its checks can only happen for an item
+      // that exists in the caller's tenant. Read as `unavailable`, a fault under load hints that
+      // much to a same-tenant caller - probabilistically, never on demand, and no more than the
+      // timing of those extra checks already does. The alternative, reporting Core's own failures
+      // as refusals, made clients discard unsaved drafts during every outage.
+      if (response.status >= 500 || response.status === 429) {
+        return 'unavailable';
       }
 
       if (!response.ok) {

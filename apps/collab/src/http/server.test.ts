@@ -226,6 +226,22 @@ describe('the collaboration service HTTP surface', () => {
     expect(response.json()).toMatchObject({ code: 'document_not_found' });
   });
 
+  it('answers 503 with a retry when Core could not be asked, never a refusal', async () => {
+    const app = track(
+      server({ authorizer: { authorize: () => Promise.resolve('unavailable' as const) } }),
+    );
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/documents/${ITEM}/updates`,
+      headers: { authorization: 'Bearer valid' },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+    expect(response.json()).toMatchObject({ code: 'authorization_unavailable' });
+  });
+
   it('refuses a malformed item identifier the same way', async () => {
     const app = track(server({}));
 

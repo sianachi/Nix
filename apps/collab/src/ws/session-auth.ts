@@ -32,7 +32,14 @@ export interface SessionAuthorization extends ItemAuthorization {
  */
 export type SessionResult =
   | { readonly ok: true; readonly value: SessionAuthorization }
-  | { readonly ok: false; readonly reason: 'unauthenticated' | 'refused' | 'locked' };
+  | {
+      readonly ok: false;
+      /**
+       * `unavailable` is a refusal too - nothing is granted on it - but one that says Core could
+       * not be asked, so the client retries rather than concluding its access is gone.
+       */
+      readonly reason: 'unauthenticated' | 'refused' | 'locked' | 'unavailable';
+    };
 
 export interface SessionAuthenticator {
   /** Authenticates the token and authorizes it against the item, through the cache. */
@@ -156,43 +163,54 @@ export function createSessionAuthenticator(options: {
           return { ok: false, reason: 'unauthenticated' };
         }
 
-        let authorization: (ItemAuthorization & { resolvedItemId?: string }) | 'locked' | null;
+        let authorization:
+          (ItemAuthorization & { resolvedItemId?: string }) | 'locked' | 'unavailable' | null;
         if (draft !== null && options.draftItems !== undefined) {
           const answer = await options.draftItems
             .authorize(token, draft.templateId, draft.operationId, draft.sourceId)
-            .catch(() => null);
-          authorization = !answer?.canRead
-            ? null
-            : {
-                tenantId: answer.tenantId,
-                principalId: answer.principalId,
-                workspaceId: answer.workspaceId,
-                canWrite: answer.canWrite,
-                bodyKind: answer.itemType,
-                resolvedItemId: answer.itemId,
-              };
+            .catch(refusalFor);
+          authorization =
+            answer === 'unavailable'
+              ? answer
+              : !answer?.canRead
+                ? null
+                : {
+                    tenantId: answer.tenantId,
+                    principalId: answer.principalId,
+                    workspaceId: answer.workspaceId,
+                    canWrite: answer.canWrite,
+                    bodyKind: answer.itemType,
+                    resolvedItemId: answer.itemId,
+                  };
         } else if (template !== null && options.templateItems !== undefined) {
           const answer = await options.templateItems
             .authorize(token, template.templateId, template.sourceId)
-            .catch(() => null);
-          authorization = !answer?.canRead
-            ? null
-            : {
-                tenantId: answer.tenantId,
-                principalId: answer.principalId,
-                workspaceId: answer.workspaceId,
-                // Active template revisions are immutable. User edits belong to a provisioning draft
-                // and become visible only when Core atomically swaps that draft on Save.
-                canWrite: false,
-                bodyKind: answer.itemType,
-                resolvedItemId: answer.itemId,
-              };
+            .catch(refusalFor);
+          authorization =
+            answer === 'unavailable'
+              ? answer
+              : !answer?.canRead
+                ? null
+                : {
+                    tenantId: answer.tenantId,
+                    principalId: answer.principalId,
+                    workspaceId: answer.workspaceId,
+                    // Active template revisions are immutable. User edits belong to a provisioning draft
+                    // and become visible only when Core atomically swaps that draft on Save.
+                    canWrite: false,
+                    bodyKind: answer.itemType,
+                    resolvedItemId: answer.itemId,
+                  };
         } else {
           authorization = await options.authorizer.authorize(token, itemId);
         }
         if (authorization === 'locked') {
           // Never cached: an unlock must take effect on the next attempt, not after the TTL.
           return { ok: false, reason: 'locked' };
+        }
+        if (authorization === 'unavailable') {
+          // Never cached either: the next attempt should ask Core again, not remember an outage.
+          return { ok: false, reason: 'unavailable' };
         }
         if (
           authorization === null ||
@@ -285,6 +303,16 @@ export function createSessionAuthenticator(options: {
       return cache.size;
     },
   };
+}
+
+/**
+ * How a failed template or draft authorization reads: a refusal Core gave (a status below 500)
+ * stays a refusal; Core failing, or not being reached at all, is `'unavailable'`.
+ */
+function refusalFor(cause: unknown): 'unavailable' | null {
+  const status =
+    typeof cause === 'object' && cause !== null && 'status' in cause ? cause.status : undefined;
+  return typeof status === 'number' && status < 500 && status !== 429 ? null : 'unavailable';
 }
 
 const TEMPLATE_KEY =

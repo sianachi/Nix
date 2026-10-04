@@ -373,6 +373,63 @@ describe('the websocket handshake', () => {
     expect(await closedWith(socket)).toBe(CLOSE_CODES.revoked);
   });
 
+  it('closes as unavailable, not revoked, when Core cannot confirm a live session', async () => {
+    let reachable = true;
+    const { url } = await listen({
+      authorizer: {
+        authorize: () => Promise.resolve(reachable ? GRANTED : 'unavailable'),
+      },
+      reauthMs: 25,
+    });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('valid'));
+    });
+    await nextMessage(socket);
+
+    reachable = false;
+
+    // Still closed: nothing outlives a permission nobody could confirm. But 4403 would tell the
+    // client its access was revoked, and it would discard its cached body and unsaved drafts.
+    expect(await closedWith(socket)).toBe(CLOSE_CODES.unavailable);
+  });
+
+  it('refuses a handshake as unavailable when Core cannot answer it', async () => {
+    const { url } = await listen({
+      authorizer: { authorize: () => Promise.resolve('unavailable') },
+    });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('valid'));
+    });
+
+    expect(await closedWith(socket)).toBe(CLOSE_CODES.unavailable);
+  });
+
+  it('tells a draft refusal from Core failing to answer about the draft', async () => {
+    const draftPath = (url: string) =>
+      new WebSocket(`${url}/templates/${TEMPLATE}/drafts/${OPERATION}/items/${DRAFT_ITEM}/ws`);
+    const failing = (status: number) =>
+      listen({
+        draftItems: {
+          authorize: () => Promise.reject(Object.assign(new Error('Core said no.'), { status })),
+        },
+      });
+
+    for (const [status, code] of [
+      [503, CLOSE_CODES.unavailable],
+      [404, CLOSE_CODES.notFound],
+    ] as const) {
+      const { url } = await failing(status);
+      const socket = draftPath(url);
+      sockets.push(socket);
+      socket.on('open', () => {
+        socket.send(authFrame('valid'));
+      });
+      expect(await closedWith(socket)).toBe(code);
+    }
+  });
+
   it('downgrades a live writer to a reader with a notice, not a disconnect', async () => {
     let canWrite = true;
     const { url } = await listen({
