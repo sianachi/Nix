@@ -67,7 +67,11 @@ let registry: DocumentHub | null = null;
 const locks = await connectDocumentLocks({
   databaseUrl: config.databaseUrl,
   onSessionLost: () => {
-    void registry?.dropAll();
+    registry?.dropAll().catch((cause: unknown) => {
+      logHolder.write(
+        `Could not drop resident documents after losing the lock session: ${String(cause)}`,
+      );
+    });
   },
 });
 
@@ -175,11 +179,19 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     // it holds nothing that needs draining, only a clock that must not fire into a pool
     // that is about to close.
     retention.stop();
-    void app
+    app
       .close()
       .then(() => locks.close())
       .then(() => pool.end())
-      .then(() => process.exit(0));
+      .then(
+        () => process.exit(0),
+        (cause: unknown) => {
+          // Still exit, and say so: a shutdown that fails half-way must not leave a process that
+          // no longer serves anything and never ends.
+          app.log.error({ err: cause }, 'Shutdown did not complete cleanly.');
+          process.exit(1);
+        },
+      );
   });
 }
 

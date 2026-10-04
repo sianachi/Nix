@@ -81,6 +81,19 @@ Init rule kinds: keep, clear, set, input, relativeDate
 
 Section: Blueprint schema
 A blueprint is version 1, a title, a one-paragraph summary, a root node, up to 10 inputs and up to 100 init rules. A node has an id, a title, up to 30 fields, up to 6 views (a node with views is a container), markdown, recurrence, habit settings, values and children. Limits: 40 nodes total, 15 non-sample, depth 4, 80 fields, 20 views, 30 sample entries, 80 planned writes.
+Blueprint JSON uses fields shaped as {"label":"Status","type":"select","options":["Open","Done"]}; label and type are required. Do not use name for a field. Put sample or initial field values on a node under values, keyed by field key, for example {"values":{"status":"Open"}}; do not use properties or entries for blueprint node values. A view is shaped as {"kind":"board","groupBy":"status"}; kind-specific settings must match the view kind. list accepts no groupBy (use board for grouping).
+Valid view settings by kind:
+- list: no kind-specific settings
+- board: groupBy
+- calendar: date
+- timeline: date, endDate
+- gallery: cover
+- sheet: no kind-specific settings
+- form: no kind-specific settings
+- interactive_form: no kind-specific settings
+- query: no kind-specific settings
+- chart: groupBy, measureField
+- habit_tracker: no kind-specific settings
 
 Section: Patterns
 Efficiency patterns

@@ -64,6 +64,10 @@ export const CLOSE_CODES = {
   rateKilled: 4429,
   /** The server is draining: flushing, snapshotting, shutting down. Reconnect. */
   draining: 1012,
+  /** Something failed on the server's side while serving the handshake. Reconnect later. */
+  unavailable: 1011,
+  /** The client fell too far behind the document's traffic. Reconnect, and sync catches up. */
+  tooSlow: 1013,
 } as const;
 
 /** What the client's first frame must say. */

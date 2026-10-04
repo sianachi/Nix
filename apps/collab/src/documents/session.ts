@@ -8,8 +8,8 @@ import * as encoding from 'lib0/encoding';
 import type { Pool } from 'pg';
 import * as Y from 'yjs';
 
-import { appendUpdates, type ContentDocRow } from '../db/documents.ts';
-import { withTenantScope } from '../db/tenant-scope.ts';
+import { appendUpdates, updatesAfter, type ContentDocRow } from '../db/documents.ts';
+import { withTenantScope, type ScopedQuery } from '../db/tenant-scope.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import {
   MESSAGE_AWARENESS,
@@ -21,9 +21,9 @@ import {
   readBinaryFrame,
 } from '../ws/protocol.ts';
 import type { SocketSession } from '../ws/server.ts';
-import { noteStrategy, type BodyKindStrategy } from './body-kinds.ts';
+import { noteStrategy, type BodyKindStrategy, type Measurement } from './body-kinds.ts';
 import { LIMITS, rejection, type RateWindow, type Rejection } from './limits.ts';
-import { loadDocument, writeSnapshotNow } from './service.ts';
+import { CATCH_UP_LIMIT, loadDocument, writeSnapshotNow } from './service.ts';
 
 /** The thresholds a resident document lives by. All of them configuration, none of them lore. */
 export interface SessionConfig {
@@ -38,7 +38,17 @@ export interface SessionConfig {
 
   /** How long an active document may go without a snapshot, whatever the update count. */
   readonly snapshotIntervalMs: number;
+
+  /**
+   * The encoded size from which a document keeps a standing mirror to judge updates against,
+   * instead of copying itself for every one. Below it the copy is cheaper than the memory.
+   * Defaults to {@link MIRROR_FROM_BYTES}.
+   */
+  readonly mirrorFromBytes?: number | undefined;
 }
+
+/** Where a standing mirror starts paying for itself: about a thousand paragraphs of prose. */
+export const MIRROR_FROM_BYTES = 64 * 1024;
 
 export interface SessionContext {
   readonly pool: Pool;
@@ -66,12 +76,19 @@ export interface SessionContext {
    * Growth may be refused before the Yjs document is mutated; shrinkage is always accepted.
    */
   readonly resizeResident?:
-    ((session: DocumentSession, nextEstimatedBytes: number) => boolean) | undefined;
+    | ((session: DocumentSession, nextEstimatedBytes: number, force?: boolean) => boolean)
+    | undefined;
 
   readonly now?: (() => number) | undefined;
 }
 
 type LifecycleState = 'active' | 'draining' | 'unloaded';
+
+/**
+ * The origin of updates read back from the log rather than received from a socket: broadcast to
+ * every editor, never queued for persistence, because they are already persisted.
+ */
+const LOG_ORIGIN = Symbol('log');
 
 interface PendingUpdate {
   readonly bytes: Uint8Array;
@@ -96,6 +113,9 @@ export class DocumentSession {
   readonly itemId: string;
   readonly docRow: ContentDocRow;
   readonly tenantId: string;
+
+  /** The principal the document was loaded as, for log reads no writer is behind. */
+  readonly #loadedBy: string;
 
   /** How this body is validated and materialised - the item's `type`, resolved once at load. */
   readonly strategy: BodyKindStrategy;
@@ -122,6 +142,9 @@ export class DocumentSession {
 
   #idleSince: number | null = null;
 
+  /** How long the next retry waits after a failed append. Zero while appends are succeeding. */
+  #retryDelayMs = 0;
+
   /**
    * A snapshot the cadence did not ask for but the last reader leaving did.
    *
@@ -136,23 +159,30 @@ export class DocumentSession {
   readonly #awarenessDirty = new Set<number>();
   #awarenessTimer: NodeJS.Timeout | null = null;
 
+  /** Each socket's presence budget for the current second. */
+  readonly #awarenessBudget = new Map<SocketSession, { second: number; count: number }>();
+
   /** Which rate windows each socket has been refused in; three distinct ones is abuse. */
   readonly #abusedWindows = new Map<SocketSession, Set<number>>();
 
   #encodedBase: number;
   #bytesSinceEncode = 0;
 
+  /** Created once the document is big enough for copying it per update to hurt. */
+  #mirror: CandidateMirror | null = null;
+
   private constructor(
     itemId: string,
     docRow: ContentDocRow,
-    tenantId: string,
+    scope: { tenantId: string; principalId: string },
     doc: Y.Doc,
     context: SessionContext,
     strategy: BodyKindStrategy,
   ) {
     this.itemId = itemId;
     this.docRow = docRow;
-    this.tenantId = tenantId;
+    this.tenantId = scope.tenantId;
+    this.#loadedBy = scope.principalId;
     this.strategy = strategy;
     this.#doc = doc;
     this.#context = context;
@@ -189,7 +219,7 @@ export class DocumentSession {
       loadDocument(sql, scope.tenantId, docRow),
     );
 
-    return new DocumentSession(itemId, docRow, scope.tenantId, doc, context, strategy);
+    return new DocumentSession(itemId, docRow, scope, doc, context, strategy);
   }
 
   get state(): LifecycleState {
@@ -213,7 +243,40 @@ export class DocumentSession {
    * safe direction for a capacity decision.
    */
   get estimatedBytes(): number {
-    return this.#encodedBase + this.#bytesSinceEncode + this.#pendingBytes + this.#flushingBytes;
+    return (
+      this.#encodedBase +
+      this.#bytesSinceEncode +
+      this.#mirrorBytes() +
+      this.#pendingBytes +
+      this.#flushingBytes
+    );
+  }
+
+  /** The mirror is a second copy of the document, and is counted as one. */
+  #mirrorBytes(): number {
+    return this.#mirror === null ? 0 : this.#encodedBase + this.#bytesSinceEncode;
+  }
+
+  #scratch(): CandidateMirror | undefined {
+    if (this.#mirror === null) {
+      const from = this.#context.config.mirrorFromBytes ?? MIRROR_FROM_BYTES;
+      if (this.#encodedBase + this.#bytesSinceEncode < from) {
+        return undefined;
+      }
+      // Reserved before it is built: a mirror is a second copy of the document, and building it
+      // first would let it exist uncounted - or be refused only after it had been paid for. Near
+      // capacity, judging against a throwaway copy is the slower answer that fits.
+      if (
+        this.#context.resizeResident?.(
+          this,
+          this.estimatedBytes + this.#encodedBase + this.#bytesSinceEncode,
+        ) === false
+      ) {
+        return undefined;
+      }
+      this.#mirror = new CandidateMirror(this.#doc);
+    }
+    return this.#mirror;
   }
 
   /**
@@ -241,7 +304,7 @@ export class DocumentSession {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeSyncStep1(encoder, this.#doc);
-    socket.socket.send(encoding.toUint8Array(encoder));
+    this.#send(socket, encoding.toUint8Array(encoder));
 
     const states = this.#awareness.getStates();
     if (states.size > 0) {
@@ -251,7 +314,7 @@ export class DocumentSession {
         awarenessEncoder,
         awarenessProtocol.encodeAwarenessUpdate(this.#awareness, [...states.keys()]),
       );
-      socket.socket.send(encoding.toUint8Array(awarenessEncoder));
+      this.#send(socket, encoding.toUint8Array(awarenessEncoder));
     }
   }
 
@@ -268,17 +331,25 @@ export class DocumentSession {
         return;
       case MESSAGE_AWARENESS:
         try {
-          awarenessProtocol.applyAwarenessUpdate(
-            this.#awareness,
-            decoding.readVarUint8Array(frame.decoder),
-            socket,
-          );
+          const update = decoding.readVarUint8Array(frame.decoder);
+          // Presence is relayed to every socket here, so its size and its rate are everyone's
+          // cost. Over either, the message is dropped: the next one carries the full state anyway.
+          if (
+            update.byteLength > LIMITS.awarenessBytes ||
+            !this.#spendAwareness(socket) ||
+            !this.#mayClaimPresence(socket, update)
+          ) {
+            return;
+          }
+          awarenessProtocol.applyAwarenessUpdate(this.#awareness, update, socket);
         } catch {
           // A malformed awareness payload costs its sender their cursor, nothing more.
         }
         return;
       case MESSAGE_PERSISTED:
-        void this.#persistBarrier(socket, frame.decoder);
+        // A failed flush is logged by `flush` and leaves the barrier unanswered, which is the
+        // honest reply: the client keeps its edits and asks again.
+        this.#persistBarrier(socket, frame.decoder).catch(() => undefined);
         return;
       default:
         return;
@@ -295,7 +366,7 @@ export class DocumentSession {
     if (barrierId.length === 0 || barrierId.length > 100) return;
     await this.flush();
     if (this.#sockets.has(socket) && socket.socket.readyState === 1) {
-      socket.socket.send(encodePersisted(barrierId));
+      this.#send(socket, encodePersisted(barrierId));
     }
   }
 
@@ -319,7 +390,7 @@ export class DocumentSession {
         this.#refuse(socket, rejection('update_unreadable', 'The state vector does not decode.'));
         return;
       }
-      socket.socket.send(encoding.toUint8Array(encoder));
+      this.#send(socket, encoding.toUint8Array(encoder));
       return;
     }
 
@@ -367,9 +438,11 @@ export class DocumentSession {
       return;
     }
 
+    const scratch = this.#scratch();
     const verdict = judgeCandidate(this.#doc, update, {
       strategy: this.strategy,
       pin: this.docRow.schema_version,
+      scratch,
       diagnose: (reason) => {
         this.#context.log?.(
           `A ${this.strategy.kind} update from principal ` +
@@ -400,7 +473,8 @@ export class DocumentSession {
     // An accepted update lives twice until it is flushed: once in Yjs's resident history and
     // once in the pending persistence queue. This is the same deliberately conservative estimate
     // exposed by `estimatedBytes`, projected before mutating the document.
-    const projectedBytes = this.estimatedBytes + verdict.persistedUpdateBytes * 2;
+    const copies = this.#mirror === null ? 2 : 3;
+    const projectedBytes = this.estimatedBytes + verdict.persistedUpdateBytes * copies;
     if (this.#context.resizeResident?.(this, projectedBytes) === false) {
       this.#context.log?.(
         `Refused an update from principal ${socket.authorization.principalId} on item ` +
@@ -422,6 +496,10 @@ export class DocumentSession {
         this.#applyWithRepair(socket, update);
       } else {
         Y.applyUpdate(this.#doc, update, socket);
+        // The mirror took this same update to judge it, so the two are equal again. A repair, a
+        // refusal or anything else that returns before here leaves it out of step, and it is
+        // rebuilt on the next candidate.
+        scratch?.settle();
       }
     } catch (cause) {
       // A judged Yjs update is deterministic, so this is a bug path. Restore the byte account
@@ -464,7 +542,7 @@ export class DocumentSession {
     const encoder = encoding.createEncoder();
     encoding.writeVarUint(encoder, MESSAGE_SYNC);
     syncProtocol.writeUpdate(encoder, Y.encodeStateAsUpdate(this.#doc, before));
-    socket.socket.send(encoding.toUint8Array(encoder));
+    this.#send(socket, encoding.toUint8Array(encoder));
 
     this.#context.log?.(
       `Repaired an emptied ${this.strategy.kind} document from principal ` +
@@ -474,8 +552,82 @@ export class DocumentSession {
     );
   }
 
+  /**
+   * Sends to one socket, unless it has fallen too far behind to be worth sending to.
+   *
+   * `ws` queues whatever the network has not taken yet, without limit. A tab on a dead link, or a
+   * client that stopped reading, would accumulate every broadcast for as long as its socket stays
+   * open. Past the bound it is closed instead; reconnecting syncs it from the document, so what it
+   * missed is not lost.
+   */
+  #send(socket: SocketSession, data: Uint8Array): void {
+    if (socket.socket.bufferedAmount > LIMITS.socketBufferedBytes) {
+      if (this.#sockets.has(socket)) {
+        this.#context.log?.(
+          `Closing a socket that fell behind (${String(socket.socket.bufferedAmount)} bytes ` +
+            `unsent): principal ${socket.authorization.principalId} on item ${this.itemId}.`,
+        );
+        this.detach(socket);
+        socket.socket.close(CLOSE_CODES.tooSlow, 'Too far behind. Reconnect to catch up.');
+        // Terminated as well: a close frame queues behind everything the reader is not reading,
+        // and the backlog this exists to free would be held until ws's own close timeout.
+        socket.socket.terminate();
+      }
+      return;
+    }
+    socket.socket.send(data);
+  }
+
+  /**
+   * Whether every presence identity in `update` is this socket's to set: one it already holds, or a
+   * new one within its allowance. An identity another socket holds is refused, so no client can
+   * move or erase somebody else's cursor.
+   */
+  #mayClaimPresence(socket: SocketSession, update: Uint8Array): boolean {
+    const owned = this.#clientIdsBySocket.get(socket);
+    if (owned === undefined) {
+      return false;
+    }
+    try {
+      const decoder = decoding.createDecoder(update);
+      const entries = decoding.readVarUint(decoder);
+      let claimed = owned.size;
+      for (let index = 0; index < entries; index += 1) {
+        const clientId = decoding.readVarUint(decoder);
+        decoding.readVarUint(decoder);
+        decoding.readVarString(decoder);
+        if (owned.has(clientId)) {
+          continue;
+        }
+        for (const [other, ids] of this.#clientIdsBySocket) {
+          if (other !== socket && ids.has(clientId)) {
+            return false;
+          }
+        }
+        claimed += 1;
+        if (claimed > LIMITS.awarenessClientsPerSocket) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  #spendAwareness(socket: SocketSession): boolean {
+    const second = Math.floor(this.now() / 1000);
+    const budget = this.#awarenessBudget.get(socket);
+    if (budget?.second !== second) {
+      this.#awarenessBudget.set(socket, { second, count: 1 });
+      return true;
+    }
+    budget.count += 1;
+    return budget.count <= LIMITS.awarenessPerSecond;
+  }
+
   #refuse(socket: SocketSession, refusal: Rejection): void {
-    socket.socket.send(encodeNotice(refusal));
+    this.#send(socket, encodeNotice(refusal));
   }
 
   /**
@@ -542,7 +694,7 @@ export class DocumentSession {
 
     for (const socket of this.#sockets) {
       if (socket !== origin) {
-        socket.socket.send(message);
+        this.#send(socket, message);
       }
     }
 
@@ -558,7 +710,10 @@ export class DocumentSession {
     this.#pendingBytes += update.byteLength;
     this.#lastWriter = { principalId: origin.authorization.principalId, token: origin.token };
 
-    if (this.#pendingBytes >= this.#context.config.flushBytes) {
+    if (this.#retryDelayMs > 0) {
+      // The log is refusing appends. Typing must not turn the backoff into a flush per keystroke.
+      this.scheduleFlush(this.#retryDelayMs);
+    } else if (this.#pendingBytes >= this.#context.config.flushBytes) {
       this.scheduleFlush(0);
     } else {
       this.scheduleFlush(this.#context.config.flushMs);
@@ -615,7 +770,7 @@ export class DocumentSession {
     this.#awarenessDirty.clear();
 
     for (const socket of this.#sockets) {
-      socket.socket.send(message);
+      this.#send(socket, message);
     }
   }
 
@@ -629,12 +784,12 @@ export class DocumentSession {
         clearTimeout(this.#flushTimer);
         this.#flushTimer = null;
       }
-      void this.flush();
+      this.#flushInBackground();
       return;
     }
     this.#flushTimer ??= setTimeout(() => {
       this.#flushTimer = null;
-      void this.flush();
+      this.#flushInBackground();
     }, inMs);
   }
 
@@ -647,63 +802,191 @@ export class DocumentSession {
    * always a single run, so the batching survives the honesty.
    */
   async flush(): Promise<void> {
+    await this.#exclusive(async () => {
+      try {
+        const queue = this.#pending;
+        if (queue.length === 0) {
+          // An empty queue does not mean nothing is owed. The last reader leaving asks for a
+          // snapshot whatever the cadence says, and by then the queue is almost always already
+          // empty - the 500 ms timer will have drained it seconds before the tab closed. Returning
+          // here unconditionally, as this did, is what would leave a document's links and its
+          // searchable text unpublished until the session was evicted five minutes later.
+          await this.#maybeSnapshot();
+          return;
+        }
+        this.#pending = [];
+        const queueBytes = this.#pendingBytes;
+        this.#pendingBytes = 0;
+        this.#flushingBytes += queueBytes;
+        this.#context.resizeResident?.(this, this.estimatedBytes);
+        if (this.#flushTimer !== null) {
+          clearTimeout(this.#flushTimer);
+          this.#flushTimer = null;
+        }
+
+        const started = this.now();
+
+        let appendedCount = 0;
+        try {
+          for (const run of principalRuns(queue)) {
+            const { lastSeq } = await withTenantScope(
+              this.#context.pool,
+              { tenantId: this.tenantId, principalId: run.principalId },
+              async (sql) => {
+                const appended = await appendUpdates(sql, {
+                  tenantId: this.tenantId,
+                  docId: this.docRow.doc_id,
+                  updates: run.updates,
+                  actorId: run.principalId,
+                });
+                // Sequences between the head this session knew and the first one just allocated
+                // were written by somebody else. They must be in memory before the head moves past
+                // them: a snapshot labelled with the new head and built without them would make
+                // every later load skip them.
+                await this.#applyLogged(sql, this.#headSeq, appended.firstSeq - 1n);
+                return appended;
+              },
+            );
+            this.#headSeq = lastSeq;
+            appendedCount += run.updates.length;
+            this.#context.metrics?.updatesAppendedTotal.inc(run.updates.length);
+          }
+        } catch (cause) {
+          this.#requeue(queue.slice(appendedCount));
+          throw cause;
+        }
+        this.#retryDelayMs = 0;
+
+        await this.#maybeSnapshot();
+
+        this.#context.metrics?.flushSeconds.observe((this.now() - started) / 1000);
+        this.#context.onFlushed?.(this);
+      } finally {
+        // The local queue remains strongly referenced throughout the database append. It leaves
+        // the process-wide byte account only here, not when it moves out of `#pending` above.
+        if (this.#flushingBytes > 0) {
+          this.#flushingBytes = 0;
+          this.#context.resizeResident?.(this, this.estimatedBytes);
+        }
+      }
+    });
+  }
+
+  /**
+   * Puts updates whose append failed back at the front of the queue, in order, and schedules the
+   * retry.
+   *
+   * They are already in the resident document and already broadcast, so dropping them - which is
+   * what leaving them out of the queue did - kept them on every screen and out of the log: a crash
+   * before the next snapshot lost them, and the log stopped describing the document. Runs appended
+   * before the failure are committed and are not requeued.
+   */
+  #requeue(updates: readonly PendingUpdate[]): void {
+    if (updates.length === 0 || this.#state === 'unloaded') {
+      return;
+    }
+    this.#pending = [...updates, ...this.#pending];
+    for (const update of updates) {
+      this.#pendingBytes += update.bytes.byteLength;
+    }
+    this.#context.metrics?.flushFailuresTotal.inc();
+    // Backing off: a database that refused this append is unlikely to accept the same one a
+    // flush window later, and a tight loop of failing transactions makes its recovery harder.
+    this.#retryDelayMs = Math.min(
+      MAX_RETRY_DELAY_MS,
+      Math.max(this.#context.config.flushMs, this.#retryDelayMs * 2),
+    );
+    this.scheduleFlush(this.#retryDelayMs);
+  }
+
+  /**
+   * A flush nobody waits for: a timer's, or the last reader leaving. Its failure is reported here
+   * and recovered by the retry `#requeue` scheduled, never left to reject unhandled - which would
+   * end the process, and every other document resident in it.
+   */
+  #flushInBackground(): void {
+    this.flush().catch((cause: unknown) => {
+      this.#context.log?.(
+        `Could not flush item ${this.itemId} in tenant ${this.tenantId}; retrying in ` +
+          `${String(this.#retryDelayMs)} ms: ${describe(cause)}`,
+      );
+    });
+  }
+
+  /**
+   * Brings the resident document up to the log's head: applies, and broadcasts, every update
+   * another writer appended since this session last touched the log.
+   *
+   * Called after a REST write or a restore lands for a document that is open here, so the people
+   * editing it see the change now rather than after reloading. Serialised with flushes, which
+   * read and advance the same head.
+   */
+  async catchUp(): Promise<void> {
+    if (this.#state === 'unloaded') {
+      return;
+    }
+    await this.#exclusive(async () => {
+      if (this.#state === 'unloaded') {
+        return;
+      }
+      await withTenantScope(
+        this.#context.pool,
+        { tenantId: this.tenantId, principalId: this.#loadedBy },
+        (sql) => this.#applyLogged(sql, this.#headSeq, null),
+      );
+    });
+  }
+
+  /**
+   * Applies the logged updates after `afterSeq`, up to and including `throughSeq` (or the end of
+   * the log when null), and moves the head to the last one applied.
+   *
+   * They are persisted already, so they are applied under {@link LOG_ORIGIN}: every socket
+   * receives them and the pending queue does not. Yjs merges idempotently, so an update the
+   * resident state already holds - one the load replayed past its recorded head - costs nothing.
+   */
+  async #applyLogged(sql: ScopedQuery, afterSeq: bigint, throughSeq: bigint | null): Promise<void> {
+    let from = afterSeq;
+    for (;;) {
+      if (throughSeq !== null && from >= throughSeq) {
+        break;
+      }
+      const page = await updatesAfter(sql, this.tenantId, this.docRow.doc_id, from, CATCH_UP_LIMIT);
+      const wanted =
+        throughSeq === null ? page : page.filter((row) => BigInt(row.seq) <= throughSeq);
+      if (wanted.length > 0) {
+        this.#doc.transact(() => {
+          for (const row of wanted) {
+            Y.applyUpdate(this.#doc, new Uint8Array(row.update_bytes), LOG_ORIGIN);
+          }
+        }, LOG_ORIGIN);
+      }
+      const last = wanted[wanted.length - 1];
+      if (last !== undefined) {
+        from = BigInt(last.seq);
+        if (from > this.#headSeq) {
+          this.#headSeq = from;
+        }
+      }
+      if (wanted.length < CATCH_UP_LIMIT) {
+        break;
+      }
+    }
+    // Already durable, so never refused: the account has to describe what is resident.
+    this.#context.resizeResident?.(this, this.estimatedBytes, true);
+  }
+
+  /** Runs log I/O one piece at a time: flushes and catch-ups read and advance the same head. */
+  async #exclusive(work: () => Promise<void>): Promise<void> {
     const previous = this.#flushing;
     let release: () => void = () => undefined;
     this.#flushing = new Promise((resolve) => {
       release = resolve;
     });
     await previous;
-
     try {
-      const queue = this.#pending;
-      if (queue.length === 0) {
-        // An empty queue does not mean nothing is owed. The last reader leaving asks for a
-        // snapshot whatever the cadence says, and by then the queue is almost always already
-        // empty - the 500 ms timer will have drained it seconds before the tab closed. Returning
-        // here unconditionally, as this did, is what would leave a document's links and its
-        // searchable text unpublished until the session was evicted five minutes later.
-        await this.#maybeSnapshot();
-        return;
-      }
-      this.#pending = [];
-      const queueBytes = this.#pendingBytes;
-      this.#pendingBytes = 0;
-      this.#flushingBytes += queueBytes;
-      this.#context.resizeResident?.(this, this.estimatedBytes);
-      if (this.#flushTimer !== null) {
-        clearTimeout(this.#flushTimer);
-        this.#flushTimer = null;
-      }
-
-      const started = this.now();
-
-      for (const run of principalRuns(queue)) {
-        const { lastSeq } = await withTenantScope(
-          this.#context.pool,
-          { tenantId: this.tenantId, principalId: run.principalId },
-          (sql) =>
-            appendUpdates(sql, {
-              tenantId: this.tenantId,
-              docId: this.docRow.doc_id,
-              updates: run.updates,
-              actorId: run.principalId,
-            }),
-        );
-        this.#headSeq = lastSeq;
-        this.#context.metrics?.updatesAppendedTotal.inc(run.updates.length);
-      }
-
-      await this.#maybeSnapshot();
-
-      this.#context.metrics?.flushSeconds.observe((this.now() - started) / 1000);
-      this.#context.onFlushed?.(this);
+      await work();
     } finally {
-      // The local queue remains strongly referenced throughout the database append. It leaves the
-      // process-wide byte account only here, not when it moves out of `#pending` above.
-      if (this.#flushingBytes > 0) {
-        this.#flushingBytes = 0;
-        this.#context.resizeResident?.(this, this.estimatedBytes);
-      }
       release();
     }
   }
@@ -771,12 +1054,20 @@ export class DocumentSession {
     this.#clientIdsBySocket.delete(socket);
     this.#writerIdBySocket.delete(socket);
     this.#abusedWindows.delete(socket);
+    this.#awarenessBudget.delete(socket);
     if (owned !== undefined && owned.size > 0) {
       awarenessProtocol.removeAwarenessStates(this.#awareness, [...owned], null);
     }
 
     if (this.#sockets.size === 0) {
       this.#idleSince = this.now();
+      // Only socket updates are judged against the mirror. A document nobody is editing would
+      // otherwise hold twice its memory until eviction; the next editor rebuilds it on first use.
+      if (this.#mirror !== null) {
+        this.#mirror.destroy();
+        this.#mirror = null;
+        this.#context.resizeResident?.(this, this.estimatedBytes);
+      }
       // A snapshot is what publishes a document's link edges and its searchable text, so the
       // moment the last person stops editing is exactly when they are owed. Without this the
       // cadence decides - every two hundred updates or every five minutes - and somebody who
@@ -789,7 +1080,7 @@ export class DocumentSession {
       // has almost always already drained the queue, so the snapshot this asks for was never
       // reached. Flush on disconnect is one of the three §17 triggers, and it still is; it now
       // also carries the snapshot request, and `flush` handles an empty queue itself.
-      void this.flush();
+      this.#flushInBackground();
     }
   }
 
@@ -803,8 +1094,16 @@ export class DocumentSession {
   async drain(): Promise<boolean> {
     this.#state = 'draining';
 
-    await this.flush();
-    await this.#snapshotNow();
+    try {
+      await this.flush();
+      await this.#snapshotNow();
+    } catch (cause) {
+      // Not unloaded, and not left draining either: the sweep passes over a draining document, so
+      // one failed attempt would otherwise pin it in memory for good. Active and idle, the next
+      // sweep tries again, and the requeued updates retry on their own clock meanwhile.
+      this.#state = 'active';
+      throw cause;
+    }
 
     if (this.#sockets.size > 0) {
       this.#state = 'active';
@@ -821,6 +1120,8 @@ export class DocumentSession {
       this.#flushTimer = null;
     }
     this.#awareness.destroy();
+    this.#mirror?.destroy();
+    this.#mirror = null;
     this.#doc.destroy();
     return true;
   }
@@ -844,6 +1145,8 @@ export class DocumentSession {
       this.#flushTimer = null;
     }
     this.#awareness.destroy();
+    this.#mirror?.destroy();
+    this.#mirror = null;
     this.#doc.destroy();
   }
 
@@ -870,6 +1173,14 @@ export class DocumentSession {
 export interface CandidateJudgement {
   readonly strategy?: BodyKindStrategy;
   readonly ceilings?: { nodes: number; bytes: number };
+
+  /**
+   * Where the merged document is built for the main measurement. Defaults to a fresh copy of the
+   * resident, thrown away afterwards; a session passes its {@link CandidateMirror} so a large
+   * document is not copied for every keystroke. The rarer paths - repair, diagnosis, the ceiling's
+   * growth check - always use fresh copies.
+   */
+  readonly scratch?: CandidateScratch | undefined;
 
   /** The document's stored `schema_version`. Defaults to what this build speaks. */
   readonly pin?: number;
@@ -925,9 +1236,10 @@ export function judgeCandidate(
   const ceilings = judgement.ceilings ?? strategy.ceilings;
   const pin = judgement.pin ?? SCHEMA_VERSION;
 
+  const scratch = judgement.scratch ?? freshScratch(resident);
   let fork: Y.Doc;
   try {
-    fork = forkWith(resident, update);
+    fork = scratch.fork(update);
   } catch (cause) {
     return {
       ok: false,
@@ -941,7 +1253,7 @@ export function judgeCandidate(
 
   let persistedUpdateBytes = update.byteLength;
   let after = strategy.measure(fork);
-  fork.destroy();
+  scratch.release(fork);
 
   // The floor, before the refusal. A merged document that holds nothing is the one unparseable
   // outcome a client can reach without having written anything wrong - the Yjs undo manager
@@ -1054,7 +1366,7 @@ export function judgeCandidate(
   }
 
   if (after.nodes > ceilings.nodes || after.bytes > ceilings.bytes) {
-    const before = strategy.measure(resident);
+    const before = measureCopy(resident, strategy);
     const grew = before === null || after.nodes > before.nodes || after.bytes > before.bytes;
 
     if (grew) {
@@ -1090,12 +1402,17 @@ export function judgeCandidate(
  * and on exactly the documents where the answer matters most.
  */
 function parsesAlone(resident: Y.Doc, strategy: BodyKindStrategy): boolean {
+  return measureCopy(resident, strategy) !== null;
+}
+
+/** The resident's measurement, taken on a copy for the reason {@link parsesAlone} gives. */
+function measureCopy(resident: Y.Doc, strategy: BodyKindStrategy): Measurement | null {
   const copy = new Y.Doc();
   try {
     Y.applyUpdate(copy, Y.encodeStateAsUpdate(resident));
-    return strategy.measure(copy) !== null;
+    return strategy.measure(copy);
   } catch {
-    return false;
+    return null;
   } finally {
     copy.destroy();
   }
@@ -1118,6 +1435,104 @@ function forkWith(resident: Y.Doc, update: Uint8Array): Y.Doc {
     throw cause;
   }
   return fork;
+}
+
+/** The longest a failing flush waits before trying again. */
+const MAX_RETRY_DELAY_MS = 30_000;
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** Builds the resident-plus-candidate document that a judgement measures. */
+export interface CandidateScratch {
+  /** The resident with `update` applied. Throws when the update does not decode. */
+  fork(update: Uint8Array): Y.Doc;
+
+  /** Done measuring what {@link fork} returned. */
+  release(fork: Y.Doc): void;
+}
+
+function freshScratch(resident: Y.Doc): CandidateScratch {
+  return {
+    fork: (update) => forkWith(resident, update),
+    release: (fork) => {
+      fork.destroy();
+    },
+  };
+}
+
+/** The origin of everything the mirror applies itself, so it can tell when a measure wrote. */
+const MIRROR_ORIGIN = Symbol('mirror');
+
+/**
+ * A standing copy of the resident document, kept equal to it, for judging candidates against.
+ *
+ * Judging needs the resident *plus* the candidate, and Yjs has no undo, so the plain way is to copy
+ * the resident for every update - which on a large document is most of the cost of a keystroke.
+ * The mirror is that copy, made once: a candidate is applied to it and measured there, and when the
+ * resident accepts the same update the two are equal again without copying anything.
+ *
+ * **It is either known equal to the resident, or rebuilt.** {@link fork} takes it out of step; only
+ * {@link settle}, called once the resident has applied exactly that candidate, puts it back. While
+ * in step it follows every other resident update - log catch-up, a repair - by applying them too.
+ * A measurement that wrote to it (prose conversion drops nodes the schema does not know) also
+ * leaves it out of step. Out of step, the next fork rebuilds it from the resident, which is the
+ * cost the mirror exists to avoid, paid only on refusals and repairs.
+ */
+export class CandidateMirror implements CandidateScratch {
+  readonly #resident: Y.Doc;
+  #doc: Y.Doc | null = null;
+  #inStep = false;
+  #written = false;
+  readonly #follow = (update: Uint8Array): void => {
+    if (this.#doc !== null && this.#inStep) {
+      Y.applyUpdate(this.#doc, update, MIRROR_ORIGIN);
+    }
+  };
+
+  constructor(resident: Y.Doc) {
+    this.#resident = resident;
+    resident.on('update', this.#follow);
+  }
+
+  fork(update: Uint8Array): Y.Doc {
+    const doc = this.#doc !== null && this.#inStep ? this.#doc : this.#rebuild();
+    this.#inStep = false;
+    this.#written = false;
+    Y.applyUpdate(doc, update, MIRROR_ORIGIN);
+    return doc;
+  }
+
+  release(): void {
+    // Kept, not destroyed: whether it can be reused is for `settle` to say.
+  }
+
+  /** The resident has applied exactly the candidate last forked; the two are equal again. */
+  settle(): void {
+    this.#inStep = this.#doc !== null && !this.#written;
+  }
+
+  destroy(): void {
+    this.#resident.off('update', this.#follow);
+    this.#doc?.destroy();
+    this.#doc = null;
+    this.#inStep = false;
+  }
+
+  #rebuild(): Y.Doc {
+    this.#doc?.destroy();
+    const doc = new Y.Doc();
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(this.#resident), MIRROR_ORIGIN);
+    doc.on('update', (_update: Uint8Array, origin: unknown) => {
+      if (origin !== MIRROR_ORIGIN) {
+        this.#written = true;
+        this.#inStep = false;
+      }
+    });
+    this.#doc = doc;
+    return doc;
+  }
 }
 
 interface PrincipalRun {

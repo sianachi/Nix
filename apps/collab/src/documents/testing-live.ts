@@ -79,6 +79,9 @@ export const FAST: RegistryConfig = {
   maxDocs: 50,
   maxResidentBytes: 256 * 1024 * 1024,
   sweepMs: 60,
+  // Every test document is mirrored, however small, so the suites exercise the path production
+  // takes for large documents; the fresh-copy path is covered by judging candidates directly.
+  mirrorFromBytes: 0,
 };
 
 export interface LiveHarness {
@@ -347,6 +350,7 @@ export async function until(
 export interface FakeSocketSession extends SocketSession {
   readonly sent: Uint8Array[];
   readonly closedWith: { code: number; reason: string }[];
+  readonly terminated: { value: boolean };
 }
 
 export function fakeSocketSession(
@@ -355,6 +359,7 @@ export function fakeSocketSession(
 ): FakeSocketSession {
   const sent: Uint8Array[] = [];
   const closedWith: { code: number; reason: string }[] = [];
+  const terminated = { value: false };
 
   const socket = {
     send: (data: Uint8Array) => {
@@ -363,6 +368,9 @@ export function fakeSocketSession(
     close: (code: number, reason: string) => {
       closedWith.push({ code, reason });
     },
+    terminate: () => {
+      terminated.value = true;
+    },
     readyState: WebSocket.OPEN,
   } as unknown as WebSocket;
 
@@ -370,6 +378,7 @@ export function fakeSocketSession(
     socket,
     sent,
     closedWith,
+    terminated,
     itemId: tenant.itemId,
     authorizationKey: tenant.itemId,
     clientSchemaVersion: SCHEMA_VERSION,

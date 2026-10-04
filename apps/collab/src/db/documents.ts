@@ -168,6 +168,9 @@ export async function appendUpdate(
   return seq;
 }
 
+/** Rows per INSERT when appending a batch: far below the statement's parameter ceiling. */
+const INSERT_CHUNK = 1_000;
+
 /**
  * Appends a batch of updates in order and advances the document's head once.
  *
@@ -209,23 +212,32 @@ export async function appendUpdates(
   const lastSeq = BigInt(head.head_seq);
   const firstSeq = lastSeq - BigInt(input.updates.length - 1);
 
-  const values: string[] = [];
-  const parameters: unknown[] = [input.docId, input.tenantId, input.actorId];
-  for (const [index, update] of input.updates.entries()) {
-    const seqParam = parameters.push((firstSeq + BigInt(index)).toString());
-    const bytesParam = parameters.push(Buffer.from(update.bytes));
-    const clientParam = parameters.push(update.clientId);
-    values.push(
-      `($1, $${String(seqParam)}, $2, $${String(bytesParam)}, $3, $${String(clientParam)}, now())`,
+  // In chunks, inside the same transaction: three parameters a row against Postgres's 65,535 per
+  // statement caps one INSERT near 21,800 rows, and a flush requeued through a long outage can
+  // carry more than that.
+  for (let start = 0; start < input.updates.length; start += INSERT_CHUNK) {
+    const values: string[] = [];
+    const parameters: unknown[] = [input.docId, input.tenantId, input.actorId];
+    const chunk = input.updates.slice(start, start + INSERT_CHUNK);
+    for (const [offset, update] of chunk.entries()) {
+      const seqParam = parameters.push((firstSeq + BigInt(start + offset)).toString());
+      // A view over the update's own memory rather than a copy of it.
+      const bytesParam = parameters.push(
+        Buffer.from(update.bytes.buffer, update.bytes.byteOffset, update.bytes.byteLength),
+      );
+      const clientParam = parameters.push(update.clientId);
+      values.push(
+        `($1, $${String(seqParam)}, $2, $${String(bytesParam)}, $3, $${String(clientParam)}, now())`,
+      );
+    }
+
+    await sql.query(
+      `INSERT INTO content_update
+           (doc_id, seq, tenant_id, update_bytes, actor_id, client_id, created_at)
+       VALUES ${values.join(', ')}`,
+      parameters,
     );
   }
-
-  await sql.query(
-    `INSERT INTO content_update
-         (doc_id, seq, tenant_id, update_bytes, actor_id, client_id, created_at)
-     VALUES ${values.join(', ')}`,
-    parameters,
-  );
 
   return { firstSeq, lastSeq };
 }

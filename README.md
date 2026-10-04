@@ -219,10 +219,10 @@ Then run everything with one command:
 pnpm dev                         # same as: bash scripts/dev.sh
 ```
 
-`scripts/dev.sh` runs stack-up (below), then starts Core, Collaboration, the Go worker and the web
-dev server in the same terminal. Each line of output is prefixed with its process name and also
-written to `.local/logs/<name>.log`. Ctrl-C stops everything, and if one process exits the others
-are stopped too. Open <http://localhost:5173> once the web server is ready.
+`scripts/dev.sh` runs stack-up (below), rebuilds the workspace packages (`pnpm run prepare`), then
+starts Core, Collaboration, the Go worker and the web dev server in the same terminal. Each line of
+output is prefixed with its process name and also written to `.local/logs/<name>.log`. Ctrl-C stops
+everything, and if one process exits the others are stopped too. Open <http://localhost:5173> once the web server is ready.
 
 ```sh
 bash scripts/dev.sh --skip-stack     # infrastructure is already up; start the four processes

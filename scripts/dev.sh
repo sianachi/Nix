@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Run the whole local dev environment from one terminal.
 #
-# Brings up infrastructure with dev-stack-up.sh, then starts Core, Collaboration,
-# the Go worker and the web dev server side by side. Output from each process is
-# prefixed with its name and also written to .local/logs/<name>.log. Ctrl-C stops
-# everything; if any one process exits, the rest are stopped too so a half-running
-# stack is never left behind.
+# Brings up infrastructure, rebuilds the workspace packages, then starts Core,
+# Collaboration, the Go worker and the web dev server side by side. Output from
+# each process is prefixed with its name and also written to .local/logs/<name>.log.
+# Ctrl-C stops everything; if any one process exits, the rest are stopped too so a
+# half-running stack is never left behind.
 #
 # Usage:
 #   scripts/dev.sh                    # stack-up, then all four processes
@@ -60,6 +60,12 @@ service_color() {
 if [ "$skip_stack" = false ]; then
   bash scripts/dev-stack-up.sh
 fi
+
+# The web app and collab import the workspace packages from their built dist/
+# output, so a stale build after a pull fails at runtime with a missing export.
+case " $services " in
+  *" web "*|*" collab "*) pnpm run prepare ;;
+esac
 
 log_dir="$repo_root/.local/logs"
 mkdir -p "$log_dir"

@@ -280,6 +280,17 @@ export function renderConsult(catalog: Catalog, patterns: string): string {
       `${String(catalog.limits.fieldsPerBlueprint)} fields, ${String(catalog.limits.viewsPerBlueprint)} views, ` +
       `${String(catalog.limits.sampleEntries)} sample entries, ${String(catalog.limits.plannedWritesPerBuild)} planned writes.`,
   );
+  lines.push(
+    'Blueprint JSON uses fields shaped as {"label":"Status","type":"select","options":["Open","Done"]}; label and type are required. Do not use name for a field. Put sample or initial field values on a node under values, keyed by field key, for example {"values":{"status":"Open"}}; do not use properties or entries for blueprint node values. A view is shaped as {"kind":"board","groupBy":"status"}; kind-specific settings must match the view kind. list accepts no groupBy (use board for grouping).',
+  );
+  lines.push('Valid view settings by kind:');
+  for (const kind of catalog.viewKinds) {
+    const settings = [
+      ...(kind.requires === null ? [] : [kind.requires.field]),
+      ...kind.optional.map((field) => field.field),
+    ];
+    lines.push(`- ${kind.kind}: ${settings.length ? settings.join(', ') : 'no kind-specific settings'}`);
+  }
   lines.push('');
 
   lines.push('Section: Patterns');

@@ -107,7 +107,11 @@ export function createDocumentRegistry(deps: {
     accountedBytes.delete(itemId);
   }
 
-  function resizeResident(session: DocumentSession, nextEstimatedBytes: number): boolean {
+  function resizeResident(
+    session: DocumentSession,
+    nextEstimatedBytes: number,
+    force = false,
+  ): boolean {
     const current = accountedBytes.get(session.itemId);
     if (current === undefined) {
       // Loads cannot receive frames before publication. A direct DocumentSession test has no
@@ -116,7 +120,11 @@ export function createDocumentRegistry(deps: {
     }
 
     const nextTotal = residentBytes - current + nextEstimatedBytes;
-    if (nextEstimatedBytes > current && nextTotal + reservedBytes > deps.config.maxResidentBytes) {
+    if (
+      !force &&
+      nextEstimatedBytes > current &&
+      nextTotal + reservedBytes > deps.config.maxResidentBytes
+    ) {
       return false;
     }
 
@@ -134,12 +142,19 @@ export function createDocumentRegistry(deps: {
         continue;
       }
 
-      const unloaded = await session.drain();
-      if (unloaded) {
-        sessions.delete(itemId);
-        sessionGenerations.delete(itemId);
-        removeResident(itemId);
-        await deps.locks.release(session.docRow.doc_id);
+      // One document failing to drain - its flush refused, its lock release lost - must not stop
+      // the sweep from reaching the rest, or end the process from an unwatched timer. It stays
+      // resident and the next sweep tries again.
+      try {
+        const unloaded = await session.drain();
+        if (unloaded) {
+          sessions.delete(itemId);
+          sessionGenerations.delete(itemId);
+          removeResident(itemId);
+          await deps.locks.release(session.docRow.doc_id);
+        }
+      } catch (cause) {
+        deps.log?.(`Could not evict idle item ${itemId}; will retry: ${describe(cause)}`);
       }
     }
     publishGauges();
@@ -320,15 +335,25 @@ export function createDocumentRegistry(deps: {
       publishGauges();
     },
 
+    async refresh(itemId: string): Promise<void> {
+      await sessions.get(itemId)?.catchUp();
+    },
+
     async shutdown(): Promise<void> {
       clearInterval(sweeper);
       for (const [itemId, session] of [...sessions]) {
         session.closeSockets(CLOSE_CODES.draining, 'The server is shutting down.');
-        await session.drain();
+        try {
+          await session.drain();
+        } catch (cause) {
+          // Every other document still deserves its final flush. What this one could not write is
+          // still on its clients, which re-send it to whichever instance they reach next.
+          deps.log?.(`Could not drain item ${itemId} at shutdown: ${describe(cause)}`);
+        }
         sessions.delete(itemId);
         sessionGenerations.delete(itemId);
         removeResident(itemId);
-        await deps.locks.release(session.docRow.doc_id);
+        await deps.locks.release(session.docRow.doc_id).catch(() => undefined);
       }
       publishGauges();
     },
@@ -343,6 +368,9 @@ export function createDocumentRegistry(deps: {
         // lock whoever owns the document - and it is the last chance these updates get.
         await session.flush().catch(() => undefined);
         session.closeSockets(CLOSE_CODES.ownedElsewhere, 'This server lost its ownership session.');
+        // Out of the registry, so nothing would ever evict it. What its last flush could not write
+        // is on its clients, which re-send it to whichever instance owns the document now.
+        session.invalidate();
       }
       publishGauges();
     },
@@ -370,8 +398,17 @@ export function createDocumentRegistry(deps: {
         sessionGenerations.delete(itemId);
         removeResident(itemId);
         session.closeSockets(CLOSE_CODES.revoked, 'This template draft is being saved.');
-        await session.drain();
-        await deps.locks.release(session.docRow.doc_id);
+        try {
+          await session.drain();
+        } finally {
+          // Out of the registry already, so nothing else would ever unload it. A drain that failed,
+          // or that a socket still closing kept from unloading, would otherwise leave it retrying
+          // and holding memory for the life of the process. The save sees the failure and refuses.
+          if (session.state !== 'unloaded') {
+            session.invalidate();
+          }
+          await deps.locks.release(session.docRow.doc_id);
+        }
       }
       publishGauges();
     },
@@ -396,6 +433,10 @@ export function createDocumentRegistry(deps: {
       publishGauges();
     },
   };
+}
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 interface LoadSlot {

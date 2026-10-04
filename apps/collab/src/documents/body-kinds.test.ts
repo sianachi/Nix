@@ -1,7 +1,13 @@
 import * as Y from 'yjs';
 import { describe, expect, it } from 'vitest';
 
-import { canvasStrategy, noteStrategy, sheetStrategy, strategyFor } from './body-kinds.ts';
+import {
+  canvasStrategy,
+  noteStrategy,
+  sheetStrategy,
+  strategyFor,
+  type BodyKindStrategy,
+} from './body-kinds.ts';
 import { judgeCandidate } from './session.ts';
 
 /**
@@ -421,5 +427,37 @@ describe('the structural floor', () => {
     expect(verdict).toMatchObject({ ok: false });
     expect(reasons[0]).toContain('fragment held: nodeThisBuildHasNeverHeardOf');
     resident.destroy();
+  });
+});
+
+describe('judging a candidate', () => {
+  it('never writes to the resident document, the ceiling path included', () => {
+    // Measuring can mutate what it reads: prose conversion drops nodes the schema does not know
+    // from the Yjs document itself. This strategy makes that visible by writing on every measure,
+    // so any measurement taken on the resident instead of a copy shows up in its state vector.
+    const intrusive: BodyKindStrategy = {
+      ...sheetStrategy,
+      measure(state) {
+        state.getMap('measured').set('by', 'measure');
+        return { nodes: state.getMap('cells').size, bytes: 0, schemaVersion: 1 };
+      },
+    };
+    const resident = new Y.Doc();
+    resident.getMap('cells').set('a', 1);
+    const before = Y.encodeStateVector(resident);
+
+    const client = new Y.Doc();
+    Y.applyUpdate(client, Y.encodeStateAsUpdate(resident));
+    const vector = Y.encodeStateVector(client);
+    client.getMap('cells').set('b', 2);
+    const growth = Y.encodeStateAsUpdate(client, vector);
+
+    const verdict = judgeCandidate(resident, growth, {
+      strategy: intrusive,
+      ceilings: { nodes: 1, bytes: Number.MAX_SAFE_INTEGER },
+    });
+
+    expect(verdict).toMatchObject({ ok: false, refusal: { code: 'document_too_many_nodes' } });
+    expect(Y.encodeStateVector(resident)).toEqual(before);
   });
 });

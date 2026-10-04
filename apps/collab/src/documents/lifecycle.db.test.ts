@@ -4,6 +4,9 @@ import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
 
 import { nixSchema } from '@nix/editor-schema';
+import * as decoding from 'lib0/decoding';
+import * as encoding from 'lib0/encoding';
+import * as awarenessProtocol from 'y-protocols/awareness';
 
 import { connectDocumentLocks } from '../db/advisory-lock.ts';
 import {
@@ -15,9 +18,10 @@ import {
   seedTenants,
 } from '../db/testing.ts';
 import { withTenantScope } from '../db/tenant-scope.ts';
+import { CLOSE_CODES, MESSAGE_AWARENESS, MESSAGE_NOTICE } from '../ws/protocol.ts';
 import { createDocumentRegistry } from './registry.ts';
 import { LIMITS } from './limits.ts';
-import { openDocument } from './service.ts';
+import { applyUpdate, openDocument } from './service.ts';
 import { DocumentSession } from './session.ts';
 import {
   FAST,
@@ -170,6 +174,99 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
       [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
     );
     expect(links.rows).toEqual([{ target_item_id: TENANTS.alpha.targetItemId, occurrences: 1 }]);
+  });
+
+  it('shows a REST write to the editors already in the document', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+    typeParagraph(alice.doc, 'Typed in the editor.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1,
+      'the editor flush',
+    );
+
+    const authored = new Y.Doc();
+    typeParagraph(authored, 'Written over REST.');
+    const response = await fetch(
+      `${harness.url.replace('ws://', 'http://')}/documents/${TENANTS.alpha.itemId}/updates`,
+      {
+        method: 'POST',
+        headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          update: Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64'),
+          clientId: 'rest-writer',
+        }),
+      },
+    );
+    expect(response.status).toBe(202);
+
+    await until(
+      () => textOf(alice.doc).includes('Written over REST.'),
+      'the open editor to receive the REST write',
+    );
+  });
+
+  it('keeps a write another process logged while the document was resident', async () => {
+    // The resident session holds the document in memory and snapshots that memory. A write that
+    // reaches the log by any other route - another instance, or a REST request racing a load -
+    // takes a sequence the session never saw. Its next flush moves the head past that sequence,
+    // and a snapshot labelled with the new head but built without the foreign update would make
+    // every later load skip it: the update stays in the log and vanishes from the document.
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+    typeParagraph(alice.doc, 'Before the foreign write.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 1,
+      'the first flush',
+    );
+
+    const foreign = new Y.Doc();
+    typeParagraph(foreign, 'Logged by someone else.');
+    const pool = collabPool();
+    try {
+      const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+      await withTenantScope(pool, scope, async (sql) => {
+        const doc = await openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => {
+            throw new Error('The document already exists.');
+          },
+        );
+        if (doc === null) throw new Error('The document is not visible.');
+        const applied = await applyUpdate(sql, {
+          tenantId: scope.tenantId,
+          doc,
+          updateBytes: Y.encodeStateAsUpdate(foreign),
+          actorId: scope.principalId,
+          clientId: 'another-process',
+          snapshotEvery: 1_000,
+        });
+        expect(applied.ok).toBe(true);
+      });
+    } finally {
+      await pool.end();
+    }
+
+    typeParagraph(alice.doc, 'After the foreign write.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) >= 3,
+      'the second flush',
+    );
+    alice.close();
+    await until(() => harness.registry.size === 0, 'the idle sweep to evict');
+
+    const reader = open(harness.url, TENANTS.alpha.itemId);
+    await reader.ready;
+    await until(
+      () => textOf(reader.doc).includes('After the foreign write.'),
+      'the reload to catch up',
+    );
+    expect(textOf(reader.doc)).toContain('Logged by someone else.');
   });
 
   it('flushes one batch that advances the head once, and says so to Core once', async () => {
@@ -347,6 +444,293 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
       session.detach(socket);
       expect(await session.drain()).toBe(true);
       expect(session.state).toBe('unloaded');
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('keeps a batch whose append failed and writes it once the database is back', async () => {
+    // The flush timer is nobody's caller. Its rejection used to go unhandled, which ends a Node
+    // 22 process - every resident document with it - and the batch it had already taken off the
+    // queue was gone either way: on every screen, in no log.
+    const pool = collabPool();
+    const outage = { on: false };
+    const flaky = new Proxy(pool, {
+      get(target, property) {
+        if (property === 'connect' && outage.on) {
+          return () => Promise.reject(new Error('The database is unavailable.'));
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      },
+    });
+    const logged: string[] = [];
+    try {
+      const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+      const docRow = await withTenantScope(pool, scope, (sql) =>
+        openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => TENANTS.alpha.docId,
+        ),
+      );
+      if (docRow === null) {
+        throw new Error('The seeded item has no document body.');
+      }
+
+      const session = await DocumentSession.load(TENANTS.alpha.itemId, docRow, scope, {
+        pool: flaky,
+        config: { ...FAST, flushMs: 20 },
+        log: (message) => {
+          logged.push(message);
+        },
+      });
+      const socket = fakeSocketSession(TENANTS.alpha);
+      session.attach(socket);
+
+      outage.on = true;
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Typed during the outage.');
+      session.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(edit)));
+
+      await until(() => logged.some((line) => line.includes('Could not flush')), 'a failed flush');
+      expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(0);
+
+      outage.on = false;
+      await until(
+        async () => (await countUpdates(verifyPool, TENANTS.alpha)) === 1,
+        'the retry to land the batch',
+      );
+
+      session.detach(socket);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('closes a socket that has fallen too far behind, and keeps serving the rest', async () => {
+    const pool = collabPool();
+    try {
+      const session = await loadAlpha(pool);
+      const writer = fakeSocketSession(TENANTS.alpha);
+      const stalled = fakeSocketSession(TENANTS.alpha);
+      session.attach(writer);
+      session.attach(stalled);
+      (stalled.socket as unknown as { bufferedAmount: number }).bufferedAmount =
+        LIMITS.socketBufferedBytes + 1;
+
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Broadcast to a reader that stopped reading.');
+      session.handleMessage(writer, updateFrame(Y.encodeStateAsUpdate(edit)));
+
+      expect(stalled.closedWith.map((close) => close.code)).toEqual([CLOSE_CODES.tooSlow]);
+      expect(stalled.terminated.value).toBe(true);
+      expect(stalled.sent).toHaveLength(0);
+      expect(session.socketCount).toBe(1);
+
+      session.detach(writer);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('relays presence within its size and rate, and drops the excess', async () => {
+    const pool = collabPool();
+    try {
+      // A clock that never moves: every message below lands in the same one-second budget.
+      const session = await loadAlpha(pool, () => 1_000_000);
+      const sender = fakeSocketSession(TENANTS.alpha);
+      const watcher = fakeSocketSession(TENANTS.alpha);
+      session.attach(sender);
+      session.attach(watcher);
+
+      const local = new awarenessProtocol.Awareness(new Y.Doc());
+      const presence = (state: Record<string, unknown>): Uint8Array => {
+        local.setLocalState(state);
+        const encoder = encoding.createEncoder();
+        encoding.writeVarUint(encoder, MESSAGE_AWARENESS);
+        encoding.writeVarUint8Array(
+          encoder,
+          awarenessProtocol.encodeAwarenessUpdate(local, [local.clientID]),
+        );
+        return encoding.toUint8Array(encoder);
+      };
+
+      const isPresence = (frame: Uint8Array): boolean =>
+        decoding.readVarUint(decoding.createDecoder(frame)) === MESSAGE_AWARENESS;
+
+      session.handleMessage(sender, presence({ note: 'x'.repeat(LIMITS.awarenessBytes) }));
+      await new Promise((settle) => setTimeout(settle, 80));
+      expect(watcher.sent.filter(isPresence)).toHaveLength(0);
+
+      for (let index = 1; index <= LIMITS.awarenessPerSecond + 5; index += 1) {
+        session.handleMessage(sender, presence({ cursor: index }));
+      }
+      await new Promise((settle) => setTimeout(settle, 80));
+
+      const seen = new awarenessProtocol.Awareness(new Y.Doc());
+      for (const frame of watcher.sent) {
+        const decoder = decoding.createDecoder(frame);
+        if (decoding.readVarUint(decoder) === MESSAGE_AWARENESS) {
+          awarenessProtocol.applyAwarenessUpdate(seen, decoding.readVarUint8Array(decoder), null);
+        }
+      }
+      // The oversized state never arrived, and the last state relayed is the last one in budget.
+      expect(seen.getStates().get(local.clientID)).toEqual({
+        cursor: LIMITS.awarenessPerSecond,
+      });
+
+      session.detach(sender);
+      session.detach(watcher);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('lets go of a sealed document whose final flush failed, instead of retrying it forever', async () => {
+    // Sealing removes the document from the registry before draining it. A drain that failed used
+    // to leave the session alive anyway - its retry timer re-arming against the database for the
+    // life of the process, its memory and its mirror counted nowhere, its lock never released.
+    const pool = collabPool();
+    const outage = { on: false };
+    let attempts = 0;
+    const flaky = new Proxy(pool, {
+      get(target, property) {
+        if (property === 'connect' && outage.on) {
+          return () => {
+            attempts += 1;
+            return Promise.reject(new Error('The database is unavailable.'));
+          };
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      },
+    });
+    const locks = await connectDocumentLocks({
+      databaseUrl: TEST_DATABASE_URL,
+      onSessionLost: () => undefined,
+    });
+    const registry = createDocumentRegistry({
+      pool: flaky,
+      locks,
+      config: { ...FAST, flushMs: 20, idleEvictMs: 3_600_000 },
+    });
+    try {
+      const socket = fakeSocketSession(TENANTS.alpha);
+      expect(await registry.join(socket)).toMatchObject({ ok: true });
+      outage.on = true;
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Pending when the save began.');
+      registry.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(edit)));
+
+      await expect(registry.sealItems([TENANTS.alpha.itemId])).rejects.toThrow();
+      expect(registry.size).toBe(0);
+
+      attempts = 0;
+      await new Promise((settle) => setTimeout(settle, 300));
+      expect(attempts).toBe(0);
+    } finally {
+      outage.on = false;
+      await registry.shutdown();
+      await locks.close();
+      await pool.end();
+    }
+  });
+
+  it('holds each socket to its own presence identities, a few at most', async () => {
+    const pool = collabPool();
+    try {
+      const session = await loadAlpha(pool);
+      const first = fakeSocketSession(TENANTS.alpha);
+      const second = fakeSocketSession(TENANTS.alpha);
+      const watcher = fakeSocketSession(TENANTS.alpha);
+      session.attach(first);
+      session.attach(second);
+      session.attach(watcher);
+
+      const presence = (states: Record<number, Record<string, unknown>>): Uint8Array => {
+        const inner = encoding.createEncoder();
+        const entries = Object.entries(states);
+        encoding.writeVarUint(inner, entries.length);
+        for (const [clientId, state] of entries) {
+          encoding.writeVarUint(inner, Number(clientId));
+          encoding.writeVarUint(inner, 1);
+          encoding.writeVarString(inner, JSON.stringify(state));
+        }
+        const outer = encoding.createEncoder();
+        encoding.writeVarUint(outer, MESSAGE_AWARENESS);
+        encoding.writeVarUint8Array(outer, encoding.toUint8Array(inner));
+        return encoding.toUint8Array(outer);
+      };
+      const relayed = async (): Promise<Map<number, unknown>> => {
+        await new Promise((settle) => setTimeout(settle, 80));
+        const seen = new awarenessProtocol.Awareness(new Y.Doc());
+        for (const frame of watcher.sent) {
+          const decoder = decoding.createDecoder(frame);
+          if (decoding.readVarUint(decoder) === MESSAGE_AWARENESS) {
+            awarenessProtocol.applyAwarenessUpdate(seen, decoding.readVarUint8Array(decoder), null);
+          }
+        }
+        return seen.getStates();
+      };
+
+      session.handleMessage(first, presence({ 101: { name: 'first' } }));
+      // Somebody else's identity, and more identities than one socket may hold: both dropped.
+      session.handleMessage(second, presence({ 101: { name: 'impostor' } }));
+      const many = Object.fromEntries(
+        Array.from({ length: LIMITS.awarenessClientsPerSocket + 1 }, (_, index) => [
+          200 + index,
+          { name: 'flood' },
+        ]),
+      );
+      session.handleMessage(second, presence(many));
+
+      const states = await relayed();
+      expect(states.get(101)).toEqual({ name: 'first' });
+      expect(Object.keys(many).filter((id) => states.has(Number(id)))).toEqual([]);
+
+      for (const socket of [first, second, watcher]) session.detach(socket);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      await pool.end();
+    }
+  });
+
+  it('gives up the mirror when the last editor leaves, and judges without one near capacity', async () => {
+    const pool = collabPool();
+    try {
+      const session = await loadAlpha(pool);
+      const socket = fakeSocketSession(TENANTS.alpha);
+      session.attach(socket);
+      const edit = new Y.Doc();
+      typeParagraph(edit, 'Judged against the mirror.');
+      session.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(edit)));
+      const withMirror = session.estimatedBytes;
+
+      session.detach(socket);
+      expect(session.estimatedBytes).toBeLessThan(withMirror);
+      expect(await session.drain()).toBe(true);
+
+      // A registry that refuses the mirror's reservation still gets every update judged.
+      let calls = 0;
+      const refusing = await loadAlpha(pool, undefined, () => {
+        calls += 1;
+        return calls > 1;
+      });
+      const writer = fakeSocketSession(TENANTS.alpha);
+      refusing.attach(writer);
+      const next = new Y.Doc();
+      typeParagraph(next, 'Judged against a throwaway copy.');
+      refusing.handleMessage(writer, updateFrame(Y.encodeStateAsUpdate(next)));
+      expect(writer.closedWith).toEqual([]);
+      expect(writer.sent.some((frame) => frame[0] === MESSAGE_NOTICE)).toBe(false);
+      refusing.detach(writer);
+      expect(await refusing.drain()).toBe(true);
     } finally {
       await pool.end();
     }
@@ -574,3 +958,30 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     expect(await countUpdates(verifyPool, TENANTS.alpha)).toBeGreaterThan(0);
   });
 });
+
+/** Alpha's document, resident in a session of its own: no registry, no sockets, no server. */
+async function loadAlpha(
+  pool: Pool,
+  now?: () => number,
+  resizeResident?: () => boolean,
+): Promise<DocumentSession> {
+  const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+  const docRow = await withTenantScope(pool, scope, (sql) =>
+    openDocument(
+      sql,
+      scope.tenantId,
+      TENANTS.alpha.itemId,
+      TENANTS.alpha.workspaceId,
+      () => TENANTS.alpha.docId,
+    ),
+  );
+  if (docRow === null) {
+    throw new Error('The seeded item has no document body.');
+  }
+  return DocumentSession.load(TENANTS.alpha.itemId, docRow, scope, {
+    pool,
+    config: FAST,
+    now,
+    resizeResident,
+  });
+}

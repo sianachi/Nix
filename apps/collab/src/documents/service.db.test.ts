@@ -4,7 +4,7 @@ import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import * as Y from 'yjs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { findDocByItem, updatesAfter } from '../db/documents.ts';
+import { appendUpdates, findDocByItem, updatesAfter } from '../db/documents.ts';
 import {
   DB_TESTS_ENABLED,
   TENANTS,
@@ -14,7 +14,7 @@ import {
   type TestTenant,
 } from '../db/testing.ts';
 import { listRevisions, stateAt } from '../db/history.ts';
-import { withTenantScope } from '../db/tenant-scope.ts';
+import { withTenantScope, type ScopedQuery } from '../db/tenant-scope.ts';
 import { canvasStrategy, noteStrategy } from './body-kinds.ts';
 import {
   FRAGMENT_NAME,
@@ -237,6 +237,92 @@ describe.skipIf(!DB_TESTS_ENABLED)('the collaboration service, against Postgres'
     );
 
     expect(snapshots.rows.map((row) => row.seq)).toEqual(['2']);
+  });
+
+  it('snapshots every update logged before its own, including one that committed mid-request', async () => {
+    // The request reads the log, then takes the row lock that allocates its sequence. Another
+    // writer committing between the two takes a sequence below this one that the request never
+    // read - and a snapshot labelled with this request's sequence but built without it makes every
+    // later load start past it. Interleaved deterministically: the other write commits, on its own
+    // connection, at the moment this request is about to take the lock.
+    const alpha = await open(TENANTS.alpha);
+    const other = collabPool();
+    try {
+      let interleaved = false;
+      await withTenantScope(pool, scopeOf(TENANTS.alpha), async (sql) => {
+        const racing: ScopedQuery = {
+          query: async (text, values) => {
+            if (!interleaved && text.trimStart().startsWith('UPDATE content_doc')) {
+              interleaved = true;
+              const committed = await withTenantScope(other, scopeOf(TENANTS.alpha), (peer) =>
+                applyUpdate(peer, {
+                  tenantId: TENANTS.alpha.tenantId,
+                  doc: alpha,
+                  updateBytes: updateTyping('committed in between'),
+                  actorId: TENANTS.alpha.principalId,
+                  clientId: 'peer',
+                  snapshotEvery: 1_000,
+                }),
+              );
+              expect(committed.ok).toBe(true);
+            }
+            return await sql.query(text, values);
+          },
+        };
+        const applied = await applyUpdate(racing, {
+          tenantId: TENANTS.alpha.tenantId,
+          doc: alpha,
+          updateBytes: updateTyping('this request'),
+          actorId: TENANTS.alpha.principalId,
+          clientId: 'client',
+          snapshotEvery: 1,
+        });
+        expect(applied.ok && applied.value).toMatchObject({ seq: 2n, snapshotWritten: true });
+      });
+    } finally {
+      await other.end();
+    }
+
+    const reloaded = await withTenantScope(pool, scopeOf(TENANTS.alpha), async (sql) => {
+      const doc = await findDocByItem(sql, TENANTS.alpha.tenantId, TENANTS.alpha.itemId);
+      if (doc === null) throw new Error('The document vanished.');
+      return await loadDocument(sql, TENANTS.alpha.tenantId, doc);
+    });
+    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- Y.XmlFragment defines its own XML toString.
+    const text = reloaded.getXmlFragment(FRAGMENT_NAME).toString();
+    expect(text).toContain('this request');
+    expect(text).toContain('committed in between');
+  });
+
+  it('appends a run longer than one statement can carry', async () => {
+    // Three parameters a row, and Postgres takes at most 65,535 in a statement: one INSERT tops
+    // out near 21,800 updates. A flush requeued through a long outage reaches that with one person
+    // typing, and every retry after recovery would fail on the protocol limit rather than the
+    // database - the batch could never be written.
+    const alpha = await open(TENANTS.alpha);
+    const count = 22_000;
+    const updates = Array.from({ length: count }, () => ({
+      bytes: updateTyping('x'),
+      clientId: 'long-run',
+    }));
+
+    const appended = await withTenantScope(pool, scopeOf(TENANTS.alpha), (sql) =>
+      appendUpdates(sql, {
+        tenantId: TENANTS.alpha.tenantId,
+        docId: alpha.doc_id,
+        updates,
+        actorId: TENANTS.alpha.principalId,
+      }),
+    );
+
+    expect(appended).toEqual({ firstSeq: 1n, lastSeq: BigInt(count) });
+    const rows = await withTenantScope(pool, scopeOf(TENANTS.alpha), (sql) =>
+      sql.query<{ count: string; max: string }>(
+        'SELECT count(*)::text AS count, max(seq)::text AS max FROM content_update WHERE doc_id = $1',
+        [alpha.doc_id],
+      ),
+    );
+    expect(rows.rows[0]).toEqual({ count: String(count), max: String(count) });
   });
 
   it('refuses an update that is not a Yjs payload at all', async () => {

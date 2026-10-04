@@ -50,6 +50,12 @@ export interface SessionHub {
    */
   ready?(session: SocketSession): void;
 
+  /**
+   * Tells a resident document that its log moved underneath it - a REST write or a restore - so
+   * it catches up and shows the change to everyone editing it. A no-op when nothing is resident.
+   */
+  refresh?(itemId: string): Promise<void>;
+
   /** Drains whatever the hub holds. Called on server close, after the sockets are told. */
   shutdown?(): Promise<void>;
 }
@@ -64,10 +70,20 @@ export interface WebSocketOptions {
   /** How long the client has to send its auth frame. Defaults to ten seconds. */
   readonly authTimeoutMs?: number | undefined;
 
+  /**
+   * The largest frame accepted, before authentication or after. `ws` buffers a whole message
+   * before anything here sees it, and its own default is 100 MiB - a ceiling any unauthenticated
+   * client could make this process allocate. Defaults to 2 MiB.
+   */
+  readonly maxPayloadBytes?: number | undefined;
+
   /** Keepalive ping interval. A socket that misses one is dead, not idle. */
   readonly pingMs?: number | undefined;
 
   readonly metrics?: CollabMetrics | undefined;
+
+  /** Where failures nobody awaits are reported. Defaults to silence. */
+  readonly log?: ((message: string) => void) | undefined;
 }
 
 const WS_PATH =
@@ -90,7 +106,10 @@ export function attachWebSocketServer(
   httpServer: HttpServer,
   options: WebSocketOptions,
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: options.maxPayloadBytes ?? 2 * 1024 * 1024,
+  });
   const authTimeoutMs = options.authTimeoutMs ?? 10_000;
   const pingMs = options.pingMs ?? 30_000;
 
@@ -134,6 +153,15 @@ function handleConnection(
   let token: string | null = null;
   let alive = true;
 
+  // The handshake spans awaits, and the client can act during them: send its auth frame again, or
+  // go away. `establishing` keeps a second frame from starting a second join; `closed` tells the
+  // awaits that resume afterwards that there is no longer anybody to serve.
+  let establishing = false;
+  let closed = false;
+  // A function, not the bare flag: the checks below sit after awaits, and the compiler would
+  // otherwise carry the first check's narrowing across them as if nothing could have closed.
+  const isClosed = (): boolean => closed;
+
   metrics?.openSockets.inc();
 
   // The clock starts at accept: a socket that connects and says nothing is holding a file
@@ -154,7 +182,15 @@ function handleConnection(
   // Re-checked on a wall-clock timer, not on traffic: an idle socket held by a
   // deprovisioned principal is exactly the leak the re-check exists to close.
   const reauthTimer = setInterval(() => {
-    void recheck();
+    // **This fails closed.** The authorizer answers an unreachable Core, a timeout or any error
+    // status with a refusal, and a refused re-check closes the socket as revoked - a Core outage
+    // disconnects editors rather than letting a socket outlive a permission nobody could confirm.
+    // What reaches this catch is a fault in the re-check itself; it is logged, and the socket is
+    // judged again on the next tick. Keeping a socket open through an unconfirmed re-check would
+    // be a policy change that needs an ADR, with a staleness bound, not an edit here.
+    recheck().catch((cause: unknown) => {
+      options.log?.(`The authorization re-check failed: ${describe(cause)}`);
+    });
   }, options.reauthMs);
 
   socket.on('pong', () => {
@@ -163,7 +199,28 @@ function handleConnection(
 
   socket.on('message', (data: RawData, isBinary: boolean) => {
     if (session === null) {
-      void establish(data, isBinary);
+      if (establishing) {
+        // Nothing is interpreted before the session stands. Sync after `ready` reconciles
+        // anything a client sent early, and a repeated auth frame has nothing left to say.
+        return;
+      }
+      establishing = true;
+      establish(data, isBinary)
+        .catch((cause: unknown) => {
+          options.log?.(`A handshake failed on the server's side: ${describe(cause)}`);
+          // Authorization or the document load failed on this side - Core unreachable, the
+          // database refusing. The client is owed a close it reconnects from, not a socket that
+          // never answers, and the process is owed not being ended by an unhandled rejection.
+          if (!isClosed()) {
+            close(
+              CLOSE_CODES.unavailable,
+              'The server could not open this document. Retry shortly.',
+            );
+          }
+        })
+        .finally(() => {
+          establishing = false;
+        });
       return;
     }
 
@@ -177,6 +234,7 @@ function handleConnection(
   });
 
   socket.on('close', () => {
+    closed = true;
     clearTimeout(authTimer);
     clearInterval(pinger);
     clearInterval(reauthTimer);
@@ -201,6 +259,9 @@ function handleConnection(
     }
 
     const result = await sessions.authenticate(frame.token, authorizationKey);
+    if (isClosed()) {
+      return;
+    }
     if (!result.ok) {
       if (result.reason === 'unauthenticated') {
         close(CLOSE_CODES.unauthenticated, 'The token could not be validated.');
@@ -232,6 +293,14 @@ function handleConnection(
     }
 
     const joined = await hub.join(candidate);
+    if (isClosed()) {
+      // The close handler already ran, with no session to leave. The join attached one anyway,
+      // and only this can release it.
+      if (joined.ok) {
+        hub.leave(candidate);
+      }
+      return;
+    }
     if (!joined.ok) {
       close(joined.closeCode, joined.reason);
       return;
@@ -316,6 +385,10 @@ function handleConnection(
     }
     socket.close(code, reason);
   }
+}
+
+function describe(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function rawDataToString(data: RawData): string | null {
