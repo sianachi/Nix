@@ -142,6 +142,12 @@ export class DocumentSession {
 
   #idleSince: number | null = null;
 
+  /**
+   * True while a flush is appending: the resident document then holds updates the log does not
+   * have a sequence for yet, so it is not a state any snapshot may describe.
+   */
+  #appending = false;
+
   /** How long the next retry waits after a failed append. Zero while appends are succeeding. */
   #retryDelayMs = 0;
 
@@ -827,6 +833,7 @@ export class DocumentSession {
         const started = this.now();
 
         let appendedCount = 0;
+        this.#appending = true;
         try {
           for (const run of principalRuns(queue)) {
             const { lastSeq } = await withTenantScope(
@@ -854,6 +861,8 @@ export class DocumentSession {
         } catch (cause) {
           this.#requeue(queue.slice(appendedCount));
           throw cause;
+        } finally {
+          this.#appending = false;
         }
         this.#retryDelayMs = 0;
 
@@ -1007,33 +1016,58 @@ export class DocumentSession {
     // document `headSeq` never moves again, so "eventually" would have meant "at eviction".
     // Declining because the log has not moved is different, and is answered: that is a request
     // with nothing to do.
+    let deferred = false;
     try {
-      await this.#snapshotNow();
+      deferred = (await this.#snapshotNow()) === 'deferred';
     } finally {
-      this.#snapshotWhenIdle = false;
+      // A deferred request stays asked for: the pending updates that deferred it schedule the
+      // flush that comes back here.
+      if (!deferred) {
+        this.#snapshotWhenIdle = false;
+      }
     }
   }
 
-  async #snapshotNow(): Promise<void> {
+  /**
+   * Writes a snapshot of the log up to the current head, or answers `'deferred'` when the resident
+   * document is ahead of the log and so cannot be one.
+   *
+   * **The state is frozen before the first await.** A snapshot labelled `seq` claims to be the log
+   * up to `seq`. The resident document holds more than that whenever an update is queued or being
+   * appended, and it keeps changing while the write below waits for a connection. Encoding it then
+   * would store edits the log may never receive - content no replay of the log can produce, which
+   * breaks the rule that snapshots are rebuildable from it.
+   */
+  async #snapshotNow(): Promise<'written' | 'skipped' | 'deferred'> {
     const principal = this.#lastWriter?.principalId ?? null;
     if (principal === null || this.#headSeq <= this.#lastSnapshotSeq) {
-      return;
+      return 'skipped';
+    }
+    if (this.#pending.length > 0 || this.#appending) {
+      return 'deferred';
     }
 
     const seq = this.#headSeq;
-    const written = await withTenantScope(
-      this.#context.pool,
-      { tenantId: this.tenantId, principalId: principal },
-      (sql) =>
-        writeSnapshotNow(sql, {
-          tenantId: this.tenantId,
-          docId: this.docRow.doc_id,
-          itemId: this.docRow.item_id,
-          seq,
-          state: this.#doc,
-          strategy: this.strategy,
-        }),
-    );
+    const frozen = new Y.Doc();
+    Y.applyUpdate(frozen, Y.encodeStateAsUpdate(this.#doc));
+    let written: boolean;
+    try {
+      written = await withTenantScope(
+        this.#context.pool,
+        { tenantId: this.tenantId, principalId: principal },
+        (sql) =>
+          writeSnapshotNow(sql, {
+            tenantId: this.tenantId,
+            docId: this.docRow.doc_id,
+            itemId: this.docRow.item_id,
+            seq,
+            state: frozen,
+            strategy: this.strategy,
+          }),
+      );
+    } finally {
+      frozen.destroy();
+    }
 
     if (written) {
       this.#lastSnapshotSeq = seq;
@@ -1042,6 +1076,7 @@ export class DocumentSession {
       this.#bytesSinceEncode = 0;
       this.#context.resizeResident?.(this, this.estimatedBytes);
     }
+    return written ? 'written' : 'skipped';
   }
 
   /** Detaches a socket; the last one out flushes immediately and starts the idle clock. */

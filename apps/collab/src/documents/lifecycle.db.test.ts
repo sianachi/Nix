@@ -736,6 +736,117 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     }
   });
 
+  it('snapshots the log as it stands, not edits that arrived while it was being written', async () => {
+    // A snapshot labelled seq N is a claim about the log up to N. Edits that reach the resident
+    // document while an append is in flight are not in the log yet - and if they never get there,
+    // a snapshot that already holds them is content no replay of the log can produce.
+    const pool = collabPool();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reachedAppend: () => void = () => undefined;
+    const appending = new Promise<void>((resolve) => {
+      reachedAppend = resolve;
+    });
+    let holding = true;
+    const slow = new Proxy(pool, {
+      get(target, property) {
+        if (property === 'connect') {
+          return async () => {
+            const client = await target.connect();
+            return new Proxy(client, {
+              get(inner, key) {
+                if (key === 'query') {
+                  return async (text: unknown, values?: unknown) => {
+                    if (
+                      holding &&
+                      typeof text === 'string' &&
+                      text.includes('INSERT INTO content_update')
+                    ) {
+                      holding = false;
+                      reachedAppend();
+                      await held;
+                    }
+                    return await inner.query(text as string, values as unknown[]);
+                  };
+                }
+                const value: unknown = Reflect.get(inner, key);
+                return typeof value === 'function' ? (value as () => unknown).bind(inner) : value;
+              },
+            });
+          };
+        }
+        const value: unknown = Reflect.get(target, property);
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      },
+    });
+    try {
+      const scope = { tenantId: TENANTS.alpha.tenantId, principalId: TENANTS.alpha.principalId };
+      const docRow = await withTenantScope(pool, scope, (sql) =>
+        openDocument(
+          sql,
+          scope.tenantId,
+          TENANTS.alpha.itemId,
+          TENANTS.alpha.workspaceId,
+          () => TENANTS.alpha.docId,
+        ),
+      );
+      if (docRow === null) throw new Error('The seeded item has no document body.');
+      const session = await DocumentSession.load(TENANTS.alpha.itemId, docRow, scope, {
+        pool: slow,
+        config: { ...FAST, flushMs: 10, snapshotEvery: 1 },
+      });
+      const socket = fakeSocketSession(TENANTS.alpha);
+      session.attach(socket);
+
+      const first = new Y.Doc();
+      typeParagraph(first, 'In the log at seq one.');
+      session.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(first)));
+      await appending;
+      const second = new Y.Doc();
+      typeParagraph(second, 'Arrived during the append.');
+      session.handleMessage(socket, updateFrame(Y.encodeStateAsUpdate(second)));
+      release();
+
+      const snapshots = async () =>
+        (
+          await verifyPool.query<{ seq: string; yjs_state: Buffer }>(
+            `SELECT s.seq::text AS seq, s.yjs_state
+             FROM content_snapshot s JOIN content_doc d USING (doc_id)
+             WHERE d.tenant_id = $1 AND d.item_id = $2 ORDER BY s.seq`,
+            [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
+          )
+        ).rows.map((row) => {
+          const state = new Y.Doc();
+          Y.applyUpdate(state, new Uint8Array(row.yjs_state));
+          return { seq: row.seq, text: textOf(state) };
+        });
+      await until(
+        async () => (await snapshots()).some((snapshot) => snapshot.seq === '2'),
+        'a snapshot once both are in the log',
+      );
+
+      // Whichever snapshots were taken, none describes more than the log up to its own seq: the
+      // second edit appears only from seq 2, and seq 2 holds both.
+      for (const snapshot of await snapshots()) {
+        if (snapshot.seq === '1') {
+          expect(snapshot.text).not.toContain('Arrived during the append.');
+        }
+        if (snapshot.seq === '2') {
+          expect(snapshot.text).toContain('In the log at seq one.');
+          expect(snapshot.text).toContain('Arrived during the append.');
+        }
+      }
+
+      session.detach(socket);
+      expect(await session.drain()).toBe(true);
+    } finally {
+      release();
+      await pool.end();
+    }
+  });
+
   it('refuses the whole load, loudly, when the server is at document capacity', async () => {
     const harness = track(await startLiveServer(TENANTS.alpha, { maxDocs: 0 }));
 
