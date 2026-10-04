@@ -26,6 +26,8 @@ import {
 
 import { frecencyScores, recordPick } from '../lib/frecency';
 import { useChoiceOrderPreference } from '../settings/suggestion-preferences';
+import { INLINE_AI_COMMANDS, INLINE_AI_GROUP } from './inline-ai/inline-ai-commands';
+import type { InlineKind } from './inline-ai/inline-ai-stream';
 import {
   MAX_QUERY as REFERENCE_MAX_QUERY,
   findTrigger as findReferenceTrigger,
@@ -54,6 +56,8 @@ export interface SlashCommand {
   readonly hint: string;
   readonly icon: LucideIcon;
   readonly keywords: readonly string[];
+  /** A heading the command is listed under; set only on the writing assistance, which is optional. */
+  readonly group?: string;
   readonly run: (editor: Editor, actions: SlashCommandActions) => void;
 }
 
@@ -62,7 +66,25 @@ export interface SlashCommandActions {
   readonly insertImage: () => void;
   readonly insertItem?: ((kind: ItemInsertKind) => void) | undefined;
   readonly pageBreak?: (() => void) | undefined;
+  readonly inlineAi?: ((kind: InlineKind) => void) | undefined;
 }
+
+/**
+ * The writing assistance, as slash commands. Kept out of `SLASH_COMMANDS` because they exist only
+ * when the person has switched inline writing on: the menu appends them, so an unavailable
+ * assistant leaves no dead entries behind.
+ */
+const AI_SLASH_COMMANDS: readonly SlashCommand[] = INLINE_AI_COMMANDS.map(
+  (command): SlashCommand => ({
+    id: command.id,
+    label: command.label,
+    hint: command.hint,
+    icon: command.icon,
+    keywords: command.keywords,
+    group: INLINE_AI_GROUP,
+    run: (_editor, actions) => actions.inlineAi?.(command.kind),
+  }),
+);
 
 /**
  * The words people reach for when they want a collapsible section, shared by the whole toggle
@@ -290,13 +312,16 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
  * still matched; what it also did was match things it should not. Searching for "able" found
  * "Table", and so did searching for "zable".
  */
-export function filterSlashCommands(query: string): readonly SlashCommand[] {
+export function filterSlashCommands(
+  query: string,
+  commands: readonly SlashCommand[] = SLASH_COMMANDS,
+): readonly SlashCommand[] {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) {
-    return SLASH_COMMANDS;
+    return commands;
   }
 
-  return SLASH_COMMANDS.filter(
+  return commands.filter(
     (command) =>
       command.label.toLowerCase().includes(needle) ||
       command.keywords.some((keyword) => keyword.includes(needle)),
@@ -425,11 +450,14 @@ export function SlashMenu({
   onInsertImage,
   onInsertItem,
   onPageBreak,
+  onInlineAi,
 }: {
   readonly editor: Editor;
   readonly onInsertImage: () => void;
   readonly onInsertItem?: ((kind: ItemInsertKind) => void) | undefined;
   readonly onPageBreak?: (() => void) | undefined;
+  /** Present only when the writing assistance is on offer; its commands are listed only then. */
+  readonly onInlineAi?: ((kind: InlineKind) => void) | undefined;
 }): ReactNode {
   const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -503,7 +531,10 @@ export function SlashMenu({
   const query = trigger?.query ?? '';
 
   const orderByPicks = useChoiceOrderPreference((state) => state.setting === 'on');
-  const available = filterSlashCommands(query).filter((command) => {
+  const available = [
+    ...filterSlashCommands(query),
+    ...(onInlineAi === undefined ? [] : filterSlashCommands(query, AI_SLASH_COMMANDS)),
+  ].filter((command) => {
     if (['attachment', 'embed-note', 'subpage'].includes(command.id))
       return onInsertItem !== undefined;
     if (command.id === 'page-break')
@@ -513,18 +544,25 @@ export function SlashMenu({
   // Read per render while the menu is open, which is per keystroke into its query: a parse of at
   // most `MAX_ENTRIES` short records, and the scores only change when a command runs, which closes
   // the menu - so the order cannot shift under the highlight.
-  const commands = open
+  const ranked = open
     ? rankSlashCommands(
         available,
         query,
         orderByPicks ? frecencyScores(SLASH_FRECENCY_NAMESPACE) : NO_SCORES,
       )
     : available;
+  // The assistant's commands close the list under their own heading, however the ranking above
+  // ordered them: a heading is drawn each time the group changes, so they must stay together.
+  const commands = [
+    ...ranked.filter((command) => command.group === undefined),
+    ...ranked.filter((command) => command.group !== undefined),
+  ];
   const options = commands.map((command) => ({
     id: command.id,
     label: command.label,
     hint: command.hint,
     icon: command.icon,
+    ...(command.group === undefined ? {} : { group: command.group }),
   }));
 
   const listbox = useListbox(options, (_option, index) => {
@@ -545,6 +583,7 @@ export function SlashMenu({
       insertImage: onInsertImage,
       insertItem: onInsertItem,
       pageBreak: onPageBreak,
+      inlineAi: onInlineAi,
     });
   });
 

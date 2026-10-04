@@ -1,4 +1,4 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Input, Text } from '@nix/ui';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { CanvasElement } from './canvas-binding';
 import {
@@ -69,17 +69,17 @@ export function CanvasBrowser({
   );
   return (
     <section aria-label="Canvas contents" className="h-full overflow-y-auto px-4 py-3">
-      <label className="flex flex-col gap-2">
+      <label htmlFor="canvas-browser-search" className="flex flex-col gap-2">
         <Text as="span" variant="caption">
           Find in canvas
         </Text>
-        <input
+        <Input
+          id="canvas-browser-search"
           type="search"
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);
           }}
-          className="rounded-md border border-divider bg-background px-3 py-2"
         />
       </label>
       {loading && elements.length === 0 ? (

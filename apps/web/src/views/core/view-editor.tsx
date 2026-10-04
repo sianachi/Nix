@@ -8,6 +8,7 @@ import type { View } from './container-model';
 import { EditorShell } from './editor-shell';
 import type { ContainerData } from './use-container';
 import { viewConfigureHref } from './view-configure-route';
+import { OpensAsSection } from './opens-as-section';
 import { findViewKind } from './view-kinds';
 
 /**
@@ -115,6 +116,8 @@ export function ViewEditor({
         <Text variant="bodySmall" tone="muted">
           A view is a way of looking at this item. Everybody who can see it sees the same views.
         </Text>
+
+        <OpensAsSection container={container} />
 
         {error === null ? null : (
           <Text variant="bodySmall" role="alert" className="border border-foreground px-3 py-2">

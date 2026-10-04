@@ -3,7 +3,7 @@ import { type ComponentPropsWithRef, type ReactNode } from 'react';
 
 import { cn } from '../lib/cn';
 import { blueprintFrame } from '../primitives/Blueprint';
-import { disabledState, focusRing } from '../primitives/interaction';
+import { disabledState, fieldFocus } from '../primitives/interaction';
 
 /**
  * <Input> - a single-line text field drawn as a hairline blueprint box.
@@ -39,7 +39,7 @@ const inputVariants = cva(
     // which is the whole job of a placeholder.
     'placeholder:text-muted',
     'transition-colors',
-    focusRing,
+    fieldFocus,
     disabledState,
     // Invalid is drawn with the palette that exists: the divider hairline is ink at 16%, so a
     // full-strength ink frame is plainly a different state without inventing a colour. The token

@@ -28,6 +28,18 @@ export const focusRing =
   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent';
 
 /**
+ * Keyboard focus for a text field: the same 2px accent outline as `focusRing`, drawn flush against
+ * the field's edge, with the border itself taking the accent colour.
+ *
+ * A button has no frame of its own, so a ring offset by 2px reads as its halo. A field already has
+ * a frame, and an offset ring around it reads as a second frame: a box inside a box. One ring that
+ * hugs the field, over a border that has turned the same colour, reads as the single frame
+ * changing state. The ring is still the base accent, so the 3:1 floor from `focusRing` holds.
+ */
+export const fieldFocus =
+  'focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent focus-visible:border-accent';
+
+/**
  * `focusRing` for an element inside an `overflow-hidden` clip, where the
  * outward 2px offset would be cut to slivers: the same 2px accent outline,
  * drawn inward instead. Same object, same floor, different side of the edge.

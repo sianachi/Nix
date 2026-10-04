@@ -1178,6 +1178,18 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasColumnType("uuid")
                         .HasColumnName("tenant_id");
 
+                    b.Property<int?>("ThumbnailBytes")
+                        .HasColumnType("integer")
+                        .HasColumnName("thumbnail_bytes");
+
+                    b.Property<int?>("ThumbnailHeight")
+                        .HasColumnType("integer")
+                        .HasColumnName("thumbnail_height");
+
+                    b.Property<int?>("ThumbnailWidth")
+                        .HasColumnType("integer")
+                        .HasColumnName("thumbnail_width");
+
                     b.Property<int>("Version")
                         .HasColumnType("integer")
                         .HasColumnName("version");
@@ -3492,6 +3504,10 @@ namespace Nix.Persistence.Migrations.Generated
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_at");
+
+                    b.Property<string>("DailyNotes")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("daily_notes");
 
                     b.Property<string>("LifecycleState")
                         .IsRequired()

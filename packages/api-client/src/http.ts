@@ -31,6 +31,7 @@ export type QueryValue = string | number | boolean;
 
 export interface HttpRequest {
   readonly method: HttpMethod;
+  readonly timeoutMs?: number | undefined;
   /** Path relative to the configured base URL; must start with `/`. */
   readonly path: string;
   readonly query?: Readonly<Record<string, QueryValue | undefined>> | undefined;
@@ -162,8 +163,10 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
             : JSON_CONTENT_TYPE;
       }
 
+      const requestTimeoutMs = request.timeoutMs ?? timeoutMs;
       try {
         const response = await instance.request({
+          timeout: requestTimeoutMs,
           method: request.method,
           url: request.path,
           params: toParams(request.query),
@@ -181,7 +184,7 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
           body: response.data === '' || response.data === null ? undefined : response.data,
         };
       } catch (error) {
-        throw toTransportError(error, timeoutMs, request.signal);
+        throw toTransportError(error, requestTimeoutMs, request.signal);
       }
     },
   };

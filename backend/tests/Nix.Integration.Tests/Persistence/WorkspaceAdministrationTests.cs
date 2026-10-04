@@ -3,6 +3,7 @@ using Nix.Domain.Identity;
 using Nix.Domain.Primitives;
 using Nix.Domain.Provisioning;
 using Nix.Domain.Tenancy;
+using Nix.Features.Calendar;
 using Nix.Features.Workspaces;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
@@ -36,6 +37,132 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+    [Fact]
+    public async Task Daily_calendar_entries_require_opt_in_membership_and_an_open_root()
+    {
+        await SetPersonalOwnerAsync();
+        var opened = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(opened.IsSuccess);
+        Assert.Empty((await ReadDailyCalendarAsync(Alice)).Value.Entries);
+        var settingsWork = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (settingsWork.ConfigureAwait(false))
+        {
+            Assert.True(await settingsWork.Resolve<WorkspaceAdministrationStore>().SaveDailyNoteSettingsAsync(
+                WorkspaceId.From(Visible), DailyNoteSettings.Create(true, "flat", "iso", null, 0, true).Value, Cancellation));
+            await settingsWork.CommitAsync(Cancellation);
+        }
+        var listed = await ReadDailyCalendarAsync(Alice);
+        Assert.True(listed.IsSuccess);
+        var entry = Assert.Single(listed.Value.Entries).Entry;
+        Assert.Equal(opened.Value.ItemId, entry.ItemId.Value);
+        Assert.Equal("2026-10-04", entry.Value);
+        Assert.True((await ReadDailyCalendarAsync(Bob)).IsFailure);
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null, $"""
+                INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+                VALUES ('{DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible)):D}',
+                        '{M0SchemaSeed.Alpha.TenantId:D}', '{new string('a', 64)}', '{Alice:D}', now());
+                """);
+        }
+        Assert.Empty((await ReadDailyCalendarAsync(Alice)).Value.Entries);
+    }
+
+    private async Task<Result<WorkspaceCalendarResults>> ReadDailyCalendarAsync(Guid principalId)
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            return await work.Resolve<NixDispatcher>().QueryAsync<GetWorkspaceCalendar, Result<WorkspaceCalendarResults>>(
+                new GetWorkspaceCalendar(WorkspaceId.From(Visible), "2026-10-01", "2026-10-31"), Cancellation);
+        }
+    }
+
+    [Fact]
+    public async Task Shared_daily_notes_require_opt_in_and_are_one_note_for_all_editors()
+    {
+        Assert.False((await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04")).IsSuccess);
+        var enabling = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (enabling.ConfigureAwait(false))
+        {
+            Assert.True(await enabling.Resolve<WorkspaceAdministrationStore>().SaveDailyNoteSettingsAsync(
+                WorkspaceId.From(Visible), DailyNoteSettings.Create(true, "by-month", "long", "# Start", 3, true).Value, Cancellation));
+            await enabling.CommitAsync(Cancellation);
+        }
+        await AddGroupMembershipAsync(Bob, "editor");
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        var second = await OpenDailyThroughCoreAndCommitAsync(Bob, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        Assert.True(first.Value.Created);
+        Assert.True(second.IsSuccess);
+        Assert.False(second.Value.Created);
+        Assert.Equal(first.Value.ItemId, second.Value.ItemId);
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            Assert.Equal(3, await RawSql.CountAsync(connection, null,
+                $"SELECT count(*) FROM item_closure WHERE descendant_id = '{first.Value.ItemId:D}' AND depth > 0"));
+        }
+    }
+
+    [Fact]
+    public async Task Shared_viewers_cannot_create_daily_notes_or_change_the_settings()
+    {
+        await AddGroupMembershipAsync(Bob, "viewer");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Bob), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            Assert.NotNull(await work.Resolve<WorkspaceAdministrationStore>().ReadDailyNoteSettingsAsync(WorkspaceId.From(Visible), Cancellation));
+            Assert.False(await work.Resolve<WorkspaceAdministrationStore>().SaveDailyNoteSettingsAsync(
+                WorkspaceId.From(Visible), DailyNoteSettings.Default(true), Cancellation));
+        }
+        Assert.False((await OpenDailyThroughCoreAndCommitAsync(Bob, "2026-10-04")).IsSuccess);
+    }
+
+    [Fact]
+    public async Task Later_daily_settings_do_not_move_or_retitle_an_existing_note()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        var changing = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (changing.ConfigureAwait(false))
+        {
+            Assert.True(await changing.Resolve<WorkspaceAdministrationStore>().SaveDailyNoteSettingsAsync(
+                WorkspaceId.From(Visible), DailyNoteSettings.Create(true, "by-month", "long", null, 0, false).Value, Cancellation));
+            await changing.CommitAsync(Cancellation);
+        }
+        var reopened = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.Equal(first.Value.ItemId, reopened.Value.ItemId);
+        Assert.False(reopened.Value.Created);
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                $"SELECT count(*) FROM item WHERE id = '{first.Value.ItemId:D}' AND properties ->> 'title' = '2026-10-04' AND parent_id = '{DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible)):D}'"));
+        }
+    }
+
+    [Fact]
+    public async Task A_closed_daily_root_cannot_be_used_to_create_hidden_children()
+    {
+        await SetPersonalOwnerAsync();
+        await SeedDailyRootAsync();
+        var root = DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible));
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null, $"""
+                INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+                VALUES ('{root:D}', '{M0SchemaSeed.Alpha.TenantId:D}', '{new string('a', 64)}', '{Alice:D}', now());
+                """);
+        }
+        var opening = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(opening.IsFailure);
+        Assert.Equal("workspaces.daily_notes_root_unavailable", opening.Error.Code);
+    }
 
     [Fact]
     public async Task Listing_filters_in_sql_and_never_returns_an_unreachable_workspace()
@@ -348,15 +475,16 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
             var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
             await using (work.ConfigureAwait(false))
             {
-                var id = await work.Resolve<WorkspaceAdministrationStore>().OpenDailyNoteAsync(
+                var opening = await work.Resolve<WorkspaceAdministrationStore>().OpenDailyNoteAsync(
                     WorkspaceId.From(Visible),
                     DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible)),
                     expected,
+                    DateOnly.ParseExact(date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
                     date,
                     DateTimeOffset.UtcNow,
                     Cancellation);
                 await work.CommitAsync(Cancellation);
-                return id;
+                return opening.ItemId;
             }
         }
 
@@ -495,22 +623,22 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
         }
     }
 
-    private async Task<Result<Guid>> OpenDailyThroughCoreAsync(Guid principalId, string date)
+    private async Task<Result<DailyNoteOpened>> OpenDailyThroughCoreAsync(Guid principalId, string date)
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            return await work.Resolve<NixDispatcher>().SendAsync<OpenDailyNote, Guid>(
+            return await work.Resolve<NixDispatcher>().SendAsync<OpenDailyNote, DailyNoteOpened>(
                 new OpenDailyNote(WorkspaceId.From(Visible), date), Cancellation);
         }
     }
 
-    private async Task<Result<Guid>> OpenDailyThroughCoreAndCommitAsync(Guid principalId, string date)
+    private async Task<Result<DailyNoteOpened>> OpenDailyThroughCoreAndCommitAsync(Guid principalId, string date)
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(principalId), Cancellation);
         await using (work.ConfigureAwait(false))
         {
-            var result = await work.Resolve<NixDispatcher>().SendAsync<OpenDailyNote, Guid>(
+            var result = await work.Resolve<NixDispatcher>().SendAsync<OpenDailyNote, DailyNoteOpened>(
                 new OpenDailyNote(WorkspaceId.From(Visible), date), Cancellation);
             if (result.IsSuccess)
             {

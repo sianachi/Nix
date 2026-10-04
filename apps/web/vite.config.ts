@@ -35,6 +35,49 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;
 }
 
+/** PDF support files stay on this origin and are fetched only when a page needs them. */
+function pdfSupportAssets(): Plugin {
+  const sources = {
+    fonts: fileURLToPath(new URL('./node_modules/pdfjs-dist/standard_fonts/', import.meta.url)),
+    cmaps: fileURLToPath(new URL('./node_modules/pdfjs-dist/cmaps/', import.meta.url)),
+  };
+  let outputDirectory: string;
+  return {
+    name: 'nix:pdf-support-assets',
+    configResolved(config) {
+      outputDirectory = resolve(config.root, config.build.outDir);
+    },
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const path = new URL(request.url ?? '/', 'http://nix.local').pathname;
+        const match = /^\/pdf-assets\/(fonts|cmaps)\/([A-Za-z0-9_-]+\.(?:pfb|ttf|bcmap))$/u.exec(
+          path,
+        );
+        const filename = match?.[2];
+        if (filename === undefined) {
+          next();
+          return;
+        }
+        const directory = match?.[1] === 'fonts' ? sources.fonts : sources.cmaps;
+        void readFile(resolve(directory, filename))
+          .then((data) => {
+            response.setHeader('Content-Type', 'application/octet-stream');
+            response.end(data);
+          })
+          .catch((error: unknown) => {
+            if (hasErrorCode(error, 'ENOENT')) next();
+            else next(error);
+          });
+      });
+    },
+    async writeBundle() {
+      for (const [name, source] of Object.entries(sources)) {
+        await cp(source, resolve(outputDirectory, 'pdf-assets', name), { recursive: true });
+      }
+    },
+  };
+}
+
 function excalidrawFontAssets(): Plugin {
   let buildOutputDirectory: string | undefined;
 
@@ -203,7 +246,7 @@ export function parseObjectStorePublicOrigin(value: string): string {
 
 export function contentSecurityPolicy(objectStorePublicOrigin: string): string {
   const origin = parseObjectStorePublicOrigin(objectStorePublicOrigin);
-  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' ${origin}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
+  return `default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' ${origin}; media-src 'self' blob: ${origin}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'`;
 }
 
 const objectStorePublicOrigin = parseObjectStorePublicOrigin(
@@ -322,6 +365,7 @@ export default defineConfig({
       },
     },
     excalidrawFontAssets(),
+    pdfSupportAssets(),
     {
       name: 'nix-configured-content-security-policy',
       enforce: 'pre',

@@ -181,6 +181,7 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
                 new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = "2026-08-01" },
                 new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = "2026-08-31" },
                 new NpgsqlParameter("entry_limit", NpgsqlDbType.Integer) { Value = 2000 },
+                new NpgsqlParameter("daily_root_id", NpgsqlDbType.Uuid) { Value = Guid.Empty },
             ]);
         _output.WriteLine("Workspace calendar, runtime role:");
         _output.WriteLine(plan);
@@ -188,7 +189,13 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         Assert.Contains("ix_item_declares_views", plan, StringComparison.Ordinal);
         Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
         AssertAncestorPointLookup(plan);
-        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
+
+        // The daily-notes arm is gated by the workspace setting and so is legitimately never
+        // executed here; it is the arm that follows the container arm and carries the gate's
+        // InitPlan. Everything before it must have run.
+        var gate = plan.IndexOf("InitPlan", StringComparison.Ordinal);
+        Assert.True(gate > 0);
+        Assert.DoesNotContain("never executed", plan[..gate], StringComparison.Ordinal);
     }
 
     [Fact]

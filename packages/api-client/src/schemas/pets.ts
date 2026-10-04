@@ -16,6 +16,7 @@ export const petSettingsSchema = z
     motion: z.enum(['system', 'reduced', 'full']),
     narration: z.boolean(),
     profiles: z.array(petProfileSchema).max(12),
+    inlineWriting: z.boolean().default(false),
   })
   .refine((settings) => {
     const ids = new Set(settings.profiles.map((profile) => profile.id));

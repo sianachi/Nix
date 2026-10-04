@@ -4,6 +4,7 @@ import {
   Input,
   Select,
   Text,
+  Textarea,
   blueprintFrame,
   cn,
   disabledState,
@@ -58,7 +59,7 @@ import {
  * appearances as it has callers, and none of them is the component's.
  */
 
-export type PropertyInputDensity = 'panel' | 'cell';
+export type PropertyInputDensity = 'panel' | 'cell' | 'card';
 
 export interface PropertyInputProps {
   readonly item: PropertyOwner;
@@ -90,6 +91,7 @@ export interface PropertyInputProps {
 /** The types this build can edit. Anything else falls through to the read-only case. */
 const KNOWN_TYPES = [
   'text',
+  'long_text',
   'number',
   'select',
   'multi_select',
@@ -132,6 +134,9 @@ export function PropertyInput(props: PropertyInputProps): ReactNode {
   switch (props.property.type) {
     case 'text':
       return <TypedValue {...props} kind="text" />;
+
+    case 'long_text':
+      return <LongTextValue {...props} />;
 
     case 'url':
       return <TypedValue {...props} kind="url" />;
@@ -251,7 +256,7 @@ interface ValueShellProps extends PropertyInputProps {
 function ValueShell(props: ValueShellProps): ReactNode {
   const { property, error = null, hint, density = 'panel', children } = props;
 
-  if (density === 'cell') {
+  if (density !== 'panel') {
     return <CellShell {...props} />;
   }
 
@@ -450,6 +455,67 @@ function TypedValue(props: PropertyInputProps & { readonly kind: TypedKind }): R
             if (event.key === 'Enter') {
               event.preventDefault();
               commit();
+            }
+          }}
+        />
+      )}
+    </ValueShell>
+  );
+}
+
+/**
+ * Plain text that runs to several lines. Commits on blur, as the one-line field does, but Enter is
+ * a line break here rather than the explicit "done" gesture - which is the whole reason this is not
+ * a `TypedValue` kind. Escape puts back the text this field last handed over, so a cancelled edit
+ * is not written by the blur that follows it.
+ *
+ * In a cell the box rests as one unwrapped row, so the cell shows the first line like a one-line
+ * value does, and opens out to the whole text only while somebody is editing it.
+ */
+function LongTextValue(props: PropertyInputProps): ReactNode {
+  const { item, property, onCommit, disabled = false, density = 'panel' } = props;
+
+  const stored = readPropertyText(item, property.key);
+  const { draft, setDraft, sent, send } = useDraft(stored, onCommit);
+  const [editing, setEditing] = useState(false);
+  const collapsed = density !== 'panel' && !editing;
+
+  function commit(): void {
+    if (draft === sent) {
+      return;
+    }
+
+    send(draft, draft.length === 0 ? null : draft);
+  }
+
+  return (
+    <ValueShell {...props}>
+      {(control) => (
+        <Textarea
+          {...control}
+          tabIndex={props.tabIndex}
+          autoGrow={!collapsed}
+          rows={collapsed ? (density === 'card' ? 3 : 1) : undefined}
+          wrap={collapsed && density === 'cell' ? 'off' : 'soft'}
+          maxLength={8000}
+          className="max-h-64"
+          tone={density === 'cell' ? 'plain' : 'default'}
+          value={draft}
+          required={property.required}
+          disabled={disabled}
+          onChange={(event) => {
+            setDraft(event.target.value);
+          }}
+          onFocus={() => {
+            setEditing(true);
+          }}
+          onBlur={() => {
+            setEditing(false);
+            commit();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setDraft(sent);
             }
           }}
         />

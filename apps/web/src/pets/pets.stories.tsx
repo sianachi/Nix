@@ -60,6 +60,7 @@ export const Settings = {
               instructions: '',
             },
           ],
+          inlineWriting: false,
         },
       }}
       saving={false}

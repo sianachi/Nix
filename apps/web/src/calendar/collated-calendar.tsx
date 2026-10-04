@@ -122,6 +122,16 @@ export interface CollatedCalendarProps {
   readonly onComplete?: ((entry: CalendarEntry, occurredOn: string) => void) | undefined;
 }
 
+/**
+ * The date property a daily note is placed by. A daily note's date is its identity - the note is
+ * that day's - so unlike an ordinary entry it is never moved to another day from here.
+ */
+const DAILY_DATE_PROPERTY = '$daily';
+
+function isDailyNote(entry: CalendarEntry): boolean {
+  return entry.dateProperty === DAILY_DATE_PROPERTY;
+}
+
 const GRAINS = [
   { value: 'month', label: 'Month' },
   { value: 'week', label: 'Week' },
@@ -148,11 +158,17 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
   const byDay = useMemo(() => bucketByDay(entries), [entries]);
   const items = useMemo(() => toGridItems(entries), [entries]);
 
-  // Occurrences a recurrence rule produced have no row to write to, so the hour grid offers no
-  // way to move them - the month cell already withholds the same controls. Memoized for the same
-  // reason `items` is: the grid takes it as a prop and a fresh set every render is a fresh grid.
-  const generatedIds = useMemo(
-    () => new Set(entries.filter((entry) => entry.generated).map((entry) => entry.itemId)),
+  // Occurrences a recurrence rule produced have no row to write to, and a daily note's day is the
+  // note's identity, so the hour grid offers no way to move either - the month cell already
+  // withholds the same controls. Memoized for the same reason `items` is: the grid takes it as a
+  // prop and a fresh set every render is a fresh grid.
+  const fixedIds = useMemo(
+    () =>
+      new Set(
+        entries
+          .filter((entry) => entry.generated || isDailyNote(entry))
+          .map((entry) => entry.itemId),
+      ),
     [entries],
   );
 
@@ -350,7 +366,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
                 ? undefined
                 : (itemId) => {
                     const entry = entries.find((candidate) => candidate.itemId === itemId);
-                    if (entry !== undefined && !entry.generated) {
+                    if (entry !== undefined && !entry.generated && !isDailyNote(entry)) {
                       onAddEndTimes(entry);
                     }
                   }
@@ -364,7 +380,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             // `CreateEntryButton` above is where creating lives in every grain instead. Moving is
             // unaffected either way, because the entry carries its own property key.
             dragged={dragged}
-            fixedItemIds={generatedIds}
+            fixedItemIds={fixedIds}
             onMove={(itemId, values) => {
               // The bag holds the start, the end, or both, each under the collated key it was
               // given: a move writes the start and carries the end, a stretch writes the end alone.
@@ -378,7 +394,8 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
 
               // A generated occurrence has no row of its own to move: the write would land on the
               // series it came from and shift every occurrence with it.
-              if (entry.generated) {
+              // A daily note keeps the day it is for, so it cannot be moved either.
+              if (entry.generated || isDailyNote(entry)) {
                 return;
               }
 
@@ -594,6 +611,26 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
                         <Icon icon={CircleCheck} size="sm" />
                       </Button>
                     )}
+                  </li>
+                );
+              }
+
+              // A daily note is a stored row but its day is what makes it that day's note, so it is
+              // drawn as a plain chip that opens: not draggable, with no reschedule control, and
+              // without the repeat marks and "Mark done" of an occurrence, which it is not.
+              if (isDailyNote(entry)) {
+                return (
+                  <li key={entry.itemId} className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpen(entry.itemId);
+                      }}
+                      aria-label={`${title}, in ${container}`}
+                      className={`${focusRing} min-w-0 flex-1 truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
+                    >
+                      {title}
+                    </button>
                   </li>
                 );
               }

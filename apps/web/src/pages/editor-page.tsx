@@ -20,12 +20,14 @@ import {
   LockOpen,
   Settings2,
   Upload,
+  Maximize2,
 } from 'lucide-react';
 import {
   Suspense,
   lazy,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -80,7 +82,10 @@ import { useForgetLockedBody } from '../locks/use-forget-locked-body';
 import { useItemLock } from '../locks/use-item-lock';
 import { historyPanelWidth } from '../layout/regions';
 import { ItemPanel } from '../panel/item-panel';
+import { DailyNoteBar } from '../daily-notes/daily-note-bar';
+import { parseDailyNoteDate } from '../daily-notes/daily-note';
 import { browserStorage } from '../lib/browser-storage';
+import { claimZenSurface, toggleZenMode, useZenActive } from '../lib/zen-mode';
 import { formatTime } from '../lib/date-format';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
@@ -115,12 +120,44 @@ export function EditorPage(): ReactNode {
   const narrow = useNarrowViewport();
   const [draggedTab, setDraggedTab] = useState<TabTransferPayload | null>(null);
 
+  // Zen: an item is on screen whenever there is a pane, so this page is what gives Zen something
+  // to act on (`lib/zen-mode.ts`). Claimed in a layout effect so the chrome is gone in the same
+  // frame an item appears, not a frame later.
+  const itemShown = panes.length > 0;
+  useLayoutEffect(() => (itemShown ? claimZenSurface() : undefined), [itemShown]);
+  const zen = useZenActive();
+
+  // Which pane Zen keeps: the one that last held focus, which is the one the reader pressed Zen
+  // in, or pane zero. Tracked here rather than asked of the DOM at the moment of entry because the
+  // button that enters it is unmounted by entering it.
+  const [focusedPane, setFocusedPane] = useState(0);
+  const zenPane = panes.find((pane) => pane.index === focusedPane) ?? panes[0];
+  const shownPanes = zen && zenPane !== undefined ? [zenPane] : panes;
+
+  // The control that was pressed to enter or leave Zen is gone once the layout changes, which
+  // would drop focus on the document body. Put it on the pane instead - but only when it did fall
+  // that far, so a shortcut pressed from inside the editor leaves the caret exactly where it was.
+  const zenWas = useRef(zen);
+  useEffect(() => {
+    if (zenWas.current === zen) return;
+    zenWas.current = zen;
+    const pane = zenPane?.index ?? 0;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement === null) {
+        focusPane(pane);
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [zen, zenPane?.index]);
+
   const paneCount = panes.length;
   const { moveTab } = useTabTransfer(panes.map((pane) => pane.index));
 
   // F6 and Shift F6 cycle focus between the pane regions - see the hook for why it is claimed
   // only while there is more than one pane to cycle.
-  usePaneCycling(paneCount);
+  usePaneCycling(zen ? 1 : paneCount);
 
   const close = useCallback(
     (index: number, title: string): void => {
@@ -178,9 +215,12 @@ export function EditorPage(): ReactNode {
 
   return (
     <div className={paneColumn}>
-      {paneCount > 1 ? <PaneSplitControl orientation={split} onChange={setSplit} /> : null}
+      {paneCount > 1 && !zen ? <PaneSplitControl orientation={split} onChange={setSplit} /> : null}
+      {/* In Zen only the kept pane is handed over. Panes are keyed by their own index, so it keeps
+          its place in the tree - and its editor its document, selection and scroll - rather than
+          being rebuilt as the group shrinks around it. */}
       <PaneGroup
-        panes={panes}
+        panes={shownPanes}
         split={split}
         sizes={sizes}
         onSizes={setSizes}
@@ -207,6 +247,7 @@ export function EditorPage(): ReactNode {
                 ? `Pane ${String(pane.index + 1)} of ${String(paneCount)}: ${describe(tree.find(pane.itemId)?.title, pane.index)}`
                 : undefined
             }
+            onFocused={setFocusedPane}
             onClose={
               paneCount > 1
                 ? () => {
@@ -251,6 +292,9 @@ interface PaneContentsProps {
   readonly canApplyTemplates: boolean;
   readonly onClose: (() => void) | undefined;
   readonly paneLabel: string | undefined;
+
+  /** Told whenever focus enters this pane, so Zen knows which one to keep. */
+  readonly onFocused: (index: number) => void;
 }
 
 /**
@@ -274,6 +318,7 @@ function PaneContents({
   onMoveTab,
   onClose,
   paneLabel,
+  onFocused,
   hiddenPanes,
   canManageTemplates,
   canApplyTemplates,
@@ -283,6 +328,7 @@ function PaneContents({
   const narrow = useNarrowViewport();
   const orientation = useTabOrientationStore((state) => state.orientation);
   const item = tree.find(pane.itemId);
+  const zen = useZenActive();
 
   return (
     <article
@@ -292,6 +338,9 @@ function PaneContents({
       // has to Tab through the tree and a whole editor to get back to where they were.
       tabIndex={-1}
       aria-label={paneLabel}
+      onFocus={() => {
+        onFocused(pane.index);
+      }}
       className={paneColumn}
     >
       {/* A row when tabs are vertical, so the rail sits beside the rest of the pane rather than
@@ -304,7 +353,7 @@ function PaneContents({
         {/* Mounted here rather than inside `OpenItem`, and above the not-found branch below: an
             item resolving, forbidden, or failed must not take the rest of the strip down with it,
             or a person could not click back to a tab that is perfectly fine. */}
-        {!narrow ? (
+        {!narrow && !zen ? (
           <DocumentTabStrip
             paneIndex={pane.index}
             tree={tree}
@@ -319,7 +368,7 @@ function PaneContents({
         ) : null}
 
         <div className={paneColumn}>
-          {hiddenPanes > 0 ? (
+          {hiddenPanes > 0 && !zen ? (
             <Text variant="caption" as="p" tone="muted" className="shrink-0 px-8 pb-1 pt-1">
               {hiddenPanes === 1
                 ? 'One more pane in this link opens on a wider screen.'
@@ -441,6 +490,10 @@ export function OpenItem({
 }: OpenItemProps): ReactNode {
   const navigate = useNavigate();
   const narrow = useNarrowViewport();
+  // Zen draws the item and its sync state alone. Everything it removes below is not rendered
+  // rather than hidden, and every removal is a sibling of the body in a fixed position, never a
+  // wrapper around it: `null` keeps the slot, so the editor is neither remounted nor re-keyed.
+  const zen = useZenActive();
   // Creation shares the tree cache with navigation. Loading children does not expand the
   // sidebar; only an explicit expansion there changes which descendants are visible.
   const createChild = useCallback(
@@ -526,18 +579,37 @@ export function OpenItem({
 
   const details = useItemProperties(itemId);
 
+  // The marker the server puts on every daily note; the title is configurable and says nothing.
+  const dailyMarker = details.item?.properties.$daily;
+  const dailyDate = typeof dailyMarker === 'string' ? parseDailyNoteDate(dailyMarker) : null;
+
   const views = useMemo(() => container.views?.views ?? [], [container.views]);
   const unrenderable = container.views?.unrenderable ?? [];
+
+  // Whether the Document tab is left out. An item must never open blank, so the flag is honoured
+  // only while there is a view to show instead; if every view is broken the document comes back
+  // rather than leaving a pane with nothing but explanations of what went wrong.
+  const documentHidden =
+    container.views?.hideDocument === true && views.some((view) => !unrenderable.includes(view.id));
 
   // What the item says opens, unless the address says otherwise. The URL wins because it is the
   // more specific statement - somebody chose it, possibly in a link they were handed - and the
   // stored default is the starting point rather than the authority.
-  const activeId = viewId ?? container.views?.default ?? DOCUMENT_VIEW;
+  const storedDefault = container.views?.default ?? DOCUMENT_VIEW;
+  const requestedId = viewId ?? storedDefault;
 
-  const active = useMemo<View | null>(
-    () => views.find((view) => view.id === activeId) ?? null,
-    [activeId, views],
-  );
+  // While the document is hidden it can never be what is showing, whether it was asked for by the
+  // address, by a stored default that should not say it, or by a view id this item does not have.
+  // Core already resolves the default to the first view; this keeps the page consistent with that
+  // rather than being a second opinion about it.
+  const active = useMemo<View | null>(() => {
+    const requested = views.find((view) => view.id === requestedId) ?? null;
+    if (requested !== null || !documentHidden || requestedId === '__children__') {
+      return requested;
+    }
+    return views[0] ?? null;
+  }, [documentHidden, requestedId, views]);
+  const activeId = active?.id ?? requestedId;
 
   // The body, when nothing else was chosen or when what was chosen is not a view this item has.
   // Existing shared links to the old children shortcut still open their list.
@@ -591,14 +663,13 @@ export function OpenItem({
           unrenderable={unrenderable}
           activeViewId={showingDocument ? DOCUMENT_VIEW : activeId}
           documentLabel="Document"
+          documentHidden={documentHidden}
+          defaultViewId={storedDefault}
           onSelect={(chosen) => {
+            // Navigation only. What the item opens as is stored for everybody who opens it, so
+            // following a link or glancing at another tab must not change it; it is chosen on
+            // purpose, in the item's settings.
             selectView(chosen);
-
-            // The deliberate click, and the only place the stored default is written. Arriving at
-            // a URL that already carries ?view= runs none of this - otherwise following somebody
-            // else's link would rewrite what this item opens as, for everybody, on behalf of the
-            // person who followed it.
-            void container.setDefaultView(chosen);
           }}
         />
       </div>
@@ -737,6 +808,21 @@ export function OpenItem({
           </Text>
         ) : null}
 
+        {/* Notes and files, where the reader is reading rather than arranging: a board or a canvas
+              needs the chrome Zen removes. The shortcut and the palette work anywhere. */}
+        {lock.open && showingDocument && bodyKind !== 'canvas' && bodyKind !== 'spreadsheet' ? (
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            // Longer than the visible word so the name says what it does; "Zen" is inside it.
+            aria-label="Enter Zen mode"
+            onClick={toggleZenMode}
+          >
+            <Icon icon={Maximize2} size="sm" />
+            Zen
+          </Button>
+        ) : null}
+
         <Button
           variant="ghost"
           className="px-2 py-1 text-xs"
@@ -771,14 +857,14 @@ export function OpenItem({
         onCommit={onCommit}
       />
 
-      {sectionRowShown ? (
+      {zen ? null : sectionRowShown ? (
         <nav
           aria-label="Item sections"
           className="flex shrink-0 items-center justify-end gap-1 border-b border-divider px-3 pb-2"
         >
           {/* Body only when it is a way back: from a listing of the item's children. With views,
               the views strip carries it; on the body itself it would select what is showing. */}
-          {showingDocument ? null : (
+          {showingDocument || documentHidden ? null : (
             <Button
               variant="ghost"
               className="mr-auto"
@@ -794,13 +880,15 @@ export function OpenItem({
       ) : narrow ? null : (
         itemActions
       )}
-      {narrow && views.length > 0 ? (
+      {narrow && views.length > 0 && !zen ? (
         <ViewSwitcher
           views={views}
           unrenderable={unrenderable}
           activeViewId={showChildren ? '' : activeId}
           trailing={mobileItemControls}
           documentLabel="Body"
+          documentHidden={documentHidden}
+          defaultViewId={storedDefault}
           onSelect={(chosen) => {
             selectView(chosen);
           }}
@@ -826,8 +914,14 @@ export function OpenItem({
         </Dialog>
       ) : null}
 
+      {/* A fixed-height strip between the item's own controls and the body, so the body keeps the
+          one scroller it always had. Absent for every note that is not a daily note. */}
+      {dailyDate === null ? null : <DailyNoteBar date={dailyDate} itemId={itemId} />}
+
       <div className={`flex flex-1 ${paneClip}`}>
-        <div className={paneColumn}>
+        {/* In Zen a note's text keeps its reading measure but is centred in the window; the
+            editor's own root carries the measure (`proseRoot`) and sits left in a wider pane. */}
+        <div className={zen && !editorKind ? `${paneColumn} [&_.ProseMirror]:mx-auto` : paneColumn}>
           {!lock.open ? (
             lock.status === 'loading' ? (
               <SkeletonLines
@@ -888,8 +982,11 @@ export function OpenItem({
               <NoteEditor
                 itemId={itemId}
                 cacheBody={!lock.locked}
-                mobileActions={noteDocked ? itemActions : undefined}
-                mobileDetails={noteDocked ? { open: panelOpen, onToggle: togglePanel } : undefined}
+                hideToolbar={zen}
+                mobileActions={noteDocked && !zen ? itemActions : undefined}
+                mobileDetails={
+                  noteDocked && !zen ? { open: panelOpen, onToggle: togglePanel } : undefined
+                }
                 // From the tree the page already holds: no fetch, only a ranking hint.
                 parentId={tree.find(itemId)?.parentId}
               />
@@ -949,7 +1046,7 @@ export function OpenItem({
           )}
         </div>
 
-        {panelOpen ? (
+        {panelOpen && !zen ? (
           overlayDetails ? (
             <Dialog
               open
@@ -967,7 +1064,7 @@ export function OpenItem({
 
         {/* The document's revisions, beside it on a wide window and over it on a narrow one - the
             same two shapes the settings panel takes, for the same reasons. */}
-        {historyOpen && lock.open ? (
+        {historyOpen && lock.open && !zen ? (
           overlayDetails ? (
             <Dialog
               open
@@ -1075,6 +1172,7 @@ function ItemHeader({
   onCommit,
 }: ItemHeaderProps): ReactNode {
   const narrow = useNarrowViewport();
+  const zen = useZenActive();
   const trail = tree.breadcrumbs(itemId);
   const parent = trail.at(-2);
   // Keyed on the item by its caller, so the draft is rebuilt rather than carried. A title held in
@@ -1095,8 +1193,16 @@ function ItemHeader({
   }, [itemId, title]);
 
   return (
-    <header className="px-4 pb-3 pt-2 sm:pt-4 sm:px-8 sm:pr-16">
-      {narrow ? (
+    <header
+      className={
+        zen
+          ? // The title sits over the text it names: the same measure the prose is held to, centred
+            // in the same inset the body's scroller keeps, so the two share a left edge.
+            'mx-auto w-[calc(100%-2.5rem)] max-w-prose pb-3 pt-2 sm:w-[calc(100%-4rem)] sm:pt-4'
+          : 'px-4 pb-3 pt-2 sm:pt-4 sm:px-8 sm:pr-16'
+      }
+    >
+      {narrow && !zen ? (
         <div className="flex items-center gap-2">
           {/* No Back button: browser history here can lead back out to the sign-in redirect.
               Going up is the parent's own button, which always stays inside the workspace. */}
@@ -1115,7 +1221,7 @@ function ItemHeader({
           ) : null}
         </div>
       ) : null}
-      {!narrow && trail.length > 1 ? (
+      {!narrow && !zen && trail.length > 1 ? (
         <nav aria-label="Breadcrumb" className="mb-1 hidden flex-wrap items-center text-xs sm:flex">
           {trail.slice(0, -1).map((ancestor) => (
             <span key={ancestor.id} className="flex items-center">

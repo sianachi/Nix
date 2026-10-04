@@ -133,6 +133,64 @@ function capabilityUrl(value: string): URL {
   return url;
 }
 
+/** Checks actual object-store delivery without exposing the short-lived capability. */
+export async function probeFileValue(
+  profileName: string | undefined,
+  itemId: string,
+  thumbnail = false,
+  deps: SessionDeps = {},
+): Promise<unknown> {
+  const session = await resolveSession(profileName, deps);
+  const capability = thumbnail
+    ? await session.client.query(fileResources.thumbnailFile(itemId), { forceRefresh: true })
+    : await session.client.query(fileResources.downloadFile(itemId, undefined, true), {
+        forceRefresh: true,
+      });
+  const response = await (deps.fetchImpl ?? globalThis.fetch)(
+    capabilityUrl(capability.url).toString(),
+    {
+      headers: { Range: 'bytes=0-63' },
+      redirect: 'error',
+      credentials: 'omit',
+    },
+  );
+  if (!response.ok) throw await refusal(response);
+  // Consume a bounded prefix even when an object store ignores Range.
+  const reader = response.body?.getReader();
+  let bytes = 0;
+  try {
+    if (reader) {
+      while (bytes < 64) {
+        const next = await reader.read();
+        if (next.done) break;
+        if (!(next.value instanceof Uint8Array))
+          throw new Error('The object store returned an invalid byte stream.');
+        bytes += Math.min(next.value.byteLength, 64 - bytes);
+      }
+    }
+  } finally {
+    await reader?.cancel();
+  }
+  return {
+    itemId,
+    thumbnail,
+    status: response.status,
+    mediaType: response.headers.get('content-type'),
+    contentRange: response.headers.get('content-range'),
+    disposition: response.headers.get('content-disposition'),
+    bytes,
+  };
+}
+
+export async function probeFile(
+  profileName: string | undefined,
+  itemId: string,
+  thumbnail: boolean,
+  output: OutputOptions,
+): Promise<void> {
+  printResult(await probeFileValue(profileName, itemId, thumbnail), output);
+}
+
 async function refusal(response: Response): Promise<Error> {
   const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
   return new Error(

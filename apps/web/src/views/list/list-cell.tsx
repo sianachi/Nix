@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
-import { PropertyInput } from '../../properties/property-input';
+import { PropertyInput, type PropertyInputDensity } from '../../properties/property-input';
 import type { Item, PropertyDefinition, PropertyValue } from '../core/container-model';
 
 /**
@@ -33,6 +33,7 @@ export interface ListCellProps {
   readonly refusal?: string | null;
   readonly onRefusalChange?: (refusal: string | null) => void;
   readonly tabIndex?: number;
+  readonly density?: PropertyInputDensity;
 }
 
 export function ListCell({
@@ -42,6 +43,7 @@ export function ListCell({
   refusal: controlledRefusal,
   onRefusalChange,
   tabIndex,
+  density = 'cell',
 }: ListCellProps): ReactNode {
   const [localRefusal, setLocalRefusal] = useState<string | null>(null);
   const refusal = onRefusalChange === undefined ? localRefusal : (controlledRefusal ?? null);
@@ -51,7 +53,7 @@ export function ListCell({
     <PropertyInput
       item={item}
       property={property}
-      density="cell"
+      density={density}
       error={refusal}
       {...(tabIndex === undefined ? {} : { tabIndex })}
       onCommit={(value) => {

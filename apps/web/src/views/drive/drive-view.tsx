@@ -29,6 +29,7 @@ import { CreateItemControl } from '../core/create-item-control';
 import type { Item } from '../core/container-model';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { driveBodyKindLabel, driveKindIcon, isDriveContainerCandidate } from './drive-icons';
+import { DriveFileThumbnail } from './drive-file-thumbnail';
 import { DriveMoveDialog, type DriveMoveDestination } from './drive-move-dialog';
 import { useDriveFileInfo, type DriveFileInfo } from './use-drive-file-info';
 
@@ -61,6 +62,11 @@ type SortDirection = 'ascending' | 'descending';
 interface SortState {
   readonly key: SortKey;
   readonly direction: SortDirection;
+}
+
+/** A file that is not also drawn as a folder: the rows whose picture can be a thumbnail. */
+function isFileRow(item: Item): boolean {
+  return item.type === 'file' && !item.hasChildren;
 }
 
 /** The size in bytes this row would sort by, or -1 for anything that is not a file yet. */
@@ -662,7 +668,16 @@ function DriveTable(
                     }}
                     className={cn('flex items-center gap-2 text-left', focusRing)}
                   >
-                    <Icon icon={RowIcon} size="sm" />
+                    {isFileRow(item) ? (
+                      <DriveFileThumbnail
+                        item={item}
+                        info={info}
+                        className="size-8"
+                        iconSize="sm"
+                      />
+                    ) : (
+                      <Icon icon={RowIcon} size="sm" />
+                    )}
                     <Text variant="body" as="span">
                       {item.title || 'Untitled'}
                     </Text>
@@ -803,7 +818,16 @@ function DriveGrid(props: RowsProps): ReactNode {
               aria-label={`Select ${item.title || 'Untitled'}`}
               className="self-start"
             />
-            <Icon icon={RowIcon} size="lg" />
+            {isFileRow(item) ? (
+              <DriveFileThumbnail
+                item={item}
+                info={info}
+                className="aspect-square w-full"
+                iconSize="lg"
+              />
+            ) : (
+              <Icon icon={RowIcon} size="lg" />
+            )}
             <button
               type="button"
               onClick={() => {

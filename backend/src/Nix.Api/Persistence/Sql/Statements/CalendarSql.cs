@@ -71,6 +71,28 @@ public static class CalendarSql
     /// different subset per request. Entries enter by date, then by the workspace's own sibling
     /// order, so a truncated read keeps the earliest of the window rather than an arbitrary sample.
     /// </para>
+    /// <para>
+    /// <b>Daily notes ride the same read when the workspace asks for them.</b> A daily note is
+    /// filed under the Daily notes root, directly or inside a year or month folder, so it is not
+    /// the direct child of anything with a calendar view and the container arm cannot reach it. The
+    /// second arm of <c>entries</c> reads the notes through the closure of the root instead, and
+    /// is gated by <c>daily_on</c>: the workspace's <c>showOnCalendar</c> setting, read in the
+    /// statement beside everything else so the whole answer is one instant. While the setting is
+    /// false, absent or not a boolean, the gate is a one-time filter and the arm never runs.
+    /// </para>
+    /// <para>
+    /// A note counts only when it sits under the root the reader derives for this workspace
+    /// (<c>@daily_root_id</c>) and carries a well-formed <c>$daily</c> date, so the marker typed
+    /// onto an unrelated item does not put it on the calendar. The note is shown under the same
+    /// rules as any other entry: active, not a template, no deleted or template ancestor, and no
+    /// closed lock over its parent or any ancestor of its parent. A lock on the note itself is not
+    /// consulted, which is what the container arm already does for a locked child of an open
+    /// container: the entry carries a title and a date, and the lock withholds the body. The note
+    /// is reported under its own parent, which is the root or the folder it is filed in. A note
+    /// that the container arm also returns - its parent has a calendar view whose property puts
+    /// it in the window - is left to that arm, so an item is never listed twice. The entry ceiling
+    /// and the ordering apply to the two arms together, so truncation stays honest.
+    /// </para>
     /// </remarks>
     public const string WorkspaceCalendar = $"""
         WITH calendar_view AS (
@@ -114,32 +136,105 @@ public static class CalendarSql
             FROM calendar_view
             WHERE rank = 1
         ),
+        daily_on AS (
+            SELECT 1
+            FROM workspace AS settings
+            WHERE settings.tenant_id = @tenant_id
+              AND settings.workspace_id = @workspace_id
+              AND settings.workspace_id = ANY(@workspace_ids)
+              AND COALESCE(
+                    CASE WHEN jsonb_typeof(settings.daily_notes -> 'showOnCalendar') = 'boolean'
+                         THEN (settings.daily_notes ->> 'showOnCalendar')::boolean END,
+                    false)
+        ),
         entries AS (
-            SELECT child.id AS item_id,
-                   child.properties ->> 'title' AS item_title,
-                   chosen.container_id AS container_id,
-                   chosen.container_title AS container_title,
-                   chosen.date_property AS date_property,
-                   child.properties ->> chosen.date_property AS value,
-                   chosen.end_property AS end_property,
-                   CASE
-                       WHEN chosen.end_property IS NULL THEN NULL
-                       ELSE child.properties ->> chosen.end_property
-                   END AS end_value,
-                   child.seq AS seq
-            FROM chosen
-            JOIN item AS child
-              ON child.parent_id = chosen.container_id
-             AND child.tenant_id = @tenant_id
-             AND child.workspace_id = @workspace_id
-             AND child.workspace_id = ANY(@workspace_ids)
-             AND child.lifecycle_state = 'active'
-             AND child.template_id IS NULL
-            WHERE chosen.date_property IS NOT NULL
-              AND child.properties ->> chosen.date_property IS NOT NULL
-              AND left(child.properties ->> chosen.date_property, 10) >= @from
-              AND left(child.properties ->> chosen.date_property, 10) <= @to
-            ORDER BY value, child.seq, child.id
+            SELECT candidate.item_id, candidate.item_title, candidate.container_id,
+                   candidate.container_title, candidate.date_property, candidate.value,
+                   candidate.end_property, candidate.end_value, candidate.seq
+            FROM (
+                SELECT child.id AS item_id,
+                       child.properties ->> 'title' AS item_title,
+                       chosen.container_id AS container_id,
+                       chosen.container_title AS container_title,
+                       chosen.date_property AS date_property,
+                       child.properties ->> chosen.date_property AS value,
+                       chosen.end_property AS end_property,
+                       CASE
+                           WHEN chosen.end_property IS NULL THEN NULL
+                           ELSE child.properties ->> chosen.end_property
+                       END AS end_value,
+                       child.seq AS seq
+                FROM chosen
+                JOIN item AS child
+                  ON child.parent_id = chosen.container_id
+                 AND child.tenant_id = @tenant_id
+                 AND child.workspace_id = @workspace_id
+                 AND child.workspace_id = ANY(@workspace_ids)
+                 AND child.lifecycle_state = 'active'
+                 AND child.template_id IS NULL
+                WHERE chosen.date_property IS NOT NULL
+                  AND child.properties ->> chosen.date_property IS NOT NULL
+                  AND left(child.properties ->> chosen.date_property, 10) >= @from
+                  AND left(child.properties ->> chosen.date_property, 10) <= @to
+
+                UNION ALL
+
+                SELECT note.id AS item_id,
+                       note.properties ->> 'title' AS item_title,
+                       container.id AS container_id,
+                       container.properties ->> 'title' AS container_title,
+                       '$daily' AS date_property,
+                       note.properties ->> '$daily' AS value,
+                       NULL AS end_property,
+                       NULL AS end_value,
+                       note.seq AS seq
+                FROM item_closure AS under_root
+                JOIN item AS note
+                  ON note.tenant_id = @tenant_id
+                 AND note.id = under_root.descendant_id
+                JOIN item AS container
+                  ON container.tenant_id = @tenant_id
+                 AND container.id = note.parent_id
+                WHERE EXISTS (SELECT 1 FROM daily_on)
+                  AND under_root.tenant_id = @tenant_id
+                  AND under_root.ancestor_id = @daily_root_id
+                  AND under_root.depth > 0
+                  AND note.workspace_id = @workspace_id
+                  AND note.workspace_id = ANY(@workspace_ids)
+                  AND note.lifecycle_state = 'active'
+                  AND note.template_id IS NULL
+                  AND note.properties ->> '$daily' ~ '^[0-9][0-9][0-9][0-9]-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$'
+                  AND note.properties ->> '$daily' >= @from
+                  AND note.properties ->> '$daily' <= @to
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM item_closure AS visibility_edge
+                      LEFT JOIN LATERAL (
+                          SELECT visibility_ancestor.template_id,
+                                 visibility_ancestor.lifecycle_state
+                          FROM item AS visibility_ancestor
+                          WHERE visibility_ancestor.tenant_id = @tenant_id
+                            AND visibility_ancestor.id = visibility_edge.ancestor_id
+                          LIMIT 1
+                      ) AS stored_ancestor ON TRUE
+                      WHERE visibility_edge.tenant_id = @tenant_id
+                        AND visibility_edge.descendant_id = note.id
+                        AND visibility_edge.depth > 0
+                        AND (stored_ancestor.template_id IS NOT NULL
+                             OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
+                      OFFSET 0
+                  )
+                  AND {ItemLockSql.ContainerIsOpen}
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM chosen
+                      WHERE chosen.container_id = note.parent_id
+                        AND chosen.date_property IS NOT NULL
+                        AND left(note.properties ->> chosen.date_property, 10) >= @from
+                        AND left(note.properties ->> chosen.date_property, 10) <= @to
+                  )
+            ) AS candidate
+            ORDER BY candidate.value, candidate.seq, candidate.item_id
             LIMIT @entry_limit
         )
         SELECT 0 AS row_kind,

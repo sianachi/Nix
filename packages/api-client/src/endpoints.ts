@@ -62,6 +62,8 @@ export interface QueryEndpoint<TResult> {
   /** Cache identity. Defaults to the request itself when not supplied. */
   readonly cacheKey: CacheKey | undefined;
   readonly staleAfterMs: number | undefined;
+  /** Budget for a deliberately long poll; ordinary reads use the client default. */
+  readonly timeoutMs?: number | undefined;
 }
 
 export interface QuerySpec<TResult> {
@@ -71,6 +73,7 @@ export interface QuerySpec<TResult> {
   readonly query?: QueryParameters | undefined;
   readonly cacheKey?: CacheKey | undefined;
   readonly staleAfterMs?: number | undefined;
+  readonly timeoutMs?: number | undefined;
 }
 
 export function defineQuery<TResult>(spec: QuerySpec<TResult>): QueryEndpoint<TResult> {
@@ -82,6 +85,7 @@ export function defineQuery<TResult>(spec: QuerySpec<TResult>): QueryEndpoint<TR
     schema: spec.schema,
     cacheKey: spec.cacheKey,
     staleAfterMs: spec.staleAfterMs,
+    ...(spec.timeoutMs === undefined ? {} : { timeoutMs: spec.timeoutMs }),
   };
 }
 

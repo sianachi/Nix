@@ -235,6 +235,29 @@ public enum PropertyType
     /// </para>
     /// </remarks>
     Reminder = 18,
+
+    /// <summary>
+    /// Plain text that may contain line breaks, for a value too long for a one-line
+    /// <see cref="Text"/> field. Stored as a JSON string; carries no formatting.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Value-shaped like <see cref="Text"/> - a string - so sorting, filtering, search and export
+    /// treat it as they treat text. What differs is the bound: <see cref="PropertyValidator"/>
+    /// refuses a value longer than 8,000 characters.
+    /// </para>
+    /// <para>
+    /// <b>The limit exists because an item's whole property bag is capped at
+    /// <see cref="PropertyValidator.MaximumBytes"/> (32 KB).</b> One field must not be able to take
+    /// all of that and starve every other property on the item. Anything longer than the limit is
+    /// not a property value; it belongs in the item's body, which is what holds long-form content.
+    /// </para>
+    /// <para>
+    /// Not usable as a form respondent identity or as a template text input: those need a short,
+    /// single-line value, which is what <see cref="Text"/> is for.
+    /// </para>
+    /// </remarks>
+    LongText = 19,
 }
 
 /// <summary>
@@ -314,6 +337,9 @@ public static class PropertyTypes
             case "reminder":
                 type = PropertyType.Reminder;
                 return true;
+            case "long_text":
+                type = PropertyType.LongText;
+                return true;
             default:
                 type = default;
                 return false;
@@ -345,6 +371,7 @@ public static class PropertyTypes
         PropertyType.Rollup => "rollup",
         PropertyType.DateTime => "datetime",
         PropertyType.Reminder => "reminder",
+        PropertyType.LongText => "long_text",
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Unknown property type."),
     };
 

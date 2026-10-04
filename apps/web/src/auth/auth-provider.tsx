@@ -1,3 +1,8 @@
+import { stop as stopAudio } from '../audio/audio-store';
+import { clearAudioPositions } from '../lib/audio-positions';
+import { forgetThumbnails } from '../lib/thumbnail-cache';
+import { clearPendingDailyTemplate } from '../lib/pending-daily-template';
+import { clearPetDrafts } from '../pets/pet-drafts';
 import { clearBodyCache, openBodyCache } from '../editor/body-cache';
 import { clearFrecency } from '../lib/frecency';
 import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
@@ -277,6 +282,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       // this tab's in-memory frecency cache.
       clearFrecency();
       clearSuggestionDismissals();
+      stopAudio();
+      clearAudioPositions();
+      clearPetDrafts();
+      clearPendingDailyTemplate();
+      void forgetThumbnails();
       // The signing-out tab already cleared the shared store; clearing here as well stops this
       // tab's editors from writing a copy back after it did.
       if (typeof indexedDB !== 'undefined') void clearBodyCache().catch(() => undefined);
@@ -310,6 +320,11 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         clearInterruptedImport();
         clearFrecency();
         clearSuggestionDismissals();
+        stopAudio();
+        clearAudioPositions();
+        clearPetDrafts();
+        clearPendingDailyTemplate();
+        await forgetThumbnails();
         await unsubscribePushBeforeSignOut(accessTokenRef.current?.value ?? null);
         const draftsCleared =
           typeof indexedDB === 'undefined' ||

@@ -35,6 +35,7 @@ export {
   chromeSurface,
   disabledState,
   dragHandleLineStates,
+  fieldFocus,
   focusRing,
   focusRingInset,
   gridRangeCell,

@@ -35,6 +35,7 @@ internal sealed class WorkspaceConfiguration : IEntityTypeConfiguration<Workspac
             .HasColumnName("personal_owner_principal_id");
         builder.Property(workspace => workspace.VersionRetentionDays).HasColumnName("version_retention_days");
         builder.Property(workspace => workspace.CoalesceWindowMinutes).HasColumnName("coalesce_window_min");
+        builder.Property(workspace => workspace.DailyNotes).HasColumnName("daily_notes").HasColumnType("jsonb");
         builder.Property(workspace => workspace.StorageQuotaBytes).HasColumnName("storage_quota_bytes");
         builder.Property(workspace => workspace.CreatedAt).HasColumnName("created_at").IsRequired();
         builder.Property(workspace => workspace.LifecycleState)

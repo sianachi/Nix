@@ -68,6 +68,13 @@ public static class PropertyValidator
     public const int MaximumBytes = 32 * 1024;
 
     /// <summary>
+    /// The most characters a <see cref="PropertyType.LongText"/> value may hold. A fraction of
+    /// <see cref="MaximumBytes"/>, so one field cannot take the whole property bag; longer content
+    /// belongs in the item's body.
+    /// </summary>
+    public const int MaximumLongTextLength = 8000;
+
+    /// <summary>
     /// Every violation in a write, with required-ness enforced only on the keys it touched.
     /// </summary>
     /// <param name="write">The merged bag and the keys the write named.</param>
@@ -261,6 +268,8 @@ public static class PropertyValidator
         // meaning: this is the instant a reminder fires, checked the same way a plain Timestamp
         // property is.
         PropertyType.Reminder => CheckTimestamp(definition, value),
+
+        PropertyType.LongText => CheckLongText(definition, value),
 
         // A type this build defines and this switch does not handle is a bug here, not a value the
         // caller got wrong - and the arm it falls into decides whether that bug is loud or silent.
@@ -456,6 +465,23 @@ public static class PropertyValidator
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Reads a long text: a string that may contain line breaks, at most
+    /// <see cref="MaximumLongTextLength"/> characters.
+    /// </summary>
+    private static string? CheckLongText(PropertyDefinition definition, JsonNode? value)
+    {
+        var text = ReadString(value);
+        if (text is null)
+        {
+            return $"{definition.Label} must be text.";
+        }
+
+        return text.Length > MaximumLongTextLength
+            ? $"{definition.Label} must be at most 8,000 characters."
+            : null;
     }
 
     private static string? CheckUrl(PropertyDefinition definition, JsonNode? value)

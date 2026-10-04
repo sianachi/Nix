@@ -107,4 +107,20 @@ internal static partial class ApiLog
         string operation,
         string failure,
         string code);
+
+    [LoggerMessage(
+        EventId = 2008,
+        Level = LogLevel.Information,
+        Message = "Inline writing request {RequestId} ({Kind}) ended as {Outcome}: {SelectionBytes} "
+            + "selection bytes in, {CopiedBytes} bytes streamed out, HTTP {Status}, {ElapsedMs} ms; "
+            + "no note or model text was logged.")]
+    public static partial void PetInlineEnded(
+        ILogger logger,
+        Guid requestId,
+        string kind,
+        string outcome,
+        int selectionBytes,
+        long copiedBytes,
+        int status,
+        long elapsedMs);
 }

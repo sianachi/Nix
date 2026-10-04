@@ -7,6 +7,7 @@ import {
   LayoutTemplate,
   Network,
   NotebookText,
+  PawPrint,
   Settings,
   Trash2,
   Zap,
@@ -15,6 +16,7 @@ import {
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 
+import { usePetNavEntry } from '../pets/use-pet-nav-entry';
 import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
@@ -110,6 +112,14 @@ type RailItem = RailDestination | RailAction;
  * sequence, with a direction - and the link graph has neither. `Network`'s undirected nodes and
  * edges are what the view actually shows.
  */
+const PET_ITEM: RailDestination = {
+  kind: 'destination',
+  to: '/pet',
+  label: 'Pet',
+  icon: PawPrint,
+  group: 'workspace',
+};
+
 const ITEMS: readonly RailItem[] = [
   { kind: 'destination', to: '', label: 'Notes', icon: NotebookText, group: 'workspace' },
   {
@@ -177,9 +187,20 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
   const { pathname } = useLocation();
   const { workspaceId, workspace } = useWorkspace();
   const workspaceRoot = `/w/${workspaceId}`;
-  const items = workspace.canUseDailyNotes
+  const petEntry = usePetNavEntry();
+  const dailyItems = workspace.canUseDailyNotes
     ? ITEMS
     : ITEMS.filter((item) => item.kind !== 'destination' || item.to !== '/daily');
+  // The pet page is offered only while this device's preference and a switched-on companion call
+  // for it, so it is added to the list rather than declared in it. It sits after Bookmarks, the
+  // last of the whole-workspace views, ahead of Templates and the tools.
+  const items: readonly RailItem[] = petEntry
+    ? dailyItems.flatMap((item) =>
+        item.kind === 'destination' && item.to === '/bookmarks'
+          ? [item, { ...PET_ITEM, label: petEntry.label }]
+          : [item],
+      )
+    : dailyItems;
 
   // Which control is the rail's single tab stop. Null until somebody has actually put focus in here,
   // so the entry point is the current destination by default - derived from the URL rather than

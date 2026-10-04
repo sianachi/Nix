@@ -25,7 +25,7 @@ public static class WorkspaceAdministrationSql
         ), candidates AS MATERIALIZED (
             SELECT w.workspace_id, w.name, w.version_retention_days,
                    w.storage_quota_bytes, w.created_at, w.personal_owner_principal_id,
-                   w.lifecycle_state, w.archived_at
+                   w.lifecycle_state, w.archived_at, w.daily_notes
             FROM workspace w
             CROSS JOIN caller c
             WHERE w.tenant_id = @tenant_id
@@ -80,7 +80,14 @@ public static class WorkspaceAdministrationSql
                        AND owners.subject_type = 'principal' AND owners.role = 'owner'
                        AND owner_principal.kind = 'user' AND owner_principal.status = 'active') = 1)
                ) AS can_leave,
-               COALESCE(r.personal_owner_principal_id = @principal_id, false) AS can_use_daily_notes,
+               (r.lifecycle_state = 'active'
+                 AND (c.tenant_admin OR r.role_rank >= 2)
+                 AND (r.personal_owner_principal_id IS NULL OR r.personal_owner_principal_id = @principal_id)
+                 AND COALESCE(
+                       CASE WHEN jsonb_typeof(r.daily_notes -> 'enabled') = 'boolean'
+                            THEN (r.daily_notes ->> 'enabled')::boolean END,
+                       r.personal_owner_principal_id IS NOT NULL)
+               ) AS can_use_daily_notes,
                pending.invitation_id, r.lifecycle_state, r.archived_at
         FROM reachable r CROSS JOIN caller c
         LEFT JOIN LATERAL (
@@ -133,7 +140,13 @@ public static class WorkspaceAdministrationSql
                      WHERE owners.tenant_id = @tenant_id AND owners.workspace_id = w.workspace_id
                        AND owners.subject_type = 'principal' AND owners.role = 'owner'
                        AND p.kind = 'user' AND p.status = 'active') = 1)),
-               COALESCE(w.personal_owner_principal_id = @principal_id, false),
+               (w.lifecycle_state = 'active'
+                 AND (c.tenant_admin OR h.role_rank >= 2)
+                 AND (w.personal_owner_principal_id IS NULL OR w.personal_owner_principal_id = @principal_id)
+                 AND COALESCE(
+                       CASE WHEN jsonb_typeof(w.daily_notes -> 'enabled') = 'boolean'
+                            THEN (w.daily_notes ->> 'enabled')::boolean END,
+                       w.personal_owner_principal_id IS NOT NULL)),
                pending.invitation_id, w.lifecycle_state, w.archived_at
         FROM workspace w CROSS JOIN caller c CROSS JOIN held h
         LEFT JOIN LATERAL (
@@ -809,45 +822,285 @@ public static class WorkspaceAdministrationSql
         SELECT workspace_id FROM converted
         """;
 
-    /// <summary>Serializes creation attempts for one deterministic daily-note identifier.</summary>
+    /// <summary>
+    /// Reads a workspace's stored daily-note settings for a caller who can see the workspace: a
+    /// tenant administrator or any direct or group member. No row means not found, so a workspace
+    /// the caller cannot read is indistinguishable from one that does not exist.
+    /// </summary>
+    public const string ReadDailyNoteSettings = """
+        SELECT w.daily_notes::text, w.personal_owner_principal_id IS NOT NULL
+        FROM workspace w
+        WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+          AND (EXISTS (SELECT 1 FROM tenant_role tr
+                       WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                         AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                           OR (tr.subject_type = 'group' AND EXISTS (
+                               SELECT 1 FROM group_membership gm
+                               WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                 AND gm.principal_id = @principal_id))))
+            OR EXISTS (SELECT 1 FROM workspace_member wm
+                       WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                         AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                           OR (wm.subject_type = 'group' AND EXISTS (
+                               SELECT 1 FROM group_membership gm
+                               WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                 AND gm.principal_id = @principal_id)))))
+        """;
+
+    /// <summary>
+    /// Replaces a workspace's daily-note settings. It uses the rename rule - a workspace owner or a
+    /// tenant administrator - and also always admits the personal owner, so the check is made in the
+    /// statement and no client claim enters it.
+    /// </summary>
+    public const string SaveDailyNoteSettings = """
+        UPDATE workspace w SET daily_notes = @settings::jsonb
+        WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+          AND (w.personal_owner_principal_id = @principal_id
+            OR EXISTS (SELECT 1 FROM workspace_member wm
+                       WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                         AND wm.role = 'owner'
+                         AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                           OR (wm.subject_type = 'group' AND EXISTS (
+                               SELECT 1 FROM group_membership gm
+                               WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                 AND gm.principal_id = @principal_id))))
+            OR EXISTS (SELECT 1 FROM tenant_role tr
+                       WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                         AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                           OR (tr.subject_type = 'group' AND EXISTS (
+                               SELECT 1 FROM group_membership gm
+                               WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                 AND gm.principal_id = @principal_id)))))
+        RETURNING workspace_id
+        """;
+
+    /// <summary>
+    /// The condition, over a <c>workspace w</c> row, that the caller may create daily notes in it.
+    /// It mirrors the permission resolver's write rule - an active workspace in which the caller is
+    /// a tenant administrator or holds the owner or editor role, directly or through a group - and
+    /// then keeps a personal workspace private to its owner, as daily notes always were.
+    /// </summary>
+    private const string DailyNoteWriter = """
+        w.lifecycle_state = 'active'
+          AND (EXISTS (SELECT 1 FROM tenant_role tr
+                       WHERE tr.tenant_id = w.tenant_id AND tr.role = 'admin'
+                         AND ((tr.subject_type = 'principal' AND tr.subject_id = @principal_id)
+                           OR (tr.subject_type = 'group' AND EXISTS (
+                               SELECT 1 FROM group_membership gm
+                               WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
+                                 AND gm.principal_id = @principal_id))))
+            OR EXISTS (SELECT 1 FROM workspace_member wm
+                       WHERE wm.tenant_id = w.tenant_id AND wm.workspace_id = w.workspace_id
+                         AND wm.role IN ('owner', 'editor')
+                         AND ((wm.subject_type = 'principal' AND wm.subject_id = @principal_id)
+                           OR (wm.subject_type = 'group' AND EXISTS (
+                               SELECT 1 FROM group_membership gm
+                               WHERE gm.tenant_id = wm.tenant_id AND gm.group_id = wm.subject_id
+                                 AND gm.principal_id = @principal_id)))))
+          AND (w.personal_owner_principal_id IS NULL OR w.personal_owner_principal_id = @principal_id)
+        """;
+
+    /// <summary>
+    /// The condition, over a <c>workspace w</c> row, that daily notes are switched on: the stored
+    /// flag when it is a boolean, otherwise the default, which is on only for a personal workspace.
+    /// </summary>
+    private const string DailyNoteEnabled = """
+        COALESCE(
+            CASE WHEN jsonb_typeof(w.daily_notes -> 'enabled') = 'boolean'
+                 THEN (w.daily_notes ->> 'enabled')::boolean END,
+            w.personal_owner_principal_id IS NOT NULL)
+        """;
+
+    /// <summary>
+    /// Serializes every daily-note creation in one workspace by taking an advisory lock on the
+    /// workspace's deterministic root identifier, so two concurrent opens cannot race to create the
+    /// root, a folder or the same note.
+    /// </summary>
     public const string LockDailyNote = "SELECT pg_advisory_xact_lock(hashtextextended(@item_id::text, 0))";
 
-    /// <summary>Idempotently inserts a deterministic dated note below the deterministic root.</summary>
-    public const string OpenDailyNote = """
+    /// <summary>
+    /// Authorises the caller to use daily notes in the workspace, locks the workspace row, and
+    /// reports what creation needs to know: the stored settings, whether the workspace is personal,
+    /// and whether the dated note already exists. No row means the caller cannot write the workspace, or it does not exist.
+    /// </summary>
+    public const string DailyNoteContext = $$"""
+        SELECT w.daily_notes::text, w.personal_owner_principal_id IS NOT NULL,
+               EXISTS (SELECT 1 FROM item note
+                       WHERE note.tenant_id = w.tenant_id AND note.workspace_id = w.workspace_id
+                         AND note.id = @item_id)
+        FROM workspace w
+        WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+          AND {{DailyNoteWriter}}
+        FOR UPDATE OF w
+        """;
+
+    /// <summary>
+    /// Idempotently creates one container of the daily-notes tree - the root, a year folder or a
+    /// month folder - and returns its lifecycle state. A null parent makes the root, as the personal
+    /// provisioner does; otherwise the parent must be active in the same workspace. The writer and
+    /// enabled conditions are repeated here so the statement creates nothing for anyone else even if
+    /// a caller skipped <see cref="DailyNoteContext"/>. An existing container is left untouched, and
+    /// a trashed one is reported as it is rather than resurrected.
+    /// </summary>
+    public const string EnsureDailyNoteContainer = $$"""
         WITH authorized AS MATERIALIZED (
-            SELECT root.id
-            FROM workspace workspace
-            JOIN item root ON root.tenant_id = workspace.tenant_id
-                       AND root.workspace_id = workspace.workspace_id
-            WHERE workspace.tenant_id = @tenant_id AND workspace.workspace_id = @workspace_id
-              AND workspace.personal_owner_principal_id = @principal_id
-              AND root.id = @root_id AND root.lifecycle_state = 'active'
-            FOR UPDATE OF workspace
+            SELECT w.workspace_id
+            FROM workspace w
+            WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+              AND {{DailyNoteWriter}}
+              AND {{DailyNoteEnabled}}
+        ), parent AS MATERIALIZED (
+            SELECT p.id
+            FROM item p
+            WHERE p.tenant_id = @tenant_id AND p.workspace_id = @workspace_id
+              AND p.id = @parent_id AND p.lifecycle_state = 'active'
+              AND p.template_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_closure edge
+                  JOIN item ancestor ON ancestor.tenant_id = edge.tenant_id AND ancestor.id = edge.ancestor_id
+                  WHERE edge.tenant_id = @tenant_id AND edge.descendant_id = p.id
+                    AND (ancestor.lifecycle_state <> 'active' OR ancestor.template_id IS NOT NULL
+                         OR EXISTS (
+                             SELECT 1 FROM item_lock locked
+                             WHERE locked.tenant_id = @tenant_id AND locked.item_id = ancestor.id
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM item_unlock grant_row
+                                   WHERE grant_row.tenant_id = @tenant_id AND grant_row.item_id = locked.item_id
+                                     AND grant_row.credential_id = @credential_id AND grant_row.expires_at > @now)))
+              )
         ), inserted AS (
             INSERT INTO item (
                 id, tenant_id, workspace_id, type, parent_id, seq, properties,
                 lifecycle_state, created_by, last_modified_by, created_at, last_modified_at)
-            SELECT @item_id, @tenant_id, @workspace_id, 'note', a.id,
-                   COALESCE((SELECT max(seq) + 1000 FROM item sibling
-                             WHERE sibling.tenant_id = @tenant_id AND sibling.workspace_id = @workspace_id
-                               AND sibling.parent_id = a.id), 1000),
-                   jsonb_build_object('title', @date), 'active',
+            SELECT @item_id, @tenant_id, @workspace_id, 'note', @parent_id,
+                   CASE WHEN @parent_id IS NULL THEN 0
+                        ELSE COALESCE((SELECT max(seq) + 1000 FROM item sibling
+                                       WHERE sibling.tenant_id = @tenant_id
+                                         AND sibling.workspace_id = @workspace_id
+                                         AND sibling.parent_id = @parent_id), 1000) END,
+                   jsonb_build_object('title', @title), 'active',
                    @principal_id, @principal_id, @now, @now
             FROM authorized a
-            ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id
-              WHERE item.tenant_id = EXCLUDED.tenant_id
-                AND item.workspace_id = EXCLUDED.workspace_id
-                AND item.parent_id = EXCLUDED.parent_id
+            WHERE @parent_id IS NULL OR EXISTS (SELECT 1 FROM parent)
+            ON CONFLICT (id) DO NOTHING
             RETURNING id
         ), closure AS (
             INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
             SELECT i.id, i.id, @tenant_id, @workspace_id, 0 FROM inserted i
             UNION ALL
-            SELECT i.id, parent.ancestor_id, @tenant_id, @workspace_id, parent.depth + 1
+            SELECT i.id, up.ancestor_id, @tenant_id, @workspace_id, up.depth + 1
             FROM inserted i
-            JOIN item_closure parent ON parent.descendant_id = @root_id AND parent.tenant_id = @tenant_id
+            JOIN item_closure up ON up.descendant_id = @parent_id AND up.tenant_id = @tenant_id
             ON CONFLICT (descendant_id, ancestor_id) DO NOTHING
         )
-        SELECT id FROM inserted
+        SELECT 'active' FROM inserted
+        UNION ALL
+        SELECT existing.lifecycle_state
+        FROM item existing
+        WHERE existing.tenant_id = @tenant_id AND existing.workspace_id = @workspace_id
+          AND existing.id = @item_id AND EXISTS (SELECT 1 FROM authorized)
+              AND existing.template_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_closure edge
+                  JOIN item ancestor ON ancestor.tenant_id = edge.tenant_id AND ancestor.id = edge.ancestor_id
+                  WHERE edge.tenant_id = @tenant_id AND edge.descendant_id = existing.id
+                    AND (ancestor.lifecycle_state <> 'active' OR ancestor.template_id IS NOT NULL
+                         OR EXISTS (
+                             SELECT 1 FROM item_lock locked
+                             WHERE locked.tenant_id = @tenant_id AND locked.item_id = ancestor.id
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM item_unlock grant_row
+                                   WHERE grant_row.tenant_id = @tenant_id AND grant_row.item_id = locked.item_id
+                                     AND grant_row.credential_id = @credential_id AND grant_row.expires_at > @now)))
+              )
+        LIMIT 1
+        """;
+
+    /// <summary>
+    /// Idempotently opens the dated note under the given parent and returns its identifier and
+    /// whether this statement created it. An existing note is returned where it is, untouched except
+    /// that a missing <c>$daily</c> marker is added; the parent, title and folders of a new note
+    /// follow the settings at creation, and no later settings change moves it. The writer and
+    /// enabled conditions are part of the statement.
+    /// </summary>
+    public const string OpenDailyNote = $$"""
+        WITH authorized AS MATERIALIZED (
+            SELECT w.workspace_id
+            FROM workspace w
+            WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+              AND {{DailyNoteWriter}}
+              AND {{DailyNoteEnabled}}
+        ), existing AS MATERIALIZED (
+            SELECT n.id
+            FROM item n
+            WHERE n.tenant_id = @tenant_id AND n.workspace_id = @workspace_id AND n.id = @item_id
+              AND n.lifecycle_state = 'active'
+              AND EXISTS (SELECT 1 FROM authorized)
+              AND n.template_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_closure edge
+                  JOIN item ancestor ON ancestor.tenant_id = edge.tenant_id AND ancestor.id = edge.ancestor_id
+                  WHERE edge.tenant_id = @tenant_id AND edge.descendant_id = n.id AND edge.depth > 0
+                    AND (ancestor.lifecycle_state <> 'active' OR ancestor.template_id IS NOT NULL
+                         OR EXISTS (
+                             SELECT 1 FROM item_lock locked
+                             WHERE locked.tenant_id = @tenant_id AND locked.item_id = ancestor.id
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM item_unlock grant_row
+                                   WHERE grant_row.tenant_id = @tenant_id AND grant_row.item_id = locked.item_id
+                                     AND grant_row.credential_id = @credential_id AND grant_row.expires_at > @now)))
+              )
+        ), parent AS MATERIALIZED (
+            SELECT p.id
+            FROM item p
+            WHERE p.tenant_id = @tenant_id AND p.workspace_id = @workspace_id
+              AND p.id = @parent_id AND p.lifecycle_state = 'active'
+              AND p.template_id IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_closure edge
+                  JOIN item ancestor ON ancestor.tenant_id = edge.tenant_id AND ancestor.id = edge.ancestor_id
+                  WHERE edge.tenant_id = @tenant_id AND edge.descendant_id = p.id
+                    AND (ancestor.lifecycle_state <> 'active' OR ancestor.template_id IS NOT NULL
+                         OR EXISTS (
+                             SELECT 1 FROM item_lock locked
+                             WHERE locked.tenant_id = @tenant_id AND locked.item_id = ancestor.id
+                               AND NOT EXISTS (
+                                   SELECT 1 FROM item_unlock grant_row
+                                   WHERE grant_row.tenant_id = @tenant_id AND grant_row.item_id = locked.item_id
+                                     AND grant_row.credential_id = @credential_id AND grant_row.expires_at > @now)))
+              )
+        ), inserted AS (
+            INSERT INTO item (
+                id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                lifecycle_state, created_by, last_modified_by, created_at, last_modified_at)
+            SELECT @item_id, @tenant_id, @workspace_id, 'note', p.id,
+                   COALESCE((SELECT max(seq) + 1000 FROM item sibling
+                             WHERE sibling.tenant_id = @tenant_id AND sibling.workspace_id = @workspace_id
+                               AND sibling.parent_id = p.id), 1000),
+                   jsonb_build_object('title', @title, '$daily', @date), 'active',
+                   @principal_id, @principal_id, @now, @now
+            FROM authorized a CROSS JOIN parent p
+            WHERE NOT EXISTS (SELECT 1 FROM existing)
+            ON CONFLICT (id) DO NOTHING
+            RETURNING id
+        ), closure AS (
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT i.id, i.id, @tenant_id, @workspace_id, 0 FROM inserted i
+            UNION ALL
+            SELECT i.id, up.ancestor_id, @tenant_id, @workspace_id, up.depth + 1
+            FROM inserted i
+            JOIN item_closure up ON up.descendant_id = @parent_id AND up.tenant_id = @tenant_id
+            ON CONFLICT (descendant_id, ancestor_id) DO NOTHING
+        ), marked AS (
+            UPDATE item n SET properties = n.properties || jsonb_build_object('$daily', @date)
+            FROM existing e
+            WHERE n.id = e.id AND n.tenant_id = @tenant_id AND n.workspace_id = @workspace_id
+              AND NOT jsonb_exists(n.properties, '$daily')
+            RETURNING n.id
+        )
+        SELECT id, true FROM inserted
+        UNION ALL
+        SELECT id, false FROM existing
+        LIMIT 1
         """;
 }

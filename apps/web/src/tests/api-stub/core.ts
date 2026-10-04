@@ -1140,6 +1140,22 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         return Promise.resolve(new Response(null, { status: 204 }));
       }
 
+      if (
+        /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/daily-notes\/settings$/.test(parsedUrl.pathname) &&
+        method === 'GET'
+      ) {
+        return Promise.resolve(
+          json({
+            enabled: true,
+            folders: 'flat',
+            titleFormat: 'iso',
+            template: '',
+            rolloverHour: 0,
+            showOnCalendar: true,
+          }),
+        );
+      }
+
       const dailyNote =
         /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/daily-notes\/(\d{4}-\d{2}-\d{2})$/.exec(
           parsedUrl.pathname,
@@ -1147,10 +1163,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
       if (dailyNote !== null && method === 'PUT') {
         const date = dailyNote[2] ?? '';
         const existing = known.find((entry) => entry.title === date);
-        if (existing !== undefined) return Promise.resolve(json({ itemId: existing.id }));
+        if (existing !== undefined)
+          return Promise.resolve(json({ itemId: existing.id, created: false }));
         const created = item({ id: createdId(known.length), title: date });
         known.push(created);
-        return Promise.resolve(json({ itemId: created.id }));
+        return Promise.resolve(json({ itemId: created.id, created: true }));
       }
 
       // Rescheduling from the collated calendar. The stub records what was written so a test can

@@ -13,6 +13,7 @@ public static class DeterministicProvisioningId
     private const string PersonalWorkspacePurpose = "nix:provisioning:personal-workspace:v1";
     private const string DailyNotesRootPurpose = "nix:provisioning:daily-notes-root:v1";
     private const string DatedDailyNotePurpose = "nix:provisioning:dated-daily-note:v1";
+    private const string DailyNotesFolderPurpose = "nix:provisioning:daily-notes-folder:v1";
     private const string PresetObjectPurpose = "nix:provisioning:preset-object:v1";
 
     /// <summary>Derives a principal from tenant, exact issuer, and exact subject.</summary>
@@ -36,6 +37,16 @@ public static class DeterministicProvisioningId
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalDate);
         return Derive(DatedDailyNotePurpose, workspaceId.Value, canonicalDate);
+    }
+
+    /// <summary>
+    /// Derives one Daily Notes folder from its key: the year (<c>2026</c>) or the year-month
+    /// (<c>2026-10</c>).
+    /// </summary>
+    public static Guid DailyNotesFolder(WorkspaceId workspaceId, string key)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(key);
+        return Derive(DailyNotesFolderPurpose, workspaceId.Value, key);
     }
 
     /// <summary>Derives one shipped preset object.</summary>

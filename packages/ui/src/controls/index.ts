@@ -48,6 +48,7 @@ export {
   type TableSort,
   type TableSortDirection,
 } from './Table';
+export { Textarea, type TextareaProps } from './Textarea';
 export { Tag, type TagProps, type TagTone } from './Tag';
 export { Tabs, type TabItem, type TabsDrag, type TabsOrientation, type TabsProps } from './Tabs';
 export { Toast, type ToastAction, type ToastProps } from './Toast';

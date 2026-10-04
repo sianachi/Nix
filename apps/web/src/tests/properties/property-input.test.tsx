@@ -939,3 +939,43 @@ describe('a rollup property', () => {
     expect(screen.getByText(/This time has passed/)).toBeVisible();
   });
 });
+
+describe('long text edits', () => {
+  it('keeps Enter as a newline, commits once on blur, and caps the field at 8000', async () => {
+    const onCommit = vi.fn();
+    const person = userEvent.setup();
+    render(
+      <PropertyInput
+        item={itemWith({ notes: 'First' })}
+        property={propertyOf({ key: 'notes', label: 'Notes', type: 'long_text' })}
+        onCommit={onCommit}
+      />,
+    );
+    const field = screen.getByRole('textbox', { name: 'Notes' });
+    expect(field).toHaveAttribute('maxlength', '8000');
+    await person.click(field);
+    await person.type(field, '{End}{Enter}Second');
+    expect(onCommit).not.toHaveBeenCalled();
+    await person.tab();
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith('First\nSecond');
+  });
+  it('discards an unfinished edit on Escape and renders three lines on a card', async () => {
+    const onCommit = vi.fn();
+    const person = userEvent.setup();
+    render(
+      <PropertyInput
+        item={itemWith({ notes: 'First' })}
+        property={propertyOf({ key: 'notes', type: 'long_text' })}
+        density="card"
+        onCommit={onCommit}
+      />,
+    );
+    const field = screen.getByRole('textbox');
+    expect(field).toHaveAttribute('rows', '3');
+    await person.click(field);
+    await person.type(field, ' changed{Escape}');
+    await person.tab();
+    expect(field).toHaveValue('First');
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+});

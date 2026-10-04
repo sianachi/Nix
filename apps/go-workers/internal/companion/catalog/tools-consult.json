@@ -269,6 +269,7 @@
                     "type": "string",
                     "enum": [
                       "text",
+                      "long_text",
                       "number",
                       "select",
                       "multi_select",
@@ -649,6 +650,7 @@
                     "type": "string",
                     "enum": [
                       "text",
+                      "long_text",
                       "number",
                       "select",
                       "multi_select",
@@ -1182,6 +1184,7 @@
                         "type": "string",
                         "enum": [
                           "text",
+                          "long_text",
                           "number",
                           "select",
                           "multi_select",
@@ -1487,6 +1490,7 @@
                     "type": "string",
                     "enum": [
                       "text",
+                      "long_text",
                       "number",
                       "select",
                       "multi_select",
@@ -1745,6 +1749,7 @@
                     "type": "string",
                     "enum": [
                       "text",
+                      "long_text",
                       "number",
                       "select",
                       "multi_select",
@@ -2023,6 +2028,7 @@
                         "type": "string",
                         "enum": [
                           "text",
+                          "long_text",
                           "number",
                           "select",
                           "multi_select",

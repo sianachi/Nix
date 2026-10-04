@@ -20,6 +20,11 @@ namespace Nix.Features.Views;
 /// <param name="Default">
 /// What opens: a view's id, or <c>document</c> for the item's own body. Already resolved, so a
 /// default naming a deleted view arrives here as <c>document</c> rather than as a dangling id.
+/// While the document tab is hidden it is never <c>document</c>: the first view stands in.
+/// </param>
+/// <param name="HideDocument">
+/// Whether the item's own document tab is left out of its switcher. Hides a tab only; it is not an
+/// access control, and the body stays readable everywhere it already was.
 /// </param>
 /// <remarks>
 /// The second list is what stops a board whose grouping property was deleted from rendering as an
@@ -29,7 +34,8 @@ namespace Nix.Features.Views;
 public sealed record ContainerViewSet(
     ImmutableArray<ViewDefinition> Views,
     ImmutableArray<string> Unrenderable,
-    string Default);
+    string Default,
+    bool HideDocument = false);
 
 /// <summary>Reads the views a container offers.</summary>
 /// <param name="ItemId">The container.</param>
@@ -92,7 +98,7 @@ public sealed class GetContainerViewsHandler : IQueryHandler<GetContainerViews, 
             .Select(view => view.Id)
             .ToImmutableArray();
 
-        return Result.Success(new ContainerViewSet(views, unrenderable, stored.Resolve()));
+        return Result.Success(new ContainerViewSet(views, unrenderable, stored.Resolve(), stored.HideDocument));
     }
 }
 
@@ -102,13 +108,21 @@ public sealed class GetContainerViewsHandler : IQueryHandler<GetContainerViews, 
 /// <param name="DefaultView">
 /// Which view opens: a view's id, or <c>document</c> / <see langword="null"/> for the body.
 /// </param>
+/// <param name="HideDocument">
+/// Whether to hide the item's own document tab: <see langword="null"/> leaves the stored flag as it
+/// is. Hides a tab only; it is not an access control.
+/// </param>
 /// <remarks>
 /// <b>A whole-set replacement rather than per-view edits.</b> The set is small, bounded and
 /// ordered, and the order is part of what is being edited - a switcher's tabs are dragged into an
 /// order as often as an individual view is renamed. Per-view endpoints would make reordering a
 /// sequence of writes that can half-apply.
 /// </remarks>
-public sealed record SetContainerViews(ItemId ItemId, ImmutableArray<ViewDefinition> Views, string? DefaultView)
+public sealed record SetContainerViews(
+    ItemId ItemId,
+    ImmutableArray<ViewDefinition> Views,
+    string? DefaultView,
+    bool? HideDocument = null)
     : ICommand<ImmutableArray<ViewDefinition>>;
 
 /// <summary>Handles <see cref="SetContainerViews"/>.</summary>
@@ -178,7 +192,27 @@ public sealed class SetContainerViewsHandler
             return Result.Failure<ImmutableArray<ViewDefinition>>(PropertyErrors.InvalidViews(reason));
         }
 
-        var json = ViewDefinitionsJson.Write(views, defaultView);
+        // An absent flag keeps what is stored. Asking for it outright is the one case that rewrites
+        // a default of "document" to the first view instead of refusing it, because that is the
+        // request's own intent; a flag that was already stored makes a "document" default a
+        // contradiction of the request instead. With no views left the flag is not refused unless
+        // it was asked for: Write clears it, so deleting the last view cannot fail.
+        var hideDocument = command.HideDocument ?? ViewDefinitionsJson.Read(item.Views).HideDocument;
+        var askedToHide = command.HideDocument == true;
+        var checkedDefault = askedToHide
+            && string.Equals(defaultView, ViewDefinitionsJson.DocumentView, StringComparison.Ordinal)
+                ? null
+                : defaultView;
+        if (ViewDefinitionRules.RefuseDocumentVisibility(
+                views,
+                checkedDefault,
+                hideDocument && (askedToHide || !views.IsDefaultOrEmpty)) is { } visibility)
+        {
+            return Result.Failure<ImmutableArray<ViewDefinition>>(
+                PropertyErrors.DocumentCannotBeHidden(visibility));
+        }
+
+        var json = ViewDefinitionsJson.Write(views, checkedDefault, hideDocument);
         if (json is not null
             && System.Text.Encoding.UTF8.GetByteCount(json) > ViewDefinitionsJson.MaximumBytes)
         {
@@ -212,10 +246,15 @@ public sealed class SetContainerViewsHandler
     internal const int MaximumFilters = ViewDefinitionRules.MaximumFilters;
 
     /// <summary>Validates a complete stored-view replacement without writing it.</summary>
-    public static NixError? Validate(ImmutableArray<ViewDefinition> views, string? defaultView) =>
+    public static NixError? Validate(
+        ImmutableArray<ViewDefinition> views,
+        string? defaultView,
+        bool hideDocument = false) =>
         ViewDefinitionRules.Refuse(views, defaultView) is { } reason
             ? PropertyErrors.InvalidViews(reason)
-            : null;
+            : ViewDefinitionRules.RefuseDocumentVisibility(views, defaultView, hideDocument) is { } visibility
+                ? PropertyErrors.DocumentCannotBeHidden(visibility)
+                : null;
 
 }
 
@@ -250,7 +289,8 @@ internal static class GetContainerViewsEndpoint
                 new ContainerViewsResponse(
                     [.. views.Views.Select(ViewMapping.ToResponse)],
                     views.Unrenderable,
-                    views.Default)),
+                    views.Default,
+                    views.HideDocument)),
             error => TypedResults.Problem(StructureEndpoints.Problem(httpContext, error)));
     }
 }
@@ -287,7 +327,7 @@ internal static class SetContainerViewsEndpoint
 
         var stored = await dispatcher
             .SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
-                new SetContainerViews(ItemId.From(itemId), views, request.Default),
+                new SetContainerViews(ItemId.From(itemId), views, request.Default, request.HideDocument),
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 
@@ -309,7 +349,8 @@ internal static class SetContainerViewsEndpoint
                 new ContainerViewsResponse(
                     [.. set.Views.Select(ViewMapping.ToResponse)],
                     set.Unrenderable,
-                    set.Default)),
+                    set.Default,
+                    set.HideDocument)),
             error => TypedResults.Problem(StructureEndpoints.Problem(httpContext, error)));
     }
 }

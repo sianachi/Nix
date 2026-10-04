@@ -1,5 +1,5 @@
 import { KNOWN_ITEM_TYPES, type PropertyDefinition } from '@nix/api-client';
-import { Button, Checkbox, Field, Input, Select, Text, cn, focusRing } from '@nix/ui';
+import { Button, Checkbox, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { useId, useRef, type ReactNode } from 'react';
 
 import {
@@ -70,11 +70,6 @@ const DATE_TYPES = new Set(['date', 'due_date', 'start_date', 'timestamp', 'date
 
 const TEMPLATE_HINT =
   'Use {date} for the date it runs and {item.title} for the title of the item that set it off.';
-
-const textareaClasses = cn(
-  'w-full border border-divider bg-background p-3 text-foreground',
-  focusRing,
-);
 
 function withIndex<T>(list: readonly T[], index: number, next: T): readonly T[] {
   return list.map((entry, position) => (position === index ? next : entry));
@@ -570,6 +565,24 @@ function ValueField({
     );
   }
 
+  if (definition?.type === 'long_text') {
+    return (
+      <Field label={label} error={error}>
+        {(control) => (
+          <Textarea
+            {...control}
+            value={value.text}
+            maxLength={8000}
+            rows={3}
+            onChange={(event) => {
+              onChange({ ...value, text: event.currentTarget.value });
+            }}
+          />
+        )}
+      </Field>
+    );
+  }
+
   const options = definition?.type === 'select' ? definition.options : [];
   if (options.length > 0) {
     return (
@@ -882,12 +895,11 @@ function ActionBody(
             className="max-w-xl"
           >
             {(control) => (
-              <textarea
+              <Textarea
                 {...control}
                 rows={3}
                 maxLength={1000}
                 value={action.body}
-                className={textareaClasses}
                 onChange={(event) => {
                   onAction({ ...action, body: event.currentTarget.value });
                 }}

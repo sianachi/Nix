@@ -1612,6 +1612,120 @@
               }
             }
           },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/daily-notes/settings": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "A workspace's daily-note settings",
+        "description": "Returns the effective settings with defaults applied. A workspace the caller cannot read is reported as not found.",
+        "operationId": "GetDailyNoteSettings",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyNoteSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Replace a workspace's daily-note settings",
+        "description": "Allowed for a workspace owner, a tenant administrator, or the owner of a personal workspace; anyone else gets not found. Settings affect only notes created afterwards.",
+        "operationId": "SaveDailyNoteSettings",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDailyNoteSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyNoteSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Unprocessable Entity",
             "content": {
@@ -2555,6 +2669,65 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FileDownloadCapabilityResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/file/thumbnail": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "operationId": "AuthorizeFileThumbnail",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileThumbnailCapabilityResponse"
                 }
               }
             }
@@ -4230,7 +4403,7 @@
           "Structure"
         ],
         "summary": "Replace the views a container offers",
-        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.",
+        "description": "A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag.",
         "operationId": "SetContainerViews",
         "parameters": [
           {
@@ -4898,6 +5071,81 @@
           },
           "409": {
             "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/pets/inline": {
+      "post": {
+        "tags": [
+          "Pets"
+        ],
+        "summary": "Stream an inline writing result for text selected in a note",
+        "description": "Sends the selected text to the companion and streams the answer back as server-sent events, unchanged from the worker. 'delta' events carry {\"text\": \"...\"} for each piece as it is written; the stream then ends with exactly one 'done' event carrying {\"text\": \"<the whole text>\"} or one 'error' event carrying {\"code\": \"inline.provider_failed | inline.timeout | inline.too_long | inline.refused | inline.cancelled\", \"message\": \"...\"}. Comment lines ': keep-alive' arrive after 15 seconds of silence. Closing the connection cancels the model's turn. The request is refused before anything is sent when it is malformed (422 'pets.invalid_request', byte limits apply to the UTF-8 encoding), when inline writing is not turned on in the caller's pet settings (409 'pets.inline_disabled'), when the item is not readable in that workspace (404 'pets.not_found'), when the item is locked or under a locked ancestor even if this credential has it unlocked (409 'pets.inline_item_locked'), or when two requests are already open (429 'pets.inline_busy'). A companion that cannot answer is 503 'pets.unavailable'. The server does not read the item's body: 'selection' and 'context' come from the client and are not verified to belong to 'itemId'.",
+        "operationId": "PetInlineWrite",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetInlineRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -11003,7 +11251,8 @@
         "required": [
           "views",
           "unrenderable",
-          "default"
+          "default",
+          "hideDocument"
         ],
         "type": "object",
         "properties": {
@@ -11021,6 +11270,9 @@
           },
           "default": {
             "type": "string"
+          },
+          "hideDocument": {
+            "type": "boolean"
           }
         }
       },
@@ -11407,13 +11659,53 @@
       },
       "DailyNoteResponse": {
         "required": [
-          "itemId"
+          "itemId",
+          "created"
         ],
         "type": "object",
         "properties": {
           "itemId": {
             "type": "string",
             "format": "uuid"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      },
+      "DailyNoteSettingsResponse": {
+        "required": [
+          "enabled",
+          "folders",
+          "titleFormat",
+          "template",
+          "rolloverHour",
+          "showOnCalendar"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "folders": {
+            "type": "string"
+          },
+          "titleFormat": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          },
+          "rolloverHour": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "showOnCalendar": {
+            "type": "boolean"
           }
         }
       },
@@ -11979,6 +12271,75 @@
           }
         }
       },
+      "FileThumbnailCapabilityResponse": {
+        "required": [
+          "url",
+          "expiresAt",
+          "width",
+          "height",
+          "byteLength"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "width": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "byteLength": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "FileThumbnailRecord": {
+        "required": [
+          "width",
+          "height"
+        ],
+        "type": "object",
+        "properties": {
+          "width": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "FileUploadCapabilityResponse": {
         "required": [
           "id",
@@ -12139,6 +12500,16 @@
           },
           "current": {
             "type": "boolean"
+          },
+          "thumbnail": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileThumbnailRecord"
+              }
+            ]
           }
         }
       },
@@ -14741,6 +15112,60 @@
           }
         }
       },
+      "PetInlineRequest": {
+        "required": [
+          "workspaceId",
+          "itemId",
+          "requestId",
+          "kind",
+          "selection"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "itemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "selection": {
+            "type": "string"
+          },
+          "instruction": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "context": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "model": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PetMessage": {
         "required": [
           "id",
@@ -14927,6 +15352,10 @@
             "items": {
               "$ref": "#/components/schemas/PetProfile"
             }
+          },
+          "inlineWriting": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -15966,6 +16395,45 @@
           }
         }
       },
+      "SaveDailyNoteSettingsRequest": {
+        "required": [
+          "enabled",
+          "folders",
+          "titleFormat",
+          "template",
+          "rolloverHour",
+          "showOnCalendar"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "folders": {
+            "type": "string"
+          },
+          "titleFormat": {
+            "type": "string"
+          },
+          "template": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "rolloverHour": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "showOnCalendar": {
+            "type": "boolean"
+          }
+        }
+      },
       "SavePetSettingsRequest": {
         "required": [
           "expectedRevision",
@@ -16249,6 +16717,12 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "hideDocument": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }

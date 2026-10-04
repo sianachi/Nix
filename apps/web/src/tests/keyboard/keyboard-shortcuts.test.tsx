@@ -48,12 +48,18 @@ describe('the application keyboard shortcuts', () => {
   it('hides and shows the sidebar with Ctrl+\\', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/w/${STUB_WORKSPACE.id}`);
-    const toggle = await screen.findByRole('button', { name: 'Hide the workspace tree' });
+    // The loading shell also draws a sidebar toggle, before shell shortcuts are installed.
+    await screen.findByRole('button', { name: 'Alpha' });
+    const toggle = screen.getByRole('button', { name: 'Hide the workspace tree' });
 
     fireEvent.keyDown(document.body, { key: '\\', code: 'Backslash', ctrlKey: true });
 
     await waitFor(() => {
       expect(toggle).toHaveAccessibleName('Show the workspace tree');
+    });
+    fireEvent.keyDown(document.body, { key: '\\', code: 'Backslash', ctrlKey: true });
+    await waitFor(() => {
+      expect(toggle).toHaveAccessibleName('Hide the workspace tree');
     });
   });
 

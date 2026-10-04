@@ -43,6 +43,45 @@ public sealed class PropertyWriteTests : IAsyncLifetime
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
+    public async Task Long_text_round_trips_newlines_at_the_limit_and_refuses_an_extra_character()
+    {
+        ItemId noteId;
+        var text = "first\n" + new string('x', 7_994);
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var folder = await NewItemAsync(work, "Long text", null);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var declared = await dispatcher.SendAsync<SetItemSchema, PropertySchema>(
+                new SetItemSchema(folder.Id, new PropertySchema
+                {
+                    Inherit = true,
+                    Properties = [new PropertyDefinition("details", "Details", PropertyType.LongText, [], false)],
+                }), Cancellation);
+            Assert.True(declared.IsSuccess);
+            noteId = (await NewItemAsync(work, "Entry", folder.Id)).Id;
+            var written = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(noteId, new JsonObject { ["details"] = text }.ToJsonString()), Cancellation);
+            Assert.True(written.IsSuccess);
+            var refused = await dispatcher.SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(noteId, new JsonObject { ["details"] = text + "x" }.ToJsonString()), Cancellation);
+            Assert.True(refused.IsFailure);
+            Assert.Equal("properties.invalid", refused.Error.Code);
+            await work.CommitAsync(Cancellation);
+        }
+
+        var readWork = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (readWork.ConfigureAwait(false))
+        {
+            var read = await readWork.Resolve<NixDispatcher>().QueryAsync<GetItem, Result<Item>>(
+                new GetItem(noteId), Cancellation);
+            Assert.True(read.IsSuccess);
+            Assert.NotNull(read.Value.Properties);
+            Assert.Equal(text, JsonNode.Parse(read.Value.Properties)!["details"]!.GetValue<string>());
+        }
+    }
+
+    [Fact]
     public async Task A_value_that_fits_the_schema_is_stored()
     {
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);

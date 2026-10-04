@@ -295,6 +295,11 @@ func (a *account) effortFor(ctx context.Context, mode, explicitModel string) str
 }
 
 func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMessage) bool {
+	// A tool call or approval on an inline thread (inline.go) is never honoured: the stream is
+	// ended with inline.refused and the provider gets the same refusal as any unknown request.
+	if a.refuseInlineServerRequest(raw) {
+		return false
+	}
 	if method != "item/tool/call" || len(raw) > 40000 {
 		return false
 	}

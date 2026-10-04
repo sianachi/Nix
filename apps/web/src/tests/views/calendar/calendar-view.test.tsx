@@ -406,7 +406,7 @@ describe('the calendar view', () => {
   it('believes Core when it says the view can no longer be drawn', () => {
     renderCalendar({
       children: [KICKOFF],
-      views: { views: [VIEW], unrenderable: [VIEW.id], default: 'document' },
+      views: { views: [VIEW], unrenderable: [VIEW.id], default: 'document', hideDocument: false },
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent('can no longer be drawn');

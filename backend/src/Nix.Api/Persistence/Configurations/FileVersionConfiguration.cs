@@ -24,6 +24,9 @@ internal sealed class FileVersionConfiguration : IEntityTypeConfiguration<FileVe
         builder.Property(version => version.ObjectReady).HasColumnName("object_ready").HasDefaultValue(true);
         builder.Property(version => version.PixelWidth).HasColumnName("pixel_width");
         builder.Property(version => version.PixelHeight).HasColumnName("pixel_height");
+        builder.Property(version => version.ThumbnailWidth).HasColumnName("thumbnail_width");
+        builder.Property(version => version.ThumbnailHeight).HasColumnName("thumbnail_height");
+        builder.Property(version => version.ThumbnailBytes).HasColumnName("thumbnail_bytes");
         builder.Property(version => version.Previewable).HasColumnName("previewable");
         builder.Property(version => version.CreatedBy).HasColumnName("created_by");
         builder.Property(version => version.CreatedAt).HasColumnName("created_at");

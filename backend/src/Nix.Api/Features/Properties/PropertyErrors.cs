@@ -23,6 +23,9 @@ public static class PropertyErrors
     /// <summary>Stable code for a view set that could not be accepted.</summary>
     public const string InvalidViewsCode = "views.invalid";
 
+    /// <summary>Stable code for hiding the document tab when it cannot be hidden.</summary>
+    public const string DocumentCannotBeHiddenCode = "views.document_cannot_be_hidden";
+
     /// <summary>Stable code for a guided setup colliding with configuration added meanwhile.</summary>
     public const string SetupCollisionCode = "structure.setup_collision";
 
@@ -53,6 +56,11 @@ public static class PropertyErrors
     /// <param name="detail">Why.</param>
     /// <returns>The error.</returns>
     public static NixError InvalidViews(string detail) => new(InvalidViewsCode, detail);
+
+    /// <summary>The document tab was asked to be hidden where nothing else would open.</summary>
+    /// <param name="detail">Why.</param>
+    /// <returns>The error.</returns>
+    public static NixError DocumentCannotBeHidden(string detail) => new(DocumentCannotBeHiddenCode, detail);
 
     /// <summary>A field or view identifier was claimed after a wizard draft was opened.</summary>
     public static NixError SetupCollision(string detail) => new(SetupCollisionCode, detail);

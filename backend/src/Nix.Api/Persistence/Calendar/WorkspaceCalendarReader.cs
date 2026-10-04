@@ -1,6 +1,7 @@
 using Nix.Abstractions;
 using Nix.Domain.Calendar;
 using Nix.Domain.Items;
+using Nix.Domain.Provisioning;
 using Nix.Domain.Tenancy;
 using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
@@ -99,6 +100,10 @@ public sealed class WorkspaceCalendarReader : IWorkspaceCalendar
                 new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = Tenant.Value },
                 new NpgsqlParameter("workspace_id", NpgsqlDbType.Uuid) { Value = workspaceId.Value },
                 new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
+                new NpgsqlParameter("daily_root_id", NpgsqlDbType.Uuid)
+                {
+                    Value = DeterministicProvisioningId.DailyNotesRoot(workspaceId),
+                },
                 new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = firstDay },
                 new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = lastDay },
                 await LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken).ConfigureAwait(false),

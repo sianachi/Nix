@@ -191,6 +191,7 @@ public sealed class AbandonedObjectReaper(
             [
                 ObjectStorageKeys.FileUpload(TenantId.From(candidate.TenantId), uploadId),
                 ObjectStorageKeys.FileVersion(TenantId.From(candidate.TenantId), uploadId),
+                ObjectStorageKeys.FileThumbnail(TenantId.From(candidate.TenantId), uploadId),
             ],
             cancellationToken).ConfigureAwait(false);
         return true;

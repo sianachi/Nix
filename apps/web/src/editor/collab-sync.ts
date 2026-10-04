@@ -133,6 +133,14 @@ export interface CollabSyncOptions {
    * because most editors have nothing more specific to say.
    */
   readonly onNotice?: (notice: { code: string; detail: string }) => void;
+
+  /**
+   * Told each time a connection has received the server's full copy of the document - on the
+   * first connection and again after every reconnect. `live` alone does not say this: it is
+   * reported when the socket is ready, before the server's state has arrived, and anything written
+   * in that gap would be merged with a document the writer has not yet seen.
+   */
+  readonly onInitialSync?: () => void;
 }
 
 export interface CollabSync {
@@ -634,6 +642,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         }
         if (kind === syncProtocol.messageYjsSyncStep2) {
           initialSynced = true;
+          options.onInitialSync?.();
           // The first copy of a document this device has none of is worth making even if the
           // server sent it as one unchanged-looking state; an existing copy waits for a change.
           if (cachedDocId === null) markSnapshotDirty();

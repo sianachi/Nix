@@ -1,4 +1,4 @@
-import { Blueprint, Button, Field, Input, Select, Text } from '@nix/ui';
+import { Blueprint, Button, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { items as coreItems } from '@nix/api-client';
 import { useEffect, useState, type ReactNode } from 'react';
 
@@ -957,6 +957,24 @@ function RuleValueEditor({
       </Field>
     );
   }
+  if (target?.type === 'long_text') {
+    return (
+      <Field label="Fixed text">
+        {(control) => (
+          <Textarea
+            {...control}
+            autoGrow
+            className="max-h-64"
+            value={typeof value === 'string' ? value : ''}
+            maxLength={8_000}
+            onChange={(event) => {
+              onChange(event.target.value);
+            }}
+          />
+        )}
+      </Field>
+    );
+  }
   return (
     <Field label="Fixed text">
       {(control) => (
@@ -1055,7 +1073,7 @@ function compatibleInput(
   if (type.includes('date') || type.includes('time')) return inputType === 'date';
   if (type.includes('member') || type.includes('person') || type === 'assignee')
     return inputType === 'member';
-  return type === 'text' && inputType === 'text';
+  return (type === 'text' || type === 'long_text') && inputType === 'text';
 }
 
 function withOptionalDefault(input: TemplateInput, value: string | undefined): TemplateInput {

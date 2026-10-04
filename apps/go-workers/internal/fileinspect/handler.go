@@ -40,10 +40,12 @@ type Handler struct {
 	api      *workerapi.Client
 	transfer *objecttransfer.Client
 	maxBytes int64
+	// thumbnails bounds how many thumbnails this process decodes at once; see thumbnails.go.
+	thumbnails chan struct{}
 }
 
 func New(api *workerapi.Client, transfer *objecttransfer.Client, maxBytes int64) *Handler {
-	return &Handler{api: api, transfer: transfer, maxBytes: maxBytes}
+	return &Handler{api: api, transfer: transfer, maxBytes: maxBytes, thumbnails: make(chan struct{}, maxConcurrentThumbnails)}
 }
 
 func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, error) {
@@ -142,6 +144,7 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 	if err := handler.publishObject(ctx, inspection, temporaryPath, inspected); err != nil {
 		return nil, err
 	}
+	handler.attachThumbnail(ctx, payload.UploadID, inspection.FileName, temporaryPath, &inspected)
 	published, err := handler.api.PublishFileInspection(ctx, payload.UploadID, inspected)
 	if err != nil {
 		classified := apiFailure("files.publish_refused", err)

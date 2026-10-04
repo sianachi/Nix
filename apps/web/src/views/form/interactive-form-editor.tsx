@@ -1,4 +1,4 @@
-import { Button, Field, Input, Select, Text } from '@nix/ui';
+import { Button, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { Icon } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -147,7 +147,7 @@ export function InteractiveFormEditor({
           </div>
           <Field label="Introduction">
             {(control) => (
-              <textarea
+              <Textarea
                 rows={3}
                 {...control}
                 value={page.description ?? ''}
@@ -291,7 +291,7 @@ export function InteractiveFormEditor({
       </div>
       <Field label="Confirmation message">
         {(control) => (
-          <textarea
+          <Textarea
             rows={3}
             {...control}
             value={form.confirmationMessage}
@@ -737,7 +737,7 @@ function BlockEditor({
         >
           {(control) =>
             block.kind === 'paragraph' ? (
-              <textarea
+              <Textarea
                 {...control}
                 rows={3}
                 value={block.text}
@@ -831,7 +831,7 @@ function BlockEditor({
           </div>
           <Field label="Help text">
             {(control) => (
-              <textarea
+              <Textarea
                 rows={3}
                 {...control}
                 value={block.help ?? ''}

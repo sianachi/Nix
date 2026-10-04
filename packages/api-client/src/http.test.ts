@@ -127,6 +127,21 @@ describe('transport failures', () => {
     expect(error.code).toBe(NixErrorCode.Timeout);
   });
 
+  it('allows a long poll to outlive the ordinary read budget', async () => {
+    server.use(
+      http.get(testUrl('/long-poll'), async () => {
+        await delay(40);
+        return HttpResponse.json({ revision: 1 });
+      }),
+    );
+    const response = await transport(20).send({
+      method: 'GET',
+      path: '/long-poll',
+      timeoutMs: 200,
+    });
+    expect(response.body).toEqual({ revision: 1 });
+  });
+
   it('maps an aborted signal onto a cancellation that callers can tell apart from a fault', async () => {
     server.use(
       http.get(testUrl('/slow'), async () => {

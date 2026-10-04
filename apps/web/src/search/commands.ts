@@ -2,6 +2,8 @@ import {
   CalendarDays,
   FilePlus,
   Keyboard,
+  Maximize2,
+  NotebookPen,
   PanelLeft,
   Star,
   Zap,
@@ -61,7 +63,16 @@ export interface CommandContext {
   readonly openItemIsKept: boolean;
 
   readonly openToday: () => void;
+
+  /**
+   * Opens the quick capture into today's note, or null when daily notes cannot be used here - left
+   * out of the list rather than offered and refused, for the reason `toggleBookmark` is.
+   */
+  readonly captureToToday: (() => void) | null;
   readonly openShortcuts: () => void;
+
+  /** Enters or leaves Zen mode, the open item alone in the window. */
+  readonly toggleZen: () => void;
 
   /** Opens the caller's automations in this workspace. */
   readonly openAutomations: () => void;
@@ -94,6 +105,18 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
       keywords: ['today', 'daily', 'journal', 'date'],
       run: context.openToday,
     },
+    ...(context.captureToToday === null
+      ? []
+      : [
+          {
+            id: 'capture-to-today',
+            label: 'Capture to today’s note',
+            hint: 'Add text without leaving what you have open',
+            icon: NotebookPen,
+            keywords: ['capture', 'quick', 'add', 'append', 'jot', 'today', 'daily', 'journal'],
+            run: context.captureToToday,
+          },
+        ]),
     {
       id: 'toggle-sidebar',
       label: 'Show or hide the sidebar',
@@ -101,6 +124,15 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
       shortcut: keysOf('toggle-sidebar'),
       keywords: ['sidebar', 'tree', 'hide', 'show', 'collapse', 'expand', 'navigation'],
       run: context.toggleSidebar,
+    },
+    {
+      id: 'toggle-zen',
+      label: 'Toggle Zen mode',
+      hint: 'The open note or file, with nothing around it',
+      icon: Maximize2,
+      shortcut: keysOf('zen'),
+      keywords: ['zen', 'focus', 'distraction', 'fullscreen', 'full', 'screen', 'read', 'write'],
+      run: context.toggleZen,
     },
     {
       id: 'keyboard-shortcuts',

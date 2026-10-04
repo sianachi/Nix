@@ -49,6 +49,10 @@ func InspectHeader(header []byte, totalBytes int64) Metadata {
 		}
 		metadata.Animated = true
 		metadata.Malformed = metadata.Width == nil || metadata.Height == nil
+	case audioMediaType(header) != "":
+		// Audio is never "previewable" in the pixel-bounded sense above; the server serves a vetted
+		// audio type inline on its own rule, so only the true type is recorded here.
+		metadata.MediaType = audioMediaType(header)
 	case len(header) >= 5 && string(header[:5]) == "%PDF-":
 		metadata.MediaType = "application/pdf"
 		metadata.Preview = totalBytes >= 0 && totalBytes <= previewBytes
@@ -382,3 +386,46 @@ func looksLikeText(header []byte) bool {
 }
 
 func HeaderLimit() int { return maxHeaderBytes }
+
+// audioMediaType names an audio container from its leading bytes, or returns "" when the header is
+// not one. Magic numbers only, as for images: the declared type and the extension are claims, the
+// bytes are the evidence. Ogg is claimed only when the first packet is an audio codec's, because
+// the same container carries Theora video.
+func audioMediaType(header []byte) string {
+	switch {
+	case len(header) >= 3 && string(header[:3]) == "ID3":
+		return "audio/mpeg"
+	case len(header) >= 3 && header[0] == 0xff && header[1]&0xe0 == 0xe0:
+		// Frame sync. Layer bits 00 under a 12-bit sync are ADTS AAC; version 01, layer 00 otherwise
+		// and bitrate index 15 are reserved.
+		version, layer := header[1]>>3&0x3, header[1]>>1&0x3
+		switch {
+		case version == 1:
+			return ""
+		case layer == 0 && header[1]&0xf0 == 0xf0:
+			return "audio/aac"
+		case layer == 0:
+			return ""
+		case header[2]>>4 == 0xf:
+			return ""
+		default:
+			return "audio/mpeg"
+		}
+	case len(header) >= 12 && string(header[:4]) == "RIFF" && string(header[8:12]) == "WAVE":
+		return "audio/wav"
+	case len(header) >= 4 && string(header[:4]) == "fLaC":
+		return "audio/flac"
+	case len(header) >= 4 && string(header[:4]) == "OggS":
+		first := header[:min(len(header), 128)]
+		if bytes.Contains(first, []byte("OpusHead")) || bytes.Contains(first, []byte("\x01vorbis")) ||
+			bytes.Contains(first, []byte("\x7fFLAC")) {
+			return "audio/ogg"
+		}
+	case len(header) >= 12 && string(header[4:8]) == "ftyp":
+		switch string(header[8:12]) {
+		case "M4A ", "M4B ", "M4P ":
+			return "audio/mp4"
+		}
+	}
+	return ""
+}

@@ -16,6 +16,9 @@
 /** The types a person may choose, and what to call them. */
 export const PROPERTY_TYPES = [
   { value: 'text', label: 'Text' },
+  // The same string as `text`, for values too long for a one-line field: line breaks are kept and
+  // nothing is formatted - see PropertyType.LongText in PropertyType.cs.
+  { value: 'long_text', label: 'Long text (several lines)' },
   { value: 'number', label: 'Number' },
   { value: 'select', label: 'Select (one of a list)' },
   { value: 'multi_select', label: 'Multi-select (any of a list)' },
@@ -64,6 +67,7 @@ export const PROPERTY_TYPES = [
  */
 export type PropertyValueShape =
   | 'text'
+  | 'long_text'
   | 'number'
   | 'select'
   | 'multi_select'

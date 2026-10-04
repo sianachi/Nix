@@ -6,7 +6,8 @@
  * automation cannot accidentally materialize an unbounded tenant history.
  */
 
-import { workspaces, type AssignableWorkspaceRole } from '@nix/api-client';
+import { readFile } from 'node:fs/promises';
+import { workspaces, dailyNoteSettingsSchema, type AssignableWorkspaceRole } from '@nix/api-client';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
@@ -291,4 +292,37 @@ function assertConfirmed(confirmed: boolean): void {
 function assertUiRole(role: string): asserts role is AssignableWorkspaceRole {
   if (role !== 'owner' && role !== 'editor' && role !== 'viewer')
     throw new Error("Role must be 'owner', 'editor', or 'viewer'.");
+}
+
+/** Read the effective settings or replace them from a validated JSON file. */
+export async function dailyNoteSettings(
+  profileName: string | undefined,
+  workspaceId: string,
+  file: string | undefined,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const settings =
+    file === undefined
+      ? undefined
+      : dailyNoteSettingsSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+  const session = await resolveSession(profileName, deps);
+  printResult(
+    settings === undefined
+      ? await session.client.query(workspaces.dailyNoteSettings(workspaceId))
+      : await session.client.execute(workspaces.saveDailyNoteSettings(workspaceId, settings)),
+    output,
+  );
+}
+
+/** Open the one daily note for a canonical date through Core. */
+export async function openDailyNote(
+  profileName: string | undefined,
+  workspaceId: string,
+  date: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  printResult(await session.client.execute(workspaces.openDailyNote(workspaceId, date)), output);
 }

@@ -181,7 +181,10 @@ describe('the workspaces resource', () => {
       }),
     ).toMatchObject({ displayName: 'Reader' });
 
-    expect(dailyNoteSchema.parse({ itemId: PRINCIPAL_ID })).toEqual({ itemId: PRINCIPAL_ID });
+    expect(dailyNoteSchema.parse({ itemId: PRINCIPAL_ID })).toEqual({
+      itemId: PRINCIPAL_ID,
+      created: false,
+    });
   });
 
   it('refuses legacy commenter as a newly assignable role', () => {

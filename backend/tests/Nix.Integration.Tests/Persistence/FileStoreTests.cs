@@ -25,6 +25,40 @@ public sealed class FileStoreTests(NixPostgresFixture fixture) : IAsyncLifetime
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
+    public async Task Thumbnail_authorization_obeys_tenant_and_body_lock_boundaries()
+    {
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null, $"""
+                UPDATE file_version SET thumbnail_width = 40, thumbnail_height = 60, thumbnail_bytes = 100
+                WHERE item_id = '{M0SchemaSeed.Alpha.ItemId:D}';
+                """);
+        }
+
+        await using (var alpha = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation))
+        {
+            var files = alpha.Resolve<IFileStore>();
+            var thumbnail = await files.AuthorizeThumbnailAsync(ItemId.From(M0SchemaSeed.Alpha.ItemId), null, Cancellation);
+            Assert.NotNull(thumbnail);
+            Assert.Equal(40, thumbnail.Width);
+            Assert.Null(await files.AuthorizeThumbnailAsync(ItemId.From(M0SchemaSeed.Beta.ItemId), null, Cancellation));
+        }
+
+        var locking = await fixture.OpenMigratorConnectionAsync();
+        await using (locking.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(locking, null, $"""
+                INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+                VALUES ('{M0SchemaSeed.Alpha.ItemId:D}', '{M0SchemaSeed.Alpha.TenantId:D}',
+                        '{new string('a', 64)}', '{M0SchemaSeed.Alpha.PrincipalId:D}', now());
+                """);
+        }
+        await using var locked = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        Assert.Null(await locked.Resolve<IFileStore>().AuthorizeThumbnailAsync(ItemId.From(M0SchemaSeed.Alpha.ItemId), null, Cancellation));
+    }
+
+    [Fact]
     public async Task File_metadata_and_history_never_cross_tenants()
     {
         await using var alpha = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);

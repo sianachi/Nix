@@ -1,4 +1,4 @@
-import { Button, Select, Text } from '@nix/ui';
+import { Button, Field, Input, Select, Text } from '@nix/ui';
 import type { HabitTracker } from '@nix/api-client';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
@@ -216,32 +216,32 @@ export function HabitChartWidgets({
                   ))}
                 </Select>
               </label>
-              <label className="flex flex-col gap-1">
-                <Text variant="note" tone="muted" as="span">
-                  From
-                </Text>
-                <input
-                  className="rounded-md border border-divider bg-surface px-2 py-1"
-                  type="date"
-                  value={widget.from}
-                  onChange={(event) => {
-                    update(widget.id, { from: event.target.value });
-                  }}
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <Text variant="note" tone="muted" as="span">
-                  To
-                </Text>
-                <input
-                  className="rounded-md border border-divider bg-surface px-2 py-1"
-                  type="date"
-                  value={widget.to}
-                  onChange={(event) => {
-                    update(widget.id, { to: event.target.value });
-                  }}
-                />
-              </label>
+              <Field label="From">
+                {(control) => (
+                  <Input
+                    {...control}
+                    className="w-40"
+                    type="date"
+                    value={widget.from}
+                    onChange={(event) => {
+                      update(widget.id, { from: event.target.value });
+                    }}
+                  />
+                )}
+              </Field>
+              <Field label="To">
+                {(control) => (
+                  <Input
+                    {...control}
+                    className="w-40"
+                    type="date"
+                    value={widget.to}
+                    onChange={(event) => {
+                      update(widget.id, { to: event.target.value });
+                    }}
+                  />
+                )}
+              </Field>
             </div>
             <WidgetData widget={widget} refreshKey={tracker} />
           </article>

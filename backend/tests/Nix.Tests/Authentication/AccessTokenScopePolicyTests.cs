@@ -64,6 +64,7 @@ public sealed class AccessTokenScopePolicyTests
         ["GetFile"] = Requirement.Read,
         ["GetFileUpload"] = Requirement.Read,
         ["AuthorizeFileDownload"] = Requirement.Read,
+        ["AuthorizeFileThumbnail"] = Requirement.Read,
         ["GetDocumentImport"] = Requirement.Read,
         ["AuthorizeDocumentImportPreview"] = Requirement.Read,
         ["GetTemplateImport"] = Requirement.Read,
@@ -141,6 +142,7 @@ public sealed class AccessTokenScopePolicyTests
         ["SavePetSettings"] = Requirement.Write,
         ["GetPetConnection"] = Requirement.InteractiveOnly,
         ["PetRuntime"] = Requirement.InteractiveOnly,
+        ["PetInlineWrite"] = Requirement.InteractiveOnly,
         ["WatchPetRuntime"] = Requirement.InteractiveOnly,
 
         // Reading either is a normal Read; a PAT-driven automation should never be able to
@@ -162,6 +164,8 @@ public sealed class AccessTokenScopePolicyTests
         ["CreateWorkspace"] = Requirement.Write,
         ["RenameWorkspace"] = Requirement.Write,
         ["OpenDailyNote"] = Requirement.Write,
+        ["GetDailyNoteSettings"] = Requirement.Read,
+        ["SaveDailyNoteSettings"] = Requirement.Write,
         ["BeginFileUpload"] = Requirement.Write,
         ["CompleteFileUpload"] = Requirement.Write,
         ["CancelFileUpload"] = Requirement.Write,
@@ -364,6 +368,7 @@ public sealed class AccessTokenScopePolicyTests
     [InlineData("GET", "/api/v1/me/tokens")]
     [InlineData("GET", "/api/v1/me/pets/connection")]
     [InlineData("POST", "/api/v1/me/pets/runtime")]
+    [InlineData("POST", "/api/v1/me/pets/inline")]
     [InlineData("POST", "/api/v1/me/tokens")]
     [InlineData("DELETE", "/api/v1/me/tokens/00000000-0000-0000-0000-000000000001")]
     public void No_scope_admits_a_token_to_token_management(string method, string path)

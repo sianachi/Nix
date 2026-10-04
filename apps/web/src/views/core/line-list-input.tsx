@@ -1,6 +1,7 @@
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import { Textarea, type TextareaProps } from '@nix/ui';
+import { useState, type ReactNode } from 'react';
 
-type Props = Omit<ComponentProps<'textarea'>, 'value' | 'defaultValue' | 'onChange'> & {
+type Props = Omit<TextareaProps, 'value' | 'defaultValue' | 'onChange'> & {
   readonly value: readonly string[];
   readonly onChange: (value: string[]) => void;
 };
@@ -16,7 +17,7 @@ export function LineListInput({ value, onChange, ...props }: Props): ReactNode {
   }
 
   return (
-    <textarea
+    <Textarea
       {...props}
       value={draft.text}
       onChange={(event) => {

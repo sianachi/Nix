@@ -1,5 +1,5 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
-import { Button, Text } from '@nix/ui';
+import { Button, Input, Text } from '@nix/ui';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNarrowViewport } from '../layout/viewport';
 import { GraphView } from './graph-view';
@@ -111,18 +111,18 @@ export function GraphExplorer({
         aria-label="Graph connections"
         className="flex flex-col gap-3"
       >
-        <label className="flex flex-col gap-2">
+        <label htmlFor="graph-explorer-search" className="flex flex-col gap-2">
           <Text as="span" variant="caption">
             Find an item
           </Text>
-          <input
+          <Input
+            id="graph-explorer-search"
             type="search"
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
               setLimit(50);
             }}
-            className="rounded-md border border-divider bg-background px-3 py-2"
           />
         </label>
         <Text as="p" variant="caption" tone="muted" role="status">

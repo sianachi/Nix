@@ -648,6 +648,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
                       {field.label}
                     </Text>
                     <ListCell
+                      density="card"
                       item={item}
                       property={field}
                       onWrite={(value) => onWrite(item.id, field.key, value)}

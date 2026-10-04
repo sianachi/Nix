@@ -35,6 +35,12 @@ public sealed class Workspace
     /// </summary>
     public required int CoalesceWindowMinutes { get; init; }
 
+    /// <summary>
+    /// Gets the stored daily-note settings document, or null when the workspace uses the defaults.
+    /// Read it through <see cref="DailyNoteSettings.Read"/>, which tolerates a missing or unknown field.
+    /// </summary>
+    public string? DailyNotes { get; init; }
+
     /// <summary>Gets the workspace's storage ceiling in bytes.</summary>
     public required long StorageQuotaBytes { get; init; }
 

@@ -21,6 +21,8 @@ export function validateValue(definition: StructureProperty, value: unknown): st
   switch (definition.type) {
     case 'text':
       return checkText(definition, value);
+    case 'long_text':
+      return checkLongText(definition, value);
     case 'number':
       return checkNumber(definition, value);
     case 'checkbox':
@@ -59,6 +61,18 @@ export function validateValue(definition: StructureProperty, value: unknown): st
 
 function checkText(definition: StructureProperty, value: unknown): string | null {
   return typeof value === 'string' ? null : `${definition.label} must be text.`;
+}
+
+/** The longest long-text value, in UTF-16 code units; `PropertyValidator.cs` holds the same bound. */
+const LONG_TEXT_MAX_LENGTH = 8000;
+
+function checkLongText(definition: StructureProperty, value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return `${definition.label} must be text.`;
+  }
+  return value.length <= LONG_TEXT_MAX_LENGTH
+    ? null
+    : `${definition.label} must be at most 8,000 characters.`;
 }
 
 function checkNumber(definition: StructureProperty, value: unknown): string | null {

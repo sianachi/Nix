@@ -56,10 +56,13 @@ public static class AccessTokenScopePolicy
         ArgumentException.ThrowIfNullOrWhiteSpace(method);
 
         // Linked ChatGPT credentials and their usage are an interactive-user boundary, not a
-        // capability implicitly delegated by a Nix personal access token.
+        // capability implicitly delegated by a Nix personal access token. Inline writing is the
+        // same boundary: it sends note text to the person's own provider account from the editor,
+        // which a token used by an automation has no reason to do.
         if (path.StartsWithSegments("/api/v1/me/tokens", StringComparison.OrdinalIgnoreCase)
             || path.StartsWithSegments("/api/v1/me/pets/runtime", StringComparison.OrdinalIgnoreCase)
-            || path.StartsWithSegments("/api/v1/me/pets/connection", StringComparison.OrdinalIgnoreCase))
+            || path.StartsWithSegments("/api/v1/me/pets/connection", StringComparison.OrdinalIgnoreCase)
+            || path.StartsWithSegments("/api/v1/me/pets/inline", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.InteractiveOnly;
         }

@@ -70,11 +70,14 @@ import { ReferenceResolutionProvider } from './reference-resolution';
 import { ReferenceView } from './reference-view';
 import { NoteImageView } from './note-image-view';
 import { SlashMenu } from './slash-menu';
+import { InlineAiPanel } from './inline-ai/inline-ai-panel';
+import { useInlineAi } from './inline-ai/use-inline-ai';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
 import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
 import { PendingReferenceNotice } from './pending-reference-notice';
+import { usePendingDailyTemplate } from './use-pending-daily-template';
 import { LOCAL_COPY_STALE, StaleCopyNotice } from './stale-copy-notice';
 
 /**
@@ -106,6 +109,8 @@ export interface NoteEditorProps {
    * carries no lock, and a locked body is never kept on disk.
    */
   readonly cacheBody?: boolean;
+  /** Hide the formatting chrome while retaining the mounted collaborative editor. */
+  readonly hideToolbar?: boolean;
   /**
    * The note's parent as the page already knows it (`null` at a workspace root, `undefined` when
    * the page does not know). A ranking hint for the reference picker only, so a stale value after a
@@ -417,6 +422,7 @@ export function NoteEditor({
   mobileActions,
   mobileDetails,
   cacheBody = false,
+  hideToolbar = false,
   parentId,
 }: NoteEditorProps): ReactNode {
   const narrow = useDrawerNavigation();
@@ -426,6 +432,8 @@ export function NoteEditor({
   const profile = useSessionStore((state) => state.profile);
   const [draftState, setDraftState] = useState<DraftState | undefined>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
+  // Whether the server's copy of the body has arrived at least once; see `onInitialSync`.
+  const [synced, setSynced] = useState(false);
 
   // What the server last refused, in words. Held rather than derived because a refusal is an
   // event: the document on screen still shows the edit, and the only honest thing to do is say
@@ -683,6 +691,7 @@ export function NoteEditor({
   const pageGuides = usePageGuidePreference((state) => state.visibility);
   // State rather than a ref, so the overlay renders once the box exists rather than one render late.
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
+  const inlineAi = useInlineAi({ editor, itemId, workspaceId });
 
   const activeVimMode = useEditorState({
     editor,
@@ -693,6 +702,15 @@ export function NoteEditor({
   useEffect(() => {
     if (stale) editor.setEditable(false);
   }, [editor, stale]);
+
+  // A daily note's template goes in once the server's copy is known to be empty.
+  usePendingDailyTemplate({
+    itemId,
+    editor,
+    fragment,
+    synced,
+    writable: syncState !== 'readonly' && !stale,
+  });
 
   // The mention underlines' view of this note. The lookup goes through the client like every
   // other request; read-only and offline are checked where it is called.
@@ -852,6 +870,9 @@ export function NoteEditor({
         }
         setSyncState(state);
       },
+      onInitialSync: () => {
+        setSynced(true);
+      },
       onNotice: (notice) => {
         if (notice.code === LOCAL_COPY_STALE) setStale(true);
         const copy = REFUSAL_COPY[notice.code];
@@ -953,7 +974,7 @@ export function NoteEditor({
               Vim basics starts in Normal mode. Press i to insert text and Escape to return to
               Normal.
             </Text>
-            {narrow ? (
+            {hideToolbar ? null : narrow ? (
               <MobileNoteToolbar
                 editor={editor}
                 formatting={formatting}
@@ -1021,6 +1042,7 @@ export function NoteEditor({
                   insertionRef.current = editor.state.selection.from;
                   setAddressRequest('image');
                 }}
+                onInlineAi={inlineAi.available ? inlineAi.start : undefined}
               />
               <ReferenceMenu
                 editor={editor}
@@ -1091,7 +1113,17 @@ export function NoteEditor({
                 {pageGuides === 'shown' ? <PageGuides editor={editor} host={surface} /> : null}
               </div>
               {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
-              <BubbleMenu editor={editor} />
+              <BubbleMenu
+                editor={editor}
+                onOpenInlineAi={
+                  inlineAi.available
+                    ? () => {
+                        inlineAi.start(null);
+                      }
+                    : undefined
+                }
+              />
+              <InlineAiPanel editor={editor} controller={inlineAi} />
               <MentionBubble editor={editor} />
               <TableMenu editor={editor} />
             </PaneViewport>

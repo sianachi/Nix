@@ -28,11 +28,18 @@ public sealed record CompleteFileUpload(
     string Sha256,
     bool Previewable,
     int? PixelWidth,
-    int? PixelHeight);
+    int? PixelHeight,
+    int? ThumbnailWidth = null,
+    int? ThumbnailHeight = null,
+    int? ThumbnailBytes = null);
 
 public sealed record FileUploadRecord(Guid Id, Guid WorkspaceId, string Purpose, string Status, string ObjectKey, DateTimeOffset ExpiresAt, Guid? ItemId, string? FailureCode);
 public sealed record FileUploadInspectionRecord(Guid Id, Guid WorkspaceId, string Purpose, string Status, string ObjectKey, string FileName, string DeclaredMediaType, long DeclaredByteLength, DateTimeOffset ExpiresAt, Guid? ItemId);
-public sealed record FileVersionRecord(Guid Id, int Version, string FileName, string MediaType, long ByteLength, string Sha256, bool Previewable, int? PixelWidth, int? PixelHeight, DateTimeOffset CreatedAt, bool Current);
+public sealed record FileVersionRecord(Guid Id, int Version, string FileName, string MediaType, long ByteLength, string Sha256, bool Previewable, int? PixelWidth, int? PixelHeight, DateTimeOffset CreatedAt, bool Current, FileThumbnailRecord? Thumbnail = null);
+/// <summary>The pixel size of a stored thumbnail; a version without one carries null instead.</summary>
+public sealed record FileThumbnailRecord(int Width, int Height);
+/// <summary>What the thumbnail capability is signed from: the version's own key plus the thumbnail's facts.</summary>
+public sealed record FileThumbnailDownloadRecord(string VersionObjectKey, int Width, int Height, int ByteLength);
 /// <summary>Exact immutable source metadata used to authorize a streamed archive or template copy.</summary>
 public sealed record FileVersionSourceRecord(Guid Id, int Version, string ObjectKey, string FileName, string MediaType, long ByteLength, string Sha256, bool Previewable, int? PixelWidth, int? PixelHeight, bool Current);
 public sealed record FileRecord(Guid ItemId, Guid WorkspaceId, FileVersionRecord Current, IReadOnlyList<FileVersionRecord> Versions);
@@ -50,6 +57,13 @@ public interface IFileStore
     public ValueTask<FileRecord?> GetAsync(ItemId itemId, CancellationToken cancellationToken);
     public ValueTask<IReadOnlyList<FileVersionSourceRecord>?> AuthorizeVersionHistoryAsync(ItemId itemId, CancellationToken cancellationToken);
     public ValueTask<FileDownloadRecord?> AuthorizeDownloadAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Authorizes a read of a file version's thumbnail by exactly the rule <see cref="AuthorizeDownloadAsync"/>
+    /// applies to its bytes, including a lock withholding it.
+    /// </summary>
+    /// <returns>Null when the file is not visible or readable, or when the version has no thumbnail.</returns>
+    public ValueTask<FileThumbnailDownloadRecord?> AuthorizeThumbnailAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Carries an item rename onto its file body: the current version's stored file name follows

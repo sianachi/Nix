@@ -25,7 +25,9 @@
 	# The API keeps its /api prefix - the backend's routes are themselves under /api/v1, so
 	# nothing is rewritten, exactly like the Vite proxy.
 	handle /api/* {
-		reverse_proxy localhost:5014
+		reverse_proxy localhost:5014 {
+			flush_interval -1
+		}
 	}
 
 	# Core owns the OIDC redirect, callback and HttpOnly browser session.
@@ -56,8 +58,11 @@
 		# directives (style-src's 'unsafe-inline' for runtime geometry attributes and img-src's
 		# http: for third-party cover images) is written out in that file; this is the same
 		# policy, so changing one without the other is the bug. OIDC is server-side, so neither
-		# connect-src nor frame-src admits the provider.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		# connect-src nor frame-src admits the provider. media-src is limited to the app, blob: and
+		# the same object-store origin connect-src names, so signed audio and video URLs play and
+		# nothing wider does; media does not inherit from img-src and would otherwise fall back to
+		# default-src 'self'.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; media-src 'self' blob: {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 		# Belt to the CSP's braces for older user agents.
 		X-Frame-Options "DENY"

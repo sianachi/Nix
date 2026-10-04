@@ -182,6 +182,40 @@ public static class ViewDefinitionRules
     }
 
     /// <summary>
+    /// Returns why the document tab cannot be hidden for this view set, or null when the request is fine.
+    /// </summary>
+    /// <param name="views">The complete view set being stored.</param>
+    /// <param name="defaultView">The default as requested: a view id, <c>document</c>, or null.</param>
+    /// <param name="hideDocument">Whether the item's own document tab is to be hidden.</param>
+    /// <returns>The first reason, or null.</returns>
+    /// <remarks>
+    /// Two refusals, both about leaving nothing to open. An item with no views has only its body, so
+    /// hiding it would leave a blank item; and a default that explicitly names the document cannot
+    /// stand beside a hidden document. An absent default is not refused, because absent already
+    /// means "whatever opens" and <see cref="ViewDefinitionsJson.Write"/> then stores the first
+    /// view. This hides a tab only; it is not an access control.
+    /// </remarks>
+    public static string? RefuseDocumentVisibility(
+        ImmutableArray<ViewDefinition> views,
+        string? defaultView,
+        bool hideDocument)
+    {
+        if (!hideDocument)
+        {
+            return null;
+        }
+
+        if (views.IsDefaultOrEmpty)
+        {
+            return "The document tab can be hidden only for an item that offers at least one view.";
+        }
+
+        return string.Equals(defaultView, ViewDefinitionsJson.DocumentView, StringComparison.Ordinal)
+            ? "The document cannot be the view that opens while its tab is hidden."
+            : null;
+    }
+
+    /// <summary>
     /// Refuses a malformed sort, collapsed-group, group-limit or summary list (ADR-0054).
     /// </summary>
     /// <remarks>

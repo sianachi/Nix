@@ -30,6 +30,13 @@ export function formatValue(value: unknown, definition: PropertyDefinition | nul
     case 'timestamp':
       return typeof value === 'string' ? value.replace('T', ' ').slice(0, 16) : scalar(value);
 
+    // A cell is one line: a long-text value's line breaks become spaces so a board card or a table
+    // row is not split by text written for a multi-line field.
+    case 'long_text':
+      return typeof value === 'string'
+        ? value.replace(/\s*[\r\n]+\s*/g, ' ').trim()
+        : scalar(value);
+
     default:
       return scalar(value);
   }

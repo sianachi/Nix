@@ -26,7 +26,7 @@ describe('reaching automations from an item', () => {
     const user = userEvent.setup();
     await screen.findByRole('button', { name: 'Projects' });
     rightClick('Projects');
-    await user.click(screen.getByRole('menuitem', { name: 'Automate…' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Automate…' }));
 
     expect(await screen.findByRole('heading', { name: 'New automation' })).toBeVisible();
     // The scope picker names the item it was prefilled with once its title resolves.
@@ -46,7 +46,7 @@ describe('reaching automations from an item', () => {
     const user = userEvent.setup();
     await screen.findByRole('button', { name: 'Projects' });
     rightClick('Projects');
-    await user.click(screen.getByRole('menuitem', { name: 'Mute reminders' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Mute reminders' }));
 
     await waitFor(() => {
       expect(writes.preferencesWrites).toHaveLength(1);
@@ -63,7 +63,7 @@ describe('reaching automations from an item', () => {
 
     // The menu now offers the way back.
     rightClick('Projects');
-    expect(screen.getByRole('menuitem', { name: 'Unmute reminders' })).toBeVisible();
+    expect(await screen.findByRole('menuitem', { name: 'Unmute reminders' })).toBeVisible();
   });
 });
 

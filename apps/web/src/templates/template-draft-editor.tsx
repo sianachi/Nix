@@ -1,4 +1,4 @@
-import { Button, Field, Icon, Input, Select, Text, cn, focusRing } from '@nix/ui';
+import { Button, Field, Icon, Input, Select, Text, Textarea, cn, focusRing } from '@nix/ui';
 import { ChevronDown, ChevronUp, FileText, Plus, Trash2 } from 'lucide-react';
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -435,7 +435,7 @@ function TemplateFieldsEditor({
           {field.type === 'select' || field.type === 'multi_select' ? (
             <Field label="Options" hint="One option per line.">
               {(control) => (
-                <textarea
+                <Textarea
                   {...control}
                   rows={3}
                   value={field.options.join('\n')}

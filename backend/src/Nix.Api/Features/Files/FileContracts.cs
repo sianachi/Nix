@@ -5,10 +5,14 @@ using Nix.Features.Operations;
 namespace Nix.Features.Files;
 
 public sealed record BeginFileUploadRequest(Guid WorkspaceId, Guid? ParentId, Guid? TargetItemId, string FileName, string MediaType, long ByteLength, string IdempotencyKey);
-public sealed record CompleteFileUploadRequest(string DetectedMediaType, long ByteLength, string Sha256, bool Previewable, int? PixelWidth, int? PixelHeight);
+public sealed record CompleteFileUploadRequest(string DetectedMediaType, long ByteLength, string Sha256, bool Previewable, int? PixelWidth, int? PixelHeight, int? ThumbnailWidth = null, int? ThumbnailHeight = null, int? ThumbnailBytes = null);
 public sealed record FileUploadCapabilityResponse(Guid Id, string Status, Uri? UploadUrl, DateTimeOffset? CapabilityExpiresAt, DateTimeOffset ExpiresAt, Guid? ItemId, string? FailureCode);
 public sealed record FileUploadStatusResponse(Guid Id, string Status, DateTimeOffset ExpiresAt, Guid? ItemId, string? FailureCode);
 public sealed record FileDownloadCapabilityResponse(Uri Url, DateTimeOffset ExpiresAt, string FileName, string MediaType, long ByteLength, string Sha256, bool Inline, bool Unscanned, bool NoSniff);
+/// <summary>A short-lived read capability for the JPEG thumbnail of a file version.</summary>
+public sealed record FileThumbnailCapabilityResponse(Uri Url, DateTimeOffset ExpiresAt, int Width, int Height, int ByteLength);
+public sealed record WorkerThumbnailUploadRequest(long ByteLength);
+public sealed record WorkerThumbnailUploadResponse(Uri UploadUrl, DateTimeOffset ExpiresAt);
 public sealed record WorkerFileInspectionResponse(
     Guid UploadId,
     Guid WorkspaceId,
@@ -36,6 +40,9 @@ public sealed record FileInspectPayload(Guid UploadId);
 [JsonSerializable(typeof(FileUploadCapabilityResponse))]
 [JsonSerializable(typeof(FileUploadStatusResponse))]
 [JsonSerializable(typeof(FileDownloadCapabilityResponse))]
+[JsonSerializable(typeof(FileThumbnailCapabilityResponse))]
+[JsonSerializable(typeof(WorkerThumbnailUploadRequest))]
+[JsonSerializable(typeof(WorkerThumbnailUploadResponse))]
 [JsonSerializable(typeof(WorkerFileInspectionResponse))]
 [JsonSerializable(typeof(RejectFileUploadRequest))]
 [JsonSerializable(typeof(FileInspectPayload))]

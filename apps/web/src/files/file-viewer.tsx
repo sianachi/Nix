@@ -1,5 +1,5 @@
 import { files as fileResources, isNixApiError, type FileRecord } from '@nix/api-client';
-import { Button, Dialog, Icon, Text } from '@nix/ui';
+import { Button, Dialog, Icon, Text, cn } from '@nix/ui';
 import { Download, File as FileIcon, Info, Upload } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
@@ -8,6 +8,8 @@ import { useNarrowViewport } from '../layout/viewport';
 import { findBuiltInFileViewer } from '../plugins/built-in-file-viewers';
 import { FileDetails } from './file-details';
 import { fileKindLabel, formatBytes } from './file-facts';
+import { quietTopControl, useNearTopEdge } from '../lib/use-near-top-edge';
+import { useZenActive } from '../lib/zen-mode';
 
 /**
  * The file page: the file, first.
@@ -35,6 +37,8 @@ interface Preview {
   readonly versionId: string;
   readonly url: string | null;
   readonly source: string | null;
+  /** Set alongside `url`, for a viewer that reads the bytes itself. */
+  readonly blob?: Blob;
   readonly failed: boolean;
 }
 
@@ -48,6 +52,8 @@ export function FileViewer({
 }): ReactNode {
   const client = useApiClient();
   const narrow = useNarrowViewport();
+  const zen = useZenActive();
+  const nearTop = useNearTopEdge();
   const [record, setRecord] = useState<FileRecord | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<{ readonly itemId: string; readonly message: string } | null>(
@@ -69,6 +75,8 @@ export function FileViewer({
       ? null
       : findBuiltInFileViewer({ fileName: currentFileName, mediaType: currentMediaType });
   const viewerWantsText = currentViewer !== null && (currentViewer.source ?? 'text') === 'text';
+  // A streaming viewer (audio) fetches its own address and the host holds no bytes for it.
+  const viewerStreams = currentViewer?.source === 'stream';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -91,6 +99,7 @@ export function FileViewer({
 
   useEffect(() => {
     if ((!currentPreviewable && currentViewer === null) || currentVersionId === undefined) return;
+    if (viewerStreams) return;
     const versionId = currentVersionId;
     const controller = new AbortController();
     let url: string | null = null;
@@ -102,7 +111,7 @@ export function FileViewer({
           return;
         }
         url = URL.createObjectURL(blob);
-        setPreview({ versionId, url, source: null, failed: false });
+        setPreview({ versionId, url, source: null, blob, failed: false });
       })
       .catch(() => {
         if (!controller.signal.aborted)
@@ -112,7 +121,15 @@ export function FileViewer({
       controller.abort();
       if (url !== null) URL.revokeObjectURL(url);
     };
-  }, [client, currentPreviewable, currentVersionId, currentViewer, itemId, viewerWantsText]);
+  }, [
+    client,
+    currentPreviewable,
+    currentVersionId,
+    currentViewer,
+    itemId,
+    viewerStreams,
+    viewerWantsText,
+  ]);
 
   const currentPreview = preview?.versionId === currentVersionId ? preview : null;
 
@@ -184,60 +201,79 @@ export function FileViewer({
 
   return (
     <section aria-label="File" className="flex min-h-0 flex-1 flex-col">
-      {/* The bar: what the file is, and the three things done to a file. One line, the header's
-          own gutter, so it reads as part of the page's chrome and not as content. */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-divider px-5 py-1.5 sm:px-8">
-        <Icon icon={FileIcon} size="sm" />
-        <Text as="span" variant="bodySmall" className="min-w-0 truncate font-semibold">
-          {file.fileName}
-        </Text>
-        <Text as="span" variant="caption" tone="muted" className="whitespace-nowrap">
-          {fileKindLabel(file.fileName, file.mediaType)} · {formatBytes(file.byteLength)}
-        </Text>
-        <span className="flex-1" />
+      {/* In Zen the bar gives way to one quiet download beside the shell's exit control, and the
+          stage below keeps its place in the tree, so a PDF keeps its page and audio keeps playing. */}
+      {zen ? (
         <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
+          variant="icon"
+          aria-label="Download"
+          title="Download"
           disabled={downloading}
           onClick={() => void download()}
+          // design-token-exempt: clears the exit control, which is one large control step wide.
+          className={cn(
+            'fixed right-[calc(var(--control-lg)+var(--spacing)*4)] top-[calc(env(safe-area-inset-top)+var(--spacing)*3)] z-20 bg-background',
+            quietTopControl(nearTop),
+          )}
         >
           <Icon icon={Download} size="sm" />
-          {downloading ? 'Downloading…' : 'Download'}
         </Button>
-        <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
-          disabled={replacing}
-          onClick={() => replacementRef.current?.click()}
-        >
-          <Icon icon={Upload} size="sm" />
-          {replacing ? 'Replacing…' : 'Replace file'}
-        </Button>
-        <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
-          aria-expanded={detailsOpen}
-          onClick={() => {
-            setDetailsOpen(!detailsOpen);
-          }}
-        >
-          <Icon icon={Info} size="sm" />
-          {/* "File info", not "Details": the item's own Details - its fields and settings - can
+      ) : (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-divider px-5 py-1.5 sm:px-8">
+          {/* The bar: what the file is, and the three things done to a file. One line, the
+              header's own gutter, so it reads as part of the page's chrome and not as content. */}
+          <Icon icon={FileIcon} size="sm" />
+          <Text as="span" variant="bodySmall" className="min-w-0 truncate font-semibold">
+            {file.fileName}
+          </Text>
+          <Text as="span" variant="caption" tone="muted" className="whitespace-nowrap">
+            {fileKindLabel(file.fileName, file.mediaType)} · {formatBytes(file.byteLength)}
+          </Text>
+          <span className="flex-1" />
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            disabled={downloading}
+            onClick={() => void download()}
+          >
+            <Icon icon={Download} size="sm" />
+            {downloading ? 'Downloading…' : 'Download'}
+          </Button>
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            disabled={replacing}
+            onClick={() => replacementRef.current?.click()}
+          >
+            <Icon icon={Upload} size="sm" />
+            {replacing ? 'Replacing…' : 'Replace file'}
+          </Button>
+          <Button
+            variant="ghost"
+            className="px-2 py-1 text-xs"
+            aria-expanded={detailsOpen}
+            onClick={() => {
+              setDetailsOpen(!detailsOpen);
+            }}
+          >
+            <Icon icon={Info} size="sm" />
+            {/* "File info", not "Details": the item's own Details - its fields and settings - can
               sit in this same bar on a phone, and two buttons with one name would be a guess. */}
-          File info
-        </Button>
-        {itemControls}
-        <input
-          ref={replacementRef}
-          type="file"
-          className="sr-only"
-          aria-label="Choose replacement file"
-          onChange={(event) => {
-            const selected = event.currentTarget.files?.[0];
-            if (selected !== undefined) void replace(selected);
-          }}
-        />
-      </div>
+            File info
+          </Button>
+          {itemControls}
+          <input
+            ref={replacementRef}
+            type="file"
+            className="sr-only"
+            aria-label="Choose replacement file"
+            onChange={(event) => {
+              const selected = event.currentTarget.files?.[0];
+              if (selected !== undefined) void replace(selected);
+            }}
+          />
+        </div>
+      )}
 
       {visibleError === null ? null : (
         <Text variant="note" as="p" role="alert" className="shrink-0 px-5 py-1.5 sm:px-8">
@@ -250,6 +286,7 @@ export function FileViewer({
             bar rather than pushing it away. */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <Stage
+            itemId={itemId}
             file={file}
             preview={currentPreview}
             viewer={currentViewer}
@@ -259,7 +296,7 @@ export function FileViewer({
           />
         </div>
 
-        {detailsOpen && !narrow ? (
+        {detailsOpen && !narrow && !zen ? (
           <aside
             aria-label="File details"
             className="w-80 shrink-0 overflow-y-auto border-l border-divider p-4"
@@ -269,7 +306,7 @@ export function FileViewer({
         ) : null}
       </div>
 
-      {detailsOpen && narrow ? (
+      {detailsOpen && narrow && !zen ? (
         <Dialog
           open
           swipeToClose
@@ -286,6 +323,7 @@ export function FileViewer({
 }
 
 function Stage({
+  itemId,
   file,
   preview,
   viewer,
@@ -293,6 +331,7 @@ function Stage({
   downloading,
   onDownload,
 }: {
+  readonly itemId: string;
   readonly file: FileRecord['current'];
   readonly preview: Preview | null;
   readonly viewer: ReturnType<typeof findBuiltInFileViewer>;
@@ -305,6 +344,18 @@ function Stage({
       <Placard file={file} downloading={downloading} onDownload={onDownload}>
         No preview for this kind of file.
       </Placard>
+    );
+  }
+  if (viewer?.source === 'stream') {
+    const Viewer = viewer.Component;
+    return (
+      <Viewer
+        key={file.id}
+        itemId={itemId}
+        fileName={file.fileName}
+        source=""
+        onDownload={onDownload}
+      />
     );
   }
   if (preview === null) {
@@ -327,7 +378,16 @@ function Stage({
     const Viewer = viewer.Component;
     const source = (viewer.source ?? 'text') === 'text' ? preview.source : preview.url;
     if (source !== null) {
-      return <Viewer key={file.id} fileName={file.fileName} source={source} />;
+      return (
+        <Viewer
+          key={file.id}
+          itemId={itemId}
+          fileName={file.fileName}
+          source={source}
+          {...(preview.blob === undefined ? {} : { blob: preview.blob })}
+          onDownload={onDownload}
+        />
+      );
     }
   }
   if (preview.url !== null && file.mediaType === 'application/pdf') {

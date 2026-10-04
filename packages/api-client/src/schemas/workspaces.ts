@@ -96,10 +96,34 @@ const _workspaceInviteeContract = workspaceInviteeSchema satisfies z.ZodType<
 >;
 void _workspaceInviteeContract;
 
-export const dailyNoteSchema = z.object({ itemId: z.uuid() });
+/**
+ * `created` is true only for the request that inserted the note, so a client inserts its template
+ * once. It defaults to false so a response from a server that predates the field still parses.
+ */
+export const dailyNoteSchema = z.object({ itemId: z.uuid(), created: z.boolean().default(false) });
 export type DailyNote = z.infer<typeof dailyNoteSchema>;
 
 const _dailyNoteContract = dailyNoteSchema satisfies z.ZodType<
   components['schemas']['DailyNoteResponse']
 >;
 void _dailyNoteContract;
+
+/**
+ * A workspace's daily-note settings. `rolloverHour` and `showOnCalendar` and `template` are stored
+ * for the client and never interpreted by the server; `folders` and `titleFormat` shape notes the
+ * server creates afterwards.
+ */
+export const dailyNoteSettingsSchema = z.object({
+  enabled: z.boolean(),
+  folders: z.enum(['flat', 'by-year', 'by-month']),
+  titleFormat: z.enum(['iso', 'long', 'weekday-long']),
+  template: z.string().max(4000),
+  rolloverHour: z.number().int().min(0).max(6),
+  showOnCalendar: z.boolean(),
+});
+export type DailyNoteSettings = z.infer<typeof dailyNoteSettingsSchema>;
+
+const _dailyNoteSettingsContract = dailyNoteSettingsSchema satisfies z.ZodType<
+  components['schemas']['DailyNoteSettingsResponse']
+>;
+void _dailyNoteSettingsContract;

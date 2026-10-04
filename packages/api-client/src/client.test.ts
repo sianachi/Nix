@@ -57,6 +57,29 @@ beforeEach(() => {
 });
 
 describe('reading a resource', () => {
+  it('carries the endpoint long-poll budget through authentication and parsing', async () => {
+    const pollingClient = createNixClient({
+      baseUrl: TEST_BASE_URL,
+      timeoutMs: 20,
+      tokens: createInMemoryTokenStore({
+        initialAccessToken: 'token',
+        refresh: () => Promise.resolve(null),
+      }),
+    });
+    server.use(
+      http.get(testUrl('/poll'), async () => {
+        await delay(40);
+        return HttpResponse.json(itemPayload('Long poll'));
+      }),
+    );
+    const endpoint = defineQuery({
+      operation: 'test.poll',
+      path: '/poll',
+      schema: itemSchema,
+      timeoutMs: 200,
+    });
+    expect((await pollingClient.query(endpoint)).title).toBe('Long poll');
+  });
   it('parses the response once at the boundary and hands back a frozen object', async () => {
     server.use(
       http.get(testUrl(`/items/${ITEM_ID}`), () => HttpResponse.json(itemPayload('Plan'))),

@@ -113,6 +113,8 @@ export interface WatchRuntimeInput {
 export const watchRuntime = (input: WatchRuntimeInput): QueryEndpoint<PetConnection> =>
   defineQuery({
     operation: 'pets.watchRuntime',
+    // Core waits up to 20 seconds; the ordinary 15-second read budget ends too early.
+    timeoutMs: 35_000,
     path: '/api/v1/me/pets/runtime/watch',
     schema: petConnectionSchema,
     query: {

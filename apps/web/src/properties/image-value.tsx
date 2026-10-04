@@ -257,7 +257,8 @@ function ImageShell(props: ImageShellProps): ReactNode {
 }
 
 export function ImageValue(props: PropertyInputProps): ReactNode {
-  const { item, property, onCommit, disabled = false, error = null, density = 'panel' } = props;
+  const { item, property, onCommit, disabled = false, error = null } = props;
+  const density = props.density === 'card' ? 'cell' : (props.density ?? 'panel');
 
   const stored = readPropertyText(item, property.key);
   const name =

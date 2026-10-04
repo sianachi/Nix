@@ -76,7 +76,7 @@ type nixSchemaProperty struct {
 var nixPropertyTypes = map[string]struct{}{
 	"text": {}, "number": {}, "select": {}, "multi_select": {}, "date": {}, "checkbox": {},
 	"url": {}, "timestamp": {}, "image": {}, "due_date": {}, "start_date": {},
-	"completion": {}, "priority": {}, "estimate": {}, "assignee": {},
+	"completion": {}, "priority": {}, "estimate": {}, "assignee": {}, "long_text": {},
 }
 
 type nixBundle struct {

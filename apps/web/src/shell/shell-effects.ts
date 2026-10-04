@@ -73,6 +73,46 @@ export function useShellShortcuts(actions: Readonly<Record<ShellShortcutId, () =
   }, []);
 }
 
+/**
+ * Escape leaves Zen, but only when it cannot mean anything else.
+ *
+ * It does not fire when the key was already handled (`defaultPrevented`: a menu, a popover or the
+ * editor took it), when focus is in a text field, the note's editor or the canvas (`isTypingTarget`:
+ * Escape is how Vim mode leaves Insert, and how a field abandons an edit), with a modifier held,
+ * or while any dialog, alert dialog, menu or listbox is on screen, whether or not the key came from
+ * inside it. What is left is focus on the page itself, a pane, a button or the file preview.
+ */
+export function useZenEscape(active: boolean, leave: () => void): void {
+  const latest = useRef(leave);
+  useEffect(() => {
+    latest.current = leave;
+  });
+
+  useEffect(() => {
+    if (!active) return;
+
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (event.isComposing || isTypingTarget(event.target)) return;
+      if (
+        document.querySelector(
+          'dialog[open], [aria-modal="true"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]',
+        ) !== null
+      ) {
+        return;
+      }
+      event.preventDefault();
+      latest.current();
+    }
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [active]);
+}
+
 /** Whether a modal dialog is open that the key press did not come from inside. */
 function insideAnotherModal(target: EventTarget | null): boolean {
   const modal = document.querySelector('dialog[open], [aria-modal="true"]');

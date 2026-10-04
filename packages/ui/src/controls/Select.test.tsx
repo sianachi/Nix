@@ -68,4 +68,17 @@ describe('Select', () => {
     expect(select.className).toContain('w-40');
     expect(select.className).toContain('border-divider');
   });
+
+  it('draws focus as one ring flush with the field, not a halo offset from it', () => {
+    render(
+      <Select aria-label="Type">
+        <option value="text">Text</option>
+      </Select>,
+    );
+
+    const className = screen.getByRole('combobox', { name: 'Type' }).className;
+    expect(className).toContain('focus-visible:outline-offset-0');
+    expect(className).toContain('focus-visible:border-accent');
+    expect(className).not.toContain('focus-visible:outline-offset-2');
+  });
 });
