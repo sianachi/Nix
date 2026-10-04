@@ -217,6 +217,15 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
                        'plan-' || n || '@example.test', 'plan-' || n || '@example.test', true, 'active'
                 FROM generate_series(1, {{CorpusSize}}) n;
 
+                -- Include ineligible users so the invitee index's partial predicate is selective.
+                INSERT INTO principal
+                    (principal_id, tenant_id, external_issuer, external_subject, kind,
+                     display_name, email, email_normalized, email_verified, status)
+                SELECT md5('workspace-plan-unverified-' || n)::uuid, {{tenant}},
+                       'https://plan.alpha.test', 'unverified-' || n, 'user', 'Unverified user ' || n,
+                       'unverified-' || n || '@example.test', NULL, false, 'active'
+                FROM generate_series(1, {{CorpusSize}}) n;
+
                 INSERT INTO workspace
                     (workspace_id, tenant_id, name, version_retention_days,
                      coalesce_window_min, storage_quota_bytes, created_at)
@@ -246,6 +255,7 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
                        now() - (n || ' seconds')::interval
                 FROM generate_series(1, {{CorpusSize}}) n;
 
+                ANALYZE principal;
                 ANALYZE workspace;
                 ANALYZE workspace_member;
                 ANALYZE workspace_invitation;
