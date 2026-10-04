@@ -1,4 +1,5 @@
 import type { CalendarEntry } from '@nix/api-client';
+import { DateTime } from 'luxon';
 
 import { readTimestampValue, writeTimestampValue } from '../views/core/timestamps';
 
@@ -62,6 +63,37 @@ export function valueForDay(entry: CalendarEntry, day: string, zone: string): st
  * then quietly fail. Moving the day and keeping it all-day is the part of the gesture that can
  * actually be honoured.
  */
+/**
+ * Where an entry's end lands when its start is moved, so the item keeps its length.
+ *
+ * A move that wrote the start alone would leave the end where it was - stretching the item, or
+ * putting its end before its start. Null when the entry has no end to carry.
+ */
+export function shiftedEnd(entry: CalendarEntry, newStart: string, zone: string): string | null {
+  if (entry.endProperty === null || entry.endValue === null) {
+    return null;
+  }
+
+  if (entry.kind === 'date') {
+    const from = DateTime.fromISO(entry.value.slice(0, 10), { zone: 'utc' });
+    const to = DateTime.fromISO(newStart.slice(0, 10), { zone: 'utc' });
+    const end = DateTime.fromISO(entry.endValue.slice(0, 10), { zone: 'utc' });
+    return from.isValid && to.isValid && end.isValid ? end.plus(to.diff(from)).toISODate() : null;
+  }
+
+  const from = readTimestampValue({ value: entry.value }, 'value');
+  const to = readTimestampValue({ value: newStart }, 'value');
+  const end = readTimestampValue({ value: entry.endValue }, 'value');
+  if (from === null || to === null || end === null) {
+    return null;
+  }
+
+  return writeTimestampValue(
+    end.at.plus(to.at.diff(from.at)).setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm:ss"),
+    zone,
+  );
+}
+
 export function valueForHour(
   entry: CalendarEntry,
   day: string,

@@ -115,8 +115,9 @@ describe('the calendar view', () => {
     renderCalendar({ children: busy });
     const day = screen.getByRole('cell', { name: 'Tuesday 17 March 2026' });
 
-    expect(within(day).getAllByRole('listitem')).toHaveLength(6);
-    await user().click(within(day).getByRole('button', { name: 'Show 2 more' }));
+    // Three to a day, so every row of the month is the same height until one is opened.
+    expect(within(day).getAllByRole('listitem')).toHaveLength(3);
+    await user().click(within(day).getByRole('button', { name: 'Show 5 more' }));
     expect(within(day).getAllByRole('listitem')).toHaveLength(8);
     expect(within(day).getByRole('button', { name: 'Show fewer' })).toHaveAttribute(
       'aria-expanded',
@@ -150,8 +151,13 @@ describe('the calendar view', () => {
     const first = screen.getByRole('cell', { name: 'Sunday 1 March 2026' });
     expect(within(first).getByRole('button', { name: 'Launch' })).toBeVisible();
 
-    // And it has not leaked into a February the March grid does not even have.
-    expect(screen.queryByRole('cell', { name: /february/i })).not.toBeInTheDocument();
+    // And it has not leaked into the February days the grid shows before it: the month is drawn
+    // as whole weeks, so the last days of February are there, and must be empty of it.
+    const february = screen.getAllByRole('cell', { name: /february/i });
+    expect(february.length).toBeGreaterThan(0);
+    for (const cell of february) {
+      expect(within(cell).queryByRole('button', { name: 'Launch' })).not.toBeInTheDocument();
+    }
   });
 
   it('lists an item with no date as unscheduled rather than dropping it', () => {
@@ -183,7 +189,9 @@ describe('the calendar view', () => {
   it('moves to the next month and back again', async () => {
     const person = user();
     renderCalendar({
-      children: [itemOf('item-review', 'Review', { due: '2026-04-02', status: 'open' })],
+      // Well into April: the March grid shows the first days of April in its last row, so an
+      // item on the 2nd would already be on screen.
+      children: [itemOf('item-review', 'Review', { due: '2026-04-20', status: 'open' })],
     });
 
     expect(screen.queryByRole('button', { name: 'Review' })).not.toBeInTheDocument();
@@ -191,7 +199,7 @@ describe('the calendar view', () => {
     await person.click(screen.getByRole('button', { name: 'Next month' }));
 
     expect(screen.getByRole('heading', { name: 'April 2026' })).toBeVisible();
-    const day = screen.getByRole('cell', { name: 'Thursday 2 April 2026' });
+    const day = screen.getByRole('cell', { name: 'Monday 20 April 2026' });
     expect(within(day).getByRole('button', { name: 'Review' })).toBeVisible();
 
     await person.click(screen.getByRole('button', { name: 'Previous month' }));
@@ -524,8 +532,11 @@ describe('the calendar view', () => {
       // frame, a container between ~750 and ~790px wide clipped the last column under the frame's
       // right border before scrolling visibly engaged. `VIEW_GUTTER_BLEED` on the region hands the
       // gutter's 64px to the scroll viewport while the padding keeps the resting position exactly
-      // where the header and switcher align; `min-w-max` on the frame makes it travel with the
-      // table so the last column ends at the frame's edge rather than under it.
+      // where the header and switcher align; `min-w-fit` on the frame makes it travel with the
+      // table so the last column ends at the frame's edge rather than under it. It must not be
+      // `min-w-max`: the max-content width of a fixed-layout table that is `width: 100%` resolves
+      // to a million pixels in Chrome, which drew the month as one column of Mondays. jsdom has no
+      // layout, so the class is the only thing here that can stand guard against that.
       //
       // Asserted against the exported constants rather than against `-mx-8 px-8` spelled out
       // again: the gutter's width is view-gutter.ts's to decide, and a test that pinned the
@@ -536,7 +547,8 @@ describe('the calendar view', () => {
 
       const frame = screen.getByRole('table').closest('.border-divider');
       expect(frame).toBeInstanceOf(HTMLElement);
-      expect(frame).toHaveClass('min-w-max');
+      expect(frame).toHaveClass('min-w-fit');
+      expect(frame).not.toHaveClass('min-w-max');
       expect(region.contains(frame)).toBe(true);
     });
   });

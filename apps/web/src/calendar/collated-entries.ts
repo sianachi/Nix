@@ -44,6 +44,12 @@ export const COLLATED_DATE_KEY = 'nix:collated-date';
  * infers `string` from `z.uuid()` and `z.iso.datetime()`. The compiler will not catch a placeholder
  * here, which is precisely why the placeholders are named above.
  */
+/**
+ * The one key every entry's end is rewritten onto, for the same reason the start is: the hour grid
+ * takes one end property, and these entries end by whatever their own containers name.
+ */
+export const COLLATED_END_KEY = 'nix:collated-end';
+
 export function toGridItem(entry: CalendarEntry): Item {
   return {
     id: entry.itemId,
@@ -57,6 +63,7 @@ export function toGridItem(entry: CalendarEntry): Item {
     properties: {
       title: entry.title ?? '',
       [COLLATED_DATE_KEY]: entry.value,
+      ...(entry.endValue === null ? {} : { [COLLATED_END_KEY]: entry.endValue }),
     },
     createdAt: '',
     updatedAt: '',

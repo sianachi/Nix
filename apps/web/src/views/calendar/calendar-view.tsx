@@ -1,5 +1,6 @@
 import { useNarrowViewport } from '../../layout/viewport';
-import { Blueprint, Button, Icon, Text, cn } from '@nix/ui';
+import { Blueprint, Button, Icon, Text, cn, focusRing } from '@nix/ui';
+import { publishNotice } from '../../lib/notices';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useState, type DragEvent, type ReactNode } from 'react';
 
@@ -32,7 +33,13 @@ import {
   type CalendarMonth,
 } from '../core/calendar-dates';
 import { HourGrid } from './calendar-hours';
-import { MonthGrid, type DayCellSpec } from './month-grid';
+import {
+  DayNumber,
+  MONTH_CELL,
+  MONTH_VISIBLE_ITEMS,
+  MonthGrid,
+  type DayCellSpec,
+} from './month-grid';
 import { RescheduleDialog } from './reschedule-dialog';
 import { VIEW_GUTTER_BLEED } from '../core/view-gutter';
 import { dayFor, readTimestampValue, readerZone } from '../core/timestamps';
@@ -292,6 +299,48 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
   // bucketing below needs it.
   const endDateProperty = view.endDateProperty;
 
+  // Whether this calendar can be given an end property from here. It needs a schema to add one
+  // to and a start property to copy the shape of - the end has to be the same kind of value as
+  // the start, a day or a moment, or the two could not be compared. A computed start (a formula)
+  // has no shape a stored end could share, and a locked container takes no schema change.
+  const startDefinition = container.schema?.properties.find(
+    (property) => property.key === dateProperty,
+  );
+  const canAddEnd =
+    endDateProperty === null && !container.locked && startDefinition?.expression === null;
+
+  /**
+   * Gives the calendar an end property and points this view at it, in one write.
+   *
+   * One write rather than a schema change followed by a view change: done in two, a failure
+   * between them would leave a property nothing uses, and the reader with no sign of why items
+   * still cannot be stretched.
+   */
+  async function addEndProperty(): Promise<void> {
+    const schema = container.schema;
+    if (!canAddEnd || schema === null) {
+      return;
+    }
+
+    const taken = new Set(schema.properties.map((property) => property.key));
+    let key = 'end';
+    for (let suffix = 2; taken.has(key); suffix += 1) {
+      key = `end_${String(suffix)}`;
+    }
+
+    const refusal = await container.replaceViewSetup(
+      view.id,
+      [...schema.declared, { ...startDefinition, key, label: 'End', required: false }],
+      [{ ...view, endDateProperty: key }],
+    );
+    publishNotice({
+      key: `calendar-end:${view.id}`,
+      message:
+        refusal ??
+        'This calendar now has end times. Drag the foot of an item, or use Reschedule, to set how long it runs.',
+    });
+  }
+
   const byDate = new Map<string, Item[]>();
   const unscheduled: Item[] = [];
 
@@ -398,6 +447,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     moveTo,
     dropOnDate,
     dateProperty,
+    zone,
     secondaryKey,
     secondaryProperty,
     onWrite: (itemId: string, propertyKey: string, value: PropertyValue) =>
@@ -621,21 +671,52 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
           )}
         />
       ) : (
-        <Blueprint className="flex min-h-[520px] flex-col overflow-hidden p-0">
-          <HourGrid
-            days={mode === 'week' ? weekOf(anchor) : [anchor]}
-            items={items}
-            siblings={container.truncated ? undefined : container.children}
-            dateProperty={dateProperty}
-            endDateProperty={endDateProperty}
-            zone={zone}
-            today={todayText}
-            onOpen={onOpen}
-            onCreate={container.create}
-            dragged={dragged?.id ?? null}
-            onMove={moveTo}
-          />
-        </Blueprint>
+        <>
+          {/* Said out loud, because the alternative is a foot that is simply not there: without
+              an end property an item is a point, there is nowhere to write a length, and a reader
+              trying to stretch one would find nothing to take hold of and no reason why. */}
+          {endDateProperty === null ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Text as="p" variant="caption" tone="muted">
+                {canAddEnd
+                  ? 'Items here have a start but no end, so they cannot be stretched.'
+                  : 'Items here have a start but no end, so they cannot be stretched. Choose an End property in this view’s settings to give them a length.'}
+              </Text>
+              {canAddEnd ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    void addEndProperty();
+                  }}
+                >
+                  Add end times
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <Blueprint className="flex min-h-[520px] flex-col overflow-hidden p-0">
+            <HourGrid
+              days={mode === 'week' ? weekOf(anchor) : [anchor]}
+              items={items}
+              siblings={container.truncated ? undefined : container.children}
+              dateProperty={dateProperty}
+              endDateProperty={endDateProperty}
+              zone={zone}
+              today={todayText}
+              onOpen={onOpen}
+              onCreate={container.create}
+              dragged={dragged?.id ?? null}
+              onMove={moveTo}
+              onAddEndProperty={
+                canAddEnd
+                  ? () => {
+                      void addEndProperty();
+                    }
+                  : undefined
+              }
+            />
+          </Blueprint>
+        </>
       )}
 
       <section
@@ -814,6 +895,8 @@ interface CardContext {
    * no origin day - falls back to writing only the date property, exactly as before.
    */
   readonly dropOnDate: (itemId: string, from: string | null, to: string) => void;
+  /** The reader's zone, so a card on the month grid can say what time its item is at. */
+  readonly zone: string;
   readonly secondaryKey: string | null;
   readonly secondaryProperty: PropertyDefinition | null;
   readonly onWrite: (
@@ -839,13 +922,11 @@ interface DayCellProps {
   readonly card: CardContext;
 }
 
-const MAXIMUM_COLLAPSED_DAY_ITEMS = 6;
-
 function DayCell(props: DayCellProps): ReactNode {
   const { cell, name, isToday, items, dragged, card } = props;
   const [over, setOver] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const visibleItems = expanded ? items : items.slice(0, MAXIMUM_COLLAPSED_DAY_ITEMS);
+  const visibleItems = expanded ? items : items.slice(0, MONTH_VISIBLE_ITEMS);
   const hiddenItems = items.length - visibleItems.length;
 
   return (
@@ -873,30 +954,31 @@ function DayCell(props: DayCellProps): ReactNode {
         }
       }}
       className={cn(
-        'group/day h-24 border border-divider align-top',
-        isToday ? 'bg-accent/18' : '',
+        'group/day',
+        MONTH_CELL,
+        // A day from the month before or after sits on the quieter ground, so the month being
+        // shown is the shape that stands out.
+        cell.outside ? 'bg-surface/50' : '',
         over && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
       )}
     >
-      <div className="flex h-full flex-col gap-1 p-1">
-        <Text variant="caption" as="span" tone={isToday ? 'accent' : 'muted'}>
-          {String(cell.day)}
-        </Text>
+      <div className="flex h-full flex-col gap-0.5 p-1">
+        <DayNumber day={cell.day} isToday={isToday} outside={cell.outside} />
 
         {items.length === 0 ? null : (
-          <ul className="flex flex-col gap-1">
+          <ul className="flex flex-col gap-0.5">
             {visibleItems.map((item) => (
               <li key={item.id}>
-                <ItemCard item={item} card={card} occurrenceDate={cell.date} />
+                <ItemCard item={item} card={card} occurrenceDate={cell.date} compact />
               </li>
             ))}
           </ul>
         )}
 
-        {items.length <= MAXIMUM_COLLAPSED_DAY_ITEMS ? null : (
+        {items.length <= MONTH_VISIBLE_ITEMS ? null : (
           <Button
             variant="ghost"
-            className="self-start px-1 py-0.5 text-xs"
+            className="self-start px-1 py-0 text-xs"
             aria-expanded={expanded}
             onClick={() => {
               setExpanded((current) => !current);
@@ -938,12 +1020,93 @@ interface ItemCardProps {
    * actually started from.
    */
   readonly occurrenceDate: string | null;
+
+  /**
+   * One line: the time, the title, and nothing else. What a day on the month grid draws.
+   *
+   * The full card - a bordered box with a second property editable in place - is right for the
+   * unscheduled list, which has the width for it. Seven to a row it made every day a stack of
+   * small forms, and a month stopped looking like a month.
+   */
+  readonly compact?: boolean;
 }
 
 function ItemCard(props: ItemCardProps): ReactNode {
-  const { item, occurrenceDate } = props;
-  const { onOpen, setRescheduling, setDragged, clearDragged, secondaryProperty, onWrite } =
-    props.card;
+  const { item, occurrenceDate, compact = false } = props;
+  const {
+    onOpen,
+    setRescheduling,
+    setDragged,
+    clearDragged,
+    secondaryProperty,
+    onWrite,
+    dateProperty,
+    zone,
+  } = props.card;
+
+  const startDrag = (event: DragEvent<HTMLDivElement>): void => {
+    setDragged(item.id, occurrenceDate);
+    event.dataTransfer.effectAllowed = 'move';
+    // Set although nothing reads it: without data attached, Firefox refuses to start the drag.
+    event.dataTransfer.setData('text/plain', item.id);
+  };
+
+  if (compact) {
+    // The time of day, when the item is placed by a moment rather than by a day.
+    const moment = readTimestampValue(item.properties, dateProperty);
+    const time = moment === null ? null : moment.at.setZone(zone).toFormat('HH:mm');
+
+    return (
+      <CalendarEntryMenu
+        itemId={item.id}
+        title={item.title}
+        onOpen={onOpen}
+        onReschedule={setRescheduling}
+      >
+        {(contextTarget) => (
+          <div
+            {...contextTarget}
+            draggable
+            onDragStart={startDrag}
+            onDragEnd={() => {
+              clearDragged();
+            }}
+            className="group/chip relative flex items-center gap-0.5 rounded-sm bg-accent/18 hover:bg-accent/25"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                onOpen(item.id);
+              }}
+              className={cn(
+                focusRing,
+                'min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 text-left text-xs',
+              )}
+            >
+              {time === null ? null : <span className="mr-1 text-muted">{time}</span>}
+              {item.title || 'Untitled'}
+            </button>
+
+            {/* Reschedule, for a keyboard and for touch, which have no drag. Shown on hover, on
+                focus and always on a coarse pointer - on every chip at once it is forty clocks
+                beside forty titles. It lies over the chip's end rather than beside it, so a
+                chip is the full width of its day whether or not the control is showing. `opacity`, not `visibility`, so it stays in the tab order. */}
+            <Button
+              variant="ghost"
+              aria-label={`Reschedule ${item.title || 'Untitled'}`}
+              aria-haspopup="dialog"
+              className="absolute inset-y-0 right-0 rounded-sm bg-background px-0.5 py-0 opacity-0 focus-visible:opacity-100 group-hover/chip:opacity-100 pointer-coarse:opacity-100"
+              onClick={() => {
+                setRescheduling(item.id);
+              }}
+            >
+              <Icon icon={CalendarClock} size="sm" />
+            </Button>
+          </div>
+        )}
+      </CalendarEntryMenu>
+    );
+  }
 
   return (
     <CalendarEntryMenu
@@ -956,12 +1119,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
         <div
           {...contextTarget}
           draggable
-          onDragStart={(event: DragEvent<HTMLDivElement>) => {
-            setDragged(item.id, occurrenceDate);
-            event.dataTransfer.effectAllowed = 'move';
-            // Set although nothing reads it: without data attached, Firefox refuses to start the drag.
-            event.dataTransfer.setData('text/plain', item.id);
-          }}
+          onDragStart={startDrag}
           onDragEnd={() => {
             clearDragged();
           }}
