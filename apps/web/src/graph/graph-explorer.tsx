@@ -32,10 +32,22 @@ export function GraphExplorer({
   nodes,
   links,
   onOpen,
+  partial = false,
+  workspaceId,
+  onMove,
+  onLink,
 }: {
   readonly nodes: readonly GraphNode[];
   readonly links: readonly GraphLink[];
   readonly onOpen: (itemId: string) => void;
+
+  /** Whether the server hit a ceiling, so counts and replays cover part of the workspace. */
+  readonly partial?: boolean;
+
+  /** The workspace drawn, so the reader's arrangement of it can be kept on this device. */
+  readonly workspaceId?: string | undefined;
+  readonly onMove?: ((itemId: string, parentId: string) => void) | undefined;
+  readonly onLink?: ((sourceId: string, targetId: string) => void) | undefined;
 }): ReactNode {
   const narrow = useNarrowViewport();
   const [choice, setChoice] = useState<'browse' | 'spatial' | null>(null);
@@ -43,6 +55,7 @@ export function GraphExplorer({
   const mode = choice ?? (narrow ? 'browse' : 'spatial');
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(50);
+  const [reveal, setReveal] = useState<{ id: string; token: number } | null>(null);
   // The graph can contain 2,000 nodes and 4,000 edges. Index only when server data changes,
   // not on each search keystroke or disclosure toggle.
   const connections = useMemo(() => graphConnections(nodes, links), [nodes, links]);
@@ -79,7 +92,18 @@ export function GraphExplorer({
       </div>
       {mode === 'spatial' || visitedSpatial ? (
         <div hidden={mode !== 'spatial'}>
-          <GraphView nodes={nodes} links={links} onOpen={onOpen} />
+          <GraphView
+            // Remounted per workspace: its arrangement is read once, when it mounts.
+            key={workspaceId}
+            workspaceId={workspaceId}
+            onMove={onMove}
+            onLink={onLink}
+            nodes={nodes}
+            links={links}
+            onOpen={onOpen}
+            reveal={reveal}
+            partial={partial}
+          />
         </div>
       ) : null}
       <section
@@ -117,6 +141,17 @@ export function GraphExplorer({
                   }}
                 >
                   {titles.get(node.id)}
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label={`Show ${titles.get(node.id) ?? 'Untitled'} in graph`}
+                  onClick={() => {
+                    setChoice('spatial');
+                    setVisitedSpatial(true);
+                    setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
+                  }}
+                >
+                  Show in graph
                 </Button>
                 {related.length === 0 ? (
                   <Text as="p" variant="caption" tone="muted">

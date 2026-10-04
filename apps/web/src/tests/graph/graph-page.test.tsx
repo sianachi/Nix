@@ -353,16 +353,16 @@ describe('when a node writes its name', () => {
     expect(labelFor(container, 'Roadmap')).toBeDefined();
   });
 
-  it('hides an ordinary node name until it is hovered', async () => {
+  // Labels are no longer hover-only: a name is written wherever it does not land on another
+  // (graph-labels.ts). Two roots on opposite sides of an empty centre both have the room. The
+  // crowded case, where a name does wait for a hover, is covered with `pickLabels` itself.
+  it('writes a name without being asked where there is room for it', async () => {
     stubCoreApi({ items: [ROOT, OTHER] });
     const { container } = renderAt(<App />, '/graph');
 
     await screen.findByRole('tree', { name: /workspace graph/i });
 
-    expect(labelFor(container, 'Roadmap')?.getAttribute('class')).toContain(
-      'group-hover:opacity-100',
-    );
-    expect(labelFor(container, 'Roadmap')?.getAttribute('class')).toContain('opacity-0');
+    expect(labelFor(container, 'Roadmap')?.getAttribute('class')).not.toContain('opacity-0');
   });
 
   /**
