@@ -38,7 +38,14 @@ interface Preview {
   readonly failed: boolean;
 }
 
-export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
+export function FileViewer({
+  itemId,
+  itemControls,
+}: {
+  readonly itemId: string;
+  /** The item's own controls - details and actions - when they live in this bar on a phone. */
+  readonly itemControls?: ReactNode;
+}): ReactNode {
   const client = useApiClient();
   const narrow = useNarrowViewport();
   const [record, setRecord] = useState<FileRecord | null>(null);
@@ -215,8 +222,11 @@ export function FileViewer({ itemId }: { readonly itemId: string }): ReactNode {
           }}
         >
           <Icon icon={Info} size="sm" />
-          Details
+          {/* "File info", not "Details": the item's own Details - its fields and settings - can
+              sit in this same bar on a phone, and two buttons with one name would be a guess. */}
+          File info
         </Button>
+        {itemControls}
         <input
           ref={replacementRef}
           type="file"

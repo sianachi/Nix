@@ -42,6 +42,8 @@ export interface SheetEditorProps {
    * carries no lock, and a locked body is never kept on disk.
    */
   readonly cacheBody?: boolean;
+  /** The item's own controls - details and actions - when they live in this bar on a phone. */
+  readonly itemControls?: ReactNode;
 }
 
 /**
@@ -65,6 +67,7 @@ export function SheetEditor({
   documentPath,
   onSync,
   cacheBody = false,
+  itemControls,
 }: SheetEditorProps): ReactNode {
   const { getAccessToken } = useAuth();
   const profile = useSessionStore((state) => state.profile);
@@ -146,8 +149,9 @@ export function SheetEditor({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-end px-8 py-1.5">
+      <div className="flex shrink-0 items-center justify-end gap-1 px-8 py-1.5">
         <PresenceList awareness={awareness} />
+        {itemControls}
       </div>
 
       {refusal === null ? null : (

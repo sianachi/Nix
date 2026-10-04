@@ -1,6 +1,6 @@
 import { PaneViewport } from '../layout/pane-viewport';
 import type { DraftState } from './draft-journal';
-import { MobileNoteToolbar } from './mobile-note-toolbar';
+import { MobileNoteToolbar, type MobileNoteDetails } from './mobile-note-toolbar';
 import { useDrawerNavigation } from '../layout/viewport';
 import { nixEditingExtensions, readWidth } from '@nix/editor-schema';
 import {
@@ -95,6 +95,8 @@ import { LOCAL_COPY_STALE, StaleCopyNotice } from './stale-copy-notice';
 export interface NoteEditorProps {
   readonly itemId: string;
   readonly mobileActions?: ReactNode;
+  /** The details panel's toggle, docked with the writing tools on a phone. */
+  readonly mobileDetails?: MobileNoteDetails | undefined;
   readonly documentPath?: string | undefined;
   readonly onSync?: ((sync: CollabSync | null) => void) | undefined;
   /**
@@ -412,6 +414,7 @@ export function NoteEditor({
   documentPath,
   onSync,
   mobileActions,
+  mobileDetails,
   cacheBody = false,
   parentId,
 }: NoteEditorProps): ReactNode {
@@ -950,7 +953,12 @@ export function NoteEditor({
               Normal.
             </Text>
             {narrow ? (
-              <MobileNoteToolbar editor={editor} formatting={formatting} actions={mobileActions} />
+              <MobileNoteToolbar
+                editor={editor}
+                formatting={formatting}
+                actions={mobileActions}
+                details={mobileDetails}
+              />
             ) : (
               formatting
             )}

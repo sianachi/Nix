@@ -29,6 +29,10 @@ export function LoginPage({ onSignIn, error = null }: LoginPageProps): ReactNode
         >
           <section className="flex flex-col p-11">
             <Blueprint className="mb-6.5 inline-flex size-15.5 items-center justify-center">
+              {/* text-primitive-exempt: the wordmark. Two capitals at the h2 step, opened to
+                  `tracking-slight` because a pair of caps set at the heading's own `tracking-tight`
+                  reads as one glyph. `<Text variant="h2">` is the right size and the wrong
+                  tracking, and tracking is not a prop - see Text.tsx's note on why. */}
               <span className="font-heading text-2xl font-semibold tracking-slight">NX</span>
             </Blueprint>
 
@@ -56,6 +60,4 @@ export function LoginPage({ onSignIn, error = null }: LoginPageProps): ReactNode
       </div>
     </main>
   );
-
-
 }

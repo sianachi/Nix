@@ -3,15 +3,26 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
 import { useMobileToolbarPreference } from './mobile-toolbar-preference';
 
+/**
+ * The item's own controls when they live in the dock rather than in a row under the title: the
+ * details panel's toggle, beside the item actions the dock already opens.
+ */
+export interface MobileNoteDetails {
+  readonly open: boolean;
+  readonly onToggle: () => void;
+}
+
 /** One quiet action surface, with horizontal scrolling instead of wrapped rows. */
 export function MobileNoteToolbar({
   formatting,
   actions,
+  details,
   editor,
 }: {
   readonly formatting: ReactNode;
   readonly editor?: Editor;
   readonly actions?: ReactNode;
+  readonly details?: MobileNoteDetails | undefined;
 }): ReactNode {
   const visibility = useMobileToolbarPreference((state) => state.visibility);
   const [hidden, setHidden] = useState(false);
@@ -82,9 +93,20 @@ export function MobileNoteToolbar({
             >
               {formatting}
             </div>
+            {details ? (
+              <Button
+                variant="ghost"
+                className="shrink-0"
+                aria-expanded={details.open}
+                onClick={details.onToggle}
+              >
+                Details
+              </Button>
+            ) : null}
             {actions ? (
               <Button
                 variant="ghost"
+                className="shrink-0"
                 onClick={() => {
                   setActionsOpen(true);
                 }}

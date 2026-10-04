@@ -85,6 +85,29 @@ describe('the file item viewer', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('holds the item controls it is given in its own bar, beside File info', async () => {
+    // On a phone the page hands a file its Details and item actions to carry, instead of drawing
+    // a row of their own under the title. Two buttons called "Details" would be a guess, which is
+    // why the file's own drawer is "File info".
+    client = fakeClient(false);
+    vi.stubGlobal('fetch', vi.fn());
+
+    render(
+      <FileViewer
+        itemId={ITEM}
+        itemControls={
+          <button type="button" aria-expanded={false}>
+            Details
+          </button>
+        }
+      />,
+    );
+    await screen.findAllByText('diagram.png');
+
+    expect(screen.getByRole('button', { name: 'File info' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Details' })).toBeInTheDocument();
+  });
+
   it('keeps the facts and the versions in a drawer behind one button', async () => {
     client = fakeClient(false);
     vi.stubGlobal('fetch', vi.fn());
@@ -97,7 +120,7 @@ describe('the file item viewer', () => {
     expect(screen.queryByText('1'.repeat(64))).not.toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: 'File details' })).not.toBeInTheDocument();
 
-    const details = screen.getByRole('button', { name: 'Details' });
+    const details = screen.getByRole('button', { name: 'File info' });
     expect(details).toHaveAttribute('aria-expanded', 'false');
     await user.click(details);
 

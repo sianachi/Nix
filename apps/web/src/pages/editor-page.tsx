@@ -10,7 +10,6 @@ import {
   focusRing,
 } from '@nix/ui';
 import {
-  ArrowLeft,
   MoreHorizontal,
   Download,
   LayoutTemplate,
@@ -32,7 +31,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useLocation, useNavigate, useOutletContext } from 'react-router';
+import { useNavigate, useOutletContext } from 'react-router';
 
 import type { ShellContext } from '../shell/shell-context';
 import { PaneViewport } from '../layout/pane-viewport';
@@ -545,6 +544,45 @@ export function OpenItem({
   const showChildren = activeId === '__children__';
   const showingDocument = active === null && !showChildren;
 
+  // On a phone, a note's writing dock carries Details and the item actions itself (see
+  // `MobileNoteToolbar`), so the section row under the title is only drawn for the bodies that have
+  // no dock: canvases, sheets, files, and any view of the item's children.
+  // On a phone the item's own controls - Details and the item actions - sit in exactly one bar that
+  // is already on screen, rather than in a row of their own under the title. In order: the views
+  // strip, when the item has views (it also carries Body, so it is the one place for all three);
+  // otherwise the writing dock of a note, or the bar a canvas, sheet or file draws for itself. Only
+  // a body that cannot be shown - locked, or failed to load - falls back to the row.
+  const viewsHostControls = narrow && views.length > 0;
+  const editorKind = bodyKind === 'canvas' || bodyKind === 'spreadsheet' || bodyKind === 'file';
+  const noteDocked =
+    narrow &&
+    !viewsHostControls &&
+    // Still loading counts: most notes open, and drawing the row only to remove it once the lock
+    // answers would make it flicker. A note that turns out locked has no dock, so it gets the row.
+    (lock.open || lock.status === 'loading') &&
+    showingDocument &&
+    !editorKind;
+  const editorHostsControls =
+    narrow && !viewsHostControls && lock.open && showingDocument && editorKind;
+  const sectionRowShown = narrow && !viewsHostControls && !noteDocked && !editorHostsControls;
+
+  const mobileItemControls = (
+    <>
+      <Button variant="ghost" aria-expanded={panelOpen} onClick={togglePanel}>
+        Details
+      </Button>
+      <Button
+        variant="icon"
+        aria-label="Item actions"
+        onClick={() => {
+          setActionsOpen(true);
+        }}
+      >
+        <Icon icon={MoreHorizontal} size="sm" />
+      </Button>
+    </>
+  );
+
   const itemActions = (
     <div className="flex shrink-0 flex-col sm:flex-row sm:items-center">
       <div className="min-w-0 flex-1 overflow-x-auto">
@@ -733,40 +771,27 @@ export function OpenItem({
         onCommit={onCommit}
       />
 
-      {narrow ? (
+      {sectionRowShown ? (
         <nav
           aria-label="Item sections"
-          className="flex shrink-0 items-center gap-1 border-b border-divider px-3 pb-2"
+          className="flex shrink-0 items-center justify-end gap-1 border-b border-divider px-3 pb-2"
         >
-          <Button
-            variant="ghost"
-            className="flex-1"
-            aria-pressed={showingDocument}
-            onClick={() => {
-              selectView(DOCUMENT_VIEW);
-            }}
-          >
-            Body
-          </Button>
-          <Button
-            variant="ghost"
-            className="flex-1"
-            aria-expanded={panelOpen}
-            onClick={togglePanel}
-          >
-            Details
-          </Button>
-          <Button
-            variant="icon"
-            aria-label="Item actions"
-            onClick={() => {
-              setActionsOpen(true);
-            }}
-          >
-            <Icon icon={MoreHorizontal} size="sm" />
-          </Button>
+          {/* Body only when it is a way back: from a listing of the item's children. With views,
+              the views strip carries it; on the body itself it would select what is showing. */}
+          {showingDocument ? null : (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              onClick={() => {
+                selectView(DOCUMENT_VIEW);
+              }}
+            >
+              Body
+            </Button>
+          )}
+          {mobileItemControls}
         </nav>
-      ) : (
+      ) : narrow ? null : (
         itemActions
       )}
       {narrow && views.length > 0 ? (
@@ -774,6 +799,7 @@ export function OpenItem({
           views={views}
           unrenderable={unrenderable}
           activeViewId={showChildren ? '' : activeId}
+          trailing={mobileItemControls}
           documentLabel="Body"
           onSelect={(chosen) => {
             selectView(chosen);
@@ -839,18 +865,31 @@ export function OpenItem({
                   </div>
                 }
               >
-                <CanvasEditor itemId={itemId} cacheBody={!lock.locked} />
+                <CanvasEditor
+                  itemId={itemId}
+                  cacheBody={!lock.locked}
+                  itemControls={editorHostsControls ? mobileItemControls : undefined}
+                />
               </Suspense>
             ) : bodyKind === 'spreadsheet' ? (
-              <SheetEditor itemId={itemId} cacheBody={!lock.locked} />
+              <SheetEditor
+                itemId={itemId}
+                cacheBody={!lock.locked}
+                itemControls={editorHostsControls ? mobileItemControls : undefined}
+              />
             ) : bodyKind === 'file' ? (
-              <FileViewer itemId={itemId} />
+              <FileViewer
+                itemId={itemId}
+                itemControls={editorHostsControls ? mobileItemControls : undefined}
+              />
             ) : (
               // Every kind this build has not heard of is prose - the same open-set rule
               // the server applies, so the two never disagree about what a body is.
               <NoteEditor
                 itemId={itemId}
                 cacheBody={!lock.locked}
+                mobileActions={noteDocked ? itemActions : undefined}
+                mobileDetails={noteDocked ? { open: panelOpen, onToggle: togglePanel } : undefined}
                 // From the tree the page already holds: no fetch, only a ranking hint.
                 parentId={tree.find(itemId)?.parentId}
               />
@@ -1037,8 +1076,6 @@ function ItemHeader({
 }: ItemHeaderProps): ReactNode {
   const narrow = useNarrowViewport();
   const trail = tree.breadcrumbs(itemId);
-  const navigate = useNavigate();
-  const location = useLocation();
   const parent = trail.at(-2);
   // Keyed on the item by its caller, so the draft is rebuilt rather than carried. A title held in
   // state and not reset is the classic mirrored-prop bug: navigating from one note to another would
@@ -1061,16 +1098,8 @@ function ItemHeader({
     <header className="px-4 pb-3 pt-2 sm:pt-4 sm:px-8 sm:pr-16">
       {narrow ? (
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            onClick={() => {
-              if (location.key !== 'default') void navigate(-1);
-              else if (parent) onNavigate(parent.id);
-              else void navigate(location.pathname, { replace: true });
-            }}
-          >
-            <Icon icon={ArrowLeft} size="sm" /> Back
-          </Button>
+          {/* No Back button: browser history here can lead back out to the sign-in redirect.
+              Going up is the parent's own button, which always stays inside the workspace. */}
           {parent ? (
             <Button
               variant="ghost"

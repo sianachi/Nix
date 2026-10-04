@@ -147,7 +147,6 @@ describe('opening an item beside another', () => {
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
-    await user.click(screen.getByRole('button', { name: 'Tree and actions' }));
     await screen.findByRole('button', { name: 'Engineering' });
 
     // `'narrow'` is a fact about this viewport, true of every row at once - unlike the pane limit
@@ -161,8 +160,8 @@ describe('opening an item beside another', () => {
       screen.queryByRole('button', { name: /cannot open engineering beside/i }),
     ).not.toBeInTheDocument();
 
-    // The row's other controls are unaffected by this - they still work at narrow widths.
-    expect(screen.getByRole('button', { name: /delete engineering/i })).toBeInTheDocument();
+    // Nor does the phone offer the full tree's other row actions: its drawer browses and opens.
+    expect(screen.queryByRole('button', { name: /delete engineering/i })).not.toBeInTheDocument();
   });
 
   it('keeps the control visible and disabled at the pane limit, since that refusal is transient', async () => {
@@ -298,27 +297,6 @@ describe('deleting an item', () => {
     );
     expect(document.activeElement).toBe(focusedOnceUndoSettled);
     expect(screen.getByRole('button', { name: 'Dismiss' })).not.toHaveFocus();
-  });
-
-  it('keeps the undo toast up when the off-canvas drawer that was showing the sidebar closes', async () => {
-    const user = deleteUser();
-    stubViewport(false);
-    stubCoreApi({ items: [PARENT] });
-    renderAt(<App />);
-
-    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
-    await user.click(screen.getByRole('button', { name: 'Tree and actions' }));
-    await screen.findByRole('button', { name: 'Engineering' });
-    await user.click(screen.getByRole('button', { name: /delete engineering/i }));
-    expect(await screen.findByRole('status')).toBeInTheDocument();
-
-    // Closing the drawer is the very next thing a phone user does after deleting something, to
-    // get back to their document - and used to unmount the toast along with the sidebar it lived
-    // inside, cutting the undo window down to whatever fraction of it had elapsed.
-    await user.click(screen.getByRole('button', { name: /hide the workspace tree/i }));
-
-    expect(screen.getByRole('status')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument();
   });
 
   it('brings the item back when Undo is pressed', async () => {

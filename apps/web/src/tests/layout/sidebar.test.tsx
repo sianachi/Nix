@@ -423,27 +423,6 @@ describe('the workspace tree, as a drawer on a narrow screen', () => {
     expect(toggle).toHaveFocus();
   });
 
-  it('closes the "New" menu on Escape without closing the drawer around it', async () => {
-    // A regression for the bug both listened for Escape on the same node without either stopping
-    // propagation, so opening "New" and pressing Escape closed the whole drawer instead of just
-    // the menu it was meant for - see `workspace-sidebar.tsx`'s `CreateMenu` and
-    // `sidebar-drawer.tsx`'s own comment on why they no longer collide.
-    const user = userEvent.setup();
-    stubViewport(false);
-    stubCoreApi({ items: [NOTE] });
-    renderAt(<App />);
-
-    await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
-    await user.click(screen.getByRole('button', { name: 'Tree and actions' }));
-    await user.click(await screen.findByRole('button', { name: /new item in/i }));
-    expect(screen.getByRole('menu')).toBeInTheDocument();
-
-    await user.keyboard('{Escape}');
-
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
-  });
-
   it('closes the profile menu on Escape without closing the drawer around it', async () => {
     // The same bug as the "New" menu above, for the other document-level Escape handler that stays
     // reachable while the drawer is open - the header never becomes inert, by design, so the

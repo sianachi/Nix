@@ -34,10 +34,16 @@ export interface ViewSwitcherProps {
 
   /** What to call the item's own body. Omit to leave the document out entirely. */
   readonly documentLabel?: string;
+
+  /**
+   * Controls about the item itself rather than its views - on a phone, its details and actions -
+   * held at the end of the row and kept in place while the tabs scroll.
+   */
+  readonly trailing?: ReactNode;
 }
 
 export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
-  const { views, unrenderable, activeViewId, onSelect, documentLabel } = props;
+  const { views, unrenderable, activeViewId, onSelect, documentLabel, trailing } = props;
 
   // Nothing to choose between. An item nobody has configured a view on shows its body and no
   // chrome at all, which is every plain note - a lone "Document" tab would be a control with one
@@ -53,11 +59,25 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
       activeViewId={activeViewId}
       onSelect={onSelect}
       {...(documentLabel === undefined ? {} : { documentLabel })}
+      {...(trailing === undefined ? {} : { trailing })}
     />
   );
 }
 
 function ViewStrip(props: ViewSwitcherProps): ReactNode {
+  const { trailing } = props;
+  const strip = <ViewTabs {...props} />;
+  return trailing === undefined ? (
+    strip
+  ) : (
+    <div className="flex items-center">
+      <div className="min-w-0 flex-1">{strip}</div>
+      <div className="flex shrink-0 items-center gap-1 pr-3">{trailing}</div>
+    </div>
+  );
+}
+
+function ViewTabs(props: ViewSwitcherProps): ReactNode {
   const { views, unrenderable, activeViewId, onSelect, documentLabel } = props;
   const stripRef = useRef<HTMLElement>(null);
 

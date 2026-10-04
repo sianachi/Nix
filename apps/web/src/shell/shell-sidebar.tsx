@@ -1,4 +1,3 @@
-import { Button } from '@nix/ui';
 import { MobileWorkspaceBrowser } from '../items/mobile-workspace-browser';
 import { focusPane } from '../panes/pane-params';
 import type { OpenItemControl } from '../tabs/use-open-item';
@@ -51,7 +50,6 @@ export function ShellSidebar({
   sidebarToggleRef,
 }: ShellSidebarProps): ReactNode {
   const [browseParent, setBrowseParent] = useState<string | null>(null);
-  const [fullTree, setFullTree] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
 
   function closeDrawerAfter<Args extends readonly string[]>(
@@ -96,45 +94,15 @@ export function ShellSidebar({
     <>
       {!sidebar.visible ? null : narrow ? (
         <SidebarDrawer onClose={closeDrawer}>
-          {!fullTree ? (
-            <MobileWorkspaceBrowser
-              tree={tree}
-              parentId={browseParent}
-              onParent={setBrowseParent}
-              onOpen={closeDrawerAfter(openItem.openPreview)}
-              onTree={() => {
-                setFullTree(true);
-              }}
-            />
-          ) : (
-            <div className="flex min-h-0 w-full flex-col">
-              <Button
-                variant="ghost"
-                className="shrink-0"
-                onClick={() => {
-                  setFullTree(false);
-                }}
-              >
-                Back to browse
-              </Button>
-              <WorkspaceSidebar
-                tree={tree}
-                selectedId={selectedId}
-                onSelect={closeDrawerAfter(openItem.openPreview)}
-                onOpenBeside={closeDrawerAfter(openItem.openBeside)}
-                onOpenPinned={closeDrawerAfter(openItem.openPinned)}
-                canOpenBeside={openItem.canOpenBeside}
-                besideRefusal={openItem.besideRefusal}
-                onDeleteItem={onDeleteItem}
-                onStartStructured={onStartStructured}
-                templates={templates}
-                templateStatus={templateStatus}
-                onStartTemplate={onStartTemplate}
-                onBrowseTemplates={onBrowseTemplates}
-                treeRegionRef={treeRegionRef}
-              />
-            </div>
-          )}
+          {/* Browse and open only. The full tree's actions - structured items, templates, delete,
+              open beside - are laid out for a pointer and a wide pane, and are not offered on a
+              phone. */}
+          <MobileWorkspaceBrowser
+            tree={tree}
+            parentId={browseParent}
+            onParent={setBrowseParent}
+            onOpen={closeDrawerAfter(openItem.openPreview)}
+          />
         </SidebarDrawer>
       ) : (
         <>

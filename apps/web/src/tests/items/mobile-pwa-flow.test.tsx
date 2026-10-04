@@ -21,7 +21,7 @@ beforeEach(() => {
   signedIn();
   stubViewport(false);
 });
-it('opens list items as pages and Back restores the parent list view', async () => {
+it('opens list items as pages, and the parent button returns to the parent', async () => {
   stubCoreApi({
     items: [root, child],
     views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
@@ -36,12 +36,11 @@ it('opens list items as pages and Back restores the parent list view', async () 
   );
   expect(await screen.findByRole('textbox', { name: 'Note title' })).toHaveValue('Plan');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Back' }));
-  expect(
-    await within(await screen.findByRole('region', { name: 'Container' })).findByRole('button', {
-      name: 'Plan',
-    }),
-  ).toBeInTheDocument();
+  // No Back button on a phone: history could lead out to the sign-in redirect. The parent's own
+  // button is the way up, and it never leaves the workspace.
+  expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Project' }));
+  expect(await screen.findByRole('textbox', { name: 'Note title' })).toHaveValue('Project');
 });
 it('keeps a dismissed capture title and creates in the selected destination', async () => {
   stubCoreApi({
@@ -74,7 +73,7 @@ it('keeps a dismissed capture title and creates in the selected destination', as
     }),
   ).toBeInTheDocument();
 });
-it('provides one-level browsing and access to the full workspace tree', async () => {
+it('provides one-level browsing, without the desktop tree and its actions', async () => {
   stubCoreApi({
     items: [root, child],
     views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
@@ -84,8 +83,8 @@ it('provides one-level browsing and access to the full workspace tree', async ()
   await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
   await userEvent.click(screen.getByRole('button', { name: 'Browse children of Project' }));
   expect(await screen.findByRole('button', { name: 'Plan' })).toBeInTheDocument();
-  await userEvent.click(screen.getByRole('button', { name: 'Tree and actions' }));
-  expect(screen.getByRole('tree', { name: 'Items' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Tree and actions' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('tree', { name: 'Items' })).not.toBeInTheDocument();
 });
 
 it('retains the capture title and reports a refused create without navigating', async () => {
@@ -121,7 +120,8 @@ it('moves an item through a destination sheet without dragging', async () => {
   });
   renderAt(<App />, `/?item=${child.id}`);
   await screen.findByRole('textbox', { name: 'Note title' });
-  await userEvent.click(screen.getByRole('button', { name: 'Item actions' }));
+  // A note's item actions live in its writing dock on a phone, not in a row under the title.
+  await userEvent.click(await screen.findByRole('button', { name: 'Item' }));
   await userEvent.click(
     within(screen.getByRole('dialog', { name: 'Item actions' })).getByRole('button', {
       name: 'Move item',
@@ -143,4 +143,37 @@ it('moves an item through a destination sheet without dragging', async () => {
   });
   await userEvent.click(screen.getByRole('button', { name: 'Workspace' }));
   expect(await screen.findByRole('button', { name: 'Plan' })).toBeInTheDocument();
+});
+
+it("keeps a note's details and item actions in its writing dock, not under the title", async () => {
+  stubCoreApi({ items: [root, child] });
+  renderAt(<App />, `/?item=${child.id}`);
+  await screen.findByRole('textbox', { name: 'Note title' });
+
+  expect(screen.queryByRole('navigation', { name: 'Item sections' })).not.toBeInTheDocument();
+  const details = await screen.findByRole('button', { name: 'Details' });
+  expect(details).toHaveAttribute('aria-expanded', 'false');
+  await userEvent.click(details);
+  expect(details).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByRole('button', { name: 'Item' })).toBeInTheDocument();
+});
+
+it("puts an item's details and actions in its views strip, beside Body, with no row of their own", async () => {
+  stubCoreApi({
+    items: [root, child],
+    views: { [root.id]: { views: [aView({ name: 'List' })], default: 'document' } },
+  });
+  renderAt(<App />, `/?item=${root.id}`);
+  await screen.findByRole('textbox', { name: 'Note title' });
+
+  expect(screen.queryByRole('navigation', { name: 'Item sections' })).not.toBeInTheDocument();
+  // One place for all three: Body is the strip's first tab, Details and the actions sit at its end.
+  // The note's dock does not repeat them.
+  expect(await screen.findByRole('button', { name: 'Body' })).toBeInTheDocument();
+  expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Item actions' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Item' })).not.toBeInTheDocument();
+
+  await userEvent.click(screen.getByRole('button', { name: 'List' }));
+  expect(screen.getAllByRole('button', { name: 'Details' })).toHaveLength(1);
 });

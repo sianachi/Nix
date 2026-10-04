@@ -9,13 +9,11 @@ export function MobileWorkspaceBrowser({
   parentId,
   onParent,
   onOpen,
-  onTree,
 }: {
   readonly tree: WorkspaceTree;
   readonly parentId: string | null;
   readonly onParent: (id: string | null) => void;
   readonly onOpen: (id: string) => void;
-  readonly onTree: () => void;
 }): ReactNode {
   const parent = parentId === null ? null : tree.find(parentId);
   const loading =
@@ -38,9 +36,6 @@ export function MobileWorkspaceBrowser({
             Workspace
           </Text>
         )}
-        <Button variant="ghost" onClick={onTree}>
-          Tree and actions
-        </Button>
       </div>
       {parent ? (
         <Button
