@@ -34,6 +34,15 @@ namespace Nix.Features.Calendar;
 /// The occurrence's completion state when <see cref="Generated"/> is <see langword="true"/>;
 /// <see langword="null"/> for a concrete entry, which has no completion state of its own to carry.
 /// </param>
+/// <param name="EndProperty">
+/// The property the entry's calendar ends a span by, or <see langword="null"/> when that calendar
+/// has none. Present whether or not this item has a value for it, so a client can tell an item
+/// that could be given an end from a calendar that has no ends at all.
+/// </param>
+/// <param name="EndValue">
+/// The item's raw value for <paramref name="EndProperty"/>, or <see langword="null"/> when it has
+/// none. The same shape as <paramref name="Value"/>.
+/// </param>
 internal sealed record CalendarEntryResponse(
     Guid ItemId,
     string? Title,
@@ -43,7 +52,9 @@ internal sealed record CalendarEntryResponse(
     string Value,
     string Kind,
     bool Generated,
-    bool? Completed);
+    bool? Completed,
+    string? EndProperty,
+    string? EndValue);
 
 /// <summary>
 /// A container that offered a calendar and placed nothing on it, or an item that repeats and could

@@ -46,6 +46,23 @@ public sealed record CalendarEntry(
     string DateProperty,
     string Value)
 {
+    /// <summary>
+    /// Gets the property the entry's calendar ends a span by, or <see langword="null"/> when that
+    /// calendar has none - in which case the item is a point and has nowhere to keep a length.
+    /// </summary>
+    /// <remarks>
+    /// Present whenever the calendar names one, whether or not this item has a value for it, so a
+    /// client can tell "this item could be given an end" from "this calendar has no ends at all".
+    /// An occurrence generated from a recurrence rule carries neither: it has no row to write to.
+    /// </remarks>
+    public string? EndProperty { get; init; }
+
+    /// <summary>
+    /// Gets the item's raw value for <see cref="EndProperty"/>, or <see langword="null"/> when it
+    /// has none.
+    /// </summary>
+    public string? EndValue { get; init; }
+
     /// <summary>Whether this entry is an all-day date or a moment.</summary>
     /// <remarks>
     /// Derived from the stored shape rather than from the schema, so it is a fact about the value

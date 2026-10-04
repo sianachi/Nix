@@ -24,6 +24,8 @@ function aDate(value: string): CalendarEntry {
     kind: 'date',
     // A stored entry, not one a rule produced.
     generated: false,
+    endProperty: null,
+    endValue: null,
     completed: null,
   };
 }
@@ -39,6 +41,8 @@ function aMoment(value: string): CalendarEntry {
     kind: 'timestamp',
     // A stored entry, not one a rule produced.
     generated: false,
+    endProperty: null,
+    endValue: null,
     completed: null,
   };
 }

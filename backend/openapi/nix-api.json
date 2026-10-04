@@ -10295,7 +10295,9 @@
           "value",
           "kind",
           "generated",
-          "completed"
+          "completed",
+          "endProperty",
+          "endValue"
         ],
         "type": "object",
         "properties": {
@@ -10335,6 +10337,18 @@
             "type": [
               "null",
               "boolean"
+            ]
+          },
+          "endProperty": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "endValue": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }

@@ -77,6 +77,7 @@ public static class CalendarSql
             SELECT container.id AS container_id,
                    container.properties ->> 'title' AS container_title,
                    entry.value ->> 'dateProperty' AS date_property,
+                   entry.value ->> 'endDateProperty' AS end_property,
                    row_number() OVER (PARTITION BY container.id ORDER BY entry.ordinality) AS rank
             FROM item AS container
             CROSS JOIN LATERAL jsonb_array_elements(container.views -> 'views')
@@ -109,7 +110,7 @@ public static class CalendarSql
               AND {ItemLockSql.ContainerIsOpen}
         ),
         chosen AS (
-            SELECT container_id, container_title, date_property
+            SELECT container_id, container_title, date_property, end_property
             FROM calendar_view
             WHERE rank = 1
         ),
@@ -120,6 +121,11 @@ public static class CalendarSql
                    chosen.container_title AS container_title,
                    chosen.date_property AS date_property,
                    child.properties ->> chosen.date_property AS value,
+                   chosen.end_property AS end_property,
+                   CASE
+                       WHEN chosen.end_property IS NULL THEN NULL
+                       ELSE child.properties ->> chosen.end_property
+                   END AS end_value,
                    child.seq AS seq
             FROM chosen
             JOIN item AS child
@@ -142,7 +148,9 @@ public static class CalendarSql
                entries.container_id AS container_id,
                entries.container_title AS container_title,
                entries.date_property AS date_property,
-               entries.value AS value
+               entries.value AS value,
+               entries.end_property AS end_property,
+               entries.end_value AS end_value
         FROM entries
 
         UNION ALL
@@ -153,7 +161,9 @@ public static class CalendarSql
                chosen.container_id AS container_id,
                chosen.container_title AS container_title,
                NULL AS date_property,
-               NULL AS value
+               NULL AS value,
+               NULL AS end_property,
+               NULL AS end_value
         FROM chosen
         WHERE chosen.date_property IS NULL
 

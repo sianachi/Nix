@@ -37,6 +37,8 @@ const MARCH_ENTRIES: readonly CalendarEntry[] = [
     kind: 'date',
     // A stored entry, not one a rule produced.
     generated: false,
+    endProperty: null,
+    endValue: null,
     completed: null,
   },
   {
@@ -49,6 +51,8 @@ const MARCH_ENTRIES: readonly CalendarEntry[] = [
     kind: 'timestamp',
     // A stored entry, not one a rule produced.
     generated: false,
+    endProperty: null,
+    endValue: null,
     completed: null,
   },
 ];
@@ -65,6 +69,8 @@ const APRIL_ENTRIES: readonly CalendarEntry[] = [
     kind: 'date',
     // A stored entry, not one a rule produced.
     generated: false,
+    endProperty: null,
+    endValue: null,
     completed: null,
   },
 ];
@@ -302,6 +308,8 @@ describe('a generated occurrence', () => {
       value: '2026-03-12',
       kind: 'date',
       generated: true,
+      endProperty: null,
+      endValue: null,
       completed,
     };
   }
@@ -405,6 +413,8 @@ describe('a busy month cell', () => {
       value: day,
       kind: 'date',
       generated: false,
+      endProperty: null,
+      endValue: null,
       completed: null,
     };
   }
@@ -428,9 +438,9 @@ describe('a busy month cell', () => {
     );
 
     const day = screen.getByRole('cell', { name: 'Thursday 12 March 2026' });
-    expect(within(day).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(day).getAllByRole('listitem')).toHaveLength(3);
 
-    await userEvent.click(within(day).getByRole('button', { name: 'Show 2 more' }));
+    await userEvent.click(within(day).getByRole('button', { name: 'Show 5 more' }));
     expect(within(day).getAllByRole('listitem')).toHaveLength(8);
     expect(within(day).getByRole('button', { name: 'Show fewer' })).toHaveAttribute(
       'aria-expanded',

@@ -2668,6 +2668,8 @@ export interface components {
       kind: string;
       generated: boolean;
       completed: null | boolean;
+      endProperty: null | string;
+      endValue: null | string;
     };
     CalendarLinkContainerRequest: {
       /** Format: uuid */

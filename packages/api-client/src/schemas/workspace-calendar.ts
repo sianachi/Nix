@@ -75,6 +75,16 @@ export const calendarEntrySchema = z.object({
    * completion state of its own to report.
    */
   completed: z.boolean().nullable(),
+
+  /**
+   * The property this entry's calendar ends a span by, or null when that calendar has none.
+   * Present whether or not the item has a value for it. Defaulted, so a server from before the
+   * field still parses and its entries are simply points.
+   */
+  endProperty: z.string().nullable().default(null),
+
+  /** The item's raw value for `endProperty`, in the same shape as `value`, or null. */
+  endValue: z.string().nullable().default(null),
 });
 
 export type CalendarEntry = z.infer<typeof calendarEntrySchema>;

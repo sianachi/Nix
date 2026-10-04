@@ -68,7 +68,9 @@ internal static class CalendarMapping
                 entry.Value,
                 entry.Kind == CalendarEntryKind.Date ? DateKind : TimestampKind,
                 row.Generated,
-                row.Completed);
+                row.Completed,
+                entry.EndProperty,
+                entry.EndValue);
         }
 
         return responses;
