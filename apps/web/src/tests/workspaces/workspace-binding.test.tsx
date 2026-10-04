@@ -123,7 +123,9 @@ describe('workspace binding under StrictMode', () => {
     const rendered = render(app);
 
     expect(await screen.findByRole('heading', { name: 'Templates' })).toBeVisible();
-    expect(counts.get(STUB_WORKSPACE.id)).toBe(1);
+    await waitFor(() => {
+      expect(counts.get(STUB_WORKSPACE.id)).toBe(1);
+    });
     rendered.rerender(app);
     await waitFor(() => {
       expect(counts.get(STUB_WORKSPACE.id)).toBe(1);
