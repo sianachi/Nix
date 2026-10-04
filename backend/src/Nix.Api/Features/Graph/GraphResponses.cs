@@ -12,16 +12,28 @@ namespace Nix.Features.Graph;
 /// What it is called, or <see langword="null"/> when it has never been named. The client decides
 /// what to draw for an unnamed node; the server does not invent a name for it.
 /// </param>
-internal sealed record GraphNodeResponse(Guid Id, Guid? ParentId, string Type, string? Title);
+/// <param name="CreatedAt">When the item was created.</param>
+/// <param name="LastModifiedAt">
+/// When the item was last modified, or <see langword="null"/> when the item is locked or sits under
+/// a lock: the time a withheld body last changed is withheld with it.
+/// </param>
+internal sealed record GraphNodeResponse(
+    Guid Id,
+    Guid? ParentId,
+    string Type,
+    string? Title,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastModifiedAt);
 
 /// <summary>One reference edge between two nodes of this graph.</summary>
 /// <param name="SourceId">The item whose document holds the reference.</param>
 /// <param name="TargetId">The item being referred to.</param>
+/// <param name="Occurrences">How many times the source refers to the target.</param>
 /// <remarks>
 /// Both identifiers appear in <see cref="WorkspaceGraphResponse.Nodes"/>. An edge with an end the
 /// caller may not read is absent rather than half-drawn.
 /// </remarks>
-internal sealed record GraphLinkResponse(Guid SourceId, Guid TargetId);
+internal sealed record GraphLinkResponse(Guid SourceId, Guid TargetId, int Occurrences);
 
 /// <summary>What a workspace graph read returned.</summary>
 /// <param name="WorkspaceId">The workspace that was drawn, echoed so a client can discard a stale response.</param>

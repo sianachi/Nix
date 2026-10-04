@@ -3343,6 +3343,8 @@ export interface components {
       sourceId: string;
       /** Format: uuid */
       targetId: string;
+      /** Format: int32 */
+      occurrences: number | string;
     };
     GraphNodeResponse: {
       /** Format: uuid */
@@ -3351,6 +3353,10 @@ export interface components {
       parentId: null | string;
       type: string;
       title: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      lastModifiedAt: null | string;
     };
     HabitCheckInRequest: {
       completed: boolean;

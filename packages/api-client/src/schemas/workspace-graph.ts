@@ -36,6 +36,15 @@ export const graphNodeSchema = z.object({
    * name, so a view that wants one supplies its own copy.
    */
   title: z.string().nullable(),
+
+  /** When the item was created. What a time-lapse orders the drawing by. */
+  createdAt: z.iso.datetime({ offset: true }),
+
+  /**
+   * When the item was last modified, or null when the item is locked or sits under a lock - the
+   * time a withheld body last changed is withheld with it.
+   */
+  lastModifiedAt: z.iso.datetime({ offset: true }).nullable(),
 });
 
 export type GraphNode = z.infer<typeof graphNodeSchema>;
@@ -44,6 +53,9 @@ export type GraphNode = z.infer<typeof graphNodeSchema>;
 export const graphLinkSchema = z.object({
   sourceId: z.uuid(),
   targetId: z.uuid(),
+
+  /** How many times the source refers to the target. Published as an integer or its decimal string. */
+  occurrences: z.union([z.int(), z.string().regex(/^-?\d+$/)]),
 });
 
 export type GraphLink = z.infer<typeof graphLinkSchema>;

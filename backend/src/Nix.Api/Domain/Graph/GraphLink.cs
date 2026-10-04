@@ -7,12 +7,14 @@ namespace Nix.Domain.Graph;
 /// </summary>
 /// <param name="SourceId">The item whose document holds the reference.</param>
 /// <param name="TargetId">The item being referred to.</param>
+/// <param name="Occurrences">How many times the source refers to the target. Always at least one.</param>
 /// <remarks>
 /// <para>
-/// No occurrence count, unlike <see cref="Nix.Domain.Links.Backlink"/>. A backlinks panel orders by
-/// it; a graph draws a line, and a line that is drawn once does not need to know it was earned
-/// three times. Leaving it out also means the graph says nothing about how much one document
-/// discusses another.
+/// The occurrence count was left out at first, on the argument that a line drawn once does not
+/// need to know it was earned three times. It is carried now because the drawing weights an edge
+/// by it (owner decision, 2026-10-04). It discloses nothing new: an edge is returned only when the
+/// caller may read the source, whose body states the same count, and a locked source draws no
+/// outgoing edges at all.
 /// </para>
 /// <para>
 /// <b>Both ends are nodes of the same reading.</b> An edge whose other end the caller may not read
@@ -20,4 +22,4 @@ namespace Nix.Domain.Graph;
 /// something is there.
 /// </para>
 /// </remarks>
-public sealed record GraphLink(ItemId SourceId, ItemId TargetId);
+public sealed record GraphLink(ItemId SourceId, ItemId TargetId, int Occurrences);

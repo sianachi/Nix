@@ -177,15 +177,16 @@ describe('the workspace graph schema', () => {
   const workspaceId = '00000000-0000-4000-8000-0000000000a0';
   const first = '00000000-0000-4000-8000-0000000000a1';
   const second = '00000000-0000-4000-8000-0000000000a2';
+  const dates = { createdAt: '2026-01-01T00:00:00+00:00', lastModifiedAt: null };
 
   it('accepts a graph whose nodes carry a parent, a kind and a name', () => {
     const parsed = workspaceGraphSchema.safeParse({
       workspaceId,
       nodes: [
-        { id: first, parentId: null, type: 'note', title: 'Programme' },
-        { id: second, parentId: first, type: 'canvas', title: 'Ledger review' },
+        { id: first, parentId: null, type: 'note', title: 'Programme', ...dates },
+        { id: second, parentId: first, type: 'canvas', title: 'Ledger review', ...dates },
       ],
-      links: [{ sourceId: second, targetId: first }],
+      links: [{ sourceId: second, targetId: first, occurrences: 2 }],
       nodeLimit: 2000,
       linkLimit: 4000,
       nodesTruncated: false,
@@ -198,7 +199,7 @@ describe('the workspace graph schema', () => {
   it('accepts a node that has never been named rather than inventing one', () => {
     const parsed = workspaceGraphSchema.safeParse({
       workspaceId,
-      nodes: [{ id: first, parentId: null, type: 'note', title: null }],
+      nodes: [{ id: first, parentId: null, type: 'note', title: null, ...dates }],
       links: [],
       nodeLimit: 2000,
       linkLimit: 4000,
@@ -215,7 +216,7 @@ describe('the workspace graph schema', () => {
     // client the day one landed.
     const parsed = workspaceGraphSchema.safeParse({
       workspaceId,
-      nodes: [{ id: first, parentId: null, type: 'hologram', title: 'New' }],
+      nodes: [{ id: first, parentId: null, type: 'hologram', title: 'New', ...dates }],
       links: [],
       nodeLimit: 2000,
       linkLimit: 4000,

@@ -223,7 +223,11 @@ export interface StubOptions {
    * nothing about document contents, and the real edges are extracted from them by the
    * collaboration service. Same reasoning as `backlinks` above.
    */
-  readonly graphLinks?: readonly { readonly sourceId: string; readonly targetId: string }[];
+  readonly graphLinks?: readonly {
+    readonly sourceId: string;
+    readonly targetId: string;
+    readonly occurrences?: number;
+  }[];
 
   /**
    * Makes the graph read claim it hit a ceiling, so a test can assert the view says so. The
@@ -2329,8 +2333,10 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
               parentId: entry.parentId,
               type: entry.type,
               title: entry.title.length === 0 ? null : entry.title,
+              createdAt: entry.createdAt,
+              lastModifiedAt: entry.updatedAt,
             })),
-            links: graphLinks,
+            links: graphLinks.map((link) => ({ occurrences: 1, ...link })),
             nodeLimit: 2000,
             linkLimit: 4000,
             nodesTruncated: graphTruncated.nodes ?? false,

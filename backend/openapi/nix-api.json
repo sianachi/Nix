@@ -13149,7 +13149,8 @@
       "GraphLinkResponse": {
         "required": [
           "sourceId",
-          "targetId"
+          "targetId",
+          "occurrences"
         ],
         "type": "object",
         "properties": {
@@ -13160,6 +13161,14 @@
           "targetId": {
             "type": "string",
             "format": "uuid"
+          },
+          "occurrences": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -13168,7 +13177,9 @@
           "id",
           "parentId",
           "type",
-          "title"
+          "title",
+          "createdAt",
+          "lastModifiedAt"
         ],
         "type": "object",
         "properties": {
@@ -13191,6 +13202,17 @@
               "null",
               "string"
             ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastModifiedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },
