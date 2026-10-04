@@ -396,9 +396,12 @@ internal sealed class PetInlineStreamResult(HttpResponseMessage response, IDispo
             response.Dispose();
             deadline.Dispose();
             lease.Dispose();
-            ApiLog.PetInlineEnded(log, request.RequestId, request.Kind, outcome,
-                Encoding.UTF8.GetByteCount(request.Selection ?? string.Empty), copied, httpContext.Response.StatusCode,
-                (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            if (log.IsEnabled(LogLevel.Information))
+            {
+                ApiLog.PetInlineEnded(log, request.RequestId, request.Kind, outcome,
+                    Encoding.UTF8.GetByteCount(request.Selection ?? string.Empty), copied, httpContext.Response.StatusCode,
+                    (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+            }
         }
     }
 }
