@@ -20,9 +20,10 @@ import {
   writeTimestampValue,
 } from '../core/timestamps';
 import { RescheduleDialog } from './reschedule-dialog';
-import { movedStart, resizedDuration } from './span-gesture';
+import { durationLabel, movedStart, resizedDuration } from './span-gesture';
 import { useRovingGrid } from './use-roving-grid';
 import { CalendarEntryMenu } from './calendar-entry-menu';
+import { publishNotice } from '../../lib/notices';
 
 /**
  * A day or a week, drawn against the hours.
@@ -55,8 +56,12 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
  * variable anyway - so the sheet would ship none of them. Rounding to a coarser set would place
  * items at times they are not at, which is the one thing a calendar must not do.
  *
- * It is 44px because a row is a click target and that is `--control-lg`, but it is used in
- * arithmetic rather than applied as a length, so it is written as the scalar the arithmetic needs.
+ * It is 56px - twice `MIN_SPAN_HEIGHT_PX` below - so that half an hour is exactly the shortest box
+ * a span is ever drawn as. At the 44px it used to be, anything under about thirty-eight minutes was
+ * drawn the same height, so a half-hour item and a three-quarter-hour one could not be told apart
+ * and stretching an item below that did nothing a reader could see. Now thirty minutes and every
+ * quarter hour above it is drawn at its true length. It is used in arithmetic rather than applied
+ * as a length, so it is written as the scalar the arithmetic needs.
  *
  * The row heights below could be classes; they are not, because they have to agree with the offsets
  * exactly. The same number said twice, once in a class and once in arithmetic, is how a grid drifts
@@ -65,7 +70,7 @@ const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
  * Exported so a test that needs a pixel offset computes it from this number rather than restating
  * it by hand - a second copy of `44` in a test file is the same drift risk one step removed.
  */
-export const ROW_HEIGHT = 44;
+export const ROW_HEIGHT = 56;
 
 /**
  * `ROW_HEIGHT`'s own arithmetic, named for what it converts rather than repeated inline at every
@@ -79,8 +84,7 @@ export function minutesToPx(minutes: number): number {
 /**
  * The shortest a timed span is ever drawn, regardless of its real duration.
  *
- * `minutesToPx` alone put a span under about thirty-eight minutes at less than `--control-sm`
- * (28px) tall, and `overflow: hidden` on that box - needed so a short span's two lines of text
+ * `minutesToPx` alone puts a span under thirty minutes at less than `--control-sm` (28px) tall, and `overflow: hidden` on that box - needed so a short span's two lines of text
  * cannot bleed into the row below it, see the span's own comment - clipped its Reschedule button
  * along with them, shrinking its hit area under the 24px floor WCAG 2.5.8 sets. Clamping the
  * height rather than lifting the clip keeps the box's top exactly where the item starts; only the
@@ -91,6 +95,15 @@ export function minutesToPx(minutes: number): number {
  * used in a `Math.max` against a runtime pixel value, not applied as a Tailwind length.
  */
 const MIN_SPAN_HEIGHT_PX = 28;
+
+/**
+ * The time the shortest box covers on the grid: thirty minutes at this scale.
+ *
+ * A quarter-hour item is drawn this tall, which is longer than it lasts. The overlap sweep uses
+ * this rather than the real duration for such an item, so the one below it is laned beside it
+ * instead of being drawn underneath a box that reaches further than its own end.
+ */
+const MIN_SPAN_MINUTES = (MIN_SPAN_HEIGHT_PX / ROW_HEIGHT) * 60;
 
 /**
  * One day column's floor width, shared by the header cell, the all-day band's cell and the hour
@@ -208,6 +221,22 @@ export interface HourGridProps {
    * write to. An event its calendar marks read-only is fixed without being named.
    */
   readonly fixedItemIds?: ReadonlySet<string> | undefined;
+
+  /**
+   * Gives the calendar an end property. Passed only while it has none; each item's menu then
+   * offers it, since that menu is where a reader who tried to stretch an item and could not goes
+   * looking for why.
+   */
+  readonly onAddEndProperty?: ((itemId: string) => void) | undefined;
+
+  /**
+   * Items whose own calendar has no end property, on a grid that otherwise has one.
+   *
+   * Only the collated calendar needs this: it draws items from many calendars at once, some with
+   * ends and some without. An item named here has no foot to stretch and is offered
+   * {@link onAddEndProperty} instead, exactly as every item is on a grid with no end property.
+   */
+  readonly endlessItemIds?: ReadonlySet<string> | undefined;
 }
 
 /** Minutes in a full day, for clamping a span that runs past midnight. */
@@ -308,6 +337,8 @@ export function HourGrid(props: HourGridProps): ReactNode {
     onMove,
     siblings,
     fixedItemIds,
+    onAddEndProperty,
+    endlessItemIds,
   } = props;
 
   const adjustable = (item: Item): boolean =>
@@ -394,10 +425,12 @@ export function HourGrid(props: HourGridProps): ReactNode {
       return;
     }
 
-    // A mouse only. A finger or a pen on a card is scrolling the day, and the browser takes the
-    // gesture for that the moment it moves; a swipe that happened to start on an item's foot must
-    // not stretch it. Touch and pen write the same start and end through the reschedule dialog.
-    if (event.pointerType !== 'mouse') {
+    // Moving is a mouse only. A finger or a pen on a card is scrolling the day, and the browser
+    // takes the gesture for that the moment it moves. Stretching is different: on a coarse pointer
+    // the foot is a small grip of its own with `touch-action: none`, so a press there is
+    // unmistakably a press on the grip and the browser leaves it alone - a swipe across the card
+    // still scrolls, because the grip is only as wide as itself.
+    if (event.pointerType !== 'mouse' && kind !== 'resize') {
       return;
     }
 
@@ -635,7 +668,10 @@ export function HourGrid(props: HourGridProps): ReactNode {
                 dragged={dragged}
                 onMove={onMove}
                 onReschedule={onMove === undefined ? undefined : setRescheduling}
-                resizable={endDateProperty !== null}
+                onAddEnd={onAddEndProperty}
+                endless={(item) =>
+                  endDateProperty === null || endlessItemIds?.has(item.id) === true
+                }
                 adjustable={adjustable}
                 gesture={gesture}
                 onGesture={onMove === undefined ? undefined : beginGesture}
@@ -787,7 +823,9 @@ function layout(placed: readonly Placed[]): readonly (Placed & { lane: number; l
     .map((entry) => ({
       entry,
       start: entry.minutes,
-      end: entry.minutes + Math.max(entry.durationMinutes ?? 1, 1),
+      end:
+        entry.minutes +
+        (entry.durationMinutes === null ? 1 : Math.max(entry.durationMinutes, MIN_SPAN_MINUTES)),
     }))
     .sort((left, right) => left.start - right.start || left.end - right.end);
 
@@ -879,9 +917,12 @@ function DayColumn(props: {
    * opening a dialog that ends in one.
    */
   readonly onReschedule?: ((itemId: string) => void) | undefined;
+  readonly onAddEnd?: ((itemId: string) => void) | undefined;
+
+  /** Whether an item has no end property to stretch into - see `HourGridProps.endlessItemIds`. */
+  readonly endless: (item: Item) => boolean;
 
   /** Whether the view has an end property, so a placed item can be stretched from its foot. */
-  readonly resizable: boolean;
 
   /** Whether the reader may move this item at all: by drag, by stretch or by the dialog. */
   readonly adjustable: (item: Item) => boolean;
@@ -916,7 +957,8 @@ function DayColumn(props: {
     dragged,
     onMove,
     onReschedule,
-    resizable,
+    onAddEnd,
+    endless,
     adjustable,
     gesture,
     onGesture,
@@ -989,6 +1031,13 @@ function DayColumn(props: {
             title={readPropertyText(entry.item, 'title')}
             onOpen={onOpen}
             onReschedule={reschedule}
+            onAddEnd={
+              onAddEnd !== undefined && endless(entry.item)
+                ? () => {
+                    onAddEnd(entry.item.id);
+                  }
+                : undefined
+            }
           >
             {(contextTarget) => (
               <div
@@ -1042,16 +1091,51 @@ function DayColumn(props: {
                 {/* The foot of the item, for stretching it. Pointer-only and hidden from
                     assistive technology on purpose: the reschedule control beside it writes the
                     same end from a keyboard, and a second, unlabelled control saying the same
-                    thing would be noise. Not drawn for a coarse pointer, which the gesture ignores:
-                    a finger there is scrolling the day. */}
-                {beginGesture === undefined || !resizable ? null : (
+                    thing would be noise.
+
+                    Drawn on every item that can be moved, including one whose calendar has no end
+                    property yet. Leaving it off those made the precondition invisible: a reader
+                    looking for something to drag found nothing and no reason. On such an item a
+                    press does not stretch - there is nowhere to write a length - it says so, and
+                    offers to add end times as the notice's action. */}
+                {beginGesture === undefined ? null : (
                   <span
                     aria-hidden="true"
                     onPointerDown={(event) => {
-                      beginGesture(event, entry, dayIndex, 'resize');
+                      if (!endless(entry.item)) {
+                        beginGesture(event, entry, dayIndex, 'resize');
+                        return;
+                      }
+
+                      event.preventDefault();
+                      event.stopPropagation();
+                      publishNotice({
+                        key: `calendar-no-end:${entry.item.id}`,
+                        message:
+                          onAddEnd === undefined
+                            ? 'Items in this calendar have no end time, so they cannot be stretched. Choose an End property in the calendar’s view settings.'
+                            : 'Items in this calendar have no end time yet, so they cannot be stretched.',
+                        ...(onAddEnd === undefined
+                          ? {}
+                          : {
+                              action: {
+                                label: 'Add end times',
+                                onAction: () => {
+                                  onAddEnd(entry.item.id);
+                                },
+                              },
+                            }),
+                      });
                     }}
-                    className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize rounded-b-sm hover:bg-accent/40 pointer-coarse:hidden"
-                  />
+                    // Tall enough to land on without aiming, with a grip that is always drawn - a
+                    // handle a reader has to hover to discover is one most never find - and
+                    // brightens under the pointer. On a coarse pointer it becomes a short, centred
+                    // grip rather than the whole foot: wide enough for a thumb, narrow enough that
+                    // a scroll starting anywhere else on the card is still a scroll.
+                    className="group/foot absolute inset-x-0 bottom-0 flex h-3 cursor-ns-resize touch-none items-end justify-center rounded-b-sm pb-0.5 hover:bg-accent/40 pointer-coarse:inset-x-auto pointer-coarse:left-1/2 pointer-coarse:h-5 pointer-coarse:w-12 pointer-coarse:-translate-x-1/2"
+                  >
+                    <span className="h-1 w-8 rounded-full bg-accent opacity-70 group-hover/foot:opacity-100 pointer-coarse:opacity-100" />
+                  </span>
                 )}
               </div>
             )}
@@ -1075,7 +1159,7 @@ function DayColumn(props: {
         >
           {gesture.durationMinutes === null
             ? clockAt(gesture.minutes)
-            : `${clockAt(gesture.minutes)} - ${clockAt(gesture.minutes + gesture.durationMinutes)}`}
+            : `${clockAt(gesture.minutes)} - ${clockAt(gesture.minutes + gesture.durationMinutes)} · ${durationLabel(gesture.durationMinutes)}`}
         </div>
       ) : null}
     </div>
@@ -1182,7 +1266,15 @@ function HourSlot(props: {
  * it matters look like all the rest.
  */
 function timeLabel(entry: Placed, zone: string): string {
-  return entry.zone === zone ? entry.at : `${entry.at} · ${entry.zone}`;
+  if (entry.zone !== zone) {
+    return `${entry.at} · ${entry.zone}`;
+  }
+
+  // A span says when it ends as well as when it starts. The box cannot always say it: a quarter
+  // hour is drawn at the shortest box's height, so the words are what tell it from half an hour.
+  return entry.durationMinutes === null
+    ? entry.at
+    : `${entry.at} - ${clockAt(entry.minutes + entry.durationMinutes)}`;
 }
 
 /**

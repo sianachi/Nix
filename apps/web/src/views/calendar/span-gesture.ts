@@ -27,6 +27,21 @@ export function movedStart(pointerMinutes: number, grabOffsetMinutes: number): n
 }
 
 /**
+ * A duration as a reader says it: "15m", "1h", "1h 30m".
+ *
+ * Shown beside the times while an item is being stretched, because "09:00 - 10:30" makes the
+ * reader do the subtraction and the length is the thing they are setting.
+ */
+export function durationLabel(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) {
+    return `${String(rest)}m`;
+  }
+  return rest === 0 ? `${String(hours)}h` : `${String(hours)}h ${String(rest)}m`;
+}
+
+/**
  * How long a resized item runs: from its start to the pointer's minute, snapped, never shorter
  * than one step and never past midnight - the column is one day tall.
  */
