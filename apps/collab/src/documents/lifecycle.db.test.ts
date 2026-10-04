@@ -35,6 +35,7 @@ import {
   typeParagraph,
   until,
   updateFrame,
+  type FakeSocketSession,
   type LiveHarness,
   type TestClient,
 } from './testing-live.ts';
@@ -843,6 +844,44 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
       expect(await session.drain()).toBe(true);
     } finally {
       release();
+      await pool.end();
+    }
+  });
+
+  it("holds every socket's unsent bytes together under one bound, cutting off the slowest", async () => {
+    const pool = collabPool();
+    const locks = await connectDocumentLocks({
+      databaseUrl: TEST_DATABASE_URL,
+      onSessionLost: () => undefined,
+    });
+    const registry = createDocumentRegistry({
+      pool,
+      locks,
+      config: { ...FAST, maxBufferedBytes: 100, backlogSweepMs: 20 },
+    });
+    try {
+      const slowest = fakeSocketSession(TENANTS.alpha);
+      const slow = fakeSocketSession(TENANTS.alpha);
+      const keeping = fakeSocketSession(TENANTS.alpha);
+      for (const socket of [slowest, slow, keeping]) {
+        expect(await registry.join(socket)).toMatchObject({ ok: true });
+      }
+      const backlog = (socket: FakeSocketSession, bytes: number): void => {
+        (socket.socket as unknown as { bufferedAmount: number }).bufferedAmount = bytes;
+      };
+      // 150 together against a budget of 100: cutting off the 80 alone brings it under.
+      backlog(slowest, 80);
+      backlog(slow, 60);
+      backlog(keeping, 10);
+
+      await until(() => slowest.terminated.value, 'the slowest socket to be cut off');
+      await new Promise((settle) => setTimeout(settle, 60));
+      expect(slowest.closedWith.map((close) => close.code)).toEqual([CLOSE_CODES.tooSlow]);
+      expect(slow.terminated.value).toBe(false);
+      expect(keeping.terminated.value).toBe(false);
+    } finally {
+      await registry.shutdown();
+      await locks.close();
       await pool.end();
     }
   });

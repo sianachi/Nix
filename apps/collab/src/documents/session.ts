@@ -568,20 +568,34 @@ export class DocumentSession {
    */
   #send(socket: SocketSession, data: Uint8Array): void {
     if (socket.socket.bufferedAmount > LIMITS.socketBufferedBytes) {
-      if (this.#sockets.has(socket)) {
-        this.#context.log?.(
-          `Closing a socket that fell behind (${String(socket.socket.bufferedAmount)} bytes ` +
-            `unsent): principal ${socket.authorization.principalId} on item ${this.itemId}.`,
-        );
-        this.detach(socket);
-        socket.socket.close(CLOSE_CODES.tooSlow, 'Too far behind. Reconnect to catch up.');
-        // Terminated as well: a close frame queues behind everything the reader is not reading,
-        // and the backlog this exists to free would be held until ws's own close timeout.
-        socket.socket.terminate();
-      }
+      this.cutOff(socket);
       return;
     }
     socket.socket.send(data);
+  }
+
+  /** Each attached socket with what it has queued and not yet sent. For the process-wide bound. */
+  backlogs(): { socket: SocketSession; bytes: number }[] {
+    return [...this.#sockets].map((socket) => ({ socket, bytes: socket.socket.bufferedAmount }));
+  }
+
+  /**
+   * Disconnects a socket that has fallen behind. Reconnecting syncs it from the document, so what
+   * it had not yet received is not lost.
+   */
+  cutOff(socket: SocketSession): void {
+    if (!this.#sockets.has(socket)) {
+      return;
+    }
+    this.#context.log?.(
+      `Closing a socket that fell behind (${String(socket.socket.bufferedAmount)} bytes ` +
+        `unsent): principal ${socket.authorization.principalId} on item ${this.itemId}.`,
+    );
+    this.detach(socket);
+    socket.socket.close(CLOSE_CODES.tooSlow, 'Too far behind. Reconnect to catch up.');
+    // Terminated as well: a close frame queues behind everything the reader is not reading, and
+    // the backlog this exists to free would be held until ws's own close timeout.
+    socket.socket.terminate();
   }
 
   /**

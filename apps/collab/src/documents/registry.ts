@@ -25,6 +25,12 @@ export interface RegistryConfig extends SessionConfig {
 
   /** How often the idle sweep runs. */
   readonly sweepMs: number;
+
+  /** Unsent bytes all sockets may hold together. Defaults to `LIMITS.processBufferedBytes`. */
+  readonly maxBufferedBytes?: number | undefined;
+
+  /** How often that total is checked. Defaults to a second. */
+  readonly backlogSweepMs?: number | undefined;
 }
 
 export interface DocumentHub extends SessionHub {
@@ -86,6 +92,36 @@ export function createDocumentRegistry(deps: {
     void sweep();
   }, deps.config.sweepMs);
   sweeper.unref();
+
+  const backlogSweeper = setInterval(() => {
+    shedBacklog();
+  }, deps.config.backlogSweepMs ?? 1_000);
+  backlogSweeper.unref();
+
+  /**
+   * Holds every socket's unsent bytes, together, under one bound - cutting off the slowest first.
+   *
+   * Each socket is already bounded on its own as it is sent to; this is the bound on how many of
+   * them can be near that at once. Checked on a clock rather than per send, because summing every
+   * socket on every broadcast would cost more than the memory it protects.
+   */
+  function shedBacklog(): void {
+    const budget = deps.config.maxBufferedBytes ?? LIMITS.processBufferedBytes;
+    const backlogs = [...sessions.values()].flatMap((session) =>
+      session.backlogs().map((backlog) => ({ ...backlog, session })),
+    );
+    let total = backlogs.reduce((sum, backlog) => sum + backlog.bytes, 0);
+    if (total <= budget) {
+      return;
+    }
+    for (const backlog of backlogs.sort((a, b) => b.bytes - a.bytes)) {
+      if (total <= budget || backlog.bytes === 0) {
+        break;
+      }
+      backlog.session.cutOff(backlog.socket);
+      total -= backlog.bytes;
+    }
+  }
 
   function totalEstimatedBytes(): number {
     return residentBytes;
@@ -341,6 +377,7 @@ export function createDocumentRegistry(deps: {
 
     async shutdown(): Promise<void> {
       clearInterval(sweeper);
+      clearInterval(backlogSweeper);
       for (const [itemId, session] of [...sessions]) {
         session.closeSockets(CLOSE_CODES.draining, 'The server is shutting down.');
         try {
@@ -360,6 +397,7 @@ export function createDocumentRegistry(deps: {
 
     async dropAll(): Promise<void> {
       clearInterval(sweeper);
+      clearInterval(backlogSweeper);
       for (const [itemId, session] of [...sessions]) {
         sessions.delete(itemId);
         sessionGenerations.delete(itemId);

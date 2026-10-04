@@ -38,6 +38,12 @@ export const LIMITS = {
    */
   socketBufferedBytes: 32 * 1024 * 1024,
 
+  /**
+   * Unsent bytes all sockets together may hold. The per-socket bound alone lets a handful of slow
+   * readers hold several times the resident budget; past this, the slowest are cut off first.
+   */
+  processBufferedBytes: 128 * 1024 * 1024,
+
   /** One presence message. A cursor and a name are a few hundred bytes. */
   awarenessBytes: 8 * 1024,
 

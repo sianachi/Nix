@@ -372,6 +372,7 @@ export function fakeSocketSession(
       terminated.value = true;
     },
     readyState: WebSocket.OPEN,
+    bufferedAmount: 0,
   } as unknown as WebSocket;
 
   return {
