@@ -426,8 +426,12 @@ export { itemSchema as ItemSchema };
  * locally-constructed row is not a server response, and requiring it to carry a field it has no
  * opinion about would make building one an exercise in filling in nulls. Absent and null both mean
  * "this did not come with folded children".
+ *
+ * The protection fields are relaxed the same way: absent means unprotected and unmanaged, which is
+ * what the parse defaults them to.
  */
-export type Item = Omit<ApiItem, 'computed'> & Partial<Pick<ApiItem, 'computed'>>;
+type RelaxedItemField = 'computed' | 'noDelete' | 'noChildren' | 'managedBy';
+export type Item = Omit<ApiItem, RelaxedItemField> & Partial<Pick<ApiItem, RelaxedItemField>>;
 
 /**
  * The part of an item a property control actually touches: its name, and its bag.

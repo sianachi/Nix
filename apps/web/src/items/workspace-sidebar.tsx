@@ -21,11 +21,15 @@ import {
   ExternalLink,
   FilePlus,
   FileText,
+  FolderLock,
+  FolderPlus,
   FolderUp,
   Grid3x3,
   LayoutTemplate,
   Plus,
   Shapes,
+  Shield,
+  ShieldOff,
   Trash2,
   Upload,
   type LucideIcon,
@@ -858,6 +862,9 @@ function TreeNode(props: TreeNodeProps): ReactNode {
    * control or gesture on the row - this is the place a desktop user looks for them first, not a
    * second implementation. Built when the menu opens, so the bookmark entry names the current state.
    */
+  const deleteProtected = item.noDelete === true;
+  const managed = item.managedBy !== undefined && item.managedBy !== null;
+
   function contextItems(): MenuEntry[] {
     return [
       {
@@ -910,9 +917,33 @@ function TreeNode(props: TreeNodeProps): ReactNode {
       { kind: 'separator' },
       {
         kind: 'action',
-        label: 'Delete',
+        // A managed item's protection belongs to its linked calendar, so the entry stays, to say
+        // why Delete is unavailable, but cannot be switched off from here.
+        label: deleteProtected ? 'Allow deletion' : 'Protect from deletion',
+        icon: deleteProtected ? ShieldOff : Shield,
+        disabled: managed,
+        onSelect: () => {
+          void tree.setProtection(item.id, { noDelete: !deleteProtected });
+        },
+      },
+      {
+        kind: 'action',
+        label: item.noChildren === true ? 'Allow new children' : 'Stop new children',
+        icon: item.noChildren === true ? FolderPlus : FolderLock,
+        onSelect: () => {
+          void tree.setProtection(item.id, { noChildren: item.noChildren !== true });
+        },
+      },
+      {
+        kind: 'action',
+        label: managed
+          ? 'Delete (unlink the calendar in settings)'
+          : deleteProtected
+            ? 'Delete (protected)'
+            : 'Delete',
         icon: Trash2,
         destructive: true,
+        disabled: deleteProtected,
         onSelect: () => {
           onDeleteItem(item);
         },
@@ -1017,6 +1048,20 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             >
               <Icon icon={FileText} size="sm" />
               <span className="truncate">{item.title || 'Untitled'}</span>
+              {deleteProtected ? (
+                <>
+                  <Icon icon={Shield} size="sm" className="shrink-0 text-muted" />
+                  <span className="sr-only">
+                    {managed ? 'Part of a linked calendar' : 'Protected from deletion'}
+                  </span>
+                </>
+              ) : null}
+              {item.noChildren === true ? (
+                <>
+                  <Icon icon={FolderLock} size="sm" className="shrink-0 text-muted" />
+                  <span className="sr-only">Does not accept new children</span>
+                </>
+              ) : null}
             </button>
 
             {/* Beside Delete, in the row's own established grammar: revealed on hover, always
@@ -1092,33 +1137,37 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               </button>
             )}
 
-            <button
-              type="button"
-              aria-label={`Delete ${item.title}`}
-              onClick={() => {
-                // Immediate, on purpose - see `requestDelete` on `app-shell.tsx` for why a toast
-                // with Undo replaced the `globalThis.confirm()` this control used to sit behind. The
-                // control is revealed on hover and sits a few pixels from the one that opens the
-                // item, which is exactly the situation Undo (rather than a slower "are you sure") is
-                // meant to answer.
-                onDeleteItem(item);
-              }}
-              // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
-              // takes an element out of the tab order, so this was keyboard-unreachable - and of the
-              // two controls in this row it is the destructive one. `pointer-events-none` and the
-              // narrow-scoped sizing and always-visible state follow the same reasoning as that
-              // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
-              // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
-              // the `max-sm:` override without it.
-              //
-              // `pointer-coarse:ml-2` widens the gap in front of this control only: on touch, a thumb
-              // landing between "move to root" and the bookmark star and this destructive action has
-              // less margin for error than a mouse pointer does, and the row's own `gap-1` is otherwise
-              // the same narrow spacing on every control in it.
-              className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) pointer-coarse:ml-2 ${focusRing}`}
-            >
-              <Icon icon={Trash2} size="sm" />
-            </button>
+            {/* No control at all on a protected row: a destructive button that can only refuse is
+            worse than its absence, and the shield beside the title says why it is missing. */}
+            {deleteProtected ? null : (
+              <button
+                type="button"
+                aria-label={`Delete ${item.title}`}
+                onClick={() => {
+                  // Immediate, on purpose - see `requestDelete` on `app-shell.tsx` for why a toast
+                  // with Undo replaced the `globalThis.confirm()` this control used to sit behind. The
+                  // control is revealed on hover and sits a few pixels from the one that opens the
+                  // item, which is exactly the situation Undo (rather than a slower "are you sure") is
+                  // meant to answer.
+                  onDeleteItem(item);
+                }}
+                // `opacity-0` for the same reason the control above it uses one: `visibility: hidden`
+                // takes an element out of the tab order, so this was keyboard-unreachable - and of the
+                // two controls in this row it is the destructive one. `pointer-events-none` and the
+                // narrow-scoped sizing and always-visible state follow the same reasoning as that
+                // control's own comment, as does the `pointer-coarse:` trio beside it: `group-hover:*`
+                // needs `@media(hover:hover)`, so a touch-capable device above `sm` gets neither that nor
+                // the `max-sm:` override without it.
+                //
+                // `pointer-coarse:ml-2` widens the gap in front of this control only: on touch, a thumb
+                // landing between "move to root" and the bookmark star and this destructive action has
+                // less margin for error than a mouse pointer does, and the row's own `gap-1` is otherwise
+                // the same narrow spacing on every control in it.
+                className={`flex size-5 max-sm:size-(--control-sm) items-center justify-center text-muted opacity-0 pointer-events-none hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 max-sm:pointer-events-auto max-sm:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:size-(--control-sm) pointer-coarse:ml-2 ${focusRing}`}
+              >
+                <Icon icon={Trash2} size="sm" />
+              </button>
+            )}
           </div>
         )}
       </ContextMenu>

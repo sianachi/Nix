@@ -370,7 +370,7 @@ public sealed partial class DocumentImportStore(
             return true;
         }
         var parent = await tree.FindAsync(parentId.Value, cancellationToken).ConfigureAwait(false);
-        return parent is not null && parent.WorkspaceId == workspaceId;
+        return parent is not null && parent.WorkspaceId == workspaceId && !parent.NoChildren;
     }
 
     private async ValueTask<DocumentImport?> OwnedTrackingAsync(

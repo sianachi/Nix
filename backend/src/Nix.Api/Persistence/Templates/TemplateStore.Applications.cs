@@ -176,6 +176,11 @@ public sealed partial class TemplateStore
             {
                 return Result.Failure<TemplateApplicationPlan>(TemplateErrors.NotFound("No such target is visible."));
             }
+
+            if (targetRoot.NoChildren)
+            {
+                return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Conflict("The target does not accept new children."));
+            }
         }
         else if (parentItemId is { } parent)
         {
@@ -184,6 +189,11 @@ public sealed partial class TemplateStore
             {
                 return Result.Failure<TemplateApplicationPlan>(
                     TemplateErrors.NotFound("No such destination is visible."));
+            }
+
+            if (parentItem.NoChildren)
+            {
+                return Result.Failure<TemplateApplicationPlan>(TemplateErrors.Conflict("The destination does not accept new children."));
             }
         }
 

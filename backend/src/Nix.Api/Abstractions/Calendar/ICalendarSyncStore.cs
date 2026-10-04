@@ -1,5 +1,6 @@
 using Nix.Domain.Calendar;
 using Nix.Domain.Identity;
+using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
 
 namespace Nix.Abstractions.Calendar;
@@ -144,6 +145,21 @@ public interface ICalendarSyncStore
     public Task<CalendarLink?> UpdateLinkAsync(
         Guid linkId, int expectedRevision, string name, string direction, string status, short windowPastDays, short windowFutureDays,
         DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The active containers in a workspace that a calendar is linked into, whoever linked it,
+    /// oldest first. Read from the items, which the whole workspace can see; it says nothing of
+    /// the link behind each, which stays its owner's.
+    /// </summary>
+    public Task<IReadOnlyList<Item>> ListLinkedContainersAsync(WorkspaceId workspaceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes the link on a container on behalf of a workspace administrator, whoever owns it,
+    /// releasing the container and its events. The caller must already have established that the
+    /// acting principal may manage the workspace. Returns <see langword="false"/> when the
+    /// container has no link.
+    /// </summary>
+    public Task<bool> UnlinkContainerAsync(WorkspaceId workspaceId, ItemId containerItemId, CancellationToken cancellationToken);
 
     /// <summary>Deletes a link, its map and its log, and cancels its pending triggers.</summary>
     public Task<bool> DeleteLinkAsync(Guid linkId, CancellationToken cancellationToken);

@@ -26,7 +26,7 @@ import {
   toGridItems,
 } from './collated-entries';
 import { CreateEntryButton } from './create-entry-button';
-import { valueForDay, valueForHour } from './reschedule';
+import { valueForDay } from './reschedule';
 
 /** How many entries a month cell shows before it collapses the rest, matching `DayCell`'s own. */
 const MAXIMUM_COLLAPSED_DAY_ITEMS = 6;
@@ -125,6 +125,14 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
   // Keyed on the payload, so stepping the grain does not rebucket entries that have not changed.
   const byDay = useMemo(() => bucketByDay(entries), [entries]);
   const items = useMemo(() => toGridItems(entries), [entries]);
+
+  // Occurrences a recurrence rule produced have no row to write to, so the hour grid offers no
+  // way to move them - the month cell already withholds the same controls. Memoized for the same
+  // reason `items` is: the grid takes it as a prop and a fresh set every render is a fresh grid.
+  const generatedIds = useMemo(
+    () => new Set(entries.filter((entry) => entry.generated).map((entry) => entry.itemId)),
+    [entries],
+  );
 
   // The containers a new entry may land in - the same notes the filter above offers, since every
   // one of them is already known to place by a real property (an entry could not exist otherwise).
@@ -293,6 +301,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             // `CreateEntryButton` above is where creating lives in every grain instead. Moving is
             // unaffected either way, because the entry carries its own property key.
             dragged={dragged}
+            fixedItemIds={generatedIds}
             onMove={(itemId, values) => {
               // This grid was never given an end property, so the bag it hands back always holds
               // exactly the one key it was given: `COLLATED_DATE_KEY`.
@@ -303,16 +312,18 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
                 return;
               }
 
-              // The grid hands back a slot written in its own terms; this rewrites it against the
-              // entry, so an all-day item dropped on an hour stays all-day rather than becoming a
-              // moment its property cannot hold.
-              const day = value.slice(0, 10);
-              const hour = Number(value.slice(11, 13));
-              const written = Number.isNaN(hour)
-                ? valueForDay(entry, day, zone)
-                : valueForHour(entry, day, hour, zone);
+              // A generated occurrence has no row of its own to move: the write would land on the
+              // series it came from and shift every occurrence with it.
+              if (entry.generated) {
+                return;
+              }
 
-              if (written !== null && written !== entry.value) {
+              // The grid hands back a moment in the reader's zone, to the minute it was dropped
+              // or dragged to. An all-day item keeps only the day of it, so it stays all-day
+              // rather than becoming a moment its property cannot hold.
+              const written = entry.kind === 'date' ? value.slice(0, 10) : value;
+
+              if (written !== entry.value) {
                 onReschedule(entry, written);
               }
             }}

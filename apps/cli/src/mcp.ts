@@ -49,6 +49,13 @@ import {
   parsePreferenceFlags,
 } from './commands/notifications.ts';
 import { executeClearReminder, executeSetReminder } from './commands/reminders.ts';
+import { executeProtect } from './commands/protection.ts';
+import {
+  executeLinkLog,
+  executeListLinks,
+  executeSyncLink,
+  executeUnlink,
+} from './commands/calendar-sync.ts';
 import {
   executeCreateAutomation,
   executeDeleteAutomation,
@@ -1508,6 +1515,65 @@ export async function createWorkspaceMcpServer(
     'clear_reminder',
     { description: "Remove an item's reminder.", inputSchema: { itemId: identifier } },
     ({ itemId }) => toolResult(async () => executeClearReminder(await session(), itemId)),
+  );
+
+  server.registerTool(
+    'set_item_protection',
+    {
+      description:
+        "Protect an item from deletion or stop it accepting new children. 'on' or 'off' for each; " +
+        "an omitted one is left as it is. A linked calendar's own protection cannot be switched off here.",
+      inputSchema: {
+        itemId: identifier,
+        delete: z.enum(['on', 'off']).optional(),
+        children: z.enum(['on', 'off']).optional(),
+      },
+    },
+    ({ itemId, delete: deletion, children }) =>
+      toolResult(async () =>
+        executeProtect(await session(), itemId, {
+          ...(deletion === undefined ? {} : { delete: deletion }),
+          ...(children === undefined ? {} : { children }),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    'list_calendar_links',
+    {
+      description: 'List the Google and Outlook calendars linked into your workspaces.',
+      inputSchema: {},
+    },
+    () => toolResult(async () => executeListLinks(await session())),
+  );
+
+  server.registerTool(
+    'sync_calendar_link',
+    {
+      description: 'Ask for a sync round of a calendar link now.',
+      inputSchema: { linkId: identifier },
+    },
+    ({ linkId }) => toolResult(async () => executeSyncLink(await session(), linkId)),
+  );
+
+  server.registerTool(
+    'calendar_link_log',
+    {
+      description: "Read the newest entries of a calendar link's sync log.",
+      inputSchema: { linkId: identifier },
+    },
+    ({ linkId }) => toolResult(async () => executeLinkLog(await session(), linkId)),
+  );
+
+  server.registerTool(
+    'unlink_calendar',
+    {
+      description:
+        "Unlink a calendar. Nothing is removed from the external calendar. 'keep' leaves the notes " +
+        "it created as ordinary items; 'trash' moves them to the trash.",
+      inputSchema: { linkId: identifier, items: z.enum(['keep', 'trash']) },
+    },
+    ({ linkId, items }) => toolResult(async () => executeUnlink(await session(), linkId, items)),
   );
 
   server.registerTool(

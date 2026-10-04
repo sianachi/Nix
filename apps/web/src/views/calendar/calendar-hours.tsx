@@ -1,6 +1,14 @@
 import { Button, Icon, Text, cn, focusRing } from '@nix/ui';
 import { CalendarClock } from 'lucide-react';
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { DateTime } from 'luxon';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 
 import { dayLabel, dayText, weekLabel, type CalendarDay } from '../core/calendar-dates';
 import { readPropertyText, type Item } from '../core/container-model';
@@ -12,6 +20,7 @@ import {
   writeTimestampValue,
 } from '../core/timestamps';
 import { RescheduleDialog } from './reschedule-dialog';
+import { movedStart, resizedDuration } from './span-gesture';
 import { useRovingGrid } from './use-roving-grid';
 import { CalendarEntryMenu } from './calendar-entry-menu';
 
@@ -192,6 +201,13 @@ export interface HourGridProps {
    * the same caller - a grid that took a drop it could not write would silently discard it.
    */
   readonly onMove?: ((itemId: string, values: Record<string, string | null>) => void) | undefined;
+
+  /**
+   * Items this grid draws but may not move: no drag, no stretch, no reschedule control. The
+   * collated calendar names its generated occurrences here, which have no row of their own to
+   * write to. An event its calendar marks read-only is fixed without being named.
+   */
+  readonly fixedItemIds?: ReadonlySet<string> | undefined;
 }
 
 /** Minutes in a full day, for clamping a span that runs past midnight. */
@@ -224,6 +240,60 @@ interface Placed {
   readonly durationMinutes: number | null;
 }
 
+/**
+ * A placed item being dragged or stretched, as it would land if the pointer were released now.
+ *
+ * **This is the pointer's own way to do what the reschedule dialog does**, never the only way: a
+ * start and an end are both written from that dialog by keyboard and by touch. What the gesture
+ * adds is doing it by eye, in fifteen-minute steps, on the grid itself.
+ */
+interface SpanGesture {
+  readonly itemId: string;
+  readonly kind: 'move' | 'resize';
+
+  /** The column the item would land in. A resize never leaves its own. */
+  readonly dayIndex: number;
+
+  /** Where it would start, in minutes since midnight in the reader's zone. */
+  readonly minutes: number;
+
+  /** How long it would run, or null for a point that is only being moved. */
+  readonly durationMinutes: number | null;
+}
+
+/** How far a pressed pointer travels before a press on a card becomes a drag rather than a click. */
+const DRAG_THRESHOLD_PX = 4;
+
+/** The moment a minute of a day stands for, on the reader's clock. Midnight rolls to the next day. */
+function momentAt(day: CalendarDay, minutes: number, zone: string): DateTime {
+  const midnight = DateTime.fromISO(`${dayText(day)}T00:00`, { zone });
+  return minutes >= MINUTES_PER_DAY
+    ? midnight.plus({ days: 1 })
+    : midnight.set({ hour: Math.floor(minutes / 60), minute: minutes % 60 });
+}
+
+/** A moment as the stored value it is written as, in the reader's own zone. */
+function writeMoment(moment: DateTime, zone: string): string | null {
+  return writeTimestampValue(moment.setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm"), zone);
+}
+
+/** What the clock reads at a minute of the day, for the label on a dragged item. */
+function clockAt(minutes: number): string {
+  return DateTime.fromObject({
+    hour: Math.floor(minutes / 60) % 24,
+    minute: minutes % 60,
+  }).toLocaleString(DateTime.TIME_SIMPLE);
+}
+
+/**
+ * Whether the reader may drag this item. An event its calendar refuses edits to is drawn like any
+ * other but stays where its source put it; Core would refuse the write, and offering the gesture
+ * only to undo it would be a lie told with the pointer.
+ */
+function isAdjustable(item: Item): boolean {
+  return !(item.managedBy === 'calendar_event' && item.properties.$cal_readonly === true);
+}
+
 export function HourGrid(props: HourGridProps): ReactNode {
   const {
     days,
@@ -237,7 +307,11 @@ export function HourGrid(props: HourGridProps): ReactNode {
     dragged,
     onMove,
     siblings,
+    fixedItemIds,
   } = props;
+
+  const adjustable = (item: Item): boolean =>
+    isAdjustable(item) && fixedItemIds?.has(item.id) !== true;
 
   // One tab stop for all 168 hour-slot create controls, with the arrow keys moving which slot it
   // is: Up and Down walk the hours, Left and Right walk the days, Home and End jump to the first
@@ -253,8 +327,209 @@ export function HourGrid(props: HourGridProps): ReactNode {
   const reschedulingItem =
     rescheduling === null ? null : (items.find((item) => item.id === rescheduling) ?? null);
 
+  // The drag in progress, if any. State for the preview the columns draw; the ref is what the
+  // window listeners read, since they outlive the render that attached them.
+  const [gesture, setGesture] = useState<SpanGesture | null>(null);
+  const gestureRef = useRef<SpanGesture | null>(null);
+  const endGesture = useRef<(() => void) | null>(null);
+
+  // A drag that ends over the card it began on is followed by a click on that card. This is how
+  // the card knows not to open the item it was just moved by.
+  const suppressClick = useRef(false);
+
+  useEffect(
+    () => () => {
+      endGesture.current?.();
+    },
+    [],
+  );
+
+  function commitGesture(final: SpanGesture, entry: Placed, fromDayIndex: number): void {
+    const day = days[final.dayIndex];
+    if (onMove === undefined || day === undefined) {
+      return;
+    }
+
+    const values: Record<string, string | null> = {};
+    if (final.kind === 'move') {
+      if (final.dayIndex === fromDayIndex && final.minutes === entry.minutes) {
+        return;
+      }
+      const start = momentAt(day, final.minutes, zone);
+      values[dateProperty] = writeMoment(start, zone);
+
+      // The end travels with the start, so a move keeps the item as long as it was. A drop used
+      // to write the start alone, which silently stretched or reversed the span.
+      const before = readTimestampValue(entry.item.properties, dateProperty);
+      const end =
+        endDateProperty === null
+          ? null
+          : readTimestampValue(entry.item.properties, endDateProperty);
+      if (endDateProperty !== null && before !== null && end !== null) {
+        values[endDateProperty] = writeMoment(end.at.plus(start.diff(before.at)), zone);
+      }
+    } else {
+      if (endDateProperty === null || final.durationMinutes === null) {
+        return;
+      }
+      if (final.durationMinutes === entry.durationMinutes) {
+        return;
+      }
+      values[endDateProperty] = writeMoment(
+        momentAt(day, entry.minutes + final.durationMinutes, zone),
+        zone,
+      );
+    }
+
+    onMove(entry.item.id, values);
+  }
+
+  function beginGesture(
+    event: ReactPointerEvent<HTMLElement>,
+    entry: Placed,
+    dayIndex: number,
+    kind: 'move' | 'resize',
+  ): void {
+    if (onMove === undefined || event.button !== 0 || !adjustable(entry.item)) {
+      return;
+    }
+
+    // A mouse only. A finger or a pen on a card is scrolling the day, and the browser takes the
+    // gesture for that the moment it moves; a swipe that happened to start on an item's foot must
+    // not stretch it. Touch and pen write the same start and end through the reschedule dialog.
+    if (event.pointerType !== 'mouse') {
+      return;
+    }
+
+    const root = event.currentTarget.closest('[data-hour-grid]');
+    if (root === null) {
+      return;
+    }
+    const columns = (): HTMLElement[] =>
+      Array.from(root.querySelectorAll<HTMLElement>('[data-day-column]'));
+    const minutesAt = (column: HTMLElement, clientY: number): number =>
+      ((clientY - column.getBoundingClientRect().top) / ROW_HEIGHT) * 60;
+
+    const origin = columns()[dayIndex];
+    if (origin === undefined) {
+      return;
+    }
+
+    const pointerId = event.pointerId;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const grabOffset = minutesAt(origin, event.clientY) - entry.minutes;
+
+    // A resize begins at once: its handle does nothing else. A move waits for the pointer to
+    // travel, so a plain click still opens the item.
+    let active = kind === 'resize';
+    if (kind === 'resize') {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
+    const onPointerMove = (moved: PointerEvent): void => {
+      if (moved.pointerId !== pointerId) {
+        return;
+      }
+      if (!active) {
+        if (Math.hypot(moved.clientX - startX, moved.clientY - startY) < DRAG_THRESHOLD_PX) {
+          return;
+        }
+        active = true;
+      }
+      moved.preventDefault();
+
+      const all = columns();
+      // The column under the pointer, or the one the drag is already in when the pointer has
+      // wandered off the grid sideways. Read live, so the grid scrolling mid-drag stays correct.
+      const over =
+        kind === 'move'
+          ? all.findIndex((column) => {
+              const box = column.getBoundingClientRect();
+              return moved.clientX >= box.left && moved.clientX < box.right;
+            })
+          : dayIndex;
+      const target = over === -1 ? (gestureRef.current?.dayIndex ?? dayIndex) : over;
+      const column = all[target];
+      if (column === undefined) {
+        return;
+      }
+
+      const at = minutesAt(column, moved.clientY);
+      const next: SpanGesture =
+        kind === 'move'
+          ? {
+              itemId: entry.item.id,
+              kind,
+              dayIndex: target,
+              minutes: movedStart(at, grabOffset),
+              durationMinutes: entry.durationMinutes,
+            }
+          : {
+              itemId: entry.item.id,
+              kind,
+              dayIndex,
+              minutes: entry.minutes,
+              durationMinutes: resizedDuration(entry.minutes, at),
+            };
+      gestureRef.current = next;
+      setGesture(next);
+    };
+
+    const finish = (commit: boolean): void => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerCancel);
+      window.removeEventListener('keydown', onKeyDownWhileDragging, true);
+      endGesture.current = null;
+
+      const final = gestureRef.current;
+      gestureRef.current = null;
+      setGesture(null);
+      if (final === null) {
+        return;
+      }
+
+      suppressClick.current = true;
+      setTimeout(() => {
+        suppressClick.current = false;
+      }, 0);
+      if (commit) {
+        commitGesture(final, entry, dayIndex);
+      }
+    };
+    const onPointerUp = (released: PointerEvent): void => {
+      if (released.pointerId === pointerId) {
+        finish(true);
+      }
+    };
+    const onPointerCancel = (cancelled: PointerEvent): void => {
+      if (cancelled.pointerId === pointerId) {
+        finish(false);
+      }
+    };
+    // Escape puts the item back, the same way out every other drag in the application has.
+    const onKeyDownWhileDragging = (pressed: KeyboardEvent): void => {
+      if (pressed.key === 'Escape') {
+        // Kept to the drag: the same key closes a pane, and one press should not do both.
+        pressed.preventDefault();
+        pressed.stopPropagation();
+        finish(false);
+      }
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerCancel);
+    window.addEventListener('keydown', onKeyDownWhileDragging, true);
+    endGesture.current = () => {
+      finish(false);
+    };
+  }
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div data-hour-grid="" className="flex min-h-0 flex-1 flex-col">
       {/*
        * One scroll container for the whole grid, on both axes, rather than the header and the
        * all-day band scrolling through an outer frame while the hour body scrolls through a nested
@@ -360,6 +635,11 @@ export function HourGrid(props: HourGridProps): ReactNode {
                 dragged={dragged}
                 onMove={onMove}
                 onReschedule={onMove === undefined ? undefined : setRescheduling}
+                resizable={endDateProperty !== null}
+                adjustable={adjustable}
+                gesture={gesture}
+                onGesture={onMove === undefined ? undefined : beginGesture}
+                suppressClick={suppressClick}
               />
             ))}
           </div>
@@ -599,6 +879,31 @@ function DayColumn(props: {
    * opening a dialog that ends in one.
    */
   readonly onReschedule?: ((itemId: string) => void) | undefined;
+
+  /** Whether the view has an end property, so a placed item can be stretched from its foot. */
+  readonly resizable: boolean;
+
+  /** Whether the reader may move this item at all: by drag, by stretch or by the dialog. */
+  readonly adjustable: (item: Item) => boolean;
+
+  /** The drag in progress anywhere on the grid, for the preview this column may owe. */
+  readonly gesture: SpanGesture | null;
+
+  /**
+   * Starts dragging or stretching a placed item. Absent in lockstep with `onMove`: a grid that
+   * cannot write the result has no business starting the gesture.
+   */
+  readonly onGesture?:
+    | ((
+        event: ReactPointerEvent<HTMLElement>,
+        entry: Placed,
+        dayIndex: number,
+        kind: 'move' | 'resize',
+      ) => void)
+    | undefined;
+
+  /** Set while the click that ends a drag is still to arrive, so the card does not open on it. */
+  readonly suppressClick: { current: boolean };
 }): ReactNode {
   const {
     day,
@@ -611,11 +916,17 @@ function DayColumn(props: {
     dragged,
     onMove,
     onReschedule,
+    resizable,
+    adjustable,
+    gesture,
+    onGesture,
+    suppressClick,
   } = props;
 
   return (
     <div
       aria-label={dayLabel(day)}
+      data-day-column=""
       className={cn(DAY_COLUMN, 'relative border-l border-divider')}
       style={{ height: `${String(HOURS.length * ROW_HEIGHT)}px` }} // design-token-exempt: twenty-four hours of grid, computed from the row height rather than restated by hand
     >
@@ -635,6 +946,12 @@ function DayColumn(props: {
 
       {layout(placed).map((entry) => {
         const { left, width } = laneStyle(entry.lane, entry.lanes);
+
+        // One answer for all three ways of moving an item, so a fixed one offers none of them
+        // rather than a control that appears and then does nothing.
+        const movable = adjustable(entry.item);
+        const reschedule = movable ? onReschedule : undefined;
+        const beginGesture = movable ? onGesture : undefined;
 
         const position = {
           // design-token-exempt: where an item sits, how wide its lane is and how tall its
@@ -671,17 +988,33 @@ function DayColumn(props: {
             itemId={entry.item.id}
             title={readPropertyText(entry.item, 'title')}
             onOpen={onOpen}
-            onReschedule={onReschedule}
+            onReschedule={reschedule}
           >
             {(contextTarget) => (
               <div
                 {...contextTarget}
                 style={position} // design-token-exempt: computed from the data and the overlap sweep
-                className="absolute flex items-stretch gap-0.5 rounded-sm bg-accent/18"
+                className={cn(
+                  'absolute flex items-stretch gap-0.5 rounded-sm bg-accent/18 select-none',
+                  // The item being dragged stays where it was, faded, so the preview reads as
+                  // "from here to there" rather than as the item having already moved.
+                  gesture?.itemId === entry.item.id ? 'opacity-50' : '',
+                )}
               >
                 <button
                   type="button"
+                  onPointerDown={
+                    beginGesture === undefined
+                      ? undefined
+                      : (event) => {
+                          beginGesture(event, entry, dayIndex, 'move');
+                        }
+                  }
                   onClick={() => {
+                    if (suppressClick.current) {
+                      suppressClick.current = false;
+                      return;
+                    }
                     onOpen(entry.item.id);
                   }}
                   className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-sm px-1.5 py-1 text-left text-xs hover:bg-accent/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
@@ -692,24 +1025,59 @@ function DayColumn(props: {
                   <span className="truncate text-muted">{timeLabel(entry, zone)}</span>
                 </button>
 
-                {onReschedule === undefined ? null : (
+                {reschedule === undefined ? null : (
                   <Button
                     variant="ghost"
                     aria-label={`Reschedule ${readPropertyText(entry.item, 'title') || 'Untitled'}`}
                     aria-haspopup="dialog"
                     className="shrink-0 self-start px-0.5 py-1"
                     onClick={() => {
-                      onReschedule(entry.item.id);
+                      reschedule(entry.item.id);
                     }}
                   >
                     <Icon icon={CalendarClock} size="sm" />
                   </Button>
+                )}
+
+                {/* The foot of the item, for stretching it. Pointer-only and hidden from
+                    assistive technology on purpose: the reschedule control beside it writes the
+                    same end from a keyboard, and a second, unlabelled control saying the same
+                    thing would be noise. Not drawn for a coarse pointer, which the gesture ignores:
+                    a finger there is scrolling the day. */}
+                {beginGesture === undefined || !resizable ? null : (
+                  <span
+                    aria-hidden="true"
+                    onPointerDown={(event) => {
+                      beginGesture(event, entry, dayIndex, 'resize');
+                    }}
+                    className="absolute inset-x-0 bottom-0 h-1.5 cursor-ns-resize rounded-b-sm hover:bg-accent/40 pointer-coarse:hidden"
+                  />
                 )}
               </div>
             )}
           </CalendarEntryMenu>
         );
       })}
+
+      {/* Where the dragged item would land, drawn in the column it is over. `pointer-events-none`
+          so the preview never sits between the pointer and the column it is measuring. */}
+      {gesture?.dayIndex === dayIndex ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0.5 z-10 rounded-sm border border-accent bg-accent/25 px-1.5 py-0.5 text-xs font-medium"
+          // The preview sits at the minute the pointer has snapped to and is as tall as the span
+          // it stands for, both computed from the gesture.
+          // prettier-ignore
+          style={{ // design-token-exempt: computed from the gesture at runtime
+            top: `${String(minutesToPx(gesture.minutes))}px`,
+            height: `${String(Math.max(minutesToPx(gesture.durationMinutes ?? 0), MIN_SPAN_HEIGHT_PX))}px`,
+          }}
+        >
+          {gesture.durationMinutes === null
+            ? clockAt(gesture.minutes)
+            : `${clockAt(gesture.minutes)} - ${clockAt(gesture.minutes + gesture.durationMinutes)}`}
+        </div>
+      ) : null}
     </div>
   );
 }

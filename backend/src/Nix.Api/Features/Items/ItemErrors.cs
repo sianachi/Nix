@@ -50,6 +50,21 @@ public static class ItemErrors
     /// </remarks>
     public static NixError Locked(string detail) => new("items.locked", detail);
 
+    /// <summary>
+    /// The item, or an item beneath it, is protected from deletion.
+    /// </summary>
+    /// <remarks>Not a disclosure, for the reason <see cref="Locked"/> is not one.</remarks>
+    public static NixError DeleteProtected(string detail) => new("items.delete_protected", detail);
+
+    /// <summary>The destination refuses new children.</summary>
+    public static NixError ChildrenProtected(string detail) => new("items.children_protected", detail);
+
+    /// <summary>The system manages this protection, so it is not the caller's to change.</summary>
+    public static NixError ProtectionManaged(string detail) => new("items.protection_managed", detail);
+
+    /// <summary>The item mirrors something the caller may not edit at its source.</summary>
+    public static NixError ReadOnly(string detail) => new("items.read_only", detail);
+
     /// <summary>The workspace does not exist or is not visible.</summary>
     public static NixError WorkspaceNotFound(string detail) =>
         new("workspaces.not_found", detail);

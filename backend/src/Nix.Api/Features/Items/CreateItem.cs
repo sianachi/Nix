@@ -153,6 +153,14 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
                 return Result.Failure<Item>(
                     ItemErrors.ParentNotFound($"No parent {parent} is visible in this workspace."));
             }
+
+            // The calendar pull passes: a linked container that refuses new children still has to
+            // receive the events its calendar gains, or the mirror would silently fall behind.
+            if (existing.NoChildren && !command.CalendarWrite)
+            {
+                return Result.Failure<Item>(
+                    ItemErrors.ChildrenProtected("This item does not accept new children."));
+            }
         }
 
         // The title is written last so it wins. A caller that also passed `title` in the bag would

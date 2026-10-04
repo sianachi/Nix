@@ -24,6 +24,14 @@ namespace Nix.Features.Items;
 /// The values this item has without storing one: every rollup the schema in force declares, folded
 /// across this item's own children. Null when the read did not compute them.
 /// </param>
+/// <param name="NoDelete">
+/// Whether it is protected from deletion. It, and any ancestor holding it, cannot be trashed.
+/// </param>
+/// <param name="NoChildren">Whether it refuses new children.</param>
+/// <param name="ManagedBy">
+/// The system feature managing it ('calendar' for a linked calendar's container, 'calendar_event'
+/// for a mirrored event), or null. A managed item's deletion protection cannot be switched off here.
+/// </param>
 /// <param name="CreatedAt">When it was created.</param>
 /// <param name="UpdatedAt">When it was last modified.</param>
 /// <remarks>
@@ -59,5 +67,8 @@ internal sealed record ItemResponse(
     string LifecycleState,
     JsonObject Properties,
     JsonObject? Computed,
+    bool NoDelete,
+    bool NoChildren,
+    string? ManagedBy,
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt);

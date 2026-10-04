@@ -50,6 +50,21 @@ import {
   removeLock,
   setLock,
 } from './commands/locks.ts';
+import { protect } from './commands/protection.ts';
+import {
+  executeCreateLink,
+  executeLinkLog,
+  executeListCalendars,
+  executeListConnections,
+  executeListLinks,
+  executeListWorkspaceLinks,
+  executeSyncLink,
+  executeUnlinkWorkspaceLink,
+  executeUnlink,
+  executeUpdateLink,
+  parseCalendarSyncId,
+  runCalendarSync,
+} from './commands/calendar-sync.ts';
 import { readStdin } from './commands/shared.ts';
 import { readNote, writeNote } from './commands/notes.ts';
 import {
@@ -1784,6 +1799,195 @@ export function buildProgram(): Command {
       await run(() => setPreferences(flags.profile, options, outputOptions(flags.json)));
     });
 
+  const calsync = program
+    .command('calsync')
+    .description(
+      'Calendars linked from Google and Outlook. Connect an account in the web settings first.',
+    );
+
+  calsync
+    .command('connections')
+    .description('The accounts connected for calendar sync.')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        runCalendarSync(flags.profile, executeListConnections, outputOptions(flags.json)),
+      );
+    });
+
+  calsync
+    .command('calendars <connectionId>')
+    .description("A connected account's calendars, read live from the provider.")
+    .action(async (connectionId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => {
+        parseCalendarSyncId(connectionId, 'The connection');
+        return runCalendarSync(
+          flags.profile,
+          (session) => executeListCalendars(session, connectionId),
+          outputOptions(flags.json),
+        );
+      });
+    });
+
+  calsync
+    .command('links')
+    .description('The calendars linked into your workspaces.')
+    .action(async (_options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => runCalendarSync(flags.profile, executeListLinks, outputOptions(flags.json)));
+    });
+
+  calsync
+    .command('link <connectionId> <externalCalendarId>')
+    .description('Link a calendar into a new item at the root of a workspace.')
+    .requiredOption('--workspace <id>', 'the workspace the item is created in')
+    .requiredOption('--title <title>', 'the name of the item that holds the events')
+    .option('--direction <two_way|import_only>', 'which way changes travel', 'two_way')
+    .action(
+      async (
+        connectionId: string,
+        externalCalendarId: string,
+        options: { workspace: string; title: string; direction: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => {
+          parseCalendarSyncId(connectionId, 'The connection');
+          parseCalendarSyncId(options.workspace, '--workspace');
+          return runCalendarSync(
+            flags.profile,
+            (session) => executeCreateLink(session, connectionId, externalCalendarId, options),
+            outputOptions(flags.json),
+          );
+        });
+      },
+    );
+
+  calsync
+    .command('set <linkId>')
+    .description("Change a link's direction, or pause and resume it.")
+    .option('--direction <two_way|import_only>', 'which way changes travel')
+    .option('--status <active|paused>', 'whether the link syncs')
+    .action(
+      async (
+        linkId: string,
+        options: { direction?: string; status?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => {
+          parseCalendarSyncId(linkId, 'The link');
+          return runCalendarSync(
+            flags.profile,
+            (session) => executeUpdateLink(session, linkId, options),
+            outputOptions(flags.json),
+          );
+        });
+      },
+    );
+
+  calsync
+    .command('unlink <linkId>')
+    .description(
+      'Unlink a calendar. Nothing is removed from the external calendar. The notes it created ' +
+        'are kept as ordinary items or moved to the trash, as --items says.',
+    )
+    .requiredOption('--items <keep|trash>', 'what becomes of the notes the link created')
+    .action(async (linkId: string, options: { items: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => {
+        parseCalendarSyncId(linkId, 'The link');
+        return runCalendarSync(
+          flags.profile,
+          (session) => executeUnlink(session, linkId, options.items),
+          outputOptions(flags.json),
+        );
+      });
+    });
+
+  calsync
+    .command('workspace-links')
+    .description(
+      'Every item in a workspace with a calendar linked into it, whoever linked it. For the ' +
+        "workspace's owner and tenant administrators.",
+    )
+    .requiredOption('--workspace <id>', 'the workspace to read')
+    .action(async (options: { workspace: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => {
+        parseCalendarSyncId(options.workspace, '--workspace');
+        return runCalendarSync(
+          flags.profile,
+          (session) => executeListWorkspaceLinks(session, options.workspace),
+          outputOptions(flags.json),
+        );
+      });
+    });
+
+  calsync
+    .command('workspace-unlink <containerItemId>')
+    .description(
+      'Unlink a calendar another member linked into a workspace you manage. Nothing is removed ' +
+        'from the external calendar.',
+    )
+    .requiredOption('--workspace <id>', 'the workspace the item is in')
+    .requiredOption('--items <keep|trash>', 'what becomes of the notes the link created')
+    .action(
+      async (
+        containerItemId: string,
+        options: { workspace: string; items: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() => {
+          parseCalendarSyncId(containerItemId, 'The item');
+          parseCalendarSyncId(options.workspace, '--workspace');
+          return runCalendarSync(
+            flags.profile,
+            (session) =>
+              executeUnlinkWorkspaceLink(
+                session,
+                options.workspace,
+                containerItemId,
+                options.items,
+              ),
+            outputOptions(flags.json),
+          );
+        });
+      },
+    );
+
+  calsync
+    .command('sync <linkId>')
+    .description('Ask for a sync round now.')
+    .action(async (linkId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => {
+        parseCalendarSyncId(linkId, 'The link');
+        return runCalendarSync(
+          flags.profile,
+          (session) => executeSyncLink(session, linkId),
+          outputOptions(flags.json),
+        );
+      });
+    });
+
+  calsync
+    .command('log <linkId>')
+    .description("The newest entries of a link's sync log.")
+    .action(async (linkId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => {
+        parseCalendarSyncId(linkId, 'The link');
+        return runCalendarSync(
+          flags.profile,
+          (session) => executeLinkLog(session, linkId),
+          outputOptions(flags.json),
+        );
+      });
+    });
+
   const remind = program
     .command('remind')
     .description("An item's reminder: one notification to you at a chosen time.");
@@ -2273,6 +2477,21 @@ export function buildProgram(): Command {
         restoreItem(flags.profile, itemId, options.workspace, outputOptions(flags.json)),
       );
     });
+
+  item
+    .command('protect <itemId>')
+    .description(
+      'Protect an item from deletion, or stop it accepting new children. A protected item ' +
+        'cannot be trashed, and neither can anything holding it.',
+    )
+    .option('--delete <on|off>', 'whether the item is protected from deletion')
+    .option('--children <on|off>', 'whether the item refuses new children')
+    .action(
+      async (itemId: string, options: { delete?: string; children?: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() => protect(flags.profile, itemId, options, outputOptions(flags.json)));
+      },
+    );
 
   // A lock withholds an item's body until its password is presented; it does not encrypt it.
   // Passwords come from stdin only, never an argument, which process lists and history would keep.

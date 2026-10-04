@@ -107,6 +107,22 @@ export const itemSchema = z.object({
    */
   computed: itemPropertiesSchema.nullable().default(null),
 
+  /**
+   * Whether the item is protected from deletion. It cannot be trashed, and neither can an ancestor
+   * while it sits beneath it. Defaulted, so a server from before the field still parses.
+   */
+  noDelete: z.boolean().default(false),
+
+  /** Whether the item refuses new children: nothing can be created under it or moved into it. */
+  noChildren: z.boolean().default(false),
+
+  /**
+   * The system feature managing the item (`calendar` for a linked calendar's container,
+   * `calendar_event` for a mirrored event), or null. A managed item's deletion protection is the
+   * system's, and is lifted by unlinking the calendar in settings, never by the protection toggle.
+   */
+  managedBy: z.string().nullable().default(null),
+
   // `offset: true`, because the server sends one. Core serialises a `DateTimeOffset`, which
   // reaches the wire as `2026-07-26T21:59:30.648333+00:00` - and Zod's default rejects anything
   // that is not `Z`, so every single item response was failing this check and logging it. The

@@ -86,6 +86,14 @@ public sealed record UpdateCalendarLinkRequest(
     int? WindowPastDays,
     int? WindowFutureDays);
 
+/// <summary>One container in a workspace that has a calendar linked into it.</summary>
+/// <param name="ContainerItemId">The container.</param>
+/// <param name="Title">Its title.</param>
+public sealed record WorkspaceCalendarLinkResponse(Guid ContainerItemId, string Title);
+
+/// <summary>The linked containers of a workspace, as its administrators see them.</summary>
+public sealed record WorkspaceCalendarLinksResponse(IReadOnlyList<WorkspaceCalendarLinkResponse> Links);
+
 /// <summary>Asks for a sync round now.</summary>
 /// <param name="Full">Whether to drop the cursor and reconcile the whole window.</param>
 public sealed record SyncCalendarLinkRequest(bool? Full);
@@ -226,6 +234,7 @@ public static class CalendarContainerSchema
 [JsonSerializable(typeof(AuthorizeCalendarResponse))]
 [JsonSerializable(typeof(ExternalCalendarsResponse))]
 [JsonSerializable(typeof(CalendarLinkResponse))]
+[JsonSerializable(typeof(WorkspaceCalendarLinksResponse))]
 [JsonSerializable(typeof(CalendarLinksResponse))]
 [JsonSerializable(typeof(CreateCalendarLinkRequest))]
 [JsonSerializable(typeof(UpdateCalendarLinkRequest))]

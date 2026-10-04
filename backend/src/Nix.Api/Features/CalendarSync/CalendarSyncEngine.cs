@@ -187,7 +187,7 @@ public sealed class CalendarSyncEngine(
             var mirrored = await tree.FindAsync(ItemId.From(map.ItemId), cancellationToken).ConfigureAwait(false);
             if (mirrored is { LifecycleState: ItemLifecycleState.Active } && mirrored.ParentId == link.ContainerItemId)
             {
-                var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(mirrored.Id), cancellationToken).ConfigureAwait(false);
+                var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(mirrored.Id) { CalendarWrite = true }, cancellationToken).ConfigureAwait(false);
                 if (deleted.IsFailure)
                 {
                     log.Add(Log(link, "pull", "error", map.ItemId, pulled.ExternalId, deleted.Error.Code));
@@ -332,7 +332,7 @@ public sealed class CalendarSyncEngine(
 
         if (!string.Equals(item.Properties is null ? string.Empty : ItemProperties.ReadTitle(item.Properties), fields.Title, StringComparison.Ordinal))
         {
-            var renamed = await dispatcher.SendAsync<RenameItem, Item>(new RenameItem(item.Id, fields.Title), cancellationToken).ConfigureAwait(false);
+            var renamed = await dispatcher.SendAsync<RenameItem, Item>(new RenameItem(item.Id, fields.Title) { CalendarWrite = true }, cancellationToken).ConfigureAwait(false);
             if (renamed.IsFailure)
             {
                 log.Add(Log(link, "pull", "error", map.ItemId, pulled.ExternalId, renamed.Error.Code));
@@ -741,7 +741,7 @@ public sealed class CalendarSyncEngine(
         {
             if (row.ItemActive)
             {
-                var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(ItemId.From(row.Map.ItemId)), cancellationToken)
+                var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(ItemId.From(row.Map.ItemId)) { CalendarWrite = true }, cancellationToken)
                     .ConfigureAwait(false);
                 if (deleted.IsFailure)
                 {

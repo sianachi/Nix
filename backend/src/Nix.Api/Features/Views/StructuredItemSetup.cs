@@ -113,6 +113,11 @@ public sealed class CreateStructuredItemHandler : ICommandHandler<CreateStructur
             {
                 return Result.Failure<Item>(ItemErrors.ParentNotFound("The selected destination is not visible."));
             }
+
+            if (parent.NoChildren)
+            {
+                return Result.Failure<Item>(ItemErrors.ChildrenProtected("The selected destination does not accept new children."));
+            }
         }
 
         if (SetItemSchemaHandler.Validate(command.Schema) is { } schemaError)

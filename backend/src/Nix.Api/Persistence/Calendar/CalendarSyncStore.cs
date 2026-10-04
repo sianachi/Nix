@@ -3,6 +3,7 @@ using Nix.Abstractions;
 using Nix.Abstractions.Calendar;
 using Nix.Domain.Calendar;
 using Nix.Domain.Identity;
+using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
 using Npgsql;
 using NpgsqlTypes;
@@ -325,7 +326,19 @@ public sealed class CalendarSyncStore(NixDbContext database, INixSessionContextA
             await transaction.ReleaseSavepointAsync(LinkInsertSavepoint, cancellationToken).ConfigureAwait(false);
         }
 
-        return inserted == 1 ? CalendarLinkWrite.Created : CalendarLinkWrite.Exists;
+        if (inserted != 1)
+        {
+            return CalendarLinkWrite.Exists;
+        }
+
+        // A linked container is the system's to remove: unlinking in settings is the one way out,
+        // so it is marked managed and protected from deletion for as long as the link stands.
+        await database.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE item
+               SET managed_by = {ItemManagers.CalendarContainer}, no_delete = true
+             WHERE tenant_id = {link.TenantId.Value} AND id = {link.ContainerItemId.Value}
+            """, cancellationToken).ConfigureAwait(false);
+        return CalendarLinkWrite.Created;
     }
 
     private Task<int> InsertLinkRowAsync(CalendarLink link, CancellationToken cancellationToken) =>
@@ -361,15 +374,49 @@ public sealed class CalendarSyncStore(NixDbContext database, INixSessionContextA
         return changed == 1 ? await GetLinkAsync(linkId, cancellationToken).ConfigureAwait(false) : null;
     }
 
+    public async Task<IReadOnlyList<Item>> ListLinkedContainersAsync(WorkspaceId workspaceId, CancellationToken cancellationToken)
+    {
+        var tenantId = Context.TenantId;
+        return await database.Items.AsNoTracking()
+            .Where(item => item.TenantId == tenantId
+                && item.WorkspaceId == workspaceId
+                && item.ManagedBy == ItemManagers.CalendarContainer
+                && item.LifecycleState == ItemLifecycleState.Active)
+            .OrderBy(item => item.CreatedAt)
+            .Take(200)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<bool> UnlinkContainerAsync(WorkspaceId workspaceId, ItemId containerItemId, CancellationToken cancellationToken) =>
+        await database.Database.SqlQuery<bool>($"""
+            SELECT nix_unlink_calendar_container({workspaceId.Value}, {containerItemId.Value}) AS "Value"
+            """).SingleAsync(cancellationToken).ConfigureAwait(false);
+
     public async Task<bool> DeleteLinkAsync(Guid linkId, CancellationToken cancellationToken)
     {
         // The link before its triggers, the order every path that touches both takes them.
-        if (await LockLinkAsync(linkId, cancellationToken).ConfigureAwait(false) is null)
+        if (await LockLinkAsync(linkId, cancellationToken).ConfigureAwait(false) is not { } link)
         {
             return false;
         }
 
         var context = Context;
+
+        // Hand the container and its mirrored events back as ordinary items. Only the protection
+        // the link itself put there is lifted: managed_by is what says it was the link's. Events
+        // are found by the link's own map as well as by parent, so one that was paired while in
+        // the trash or outside the container is not left protected with nothing to release it.
+        await database.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE item
+               SET managed_by = NULL, no_delete = false
+             WHERE tenant_id = {link.TenantId.Value}
+               AND managed_by IS NOT NULL
+               AND ((id = {link.ContainerItemId.Value} AND managed_by = {ItemManagers.CalendarContainer})
+                    OR (managed_by = {ItemManagers.CalendarEvent}
+                        AND (parent_id = {link.ContainerItemId.Value}
+                             OR id IN (SELECT map.item_id FROM calendar_event_map map
+                                        WHERE map.tenant_id = {link.TenantId.Value} AND map.link_id = {linkId}))))
+            """, cancellationToken).ConfigureAwait(false);
         await CancelTriggersAsync(context, linkId, cancellationToken).ConfigureAwait(false);
         var deleted = await database.Database.ExecuteSqlInterpolatedAsync(
             $"DELETE FROM calendar_link WHERE id = {linkId}", cancellationToken).ConfigureAwait(false);
@@ -553,6 +600,28 @@ public sealed class CalendarSyncStore(NixDbContext database, INixSessionContextA
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
         {
             throw new CalendarPairingConflictException("Another map row of the link already pairs this item or external event.", exception);
+        }
+
+        // A paired event is removed at its source or by unlinking, never from the workspace, so it
+        // is marked managed and protected the moment it is paired - pulled or pushed alike.
+        if (row.DeletedAt is null)
+        {
+            await database.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE item
+                   SET managed_by = {ItemManagers.CalendarEvent}, no_delete = true
+                 WHERE tenant_id = {row.TenantId.Value} AND id = {row.ItemId} AND managed_by IS NULL
+                """, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            // A pairing that has ended (the event was cancelled at its source) hands the item
+            // back: restored from the trash it is an ordinary note, not one nothing can remove.
+            await database.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE item
+                   SET managed_by = NULL, no_delete = false
+                 WHERE tenant_id = {row.TenantId.Value} AND id = {row.ItemId}
+                   AND managed_by = {ItemManagers.CalendarEvent}
+                """, cancellationToken).ConfigureAwait(false);
         }
 
         return true;

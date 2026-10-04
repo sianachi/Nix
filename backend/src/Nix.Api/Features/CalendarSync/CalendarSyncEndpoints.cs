@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
 using Nix.Errors;
 using Nix.Http;
 using Nix.Messaging;
@@ -17,6 +19,16 @@ internal static class CalendarSyncEndpoints
 {
     internal static IEndpointRouteBuilder MapCalendarSyncEndpoints(this IEndpointRouteBuilder endpoints)
     {
+        // A workspace's own view of the calendars linked into it, for its owner and the tenant's
+        // administrators. Everything under /me below is one principal's own; these two are the
+        // only routes that reach a link somebody else made.
+        var workspace = endpoints.MapGroup("/api/v1/workspaces/{workspaceId:guid}/calendar-links").WithTags("CalendarSync");
+        workspace.MapGet("/", ListWorkspaceLinks).WithName("ListWorkspaceCalendarLinks")
+            .WithDescription("The containers in the workspace that have a calendar linked into them, whoever linked it. Workspace owners and tenant administrators only; anybody else gets 'calendar.link_not_found'.");
+        workspace.MapDelete("/{containerItemId:guid}", UnlinkWorkspaceLink).WithName("UnlinkWorkspaceCalendar")
+            .WithDescription("Unlinks the calendar on a container, whoever linked it. 'items=keep' (the default) leaves the container and its events as ordinary items; 'items=trash' moves the container to the trash. Workspace owners and tenant administrators only.")
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
         var calendar = endpoints.MapGroup("/api/v1/me/calendar").WithTags("CalendarSync");
         calendar.MapGet("/connections", ListConnections).WithName("ListCalendarConnections");
         calendar.MapPost("/connections/{provider}/authorize", Authorize).WithName("AuthorizeCalendarConnection")
@@ -30,6 +42,10 @@ internal static class CalendarSyncEndpoints
         calendar.MapPatch("/links/{linkId:guid}", UpdateLink).WithName("UpdateCalendarLink")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         calendar.MapDelete("/links/{linkId:guid}", DeleteLink).WithName("DeleteCalendarLink")
+            .WithDescription(
+                "Unlinks the calendar. 'items=keep' (the default) leaves the container and its events "
+                + "as ordinary items; 'items=trash' moves the container to the trash. Nothing is removed "
+                + "from the external calendar.")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         calendar.MapPost("/links/{linkId:guid}/sync", SyncLink).WithName("SyncCalendarLink")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
@@ -96,9 +112,32 @@ internal static class CalendarSyncEndpoints
         Map(context, await dispatcher.SendAsync<UpdateCalendarLink, CalendarLinkResponse>(new(linkId, request), context.RequestAborted).ConfigureAwait(false));
 
     private static async Task<Results<NoContent, ProblemHttpResult>> DeleteLink(
-        Guid linkId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+        Guid linkId, HttpContext context, [FromServices] NixDispatcher dispatcher, string? items = null)
     {
-        var result = await dispatcher.SendAsync<DeleteCalendarLink, bool>(new(linkId), context.RequestAborted).ConfigureAwait(false);
+        if (items is not (null or "keep" or "trash"))
+        {
+            return Problem(context, CalendarSyncErrors.Invalid("items: must be 'keep' or 'trash'"));
+        }
+
+        var result = await dispatcher.SendAsync<DeleteCalendarLink, bool>(new(linkId, items == "trash"), context.RequestAborted).ConfigureAwait(false);
+        return result.IsSuccess ? TypedResults.NoContent() : Problem(context, result.Error);
+    }
+
+    private static async Task<Results<Ok<WorkspaceCalendarLinksResponse>, ProblemHttpResult>> ListWorkspaceLinks(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher) =>
+        Map(context, await dispatcher.SendAsync<ListWorkspaceCalendarLinks, WorkspaceCalendarLinksResponse>(
+            new(WorkspaceId.From(workspaceId)), context.RequestAborted).ConfigureAwait(false));
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> UnlinkWorkspaceLink(
+        Guid workspaceId, Guid containerItemId, HttpContext context, [FromServices] NixDispatcher dispatcher, string? items = null)
+    {
+        if (items is not (null or "keep" or "trash"))
+        {
+            return Problem(context, CalendarSyncErrors.Invalid("items: must be 'keep' or 'trash'"));
+        }
+
+        var result = await dispatcher.SendAsync<UnlinkWorkspaceCalendar, bool>(
+            new(WorkspaceId.From(workspaceId), ItemId.From(containerItemId), items == "trash"), context.RequestAborted).ConfigureAwait(false);
         return result.IsSuccess ? TypedResults.NoContent() : Problem(context, result.Error);
     }
 

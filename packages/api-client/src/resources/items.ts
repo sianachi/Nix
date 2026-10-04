@@ -27,6 +27,7 @@ import type {
   StructuredItemContract,
   UpdateItemRequestContract,
 } from '../contracts.js';
+import type { components } from '../generated/api.js';
 import { z } from 'zod';
 
 /** Cache key prefix for everything under one workspace's tree. */
@@ -187,6 +188,34 @@ export const moveItem = (
       parentId: input.parentId,
       afterId: input.afterId ?? null,
     } satisfies MoveItemRequestContract,
+    invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
+  });
+
+export interface ItemProtectionInput {
+  /** Whether the item is protected from deletion; omitted leaves it as it is. */
+  readonly noDelete?: boolean;
+  /** Whether the item refuses new children; omitted leaves it as it is. */
+  readonly noChildren?: boolean;
+}
+
+/**
+ * Sets an item's protections. Fails with `items.protection_managed` when the deletion protection
+ * belongs to a linked calendar.
+ */
+export const setItemProtection = (
+  workspaceId: string,
+  itemId: string,
+  input: ItemProtectionInput,
+): CommandEndpoint<Item> =>
+  defineCommand<Item>({
+    operation: 'items.setProtection',
+    method: 'PUT',
+    path: `/api/v1/items/${itemId}/protection`,
+    schema: itemSchema,
+    body: {
+      noDelete: input.noDelete ?? null,
+      noChildren: input.noChildren ?? null,
+    } satisfies components['schemas']['SetItemProtectionRequest'],
     invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
   });
 

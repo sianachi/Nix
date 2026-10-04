@@ -67,6 +67,8 @@ public static class CalendarSyncServiceCollectionExtensions
         services.AddScoped<ICommandHandler<CreateCalendarLink, CalendarLinkResponse>, CreateCalendarLinkHandler>();
         services.AddScoped<ICommandHandler<UpdateCalendarLink, CalendarLinkResponse>, UpdateCalendarLinkHandler>();
         services.AddScoped<ICommandHandler<DeleteCalendarLink, bool>, DeleteCalendarLinkHandler>();
+        services.AddScoped<ICommandHandler<ListWorkspaceCalendarLinks, WorkspaceCalendarLinksResponse>, ListWorkspaceCalendarLinksHandler>();
+        services.AddScoped<ICommandHandler<UnlinkWorkspaceCalendar, bool>, UnlinkWorkspaceCalendarHandler>();
         services.AddScoped<ICommandHandler<SyncCalendarLink, SyncCalendarLinkResponse>, SyncCalendarLinkHandler>();
         services.AddScoped<ICommandHandler<ListCalendarLinkLog, CalendarSyncLogPageResponse>, ListCalendarLinkLogHandler>();
         return services;

@@ -328,6 +328,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
         services.AddScoped<IItemLocks, ItemLockStore>();
+        services.AddScoped<IItemProtections, Nix.Persistence.Items.ItemProtectionStore>();
 
         // One per process: the backoff it keeps and the derivation ceiling it enforces are only
         // meaningful if every request shares them.
@@ -374,6 +375,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<ReplaceViewSetup, Item>, ReplaceViewSetupHandler>();
         services.AddScoped<ICommandHandler<DeleteItem, ItemId>, DeleteItemHandler>();
         services.AddScoped<ICommandHandler<RenameItem, Item>, RenameItemHandler>();
+        services.AddScoped<ICommandHandler<SetItemProtection, Item>, SetItemProtectionHandler>();
         services.AddScoped<ICommandHandler<MoveItem, Item>, MoveItemHandler>();
         services.AddScoped<ICommandHandler<RestoreItem, Item>, RestoreItemHandler>();
         services.AddScoped<IQueryHandler<GetItem, Result<Item>>, GetItemHandler>();

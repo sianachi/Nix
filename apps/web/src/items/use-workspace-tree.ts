@@ -39,6 +39,18 @@ export interface TreeItem {
   readonly hasChildren: boolean;
   readonly seq: number;
   readonly lifecycleState: string;
+
+  /** Whether the item is protected from deletion. Absent reads as unprotected. */
+  readonly noDelete?: boolean;
+
+  /** Whether the item refuses new children. Absent reads as accepting them. */
+  readonly noChildren?: boolean;
+
+  /**
+   * The system feature managing the item (a linked calendar), or null. Its deletion protection is
+   * lifted in settings, so the tree offers no toggle for it.
+   */
+  readonly managedBy?: string | null;
 }
 
 export type TreeStatus = 'loading' | 'ready' | 'error';
@@ -162,6 +174,12 @@ export interface WorkspaceTree {
     afterId: string | null,
   ) => Promise<MutationOutcome>;
   readonly remove: (itemId: string) => Promise<MutationOutcome>;
+
+  /** Sets whether an item can be deleted and whether it accepts new children. */
+  readonly setProtection: (
+    itemId: string,
+    protection: { readonly noDelete?: boolean; readonly noChildren?: boolean },
+  ) => Promise<MutationOutcome>;
   readonly restore: (itemId: string) => Promise<MutationOutcome>;
   readonly reload: () => Promise<void>;
 }
@@ -175,6 +193,9 @@ function toItem(payload: Item): TreeItem {
     hasChildren: payload.hasChildren,
     seq: Number(payload.seq),
     lifecycleState: payload.lifecycleState,
+    noDelete: payload.noDelete,
+    noChildren: payload.noChildren,
+    managedBy: payload.managedBy,
   };
 }
 
@@ -682,6 +703,37 @@ export function useWorkspaceTree(): WorkspaceTree {
     [client, workspaceId],
   );
 
+  const setProtection = useCallback(
+    async (
+      itemId: string,
+      protection: { readonly noDelete?: boolean; readonly noChildren?: boolean },
+    ): Promise<MutationOutcome> => {
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
+      setIsSaving(true);
+      try {
+        const updated = toItem(
+          await client.execute(coreItems.setItemProtection(workspaceId, itemId, protection), {
+            signal: controller.signal,
+          }),
+        );
+        if (!controller.signal.aborted && mounted.current) {
+          setItems((current) => current.map((item) => (item.id === itemId ? updated : item)));
+        }
+        return { refusal: null };
+      } catch (reason) {
+        const refusal = apiFailure(reason, 'The protection could not be changed.');
+        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current)
+          setError(refusal);
+        return { refusal };
+      } finally {
+        activeRequests.current.delete(controller);
+        if (mounted.current) setIsSaving(false);
+      }
+    },
+    [client, workspaceId],
+  );
+
   const restore = useCallback(
     async (itemId: string): Promise<MutationOutcome> => {
       const controller = new AbortController();
@@ -773,6 +825,7 @@ export function useWorkspaceTree(): WorkspaceTree {
     rename,
     move,
     remove,
+    setProtection,
     restore,
     reload: load,
   };

@@ -44,8 +44,12 @@ public sealed record CreateCalendarLink(CreateCalendarLinkRequest Request) : ICo
 /// <summary>Changes a link.</summary>
 public sealed record UpdateCalendarLink(Guid LinkId, UpdateCalendarLinkRequest Request) : ICommand<CalendarLinkResponse>;
 
-/// <summary>Deletes a link; its items keep their <c>$cal_</c> keys.</summary>
-public sealed record DeleteCalendarLink(Guid LinkId) : ICommand<bool>;
+/// <summary>
+/// Deletes a link. Its container and events become ordinary items again, keeping their
+/// <c>$cal_</c> keys, and are either left in place or moved to the trash as the caller chose.
+/// Nothing is removed from the external calendar either way.
+/// </summary>
+public sealed record DeleteCalendarLink(Guid LinkId, bool TrashItems = false) : ICommand<bool>;
 
 /// <summary>Enqueues a round now, or returns the one already queued or running.</summary>
 public sealed record SyncCalendarLink(Guid LinkId, bool Full) : ICommand<SyncCalendarLinkResponse>;
@@ -637,16 +641,122 @@ public sealed class UpdateCalendarLinkHandler(
 }
 
 /// <summary>Handles <see cref="DeleteCalendarLink"/>.</summary>
-public sealed class DeleteCalendarLinkHandler(CalendarSyncSupport support) : ICommandHandler<DeleteCalendarLink, bool>
+public sealed class DeleteCalendarLinkHandler(CalendarSyncSupport support, NixDispatcher dispatcher, IItemProtections protections) : ICommandHandler<DeleteCalendarLink, bool>
 {
     /// <inheritdoc />
     public async ValueTask<Result<bool>> HandleAsync(DeleteCalendarLink command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
         var link = await support.ReadableLinkAsync(command.LinkId, cancellationToken).ConfigureAwait(false);
-        return link is not null && await support.Store.DeleteLinkAsync(link.Id, cancellationToken).ConfigureAwait(false)
-            ? Result.Success(true)
-            : Result.Failure<bool>(CalendarSyncErrors.LinkNotFound);
+        if (link is null)
+        {
+            return Result.Failure<bool>(CalendarSyncErrors.LinkNotFound);
+        }
+
+        // Asked before anything is undone: trashing the container would hide a note somebody
+        // protected inside it, and an unlink that then quietly kept everything would not be the
+        // answer the caller chose.
+        if (command.TrashItems
+            && await protections.AnyDeleteProtectedBelowAsync(link.ContainerItemId, userOnly: true, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<bool>(CalendarSyncErrors.Invalid(
+                "items: a note inside this calendar is protected from deletion; remove the protection or keep the notes"));
+        }
+
+        if (!await support.Store.DeleteLinkAsync(link.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<bool>(CalendarSyncErrors.LinkNotFound);
+        }
+
+        // The link goes first, so trashing the container cannot be read as "the user deleted these
+        // events" and pushed upstream. With the link gone the container is an ordinary item, and
+        // the trash is the ordinary one: a single flag, undone from the trash.
+        if (!command.TrashItems)
+        {
+            return Result.Success(false);
+        }
+
+        var trashed = await dispatcher
+            .SendAsync<Nix.Features.Items.DeleteItem, ItemId>(new Nix.Features.Items.DeleteItem(link.ContainerItemId), cancellationToken)
+            .ConfigureAwait(false);
+        return Result.Success(trashed.IsSuccess);
+    }
+}
+
+/// <summary>The containers in a workspace that have a calendar linked into them, for its administrators.</summary>
+public sealed record ListWorkspaceCalendarLinks(WorkspaceId WorkspaceId) : ICommand<WorkspaceCalendarLinksResponse>;
+
+/// <summary>
+/// Unlinks the calendar on a container on behalf of a workspace owner or tenant administrator,
+/// whoever linked it. The items are kept or trashed exactly as an owner's own unlink does.
+/// </summary>
+public sealed record UnlinkWorkspaceCalendar(WorkspaceId WorkspaceId, ItemId ContainerItemId, bool TrashItems) : ICommand<bool>;
+
+/// <summary>Handles <see cref="ListWorkspaceCalendarLinks"/>.</summary>
+public sealed class ListWorkspaceCalendarLinksHandler(CalendarSyncSupport support, IPermissionResolver permissions)
+    : ICommandHandler<ListWorkspaceCalendarLinks, WorkspaceCalendarLinksResponse>
+{
+    /// <inheritdoc />
+    public async ValueTask<Result<WorkspaceCalendarLinksResponse>> HandleAsync(ListWorkspaceCalendarLinks command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        // Not found rather than forbidden, like every other workspace the caller may not manage.
+        if (!await permissions.CanManageWorkspaceAsync(command.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<WorkspaceCalendarLinksResponse>(CalendarSyncErrors.LinkNotFound);
+        }
+
+        var containers = await support.Store.ListLinkedContainersAsync(command.WorkspaceId, cancellationToken).ConfigureAwait(false);
+        return Result.Success(new WorkspaceCalendarLinksResponse(
+            [.. containers.Select(item => new WorkspaceCalendarLinkResponse(item.Id.Value, ItemProperties.ReadTitle(item.Properties)))]));
+    }
+}
+
+/// <summary>Handles <see cref="UnlinkWorkspaceCalendar"/>.</summary>
+/// <remarks>
+/// [SEC] The one place a link is removed by somebody other than its owner. A linked container is
+/// undeletable for the whole workspace, so without this a member who linked one could hold a
+/// folder, and everything above it, beyond the reach of the workspace's own owner. The right is
+/// the one that already governs workspace-level integrations, not ordinary write access.
+/// </remarks>
+public sealed class UnlinkWorkspaceCalendarHandler(
+    CalendarSyncSupport support,
+    IPermissionResolver permissions,
+    IItemProtections protections,
+    NixDispatcher dispatcher) : ICommandHandler<UnlinkWorkspaceCalendar, bool>
+{
+    /// <inheritdoc />
+    public async ValueTask<Result<bool>> HandleAsync(UnlinkWorkspaceCalendar command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        if (!await permissions.CanManageWorkspaceAsync(command.WorkspaceId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<bool>(CalendarSyncErrors.LinkNotFound);
+        }
+
+        if (command.TrashItems
+            && await protections.AnyDeleteProtectedBelowAsync(command.ContainerItemId, userOnly: true, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<bool>(CalendarSyncErrors.Invalid(
+                "items: a note inside this calendar is protected from deletion; remove the protection or keep the notes"));
+        }
+
+        if (!await support.Store.UnlinkContainerAsync(command.WorkspaceId, command.ContainerItemId, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<bool>(CalendarSyncErrors.LinkNotFound);
+        }
+
+        if (!command.TrashItems)
+        {
+            return Result.Success(false);
+        }
+
+        var trashed = await dispatcher
+            .SendAsync<Nix.Features.Items.DeleteItem, ItemId>(new Nix.Features.Items.DeleteItem(command.ContainerItemId), cancellationToken)
+            .ConfigureAwait(false);
+        return Result.Success(trashed.IsSuccess);
     }
 }
 

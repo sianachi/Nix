@@ -147,6 +147,8 @@ describe('the sidebar row context menu', () => {
       'Copy link',
       'Automate…',
       'Mute reminders',
+      'Protect from deletion',
+      'Stop new children',
       'Delete',
     ]);
   });

@@ -75,6 +75,9 @@ internal static class ItemMapping
             ToWireName(item.LifecycleState),
             ReadProperties(item.Properties),
             computed,
+            item.NoDelete,
+            item.NoChildren,
+            item.ManagedBy,
             item.CreatedAt,
             item.LastModifiedAt);
     }

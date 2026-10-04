@@ -112,6 +112,7 @@ public sealed class AccessTokenScopePolicyTests
         // Writes: content and structure, but never who-sees-what.
         ["UpdateItem"] = Requirement.Write,
         ["DeleteItem"] = Requirement.Write,
+        ["SetItemProtection"] = Requirement.Write,
         ["PurgeItem"] = Requirement.Write,
         ["KeepItem"] = Requirement.Write,
         ["ReleaseItem"] = Requirement.Write,
@@ -232,6 +233,8 @@ public sealed class AccessTokenScopePolicyTests
         ["CreateCalendarLink"] = Requirement.Admin,
         ["UpdateCalendarLink"] = Requirement.Admin,
         ["DeleteCalendarLink"] = Requirement.Admin,
+        ["ListWorkspaceCalendarLinks"] = Requirement.Read,
+        ["UnlinkWorkspaceCalendar"] = Requirement.Admin,
         ["SyncCalendarLink"] = Requirement.Write,
 
         // A token never manages tokens, whatever it holds.

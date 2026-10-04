@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Nix.Abstractions;
 using Nix.Domain.Items;
+using Nix.Features.CalendarSync;
 using Nix.Features.Items;
 using Nix.Features.Properties;
 using Nix.Integration.Tests.Harness;
@@ -300,10 +301,19 @@ public sealed class CalendarWorkerContractTests(NixPostgresFixture fixture) : IA
         await PullAsync(link, job, execution, Event("evt-ro", "v1", "Board", "2026-10-05", DateTimeOffset.UtcNow.AddHours(-1), readOnly: true));
         var itemId = await GuidAsync($"SELECT item_id FROM calendar_event_map WHERE external_event_id = 'evt-ro'");
 
-        await SetPropertiesAsync(itemId, """{"location":"Mine"}""");
+        // The mirrored fields of an event its calendar refuses edits to are refused here too.
+        await using (var work = await _host.BeginAsync(Alpha))
+        {
+            var refused = await work.Resolve<NixDispatcher>().SendAsync<SetItemProperties, Item>(
+                new SetItemProperties(ItemId.From(itemId), """{"location":"Mine"}"""), Cancellation);
+            Assert.True(refused.IsFailure);
+            Assert.Equal("items.read_only", refused.Error.Code);
+        }
+
         Assert.Empty(await ChangesAsync(link, job, execution));
 
-        Assert.Equal((1, 1), await PullAsync(link, job, execution, Event("evt-ro", "v2", "Board", "2026-10-05", DateTimeOffset.UtcNow.AddHours(-2), readOnly: true)));
+        // With the local edit refused there is nothing for the provider's version to conflict with.
+        Assert.Equal((1, 0), await PullAsync(link, job, execution, Event("evt-ro", "v2", "Board", "2026-10-05", DateTimeOffset.UtcNow.AddHours(-2), readOnly: true)));
         Assert.Null(await TextAsync($"SELECT properties ->> 'location' FROM item WHERE id = '{itemId}'"));
     }
 
@@ -446,6 +456,7 @@ public sealed class CalendarWorkerContractTests(NixPostgresFixture fixture) : IA
         await PullAsync(link, job, execution, events);
         var moved = await GuidAsync($"SELECT item_id FROM calendar_event_map WHERE link_id = '{link.Id}' AND external_event_id = 'evt-2'");
         var sibling = await CreateFolderAsync("Elsewhere");
+        await ReleaseProtectionAsync(moved);
         await MoveAsync(moved, sibling);
 
         var (fullJob, fullExecution) = await _host.ClaimJobAsync(Alpha, link, full: true);
@@ -960,8 +971,121 @@ public sealed class CalendarWorkerContractTests(NixPostgresFixture fixture) : IA
         await work.CommitAsync(Cancellation);
     }
 
+    [Fact]
+    public async Task A_linked_container_and_its_paired_events_are_protected_until_the_link_is_removed()
+    {
+        var link = await _host.LinkAsync(Alpha, await _host.ConnectAsync(Alpha));
+        var (job, execution) = await _host.ClaimJobAsync(Alpha, link);
+        await PullAsync(link, job, execution, Event("evt-kept", "v1", "Kept", "2026-10-05", DateTimeOffset.UtcNow));
+        var eventId = ItemId.From(await GuidAsync($"SELECT item_id FROM calendar_event_map WHERE external_event_id = 'evt-kept'"));
+        var elsewhere = await CreateFolderAsync("Elsewhere");
+
+        await using (var work = await _host.BeginAsync(Alpha))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            foreach (var target in new[] { eventId, link.ContainerItemId })
+            {
+                var deleted = await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(target), Cancellation);
+                Assert.Equal("items.delete_protected", deleted.Error.Code);
+            }
+
+            // Leaving the container is how an event is deleted upstream, so it is refused as one.
+            var moved = await dispatcher.SendAsync<MoveItem, Item>(new MoveItem(eventId, ItemId.From(elsewhere), null), Cancellation);
+            Assert.Equal("items.delete_protected", moved.Error.Code);
+
+            // The system's protection is not the user's to switch off.
+            var unprotected = await dispatcher.SendAsync<SetItemProtection, Item>(new SetItemProtection(eventId, false, null), Cancellation);
+            Assert.Equal("items.protection_managed", unprotected.Error.Code);
+        }
+
+        await using (var work = await _host.BeginAsync(Alpha))
+        {
+            Assert.True((await work.Resolve<NixDispatcher>().SendAsync<DeleteCalendarLink, bool>(new DeleteCalendarLink(link.Id), Cancellation)).IsSuccess);
+            await work.CommitAsync(Cancellation);
+        }
+
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM item WHERE id IN ('{eventId.Value}', '{link.ContainerItemId.Value}') AND (no_delete OR managed_by IS NOT NULL)"));
+        await DeleteItemAsync(eventId.Value);
+    }
+
+    [Fact]
+    public async Task Only_somebody_who_manages_the_workspace_unlinks_a_calendar_another_member_linked()
+    {
+        var link = await _host.LinkAsync(Alpha, await _host.ConnectAsync(Alpha));
+        var (job, execution) = await _host.ClaimJobAsync(Alpha, link);
+        await PullAsync(link, job, execution, Event("evt-theirs", "v1", "Theirs", "2026-10-05", DateTimeOffset.UtcNow));
+
+        var other = Guid.NewGuid();
+        await ExecuteAsync($"""
+            INSERT INTO principal
+                (principal_id, tenant_id, external_subject, kind, display_name, email, status, deprovisioned_at)
+            VALUES ('{other}', '{TestTenants.Alpha}', 'calendar-other-{other:N}', 'user', 'Other',
+                    'calendar-other-{other:N}@example.test', 'active', NULL);
+            INSERT INTO workspace_member
+                (workspace_id, subject_type, subject_id, tenant_id, role, granted_by, granted_at)
+            VALUES ('{TestTenants.AlphaWorkspace}', 'principal', '{other}', '{TestTenants.Alpha}', 'editor',
+                    '{TestTenants.AlphaPrincipal}', now());
+            """);
+        var otherContext = TestTenants.ContextFor(TestTenants.Alpha, TestTenants.AlphaWorkspace, other);
+        var unlink = new UnlinkWorkspaceCalendar(Alpha.WorkspaceId!.Value, link.ContainerItemId, TrashItems: false);
+
+        // An editor can neither see the workspace's links nor remove one.
+        await using (var work = await _host.BeginAsync(otherContext))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            Assert.Equal("calendar.link_not_found", (await dispatcher.SendAsync<UnlinkWorkspaceCalendar, bool>(unlink, Cancellation)).Error.Code);
+            Assert.True((await dispatcher.SendAsync<ListWorkspaceCalendarLinks, WorkspaceCalendarLinksResponse>(
+                new ListWorkspaceCalendarLinks(Alpha.WorkspaceId!.Value), Cancellation)).IsFailure);
+        }
+
+        Assert.Equal(1, await CountAsync($"SELECT count(*) FROM calendar_link WHERE id = '{link.Id}'"));
+
+        await ExecuteAsync($"UPDATE workspace_member SET role = 'owner' WHERE subject_id = '{other}' AND workspace_id = '{TestTenants.AlphaWorkspace}'");
+        await using (var work = await _host.BeginAsync(otherContext))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var listed = await dispatcher.SendAsync<ListWorkspaceCalendarLinks, WorkspaceCalendarLinksResponse>(
+                new ListWorkspaceCalendarLinks(Alpha.WorkspaceId!.Value), Cancellation);
+            Assert.Contains(listed.Value.Links, entry => entry.ContainerItemId == link.ContainerItemId.Value);
+            Assert.True((await dispatcher.SendAsync<UnlinkWorkspaceCalendar, bool>(unlink, Cancellation)).IsSuccess);
+            await work.CommitAsync(Cancellation);
+        }
+
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM calendar_link WHERE id = '{link.Id}'"));
+        Assert.Equal(0, await CountAsync($"SELECT count(*) FROM item WHERE workspace_id = '{TestTenants.AlphaWorkspace}' AND (id = '{link.ContainerItemId.Value}' OR parent_id = '{link.ContainerItemId.Value}') AND managed_by IS NOT NULL"));
+    }
+
+    [Fact]
+    public async Task A_protected_item_refuses_its_own_deletion_an_ancestors_and_new_children()
+    {
+        var parent = ItemId.From(await CreateFolderAsync("Parent"));
+        var child = ItemId.From(await CreateChildAsync(parent, "Child", "{}"));
+
+        await using var work = await _host.BeginAsync(Alpha);
+        var dispatcher = work.Resolve<NixDispatcher>();
+        Assert.True((await dispatcher.SendAsync<SetItemProtection, Item>(new SetItemProtection(child, true, true), Cancellation)).IsSuccess);
+
+        Assert.Equal("items.delete_protected", (await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(child), Cancellation)).Error.Code);
+        Assert.Equal("items.delete_protected", (await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(parent), Cancellation)).Error.Code);
+        Assert.Equal(
+            "items.children_protected",
+            (await dispatcher.SendAsync<CreateItem, Item>(new CreateItem(Alpha.WorkspaceId!.Value, "note", "Refused", child, null), Cancellation)).Error.Code);
+
+        Assert.True((await dispatcher.SendAsync<SetItemProtection, Item>(new SetItemProtection(child, false, null), Cancellation)).IsSuccess);
+        Assert.True((await dispatcher.SendAsync<DeleteItem, ItemId>(new DeleteItem(parent), Cancellation)).IsSuccess);
+    }
+
+    /// <summary>
+    /// Puts a paired event back in the state one was in before pairing protected it, so the paths
+    /// that handle an event trashed or moved out in Nix (still owed to rows from before the
+    /// protection existed) stay covered. No request can reach that state any more.
+    /// </summary>
+    private Task ReleaseProtectionAsync(Guid itemId) =>
+        ExecuteAsync($"UPDATE item SET managed_by = NULL, no_delete = false WHERE id = '{itemId}'");
+
     private async Task DeleteItemAsync(Guid itemId)
     {
+        await ReleaseProtectionAsync(itemId);
         await using var work = await _host.BeginAsync(Alpha);
         Assert.True((await work.Resolve<NixDispatcher>().SendAsync<DeleteItem, ItemId>(new DeleteItem(ItemId.From(itemId)), Cancellation)).IsSuccess);
         await work.CommitAsync(Cancellation);

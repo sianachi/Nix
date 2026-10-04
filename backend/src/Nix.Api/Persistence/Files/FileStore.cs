@@ -165,6 +165,12 @@ public sealed class FileStore(
             {
                 return null;
             }
+
+            // Replacing an existing file's bytes adds no child; only a new file item does.
+            if (parentItem.NoChildren && upload.TargetItemId is null)
+            {
+                return null;
+            }
         }
         if (upload.TargetItemId is { } targetItemId)
         {

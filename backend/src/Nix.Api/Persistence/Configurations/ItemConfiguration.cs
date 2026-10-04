@@ -69,6 +69,10 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
             .HasConversion(new EnumConverters.ItemLifecycleStateConverter())
             .IsRequired();
 
+        builder.Property(item => item.NoDelete).HasColumnName("no_delete").HasDefaultValue(false);
+        builder.Property(item => item.NoChildren).HasColumnName("no_children").HasDefaultValue(false);
+        builder.Property(item => item.ManagedBy).HasColumnName("managed_by");
+
         builder.Property(item => item.PurgeAfter).HasColumnName("purge_after");
         builder.Property(item => item.CreatedBy).HasColumnName("created_by");
         builder.Property(item => item.LastModifiedBy).HasColumnName("last_modified_by");
@@ -112,6 +116,12 @@ internal sealed class ItemConfiguration : IEntityTypeConfiguration<Item>
         // listing query that also carries an explicit tenant_id predicate (which every query
         // should, per the defence-in-depth rule) collapses it to a one-time filter instead.
         builder.HasIndex(item => new { item.WorkspaceId, item.ParentId, item.Seq });
+
+        // The deletion check asks "is anything protected beneath this item", and is driven from
+        // the protected rows. Partial, so the overwhelmingly common unprotected item costs nothing.
+        builder.HasIndex(item => new { item.TenantId, item.Id })
+            .HasDatabaseName("ix_item_no_delete")
+            .HasFilter("no_delete");
 
         // No standalone tenant_id index. It would be a strict prefix of the alternate key and of
         // both composite foreign key indexes, so it can serve no query they do not - while costing

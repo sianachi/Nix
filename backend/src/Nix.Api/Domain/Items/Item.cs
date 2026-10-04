@@ -134,6 +134,31 @@ public sealed class Item
     /// </summary>
     public Guid? TemplateSourceId { get; init; }
 
+    /// <summary>
+    /// Gets whether the item is protected from deletion: it cannot be trashed, and neither can an
+    /// ancestor while it sits beneath it.
+    /// </summary>
+    /// <remarks>
+    /// Set by anybody who may edit the item, or by the system for an item it manages (see
+    /// <see cref="ManagedBy"/>), in which case only the system clears it.
+    /// </remarks>
+    public bool NoDelete { get; init; }
+
+    /// <summary>
+    /// Gets whether the item refuses new children: nothing can be created under it or moved into it.
+    /// </summary>
+    public bool NoChildren { get; init; }
+
+    /// <summary>
+    /// Gets the system feature that manages this item, or <see langword="null"/> for an ordinary
+    /// item. One of <see cref="ItemManagers"/>.
+    /// </summary>
+    /// <remarks>
+    /// A managed item's deletion protection is the system's, not the user's: it is removed by the
+    /// feature that set it (unlinking a calendar in settings), never by the protection toggle.
+    /// </remarks>
+    public string? ManagedBy { get; init; }
+
     /// <summary>Gets where the item sits in the deletion lifecycle.</summary>
     public required ItemLifecycleState LifecycleState { get; init; }
 

@@ -48,6 +48,18 @@ internal static class ItemEndpoints
     /// </summary>
     internal const string LockedCode = "items.locked";
 
+    /// <summary>Stable code for deleting an item that is, or holds, a deletion-protected item.</summary>
+    internal const string DeleteProtectedCode = "items.delete_protected";
+
+    /// <summary>Stable code for creating under, or moving into, an item that refuses new children.</summary>
+    internal const string ChildrenProtectedCode = "items.children_protected";
+
+    /// <summary>Stable code for changing a protection the system manages.</summary>
+    internal const string ProtectionManagedCode = "items.protection_managed";
+
+    /// <summary>Stable code for editing an item that mirrors a source the caller may not edit.</summary>
+    internal const string ReadOnlyCode = "items.read_only";
+
     /// <summary>
     /// Registers the items feature's routes on <paramref name="endpoints"/>.
     /// </summary>
@@ -90,9 +102,11 @@ internal static class ItemEndpoints
             .WithDescription(
                 "Creates an item under 'parentId', or at the workspace root when it is null. "
                 + "Fails with 'items.parent_not_found' when the parent does not exist or is not "
-                + "visible to the caller.")
+                + "visible to the caller, and with 'items.children_protected' (409) when the "
+                + "parent refuses new children.")
             .Produces<ItemResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status501NotImplemented)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
@@ -140,10 +154,25 @@ internal static class ItemEndpoints
             .WithDescription(
                 "Marks the item deleted. The subtree stays intact and its descendants become "
                 + "invisible by derivation rather than being rewritten, so restoring is a single "
-                + "flag flip. Purging is a separate, retention-driven operation.")
+                + "flag flip. Purging is a separate, retention-driven operation. Fails with "
+                + "'items.delete_protected' (409) when the item, or an item beneath it, is "
+                + "protected from deletion.")
             .Produces(StatusCodes.Status204NoContent)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status501NotImplemented)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        items.MapPut("/{itemId:guid}/protection", SetItemProtectionEndpoint.Handle)
+            .WithName("SetItemProtection")
+            .WithSummary("Protect an item from deletion or from new children")
+            .WithDescription(
+                "Sets whether the item can be deleted and whether it accepts new children. A field "
+                + "left null is unchanged. Fails with 'items.protection_managed' (409) when the "
+                + "deletion protection belongs to a system feature, such as a linked calendar.")
+            .Produces<ItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
         items.MapPost("/{itemId:guid}/restore", RestoreItemEndpoint.Handle)
@@ -181,7 +210,8 @@ internal static class ItemEndpoints
     {
         var status = error.Code switch
         {
-            CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode =>
+            CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode
+                or DeleteProtectedCode or ChildrenProtectedCode or ProtectionManagedCode or ReadOnlyCode =>
                 StatusCodes.Status409Conflict,
             LockedCode => StatusCodes.Status423Locked,
             _ => StatusCodes.Status404NotFound,

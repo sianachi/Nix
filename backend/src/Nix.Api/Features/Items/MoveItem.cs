@@ -113,6 +113,14 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
             return Result.Failure<Item>(ItemErrors.LifecycleConflict("A purged item cannot be moved."));
         }
 
+        if (newParentId != item.ParentId && item.ManagedBy == ItemManagers.CalendarEvent)
+        {
+            // Leaving the linked container is how an event is deleted upstream, so it is a
+            // deletion by another name and is refused for the same reason one is.
+            return Result.Failure<Item>(ItemErrors.DeleteProtected(
+                "This event belongs to a linked calendar and cannot be moved out of it."));
+        }
+
         if (newParentId is { } destination)
         {
             var parent = await _tree.FindAsync(destination, cancellationToken).ConfigureAwait(false);
@@ -129,6 +137,13 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
             {
                 return Result.Failure<Item>(
                     ItemErrors.LifecycleConflict("An item cannot be moved into a deleted parent."));
+            }
+
+            // A reorder inside the same parent adds no child, so only a change of parent is asked.
+            if (parent.NoChildren && newParentId != item.ParentId)
+            {
+                return Result.Failure<Item>(
+                    ItemErrors.ChildrenProtected("The destination does not accept new children."));
             }
 
             if (destination == itemId
@@ -181,6 +196,10 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
                 if (lockedParent.LifecycleState != ItemLifecycleState.Active)
                 {
                     return Result.Failure<Item>(ItemErrors.LifecycleConflict("An item cannot be moved into a deleted parent."));
+                }
+                if (lockedParent.NoChildren && newParentId != item.ParentId)
+                {
+                    return Result.Failure<Item>(ItemErrors.ChildrenProtected("The destination does not accept new children."));
                 }
                 if (lockedParentId == itemId || await _tree.WouldCreateCycleAsync(itemId, lockedParentId, cancellationToken).ConfigureAwait(false))
                 {

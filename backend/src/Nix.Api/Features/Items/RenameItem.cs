@@ -20,6 +20,9 @@ public sealed record RenameItem(ItemId ItemId, string Title) : ICommand<Item>
 {
     /// <summary>Internal capability for validated finance feature dispatches; never request-bound.</summary>
     internal bool FinanceWrite { get; init; }
+
+    /// <summary>Internal capability for the calendar sync pull; never request-bound.</summary>
+    internal bool CalendarWrite { get; init; }
 }
 
 /// <summary>Changes an item's display name.</summary>
@@ -90,6 +93,16 @@ public sealed class RenameItemHandler : ICommandHandler<RenameItem, Item>
         {
             return Result.Failure<Item>(
                 ItemErrors.LifecycleConflict("A purged item cannot be renamed."));
+        }
+
+        // An event the owner cannot edit at its source is not editable here either: the provider
+        // would overwrite the change on the next pull, and until then the mirror would lie.
+        if (!command.CalendarWrite
+            && item.ManagedBy == ItemManagers.CalendarEvent
+            && ItemProperties.ReadCalendarReadOnly(item.Properties))
+        {
+            return Result.Failure<Item>(ItemErrors.ReadOnly(
+                "This event cannot be edited in its calendar, so it cannot be renamed here."));
         }
 
         if (!command.FinanceWrite && _financeGuard is not null)

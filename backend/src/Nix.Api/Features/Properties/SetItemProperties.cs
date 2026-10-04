@@ -127,6 +127,21 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
                 ItemErrors.LifecycleConflict("A deleted item's properties cannot be changed."));
         }
 
+        // An event the owner cannot edit at its source keeps its mirrored fields: the provider
+        // would overwrite them on the next pull. Everything else on it, a reminder say, is the
+        // user's own and stays writable.
+        if (!command.CalendarWrite
+            && item.ManagedBy == ItemManagers.CalendarEvent
+            && ItemProperties.ReadCalendarReadOnly(item.Properties)
+            && ContainsKeyMatching(changes, name => name is Nix.Features.CalendarSync.CalendarContainerSchema.StartKey
+                or Nix.Features.CalendarSync.CalendarContainerSchema.EndKey
+                or Nix.Features.CalendarSync.CalendarContainerSchema.LocationKey
+                or Nix.Features.CalendarSync.CalendarContainerSchema.DetailsKey))
+        {
+            return Result.Failure<Item>(ItemErrors.ReadOnly(
+                "This event cannot be edited in its calendar, so its time and details cannot be changed here."));
+        }
+
         if (!command.FinanceWrite && _financeGuard is not null)
         {
             var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, null, false, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);

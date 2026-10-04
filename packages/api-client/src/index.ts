@@ -313,6 +313,16 @@ export type {
   AutomationActionPreview,
   AutomationTestResponse,
 } from './schemas/automations.js';
+export * as calendarSync from './resources/calendar-sync.js';
+export { CALENDAR_PROVIDERS } from './schemas/calendar-sync.js';
+export type {
+  CalendarConnection,
+  CalendarConnections,
+  CalendarLink,
+  CalendarSyncLogEntry,
+  ExternalCalendar,
+  WorkspaceCalendarLink,
+} from './schemas/calendar-sync.js';
 export * as bookmarks from './resources/bookmarks.js';
 export * as locks from './resources/locks.js';
 export * as items from './resources/items.js';

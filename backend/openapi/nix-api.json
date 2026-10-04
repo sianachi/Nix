@@ -1791,7 +1791,7 @@
           "Items"
         ],
         "summary": "Create an item",
-        "description": "Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller.",
+        "description": "Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller, and with 'items.children_protected' (409) when the parent refuses new children.",
         "operationId": "CreateItem",
         "parameters": [
           {
@@ -1827,6 +1827,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1966,7 +1976,7 @@
           "Items"
         ],
         "summary": "Soft-delete an item",
-        "description": "Marks the item deleted. The subtree stays intact and its descendants become invisible by derivation rather than being rewritten, so restoring is a single flag flip. Purging is a separate, retention-driven operation.",
+        "description": "Marks the item deleted. The subtree stays intact and its descendants become invisible by derivation rather than being rewritten, so restoring is a single flag flip. Purging is a separate, retention-driven operation. Fails with 'items.delete_protected' (409) when the item, or an item beneath it, is protected from deletion.",
         "operationId": "DeleteItem",
         "parameters": [
           {
@@ -1985,6 +1995,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -2078,6 +2098,69 @@
           },
           "501": {
             "description": "Not Implemented",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/protection": {
+      "put": {
+        "tags": [
+          "Items"
+        ],
+        "summary": "Protect an item from deletion or from new children",
+        "description": "Sets whether the item can be deleted and whether it accepts new children. A field left null is unchanged. Fails with 'items.protection_managed' (409) when the deletion protection belongs to a system feature, such as a linked calendar.",
+        "operationId": "SetItemProtection",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetItemProtectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5440,6 +5523,79 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/calendar-links": {
+      "get": {
+        "tags": [
+          "CalendarSync"
+        ],
+        "description": "The containers in the workspace that have a calendar linked into them, whoever linked it. Workspace owners and tenant administrators only; anybody else gets 'calendar.link_not_found'.",
+        "operationId": "ListWorkspaceCalendarLinks",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceCalendarLinksResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/calendar-links/{containerItemId}": {
+      "delete": {
+        "tags": [
+          "CalendarSync"
+        ],
+        "description": "Unlinks the calendar on a container, whoever linked it. 'items=keep' (the default) leaves the container and its events as ordinary items; 'items=trash' moves the container to the trash. Workspace owners and tenant administrators only.",
+        "operationId": "UnlinkWorkspaceCalendar",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "containerItemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "items",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/api/v1/me/calendar/connections": {
       "get": {
         "tags": [
@@ -5663,6 +5819,7 @@
         "tags": [
           "CalendarSync"
         ],
+        "description": "Unlinks the calendar. 'items=keep' (the default) leaves the container and its events as ordinary items; 'items=trash' moves the container to the trash. Nothing is removed from the external calendar.",
         "operationId": "DeleteCalendarLink",
         "parameters": [
           {
@@ -5672,6 +5829,13 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "items",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -13613,6 +13777,9 @@
           "lifecycleState",
           "properties",
           "computed",
+          "noDelete",
+          "noChildren",
+          "managedBy",
           "createdAt",
           "updatedAt"
         ],
@@ -13664,6 +13831,18 @@
               {
                 "$ref": "#/components/schemas/JsonObject"
               }
+            ]
+          },
+          "noDelete": {
+            "type": "boolean"
+          },
+          "noChildren": {
+            "type": "boolean"
+          },
+          "managedBy": {
+            "type": [
+              "null",
+              "string"
             ]
           },
           "createdAt": {
@@ -15897,6 +16076,27 @@
             "type": [
               "null",
               "string"
+            ]
+          }
+        }
+      },
+      "SetItemProtectionRequest": {
+        "required": [
+          "noDelete",
+          "noChildren"
+        ],
+        "type": "object",
+        "properties": {
+          "noDelete": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "noChildren": {
+            "type": [
+              "null",
+              "boolean"
             ]
           }
         }
@@ -18192,6 +18392,36 @@
               "string"
             ],
             "format": "double"
+          }
+        }
+      },
+      "WorkspaceCalendarLinkResponse": {
+        "required": [
+          "containerItemId",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "containerItemId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkspaceCalendarLinksResponse": {
+        "required": [
+          "links"
+        ],
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceCalendarLinkResponse"
+            }
           }
         }
       },

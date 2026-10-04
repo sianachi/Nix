@@ -436,4 +436,30 @@ public static class ItemProperties
 
         return bag.ToJsonString();
     }
+
+    /// <summary>
+    /// Whether the bag marks its item as a calendar event the owner cannot edit at its source.
+    /// </summary>
+    /// <param name="properties">The stored bag, or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when <see cref="CalendarReadOnlyKey"/> is JSON true.</returns>
+    public static bool ReadCalendarReadOnly(string? properties)
+    {
+        if (string.IsNullOrWhiteSpace(properties))
+        {
+            return false;
+        }
+
+        try
+        {
+            return JsonNode.Parse(properties) is JsonObject bag
+                && bag.TryGetPropertyValue(CalendarReadOnlyKey, out var flag)
+                && flag is JsonValue value
+                && value.TryGetValue<bool>(out var readOnly)
+                && readOnly;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 }

@@ -3,6 +3,7 @@ import { type ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
+import { CalendarsSection } from '../settings/calendars-section';
 import { EditorPreferencesSection } from '../settings/editor-preferences-section';
 import { NotificationsSection } from '../settings/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
@@ -14,6 +15,7 @@ const settingsTabs: readonly { id: SettingsTab; label: string; closable: false }
   { id: 'editor', label: 'Editor', closable: false },
   { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'pets', label: 'Pets', closable: false },
+  { id: 'integrations', label: 'Calendars', closable: false },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
 ];
 
@@ -57,6 +59,7 @@ export function SettingsPage(): ReactElement {
         {activeTab === 'editor' ? <EditorPreferencesSection /> : null}
         {activeTab === 'notifications' ? <NotificationsSection /> : null}
         {activeTab === 'pets' ? <PetSettingsSection /> : null}
+        {activeTab === 'integrations' ? <CalendarsSection /> : null}
         {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
       </main>
     </div>

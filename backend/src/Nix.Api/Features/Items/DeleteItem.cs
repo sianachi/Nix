@@ -22,7 +22,17 @@ namespace Nix.Features.Items;
 /// the retention window closes over it.
 /// </para>
 /// </remarks>
-public sealed record DeleteItem(ItemId ItemId) : ICommand<ItemId>;
+public sealed record DeleteItem(ItemId ItemId) : ICommand<ItemId>
+{
+    /// <summary>
+    /// Internal capability for calendar sync, which removes a mirrored event its source cancelled
+    /// never request-bound. It passes the protection the system itself holds on what it manages,
+    /// which exists to stop a deletion from the workspace, not the system keeping a mirror honest.
+    /// It does not pass a protection a person set: an event cancelled at its source stays, with
+    /// the refusal in the sync log, while somebody's protected note sits beneath it.
+    /// </summary>
+    internal bool CalendarWrite { get; init; }
+}
 
 /// <summary>Marks an item deleted, leaving its subtree intact.</summary>
 /// <remarks>
@@ -45,6 +55,7 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
     private readonly IFinanceMutationGuard? _financeGuard;
+    private readonly IItemProtections? _protections;
 
     /// <summary>Initializes a new instance of the <see cref="DeleteItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -56,7 +67,8 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
         TimeProvider clock,
-        IFinanceMutationGuard? financeGuard = null)
+        IFinanceMutationGuard? financeGuard = null,
+        IItemProtections? protections = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -68,6 +80,7 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
         _session = session;
         _clock = clock;
         _financeGuard = financeGuard;
+        _protections = protections;
     }
 
     /// <summary>Deletes the item.</summary>
@@ -114,6 +127,25 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
         if (item.LifecycleState == ItemLifecycleState.Deleted)
         {
             return Result.Success(itemId);
+        }
+
+        if (item.NoDelete && !(command.CalendarWrite && item.ManagedBy is not null))
+        {
+            return Result.Failure<ItemId>(ItemErrors.DeleteProtected(item.ManagedBy is null
+                ? "This item is protected from deletion. Remove the protection first."
+                : "This item belongs to a linked calendar. Unlink the calendar in settings to remove it."));
+        }
+
+        // Trashing an item hides everything under it, so a protected item beneath it would be
+        // deleted in every way that matters. Refused rather than skipped: the caller asked for
+        // one outcome and half of it is not theirs to have.
+        if (_protections is not null
+            && await _protections
+                .AnyDeleteProtectedBelowAsync(itemId, userOnly: command.CalendarWrite, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return Result.Failure<ItemId>(ItemErrors.DeleteProtected(
+                "An item inside this one is protected from deletion."));
         }
 
         if (_financeGuard is not null)

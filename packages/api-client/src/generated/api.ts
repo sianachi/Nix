@@ -441,7 +441,7 @@ export interface paths {
     put?: never;
     /**
      * Create an item
-     * @description Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller.
+     * @description Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller, and with 'items.children_protected' (409) when the parent refuses new children.
      */
     post: operations['CreateItem'];
     delete?: never;
@@ -466,7 +466,7 @@ export interface paths {
     post?: never;
     /**
      * Soft-delete an item
-     * @description Marks the item deleted. The subtree stays intact and its descendants become invisible by derivation rather than being rewritten, so restoring is a single flag flip. Purging is a separate, retention-driven operation.
+     * @description Marks the item deleted. The subtree stays intact and its descendants become invisible by derivation rather than being rewritten, so restoring is a single flag flip. Purging is a separate, retention-driven operation. Fails with 'items.delete_protected' (409) when the item, or an item beneath it, is protected from deletion.
      */
     delete: operations['DeleteItem'];
     options?: never;
@@ -492,6 +492,26 @@ export interface paths {
      * @description Reparents the item and maintains the closure table. Fails with 'items.move_would_create_cycle' when the destination is the item itself or one of its own descendants, and with 'items.parent_not_found' when the destination is not visible. Fails with 'items.locked' (423) when a lock the caller has not opened covers the item or the destination.
      */
     post: operations['MoveItem'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/protection': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Protect an item from deletion or from new children
+     * @description Sets whether the item can be deleted and whether it accepts new children. A field left null is unchanged. Fails with 'items.protection_managed' (409) when the deletion protection belongs to a system feature, such as a linked calendar.
+     */
+    put: operations['SetItemProtection'];
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1455,6 +1475,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/calendar-links': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description The containers in the workspace that have a calendar linked into them, whoever linked it. Workspace owners and tenant administrators only; anybody else gets 'calendar.link_not_found'. */
+    get: operations['ListWorkspaceCalendarLinks'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/calendar-links/{containerItemId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** @description Unlinks the calendar on a container, whoever linked it. 'items=keep' (the default) leaves the container and its events as ordinary items; 'items=trash' moves the container to the trash. Workspace owners and tenant administrators only. */
+    delete: operations['UnlinkWorkspaceCalendar'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/me/calendar/connections': {
     parameters: {
       query?: never;
@@ -1545,6 +1599,7 @@ export interface paths {
     get?: never;
     put?: never;
     post?: never;
+    /** @description Unlinks the calendar. 'items=keep' (the default) leaves the container and its events as ordinary items; 'items=trash' moves the container to the trash. Nothing is removed from the external calendar. */
     delete: operations['DeleteCalendarLink'];
     options?: never;
     head?: never;
@@ -3450,6 +3505,9 @@ export interface components {
       lifecycleState: string;
       properties: components['schemas']['JsonObject'];
       computed: null | components['schemas']['JsonObject'];
+      noDelete: boolean;
+      noChildren: boolean;
+      managedBy: null | string;
       /** Format: date-time */
       createdAt: string;
       /** Format: date-time */
@@ -4003,6 +4061,10 @@ export interface components {
       password: string;
       currentPassword: null | string;
     };
+    SetItemProtectionRequest: {
+      noDelete: null | boolean;
+      noChildren: null | boolean;
+    };
     SetPluginEnabledRequest: {
       enabled: boolean;
     };
@@ -4495,6 +4557,14 @@ export interface components {
       actual: number | string;
       /** Format: double */
       variance: number | string;
+    };
+    WorkspaceCalendarLinkResponse: {
+      /** Format: uuid */
+      containerItemId: string;
+      title: string;
+    };
+    WorkspaceCalendarLinksResponse: {
+      links: components['schemas']['WorkspaceCalendarLinkResponse'][];
     };
     WorkspaceCalendarResponse: {
       /** Format: uuid */
@@ -5889,6 +5959,15 @@ export interface operations {
           'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
       /** @description Not Implemented */
       501: {
         headers: {
@@ -5960,6 +6039,15 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -6075,6 +6163,50 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetItemProtection: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetItemProtectionRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -8616,6 +8748,51 @@ export interface operations {
       };
     };
   };
+  ListWorkspaceCalendarLinks: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceCalendarLinksResponse'];
+        };
+      };
+    };
+  };
+  UnlinkWorkspaceCalendar: {
+    parameters: {
+      query?: {
+        items?: string;
+      };
+      header?: never;
+      path: {
+        workspaceId: string;
+        containerItemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
   ListCalendarConnections: {
     parameters: {
       query?: never;
@@ -8752,7 +8929,9 @@ export interface operations {
   };
   DeleteCalendarLink: {
     parameters: {
-      query?: never;
+      query?: {
+        items?: string;
+      };
       header?: never;
       path: {
         linkId: string;

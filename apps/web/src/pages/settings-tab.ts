@@ -12,6 +12,7 @@ export const SettingsTabSchema = z.enum([
   'editor',
   'notifications',
   'pets',
+  'integrations',
   'access-tokens',
 ]);
 
