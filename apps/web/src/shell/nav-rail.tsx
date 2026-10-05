@@ -16,6 +16,7 @@ import {
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 
+import { petAttentionText } from '../pets/pet-attention';
 import { usePetNavEntry } from '../pets/use-pet-nav-entry';
 import { useWorkspace } from '../workspaces/workspace-context';
 
@@ -76,6 +77,12 @@ interface RailItemBase {
    * glyph means without a tooltip component.
    */
   readonly label: string;
+
+  /**
+   * Something at this destination is waiting on the person: drawn as a dot on the glyph and said
+   * in words after the label, so it is not carried by a mark alone.
+   */
+  readonly attention?: string;
 
   readonly icon: LucideIcon;
 
@@ -197,7 +204,16 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
   const items: readonly RailItem[] = petEntry
     ? dailyItems.flatMap((item) =>
         item.kind === 'destination' && item.to === '/bookmarks'
-          ? [item, { ...PET_ITEM, label: petEntry.label }]
+          ? [
+              item,
+              {
+                ...PET_ITEM,
+                label: petEntry.label,
+                ...(petEntry.attention === null
+                  ? {}
+                  : { attention: petAttentionText(petEntry.attention) }),
+              },
+            ]
           : [item],
       )
     : dailyItems;
@@ -275,7 +291,7 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
           const startsUtilityGroup =
             item.group === 'utility' && items[index - 1]?.group !== 'utility';
           const sharedProps = {
-            title: item.label,
+            title: item.attention ? `${item.label} (${item.attention})` : item.label,
             tabIndex: index === entryIndex ? 0 : -1,
             onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
               onKeyDown(event, index);
@@ -310,9 +326,18 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
                   className={className}
                   {...sharedProps}
                 >
-                  <Icon icon={item.icon} size="sm" className="shrink-0" />
+                  <span className="relative shrink-0">
+                    <Icon icon={item.icon} size="sm" />
+                    {item.attention ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-1 -top-1 size-2 rounded-full bg-accent-fill"
+                      />
+                    ) : null}
+                  </span>
                   <Text as="span" variant="body" truncate className="sr-only max-lg:not-sr-only">
                     {item.label}
+                    {item.attention ? <span className="sr-only">, {item.attention}</span> : null}
                   </Text>
                 </Link>
               ) : (

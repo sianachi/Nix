@@ -2,6 +2,7 @@ import { files as fileResources, isNixApiError } from '@nix/api-client';
 import { useEffect, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { loadServerThumbnail } from './server-thumbnail';
 import { usePdfThumbnail, type PdfThumbnailStatus } from './use-pdf-thumbnail';
 
 /** The same five words as the PDF renderer's, so a card draws one set of states for any source. */
@@ -123,7 +124,9 @@ interface ServerOutcome {
  * **An `<img>` cannot be handed the signed URL.** The page's policy allows `blob:` and `data:`
  * images but the object store's origin is only a `connect-src`, so the JPEG is fetched like any
  * other capability download and shown from an object URL - the way a cover picture is (see
- * `views/gallery/cover-image.tsx`). The URL is revoked when the file or the card goes.
+ * `views/gallery/cover-image.tsx`). The URL is revoked when the file or the card goes. Core is
+ * asked for the capability on every mount; the bytes behind it are downloaded once per tab (see
+ * `server-thumbnail.ts`).
  *
  * **A 404 is an answer, not a failure.** Core says `files.thumbnail_not_found` alike for a file
  * with no thumbnail, an unreadable one and a locked one, and none of those is worth an error:
@@ -151,26 +154,7 @@ export function useFileThumbnail(options: UseFileThumbnailOptions): FileThumbnai
 
     void (async () => {
       try {
-        // A thumbnail contains body data. Always authorize it with Core, including after a lock
-        // or membership change; a device cache must never substitute for that decision.
-        const capability = await client.query(fileResources.thumbnailFile(itemId), {
-          signal,
-          forceRefresh: true,
-        });
-        const url = new URL(capability.url);
-        if (
-          url.protocol !== 'https:' &&
-          url.hostname !== 'localhost' &&
-          url.hostname !== '127.0.0.1'
-        ) {
-          throw new TypeError('Thumbnail capabilities must use HTTPS outside local development.');
-        }
-        if (url.username !== '' || url.password !== '') {
-          throw new TypeError('Thumbnail capabilities cannot contain URL credentials.');
-        }
-        const response = await fetch(url, { signal, credentials: 'omit', redirect: 'error' });
-        if (!response.ok) throw new Error('The thumbnail download failed.');
-        const blob = await response.blob();
+        const blob = await loadServerThumbnail(client, itemId, signal);
         settle('ready', blob);
       } catch (error) {
         if (signal.aborted) return;

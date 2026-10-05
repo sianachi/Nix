@@ -1,7 +1,15 @@
 import { files as fileResources } from '@nix/api-client';
 import { Button, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { ImagePlus } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
 import { PartialNotice } from '../../components/states/status-panels';
@@ -737,6 +745,16 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
 }
 
 /** The card's picture region: the cover, or the words that say why there is not one. */
+/** The longer side of a stored thumbnail, in pixels (Core's `MaximumThumbnailSide`). */
+const THUMBNAIL_SIDE = 480;
+
+/**
+ * How far a thumbnail may be stretched before the original is worth its download. A cover is a
+ * duotone wash behind a title, not a photograph being inspected, so mild softness is the right
+ * price for not fetching every original on every dense screen.
+ */
+const TOLERATED_UPSCALE = 1.5;
+
 function CoverPane({
   src,
   label,
@@ -750,6 +768,30 @@ function CoverPane({
   readonly failed: boolean;
   readonly onFailure: () => void;
 }): ReactNode {
+  // Whether this frame is wider, in device pixels, than a stored thumbnail can fill acceptably.
+  // Measured rather than read off the card size: a medium card is one narrow column on a desktop
+  // and the full width of a dense phone screen. Until it is measured the answer is no, which is
+  // the cheap one - the thumbnail is drawn either way and the original only follows it.
+  const frame = useRef<HTMLDivElement>(null);
+  const [sharp, setSharp] = useState(false);
+  // Only the picture's own frame is measured, so the effect follows the pane into that state.
+  const showsPicture = src.length > 0 && isDisplayableImageValue(src) && !failed;
+  useLayoutEffect(() => {
+    const element = frame.current;
+    if (element === null) return;
+    const measure = () => {
+      const devicePixels = element.getBoundingClientRect().width * window.devicePixelRatio;
+      setSharp(devicePixels > THUMBNAIL_SIDE * TOLERATED_UPSCALE);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [showsPicture]);
+
   if (src.length === 0) {
     // In words, not as an empty box. An empty box is indistinguishable from a cover that failed to
     // load and from a picture that happens to be white.
@@ -805,7 +847,7 @@ function CoverPane({
   // about progress - it just means the card never has a hole in it, and the geometry is identical
   // in every state so nothing reflows as pictures resolve.
   return (
-    <CoverFrame size={size}>
+    <CoverFrame size={size} frameRef={frame}>
       <CoverImage
         src={src}
         // Empty on purpose, and this is the accessible-name decision rather than an omission. The
@@ -815,6 +857,7 @@ function CoverPane({
         // duplicate of adjacent text is exactly what an empty alt is for.
         alt=""
         className="absolute inset-0 size-full object-cover"
+        sharp={sharp}
         onError={onFailure}
       />
     </CoverFrame>
@@ -853,12 +896,15 @@ function CoverDetail({ children }: { readonly children: string }): ReactNode {
 function CoverFrame({
   children,
   size,
+  frameRef,
 }: {
   readonly children: ReactNode;
   readonly size: CardSize;
+  readonly frameRef?: RefObject<HTMLDivElement | null>;
 }): ReactNode {
   return (
     <div
+      ref={frameRef}
       className={cn(
         blueprintFrame,
         CARD_SIZE_COVER[size],

@@ -557,4 +557,17 @@ describe('companion workflow', () => {
       expect.anything(),
     );
   });
+
+  it('draws no floating pet once the chat is given its own page everywhere', () => {
+    localStorage.setItem('nix.pet.surface', 'page');
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    // jsdom applies no stylesheet, so `hidden` is asserted as the class the other launcher tests
+    // assert; in a browser it takes both out of the layout and the accessibility tree.
+    expect(screen.getByRole('complementary', { name: 'Cat companion' })).toHaveClass('hidden');
+    expect(screen.getByRole('button', { name: 'Open Cat' })).toHaveClass('hidden');
+  });
 });

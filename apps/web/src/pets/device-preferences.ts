@@ -13,7 +13,7 @@ export const PET_SURFACE_OPTIONS: readonly {
 }[] = [
   { value: 'floating', label: 'Floating panel everywhere' },
   { value: 'page-on-phones', label: 'Its own page on phones, floating elsewhere' },
-  { value: 'page', label: 'Its own page everywhere' },
+  { value: 'page', label: 'Its own page everywhere, with no floating pet' },
   { value: 'both', label: 'Both: floating panel, and a page in the navigation' },
 ];
 

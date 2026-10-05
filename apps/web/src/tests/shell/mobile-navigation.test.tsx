@@ -15,6 +15,7 @@ it('offers reachable workspace, search, calendar, inbox and note creation contro
         treeOpen={false}
         creating={false}
         unreadNotifications={0}
+        petAttention={null}
         onTree={tree}
         onSearch={search}
         onCreate={create}
@@ -45,6 +46,7 @@ it('announces the unread count as part of the inbox control name', () => {
         treeOpen={false}
         creating={false}
         unreadNotifications={3}
+        petAttention={null}
         onTree={() => undefined}
         onSearch={() => undefined}
         onCreate={() => undefined}
@@ -53,4 +55,23 @@ it('announces the unread count as part of the inbox control name', () => {
     </MemoryRouter>,
   );
   expect(screen.getByRole('button', { name: 'Inbox, 3 unread' })).toBeVisible();
+});
+
+it('marks the workspace control while the pet is waiting and its only way in is that drawer', () => {
+  render(
+    <MemoryRouter>
+      <MobileNavigation
+        workspaceId="workspace"
+        treeOpen={false}
+        creating={false}
+        unreadNotifications={0}
+        petAttention="needs approval"
+        onTree={vi.fn()}
+        onSearch={vi.fn()}
+        onCreate={vi.fn()}
+        onOpenInbox={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Workspace, pet needs approval' })).toBeVisible();
 });

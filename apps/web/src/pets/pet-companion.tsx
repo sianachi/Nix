@@ -9,6 +9,7 @@ import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
 import { useBackDismiss } from '../layout/use-back-dismiss';
 import { openPanelPosition } from './panel-position';
 import { PetAvatar } from './pet-avatar';
+import { publishPetAttention } from './pet-attention';
 import { usePetSettings } from './use-pet-settings';
 import { usePetRuntime } from './use-pet-runtime';
 import {
@@ -17,7 +18,7 @@ import {
   writePetPosition,
   type PetConversationMode,
 } from './device-preferences';
-import { chatOpensAsPage, pageIsAvailable } from './pet-surface';
+import { chatOpensAsPage, launcherFloats, pageIsAvailable } from './pet-surface';
 import { useZenActive } from '../lib/zen-mode';
 import { usePetSurface } from './use-pet-surface';
 import { PetWorkTools } from './pet-work-tools';
@@ -144,7 +145,11 @@ function Companion({
     returnFocus.current = true;
   });
   const keyboardVisible = useMobileKeyboard(narrow);
-  const launcherHidden = open || (narrow && keyboardVisible);
+  // With the page chosen everywhere there is no floating pet. The component stays mounted, so a
+  // turn still gets its auto-run reads while the owner is elsewhere in the workspace, but it draws
+  // nothing; a panel already open when the preference changes stays until it is closed.
+  const floats = launcherFloats(surface) || open;
+  const launcherHidden = open || !floats || (narrow && keyboardVisible);
   useEffect(() => {
     if (!designEntry) return;
     let active = true;
@@ -163,11 +168,25 @@ function Companion({
   // `launcherHidden` to clear - rather than focusing right on close - is what makes focus land
   // on it once it is actually visible again, on a phone or a desktop alike.
   useEffect(() => {
-    if (returnFocus.current && !launcherHidden) {
+    // With no floating launcher there is nothing to hand focus back to, and a flag left set
+    // would pull focus to the launcher out of nowhere if floating were chosen again later.
+    if (!floats) returnFocus.current = false;
+    else if (returnFocus.current && !launcherHidden) {
       returnFocus.current = false;
       launcher.current?.focus();
     }
-  }, [launcherHidden]);
+  }, [launcherHidden, floats]);
+  // The launcher's dot and its "(needs approval)" are the only notice of a turn waiting on the
+  // owner. Without a launcher the same fact goes to the navigation entry (`pet-attention.ts`), so
+  // a waiting approval is never silent. Cleared on unmount, which includes arriving on the pet
+  // page, where the conversation itself shows it.
+  const attention = floats ? null : toolPending ? 'approval' : unseenReply ? 'reply' : null;
+  useEffect(() => {
+    publishPetAttention(attention);
+    return () => {
+      publishPetAttention(null);
+    };
+  }, [attention]);
   useEffect(() => {
     const changed = () => {
       setPlacement(readDevicePreference('placement'));
@@ -275,7 +294,7 @@ function Companion({
     <aside
       ref={aside}
       aria-label={`${pet.name} companion`}
-      className={`fixed z-40 flex max-w-full flex-col gap-2 p-2 ${position ? '' : `${narrowOffset} lg:bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
+      className={`fixed z-40 max-w-full flex-col gap-2 p-2 ${floats ? 'flex' : 'hidden'} ${position ? '' : `${narrowOffset} lg:bottom-4 ${placement === 'left' ? 'left-0 items-start sm:left-4' : 'right-0 items-end sm:right-4'}`}`}
       style={
         position
           ? open && panelPosition && !narrow

@@ -3,6 +3,7 @@ import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
 import { useBackDismiss } from '../layout/use-back-dismiss';
 import { ItemDialogProvider } from '../items/item-dialog-provider';
 import { MobileNavigation } from './mobile-navigation';
+import { petAttentionText, usePetAttention } from '../pets/pet-attention';
 import { PwaControls } from '../pwa/pwa-controls';
 import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
@@ -143,6 +144,7 @@ export function AppShell(): ReactNode {
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const notificationsInbox = useNotificationsInbox();
+  const petAttention = usePetAttention();
   useBackDismiss(
     narrow && (sidebar.visible || searchOpen || workspaceImportOpen || inboxOpen),
     () => {
@@ -630,6 +632,7 @@ export function AppShell(): ReactNode {
             treeOpen={sidebar.visible}
             creating={tree.isCreating}
             unreadNotifications={notificationsInbox.unread}
+            petAttention={petAttention === null ? null : petAttentionText(petAttention)}
             onTree={sidebar.toggle}
             onSearch={() => {
               setSearchOpen(true);
