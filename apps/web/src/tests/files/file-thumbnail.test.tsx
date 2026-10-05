@@ -1,5 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { forgetThumbnails } from '../../lib/thumbnail-cache';
 import { useFileThumbnail, fileThumbnailKind } from '../../thumbnails/use-file-thumbnail';
 
 const client = vi.hoisted(() => ({ query: vi.fn() }));
@@ -10,7 +11,9 @@ vi.mock('../../thumbnails/use-pdf-thumbnail', () => ({
   usePdfThumbnail: () => ({ status: 'none', url: null }),
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
+  await forgetThumbnails();
+  vi.mocked(fetch).mockClear();
   query.mockReset().mockResolvedValue({ url: 'http://localhost:7070/thumbnail' });
   Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL });
   vi.mocked(fetch).mockImplementation(() =>
@@ -27,7 +30,7 @@ describe('file thumbnails keep body authorization at Core', () => {
     mediaType: 'image/png',
     hasServerThumbnail: undefined,
   };
-  it('authorizes each mount, omits credentials on object storage, and releases its URL', async () => {
+  it('authorizes each mount, omits credentials on object storage, releases its URL, and downloads the bytes once', async () => {
     const first = renderHook(() => useFileThumbnail(options));
     await waitFor(() => {
       expect(first.result.current.status).toBe('ready');
@@ -47,6 +50,65 @@ describe('file thumbnails keep body authorization at Core', () => {
       expect(second.result.current.status).toBe('ready');
     });
     expect(query).toHaveBeenCalledTimes(2);
+    // Core was asked again; the bytes it named were already in this tab.
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('downloads again when Core names a different object, and after sign-out clears the tab', async () => {
+    const first = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(first.result.current.status).toBe('ready');
+    });
+    first.unmount();
+    query.mockResolvedValue({ url: 'http://localhost:7070/replaced?signature=two' });
+    const replaced = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(replaced.result.current.status).toBe('ready');
+    });
+    replaced.unmount();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await forgetThumbnails();
+    const afterSignOut = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(afterSignOut.result.current.status).toBe('ready');
+    });
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+  it('does not keep bytes whose download finishes after a sign-out', async () => {
+    let finish: (response: Response) => void = () => undefined;
+    vi.mocked(fetch).mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const inFlight = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledTimes(1);
+    });
+    await forgetThumbnails();
+    finish(new Response(new Blob(['jpeg'], { type: 'image/jpeg' })));
+    await waitFor(() => {
+      expect(inFlight.result.current.status).toBe('ready');
+    });
+    inFlight.unmount();
+    const next = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(next.result.current.status).toBe('ready');
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it('shows nothing held in the tab when Core refuses on a later mount', async () => {
+    const first = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(first.result.current.status).toBe('ready');
+    });
+    first.unmount();
+    query.mockRejectedValue(new Error('Locked'));
+    const locked = renderHook(() => useFileThumbnail(options));
+    await waitFor(() => {
+      expect(locked.result.current.status).toBe('error');
+    });
+    expect(locked.result.current.url).toBeNull();
   });
   it('does not fetch bytes when authorization fails', async () => {
     query.mockRejectedValue(new Error('Unavailable'));

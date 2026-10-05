@@ -19,6 +19,18 @@ const KIND_GLYPH: Record<FileThumbnailKind, LucideIcon> = {
   other: File,
 };
 
+/** How far outside the viewport a box may be when its work starts. */
+const APPROACH_MARGIN = '400px';
+
+/** The nearest ancestor that scrolls vertically, or null for the window itself. */
+function scrollingAncestor(element: Element): Element | null {
+  for (let node = element.parentElement; node !== null; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === 'auto' || overflowY === 'scroll') return node;
+  }
+  return null;
+}
+
 export interface FileThumbnailProps extends Omit<UseFileThumbnailOptions, 'enabled'> {
   /**
    * The box's size and shape, which the caller owns: `aspect-square w-full` for a tile,
@@ -32,7 +44,7 @@ export interface FileThumbnailProps extends Omit<UseFileThumbnailOptions, 'enabl
  * A file's picture in a fixed box, or a quiet glyph for its kind where there is none.
  *
  * `alt` is empty on purpose: every place this is drawn names the file in text beside it, and a
- * second announcement of the same name is noise. Work waits until the box is on screen - an
+ * second announcement of the same name is noise. Work waits until the box is on screen or about to be - an
  * `IntersectionObserver` where there is one, at once where there is not - and then stays
  * switched on, so scrolling away and back does not start it again.
  */
@@ -71,12 +83,19 @@ export function FileThumbnail({
   useEffect(() => {
     const element = box.current;
     if (visible || element === null || typeof IntersectionObserver === 'undefined') return;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        setVisible(true);
-        observer.disconnect();
-      }
-    });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      // A head start of about a row or two, so a picture is usually there by the time its box
+      // scrolls in rather than starting its round trips at that moment.
+      // The margin grows the root's box, and a pane that scrolls inside the window clips its
+      // rows before the window does, so the head start has to be measured from that pane.
+      { root: scrollingAncestor(element), rootMargin: APPROACH_MARGIN },
+    );
     observer.observe(element);
     return () => {
       observer.disconnect();
