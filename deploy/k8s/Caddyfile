@@ -10,6 +10,8 @@
 :8090 {
 	root * /srv/nix/web
 	encode zstd gzip
+	# This stable URL announces each new build to installed clients.
+	header /service-worker.js Cache-Control "no-store"
 
 	# Core keeps its /api prefix - its routes are already under /api/v1.
 	handle /api/* {

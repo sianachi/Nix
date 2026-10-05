@@ -45,6 +45,9 @@ while IFS= read -r image; do
     *) docker pull --quiet "$image" >/dev/null ;;
   esac
 done < <("${compose[@]}" --profile maintenance config --images "${release_services[@]}" | sort -u)
+# Check the release's bind mounts as RabbitMQ's runtime user before stopping writers.
+# A private umask on the checkout can leave these public source files unreadable.
+"${compose[@]}" run --rm --no-deps --entrypoint /bin/sh rabbitmq -c 'for file in /usr/local/bin/nix-rabbitmq-start /etc/rabbitmq/rabbitmq.conf /etc/rabbitmq/definitions.json; do if [ ! -r "$file" ]; then printf "Release bind mount is not readable: %s\n" "$file" >&2; exit 1; fi; done'
 # Preview drift before anything is recreated; refuses recreating stateful infrastructure.
 bash "$root/deploy/compose/drift.sh" "${compose[@]}"
 # Stop writers before the infrastructure `up`, and keep them stopped while document/schema
