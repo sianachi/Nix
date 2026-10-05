@@ -139,6 +139,8 @@ elif 'config' in args and '--images' in args:
  print('localhost/nix/api:test\nghcr.io/sianachi/nix/worker:test')
 elif 'run' in args and args[-1]=='nix-migrate' and os.environ.get('FAIL_MIGRATION'):
  sys.exit(1)
+elif 'run' in args and '--entrypoint' in args and '/bin/sh' in args and 'rabbitmq' in args and os.environ.get('FAIL_RELEASE_BINDS'):
+ sys.exit(1)
 PYCODE
 chmod +x "$fixture/bin/docker"
 export DOCKER_TEST_LOG="$fixture/docker-calls" COMPOSE_TEST_CONFIG="$fixture/compose.json"
@@ -178,6 +180,8 @@ assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
 # Writers stop before the infrastructure `up`, so a RabbitMQ recreate never meets a publisher.
 infra=next(i for i,s in enumerate(calls) if ' up ' in s and s.endswith('postgres rabbitmq nix-opensearch nix-versitygw'))
 assert stop < infra < migrate
+bind_check=next(i for i,s in enumerate(calls) if 'run --rm --no-deps --entrypoint /bin/sh rabbitmq -c ' in s)
+assert bind_check < stop
 assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
 PYCODE
 # The drift preview must run before the first `up` can recreate a service.
@@ -187,6 +191,13 @@ calls=open(sys.argv[1]).read().splitlines()
 drift=next(i for i,s in enumerate(calls) if s.endswith("config --hash *"))
 assert drift < next(i for i,s in enumerate(calls) if ' up ' in s)
 PYCODE
+: > "$DOCKER_TEST_LOG"
+if FAIL_RELEASE_BINDS=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-unreadable" 2>&1; then
+ echo 'Rollout accepted unreadable RabbitMQ release bind mounts' >&2; exit 1
+fi
+if rg -q ' stop | up |run --rm --no-deps nix-migrate' "$DOCKER_TEST_LOG"; then
+ echo 'Rollout stopped or changed services with unreadable release bind mounts' >&2; exit 1
+fi
 : > "$DOCKER_TEST_LOG"
 if FAIL_MIGRATION=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-failure" 2>&1; then
  echo 'Rollout accepted a failed migration' >&2; exit 1

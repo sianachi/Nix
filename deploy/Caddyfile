@@ -21,6 +21,8 @@
 	root * /srv/nix/web
 
 	encode zstd gzip
+	# This stable URL announces each new build to installed clients.
+	header /service-worker.js Cache-Control "no-store"
 
 	# The API keeps its /api prefix - the backend's routes are themselves under /api/v1, so
 	# nothing is rewritten, exactly like the Vite proxy.

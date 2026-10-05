@@ -3,6 +3,8 @@
 :8090 {
 	root * /srv/nix/web
 	encode zstd gzip
+	# This stable URL announces each new build to installed clients.
+	header /service-worker.js Cache-Control "no-store"
 
 	# Preserve the bucket path and signed Host header for S3 capabilities.
 	handle /{$NIX_OBJECT_STORE_BUCKET}/* {
