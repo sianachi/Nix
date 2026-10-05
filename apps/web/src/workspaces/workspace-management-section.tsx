@@ -10,6 +10,23 @@ import { useWorkspaceAdministration } from './use-workspace-administration';
 
 type AssignableRole = 'owner' | 'editor' | 'viewer';
 
+function invitationReason(reason: string | null): string {
+  switch (reason) {
+    case 'self':
+      return 'You';
+    case 'already_has_access':
+      return 'Already has access';
+    case 'invitation_pending':
+      return 'Invitation pending';
+    case 'email_missing':
+      return 'No email address';
+    case 'email_unverified':
+      return 'Email not verified';
+    default:
+      return 'Cannot invite';
+  }
+}
+
 function formatBytes(value: number | string): string {
   const bytes = Number(value);
   if (!Number.isFinite(bytes) || bytes < 1024) return `${String(value)} bytes`;
@@ -29,7 +46,8 @@ export function WorkspaceManagementSection(): ReactNode {
   const navigate = useNavigate();
   const context = useWorkspace();
   const { workspace } = context;
-  const administration = useWorkspaceAdministration();
+  const [inviteeQuery, setInviteeQuery] = useState('');
+  const administration = useWorkspaceAdministration(inviteeQuery);
   const [name, setName] = useState(workspace.name);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const [inviteePrincipalId, setInviteePrincipalId] = useState('');
@@ -205,9 +223,36 @@ export function WorkspaceManagementSection(): ReactNode {
               Invite someone
             </Text>
             <Text variant="note" tone="muted">
-              Select an existing Nix user. They receive provisional access immediately and decide
-              whether to accept or decline the invitation.
+              Find anyone who has signed in to Nix in this organization. People with a verified
+              email who do not already have access can be invited. They receive provisional access
+              immediately and decide whether to accept or decline the invitation.
             </Text>
+            <Field label="Search people by name or email">
+              {(control) => (
+                <Input
+                  {...control}
+                  type="search"
+                  maxLength={128}
+                  value={inviteeQuery}
+                  onChange={(event) => {
+                    setInviteeQuery(event.target.value);
+                    setInviteePrincipalId('');
+                  }}
+                />
+              )}
+            </Field>
+            {administration.inviteesStatus === 'partial' ? (
+              <Text role="alert" tone="muted">
+                {administration.inviteesError} The list is incomplete; some people may be missing.
+              </Text>
+            ) : null}
+            <Button
+              variant="secondary"
+              onClick={administration.reload}
+              disabled={administration.working}
+            >
+              Refresh people
+            </Button>
             {administration.inviteesStatus === 'loading' ? (
               <LoadingPanel label="people available to invite" />
             ) : administration.inviteesStatus === 'error' ? (
@@ -259,8 +304,16 @@ export function WorkspaceManagementSection(): ReactNode {
                             : 'Select a person'}
                         </option>
                         {administration.invitees.map((invitee) => (
-                          <option key={invitee.principalId} value={invitee.principalId}>
-                            {invitee.displayName} ({invitee.email})
+                          <option
+                            key={invitee.principalId}
+                            value={invitee.principalId}
+                            disabled={!invitee.canInvite}
+                          >
+                            {invitee.displayName}
+                            {invitee.email === null ? '' : ` (${invitee.email})`}
+                            {invitee.canInvite
+                              ? ''
+                              : ` — ${invitationReason(invitee.cannotInviteReason)}`}
                           </option>
                         ))}
                       </Select>
@@ -283,13 +336,22 @@ export function WorkspaceManagementSection(): ReactNode {
                   </Field>
                   <Button
                     type="submit"
-                    disabled={administration.working || inviteePrincipalId.length === 0}
+                    disabled={
+                      administration.working ||
+                      !administration.invitees.some(
+                        (person) => person.principalId === inviteePrincipalId && person.canInvite,
+                      )
+                    }
                   >
                     Invite
                   </Button>
                 </form>
                 {administration.invitees.length === 0 ? (
-                  <Text tone="muted">Everyone who can be invited already has access.</Text>
+                  <Text tone="muted">
+                    {inviteeQuery.trim().length === 0
+                      ? 'No people are available. They must sign in to Nix in this organization before they appear here.'
+                      : 'No people match this search. Try another name or email, or clear the search.'}
+                  </Text>
                 ) : null}
               </>
             )}

@@ -65,6 +65,9 @@ public static class ItemErrors
     /// <summary>The item mirrors something the caller may not edit at its source.</summary>
     public static NixError ReadOnly(string detail) => new("items.read_only", detail);
 
+    /// <summary>A workspace transfer cannot preserve the current state safely.</summary>
+    public static NixError TransferConflict(string detail) => new("items.transfer_conflict", detail);
+
     /// <summary>The workspace does not exist or is not visible.</summary>
     public static NixError WorkspaceNotFound(string detail) =>
         new("workspaces.not_found", detail);

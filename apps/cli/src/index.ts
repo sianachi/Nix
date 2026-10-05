@@ -409,15 +409,22 @@ export function buildProgram(): Command {
       );
     });
   ws.command('invitees <workspaceId>')
-    .description('List active users who can be invited.')
+    .description('List active users and their workspace invitation eligibility.')
+    .option('--query <text>', 'search people by name or email')
     .option('--limit <count>', 'maximum rows in this page', parseInteger, 50)
     .option('--cursor <cursor>', 'opaque cursor returned by the previous page')
-    .action(async (workspaceId: string, options: PageCliOptions, command: Command) => {
-      const flags = globalFlags(command);
-      await run(() =>
-        listWorkspaceInvitees(flags.profile, workspaceId, options, outputOptions(flags.json)),
-      );
-    });
+    .action(
+      async (
+        workspaceId: string,
+        options: PageCliOptions & { query?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          listWorkspaceInvitees(flags.profile, workspaceId, options, outputOptions(flags.json)),
+        );
+      },
+    );
   ws.command('invite <workspaceId> <principalId>')
     .requiredOption('--role <role>', 'owner, editor, or viewer')
     .description('Invite a collaborator.')
@@ -2464,10 +2471,14 @@ export function buildProgram(): Command {
 
   item
     .command('mv <itemId>')
-    .description('Move an item to a new parent and position.')
+    .description('Move an item and its subtree to a parent or another workspace.')
     .requiredOption('--workspace <id>', "the item's workspace")
     .option('--parent <id>', 'the new parent, or omit for the workspace root')
     .option('--after <id>', 'the sibling to place it after, or omit to place it first')
+    .option(
+      '--destination-workspace <id>',
+      'a writable destination workspace; omitted keeps the current workspace',
+    )
     .action(async (itemId: string, options: MvOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() =>
@@ -2478,6 +2489,7 @@ export function buildProgram(): Command {
             workspaceId: options.workspace,
             parentId: options.parent ?? null,
             afterId: options.after ?? null,
+            destinationWorkspaceId: options.destinationWorkspace,
           },
           outputOptions(flags.json),
         ),
@@ -2601,6 +2613,7 @@ interface CreateItemOptions {
 
 interface MvOptions {
   readonly workspace: string;
+  readonly destinationWorkspace?: string;
   readonly parent?: string;
   readonly after?: string;
 }

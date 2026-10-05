@@ -158,6 +158,21 @@ describe('a recording’s transcript', () => {
     expect(await screen.findByText(/The transcript is in the note/)).toBeInTheDocument();
   });
 
+  it('updates a queue warning as the queued job ages while the panel stays open', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
+    vi.setSystemTime(new Date('2026-10-05T14:00:00Z'));
+    client.query.mockResolvedValue(transcription('queued'));
+    render(<TranscriptionPanel itemId={AUDIO} />);
+    expect(await screen.findByText(/Waiting to be transcribed/)).toBeInTheDocument();
+    await act(async () => {
+      vi.advanceTimersByTime(183_000);
+      await Promise.resolve();
+    });
+    expect(
+      await screen.findByText(/Still waiting\. The speech service may be offline/),
+    ).toBeInTheDocument();
+  });
+
   it('stops calling a long wait a queue', async () => {
     // Queued since long before this panel was drawn: nothing is taking turns.
     client.query.mockResolvedValue(transcription('queued'));

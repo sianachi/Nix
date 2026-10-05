@@ -11,6 +11,7 @@ import {
 import { inferFilters, type InferredFilters } from '../../lib/suggest/infer-filters';
 import { readPropertyText, type ViewFilterRule } from '../core/container-model';
 import type { ViewRendererProps } from '../core/view-kinds';
+import { useHiddenItems } from '../../items/use-hidden-items';
 import { useQueryResults } from './use-query-results';
 
 /** Loaded once somebody asks for suggested filters; most visits to a smart list never do. */
@@ -37,6 +38,7 @@ const QueryByExamplePanel = lazy(() => import('./query-by-example'));
  */
 export function QueryView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
+  const visibility = useHiddenItems();
 
   // The itemId this view runs against is the smart list itself - the container's own id, not its
   // children. Every child the container may incidentally hold stays untouched by this view.
@@ -106,6 +108,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   }
 
   const { results } = run;
+  const visible = results.results.filter((item) => !visibility.hiddenSet.has(item.id));
 
   if (results.results.length === 0) {
     return (
@@ -120,7 +123,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   }
 
   function suggestFromExamples(): void {
-    const rows = results.results.map((candidate) => ({
+    const rows = visible.map((candidate) => ({
       id: candidate.id,
       properties: candidate.properties,
     }));
@@ -217,12 +220,18 @@ export function QueryView(props: ViewRendererProps): ReactNode {
 
       {results.truncated ? (
         <PartialNotice
-          pending={`More items match than this list carries: the first ${String(results.results.length)} are shown.`}
+          pending={`More items match than this list carries: the first ${String(results.results.length)} were loaded.`}
         />
       ) : null}
 
+      {visible.length < results.results.length ? (
+        <Text variant="note" role="status">
+          Some matching items are hidden for you. Manage them in Hidden items in the workspace
+          sidebar.
+        </Text>
+      ) : null}
       <ul className="flex flex-col">
-        {results.results.map((row) => {
+        {visible.map((row) => {
           const owner = { title: row.title ?? '', properties: row.properties };
 
           return (
@@ -260,6 +269,16 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                   in {row.containerTitle}
                 </Text>
               )}
+
+              <Button
+                variant="ghost"
+                aria-label={`Hide ${row.title ?? 'Untitled'} for me`}
+                onClick={() => {
+                  visibility.hide(row.id, row.title ?? 'Untitled');
+                }}
+              >
+                Hide
+              </Button>
 
               {/* The values the query matched on, so a row says why it is here. The rule
                   properties are the view's own filters, deduplicated - a rule pair over one

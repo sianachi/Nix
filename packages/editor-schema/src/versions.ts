@@ -56,6 +56,9 @@ export const MARK_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze(
 /** The image node existed at version 1; this attribute is only safe from version 3 onward. */
 export const ATTRIBUTE_MIN_VERSION: Readonly<Record<string, number>> = Object.freeze({
   'image.fileItemId': 3,
+  'paragraph.textAlign': 5,
+  'heading.textAlign': 5,
+  'detailsSummary.textAlign': 5,
 });
 
 /** The two tables {@link requiredSchemaVersion} consults, together. */
@@ -104,6 +107,13 @@ export function requiredSchemaVersion(
     const fileItemId: unknown = node.type.name === 'image' ? attributes.fileItemId : null;
     if (typeof fileItemId === 'string' && fileItemId.length > 0) {
       const attributeMinimum = ATTRIBUTE_MIN_VERSION['image.fileItemId'];
+      if (attributeMinimum !== undefined && attributeMinimum > required)
+        required = attributeMinimum;
+    }
+
+    const textAlign: unknown = attributes.textAlign;
+    if (textAlign !== null && textAlign !== undefined) {
+      const attributeMinimum = ATTRIBUTE_MIN_VERSION[`${node.type.name}.textAlign`];
       if (attributeMinimum !== undefined && attributeMinimum > required)
         required = attributeMinimum;
     }

@@ -54,7 +54,8 @@ internal static class TranscriptionEndpoints
         [FromServices] IItemTranscriptionStore transcriptions,
         [FromServices] INixSessionContextAccessor session,
         [FromServices] AccessTokenSessionContext scope,
-        [FromServices] S3CapabilitySigner signer)
+        [FromServices] S3CapabilitySigner signer,
+        [FromServices] IFinanceLock topology)
     {
         if (!TranscriptionRules.ValidSpeakers(request.Speakers))
         {
@@ -73,6 +74,14 @@ internal static class TranscriptionEndpoints
         var audio = await tree.FindAsync(audioId, context.RequestAborted).ConfigureAwait(false);
         if (audio is null
             || !await permissions.CanReadWorkspaceAsync(audio.WorkspaceId, context.RequestAborted).ConfigureAwait(false))
+        {
+            return TranscriptionProblems.NotFound(context);
+        }
+
+        var sourceWorkspace = audio.WorkspaceId;
+        await topology.AcquireWorkspaceTopologyAsync(sourceWorkspace, context.RequestAborted).ConfigureAwait(false);
+        audio = await tree.FindAsync(audioId, context.RequestAborted).ConfigureAwait(false);
+        if (audio is null || audio.WorkspaceId != sourceWorkspace)
         {
             return TranscriptionProblems.NotFound(context);
         }

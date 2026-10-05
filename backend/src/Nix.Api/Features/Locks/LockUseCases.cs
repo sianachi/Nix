@@ -169,6 +169,7 @@ public sealed class LockItemHandler : ICommandHandler<LockItem, bool>
     private readonly INixSessionContextAccessor _session;
     private readonly CredentialSessionContext _credential;
     private readonly TimeProvider _clock;
+    private readonly IFinanceLock? _topology;
 
     /// <summary>Initializes a new instance of the <see cref="LockItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -178,6 +179,7 @@ public sealed class LockItemHandler : ICommandHandler<LockItem, bool>
     /// <param name="session">The tenant this request runs in.</param>
     /// <param name="credential">The credential this request authenticated with.</param>
     /// <param name="clock">Stamps the grant.</param>
+    /// <param name="topology">Serializes lock creation with structural moves.</param>
     public LockItemHandler(
         IItemTree tree,
         IPermissionResolver permissions,
@@ -185,7 +187,8 @@ public sealed class LockItemHandler : ICommandHandler<LockItem, bool>
         LockPasswordGuard guard,
         INixSessionContextAccessor session,
         CredentialSessionContext credential,
-        TimeProvider clock)
+        TimeProvider clock,
+        IFinanceLock? topology = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -202,6 +205,7 @@ public sealed class LockItemHandler : ICommandHandler<LockItem, bool>
         _session = session;
         _credential = credential;
         _clock = clock;
+        _topology = topology;
     }
 
     /// <summary>Sets or changes the lock.</summary>
@@ -220,6 +224,24 @@ public sealed class LockItemHandler : ICommandHandler<LockItem, bool>
         if (!LockPasswordHasher.IsAcceptable(command.Password))
         {
             return Result.Failure<bool>(LockErrors.PasswordInvalid());
+        }
+
+        if (_topology is not null)
+        {
+            var before = await _tree.FindAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+            if (before is null)
+            {
+                return Result.Failure<bool>(LockErrors.NotFound(command.ItemId));
+            }
+            // A lock above a moving subtree cannot be added after the mover checks that
+            // ancestor and before it leaves. Recheck reach after waiting for a transfer too.
+            await _topology.AcquireWorkspaceTopologyAsync(before.WorkspaceId, cancellationToken).ConfigureAwait(false);
+            var current = await _tree.FindAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+            if (current is null || current.WorkspaceId != before.WorkspaceId
+                || !await LockAccess.MayWriteAsync(_tree, _permissions, command.ItemId, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<bool>(LockErrors.NotFound(command.ItemId));
+            }
         }
 
         var existing = await _locks.FindVerifierAsync(command.ItemId, cancellationToken).ConfigureAwait(false);

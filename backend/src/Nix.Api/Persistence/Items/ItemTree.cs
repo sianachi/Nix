@@ -30,7 +30,7 @@ namespace Nix.Persistence.Items;
 /// in depth.
 /// </para>
 /// </remarks>
-public sealed class ItemTree : IItemTree
+public sealed partial class ItemTree : IItemTree
 {
     private readonly NixDbContext _dbContext;
     private readonly NixSqlExecutor _sql;

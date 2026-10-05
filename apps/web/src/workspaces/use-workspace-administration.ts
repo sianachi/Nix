@@ -43,7 +43,7 @@ export interface WorkspaceAdministration {
   readonly archive: () => Promise<boolean>;
 }
 
-export function useWorkspaceAdministration(): WorkspaceAdministration {
+export function useWorkspaceAdministration(inviteeQuery = ''): WorkspaceAdministration {
   const client = useApiClient();
   const { workspaceId, workspace, reload: reloadWorkspaces, workspaceUpdated } = useWorkspace();
   const [reloadKey, setReloadKey] = useState(0);
@@ -117,25 +117,6 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
     })();
 
     void (async () => {
-      const nextInvitees: WorkspaceInvitee[] = [];
-      try {
-        for await (const invitee of client.paginate(coreWorkspaces.listInvitees(workspaceId), {
-          signal: controller.signal,
-        })) {
-          nextInvitees.push(invitee);
-        }
-        if (controller.signal.aborted) return;
-        setInvitees(nextInvitees);
-        setInviteesStatus('ready');
-      } catch (reason) {
-        if (controller.signal.aborted || isCanceledError(reason)) return;
-        setInvitees(nextInvitees);
-        setInviteesError(problem(reason, 'People available to invite could not be loaded.'));
-        setInviteesStatus(nextInvitees.length === 0 ? 'error' : 'partial');
-      }
-    })();
-
-    void (async () => {
       const nextInvitations: WorkspaceInvitation[] = [];
       try {
         for await (const invitation of client.paginate(
@@ -158,6 +139,46 @@ export function useWorkspaceAdministration(): WorkspaceAdministration {
       controller.abort();
     };
   }, [client, reloadKey, workspace.canManageMembers, workspaceId]);
+
+  useEffect(() => {
+    if (!workspace.canManageMembers) return;
+    const controller = new AbortController();
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      setInviteesStatus('loading');
+      setInviteesError(null);
+    });
+    const timer = window.setTimeout(
+      () => {
+        void (async () => {
+          const nextInvitees: WorkspaceInvitee[] = [];
+          try {
+            for await (const invitee of client.paginate(
+              coreWorkspaces.listInvitees(workspaceId, inviteeQuery.trim()),
+              {
+                signal: controller.signal,
+              },
+            )) {
+              nextInvitees.push(invitee);
+            }
+            if (controller.signal.aborted) return;
+            setInvitees(nextInvitees);
+            setInviteesStatus('ready');
+          } catch (reason) {
+            if (controller.signal.aborted || isCanceledError(reason)) return;
+            setInvitees(nextInvitees);
+            setInviteesError(problem(reason, 'People available to invite could not be loaded.'));
+            setInviteesStatus(nextInvitees.length === 0 ? 'error' : 'partial');
+          }
+        })();
+      },
+      inviteeQuery.trim().length === 0 ? 0 : 250,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [client, inviteeQuery, reloadKey, workspace.canManageMembers, workspaceId]);
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);

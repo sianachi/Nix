@@ -135,7 +135,16 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
   useEffect(
     () =>
       onItemChildrenChanged((detail) => {
-        if (detail.workspaceId === workspaceId) void load();
+        if (detail.workspaceId !== workspaceId) return;
+        if (detail.removedItemIds.length > 0) {
+          const removed = new Set(detail.removedItemIds);
+          setResults((current) =>
+            current === null
+              ? null
+              : { ...current, results: current.results.filter((item) => !removed.has(item.id)) },
+          );
+        }
+        void load();
       }),
     [load, workspaceId],
   );

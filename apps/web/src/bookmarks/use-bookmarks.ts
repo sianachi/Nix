@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 
 import { useApiClient } from '../api/api-client-provider';
+import { onItemChildrenChanged } from '../lib/item-children-changed';
 
 /**
  * What the reader has kept, held once for the whole application.
@@ -74,6 +75,7 @@ function idsOf(items: readonly KeptItem[]): ReadonlySet<string> {
  * and putting it in the store would invite a selector to subscribe to a function.
  */
 let apiClient: NixClient | null = null;
+let reloadRevision = 0;
 
 function configuredClient(): NixClient {
   if (apiClient === null) {
@@ -91,8 +93,10 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
   actionError: null,
 
   reload: async (forceRefresh = false) => {
+    const revision = ++reloadRevision;
     try {
       const shelf = await configuredClient().query(bookmarks.listBookmarks(), { forceRefresh });
+      if (revision !== reloadRevision) return;
       set({
         status: 'ready',
         items: shelf.items,
@@ -101,6 +105,7 @@ export const useBookmarksStore = create<BookmarksStore>((set, get) => ({
         error: null,
       });
     } catch (reason) {
+      if (revision !== reloadRevision) return;
       if (isNixApiError(reason) && reason.status === 404) {
         set({
           status: 'error',
@@ -230,4 +235,24 @@ export function useBookmarksLoader(): void {
       void reload();
     });
   }, [reload]);
+
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        if (detail.removedItemIds.length > 0) {
+          const removed = new Set(detail.removedItemIds);
+          useBookmarksStore.setState((current) => {
+            const visible = current.items.filter(
+              (item) => item.workspaceId !== detail.workspaceId || !removed.has(item.itemId),
+            );
+            return {
+              items: visible,
+              hidden: current.hidden + current.items.length - visible.length,
+            };
+          });
+        }
+        void reload(true);
+      }),
+    [reload],
+  );
 }

@@ -144,6 +144,140 @@ describe('workspace management', () => {
     ).toBeVisible();
   });
 
+  it('loads people beyond the first page and searches by name or email', async () => {
+    const user = userEvent.setup();
+    const people = Array.from({ length: 65 }, (_, index) => ({
+      principalId: `77777777-bbbb-4bbb-8bbb-${String(index).padStart(12, '0')}`,
+      displayName: `Person ${String(index)}`,
+      email: `person${String(index)}@example.test`,
+    }));
+    stubCoreApi({ invitees: people });
+    renderAt(<App />, '/settings');
+
+    const person = await screen.findByRole('combobox', { name: 'Person' });
+    await waitFor(() => {
+      expect(
+        within(person).getByRole('option', { name: 'Person 64 (person64@example.test)' }),
+      ).toBeVisible();
+    });
+    expect(
+      fetchCalls().some((call) => new URL(call.url, location.origin).searchParams.has('cursor')),
+    ).toBe(true);
+    await user.selectOptions(person, people[0]?.principalId ?? '');
+    await user.type(
+      screen.getByRole('searchbox', { name: 'Search people by name or email' }),
+      'PERSON64@',
+    );
+    await waitFor(() => {
+      expect(
+        within(screen.getByRole('combobox', { name: 'Person' })).getAllByRole('option'),
+      ).toHaveLength(2);
+    });
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeDisabled();
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Person' }),
+      people[64]?.principalId ?? '',
+    );
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeEnabled();
+  });
+
+  it('keeps partial invitees usable and announces a later page failure without claiming completeness', async () => {
+    const people = Array.from({ length: 65 }, (_, index) => ({
+      principalId: `77777777-bbbb-4bbb-8bbb-${String(index).padStart(12, '0')}`,
+      displayName: `Person ${String(index)}`,
+      email: `person${String(index)}@example.test`,
+    }));
+    stubCoreApi({ invitees: people });
+    const fallbackFetch = fetch;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+          location.origin,
+        );
+        if (url.pathname.endsWith('/invitees') && url.searchParams.has('cursor')) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ title: 'Unavailable', status: 503 }), {
+              status: 503,
+              headers: { 'content-type': 'application/problem+json' },
+            }),
+          );
+        }
+        return fallbackFetch(input, init);
+      }),
+    );
+    renderAt(<App />, '/settings');
+
+    expect(
+      await screen.findByText(/The list is incomplete; some people may be missing/i),
+    ).toBeVisible();
+    expect(screen.getByRole('combobox', { name: 'Person' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Refresh people' })).toBeEnabled();
+    expect(screen.queryByText(/No people are available/i)).not.toBeInTheDocument();
+  });
+
+  it('shows people who cannot be invited with Core-provided reasons', async () => {
+    stubCoreApi({
+      invitees: [
+        {
+          principalId: OWNER_ID,
+          displayName: 'Existing member',
+          email: 'member@example.test',
+          canInvite: false,
+          cannotInviteReason: 'already_has_access',
+        },
+        {
+          principalId: EDITOR_ID,
+          displayName: 'Unverified person',
+          email: 'unverified@example.test',
+          canInvite: false,
+          cannotInviteReason: 'email_unverified',
+        },
+        {
+          principalId: INVITATION_ID,
+          displayName: 'Invited person',
+          email: 'invited@example.test',
+          canInvite: false,
+          cannotInviteReason: 'invitation_pending',
+        },
+        {
+          principalId: '99999999-bbbb-4bbb-8bbb-999999999999',
+          displayName: 'No email person',
+          email: null,
+          canInvite: false,
+          cannotInviteReason: 'email_missing',
+        },
+      ],
+    });
+    renderAt(<App />, '/settings');
+    const people = await screen.findByRole('combobox', { name: 'Person' });
+    expect(
+      within(people).getByRole('option', { name: /Existing member.*Already has access/ }),
+    ).toBeDisabled();
+    expect(
+      within(people).getByRole('option', { name: /Unverified person.*Email not verified/ }),
+    ).toBeDisabled();
+    expect(
+      within(people).getByRole('option', { name: /Invited person.*Invitation pending/ }),
+    ).toBeDisabled();
+    expect(
+      within(people).getByRole('option', { name: /No email person.*No email address/ }),
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Invite' })).toBeDisabled();
+  });
+
+  it('explains an empty eligible directory and lets the user refresh after someone signs in', async () => {
+    stubCoreApi({ invitees: [] });
+    renderAt(<App />, '/settings');
+
+    expect(await screen.findByText(/They must sign in to Nix in this organization/i)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Refresh people' })).toBeEnabled();
+    expect(
+      screen.queryByText(/Everyone who can be invited already has access/i),
+    ).not.toBeInTheDocument();
+  });
+
   it('does not offer owner for a personal-workspace invitation', async () => {
     stubCoreApi();
     renderAt(<App />, '/settings');
@@ -331,13 +465,11 @@ describe('workspace management', () => {
     ).not.toBeInTheDocument();
     await user.click(screen.getByRole('link', { name: 'Settings' }));
     expect(await screen.findByRole('textbox', { name: 'Workspace name' })).toHaveValue(SHARED.name);
+    const people = await screen.findByRole('combobox', { name: 'Person' });
+    expect(people).toHaveValue('');
     expect(
-      await screen.findByText(/Everyone who can be invited already has access/i),
-    ).toBeVisible();
-    expect(await screen.findByRole('combobox', { name: 'Person' })).toBeDisabled();
-    expect(screen.getByRole('combobox', { name: 'Person' })).toHaveDisplayValue(
-      'No people available to invite',
-    );
+      within(people).getByRole('option', { name: /New Person.*Invitation pending/ }),
+    ).toBeDisabled();
     expect(screen.queryByText(/New Person now has provisional access/i)).not.toBeInTheDocument();
   });
 

@@ -341,7 +341,17 @@ export async function startRecording(options: {
     if (session === current) update({ sources: 'microphone', sharedEnded: true });
   });
 
-  recorder.start(SLICE_MS);
+  try {
+    recorder.start(SLICE_MS);
+  } catch {
+    session = null;
+    capture.close();
+    releaseSessionLock?.();
+    releaseSessionLock = null;
+    void browserRecordingSpool.discard(current.spooled.id).catch(() => undefined);
+    update({ phase: 'idle', failure: 'failed', sources: null });
+    return false;
+  }
   current.timer = setInterval(() => {
     if (session === current) update({ elapsedMs: elapsed(current) });
   }, TICK_MS);

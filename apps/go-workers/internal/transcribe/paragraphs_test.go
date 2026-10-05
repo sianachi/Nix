@@ -72,3 +72,18 @@ func TestSpeechWithoutSentenceEndsIsStillCutAndCleaned(t *testing.T) {
 		}
 	}
 }
+
+func TestLongUtterancesKeepTheirEndingWhenSplit(t *testing.T) {
+	text := strings.Repeat("word ", 900) + "the ending."
+	paragraphs := Paragraphs([]Spoken{{StartMillis: 42, EndMillis: 30000, Speaker: SpeakerMe, Text: text}})
+	var parts []string
+	for _, paragraph := range paragraphs {
+		if paragraph.StartMillis != 42 || paragraph.Speaker != SpeakerMe || len([]rune(paragraph.Text)) > paragraphMaxRunes {
+			t.Fatalf("invalid split: %#v", paragraph)
+		}
+		parts = append(parts, paragraph.Text)
+	}
+	if strings.Join(parts, " ") != text {
+		t.Fatal("the split discarded or changed words")
+	}
+}

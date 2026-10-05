@@ -124,6 +124,7 @@ export async function createItem(
 
 export interface MoveOptions {
   readonly workspaceId: string;
+  readonly destinationWorkspaceId?: string | undefined;
   readonly parentId: string | null;
   readonly afterId?: string | null | undefined;
 }
@@ -141,9 +142,10 @@ export async function moveItem(
     items.moveItem(options.workspaceId, itemId, {
       parentId: options.parentId,
       afterId: options.afterId,
+      workspaceId: options.destinationWorkspaceId,
     }),
   );
-  printResult(view(item), output);
+  printResult({ ...view(item), workspaceId: item.workspaceId }, output);
 }
 
 /** Soft-deletes an item; it can be restored until it is purged. */

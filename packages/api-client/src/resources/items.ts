@@ -165,6 +165,8 @@ export interface MoveItemInput {
   readonly parentId: string | null;
   /** The sibling to place it after, or null to place it first. */
   readonly afterId?: string | null | undefined;
+  /** Destination workspace; omitted keeps the item in its current workspace. */
+  readonly workspaceId?: string | undefined;
 }
 
 /**
@@ -187,8 +189,34 @@ export const moveItem = (
     body: {
       parentId: input.parentId,
       afterId: input.afterId ?? null,
+      ...(input.workspaceId === undefined ? {} : { workspaceId: input.workspaceId }),
     } satisfies MoveItemRequestContract,
-    invalidates: [itemKey(itemId), workspaceTreeKey(workspaceId)],
+    invalidates:
+      input.workspaceId === undefined
+        ? [itemKey(itemId), workspaceTreeKey(workspaceId)]
+        : [
+            ['items'],
+            ['search'],
+            ['bookmarks'],
+            workspaceTreeKey(workspaceId),
+            workspaceTreeKey(input.workspaceId),
+          ],
+  });
+
+const itemMoveWorkspaceSchema = z.object({
+  id: z.uuid(),
+  name: z.string(),
+}) satisfies z.ZodType<components['schemas']['ItemMoveWorkspace']>;
+
+export type ItemMoveWorkspace = z.infer<typeof itemMoveWorkspaceSchema>;
+
+/** Only active destinations Core confirms the caller can write are offered. */
+export const listItemMoveWorkspaces = (itemId: string): PagedQueryEndpoint<ItemMoveWorkspace> =>
+  definePagedQuery({
+    operation: 'items.move.workspaces',
+    path: `/api/v1/items/${itemId}/move-workspaces`,
+    itemSchema: itemMoveWorkspaceSchema,
+    pageSize: 100,
   });
 
 export interface ItemProtectionInput {

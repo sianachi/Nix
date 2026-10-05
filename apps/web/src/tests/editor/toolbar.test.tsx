@@ -23,6 +23,8 @@ function editorStub(
     inTable?: boolean;
     inColumns?: boolean;
     destroyed?: boolean;
+    alignment?: 'left' | 'center' | 'right';
+    alignmentEnabled?: boolean;
   } = {},
 ): {
   editor: Editor;
@@ -57,12 +59,15 @@ function editorStub(
         {},
         {
           get: (_target, property: string) => () =>
-            property.endsWith('ColumnToRow') || property.endsWith('ColumnFromRow')
-              ? (overrides.inColumns ?? false)
-              : (overrides.inTable ?? false),
+            property === 'setTextAlign'
+              ? (overrides.alignmentEnabled ?? true)
+              : property.endsWith('ColumnToRow') || property.endsWith('ColumnFromRow')
+                ? (overrides.inColumns ?? false)
+                : (overrides.inTable ?? false),
         },
       ) as Record<string, unknown>,
-    isActive: (name: string, attrs?: Record<string, unknown>) => {
+    isActive: (name: string | Record<string, unknown>, attrs?: Record<string, unknown>) => {
+      if (typeof name !== 'string') return name.textAlign === (overrides.alignment ?? null);
       if (name === 'table') {
         return overrides.inTable ?? false;
       }
@@ -380,5 +385,31 @@ describe('the columns group', () => {
       'title',
       'Add column (Mod+Alt+Enter)',
     );
+  });
+});
+
+describe('text alignment', () => {
+  it('shows the saved alignment and offers all three choices', async () => {
+    const { ran } = renderToolbar({ alignment: 'center' });
+    expect(screen.getByRole('button', { name: 'Align center' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Align left' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Align right' }));
+    expect(ran).toContain('setTextAlign("right")');
+  });
+  it('offers alignment in the mobile writing tools', async () => {
+    const { ran } = renderToolbar({}, { compact: true });
+    await userEvent.click(screen.getByRole('button', { name: 'More' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Align center' }));
+    expect(ran).toContain('setTextAlign("center")');
+  });
+  it('disables alignment where the selection has no text blocks', () => {
+    renderToolbar({ alignmentEnabled: false });
+    expect(screen.getByRole('button', { name: 'Align center' })).toBeDisabled();
   });
 });

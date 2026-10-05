@@ -440,6 +440,8 @@ describe('companion work approvals', () => {
     expect(changed).toHaveBeenCalledExactlyOnceWith({
       workspaceId: '11111111-1111-4111-8111-111111111111',
       parentId: null,
+      removedItemIds: [],
+      restoredItemIds: [],
     });
     expect(client.invalidate).toHaveBeenCalledWith(['items']);
     expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
@@ -592,13 +594,24 @@ describe('companion work approvals', () => {
       [
         {
           workspaceId: '11111111-1111-4111-8111-111111111111',
+          removedItemIds: [],
+          restoredItemIds: [],
           parentId: '11111111-1111-4111-8111-111111111111',
         },
       ],
-      [{ workspaceId: '11111111-1111-4111-8111-111111111111', parentId: null }],
       [
         {
           workspaceId: '11111111-1111-4111-8111-111111111111',
+          parentId: null,
+          removedItemIds: [],
+          restoredItemIds: [],
+        },
+      ],
+      [
+        {
+          workspaceId: '11111111-1111-4111-8111-111111111111',
+          removedItemIds: [],
+          restoredItemIds: [],
           parentId: '33333333-3333-4333-8333-333333333333',
         },
       ],

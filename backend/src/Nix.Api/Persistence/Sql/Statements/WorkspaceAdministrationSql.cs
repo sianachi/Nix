@@ -437,7 +437,7 @@ public static class WorkspaceAdministrationSql
         LIMIT @limit
         """;
 
-    /// <summary>Lists active humans without effective access for an authorized invite dropdown.</summary>
+    /// <summary>Lists active humans with server-decided invitation eligibility for authorized owners.</summary>
     public const string Invitees = """
         WITH authorized AS MATERIALIZED (
             SELECT 1
@@ -459,24 +459,38 @@ public static class WorkspaceAdministrationSql
                                    WHERE gm.tenant_id = tr.tenant_id AND gm.group_id = tr.subject_id
                                      AND gm.principal_id = @principal_id)))))
         )
-        SELECT candidate.principal_id, candidate.display_name, candidate.email
+        SELECT candidate.principal_id, candidate.display_name, candidate.email,
+               eligibility.reason IS NULL AS can_invite, eligibility.reason
         FROM principal candidate
         CROSS JOIN authorized
+        CROSS JOIN LATERAL (
+            SELECT CASE
+                WHEN candidate.principal_id = @principal_id THEN 'self'
+                WHEN EXISTS (
+                    SELECT 1 FROM workspace_invitation invitation
+                    WHERE invitation.tenant_id = @tenant_id AND invitation.workspace_id = @workspace_id
+                      AND invitation.target_principal_id = candidate.principal_id
+                      AND invitation.status = 'pending') THEN 'invitation_pending'
+                WHEN EXISTS (
+                    SELECT 1 FROM workspace_member member
+                    WHERE member.tenant_id = @tenant_id AND member.workspace_id = @workspace_id
+                      AND ((member.subject_type = 'principal' AND member.subject_id = candidate.principal_id)
+                        OR (member.subject_type = 'group' AND EXISTS (
+                            SELECT 1 FROM group_membership membership
+                            WHERE membership.tenant_id = member.tenant_id
+                              AND membership.group_id = member.subject_id
+                              AND membership.principal_id = candidate.principal_id)))) THEN 'already_has_access'
+                WHEN candidate.email IS NULL THEN 'email_missing'
+                WHEN NOT candidate.email_verified OR candidate.email_normalized IS NULL THEN 'email_unverified'
+                ELSE NULL
+            END AS reason
+        ) eligibility
         WHERE candidate.tenant_id = @tenant_id
           AND candidate.kind = 'user' AND candidate.status = 'active'
-          AND candidate.email_verified AND candidate.email_normalized IS NOT NULL
-          AND candidate.email IS NOT NULL
-          AND candidate.principal_id <> @principal_id
+          AND (@query IS NULL
+               OR position(lower(@query) in lower(candidate.display_name)) > 0
+               OR position(lower(@query) in lower(candidate.email)) > 0)
           AND (@after_id IS NULL OR candidate.principal_id > @after_id)
-          AND NOT EXISTS (
-              SELECT 1 FROM workspace_member member
-              WHERE member.tenant_id = @tenant_id AND member.workspace_id = @workspace_id
-                AND ((member.subject_type = 'principal' AND member.subject_id = candidate.principal_id)
-                  OR (member.subject_type = 'group' AND EXISTS (
-                      SELECT 1 FROM group_membership membership
-                      WHERE membership.tenant_id = member.tenant_id
-                        AND membership.group_id = member.subject_id
-                        AND membership.principal_id = candidate.principal_id))))
         ORDER BY candidate.principal_id
         LIMIT @limit
         """;

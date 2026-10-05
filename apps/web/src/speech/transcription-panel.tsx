@@ -1,6 +1,6 @@
 import type { TranscriptionSpeakers } from '@nix/api-client';
 import { Button, Text } from '@nix/ui';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
 import { useSpeechStatus } from './speech-status';
@@ -59,7 +59,7 @@ export function TranscriptionPanelView({
   return (
     <section aria-label="Transcript" className="flex w-full max-w-md flex-col items-center gap-2">
       {status === 'queued' ? (
-        <Text variant="caption" tone="muted" role="status">
+        <Text as="p" variant="caption" tone="muted" role="status">
           {stuck || !available
             ? 'Still waiting. The speech service may be offline; the recording is safe and will be transcribed when it is back.'
             : 'Waiting to be transcribed. It starts when the speech service is free.'}
@@ -93,30 +93,30 @@ export function TranscriptionPanelView({
         </>
       ) : null}
       {status === 'completed' ? (
-        <Text variant="caption" tone="muted" role="status">
+        <Text as="p" variant="caption" tone="muted" role="status">
           The transcript is in the note this recording sits under.
         </Text>
       ) : null}
       {status === 'failed' ? (
-        <Text variant="caption" role="alert">
+        <Text as="p" variant="caption" role="alert">
           {FAILURE_COPY[transcription?.errorCode ?? ''] ??
             'The transcription failed. You can try again.'}
         </Text>
       ) : null}
       {status === 'cancelled' ? (
-        <Text variant="caption" tone="muted" role="status">
+        <Text as="p" variant="caption" tone="muted" role="status">
           The transcription was cancelled.
         </Text>
       ) : null}
       {refusal === null ? null : (
-        <Text variant="caption" role="alert">
+        <Text as="p" variant="caption" role="alert">
           {refusal}
         </Text>
       )}
       {view.phase === 'unknown' ? (
         // Not "Transcribe": one may already be running, and asking twice would queue it twice.
         <>
-          <Text variant="caption" tone="muted" role="status">
+          <Text as="p" variant="caption" tone="muted" role="status">
             The transcription’s state could not be read.
           </Text>
           <Button variant="secondary" onClick={onCheckAgain}>
@@ -124,7 +124,7 @@ export function TranscriptionPanelView({
           </Button>
         </>
       ) : working ? null : !available ? (
-        <Text variant="caption" tone="muted" role="status">
+        <Text as="p" variant="caption" tone="muted" role="status">
           Transcription is not available on this server right now.
         </Text>
       ) : confirming ? (
@@ -181,9 +181,19 @@ export function TranscriptionPanel({ itemId }: { readonly itemId: string }): Rea
   const client = useApiClient();
   const transcription = useTranscription(client, itemId);
   const speech = useSpeechStatus(client);
-  // Read once per mount: "queued too long" is judged against when the panel was drawn, and a
-  // poll re-renders it every few seconds anyway.
-  const [now] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  const queued =
+    transcription.view.phase === 'known' && transcription.view.transcription.status === 'queued';
+  useEffect(() => {
+    if (!queued) return;
+    // Advance queue age while the panel stays open, including through a failed status poll.
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 3000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [queued]);
   return (
     <TranscriptionPanelView
       view={transcription.view}

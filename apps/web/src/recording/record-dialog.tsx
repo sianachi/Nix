@@ -126,7 +126,7 @@ export function RecordDialogView(props: RecordDialogViewProps): ReactNode {
           </Text>
         ) : null}
         {props.failure === null ? null : (
-          <Text role="alert" variant="caption">
+          <Text as="p" role="alert" variant="caption">
             {FAILURE_COPY[props.failure]}
           </Text>
         )}

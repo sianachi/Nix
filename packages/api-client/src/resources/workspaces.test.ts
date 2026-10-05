@@ -17,6 +17,7 @@ import {
   leaveWorkspace,
   listInvitations,
   listInvitees,
+  listInviteesPage,
   listMembers,
   listAssignablePrincipalsPage,
   listWorkspaces,
@@ -85,6 +86,17 @@ describe('the workspaces resource', () => {
       operation: 'workspaces.principals.list.page',
       path: `/api/v1/workspaces/${WORKSPACE_ID}/principals`,
       query: { query: 'Ada', limit: 25, cursor: PRINCIPAL_ID },
+    });
+  });
+
+  it('keeps the invitee search on every page and separates page cache keys', () => {
+    expect(listInvitees(WORKSPACE_ID, 'Ada')).toMatchObject({ query: { query: 'Ada' } });
+    expect(
+      listInviteesPage(WORKSPACE_ID, { query: 'Ada', cursor: 'next', limit: 25 }),
+    ).toMatchObject({
+      query: { query: 'Ada', cursor: 'next', limit: 25 },
+      cacheKey: ['workspaces', WORKSPACE_ID, 'invitees', 'Ada', 'next', '25'],
+      staleAfterMs: 0,
     });
   });
 
@@ -178,6 +190,8 @@ describe('the workspaces resource', () => {
         principalId: PRINCIPAL_ID,
         displayName: 'Reader',
         email: 'reader@example.com',
+        canInvite: true,
+        cannotInviteReason: null,
       }),
     ).toMatchObject({ displayName: 'Reader' });
 

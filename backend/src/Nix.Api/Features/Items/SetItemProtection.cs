@@ -22,7 +22,8 @@ public sealed record SetItemProtection(ItemId ItemId, bool? NoDelete, bool? NoCh
 public sealed class SetItemProtectionHandler(
     IItemTree tree,
     IItemProtections protections,
-    IPermissionResolver permissions) : ICommandHandler<SetItemProtection, Item>
+    IPermissionResolver permissions,
+    IFinanceLock? topology = null) : ICommandHandler<SetItemProtection, Item>
 {
     /// <inheritdoc />
     public async ValueTask<Result<Item>> HandleAsync(SetItemProtection command, CancellationToken cancellationToken)
@@ -35,6 +36,18 @@ public sealed class SetItemProtectionHandler(
             || !await permissions.CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+        }
+
+        if (topology is not null)
+        {
+            var workspace = item.WorkspaceId;
+            await topology.AcquireWorkspaceTopologyAsync(workspace, cancellationToken).ConfigureAwait(false);
+            item = await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.WorkspaceId != workspace
+                || !await permissions.CanWriteWorkspaceAsync(workspace, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+            }
         }
 
         if (item.LifecycleState != ItemLifecycleState.Active)

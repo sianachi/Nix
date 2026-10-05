@@ -401,9 +401,23 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   useEffect(
     () =>
       onItemChildrenChanged((detail) => {
+        if (detail.workspaceId !== workspaceId) return;
+        if (detail.removedItemIds.length > 0) {
+          const removed = new Set(detail.removedItemIds);
+          // Drop confirmed deletions before refreshing; a slow or failed refresh must not keep
+          // a deleted card on screen. load() also cancels any read started before the deletion.
+          setChildren((current) =>
+            containerId !== null && removed.has(containerId)
+              ? []
+              : current.filter((item) => !removed.has(item.id)),
+          );
+          void load();
+          return;
+        }
         if (
-          detail.workspaceId === workspaceId &&
-          (detail.parentId === null || detail.parentId === containerId)
+          detail.restoredItemIds.length > 0 ||
+          detail.parentId === null ||
+          detail.parentId === containerId
         )
           void load();
       }),

@@ -31,6 +31,8 @@ export const INLINE_ENDPOINT = '/api/v1/me/pets/inline';
 /** Limits the server enforces; checked here too so an over-long ask fails before it is sent. */
 export const MAX_INSTRUCTION_CHARS = 2_000;
 export const MAX_SELECTION_CHARS = 16_000;
+/** Matches the worker output bound; delta aggregation is checked before it enters React state. */
+export const MAX_INLINE_OUTPUT_BYTES = 24_000;
 
 export function utf8Length(text: string): number {
   return new TextEncoder().encode(text).length;
@@ -132,12 +134,19 @@ export async function streamInline(
   if (!response.ok) throw new InlineAiError(await problemCode(response), response.status);
   if (response.body === null) throw new InlineAiError('inline.interrupted');
 
+  let receivedBytes = 0;
   try {
     for await (const record of readSse(response.body)) {
       if (record.event === 'delta') {
-        options.onDelta(parseText(record.data));
+        const text = parseText(record.data);
+        receivedBytes += utf8Length(text);
+        if (receivedBytes > MAX_INLINE_OUTPUT_BYTES) throw new InlineAiError('inline.interrupted');
+        options.onDelta(text);
       } else if (record.event === 'done') {
-        return { text: parseText(record.data) };
+        const text = parseText(record.data);
+        if (utf8Length(text) > MAX_INLINE_OUTPUT_BYTES)
+          throw new InlineAiError('inline.interrupted');
+        return { text };
       } else if (record.event === 'error') {
         throw new InlineAiError(parseErrorCode(record.data));
       }

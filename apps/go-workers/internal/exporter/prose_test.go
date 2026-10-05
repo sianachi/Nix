@@ -296,3 +296,18 @@ func TestProjectBodyReportsMalformedNodeShapeWithoutLeakingJSON(t *testing.T) {
 	}
 	requireLoss(t, losses, lossMalformedContent)
 }
+
+func TestProjectBodyReportsTextAlignmentLossAndAcceptsDefaultAlignment(t *testing.T) {
+	for _, alignment := range []string{`null`, `"left"`, `"center"`, `"right"`} {
+		document := `{"type":"doc","content":[{"type":"paragraph","attrs":{"textAlign":` + alignment + `},"content":[{"type":"text","text":"One line"},{"type":"hardBreak"},{"type":"text","text":"Next line"}]}]}`
+		markdown, losses := projectMarkdown(t, document)
+		if markdown != "One line\\\nNext line" {
+			t.Fatalf("manual line break was changed: %q", markdown)
+		}
+		if alignment == `"center"` || alignment == `"right"` {
+			requireLoss(t, losses, lossTextAlignment)
+		} else if len(losses) != 0 {
+			t.Fatalf("default alignment reported losses: %#v", losses)
+		}
+	}
+}

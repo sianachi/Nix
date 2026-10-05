@@ -118,7 +118,13 @@ describe('tables', () => {
             {
               type: 'tableCell',
               attrs: { colspan: 2, rowspan: 1, colwidth: null, align: null },
-              content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Spans two' }] }],
+              content: [
+                {
+                  type: 'paragraph',
+                  attrs: { textAlign: null },
+                  content: [{ type: 'text', text: 'Spans two' }],
+                },
+              ],
             },
           ],
         },
@@ -143,7 +149,7 @@ describe('tables', () => {
             {
               type: 'tableCell',
               attrs: { colspan: 1, rowspan: 1, colwidth: [180], align: null },
-              content: [{ type: 'paragraph' }],
+              content: [{ type: 'paragraph', attrs: { textAlign: null } }],
             },
           ],
         },
@@ -170,6 +176,7 @@ describe('refusals', () => {
     const parsed = parseDocument(
       documentOf({
         type: 'paragraph',
+        attrs: { textAlign: null },
         content: [{ type: 'text', marks: [{ type: 'blink' }], text: 'no' }],
       }),
     );
@@ -196,7 +203,7 @@ describe('callout tones', () => {
       documentOf({
         type: 'callout',
         attrs: { tone: 'interstellar' },
-        content: [{ type: 'paragraph' }],
+        content: [{ type: 'paragraph', attrs: { textAlign: null } }],
       }),
     );
 
@@ -219,7 +226,7 @@ describe('callout tones', () => {
       documentOf({
         type: 'callout',
         attrs: { tone: 'interstellar' },
-        content: [{ type: 'paragraph' }],
+        content: [{ type: 'paragraph', attrs: { textAlign: null } }],
       }),
     );
 
@@ -255,7 +262,7 @@ describe('the schema version', () => {
     // document carries a pin that has to be raised past it by a job at deploy (ADR-0024).
     // If this assertion fails, the question is whether that was done - not whether to
     // update the number.
-    expect(SCHEMA_VERSION).toBe(4);
+    expect(SCHEMA_VERSION).toBe(5);
   });
 
   it('still opens a document written before the bump, unchanged', () => {
@@ -277,13 +284,13 @@ describe('the schema version', () => {
     expect(requiredSchemaVersion(parsed.document)).toBe(1);
   });
 
-  it('needs version 4 for a document using the complete block set', () => {
+  it('needs version 5 for the complete block and alignment fixture', () => {
     const parsed = parseDocument(FIXTURE_DOCUMENT);
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
 
-    expect(requiredSchemaVersion(parsed.document)).toBe(4);
+    expect(requiredSchemaVersion(parsed.document)).toBe(5);
   });
 });
 
@@ -300,7 +307,12 @@ describe('what version 2 added', () => {
 
     const parsed = parseDocument({
       type: 'doc',
-      content: [{ type: 'column', content: [{ type: 'paragraph', content: [] }] }],
+      content: [
+        {
+          type: 'column',
+          content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [] }],
+        },
+      ],
     });
     expect(parsed.ok).toBe(false);
   });
@@ -314,7 +326,12 @@ describe('what version 2 added', () => {
       content: [
         {
           type: 'columnBlock',
-          content: [{ type: 'column', content: [{ type: 'paragraph', content: [] }] }],
+          content: [
+            {
+              type: 'column',
+              content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [] }],
+            },
+          ],
         },
       ],
     });
@@ -327,7 +344,10 @@ describe('what version 2 added', () => {
           type: 'columnBlock',
           content: [
             { type: 'column', content: [] },
-            { type: 'column', content: [{ type: 'paragraph', content: [] }] },
+            {
+              type: 'column',
+              content: [{ type: 'paragraph', attrs: { textAlign: null }, content: [] }],
+            },
           ],
         },
       ],
@@ -343,6 +363,7 @@ describe('what version 2 added', () => {
       content: [
         {
           type: 'paragraph',
+          attrs: { textAlign: null },
           content: [
             {
               type: 'text',
@@ -369,6 +390,7 @@ describe('what version 2 added', () => {
       content: [
         {
           type: 'paragraph',
+          attrs: { textAlign: null },
           content: [
             {
               type: 'text',
@@ -389,6 +411,7 @@ describe('what version 2 added', () => {
       content: [
         {
           type: 'paragraph',
+          attrs: { textAlign: null },
           content: [
             {
               type: 'reference',
@@ -469,7 +492,11 @@ describe('explicit page boundaries', () => {
     expect(
       parseDocument({
         type: 'doc',
-        content: [{ type: 'paragraph' }, { type: 'pageBreak' }, { type: 'paragraph' }],
+        content: [
+          { type: 'paragraph', attrs: { textAlign: null } },
+          { type: 'pageBreak' },
+          { type: 'paragraph', attrs: { textAlign: null } },
+        ],
       }).ok,
     ).toBe(true);
     expect(
@@ -479,7 +506,10 @@ describe('explicit page boundaries', () => {
           {
             type: 'bulletList',
             content: [
-              { type: 'listItem', content: [{ type: 'paragraph' }, { type: 'pageBreak' }] },
+              {
+                type: 'listItem',
+                content: [{ type: 'paragraph', attrs: { textAlign: null } }, { type: 'pageBreak' }],
+              },
             ],
           },
         ],

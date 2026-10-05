@@ -2,6 +2,7 @@ import { Button, Icon, Text, focusRing } from '@nix/ui';
 import { FileText } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
+import { useHiddenItemPredicate } from '../items/use-hidden-items';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import {
@@ -43,6 +44,7 @@ function BookmarksFrame({ children }: { readonly children: ReactNode }): ReactEl
 }
 
 export function BookmarksPage(): ReactElement {
+  const isHidden = useHiddenItemPredicate();
   const status = useBookmarksStore((state) => state.status);
   const items = useBookmarksStore((state) => state.items);
   const hidden = useBookmarksStore((state) => state.hidden);
@@ -92,8 +94,15 @@ export function BookmarksPage(): ReactElement {
     );
   }
 
+  const visible = items.filter((item) => !isHidden(item.itemId, item.workspaceId));
   return (
     <BookmarksFrame>
+      {visible.length < items.length ? (
+        <Text role="status" variant="note">
+          Some bookmarks are hidden for you. Open Hidden items in their workspace to show them
+          again.
+        </Text>
+      ) : null}
       {hidden > 0 && (
         <PartialNotice
           pending={`${String(hidden)} ${hidden === 1 ? 'bookmark is' : 'bookmarks are'} not shown, because ${hidden === 1 ? 'it points' : 'they point'} at something you can no longer open. ${hidden === 1 ? 'It is' : 'They are'} still kept.`}
@@ -103,7 +112,7 @@ export function BookmarksPage(): ReactElement {
       {/* Named, because the tree is also a list and a reader moving between landmarks needs to
           know which one they have arrived in. */}
       <ul aria-label="Bookmarks" className="flex flex-col gap-px">
-        {items.map((item) => {
+        {visible.map((item) => {
           const title = item.title ?? 'Untitled';
 
           return (

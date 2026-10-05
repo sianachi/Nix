@@ -378,6 +378,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<RenameItem, Item>, RenameItemHandler>();
         services.AddScoped<ICommandHandler<SetItemProtection, Item>, SetItemProtectionHandler>();
         services.AddScoped<ICommandHandler<MoveItem, Item>, MoveItemHandler>();
+        services.AddScoped<IQueryHandler<ListItemMoveWorkspaces, Result<ItemMoveWorkspacePage>>, ListItemMoveWorkspacesHandler>();
         services.AddScoped<ICommandHandler<RestoreItem, Item>, RestoreItemHandler>();
         services.AddScoped<IQueryHandler<GetItem, Result<Item>>, GetItemHandler>();
         services.AddScoped<IQueryHandler<ListItems, Result<IReadOnlyList<Item>>>, ListItemsHandler>();

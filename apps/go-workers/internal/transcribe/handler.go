@@ -37,6 +37,14 @@ const Kind = "transcribe.audio"
 // Kinds is the job kind the speech role's runner registers for the transcribe queue.
 var Kinds = []string{Kind}
 
+// Accumulation is bounded independently of compressed input and decoder time. A hostile clip
+// must not fill the worker with recognised text before Collaboration can enforce its ceiling.
+const (
+	maxTranscriptTextBytes    = 2 << 20
+	maxTranscriptUtterances   = 5000
+	maxTranscriptRequestBytes = 4 << 20
+)
+
 // Result is recorded on the finished job.
 type Result struct {
 	NoteItemID     string `json:"noteItemId"`
@@ -104,6 +112,9 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 		return nil, err
 	}
 	paragraphs := Paragraphs(spoken)
+	if len(paragraphs) > maxTranscriptUtterances {
+		return nil, invalid("transcribe.too_large", errors.New("the transcript has too many paragraphs"))
+	}
 	if err := handler.appender.Append(ctx, durationMillis, paragraphs); err != nil {
 		return nil, appendFailure(err)
 	}
@@ -207,6 +218,7 @@ func (handler *Handler) recognise(ctx context.Context, path string, byChannel bo
 
 	var spoken []Spoken
 	var decodedMillis int64
+	textBytes := 0
 	reported := -1
 	for {
 		segment, nextErr := segmenter.Next()
@@ -230,6 +242,13 @@ func (handler *Handler) recognise(ctx context.Context, path string, byChannel bo
 				return nil, 0, tooSlow
 			}
 			return nil, 0, transient("transcribe.recogniser_unavailable", err)
+		}
+		for _, utterance := range heard {
+			textBytes += len(utterance.Text)
+		}
+		if len(spoken)+len(heard) > maxTranscriptUtterances || textBytes > maxTranscriptTextBytes {
+			stop()
+			return nil, 0, invalid("transcribe.too_large", errors.New("the transcript exceeds the worker's text ceiling"))
 		}
 		spoken = append(spoken, heard...)
 		decodedMillis = segment.StartMillis() + segment.Millis()
@@ -340,6 +359,9 @@ func (client *CollaborationClient) Append(ctx context.Context, durationMillis in
 	}{durationMillis, paragraphs})
 	if err != nil {
 		return err
+	}
+	if len(body) > maxTranscriptRequestBytes {
+		return &AppendError{Status: http.StatusRequestEntityTooLarge, Code: "transcription_too_large"}
 	}
 	jobID, executionID, ok := workerapi.Execution(ctx)
 	if !ok {

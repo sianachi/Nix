@@ -48,6 +48,8 @@ internal readonly record struct WorkspaceCursor(DateTimeOffset CreatedAt, Worksp
         }
     }
 
-    internal static string Encode(WorkspaceSnapshot row) => Convert.ToBase64String(
-        Encoding.UTF8.GetBytes($"{row.CreatedAt.UtcTicks.ToString(CultureInfo.InvariantCulture)}:{row.Id}"));
+    internal static string Encode(WorkspaceSnapshot row) => Encode(row.CreatedAt, row.Id);
+
+    internal static string Encode(DateTimeOffset createdAt, WorkspaceId id) => Convert.ToBase64String(
+        Encoding.UTF8.GetBytes($"{createdAt.UtcTicks.ToString(CultureInfo.InvariantCulture)}:{id}"));
 }

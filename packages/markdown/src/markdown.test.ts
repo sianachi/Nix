@@ -736,3 +736,16 @@ it('exports block references as links and reports live-section and page-layout l
     expect.arrayContaining(['item-block-linked', 'page-break-flattened']),
   );
 });
+
+it('reports poem alignment loss while keeping words and manual line breaks in Markdown', () => {
+  const result = documentToMarkdown(
+    doc({
+      type: 'paragraph',
+      attrs: { textAlign: 'center' },
+      content: [text('One line'), { type: 'hardBreak' }, text('Next line')],
+    }),
+  );
+  expect(result.markdown).toContain('One line');
+  expect(result.markdown).toContain('Next line');
+  expect(result.losses).toContainEqual(MARKDOWN_LOSSES.alignmentDropped);
+});

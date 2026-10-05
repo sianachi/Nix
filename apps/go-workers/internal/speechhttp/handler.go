@@ -85,6 +85,9 @@ const (
 	maxSynthesizeBody   = 16 << 10
 	maxHintRunes        = 400
 	maxRememberedGrants = 2048
+	// Unknown capabilities must not turn the public listener into unbounded concurrent Core
+	// calls. Cached grants bypass this gate; a saturated gate refuses immediately.
+	maxRedemptions = 8
 	// refusalMemory is how long a token Core refused is refused here without asking again.
 	refusalMemory = 30 * time.Second
 	// HintHeader carries the dictation hint, percent-encoded. A header and not the query: the
@@ -100,11 +103,12 @@ type Handler struct {
 	logger     *slog.Logger
 	now        func() time.Time
 
-	mu       sync.Mutex
-	grants   map[[sha256.Size]byte]workerapi.SpeechGrant
-	refusals map[[sha256.Size]byte]time.Time
-	counts   map[string]window
-	dictates chan struct{}
+	mu          sync.Mutex
+	grants      map[[sha256.Size]byte]workerapi.SpeechGrant
+	refusals    map[[sha256.Size]byte]time.Time
+	counts      map[string]window
+	dictates    chan struct{}
+	redemptions chan struct{}
 }
 
 type window struct {
@@ -123,6 +127,7 @@ func New(redeemer Redeemer, voices Voices, recogniser Recogniser, options Option
 		counts:   map[string]window{},
 	}
 	handler.dictates = make(chan struct{}, handler.options.DictateConcurrency)
+	handler.redemptions = make(chan struct{}, maxRedemptions)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /speech/v1/voices", handler.listVoices)
 	mux.HandleFunc("POST /speech/v1/synthesize", handler.synthesize)
@@ -159,7 +164,17 @@ func (handler *Handler) authorize(writer http.ResponseWriter, request *http.Requ
 			problem(writer, http.StatusForbidden, "speech.capability_refused")
 			return false
 		}
+		select {
+		case handler.redemptions <- struct{}{}:
+		default:
+			writer.Header().Set("Retry-After", "2")
+			problem(writer, http.StatusServiceUnavailable, "speech.busy")
+			return false
+		}
 		redeemed, err := handler.redeemer.RedeemSpeechCapability(request.Context(), token, purpose)
+		<-handler.redemptions
+		// The Core round trip may consume the grant's remaining lifetime.
+		now = handler.now()
 		if errors.Is(err, workerapi.ErrSpeechCapabilityRefused) {
 			handler.rememberRefusal(key, now)
 			problem(writer, http.StatusForbidden, "speech.capability_refused")
@@ -249,7 +264,12 @@ func (handler *Handler) allow(owner string, perMinute int, now time.Time) bool {
 			}
 		}
 	}
-	current := handler.counts[owner]
+	current, known := handler.counts[owner]
+	// Never evict a live owner's budget to admit a new one: that would reset their limit.
+	// Refuse new owners until a window expires instead of growing without a ceiling.
+	if !known && len(handler.counts) >= maxRememberedGrants {
+		return false
+	}
 	if now.Sub(current.started) >= time.Minute {
 		current = window{started: now}
 	}

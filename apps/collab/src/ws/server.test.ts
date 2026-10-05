@@ -373,6 +373,21 @@ describe('the websocket handshake', () => {
     expect(await closedWith(socket)).toBe(CLOSE_CODES.revoked);
   });
 
+  it('closes a live socket when the item moves, even if the actor can access both workspaces', async () => {
+    let workspaceId = GRANTED.workspaceId;
+    const { url } = await listen({
+      authorizer: { authorize: () => Promise.resolve({ ...GRANTED, workspaceId }) },
+      reauthMs: 25,
+    });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('valid'));
+    });
+    await nextMessage(socket);
+    workspaceId = 'c1000000-0000-4000-8000-000000000012';
+    expect(await closedWith(socket)).toBe(CLOSE_CODES.revoked);
+  });
+
   it('closes as unavailable, not revoked, when Core cannot confirm a live session', async () => {
     let reachable = true;
     const { url } = await listen({

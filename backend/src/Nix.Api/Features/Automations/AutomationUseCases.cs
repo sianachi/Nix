@@ -44,7 +44,8 @@ public sealed class AutomationRuleSupport(
     IReminderCandidateFinder preferences,
     IScheduledTriggerStore triggers,
     INixSessionContextAccessor session,
-    TimeProvider clock)
+    TimeProvider clock,
+    IFinanceLock? topology = null)
 {
     /// <summary>The window an inline replan covers, the same 48 hours the planner does.</summary>
     private static readonly TimeSpan PlanWindowSpan = TimeSpan.FromHours(48);
@@ -73,6 +74,12 @@ public sealed class AutomationRuleSupport(
     /// </summary>
     internal async Task<NixError?> CheckItemsAsync(WorkspaceId workspaceId, AutomationDefinition definition, CancellationToken cancellationToken)
     {
+        // Saving a scoped rule must not authorize a source item before a workspace transfer,
+        // then publish that stale scope after the transfer's active-operation check.
+        if (topology is not null)
+        {
+            await topology.AcquireWorkspaceTopologyAsync(workspaceId, cancellationToken).ConfigureAwait(false);
+        }
         if (!await permissions.CanReadWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))
         {
             return AutomationErrors.NotFound;

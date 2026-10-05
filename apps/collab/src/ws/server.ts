@@ -370,6 +370,13 @@ function handleConnection(
       );
       return;
     }
+    if (fresh.workspaceId !== current.authorization.workspaceId) {
+      close(
+        CLOSE_CODES.revoked,
+        'This item moved to another workspace. Reconnect to confirm access.',
+      );
+      return;
+    }
     current.authorization = fresh;
 
     if (!fresh.canWrite && current.mode === 'write') {

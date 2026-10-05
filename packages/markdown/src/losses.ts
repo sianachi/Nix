@@ -34,6 +34,10 @@ export interface ToMarkdownResult {
  * call site.
  */
 export const MARKDOWN_LOSSES = {
+  alignmentDropped: {
+    kind: 'alignment-dropped',
+    detail: 'Text alignment was dropped; Markdown keeps the words and line breaks.',
+  },
   columnsFlattened: {
     kind: 'columns-flattened',
     detail: 'Column layout was flattened to a single column.',

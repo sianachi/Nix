@@ -26,11 +26,13 @@ public sealed record WorkspaceSnapshot(
     string LifecycleState,
     DateTimeOffset? ArchivedAt);
 
-/// <summary>One active human who can be offered workspace access.</summary>
+/// <summary>One active human with server-decided workspace invitation eligibility.</summary>
 public sealed record WorkspaceInviteeSnapshot(
     PrincipalId PrincipalId,
     string DisplayName,
-    string Email);
+    string? Email,
+    bool CanInvite,
+    string? CannotInviteReason);
 
 /// <summary>One principal or group workspace grant with server-decided mutation capabilities.</summary>
 public sealed record WorkspaceMemberSnapshot(
@@ -95,7 +97,7 @@ public enum DailyNoteOutcome
 }
 
 /// <summary>Database operations for workspace administration.</summary>
-public sealed class WorkspaceAdministrationStore
+public sealed partial class WorkspaceAdministrationStore
 {
     private static readonly string[] PresetKeys = ["seed.kanban", "seed.calendar", "seed.list"];
 
@@ -346,12 +348,13 @@ public sealed class WorkspaceAdministrationStore
         return rows;
     }
 
-    /// <summary>Lists active humans without effective workspace access for the invite dropdown.</summary>
+    /// <summary>Lists active humans with invitation eligibility for the people dropdown.</summary>
     public async ValueTask<IReadOnlyList<WorkspaceInviteeSnapshot>> ListInviteesAsync(
         WorkspaceId workspaceId,
         PrincipalId? afterId,
         int limit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? search = null)
     {
         var context = Session;
         var rows = new List<WorkspaceInviteeSnapshot>(limit);
@@ -364,6 +367,7 @@ public sealed class WorkspaceAdministrationStore
                 Uuid("workspace_id", workspaceId.Value),
                 UuidOrNull("after_id", afterId?.Value),
                 Integer("limit", limit),
+                TextOrNull("query", search),
             ],
             cancellationToken);
         await foreach (var row in query.ConfigureAwait(false))
@@ -801,7 +805,9 @@ public sealed class WorkspaceAdministrationStore
     private readonly struct InviteeMapper : INixRowMapper<WorkspaceInviteeSnapshot>
     {
         public WorkspaceInviteeSnapshot Map(NpgsqlDataReader reader) => new(
-            PrincipalId.From(reader.GetGuid(0)), reader.GetString(1), reader.GetString(2));
+            PrincipalId.From(reader.GetGuid(0)), reader.GetString(1),
+            reader.IsDBNull(2) ? null : reader.GetString(2), reader.GetBoolean(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4));
     }
 
     private readonly struct InvitationMapper : INixRowMapper<WorkspaceInvitationSnapshot>

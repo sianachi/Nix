@@ -24,6 +24,7 @@ const TRACKER = 'eeeeeeee-5555-4555-8555-eeeeeeeeeeee';
 
 vi.mock('../../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: WORKSPACE }),
+  useOptionalWorkspace: () => ({ workspaceId: WORKSPACE }),
 }));
 
 const OVERDUE_VIEW: View = aView({
@@ -137,7 +138,7 @@ describe('the smart list', () => {
     renderQueryView();
 
     expect(
-      await screen.findByText(/More items match than this list carries: the first 2 are shown\./),
+      await screen.findByText(/More items match than this list carries: the first 2 were loaded\./),
     ).toBeInTheDocument();
   });
 

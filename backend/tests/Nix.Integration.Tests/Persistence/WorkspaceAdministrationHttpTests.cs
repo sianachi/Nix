@@ -64,6 +64,11 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.UnprocessableEntity, cursor.StatusCode);
         Assert.Equal("paging.invalid_cursor", await ProblemCodeAsync(cursor));
 
+        var invalidSearch = await SendAsync(HttpMethod.Get,
+            $"/api/v1/workspaces/{PersonalWorkspace:D}/invitees?query={new string('a', 129)}", jwt);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidSearch.StatusCode);
+        Assert.Equal("workspaces.invitee_search_invalid", await ProblemCodeAsync(invalidSearch));
+
         var invalidName = await SendAsync(HttpMethod.Post, "/api/v1/workspaces", jwt, new { name = "" });
         Assert.Equal(HttpStatusCode.UnprocessableEntity, invalidName.StatusCode);
         Assert.Equal("workspaces.invalid_name", await ProblemCodeAsync(invalidName));

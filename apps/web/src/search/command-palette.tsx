@@ -5,6 +5,7 @@ import { FileText, Search } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { useHiddenItemPredicate } from '../items/use-hidden-items';
 import { filterCommands, type PaletteCommand } from './commands';
 
 /**
@@ -63,6 +64,7 @@ export interface CommandPaletteProps {
 export function CommandPalette(props: CommandPaletteProps): ReactNode {
   const { open, commands, onSelectItem, onClose, preserveQuery = false } = props;
   const client = useApiClient();
+  const isHidden = useHiddenItemPredicate();
   const narrow = useDrawerNavigation();
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
@@ -141,7 +143,8 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   }, [client, needle, open]);
 
   const current = answer !== null && answer.query === needle ? answer : null;
-  const hits = current?.hits ?? EMPTY_HITS;
+  const allHits = current?.hits ?? EMPTY_HITS;
+  const hits = allHits.filter((hit) => !isHidden(hit.id, hit.workspaceId));
   const matched = filterCommands(commands, query);
 
   // In flight, and said out loud regardless of how many options happen to be showing. Carried by
@@ -247,7 +250,9 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
                 ? `Type ${String(MINIMUM_QUERY)} letters or more to search items.`
                 : searching
                   ? 'Searching…'
-                  : `Nothing matches “${needle}”.`
+                  : allHits.length > 0
+                    ? 'Matching items are hidden for you. Open Hidden items to show them again.'
+                    : `Nothing matches “${needle}”.`
         }
         className="min-h-0 max-h-[calc(100dvh-7rem)] overflow-y-auto"
       />
@@ -258,15 +263,21 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
           the announcement reliable.
         */}
       <div role="status" className="empty:hidden">
+        {hits.length < allHits.length ? (
+          <Text variant="note" tone="muted">
+            Some matching items are hidden for you. Open Hidden items in their workspace to show
+            them again.
+          </Text>
+        ) : null}
         {searching ? (
           <Text as="p" variant="caption" tone="muted" className="border-t border-divider px-4 py-2">
             Searching…
           </Text>
         ) : current?.truncated === true ? (
           <Text as="p" variant="caption" tone="muted" className="border-t border-divider px-4 py-2">
-            Showing the first {hits.length} items. Type more to narrow it down.
+            Only the first {allHits.length} matching items were loaded. Type more to narrow it down.
           </Text>
-        ) : current !== null && hits.length === 0 && matched.length > 0 ? (
+        ) : current !== null && allHits.length === 0 && matched.length > 0 ? (
           // The palette found a command but no document, and the reason may be timing rather than
           // absence: text inside documents becomes searchable when the document is saved. Said
           // here for the same reason the backlinks panel says it.

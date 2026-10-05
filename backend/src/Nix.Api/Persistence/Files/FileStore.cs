@@ -15,7 +15,8 @@ public sealed class FileStore(
     IPermissionResolver permissions,
     INixSessionContextAccessor session,
     IItemLocks locks,
-    TimeProvider clock) : IFileStore
+    TimeProvider clock,
+    IFinanceLock? topology = null) : IFileStore
 {
     private const long MaxFileBytes = 100L * 1024 * 1024;
 
@@ -158,6 +159,19 @@ public sealed class FileStore(
         {
             return null;
         }
+        // Structural transfers take topology before quota; publishers use the same order.
+        if (topology is not null)
+        {
+            await topology.AcquireWorkspaceTopologyAsync(upload.WorkspaceId, cancellationToken).ConfigureAwait(false);
+        }
+        // Completion already runs inside NixUnitOfWorkMiddleware's transaction. A transaction-
+        // scoped advisory lock serializes quota decisions per workspace, so two uploads cannot
+        // both observe the same remaining bytes and over-commit the quota.
+        await database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({upload.WorkspaceId.Value.ToString()}, 0))",
+            cancellationToken).ConfigureAwait(false);
+        // A transfer shares this quota lock. Re-read containment after waiting for it so a
+        // replacement upload cannot publish into a file that has left its source workspace.
         if (upload.ParentId is { } parent)
         {
             var parentItem = await tree.FindAsync(parent, cancellationToken).ConfigureAwait(false);
@@ -181,12 +195,6 @@ public sealed class FileStore(
             }
         }
 
-        // Completion already runs inside NixUnitOfWorkMiddleware's transaction. A transaction-
-        // scoped advisory lock serializes quota decisions per workspace, so two uploads cannot
-        // both observe the same remaining bytes and over-commit the quota.
-        await database.Database.ExecuteSqlInterpolatedAsync(
-            $"SELECT pg_advisory_xact_lock(hashtextextended({upload.WorkspaceId.Value.ToString()}, 0))",
-            cancellationToken).ConfigureAwait(false);
         var quota = await database.Workspaces
             .Where(workspace => workspace.TenantId == context.TenantId && workspace.Id == upload.WorkspaceId)
             .Select(workspace => workspace.StorageQuotaBytes)
@@ -342,18 +350,20 @@ public sealed class FileStore(
     public async ValueTask<FileRecord?> GetAsync(ItemId itemId, CancellationToken cancellationToken)
     {
         var context = Context;
+        await LockDownloadContainmentAsync(itemId, cancellationToken).ConfigureAwait(false);
         var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId, cancellationToken).ConfigureAwait(false);
+        var item = await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
         // A file item's bytes are its body, so a lock withholds them like any other body: the
         // metadata, the download capability and the version history are all refused until this
         // credential has unlocked the item.
         if (body is null
             || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false)
-            || await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false) is null
+            || item is null || item.WorkspaceId != body.WorkspaceId
             || !await locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
-        var versions = await database.FileVersions.AsNoTracking().Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.ObjectReady).OrderByDescending(candidate => candidate.Version).ToListAsync(cancellationToken).ConfigureAwait(false);
+        var versions = await database.FileVersions.AsNoTracking().Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.WorkspaceId == body.WorkspaceId && candidate.ObjectReady).OrderByDescending(candidate => candidate.Version).ToListAsync(cancellationToken).ConfigureAwait(false);
         var mapped = versions.Select(version => ToVersion(version, version.Id == body.CurrentVersionId)).ToArray();
         var current = mapped.SingleOrDefault(version => version.Current);
         return current is null ? null : new FileRecord(itemId.Value, body.WorkspaceId.Value, current, mapped);
@@ -364,11 +374,12 @@ public sealed class FileStore(
         CancellationToken cancellationToken)
     {
         var context = Context;
+        await LockDownloadContainmentAsync(itemId, cancellationToken).ConfigureAwait(false);
         var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(
             candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId,
             cancellationToken).ConfigureAwait(false);
         var item = await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
-        if (body is null || item is not { Type: "file" }
+        if (body is null || item is not { Type: "file" } || item.WorkspaceId != body.WorkspaceId
             || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false)
             || !await locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
         {
@@ -376,7 +387,7 @@ public sealed class FileStore(
         }
 
         var versions = await database.FileVersions.AsNoTracking()
-            .Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId)
+            .Where(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.WorkspaceId == body.WorkspaceId)
             .OrderBy(candidate => candidate.Version)
             .Take(101)
             .ToListAsync(cancellationToken).ConfigureAwait(false);
@@ -435,17 +446,24 @@ public sealed class FileStore(
     private async ValueTask<FileVersion?> FindReadableVersionAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken)
     {
         var context = Context;
+        await LockDownloadContainmentAsync(itemId, cancellationToken).ConfigureAwait(false);
         var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId, cancellationToken).ConfigureAwait(false);
+        var item = await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
         if (body is null
             || !await permissions.CanReadWorkspaceAsync(body.WorkspaceId, cancellationToken).ConfigureAwait(false)
-            || await tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false) is null
+            || item is null || item.WorkspaceId != body.WorkspaceId
             || !await locks.MayReadBodyAsync(itemId, cancellationToken).ConfigureAwait(false))
         {
             return null;
         }
         var wanted = versionId ?? body.CurrentVersionId;
-        return await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.Id == wanted && candidate.ObjectReady, cancellationToken).ConfigureAwait(false);
+        return await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.WorkspaceId == body.WorkspaceId && candidate.Id == wanted && candidate.ObjectReady, cancellationToken).ConfigureAwait(false);
     }
+
+    private Task<int> LockDownloadContainmentAsync(ItemId itemId, CancellationToken cancellationToken) =>
+        database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT id FROM item WHERE tenant_id = {Context.TenantId.Value} AND id = {itemId.Value} FOR SHARE",
+            cancellationToken);
 
     public async ValueTask RenameCurrentVersionAsync(ItemId itemId, string title, CancellationToken cancellationToken)
     {

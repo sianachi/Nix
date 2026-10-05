@@ -45,6 +45,7 @@ const (
 	attrFileID
 	attrWidth
 	attrHeight
+	attrTextAlign
 )
 
 const (
@@ -53,6 +54,7 @@ const (
 	lossUnknownAttribute = "Attributes written by a newer editor were omitted."
 	lossInvalidAttribute = "Malformed prose attributes were normalized or omitted."
 	lossColumns          = "Column layout was flattened to a single column."
+	lossTextAlignment    = "Text alignment was omitted from the exported document; words and line breaks were kept."
 	lossTable            = "GFM uses the first row as a header and cannot preserve merged cells, column widths, per-cell alignment, multi-block cells or inline formatting."
 	lossTaskList         = "A task list was written as GFM task markers; its Nix task-list structure was not preserved."
 	lossUnderline        = "An underline mark was dropped; Markdown has no underline, and the text was kept."
@@ -91,6 +93,7 @@ type proseAttrs struct {
 	label       string
 	href        string
 	align       string
+	textAlign   string
 	present     uint64
 	valid       uint64
 	unknown     bool
@@ -679,6 +682,8 @@ func (parser *proseDecoder) attributes(attributes *proseAttrs, depth int) error 
 			err = parser.stringAttribute(attributes, attrLabel, &attributes.label)
 		case "href":
 			err = parser.stringAttribute(attributes, attrHref, &attributes.href)
+		case "textAlign":
+			err = parser.stringAttribute(attributes, attrTextAlign, &attributes.textAlign)
 		case "align":
 			err = parser.stringAttribute(attributes, attrAlign, &attributes.align)
 		case "fileItemId":
@@ -1073,6 +1078,15 @@ func (projection *proseProjection) render(node *proseNode, depth int) error {
 }
 
 func (projection *proseProjection) noteNodeShape(node *proseNode) {
+	if node.Attrs.valid&attrTextAlign != 0 {
+		switch node.Attrs.textAlign {
+		case "left":
+		case "center", "right":
+			projection.noteLoss(lossTextAlignment)
+		default:
+			projection.noteLoss(lossInvalidAttribute)
+		}
+	}
 	if node.Malformed || node.Type == "text" && !node.TextPresent {
 		projection.noteLoss(lossMalformedContent)
 	}
@@ -1481,6 +1495,9 @@ func (projection *proseProjection) renderDetails(node *proseNode, depth int) err
 		default:
 			extras = append(extras, *child)
 		}
+	}
+	if summary != nil {
+		projection.noteNodeShape(summary)
 	}
 	if summary == nil || content == nil || len(extras) > 0 {
 		projection.noteLoss(lossMalformedContent)

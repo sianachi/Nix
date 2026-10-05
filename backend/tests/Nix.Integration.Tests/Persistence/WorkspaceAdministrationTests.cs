@@ -269,6 +269,44 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Invitee_search_matches_name_and_email_and_keeps_authorization_and_keyset_paging()
+    {
+        await InsertHumanAsync(Charlie, "charlie", "charlie@example.test", verified: true);
+        await InsertHumanAsync(Dana, "dana", "dana@example.test", verified: true);
+        await AddGroupMembershipAsync(Bob, "editor");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<WorkspaceAdministrationStore>();
+            var everyone = await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation);
+            var self = Assert.Single(everyone, person => person.PrincipalId.Value == Alice);
+            Assert.False(self.CanInvite);
+            Assert.Equal("self", self.CannotInviteReason);
+            Assert.DoesNotContain(everyone, person => person.PrincipalId.Value == Service);
+            Assert.DoesNotContain(everyone, person => person.PrincipalId.Value == M0SchemaSeed.Beta.PrincipalId);
+            var byName = await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation, "CHARLIE");
+            Assert.Equal(Charlie, Assert.Single(byName).PrincipalId.Value);
+            var byEmail = await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation, "DANA@EXAMPLE");
+            Assert.Equal(Dana, Assert.Single(byEmail).PrincipalId.Value);
+            Assert.Empty(await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation, "%"));
+            var member = Assert.Single(await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation, "bob"));
+            Assert.False(member.CanInvite);
+            Assert.Equal("already_has_access", member.CannotInviteReason);
+            var first = Assert.Single(await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 1, Cancellation, "example.test"));
+            var remaining = await store.ListInviteesAsync(WorkspaceId.From(Visible), first.PrincipalId, 20, Cancellation, "example.test");
+            Assert.DoesNotContain(remaining, candidate => candidate.PrincipalId == first.PrincipalId);
+            Assert.Contains(remaining, candidate => candidate.PrincipalId.Value == Dana);
+            Assert.Empty(await store.ListInviteesAsync(WorkspaceId.From(Hidden), null, 20, Cancellation, "charlie"));
+        }
+        var viewerWork = await _fixture.Application.BeginUnitOfWorkAsync(Context(Bob), Cancellation);
+        await using (viewerWork.ConfigureAwait(false))
+        {
+            Assert.Empty(await viewerWork.Resolve<WorkspaceAdministrationStore>().ListInviteesAsync(
+                WorkspaceId.From(Visible), null, 20, Cancellation, "charlie"));
+        }
+    }
+
+    [Fact]
     public async Task Pending_invitation_grants_immediate_access_and_the_target_accepts_it()
     {
         await InsertHumanAsync(Charlie, "charlie", "charlie@example.test", verified: true);
@@ -285,6 +323,10 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
                 DateTimeOffset.UtcNow, Cancellation);
             Assert.Equal("pending", pending.Invitation?.Status);
             Assert.Equal(Charlie, pending.Invitation?.TargetPrincipalId?.Value);
+            var pendingPerson = Assert.Single((await store.ListInviteesAsync(
+                WorkspaceId.From(Visible), null, 20, Cancellation)), person => person.PrincipalId.Value == Charlie);
+            Assert.False(pendingPerson.CanInvite);
+            Assert.Equal("invitation_pending", pendingPerson.CannotInviteReason);
             Assert.Equal("editor", (await store.FindPrincipalMemberAsync(
                 WorkspaceId.From(Visible), PrincipalId.From(Charlie), Cancellation))?.Role);
 
@@ -322,7 +364,7 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Unverified_humans_are_not_invitees_and_a_decline_removes_provisional_access()
+    public async Task Unverified_humans_are_visible_but_cannot_be_invited_and_a_decline_removes_provisional_access()
     {
         await InsertHumanAsync(Charlie, "charlie", "shared@example.test", verified: false);
         await InsertHumanAsync(Dana, "dana", "dana@example.test", verified: true);
@@ -333,7 +375,9 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
         {
             var store = work.Resolve<WorkspaceAdministrationStore>();
             var invitees = await store.ListInviteesAsync(WorkspaceId.From(Visible), null, 20, Cancellation);
-            Assert.DoesNotContain(invitees, invitee => invitee.PrincipalId.Value == Charlie);
+            var unverifiedPerson = Assert.Single(invitees, invitee => invitee.PrincipalId.Value == Charlie);
+            Assert.False(unverifiedPerson.CanInvite);
+            Assert.Equal("email_unverified", unverifiedPerson.CannotInviteReason);
             Assert.Contains(invitees, invitee => invitee.PrincipalId.Value == Dana);
             var unverified = await store.CreateInvitationAsync(
                 WorkspaceId.From(Visible), Guid.CreateVersion7(), PrincipalId.From(Charlie), "viewer",

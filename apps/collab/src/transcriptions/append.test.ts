@@ -42,6 +42,7 @@ interface Scenario {
 
   /** The version the stored document is pinned to. Defaults to this build's. */
   schemaVersion?: number;
+  workspaceId?: string;
 }
 
 function fakeCore(seen: unknown[] = []): CoreTranscriptionClient {
@@ -86,7 +87,7 @@ function fakePool(scenario: Scenario, log: Recorded[]): Pool {
               {
                 doc_id: DOC,
                 item_id: NOTE,
-                workspace_id: WORKSPACE,
+                workspace_id: scenario.workspaceId ?? WORKSPACE,
                 schema_version: schemaVersion,
                 head_seq: String(head),
               },
@@ -520,4 +521,20 @@ describe('the transcript append service', () => {
     expect(seen).toEqual([]);
     expect(reached()).toBe(false);
   });
+});
+
+it('refuses a transcript whose existing note moved after Core authorized the job', async () => {
+  const log: Recorded[] = [];
+  const service = createTranscriptionAppendService({
+    pool: fakePool(
+      { stored: storedNote(), workspaceId: '99999999-9999-4999-8999-999999999999' },
+      log,
+    ),
+    core: fakeCore(),
+  });
+  await expect(
+    service.append({ jobId: JOB, executionId: 'worker', body: BODY }),
+  ).rejects.toMatchObject({ code: 'transcription_not_found' });
+  expect(log.some((entry) => entry.text.includes('INSERT INTO content_update'))).toBe(false);
+  expect(log.at(-1)?.text).toBe('ROLLBACK');
 });

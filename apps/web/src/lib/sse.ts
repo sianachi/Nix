@@ -20,6 +20,9 @@ export interface SseRecord {
   readonly data: string;
 }
 
+/** Bounds unfinished lines and records, including a sender that never supplies a terminator. */
+export const MAX_SSE_RECORD_CHARS = 256 * 1024;
+
 const LINE_BREAK = /\r\n|\n|\r/;
 
 export async function* readSse(
@@ -31,6 +34,7 @@ export async function* readSse(
   let started = false;
   let event = '';
   let data: string[] = [];
+  let recordChars = 0;
 
   function* feed(lines: readonly string[]): Generator<SseRecord, void, undefined> {
     for (const line of lines) {
@@ -40,8 +44,12 @@ export async function* readSse(
           yield { event: event === '' ? 'message' : event, data: data.join('\n') };
         event = '';
         data = [];
+        recordChars = 0;
         continue;
       }
+      recordChars += line.length + 1;
+      if (recordChars > MAX_SSE_RECORD_CHARS)
+        throw new RangeError('The SSE record exceeded its size limit.');
       // A comment: the server's keep-alive, which says nothing and is not a field.
       if (line.startsWith(':')) continue;
 
@@ -78,6 +86,8 @@ export async function* readSse(
       const lines = complete.split(LINE_BREAK);
       buffer = (lines.pop() ?? '') + heldBack;
       yield* feed(lines);
+      if (recordChars + buffer.length > MAX_SSE_RECORD_CHARS)
+        throw new RangeError('The SSE record exceeded its size limit.');
     }
   } finally {
     // Stops the download if the consumer walks away early; harmless once it has finished.

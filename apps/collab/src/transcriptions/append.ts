@@ -143,6 +143,9 @@ export function createTranscriptionAppendService(input: {
         }
 
         const existing = await findDocByItem(sql, tenantId, noteItemId);
+        if (existing !== null && existing.workspace_id !== workspaceId) {
+          throw notFound();
+        }
         if (
           existing !== null &&
           (await hasUpdateFromClient(sql, tenantId, existing.doc_id, clientId))

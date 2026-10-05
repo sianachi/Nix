@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -401,5 +402,46 @@ func TestProgressOnlyRisesAndReachesAHundredOnceTheTranscriptIsIn(t *testing.T) 
 	// Seventy seconds is three segments, none longer than the recogniser's window.
 	if fixture.recogniser.calls != 3 {
 		t.Fatalf("segments = %d", fixture.recogniser.calls)
+	}
+}
+
+type oversizedRecogniser struct{}
+
+func (oversizedRecogniser) Transcribe(context.Context, whisper.Request, bool) ([]whisper.Utterance, error) {
+	return []whisper.Utterance{{Text: strings.Repeat("a", maxTranscriptTextBytes+1)}}, nil
+}
+
+func TestTranscriptAccumulationRefusesOversizedRecognitionBeforeAppend(t *testing.T) {
+	fixture := newFixture(t, stereoWAV(1, 0.5, 0.5, 440), "none")
+	fixture.handler.recogniser = oversizedRecogniser{}
+	_, err := fixture.handler.Handle(context.Background(), job)
+	var failure *jobrunner.JobError
+	if !errors.As(err, &failure) || failure.Code != "transcribe.too_large" || failure.Retryable {
+		t.Fatalf("oversized transcript = %v", err)
+	}
+	if fixture.appender.calls != 0 {
+		t.Fatal("an oversized transcript was appended")
+	}
+}
+
+func TestAppendRequestCeilingIncludesJSONEscaping(t *testing.T) {
+	called := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		called = true
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	client, err := NewCollaborationClient(server.URL, "internal", time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The text budget alone fits, but escaping doubles this payload past the HTTP ceiling.
+	err = client.Append(context.Background(), 1000, []Paragraph{{Text: strings.Repeat("\"", maxTranscriptTextBytes)}})
+	var refused *AppendError
+	if !errors.As(err, &refused) || refused.Status != http.StatusRequestEntityTooLarge || refused.Code != "transcription_too_large" {
+		t.Fatalf("escaped append = %v", err)
+	}
+	if called {
+		t.Fatal("an oversized append reached Collaboration")
 	}
 }

@@ -9,6 +9,7 @@ import { ListView } from '../list/list-view';
 import type { ContainerData } from './use-container';
 import { VIEW_GUTTER } from './view-gutter';
 import { findViewKind } from './view-kinds';
+import { ViewItemVisibility } from './view-item-visibility';
 
 /**
  * An item's children, drawn the way the chosen view says.
@@ -45,13 +46,23 @@ export function ContainerView({ container, view, onOpen }: ContainerViewProps): 
           {grid ? 'Browse records' : 'Show spreadsheet grid'}
         </Button>
         {grid ? (
-          renderContent(container, view, open)
+          <ViewItemVisibility container={container} view={view}>
+            {(visible) => renderContent(visible, view, open)}
+          </ViewItemVisibility>
         ) : (
-          <ListView container={container} view={view} onOpen={open} />
+          <ViewItemVisibility container={container} view={view}>
+            {(visible) => <ListView container={visible} view={view} onOpen={open} />}
+          </ViewItemVisibility>
         )}
       </div>
     );
-  return <div className={VIEW_GUTTER}>{renderContent(container, view, open)}</div>;
+  return (
+    <div className={VIEW_GUTTER}>
+      <ViewItemVisibility container={container} view={view}>
+        {(visible) => renderContent(visible, view, open)}
+      </ViewItemVisibility>
+    </div>
+  );
 }
 
 function renderContent(

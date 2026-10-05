@@ -65,6 +65,7 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
     private readonly ISchemaResolver _schemas;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly IFinanceLock? _topology;
 
     /// <summary>Initializes a new instance of the <see cref="CreateItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -77,7 +78,8 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
         IPermissionResolver permissions,
         ISchemaResolver schemas,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        IFinanceLock? topology = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -90,6 +92,7 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
         _schemas = schemas;
         _session = session;
         _clock = clock;
+        _topology = topology;
     }
 
     /// <summary>Creates the item.</summary>
@@ -133,6 +136,11 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
 
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
+
+        if (_topology is not null)
+        {
+            await _topology.AcquireWorkspaceTopologyAsync(workspaceId, cancellationToken).ConfigureAwait(false);
+        }
 
         if (!await _tree.WorkspaceExistsAsync(workspaceId, cancellationToken).ConfigureAwait(false)
             || !await _permissions.CanWriteWorkspaceAsync(workspaceId, cancellationToken).ConfigureAwait(false))

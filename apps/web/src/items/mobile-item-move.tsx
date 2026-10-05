@@ -2,10 +2,12 @@ import { Button, Dialog, Icon, Text } from '@nix/ui';
 import { ArrowDown, ArrowLeft, ArrowUp } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { MobileDestinationPicker } from './mobile-destination-picker';
+import { WorkspaceItemTransfer } from './workspace-item-transfer';
+import { useOptionalWorkspace } from '../workspaces/workspace-context';
 import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
-type Step = 'destination' | 'position';
+type Step = 'destination' | 'position' | 'workspace';
 
 /**
  * A slot between siblings (or before the first, or after the last) that a tap can place the item
@@ -45,6 +47,7 @@ export function MobileItemMove({
   readonly tree: WorkspaceTree;
   readonly onClose: () => void;
 }): ReactNode {
+  const workspace = useOptionalWorkspace();
   const current = tree.find(itemId);
   const currentParentId = current?.parentId ?? null;
 
@@ -111,13 +114,29 @@ export function MobileItemMove({
   return (
     <Dialog
       open
-      title={step === 'destination' ? 'Move item: choose a place' : 'Move item: choose a position'}
+      title={
+        step === 'workspace'
+          ? 'Move item: another workspace'
+          : step === 'destination'
+            ? 'Move item: choose a place'
+            : 'Move item: choose a position'
+      }
       swipeToClose={!saving}
       onClose={() => {
-        if (!pending.current) onClose();
+        if (!pending.current && !saving) onClose();
       }}
       actions={
-        step === 'destination' ? (
+        step === 'workspace' ? (
+          <Button
+            variant="ghost"
+            disabled={saving}
+            onClick={() => {
+              setStep('destination');
+            }}
+          >
+            Back
+          </Button>
+        ) : step === 'destination' ? (
           <Button
             disabled={saving}
             onClick={() => {
@@ -150,27 +169,49 @@ export function MobileItemMove({
         )
       }
     >
-      <div className="flex gap-2">
-        <Button variant="secondary" disabled={saving || !canMoveUp} onClick={moveUp}>
-          <Icon icon={ArrowUp} size="sm" /> Move up
-        </Button>
-        <Button variant="secondary" disabled={saving || !canMoveDown} onClick={moveDown}>
-          <Icon icon={ArrowDown} size="sm" /> Move down
-        </Button>
-      </div>
+      {step !== 'workspace' ? (
+        <div className="flex gap-2">
+          <Button variant="secondary" disabled={saving || !canMoveUp} onClick={moveUp}>
+            <Icon icon={ArrowUp} size="sm" /> Move up
+          </Button>
+          <Button variant="secondary" disabled={saving || !canMoveDown} onClick={moveDown}>
+            <Icon icon={ArrowDown} size="sm" /> Move down
+          </Button>
+        </div>
+      ) : null}
 
-      {step === 'destination' ? (
-        <MobileDestinationPicker
-          tree={tree}
-          parentId={parentId}
-          onChange={(id) => {
-            setParentId(id);
-            setAfterId(initialAfterIdFor(id));
-          }}
-          disabled={saving}
-          purpose="move"
-          excludedId={itemId}
+      {step === 'workspace' && workspace !== null ? (
+        <WorkspaceItemTransfer
+          itemId={itemId}
+          sourceWorkspaceId={workspace.workspaceId}
+          onClose={onClose}
+          onBusyChange={setSaving}
         />
+      ) : step === 'destination' ? (
+        <>
+          {workspace !== null ? (
+            <Button
+              variant="secondary"
+              disabled={saving}
+              onClick={() => {
+                setStep('workspace');
+              }}
+            >
+              Move to another workspace
+            </Button>
+          ) : null}
+          <MobileDestinationPicker
+            tree={tree}
+            parentId={parentId}
+            onChange={(id) => {
+              setParentId(id);
+              setAfterId(initialAfterIdFor(id));
+            }}
+            disabled={saving}
+            purpose="move"
+            excludedId={itemId}
+          />
+        </>
       ) : (
         <section aria-label="Position" className="flex min-h-0 flex-col gap-2">
           <Text as="p" variant="bodySmall">

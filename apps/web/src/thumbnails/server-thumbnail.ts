@@ -23,6 +23,8 @@ export async function loadServerThumbnail(
   itemId: string,
   signal: AbortSignal,
 ): Promise<Blob> {
+  // Include the authorization round trip: a sign-out can occur while Core is answering too.
+  const generation = authorisedBytesGeneration();
   const capability = await client.query(fileResources.thumbnailFile(itemId), {
     signal,
     forceRefresh: true,
@@ -42,7 +44,6 @@ export async function loadServerThumbnail(
   const objectAddress = `${url.origin}${url.pathname}`;
   const held = recallAuthorisedBytes(objectAddress);
   if (held !== null) return held;
-  const generation = authorisedBytesGeneration();
   const response = await fetch(url, { signal, credentials: 'omit', redirect: 'error' });
   if (!response.ok) throw new Error('The thumbnail download failed.');
   const blob = await response.blob();
