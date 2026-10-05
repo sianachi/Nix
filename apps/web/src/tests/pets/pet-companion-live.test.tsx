@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
 import { PetCompanion } from '../../pets/pet-companion';
+import { usePetAttention } from '../../pets/pet-attention';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
@@ -171,6 +172,61 @@ describe('companion live wiring', () => {
     const launcher = await screen.findByRole('button', { name: /needs approval/ });
     expect(launcher).toHaveAttribute('aria-label', 'Talk with Cat (needs approval)');
     expect(launcher.querySelector('[aria-hidden="true"].rounded-full')).toBeTruthy();
+  });
+
+  it('tells the navigation about a pending tool when the page-everywhere choice leaves no launcher', async () => {
+    // This file's environment has no working storage; the one preference this test needs is
+    // answered directly.
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => (key === 'nix.pet.surface' ? 'page' : null),
+      setItem: () => undefined,
+      removeItem: () => undefined,
+      clear: () => undefined,
+    });
+    client.query.mockResolvedValue({
+      ...base,
+      state: 'success',
+      messages: [{ id: 'turn-4', role: 'user', text: 'Create a note', actions: [] }],
+      tools: [
+        {
+          id: 'tool-4',
+          arguments: JSON.stringify({
+            operation: 'create_note',
+            title: 'Plan',
+            markdown: 'Short note.',
+            itemId: '',
+            parentId: '',
+            query: '',
+            propertiesJson: '',
+          }),
+          status: 'pending',
+          result: '',
+          claimId: '',
+        },
+      ],
+    });
+    client.execute.mockResolvedValue(base);
+    function Attention() {
+      return <output>{usePetAttention() ?? 'none'}</output>;
+    }
+    const view = render(
+      <MemoryRouter>
+        <PetCompanion />
+        <Attention />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('status')).toHaveTextContent('approval');
+    });
+    // Gone with the companion, so the page (which shows the request itself) starts clean.
+    view.rerender(
+      <MemoryRouter>
+        <Attention />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('none');
+    vi.unstubAllGlobals();
   });
 
   it('badges the closed launcher for a reply that finished while closed, then clears it on open', async () => {

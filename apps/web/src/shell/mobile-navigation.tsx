@@ -8,6 +8,7 @@ export function MobileNavigation({
   treeOpen,
   creating,
   unreadNotifications,
+  petAttention,
   onTree,
   onSearch,
   onCreate,
@@ -17,6 +18,8 @@ export function MobileNavigation({
   readonly treeOpen: boolean;
   readonly creating: boolean;
   readonly unreadNotifications: number;
+  /** What the pet is waiting on, in words, while its only way in is the drawer this opens. */
+  readonly petAttention: string | null;
   readonly onTree: () => void;
   readonly onSearch: () => void;
   readonly onCreate: () => void;
@@ -30,8 +33,19 @@ export function MobileNavigation({
       className={`flex shrink-0 items-center gap-1 border-t border-divider bg-background px-2 pb-[env(safe-area-inset-bottom)] ${chromeSurface}`}
     >
       <button type="button" className={control} aria-expanded={treeOpen} onClick={onTree}>
-        <Icon icon={FolderTree} size="sm" />
-        <Text variant="caption">Workspace</Text>
+        <span className="relative">
+          <Icon icon={FolderTree} size="sm" />
+          {petAttention !== null ? (
+            <span
+              aria-hidden="true"
+              className="absolute -right-1 -top-1 size-2 rounded-full bg-accent-fill"
+            />
+          ) : null}
+        </span>
+        <Text variant="caption">
+          Workspace
+          {petAttention !== null ? <span className="sr-only">, pet {petAttention}</span> : null}
+        </Text>
       </button>
       <button type="button" className={control} onClick={onSearch}>
         <Icon icon={Search} size="sm" />

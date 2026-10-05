@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chatOpensAsPage, pageIsAvailable } from '../../pets/pet-surface';
+import { chatOpensAsPage, launcherFloats, pageIsAvailable } from '../../pets/pet-surface';
 describe('chat placement preference', () => {
   it.each([
     ['floating', false, false, false],
@@ -13,5 +13,14 @@ describe('chat placement preference', () => {
   ] as const)('%s with narrow=%s', (surface, narrow, opens, available) => {
     expect(chatOpensAsPage(surface, narrow)).toBe(opens);
     expect(pageIsAvailable(surface, narrow)).toBe(available);
+  });
+
+  it.each([
+    ['floating', true],
+    ['page-on-phones', true],
+    ['both', true],
+    ['page', false],
+  ] as const)('%s floats=%s', (surface, floats) => {
+    expect(launcherFloats(surface)).toBe(floats);
   });
 });
