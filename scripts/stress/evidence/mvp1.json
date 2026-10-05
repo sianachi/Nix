@@ -1,0 +1,190 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-08-17T01:13:44.848Z",
+  "runner": {
+    "viewport": "1440x900",
+    "browser": "151.0.7922.34",
+    "childCount": 3200
+  },
+  "budgets": {
+    "readyMs": 3000,
+    "viewSwitchMs": 1500,
+    "scrollP95FrameMs": 32,
+    "maximumLongTaskMs": 100,
+    "maximumListOrGalleryDom": 100,
+    "maximumHeapGrowthBytes": 8388608,
+    "maximumHeapSlopeBytesPerCycle": 1048576
+  },
+  "measurements": {
+    "readyMs": 918.7284159999999,
+    "viewSwitchMs": {
+      "List": 43.391875000000255,
+      "Board": 66.10999999999967,
+      "Gallery": 133.4008329999997,
+      "Calendar": 89.96624999999949,
+      "Timeline": 224.09366599999885,
+      "Spreadsheet": 117.17845800000032
+    },
+    "scroll": {
+      "List": {
+        "p95FrameMs": 24.700000000000045,
+        "maximumFrameMs": 32.600000000000136,
+        "reachedBottom": true,
+        "firstItemVisible": true,
+        "lastItemVisible": true,
+        "peakDataNodes": 34,
+        "peakPageDataNodes": 34
+      },
+      "Gallery": {
+        "p95FrameMs": 18.300000000000182,
+        "maximumFrameMs": 33.29999999999973,
+        "reachedBottom": true,
+        "firstItemVisible": true,
+        "lastItemVisible": true,
+        "peakDataNodes": 84,
+        "peakPageDataNodes": 84
+      }
+    },
+    "peakDom": {
+      "List": 34,
+      "Board": 39,
+      "Gallery": 84,
+      "Timeline": 25
+    },
+    "viewProof": {
+      "List": {
+        "rowCount": 3201,
+        "firstItemVisible": true
+      },
+      "Board": {
+        "groupSizes": {
+          "Backlog": 1067,
+          "Doing": 1067,
+          "Done": 1066
+        },
+        "firstItemVisible": true,
+        "scroll": {
+          "p95FrameMs": 10,
+          "maximumFrameMs": 17.799999999999727,
+          "reachedBottom": true,
+          "firstItemVisible": true,
+          "lastItemVisible": true,
+          "peakDataNodes": 13,
+          "peakPageDataNodes": 39
+        }
+      },
+      "Gallery": {
+        "itemCount": 3200,
+        "firstItemVisible": true
+      },
+      "Calendar": {
+        "scheduledInMonth": 2364,
+        "outsideMonth": true,
+        "collapsedCount": 6,
+        "expandedCount": 77,
+        "firstItemVisible": true,
+        "lastItemReachable": true
+      },
+      "Timeline": {
+        "rowCount": 2365,
+        "renderedRows": 25,
+        "peakRenderedRows": 25,
+        "firstItemVisible": true,
+        "lastItemVisible": true,
+        "outsideWindow": true
+      },
+      "Spreadsheet": {
+        "rowCount": 3200,
+        "renderedRows": 22,
+        "firstItemVisible": true,
+        "lastItemVisible": true
+      }
+    },
+    "narrow": {
+      "viewport": "375x812",
+      "peakDom": {
+        "List": 30,
+        "Gallery": 28
+      },
+      "scroll": {
+        "List": {
+          "p95FrameMs": 17.600000000000364,
+          "maximumFrameMs": 25.200000000000728,
+          "reachedBottom": true,
+          "firstItemVisible": true,
+          "lastItemVisible": true,
+          "peakDataNodes": 30,
+          "peakPageDataNodes": 30
+        },
+        "Gallery": {
+          "p95FrameMs": 9.600000000000364,
+          "maximumFrameMs": 10.300000000000182,
+          "reachedBottom": true,
+          "firstItemVisible": true,
+          "lastItemVisible": true,
+          "peakDataNodes": 28,
+          "peakPageDataNodes": 28
+        }
+      },
+      "partialDataWarnings": {
+        "List": 0,
+        "Gallery": 0
+      }
+    },
+    "application": {
+      "templateId": "01a00d47-e679-7682-b0d9-d7b766759c95",
+      "firstAlreadyApplied": false,
+      "secondAlreadyApplied": true
+    },
+    "partialDataWarnings": {
+      "List": 0,
+      "Board": 0,
+      "Gallery": 0,
+      "Calendar": 0,
+      "Timeline": 0,
+      "Spreadsheet": 0
+    },
+    "memory": {
+      "supported": true,
+      "normalizedView": "List",
+      "warmupCycles": 1,
+      "cycles": 5,
+      "viewsPerCycle": 6,
+      "mountCount": 30,
+      "samples": [
+        {
+          "cycle": 0,
+          "usedBytes": 27355708
+        },
+        {
+          "cycle": 1,
+          "usedBytes": 27467076
+        },
+        {
+          "cycle": 2,
+          "usedBytes": 28560588
+        },
+        {
+          "cycle": 3,
+          "usedBytes": 27677504
+        },
+        {
+          "cycle": 4,
+          "usedBytes": 27755116
+        },
+        {
+          "cycle": 5,
+          "usedBytes": 27844564
+        }
+      ],
+      "beforeBytes": 27355708,
+      "afterBytes": 27844564,
+      "deltaBytes": 488856,
+      "maximumGrowthBytes": 1204880,
+      "slopeBytesPerCycle": 69294.74285714286
+    },
+    "browserErrorCount": 0,
+    "longTaskCount": 0,
+    "maximumLongTaskMs": 88
+  }
+}

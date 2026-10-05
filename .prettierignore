@@ -1,0 +1,10 @@
+backend/
+deploy/
+docs/
+Design language for Nix review/
+**/dist/
+**/build/
+**/coverage/
+**/storybook-static/
+pnpm-lock.yaml
+*.md

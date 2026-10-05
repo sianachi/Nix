@@ -1,0 +1,3 @@
+# Scratch directories created by the Tailwind smoke test. Normally removed in
+# its afterAll hook; ignored so a crashed run cannot leave one staged.
+.smoke-*/

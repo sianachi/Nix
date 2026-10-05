@@ -1,0 +1,404 @@
+/*
+ * @nix/design-tokens
+ *
+ * The design token sheet, as a Tailwind CSS v4 CSS-first theme.
+ *
+ * **This file is the source of truth, not the reference sheet.** It began as a
+ * verbatim transcription of the Industry stylesheet ("Design language for Nix
+ * review" / _ds / industry / styles.css), and the ramps, the spacing scale and
+ * the accent discipline are still exactly that. The typeface, the radius steps
+ * and the elevation deliberately are not: ADR-0011 softened them, and
+ * re-transcribing from the reference would silently revert that decision.
+ *
+ * So: change the look here. The reference is where the ramps came from and a
+ * useful record of the original intent; it is no longer somewhere to copy from
+ * wholesale.
+ *
+ * Usage, in an app's Tailwind entry stylesheet:
+ *
+ *   @import 'tailwindcss';
+ *   @import '@nix/design-tokens';
+ *
+ * The @theme block registers Tailwind theme variables, so every token is
+ * available both as a utility class (bg-accent-500, text-neutral-900,
+ * bg-background, text-foreground, font-heading, rounded-md, shadow-lg, p-4)
+ * and as a CSS variable (var(--color-accent-500)).
+ *
+ * Notes:
+ * - Tailwind's default color, radius and shadow palettes are cleared so only
+ *   Industry values exist: no decorative color beyond the steel accent, the
+ *   sheet's three radius steps, elevation only via shadow-sm/md/lg.
+ * - The tonal ramps were generated in OKLCH on one shared perceptual
+ *   lightness scale (the same step of any ramp has the same visual weight)
+ *   and are serialized in the source sheet as sRGB hex. The hex values are
+ *   carried verbatim: transcription, not regeneration.
+ * - Industry is a mono scheme: one steel accent. The accent-2 ramp is a
+ *   machine-derived stand-in carried only so both variable sets resolve;
+ *   treat accent and accent-2 as one role.
+ * - Ramp usage (per the Industry guide): 100-300 for tinted fills, hovers
+ *   and subtle borders; 500 as a role's base; 700-900 for text on tinted
+ *   fills and for pressed states. Prefer ramp steps over ad-hoc color-mix().
+ */
+
+@theme {
+  /* ══ Reset — only Industry tokens may exist ═══════════════════════════ */
+  --color-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
+  /* ══ Color — base roles ═══════════════════════════════════════════════ */
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-accent: #5980a6;
+  --color-accent-2: #728fab;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  /* ══ Color — tonal ramps (OKLCH-generated, shared lightness scale) ════ */
+  --color-neutral-100: #f5f5f8;
+  --color-neutral-200: #e7e7ea;
+  --color-neutral-300: #d4d4d7;
+  --color-neutral-400: #b7b7ba;
+  --color-neutral-500: #98989b;
+  --color-neutral-600: #7a7a7d;
+  --color-neutral-700: #5d5d60;
+  --color-neutral-800: #424244;
+  --color-neutral-900: #2b2b2d;
+
+  --color-accent-100: #eef6ff;
+  --color-accent-200: #d6ebff;
+  --color-accent-300: #b5d9fd;
+  --color-accent-400: #94bce3;
+  --color-accent-500: #749dc4;
+  --color-accent-600: #597ea3;
+  --color-accent-700: #416180;
+  --color-accent-800: #2c455d;
+  --color-accent-900: #1d2d3d;
+
+  --color-accent-2-100: #eef6ff;
+  --color-accent-2-200: #d6ebff;
+  --color-accent-2-300: #bdd8f2;
+  --color-accent-2-400: #9ebbd8;
+  --color-accent-2-500: #7e9cb8;
+  --color-accent-2-600: #627d98;
+  --color-accent-2-700: #486077;
+  --color-accent-2-800: #314457;
+  --color-accent-2-900: #1f2d3a;
+
+  /* ══ Color — semantic roles ═══════════════════════════════════════════
+     Aliases onto the roles above so components read as intent:
+     bg-background, text-foreground, bg-accent-hover, and so on. The
+     interaction steps follow the Industry guide: hover is one step past
+     the base on this light ground (accent-600), pressed is accent-700,
+     and body-size accent text uses accent-700 because the base accent is
+     tuned to 3:1 against the ground - enough for chrome, not body copy. */
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --color-accent-hover: var(--color-accent-600);
+  --color-accent-pressed: var(--color-accent-700);
+  --color-accent-text: var(--color-accent-700);
+
+  /* Quiet copy. A role rather than a ramp step at the call site, because the
+     step that reads as quiet-but-legible against paper is nearly invisible
+     against ink - the neutral ramp is not symmetric, so the dark ground
+     points this at the other end of it. */
+  --color-muted: var(--color-neutral-700);
+
+  /* ── The solid accent fill ─────────────────────────────────────────────
+     The primary button, and anything else that fills with accent and puts
+     ground-coloured text on top of it.
+
+     Separate from --color-accent-text even though they start equal, because
+     they move in opposite directions. Accent *text* sits on the ground, so
+     its hover step moves towards the ground. An accent *fill* carries the
+     ground's colour as its label, so its hover step has to move away from
+     the ground - deeper on paper, lighter on ink - or the fill closes on
+     its own label. Reusing the text roles for a fill gave accent-800 under
+     a dark label at 1.8:1 on the dark ground, which is the defect this
+     triple exists to fix. */
+  --color-accent-fill: var(--color-accent-700);
+  --color-accent-fill-hover: var(--color-accent-800);
+  --color-accent-fill-pressed: var(--color-accent-900);
+
+  /* ══ Type ═════════════════════════════════════════════════════════════
+     One family, told apart by weight rather than by a second face.
+
+     The reference paired Barlow Condensed with Barlow, and the condensed face
+     was doing most of the work of making the product feel like a technical
+     drawing - narrow, upright, engineered. Nunito Sans is the opposite
+     instruction: rounded terminals, open counters, and no condensed cut to
+     reach for. See ADR-0011. */
+  --font-heading: 'Nunito Sans', system-ui, sans-serif;
+  --font-body: 'Nunito Sans', system-ui, sans-serif;
+
+  /* ══ Type scale ═══════════════════════════════════════════════════════
+     Nine steps, derived from the Industry reference rather than invented:
+     its fourteen sizes cluster, and each step here is a cluster's rounded
+     centre. No step is more than 1px from a size the reference uses, with
+     one interpolation - 28px, where the reference jumps 22 to 40 and a
+     second-level heading needs somewhere to sit. See ADR-0008.
+
+     Rounding the reference's 14 and 14.5 up to 15 is the one visible
+     change: body copy becomes a single size rather than three that differ
+     by half a pixel. Half-pixel type is a rendering accident rather than a
+     design intention.
+
+     Tailwind v4 derives text-2xs ... text-3xl from these. A component that
+     still names a pixel size is reaching past the sheet. */
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 22px;
+  --text-2xl: 28px;
+  --text-3xl: 40px;
+
+  /* Line heights, paired with the steps above. Tight for the large heading
+     steps, which would otherwise sit too far apart; open for body copy, which
+     is read in paragraphs. */
+  --text-2xs--line-height: 1.4;
+  --text-xs--line-height: 1.4;
+  --text-sm--line-height: 1.45;
+  --text-base--line-height: 1.5;
+  --text-md--line-height: 1.55;
+  --text-lg--line-height: 1.35;
+  --text-xl--line-height: 1.2;
+  --text-2xl--line-height: 1.15;
+  --text-3xl--line-height: 1.1;
+
+  /* ══ Tracking ═════════════════════════════════════════════════════════
+     Letter spacing: the one typographic axis the sheet left out, so every
+     component that needed it wrote its own em value - five numbers across a
+     dozen files, none of them checkable against anything. The steps below
+     are those five, named. Nothing here moves a value; the values move in.
+
+     The ladder has a short negative end and a long positive one because it
+     does two jobs. Nunito Sans sets its display sizes a touch loose, so the
+     headings pull back a hair (tight) and nothing else does.
+
+     The positive steps are almost all about capitals. Type is spaced for
+     the lowercase pairs it was drawn with, and setting it in caps leaves the
+     letters touching; the smaller the size, the more air the caps need back.
+     So a caps title at text-md reads with wide, the standard caps label at
+     text-xs/text-base with wider, and the text-2xs kicker needs widest
+     before it stops looking set solid. slight is the exception and the
+     reason the ladder has an extra rung: it is mixed-case text opened just
+     enough to separate at heading weight (the nav), which is a smaller
+     amount of tracking than any caps setting wants. normal is the zero
+     point rather than a value anything asks for - what a component says to
+     take tracking back off a step that inherited it.
+
+     widest is deliberately 0.1em, which is also Tailwind's own default for
+     that name - the token gallery already says tracking-widest, and a scale
+     that renamed the step under it would move type nobody edited. */
+  --tracking-tight: -0.015em;
+  --tracking-normal: 0em;
+  --tracking-slight: 0.04em;
+  --tracking-wide: 0.06em;
+  --tracking-wider: 0.08em;
+  --tracking-widest: 0.1em;
+
+  /* ══ Spacing — density 0.85x ══════════════════════════════════════════
+     The sheet's spacing unit is 3.4px (4px base x 0.85 density). Tailwind
+     v4 derives every spacing utility from --spacing, which reproduces the
+     sheet's named steps exactly: --space-1 3.4px, --space-2 6.8px,
+     --space-3 10.2px, --space-4 13.6px, --space-6 20.4px, --space-8 27.2px
+     (p-1 ... p-8, gap-*, and friends). */
+  --spacing: 3.4px;
+
+  /* ══ Control heights ══════════════════════════════════════════════════
+     Three steps. The middle one is 36px because that is what the button
+     already used, so nothing moves by default. 44px is the smallest target
+     that meets the touch guidance, which gives the responsive work a step
+     to reach for rather than a number to invent. See ADR-0008. */
+  --control-sm: 28px;
+  --control-md: 36px;
+  --control-lg: 44px;
+
+  /* ══ Radius ═══════════════════════════════════════════════════════════
+     Three steps, each roughly doubling, scaled to what they sit on: a tag is
+     small enough that 4px reads as rounded, a dialog needs 14px to read the
+     same way at its size. A single radius applied to both would look sharp on
+     one and bulbous on the other.
+
+     They were 2/4/7 and used nowhere - every surface said rounded-none. See
+     ADR-0011 for why the square-corner rule went. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* ══ Elevation ════════════════════════════════════════════════════════
+     Two layers each: a tight contact shadow that says the edge is lifted, and
+     a wider ambient one that says how far. A single blur does one or the
+     other and reads as a smudge attempting both.
+
+     Ink-tinted rather than black, so a shadow on paper is a shadow and not a
+     grey rectangle. The dark ground overrides all three - see the note
+     there. */
+  --shadow-sm:
+    0 1px 1px color-mix(in srgb, #2b2b2d 10%, transparent),
+    0 2px 4px color-mix(in srgb, #2b2b2d 8%, transparent);
+  --shadow-md:
+    0 2px 4px color-mix(in srgb, #2b2b2d 10%, transparent),
+    0 6px 16px color-mix(in srgb, #2b2b2d 12%, transparent);
+  --shadow-lg:
+    0 4px 8px color-mix(in srgb, #2b2b2d 12%, transparent),
+    0 16px 40px color-mix(in srgb, #2b2b2d 20%, transparent);
+}
+
+/* ══ Source tokens with no Tailwind v4 @theme namespace ═════════════════
+   Carried verbatim as plain custom properties so nothing from the sheet is
+   dropped. Consume with var(). */
+:root {
+  /* Heading weight (Nunito Sans 700). Heavier than the 600 the condensed face
+     needed: a rounded, wider face at 600 does not separate from body text the
+     way a narrow one did at the same weight. Not registered as
+     --font-weight-heading: that would generate a font-weight utility named
+     font-heading, colliding with the font-family utility of the same name. */
+  --font-heading-weight: 700;
+
+  /* The sheet's named spacing steps, verbatim, for var() consumers. The
+     @theme --spacing base above yields the identical scale as utilities. */
+  --space-1: 3.4px;
+  --space-2: 6.8px;
+  --space-3: 10.2px;
+  --space-4: 13.6px;
+  --space-6: 20.4px;
+  --space-8: 27.2px;
+}
+
+/* ══ The browser's half of the theme ═══════════════════════════════════
+   Scrollbars, the canvas behind the document, and every native control - a
+   date picker, a select's dropdown, a checkbox - are drawn by the browser
+   from `color-scheme` and from nothing else. No custom property reaches
+   them. Without this they stay light while the page goes dark, which is not
+   a subtle mismatch: a date field renders white-on-white and the scrollbar
+   is a bright bar down a dark page.
+
+   Outside `@theme`, which accepts custom properties and nothing else. */
+:root {
+  color-scheme: light;
+}
+
+/* ══ Dark ground ═══════════════════════════════════════════════════════
+   Declared as a runtime override of the custom properties, not as a second
+   @theme block. Tailwind v4 flattens every @theme it finds regardless of
+   what wraps it, so a theme block inside a media query does not produce a
+   conditional palette - it produces a palette whose values are simply the
+   last ones declared. The utilities already resolve through var(), so
+   reassigning the roles here is what makes them conditional, and it emits
+   no extra utilities to do it.
+
+   Only the semantic roles move; the ramps do not. A component that says
+   bg-background text-foreground is therefore already correct in both
+   grounds, and one that says bg-neutral-100 is not - which is the property
+   worth protecting. Needing a dark: variant is the signal that a component
+   reached past the tokens for a colour. See ADR-0008.
+
+   The interaction steps invert their direction: on paper hover goes one
+   step deeper into the accent, on ink it goes lighter, because deeper would
+   move towards the ground rather than away from it. Muted copy crosses to
+   the other end of the neutral ramp for the same reason - the ramp is not
+   symmetric, and the step that reads as quiet against paper is nearly
+   invisible against ink. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* The browser's own half of the theme, and the half a custom property cannot reach.
+       Scrollbars, the canvas behind the document, and every native control - a date picker, a
+       select's dropdown, a checkbox - are drawn by the browser from this and from nothing else.
+       Without it they stay light while the page goes dark, which is not a subtle mismatch: a date
+       field renders as white-on-white and a scrollbar as a bright bar down a dark page. */
+    color-scheme: dark;
+
+    --color-bg: #17181a;
+    --color-surface: #1f2123;
+    --color-text: #e8e9ea;
+    --color-divider: color-mix(in srgb, #e8e9ea 18%, transparent);
+
+    --color-accent-text: var(--color-accent-300);
+    --color-accent-hover: var(--color-accent-400);
+    --color-accent-pressed: var(--color-accent-300);
+    --color-muted: var(--color-neutral-400);
+
+    /* Lighter rather than deeper: on ink the label is dark, so the fill has
+       to move away from it. */
+    --color-accent-fill: var(--color-accent-300);
+    --color-accent-fill-hover: var(--color-accent-200);
+    --color-accent-fill-pressed: var(--color-accent-100);
+
+    /* ── Elevation on ink ────────────────────────────────────────────────
+       Not the paper shadows at a higher alpha. On paper a shadow is ink
+       spilling onto white and the ramp's own dark end reads as one; on ink,
+       #2b2b2d is a hair off the background and a shadow made from it is
+       invisible - the very state that made the dark ground look flat.
+
+       So: true black, and much more of it. A dark interface has less
+       contrast to spend on edges, so the shadow has to carry more of the
+       work of saying which surface is in front. */
+    --shadow-sm:
+      0 1px 1px color-mix(in srgb, #000000 40%, transparent),
+      0 2px 4px color-mix(in srgb, #000000 28%, transparent);
+    --shadow-md:
+      0 2px 4px color-mix(in srgb, #000000 44%, transparent),
+      0 6px 16px color-mix(in srgb, #000000 36%, transparent);
+    --shadow-lg:
+      0 4px 8px color-mix(in srgb, #000000 48%, transparent),
+      0 16px 40px color-mix(in srgb, #000000 52%, transparent);
+  }
+}
+
+/* The same two grounds, chosen deliberately rather than inherited from the
+   operating system. The attribute wins over the media query in both
+   directions, which is what lets somebody on a dark desktop read a document
+   on a light ground without changing their machine's setting. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #17181a;
+  --color-surface: #1f2123;
+  --color-text: #e8e9ea;
+  --color-divider: color-mix(in srgb, #e8e9ea 18%, transparent);
+
+  --color-accent-text: var(--color-accent-300);
+  --color-accent-hover: var(--color-accent-400);
+  --color-accent-pressed: var(--color-accent-300);
+  --color-muted: var(--color-neutral-400);
+
+  /* Lighter rather than deeper: on ink the label is dark, so the fill has
+     to move away from it. */
+  --color-accent-fill: var(--color-accent-300);
+  --color-accent-fill-hover: var(--color-accent-200);
+  --color-accent-fill-pressed: var(--color-accent-100);
+
+  /* True black and much more of it - see the note in the media query above
+     for why the paper shadows cannot simply be reused at a higher alpha. */
+  --shadow-sm:
+    0 1px 1px color-mix(in srgb, #000000 40%, transparent),
+    0 2px 4px color-mix(in srgb, #000000 28%, transparent);
+  --shadow-md:
+    0 2px 4px color-mix(in srgb, #000000 44%, transparent),
+    0 6px 16px color-mix(in srgb, #000000 36%, transparent);
+  --shadow-lg:
+    0 4px 8px color-mix(in srgb, #000000 48%, transparent),
+    0 16px 40px color-mix(in srgb, #000000 52%, transparent);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --color-bg: #f2f2f3;
+  --color-surface: #e9e9ea;
+  --color-text: #1d1f20;
+  --color-divider: color-mix(in srgb, #1d1f20 16%, transparent);
+
+  --color-accent-text: var(--color-accent-700);
+  --color-accent-hover: var(--color-accent-600);
+  --color-accent-pressed: var(--color-accent-700);
+  --color-muted: var(--color-neutral-700);
+
+  --color-accent-fill: var(--color-accent-700);
+  --color-accent-fill-hover: var(--color-accent-800);
+  --color-accent-fill-pressed: var(--color-accent-900);
+}

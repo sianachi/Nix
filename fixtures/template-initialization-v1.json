@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "inputs": [
+    {
+      "key": "project_name",
+      "label": "Project name",
+      "type": "text",
+      "required": true,
+      "defaultValue": "Quarterly plan"
+    },
+    {
+      "key": "start_date",
+      "label": "Start date",
+      "type": "date",
+      "required": true
+    },
+    {
+      "key": "assignee",
+      "label": "Owner",
+      "type": "member",
+      "required": false
+    },
+    {
+      "key": "replacement_item",
+      "label": "Replacement item",
+      "type": "item",
+      "required": false
+    }
+  ],
+  "rules": [
+    {
+      "sourceId": "0199c0de-0000-7000-8000-000000000001",
+      "propertyKey": "name",
+      "kind": "input",
+      "inputKey": "project_name"
+    },
+    {
+      "sourceId": "0199c0de-0000-7000-8000-000000000001",
+      "propertyKey": "status",
+      "kind": "set",
+      "value": "Planned"
+    },
+    {
+      "sourceId": "0199c0de-0000-7000-8000-000000000002",
+      "propertyKey": "owner",
+      "kind": "keep"
+    },
+    {
+      "sourceId": "0199c0de-0000-7000-8000-000000000002",
+      "propertyKey": "cover",
+      "kind": "clear"
+    },
+    {
+      "sourceId": "0199c0de-0000-7000-8000-000000000003",
+      "propertyKey": "due",
+      "kind": "relativeDate",
+      "inputKey": "start_date",
+      "offsetDays": 3,
+      "timeOfDay": "09:30",
+      "timeZone": "Europe/London"
+    },
+    {
+      "sourceId": "0199c0de-0000-7000-8000-000000000001",
+      "propertyKey": "recurrence.until",
+      "kind": "relativeDate",
+      "inputKey": "start_date",
+      "offsetDays": 30
+    }
+  ],
+  "references": [
+    {
+      "sourceItemId": "0199c0de-0000-7000-8000-000000000004",
+      "policy": "omit"
+    },
+    {
+      "sourceItemId": "0199c0de-0000-7000-8000-000000000005",
+      "policy": "replace",
+      "inputKey": "replacement_item"
+    }
+  ]
+}

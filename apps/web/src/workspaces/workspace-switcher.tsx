@@ -1,0 +1,123 @@
+import { Icon, Menu, Text, focusRing, type MenuEntry } from '@nix/ui';
+import { Archive, Check, ChevronDown, Plus, Settings } from 'lucide-react';
+import { type ReactNode } from 'react';
+import { Link } from 'react-router';
+
+import { useWorkspace } from './workspace-context';
+
+/**
+ * The workspace switcher is also the workspace index: every accessible workspace has a direct
+ * route to its content and its management page. Switching always starts at a workspace root, so
+ * neither an item nor a pane from one workspace can leak into another by way of the address bar.
+ *
+ * Built on `<Menu>` for its disclosure mechanics only - open state, outside-click and Escape
+ * dismissal, viewport-clamped placement, the phone bottom sheet - carried entirely by one
+ * `content` entry. The panel stays a `region` of real links rather than becoming a `role="menu"`
+ * of `menuitem`s: every workspace row is *two* destinations (open it, or manage it), and several
+ * other test suites (`workspace-routing`, `workspace-binding`, `workspace-management`) already
+ * query this panel as `getByRole('region', { name: 'Workspaces' })` with plain links inside it.
+ * Changing that shape here would be correct in isolation and a regression everywhere else that
+ * already agreed on it.
+ */
+export function WorkspaceSwitcher(): ReactNode {
+  const { workspace, workspaces, listStatus, listWarning, reload } = useWorkspace();
+  const activeWorkspaces = workspaces.filter((entry) => entry.lifecycleState === 'active');
+  const archivedCount = workspaces.filter((entry) => entry.lifecycleState === 'archived').length;
+
+  const items: MenuEntry[] = [
+    {
+      kind: 'content',
+      content: ({ close }) => (
+        <section aria-label="Workspaces">
+          <div className="border-b border-divider px-3 py-2">
+            <Text variant="bodySmall">Workspaces</Text>
+            <Text variant="caption" as="p" tone="muted">
+              Open a workspace or manage its people and settings.
+            </Text>
+          </div>
+
+          <ul aria-label="Your workspaces" className="max-h-72 overflow-y-auto py-1">
+            {activeWorkspaces.map((entry) => (
+              <li
+                key={entry.id}
+                className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)"
+              >
+                <Link
+                  to={`/w/${entry.id}`}
+                  aria-current={entry.id === workspace.id ? 'page' : undefined}
+                  onClick={close}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                >
+                  <Icon
+                    icon={Check}
+                    size="sm"
+                    className={entry.id === workspace.id ? 'text-accent-text' : 'invisible'}
+                  />
+                  <span className="truncate">{entry.name}</span>
+                </Link>
+                <Link
+                  to={`/w/${entry.id}/settings`}
+                  aria-label={`Manage ${entry.name}`}
+                  onClick={close}
+                  className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent pointer-coarse:size-(--control-lg)"
+                >
+                  <Icon icon={Settings} size="sm" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          {listStatus === 'partial' ? (
+            <div className="border-t border-divider px-3 py-2">
+              <Text variant="caption" as="p" tone="muted" role="status">
+                {listWarning ?? 'Some workspaces could not be loaded.'}
+              </Text>
+              <button
+                type="button"
+                onClick={reload}
+                className={`mt-1 text-xs text-accent-text underline ${focusRing}`}
+              >
+                Try again
+              </button>
+            </div>
+          ) : null}
+
+          {archivedCount > 0 ? (
+            <Link
+              to="/workspaces/archived"
+              onClick={close}
+              className="flex items-center gap-2 border-t border-divider px-3 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            >
+              <Icon icon={Archive} size="sm" />
+              Archived workspaces ({archivedCount})
+            </Link>
+          ) : null}
+
+          <Link
+            to={`/w/${workspace.id}/settings`}
+            onClick={close}
+            className="flex items-center gap-2 border-t border-divider px-3 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          >
+            <Icon icon={Plus} size="sm" />
+            Create a workspace
+          </Link>
+        </section>
+      ),
+    },
+  ];
+
+  return (
+    <Menu label="Workspaces" items={items} className="w-80 max-w-[calc(100vw-1rem)]">
+      {(trigger) => (
+        <button
+          {...trigger}
+          aria-label="Workspace menu"
+          className={`flex min-w-0 w-full flex-1 items-center justify-between gap-2 border border-transparent px-2 py-1 text-left text-xs text-muted hover:bg-foreground/7 hover:text-foreground pointer-coarse:min-h-11 ${focusRing}`}
+        >
+          <span className="truncate">{workspace.name}</span>
+          <Icon icon={ChevronDown} size="sm" />
+        </button>
+      )}
+    </Menu>
+  );
+}

@@ -1,0 +1,52 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $REGISTRY and $TAG in the
+# environment. Job names carry the tag because Jobs are immutable: a re-run under the same
+# name after a spec change is rejected, not applied.
+#
+# Never run migrations from Core. Nix.Migrator exists as a separate deployable precisely so
+# replicas cannot race, the runtime role never needs DDL rights, and a bad migration fails a
+# Job instead of producing a crash loop. Exit 0 means the schema is at head; anything else
+# must stop the rollout - see deploy/k8s/deploy.sh.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nix-migrate-${TAG}
+  namespace: nix
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrator
+          image: ${REGISTRY}/migrator:${TAG}
+          env:
+            - name: NIX_MIGRATOR_CONNECTION_STRING
+              valueFrom: { secretKeyRef: { name: nix-connections, key: migrator } }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { memory: 512Mi }
+---
+# The second migration job is easy to forget and its absence is silent:
+# pnpm --filter @nix/collab migrate-documents raises every stored document to the schema
+# version the build speaks. It reads across tenants, so it connects as nix_migrator and
+# refuses any other role.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nix-migrate-documents-${TAG}
+  namespace: nix
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate-documents
+          image: ${REGISTRY}/collab:${TAG}
+          command: ["pnpm", "--filter", "@nix/collab", "migrate-documents"]
+          env:
+            - name: NIX_COLLAB_MIGRATOR_CONNECTION_STRING
+              valueFrom: { secretKeyRef: { name: nix-connections, key: collab-migrator } }
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 1Gi }

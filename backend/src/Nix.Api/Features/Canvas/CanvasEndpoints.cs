@@ -1,0 +1,112 @@
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
+using Nix.Domain.Primitives;
+using Nix.Errors;
+using Nix.Http;
+using Nix.Messaging;
+
+namespace Nix.Features.Canvas;
+
+/// <summary>
+/// Route registration for the caller's own canvas library.
+/// </summary>
+/// <remarks>
+/// Under <c>/api/v1/me</c>, matching where the caller's other self-owned state lives: a library is
+/// a principal's personal drawing tool, not a workspace or item resource, so it is asked for and
+/// written the same way the caller's own profile is.
+/// </remarks>
+internal static class CanvasEndpoints
+{
+    /// <summary>
+    /// Registers the canvas library routes on <paramref name="endpoints"/>.
+    /// </summary>
+    internal static IEndpointRouteBuilder MapCanvasEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+
+        endpoints.MapGet("/api/v1/me/canvas-library", GetCanvasLibraryEndpoint.Handle)
+            .WithTags("Canvas")
+            .WithName("GetCanvasLibrary")
+            .WithSummary("The caller's own canvas library")
+            .WithDescription(
+                "Returns the caller's personal set of reusable Nix canvas shapes - empty for a "
+                + "caller who has never saved one. "
+                + "Available to them on every canvas they open, in every workspace.")
+            .Produces<CanvasLibraryResponse>(StatusCodes.Status200OK);
+
+        endpoints.MapPut("/api/v1/me/canvas-library", SaveCanvasLibraryEndpoint.Handle)
+            .WithTags("Canvas")
+            .WithName("SaveCanvasLibrary")
+            .WithSummary("Replace the caller's own canvas library")
+            .WithDescription(
+                "Replaces the caller's native canvas library wholesale with its complete contents "
+                + "rather than a delta. "
+                + "Fails with 'canvas_library.too_large' when the library exceeds the stored bound.")
+            .Produces<CanvasLibraryResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            // The host-wide bound is 256 KB and this is the one payload legitimately larger: the
+            // stored bound is 1 MiB of UTF-8 (SaveCanvasLibrary.MaxLibraryBytes), measured after
+            // deserialization, so 2 MiB on the wire leaves room for JSON escaping and the request
+            // envelope while still refusing an oversized body before it is copied.
+            .WithRequestBodyLimit(2 * 1024 * 1024)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+
+        return endpoints;
+    }
+
+    /// <summary>Builds the problem details for a failed canvas library write.</summary>
+    /// <param name="httpContext">The current request.</param>
+    /// <param name="error">Why the write failed.</param>
+    /// <returns>Problem details describing the failure.</returns>
+    internal static Microsoft.AspNetCore.Mvc.ProblemDetails Problem(HttpContext httpContext, NixError error) =>
+        ApiProblem.Create(
+            httpContext,
+            StatusCodes.Status422UnprocessableEntity,
+            error.Code,
+            "Request refused",
+            error.Message);
+}
+
+/// <summary>Route handler for reading the caller's own canvas library.</summary>
+internal static class GetCanvasLibraryEndpoint
+{
+    /// <summary>Handles a request for the caller's own canvas library.</summary>
+    /// <param name="httpContext">The current request.</param>
+    /// <param name="dispatcher">Sends the query to its handler.</param>
+    /// <returns>The caller's library.</returns>
+    internal static async Task<Ok<CanvasLibraryResponse>> Handle(
+        HttpContext httpContext,
+        [FromServices] NixDispatcher dispatcher)
+    {
+        var library = await dispatcher
+            .QueryAsync<GetCanvasLibrary, CanvasLibraryItems>(new GetCanvasLibrary(), httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return TypedResults.Ok(new CanvasLibraryResponse(library.Items));
+    }
+}
+
+/// <summary>Route handler for replacing the caller's own canvas library.</summary>
+internal static class SaveCanvasLibraryEndpoint
+{
+    /// <summary>Handles a request to replace the caller's own canvas library.</summary>
+    /// <param name="request">The library's new contents.</param>
+    /// <param name="httpContext">The current request.</param>
+    /// <param name="dispatcher">Sends the command to its handler.</param>
+    /// <returns>The saved library, or a problem describing why it could not be written.</returns>
+    internal static async Task<Results<Ok<CanvasLibraryResponse>, ProblemHttpResult>> Handle(
+        SaveCanvasLibraryRequest request,
+        HttpContext httpContext,
+        [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher
+            .SendAsync<SaveCanvasLibrary, CanvasLibraryItems>(
+                new SaveCanvasLibrary(request.Items),
+                httpContext.RequestAborted)
+            .ConfigureAwait(false);
+
+        return result.Match<Results<Ok<CanvasLibraryResponse>, ProblemHttpResult>>(
+            library => TypedResults.Ok(new CanvasLibraryResponse(library.Items)),
+            error => TypedResults.Problem(CanvasEndpoints.Problem(httpContext, error)));
+    }
+}

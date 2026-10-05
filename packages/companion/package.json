@@ -1,0 +1,44 @@
+{
+  "name": "@nix/companion",
+  "version": "0.0.0",
+  "sideEffects": false,
+  "private": true,
+  "type": "module",
+  "description": "The pet's workspace tool executor: the ports it runs against, the note-body adapter, and the run loop shared by the web card and nixctl",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tool-args": {
+      "types": "./dist/tool-args.d.ts",
+      "default": "./dist/tool-args.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@nix/api-client": "workspace:*",
+    "@nix/editor-schema": "workspace:*",
+    "@nix/markdown": "workspace:*",
+    "@nix/structure-spec": "workspace:*",
+    "y-prosemirror": "^1.3.7",
+    "yjs": "^13.6.31",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

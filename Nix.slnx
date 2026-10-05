@@ -1,0 +1,68 @@
+<Solution>
+
+  <Project Path="Nix.Frontend/Nix.Frontend.csproj" />
+
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".env.example" />
+    <File Path=".gitignore" />
+    <File Path=".prettierignore" />
+    <File Path=".prettierrc" />
+    <File Path="eslint.config.js" />
+    <File Path="mise.toml" />
+    <File Path="package.json" />
+    <File Path="pnpm-workspace.yaml" />
+    <File Path="tsconfig.base.json" />
+  </Folder>
+
+  <Folder Name="/.github/">
+    <File Path=".github/workflows/ci-backend.yml" />
+    <File Path=".github/workflows/ci-frontend.yml" />
+  </Folder>
+
+  <Folder Name="/backend/">
+    <File Path="backend/Directory.Build.props" />
+    <File Path="backend/Directory.Packages.props" />
+    <File Path="backend/openapi/nix-api.json" />
+  </Folder>
+
+  <Folder Name="/backend/src/">
+    <Project Path="backend/src/Nix.Api/Nix.Api.csproj" />
+    <Project Path="backend/src/Nix.Migrator/Nix.Migrator.csproj" />
+  </Folder>
+
+  <Folder Name="/backend/tests/">
+    <Project Path="backend/tests/Nix.Tests/Nix.Tests.csproj" />
+    <Project Path="backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj" />
+  </Folder>
+
+  <Folder Name="/deploy/">
+    <File Path="deploy/Caddyfile" />
+    <File Path="deploy/compose.dev.yml" />
+    <File Path="deploy/seed/seed.sh" />
+    <File Path="deploy/seed/seed.sql" />
+    <File Path="deploy/seed/seed_application_data.sql" />
+    <File Path="deploy/seed/seed_database.sql" />
+    <File Path="deploy/seed/zitadel-configure.sh" />
+  </Folder>
+
+  <Folder Name="/scripts/">
+    <File Path="scripts/check-byte-array-markers.sh" />
+    <File Path="scripts/check-frontend-layering.sh" />
+    <File Path="scripts/check-frontend-layering.test.sh" />
+    <File Path="scripts/check-layering.sh" />
+    <File Path="scripts/check-no-controllers.sh" />
+    <File Path="scripts/check-raw-design-values.sh" />
+    <File Path="scripts/check-raw-design-values.test.sh" />
+    <File Path="scripts/check-root-is-unambiguous.sh" />
+    <File Path="scripts/check-spacing-roles.sh" />
+    <File Path="scripts/check-spacing-roles.test.sh" />
+    <File Path="scripts/check-text-primitive.sh" />
+    <File Path="scripts/check-text-primitive.test.sh" />
+    <File Path="scripts/dev-collab.sh" />
+    <File Path="scripts/dev-migrate.sh" />
+    <File Path="scripts/dev-stack-up.sh" />
+    <File Path="scripts/new-goal-worktree.sh" />
+  </Folder>
+
+</Solution>

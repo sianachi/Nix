@@ -1,0 +1,322 @@
+# Frontend CI (engineering plan section 9.2).
+#   Stage 1 static -> Stage 2 unit -> Stage 3 storybook + axe.
+#
+# Split from the backend workflow so the two lanes can be developed in
+# parallel without contending for one file. backend/openapi is in the trigger
+# paths on purpose: it is the contract the client is generated from, so a
+# change to it must re-run the frontend checks even though no frontend file
+# moved.
+name: CI frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/**'
+      - 'apps/**'
+      - 'backend/openapi/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.js'
+      - '.prettierrc'
+      - '.prettierignore'
+      - 'scripts/check-raw-design-values.sh'
+      - 'scripts/check-raw-design-values.test.sh'
+      - 'scripts/check-spacing-roles.sh'
+      - 'scripts/check-spacing-roles.test.sh'
+      - 'scripts/check-text-primitive.sh'
+      - 'scripts/check-text-primitive.test.sh'
+      - 'scripts/check-frontend-layering.sh'
+      - 'scripts/check-frontend-layering.test.sh'
+      - '.github/workflows/ci-frontend.yml'
+  pull_request:
+    paths:
+      - 'packages/**'
+      - 'apps/**'
+      - 'backend/openapi/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tsconfig.base.json'
+      - 'eslint.config.js'
+      - '.prettierrc'
+      - '.prettierignore'
+      - 'scripts/check-raw-design-values.sh'
+      - 'scripts/check-raw-design-values.test.sh'
+      - 'scripts/check-spacing-roles.sh'
+      - 'scripts/check-spacing-roles.test.sh'
+      - 'scripts/check-text-primitive.sh'
+      - 'scripts/check-text-primitive.test.sh'
+      - 'scripts/check-frontend-layering.sh'
+      - 'scripts/check-frontend-layering.test.sh'
+      - '.github/workflows/ci-frontend.yml'
+
+concurrency:
+  group: ci-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend-static:
+    name: frontend static
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # No version input: pnpm/action-setup reads the root package.json
+      # "packageManager" field, keeping CI pinned with the repo.
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          # mise.toml pins node = "22"; track the same major here.
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The frontend half of the contract seam. ci-backend.yml proves
+      # backend/openapi/nix-api.json matches the code that produces it; this
+      # proves packages/api-client/src/generated matches that contract. Without
+      # both halves a contract change can land with a stale client and only be
+      # found by whoever next runs the generator by hand.
+      #
+      # Runs before lint and typecheck on purpose. Steps in a job are sequential
+      # and a failed step ends the job, so a gate placed after `pnpm lint` would
+      # not run at all while lint is red - and it is red on main today. The gate
+      # would be dead on arrival rather than merely late. Independently: a stale
+      # client usually surfaces downstream as a confusing type error in apps/web,
+      # and the first red step is the one people read.
+      #
+      # Deterministic because pnpm install --frozen-lockfile pins both
+      # openapi-typescript and the prettier the generator pipes through to the
+      # lockfile's exact versions, so the bytes here match the bytes a
+      # contributor gets locally.
+      - name: Generated API client is current with the OpenAPI contract
+        run: |
+          pnpm --filter @nix/api-client generate
+          # git status --porcelain, not git diff --quiet: diff is blind to
+          # untracked files, so a generator that grew a second output artifact
+          # would pass a diff-only check silently. Porcelain sees modified,
+          # deleted and untracked alike.
+          if [ -n "$(git status --porcelain -- packages/api-client/src/generated)" ]; then
+            echo "::error title=Generated API client is stale::packages/api-client/src/generated does not match backend/openapi/nix-api.json. Run 'pnpm --filter @nix/api-client generate' and commit the result."
+            echo
+            echo "The typed client is generated from backend/openapi/nix-api.json and must be"
+            echo "committed alongside any change to it. To fix, from the repository root:"
+            echo
+            echo "    pnpm --filter @nix/api-client generate"
+            echo "    git add packages/api-client/src/generated"
+            echo "    git commit"
+            echo
+            echo "Never hand-edit packages/api-client/src/generated. The drift is:"
+            echo
+            # Both: diff renders the content change, status names files diff
+            # cannot show the content of - untracked ones.
+            git status --short -- packages/api-client/src/generated
+            git --no-pager diff -- packages/api-client/src/generated
+            exit 1
+          fi
+
+      # The pet's capability catalog is generated from packages/structure-spec's own tables into
+      # a committed src/generated/catalog.json plus the committed outputs the Go worker embeds
+      # (two plain text catalogs and three typed-tool JSON files). Same discipline as the
+      # generated API client
+      # above: regenerate, then fail on any drift so a hand-edit or a stale commit is caught here
+      # rather than shipping a catalog that disagrees with the validator and executor it is
+      # checked against.
+      - name: Structure catalog is current
+        run: |
+          pnpm --filter @nix/structure-spec catalog
+          if [ -n "$(git status --porcelain -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog)" ]; then
+            echo "::error title=Structure catalog is stale::The generated catalog files do not match packages/structure-spec's tables. Run 'pnpm --filter @nix/structure-spec catalog' and commit the result."
+            echo
+            echo "The catalog files are generated from packages/structure-spec/src/catalog and"
+            echo "catalog/patterns.txt and must be committed alongside any change to them. To fix,"
+            echo "from the repository root:"
+            echo
+            echo "    pnpm --filter @nix/structure-spec catalog"
+            echo "    git add packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog"
+            echo "    git commit"
+            echo
+            echo "Never hand-edit the generated files. The drift is:"
+            echo
+            git status --short -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog
+            git --no-pager diff -- packages/structure-spec/src/generated apps/go-workers/internal/companion/catalog
+            exit 1
+          fi
+
+      - name: Lint (ESLint + Prettier check)
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # The guard's own tests run first: a broken matcher and a dirty tree both
+      # turn this job red, and only the order tells them apart.
+      - name: Design-token guard self-test
+        run: ./scripts/check-raw-design-values.test.sh
+
+      - name: Design-token guard (no raw hex, length, tracking or inline style)
+        run: ./scripts/check-raw-design-values.sh
+
+      # Catches what the design-token guard above structurally cannot: a real, valid spacing
+      # token chosen wrongly for a shape that has an established one elsewhere (U13).
+      - name: Spacing-role guard self-test
+        run: ./scripts/check-spacing-roles.test.sh
+
+      - name: Spacing-role guard (one structural role, one spacing step)
+        run: ./scripts/check-spacing-roles.sh
+
+      # Catches what neither guard above can: a text element wearing a perfectly valid step of the
+      # type scale instead of asking <Text> for a variant (U11).
+      - name: Text-primitive guard self-test
+        run: ./scripts/check-text-primitive.test.sh
+
+      - name: Text-primitive guard (text elements take their type from <Text>)
+        run: ./scripts/check-text-primitive.sh
+
+      # Catches what no taste guard can: a direction. layout/, a11y/ and lib/ are leaves, and the
+      # shell is the composition above the features - the shape that replaced app/, which was both
+      # at once and generated a real import cycle.
+      - name: Frontend layering guard self-test
+        run: ./scripts/check-frontend-layering.test.sh
+
+      - name: Frontend layering guard (the leaves are leaves; the shell is not imported for a value)
+        run: ./scripts/check-frontend-layering.sh
+
+  frontend-unit:
+    name: frontend unit
+    runs-on: ubuntu-24.04
+    needs: frontend-static
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        # The collaboration service's database suite needs a real Postgres with the
+        # migrations applied, which this job has not got. It runs in collab-integration
+        # below instead - not skipped everywhere, which would leave the isolation proof
+        # unrun.
+        env:
+          NIX_COLLAB_SKIP_DB_TESTS: '1'
+        run: pnpm test
+
+  frontend-storybook:
+    name: frontend storybook
+    runs-on: ubuntu-24.04
+    needs: frontend-static
+    # The suite is known to hang rather than fail in some headless environments
+    # (before collecting a single test), and the vitest config's own timeouts
+    # cannot bound a browser that never launches. This is the backstop that
+    # turns a wedged runner into a red job instead of a six-hour default.
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # pnpm install fetches the playwright npm package but not the browser
+      # binary it drives; without this step the suite dies (or hangs) looking
+      # for a chromium it never downloaded. --with-deps also installs the
+      # system libraries headless chromium needs on a bare ubuntu runner.
+      - name: Install Playwright chromium
+        run: pnpm --filter @nix/ui exec playwright install --with-deps chromium
+
+      # Every story rendered in a real chromium, its play function executed,
+      # and axe run over the result on the ground the story declares.
+      # a11y.test: 'error' in .storybook/preview.ts makes any violation a
+      # failing test, so an inaccessible component cannot merge green.
+      - name: Storybook stories + axe
+        run: pnpm --filter @nix/ui test-storybook
+
+  collab-integration:
+    name: collab integration
+    runs-on: ubuntu-24.04
+    needs: frontend-static
+
+    services:
+      postgres:
+        # The same image as deploy/compose.dev.yml: Postgres 16 with pgvector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: nix-dev-superuser
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The schema comes from the migrator, not from a copy of the DDL kept here. A
+      # second definition of the content tables would drift from the first, and the
+      # isolation policies are exactly the part that must not.
+      - name: Create the roles and the database
+        env:
+          PGPASSWORD: nix-dev-superuser
+        run: |
+          psql -h localhost -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -v app_password=nix-dev-app \
+            -v collab_password=nix-dev-collab \
+            -v migrator_password=nix-dev-migrator \
+            -v db_name=nix \
+            -f deploy/seed/seed.sql
+          psql -h localhost -p 5433 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c 'CREATE DATABASE nix OWNER nix_migrator'
+          psql -h localhost -p 5433 -U postgres -d nix -v ON_ERROR_STOP=1 \
+            -v db_name=nix \
+            -f deploy/seed/seed_database.sql
+
+      - name: Apply migrations
+        working-directory: backend
+        env:
+          NIX_MIGRATOR_CONNECTION_STRING: >-
+            Host=localhost;Port=5433;Database=nix;Username=nix_migrator;Password=nix-dev-migrator
+        run: dotnet run --project src/Nix.Migrator
+
+      - name: Collaboration service tests
+        env:
+          NIX_COLLAB_TEST_DATABASE_URL: postgresql://nix_collab:nix-dev-collab@localhost:5433/nix
+          NIX_COLLAB_TEST_ADMIN_DATABASE_URL: postgresql://postgres:nix-dev-superuser@localhost:5433/nix
+        run: pnpm --filter @nix/collab test

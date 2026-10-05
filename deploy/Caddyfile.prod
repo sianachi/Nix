@@ -1,0 +1,56 @@
+# Nix production edge inside Docker. Cloudflare terminates public TLS and the
+# tunnel carries the request to this private HTTP listener.
+:8090 {
+	root * /srv/nix/web
+	encode zstd gzip
+	# This stable URL announces each new build to installed clients.
+	header /service-worker.js Cache-Control "no-store"
+
+	# Preserve the bucket path and signed Host header for S3 capabilities.
+	handle /{$NIX_OBJECT_STORE_BUCKET}/* {
+		reverse_proxy nix-versitygw:7070
+	}
+
+	handle /api/* {
+		reverse_proxy nix-api:8080 {
+			flush_interval -1
+			# cloudflared is the only public ingress. Preserve its authenticated client
+			# address as the sole X-Forwarded-For hop so Core's pre-authentication
+			# throttle remains per client instead of becoming global to the tunnel.
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
+
+	# CLI sessions use Core's public PAT exchange, outside the browser BFF routes.
+	handle /public/v1/auth/token {
+		reverse_proxy nix-api:8080 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
+
+	handle /auth/* {
+		reverse_proxy nix-api:8080 {
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
+
+	handle_path /collab/* {
+		reverse_proxy nix-collab:8100
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		# Compose requires this to be the same validated origin Core uses when signing browser
+		# capabilities. Keeping it as one CSP source prevents an object URL from broadening fetch.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; media-src 'self' blob: {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+}

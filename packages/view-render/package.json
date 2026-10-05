@@ -1,0 +1,34 @@
+{
+  "name": "@nix/view-render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A view over an item's children, drawn as SVG: the picture an export puts in a page where the interface puts a board",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@nix/export": "workspace:*"
+  },
+  "devDependencies": {
+    "@nix/design-tokens": "workspace:*",
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

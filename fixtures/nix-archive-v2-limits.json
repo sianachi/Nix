@@ -1,0 +1,11 @@
+{
+  "ordinary": {
+    "maxArchiveEntries": 100001,
+    "maxItems": 10000
+  },
+  "template": {
+    "maxArchiveEntries": 20201,
+    "maxItems": 200
+  },
+  "maxFileVersionsPerItem": 100
+}

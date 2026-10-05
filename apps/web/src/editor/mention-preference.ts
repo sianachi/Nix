@@ -1,0 +1,50 @@
+import { create } from 'zustand';
+
+import { browserStorage } from '../lib/browser-storage';
+
+/**
+ * Whether the note editor underlines item titles written in the text but not linked: a
+ * browser-local preference, like the page guides.
+ *
+ * **On by default.** An underline writes nothing: the note, the shared document and every
+ * collaborator are untouched until somebody chooses "Link to ..." on one. What it costs is a
+ * dotted line and a request after a pause in typing - and the person who finds that noisy can
+ * switch it off once. Compare the phrase suggestions, which are off by default because their
+ * accept key can write into the note by accident; nothing here can. Only the alternative is
+ * stored, so the default stays forward-compatible.
+ */
+const KEY = 'nix.unlinked-mentions';
+
+export type MentionSetting = 'on' | 'off';
+
+export function readMentionSetting(storage: Storage | undefined): MentionSetting {
+  try {
+    return storage?.getItem(KEY) === 'off' ? 'off' : 'on';
+  } catch {
+    return 'on';
+  }
+}
+
+export const useMentionPreference = create<{
+  setting: MentionSetting;
+  saved: boolean;
+  setSetting: (value: MentionSetting) => void;
+}>((set) => ({
+  setting: readMentionSetting(browserStorage()),
+  saved: true,
+  setSetting: (setting) => {
+    let saved = false;
+    try {
+      const storage = browserStorage();
+      if (setting === 'off') {
+        storage?.setItem(KEY, setting);
+      } else {
+        storage?.removeItem(KEY);
+      }
+      saved = storage !== undefined;
+    } catch {
+      /* The choice still works for this session. */
+    }
+    set({ setting, saved });
+  },
+}));

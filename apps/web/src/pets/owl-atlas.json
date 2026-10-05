@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "source": "owl-atlas.png",
+  "columns": 4,
+  "rows": 9,
+  "cellWidth": 209,
+  "imageWidth": 836,
+  "imageHeight": 1881,
+  "rowStarts": [0, 210, 416, 624, 821, 1018, 1218, 1415, 1627],
+  "rowHeights": [210, 206, 208, 197, 197, 200, 197, 212, 214],
+  "rowBaselines": [197, 190, 196, 188, 188, 188, 189, 193, 189],
+  "states": [
+    "idle",
+    "hover",
+    "listening",
+    "thinking",
+    "working",
+    "awaiting-approval",
+    "speaking",
+    "success",
+    "error"
+  ],
+  "frameDurationMs": 240,
+  "productionVisualQa": "pending-edge-quality-review"
+}

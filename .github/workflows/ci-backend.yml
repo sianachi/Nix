@@ -1,0 +1,202 @@
+# Backend CI (engineering plan section 9.2).
+#   Stage 1 static -> Stage 2 unit. Integration (Testcontainers) is stage 3.
+#
+# Split from the frontend workflow so the two lanes can be developed in
+# parallel without contending for one file. Path filters mean a frontend-only
+# change does not queue a .NET toolchain run, and vice versa. Files shared by
+# both lanes (the guard scripts, the workflows themselves) trigger both.
+#
+# Nix.slnx sits at the repository root rather than under backend/ so that one
+# IDE window covers both lanes. That puts it, and the Nix.Frontend browse
+# project it carries, outside the backend/** filter, so both are listed on
+# their own below; the steps that name the solution run from the checkout root
+# while the per-project steps still run from backend/.
+name: CI backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'apps/go-workers/**'
+      - 'Nix.slnx'
+      - 'Nix.Frontend/**'
+      - 'scripts/check-byte-array-markers.sh'
+      - 'scripts/check-no-controllers.sh'
+      - 'scripts/check-layering.sh'
+      - 'scripts/check-root-is-unambiguous.sh'
+      - '.github/workflows/ci-backend.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'apps/go-workers/**'
+      - 'Nix.slnx'
+      - 'Nix.Frontend/**'
+      - 'scripts/check-byte-array-markers.sh'
+      - 'scripts/check-no-controllers.sh'
+      - 'scripts/check-layering.sh'
+      - 'scripts/check-root-is-unambiguous.sh'
+      - '.github/workflows/ci-backend.yml'
+
+concurrency:
+  group: ci-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  go-workers:
+    name: Go workers
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: apps/go-workers/go.mod
+          cache-dependency-path: apps/go-workers/go.mod
+
+      - name: Format check
+        working-directory: apps/go-workers
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        working-directory: apps/go-workers
+        run: go vet ./...
+
+      - name: Test
+        working-directory: apps/go-workers
+        run: go test ./...
+
+      - name: Race test
+        working-directory: apps/go-workers
+        run: go test -race ./...
+
+      - name: Build unified worker
+        working-directory: apps/go-workers
+        run: go build ./cmd/nix-worker
+
+  backend-static:
+    name: backend static
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          # mise.toml pins dotnet = "10"; track the same major here.
+          dotnet-version: 10.0.x
+
+      - name: Verify formatting (dotnet format)
+        run: dotnet format Nix.slnx --verify-no-changes
+
+      - name: Build (analyzers + warnings-as-errors)
+        run: dotnet build Nix.slnx --configuration Release -p:NixGenerateOpenApiContract=true
+
+      # The build above regenerates backend/openapi/nix-api.json (see the OpenAPI
+      # section of Nix.Api.csproj). If the committed contract no longer matches the
+      # code, the generated frontend client is stale - fail here rather than at
+      # runtime. Fix by rebuilding locally and committing the regenerated file.
+      #
+      # This is also the seam between the two development lanes: the frontend
+      # generates its types from this artifact, so it must never drift.
+      - name: OpenAPI contract is committed and current
+        run: git diff --exit-code -- backend/openapi
+
+      - name: Byte-array marker guard (memory rule 7)
+        run: ./scripts/check-byte-array-markers.sh
+
+      - name: No-controllers guard (minimal APIs only, section 2.3)
+        run: ./scripts/check-no-controllers.sh
+
+      # Replaces the three DependencyDirectionTests that the single-project
+      # collapse made unexpressible. Weaker than an assembly-reference check and
+      # deliberately so; see ADR-0015 for what it does and does not catch.
+      - name: Layering guard (Domain/ carries no infrastructure, ADR-0015)
+        run: ./scripts/check-layering.sh
+
+      # Cheap to reintroduce, expensive to diagnose: a second project or solution
+      # file at the root makes every bare dotnet command fail with MSB1011, and
+      # the fixes that look obvious (global.json, Directory.Build.rsp, a rename)
+      # all fail differently. See the script header.
+      - name: Root has exactly one project/solution file
+        run: ./scripts/check-root-is-unambiguous.sh
+
+  backend-unit:
+    name: backend unit
+    runs-on: ubuntu-24.04
+    needs: backend-static
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # Named explicitly rather than run across the solution: Nix.Integration.Tests
+      # needs Docker and runs in its own stage-3 job. Nix.Tests must stay free of
+      # Testcontainers so this job never needs a daemon - that is the whole reason
+      # the two suites are separate projects rather than one.
+      - name: Unit tests
+        working-directory: backend
+        run: dotnet test tests/Nix.Tests/Nix.Tests.csproj --configuration Release
+
+  # ── Stage 3: integration ───────────────────────────────────────────────────
+  # Everything that needs a real Postgres: the tenant isolation policies, the
+  # composite foreign keys that stop cross-tenant references, the grants matrix,
+  # the pre-authentication identity provider resolver, and the SET LOCAL pooling
+  # proof.
+  #
+  # These are the tests the engineering plan calls the crown jewels, and until
+  # this job existed they ran only on whichever machine last touched them. A
+  # permission regression is a breach rather than a defect, so "someone ran it
+  # locally" is not a control.
+  #
+  # Parallel to backend-unit rather than after it: both need the static stage to
+  # have passed, neither needs the other, and a broken policy should not wait on
+  # a unit suite to be reported.
+  backend-integration:
+    name: backend integration
+    runs-on: ubuntu-24.04
+    needs: backend-static
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      # No docker setup step: ubuntu-24.04 ships a running daemon, and
+      # Testcontainers finds it through the default socket. Asserted rather than
+      # assumed, because the failure mode otherwise is a confusing timeout deep
+      # inside the fixture rather than a clear message here.
+      - name: Docker is available for Testcontainers
+        run: docker info --format 'docker {{.ServerVersion}}'
+
+      # Pulled explicitly so the image download is its own step. Inside the
+      # fixture it would land in the first test's timeout budget and present as
+      # a flake on a cold runner.
+      - name: Pre-pull the Postgres image
+        run: docker pull pgvector/pgvector:pg16
+
+      - name: Integration tests
+        working-directory: backend
+        timeout-minutes: 20
+        run: |
+          # Only inspect disposable Testcontainers databases on this runner.
+          # Report long-running statements so fixture stalls have server-side evidence.
+          (
+            while sleep 15; do
+              for container in $(docker ps -q --filter label=org.testcontainers=true --filter ancestor=pgvector/pgvector:pg16); do
+                docker exec "$container" psql -U postgres -d postgres -Atc "SELECT pid, wait_event_type, wait_event, now() - query_start AS elapsed, pg_blocking_pids(pid), left(query, 500) FROM pg_stat_activity WHERE state = 'active' AND pid <> pg_backend_pid() AND query_start < now() - interval '15 seconds';" || true
+              done
+            done
+          ) &
+          diagnostic_pid=$!
+          trap 'kill "$diagnostic_pid" 2>/dev/null || true' EXIT
+          dotnet test tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj --configuration Release

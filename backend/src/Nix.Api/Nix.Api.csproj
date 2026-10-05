@@ -1,0 +1,114 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    The backend, in one project.
+
+    Nix.Core, Nix.Application and Nix.Infrastructure were folded in here; their
+    package references are absorbed below. Folders carry the layering that
+    project boundaries used to: Domain/ is the model, Abstractions/ holds the
+    ports, Persistence/ implements them, Features/ holds the vertical slices.
+
+    That boundary is no longer enforced by the compiler. Three
+    DependencyDirectionTests used to assert against assembly references and
+    cannot exist in a single assembly; scripts/check-layering.sh replaces them
+    with a source-level check, which is weaker on purpose and knowingly. See
+    ADR-0015.
+  -->
+  <PropertyGroup>
+    <!-- The assembly stays Nix.Api: the OpenAPI target below derives its staged
+         document name from the project name, and WebApplicationFactory<Program>
+         hosts this assembly by name from the test project. The root namespace
+         drops the .Api suffix because this project is no longer only the API. -->
+    <RootNamespace>Nix</RootNamespace>
+
+    <!--
+      CA1515 wants an application's types internal, on the premise that nothing
+      outside the assembly references them. That premise held while the domain,
+      the use cases and the persistence adapters were three class libraries;
+      folding them into this executable made the rule fire on essentially every
+      type in the backend at once.
+
+      Justification: the premise is false here. Nix.Tests and Nix.Integration.Tests
+      are real external consumers of these types, and AGENTS.md requires tests
+      that query behavior rather than reach through visibility loopholes. The
+      alternative - marking ~200 types internal and opening them back up with
+      InternalsVisibleTo - would relocate the same public surface into a place
+      where no analyzer can see it, which is worse than declaring it.
+
+      Test projects already suppress this rule in backend/Directory.Build.props
+      for the adjacent reason that xUnit1000 requires public test classes.
+    -->
+    <NoWarn>$(NoWarn);CA1515</NoWarn>
+
+    <!-- Enables `dotnet user-secrets` for local development: ConnectionStrings:Nix and
+         Nix:InternalSecret are read from here instead of an exported environment variable
+         when ASPNETCORE_ENVIRONMENT=Development (both launchSettings.json profiles set this).
+         No package reference is needed - Microsoft.Extensions.Configuration.UserSecrets ships
+         inside the Microsoft.AspNetCore.App shared framework that Sdk.Web already uses. -->
+    <UserSecretsId>372c7977-a6d5-4cb6-b04e-dc79c06e28a6</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="RabbitMQ.Client" />
+    <!-- Security floor for a transitive dependency; see Directory.Packages.props. -->
+    <PackageReference Include="Microsoft.OpenApi" />
+    <PackageReference Include="Microsoft.Extensions.ApiDescription.Server">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- Absorbed from Nix.Infrastructure. Only Persistence/ may use these; the
+       layering guard fails the build if Domain/ names EF Core or Npgsql. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
+  </ItemGroup>
+
+  <!-- Absorbed from Nix.Core. Value types and a tz database, no I/O - the one
+       third-party dependency the domain was ever allowed. See ADR-0012. -->
+  <ItemGroup>
+    <PackageReference Include="NodaTime" />
+  </ItemGroup>
+
+  <!--
+    OpenAPI contract artifact.
+
+    REGENERATE WITH (from the repository root):
+
+        dotnet build backend/src/Nix.Api/Nix.Api.csproj -p:NixGenerateOpenApiContract=true
+
+    Ordinary builds do not generate the contract. CI enables this opt-in property
+    for its backend static build, then fails if the working tree moved. This keeps
+    the committed contract honest without making every local backend iteration
+    start the document-generation host.
+
+    Mechanism: Microsoft.Extensions.ApiDescription.Server runs `dotnet-getdocument`
+    against the built assembly before Build completes. That tool derives the file
+    name from the project name and has no override, so it writes into an obj-local
+    staging directory and the target below copies it to the stable contract path.
+    Paths are absolute because the tool resolves $(OpenApiDocumentsDirectory)
+    against the MSBuild process working directory, not the project directory.
+  -->
+  <PropertyGroup>
+    <NixGenerateOpenApiContract Condition="'$(NixGenerateOpenApiContract)' == ''">false</NixGenerateOpenApiContract>
+    <OpenApiGenerateDocuments>$(NixGenerateOpenApiContract)</OpenApiGenerateDocuments>
+    <OpenApiGenerateDocumentsOnBuild>$(NixGenerateOpenApiContract)</OpenApiGenerateDocumentsOnBuild>
+    <OpenApiDocumentsDirectory>$(MSBuildProjectDirectory)/obj/openapi/</OpenApiDocumentsDirectory>
+    <NixOpenApiStagedDocument>$(OpenApiDocumentsDirectory)$(MSBuildProjectName).json</NixOpenApiStagedDocument>
+    <NixOpenApiContract>$(MSBuildProjectDirectory)/../../openapi/nix-api.json</NixOpenApiContract>
+  </PropertyGroup>
+
+  <Target Name="PublishNixOpenApiContract"
+          AfterTargets="GenerateOpenApiDocuments"
+          Condition=" '$(OpenApiGenerateDocumentsOnBuild)' == 'true' AND Exists('$(NixOpenApiStagedDocument)') ">
+    <Copy SourceFiles="$(NixOpenApiStagedDocument)"
+          DestinationFiles="$(NixOpenApiContract)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

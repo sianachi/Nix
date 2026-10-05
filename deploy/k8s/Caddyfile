@@ -1,0 +1,47 @@
+# k3s deployment Caddyfile. Loaded into the nix-caddy ConfigMap by deploy/k8s/deploy.sh and
+# mounted into the nix-web pod at /etc/caddy/Caddyfile.
+#
+# Uses service DNS instead of localhost and enables HSTS
+# (only safe because this deployment is HTTPS-only behind the Ingress in deploy/k8s/ingress.yaml).
+#
+# The CSP here must stay in step with the meta tag in apps/web/index.html, including the
+# script hash covering the inline theme script - change one without the other and you have
+# two policies. Provider communication is server-side through Core.
+:8090 {
+	root * /srv/nix/web
+	encode zstd gzip
+	# This stable URL announces each new build to installed clients.
+	header /service-worker.js Cache-Control "no-store"
+
+	# Core keeps its /api prefix - its routes are already under /api/v1.
+	handle /api/* {
+		reverse_proxy nix-api:8080 {
+			flush_interval -1
+		}
+	}
+
+	handle /auth/* {
+		reverse_proxy nix-api:8080
+	}
+
+	# Collab's own routes are /documents/...; the prefix is stripped.
+	# WebSocket upgrades proxy transparently.
+	# This also exposes service routes; Collab's internal-secret check is the boundary.
+	handle_path /collab/* {
+		reverse_proxy nix-collab:8100
+	}
+
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self' {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; media-src 'self' blob: {$NIX_OBJECT_STORE_PUBLIC_ORIGIN}; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+}

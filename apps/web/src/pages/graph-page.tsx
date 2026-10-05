@@ -1,0 +1,217 @@
+import { isNixApiError, items as coreItems, type GraphNode } from '@nix/api-client';
+import { Button, Text } from '@nix/ui';
+import type { ReactElement, ReactNode } from 'react';
+
+import { useApiClient } from '../api/api-client-provider';
+
+import {
+  EmptyPanel,
+  ErrorPanel,
+  LoadingPanel,
+  PartialNotice,
+} from '../components/states/status-panels';
+import { GraphExplorer } from '../graph/graph-explorer';
+import { useItemDialog } from '../items/item-dialog-context';
+import { useWorkspaceGraph } from '../graph/use-workspace-graph';
+import { paneScroller } from '../layout/regions';
+import { notifyItemChildrenChanged } from '../lib/item-children-changed';
+import { publishNotice } from '../lib/notices';
+import { offerReference } from '../lib/pending-reference';
+import { useOpenItem } from '../tabs/use-open-item';
+
+/**
+ * The graph destination: the workspace as items and the references between them.
+ *
+ * **The truncation notice is the part that is not decoration.** Core bounds the response at 2,000
+ * nodes and 4,000 links and reports whether it hit either ceiling. A truncated list looks short and
+ * announces itself; a truncated graph looks like a graph. A reader shown 2,000 of 3,000 items would
+ * conclude two clusters are unconnected, which is a wrong answer rather than a missing one - so
+ * whenever a flag is set this page says so above the drawing, and says which ceiling was hit.
+ *
+ * Opening a node presents the full item in a dialog while the graph stays mounted. Only the
+ * explicit Open as page action changes the workspace destination.
+ */
+/**
+ * The destination's frame: its heading, and whatever state it is in.
+ *
+ * The heading is outside the state fork on purpose. It is the answer to "where am I", which is
+ * true while the graph is loading, true when it failed, and true when the workspace is empty - and
+ * a destination that only names itself once it has data leaves a reader on an untitled page in
+ * exactly the moments they most need to know where they landed.
+ */
+function GraphFrame({ children }: { readonly children: ReactNode }): ReactElement {
+  return (
+    <div className={`${paneScroller} flex flex-col gap-4 p-4`}>
+      <Text variant="h2" as="h1">
+        Graph
+      </Text>
+      {children}
+    </div>
+  );
+}
+
+/** What a node is called in a sentence. The same placeholder the drawing uses. */
+function titleOf(node: GraphNode | undefined): string {
+  return node?.title !== undefined && node.title !== null && node.title.length > 0
+    ? node.title
+    : 'Untitled';
+}
+
+/** Why a move was refused, in the words the sidebar uses for the same refusals. */
+function moveRefusal(reason: unknown): string {
+  if (isNixApiError(reason) && reason.code === 'items.move_would_create_cycle') {
+    return 'An item cannot be moved inside itself.';
+  }
+  if (isNixApiError(reason) && reason.code === 'items.locked') {
+    return 'Unlock the locked item first. Nothing can be moved into or out of it while it is locked.';
+  }
+  if (isNixApiError(reason) && (reason.status === 403 || reason.status === 404)) {
+    return 'You cannot move that item there.';
+  }
+  return 'The move could not be confirmed. Check the workspace before retrying.';
+}
+
+export function GraphPage(): ReactElement {
+  const { status, graph, error, reload, refresh } = useWorkspaceGraph();
+  const { openPreview } = useOpenItem();
+  const openDialog = useItemDialog();
+  const client = useApiClient();
+
+  /**
+   * Moves an item inside another, from a drop the reader has confirmed.
+   *
+   * The graph is read again afterwards rather than patched: a move changes the layout of
+   * everything around it, and the server's answer is the only one that includes what else changed
+   * meanwhile. Undo is offered only when the old parent is known - on a truncated graph a null
+   * parent can mean "its parent was not drawn", and undoing to the workspace root would then be a
+   * second move rather than a reversal.
+   */
+  const move = async (itemId: string, parentId: string, undoing = false): Promise<void> => {
+    if (graph === null) {
+      return;
+    }
+    const node = graph.nodes.find((candidate) => candidate.id === itemId);
+    const destination = graph.nodes.find((candidate) => candidate.id === parentId);
+    const previous = node?.parentId ?? null;
+
+    try {
+      await client.execute(
+        coreItems.moveItem(graph.workspaceId, itemId, { parentId, afterId: null }),
+      );
+    } catch (reason) {
+      publishNotice({ key: `graph-move-refused:${itemId}`, message: moveRefusal(reason) });
+      return;
+    }
+
+    notifyItemChildrenChanged(graph.workspaceId, parentId);
+    notifyItemChildrenChanged(graph.workspaceId, previous);
+    publishNotice({
+      key: `graph-move:${itemId}:${parentId}`,
+      message: `Moved "${titleOf(node)}" inside "${titleOf(destination)}".`,
+      ...(undoing || previous === null
+        ? {}
+        : {
+            action: {
+              label: 'Undo',
+              onAction: () => {
+                void move(itemId, previous, true);
+              },
+            },
+          }),
+    });
+    await refresh();
+  };
+
+  /**
+   * Answers a link drawn from one node to another.
+   *
+   * A reference lives in the source item's body, so it is not written from here. The request is
+   * left for the source's editor and the source is opened; the reader places it. Only a note has a
+   * body that can hold one, so anything else is refused here, before opening something that could
+   * not finish the job.
+   */
+  const link = (sourceId: string, targetId: string): void => {
+    const source = graph?.nodes.find((candidate) => candidate.id === sourceId);
+    const target = graph?.nodes.find((candidate) => candidate.id === targetId);
+    if (source === undefined || target === undefined) {
+      return;
+    }
+
+    if (source.type !== 'note') {
+      publishNotice({
+        key: `graph-link-refused:${sourceId}`,
+        message: `Only a note can hold a reference, and "${titleOf(source)}" is not one. Draw the link from the note instead.`,
+      });
+      return;
+    }
+
+    offerReference({ sourceId, targetId, label: titleOf(target) });
+    (openDialog ?? openPreview)(sourceId);
+  };
+
+  if (status === 'loading') {
+    return (
+      <GraphFrame>
+        <LoadingPanel label="the workspace graph" />
+      </GraphFrame>
+    );
+  }
+
+  if (status === 'error' || graph === null) {
+    return (
+      <GraphFrame>
+        <ErrorPanel
+          title="The graph could not be loaded"
+          detail={error ?? 'Something went wrong reading this workspace.'}
+          action={
+            <Button
+              onClick={() => {
+                void reload();
+              }}
+            >
+              Try again
+            </Button>
+          }
+        />
+      </GraphFrame>
+    );
+  }
+
+  if (graph.nodes.length === 0) {
+    return (
+      <GraphFrame>
+        <EmptyPanel
+          title="Nothing to graph yet"
+          detail="This workspace has no items you can read. Create a note, and it will appear here with anything it links to."
+        />
+      </GraphFrame>
+    );
+  }
+
+  return (
+    <GraphFrame>
+      {graph.nodesTruncated && (
+        <PartialNotice
+          pending={`Showing the first ${String(graph.nodeLimit)} items in this workspace. Some items, and any references to them, are not drawn.`}
+        />
+      )}
+      {graph.linksTruncated && (
+        <PartialNotice
+          pending={`Showing the first ${String(graph.linkLimit)} references. Some connections between the items below are not drawn.`}
+        />
+      )}
+
+      <GraphExplorer
+        workspaceId={graph.workspaceId}
+        onMove={(itemId, parentId) => {
+          void move(itemId, parentId);
+        }}
+        onLink={link}
+        nodes={graph.nodes}
+        links={graph.links}
+        onOpen={openDialog ?? openPreview}
+        partial={graph.nodesTruncated || graph.linksTruncated}
+      />
+    </GraphFrame>
+  );
+}

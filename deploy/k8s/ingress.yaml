@@ -1,0 +1,30 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $DOMAIN.
+#
+# One host, one backend. All path routing happens inside Caddy (deploy/k8s/Caddyfile), which
+# is what keeps the browser's view identical to development. Traefik proxies WebSocket
+# upgrades without extra configuration, so the editor socket at /collab/documents/:id/ws works
+# through this as written - verify with deploy/k8s/verify.sh rather than trusting this comment.
+#
+# Requires cert-manager with a ClusterIssuer named letsencyrpt-prod, or plain HTTP for a first
+# bring-up (drop the tls: block and cert-manager annotation, and drop HSTS from the Caddyfile
+# until the host is HTTPS-only).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nix
+  namespace: nix
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: ["${DOMAIN}"]
+      secretName: nix-tls
+  rules:
+    - host: "${DOMAIN}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: nix-web, port: { number: 8090 } }

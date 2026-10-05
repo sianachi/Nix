@@ -1,0 +1,10 @@
+{
+  "provider": "google",
+  "externalCalendarId": "primary",
+  "direction": "two_way",
+  "cursor": null,
+  "windowStart": "2026-08-31T00:00:00Z",
+  "windowEnd": "2027-10-01T00:00:00Z",
+  "accessToken": "fixture-access-token",
+  "accessTokenExpiresAt": "2099-01-01T00:00:00Z"
+}

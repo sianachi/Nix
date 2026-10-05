@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Nix</title>
+    <link rel="icon" type="image/png" href="/nix-icon.png" />
+    <link rel="apple-touch-icon" href="/nix-icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#f2f2f3" />
+
+    <!--
+      This same-origin policy is the fail-closed fallback for an unprocessed index file. Vite strips
+      the marked tag below and supplies a response header containing the exact configured public
+      object-store origin; production Caddy does the same at runtime. A header is required because
+      a deployment-specific origin cannot safely be represented by a portable static meta tag.
+
+      The script-src hash covers the inline theme script below - its exact content between the
+      script tags. Any change to that script, including whitespace, must recompute the hash
+      (the last regex match, because the tag pair this comment names would otherwise match first):
+
+        python3 -c "import hashlib,base64,re,pathlib; s=pathlib.Path('apps/web/index.html').read_text(); m=re.findall(r'<script>(.*?)</script>', s, re.S)[-1]; print('sha256-'+base64.b64encode(hashlib.sha256(m.encode()).digest()).decode())"
+
+      Three directives are looser than the rest, each for a reason:
+
+      - style-src allows 'unsafe-inline' because inline style *attributes* fall under it, and about
+        ten places carry runtime geometry in one: hour-row heights and timed-item offsets in the
+        calendar, row positions in the sheet grid, pane shares and sidebar width, the caret-anchored
+        slash and reference menus. None of that is expressible as a token - it is measured at
+        runtime - and an inline style carries none of an inline script's risk: it cannot execute.
+        The dev server needs it too, because Vite injects styles as inline <style> elements.
+      - img-src allows http: and https: because item cover images and image properties are
+        arbitrary third-party URLs, and the server's PropertyValidator accepts both schemes. Leaving
+        http: out makes the picture picker lie: the browser blocks the image, onError fires, and the
+        UI reports an address the server just accepted as wrong. It also allows blob: because the
+        file viewer turns an authorized image download into a revocable blob URL. img-src cannot
+        execute anything, which is what makes the loosest directive here the cheapest one.
+      - media-src is its own directive: audio and video do not inherit from img-src, and without it
+        they fall back to default-src 'self', which blocks the signed object-store URL an audio
+        player sets as its src. It admits the app, blob: (the video viewer plays an object URL made
+        from bytes the app already fetched) and, where the serving header supplies it, the
+        configured object-store origin, the same one connect-src names. It is deliberately not
+        https: or any wildcard: media comes from the app and its own file storage, nowhere else.
+      Provider communication is server-side. Application API calls and WebSockets remain
+      same-origin; the serving header admits only the configured object-store origin in addition.
+      No identity-provider origin is admitted to connect-src or frame-src, and provider tokens
+      never enter JavaScript.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'sha256-qzYt63qWJpMm2Kfb4Wr8UDbUtUgweR4Gv4rs133db2w='; style-src 'self' 'unsafe-inline'; img-src 'self' http: https: data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+      data-nix-csp-fallback
+    />
+
+    <!--
+      The chosen ground, applied before the first paint.
+
+      Everything else about theming lives in the token sheet and in src/theme, and this is the one
+      piece that cannot: the application's own code runs after the browser has already painted, so
+      somebody who chose dark on a light machine would see a white page flash first. That flash is
+      not a polish problem - it is the whole screen, on every load.
+
+      Blocking and inline for the same reason: a deferred or external script paints first and
+      corrects afterwards, which is the flash it exists to prevent. It reads the same key and the
+      same values as theme-store.ts, which is the duplication the comment there points back at.
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('nix.theme');
+          if (stored === 'light' || stored === 'dark') {
+            document.documentElement.setAttribute('data-theme', stored);
+          }
+        } catch (error) {
+          // Storage refused - private browsing, or policy. The media query in the token sheet is
+          // still in force, so the page follows the machine rather than failing to load.
+        }
+      })();
+    </script>
+  </head>
+  <!-- Touch editing uses at least the 17px type step to avoid focus-triggered zoom on iOS.
+       Raise only the smaller tokens inside editable controls, preserving larger title and
+       heading sizes, desktop typography, and user-controlled pinch zoom. Body scope also
+       covers dialogs rendered through portals. -->
+  <body
+    class="[@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-2xs:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-xs:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-sm:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-base:var(--text-lg)] [@media(pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-md:var(--text-lg)]"
+  >
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

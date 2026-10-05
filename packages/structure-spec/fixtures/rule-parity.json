@@ -1,0 +1,5790 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "schema-accepts-a-well-formed-schema",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "[estimate] + 1",
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "child_count",
+            "label": "Children",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "count",
+            "source": null
+          },
+          {
+            "key": "total_estimate",
+            "label": "Total estimate",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "sum",
+            "source": "estimate"
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-empty-key",
+      "schema": {
+        "properties": [
+          {
+            "key": "",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-duplicate-key",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "status",
+            "label": "Status again",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-task-semantic-key-mismatch",
+      "schema": {
+        "properties": [
+          {
+            "key": "deadline",
+            "label": "Deadline",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-reserved-title-key",
+      "schema": {
+        "properties": [
+          {
+            "key": "title",
+            "label": "Title",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-select-without-options",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-options-on-a-non-select",
+      "schema": {
+        "properties": [
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": ["a"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-formula-without-an-expression",
+      "schema": {
+        "properties": [
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-stray-formula-expression",
+      "schema": {
+        "properties": [
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": "1 + 1",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-rollup-without-an-aggregate",
+      "schema": {
+        "properties": [
+          {
+            "key": "count",
+            "label": "Count",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-rollup-without-a-source-for-a-non-count-aggregate",
+      "schema": {
+        "properties": [
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "sum",
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-rollup-that-folds-its-own-key",
+      "schema": {
+        "properties": [
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "sum",
+            "source": "total"
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-numeric-rollup-over-a-non-numeric-source",
+      "schema": {
+        "properties": [
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "sum",
+            "source": "notes"
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-boolean-rollup-over-a-non-checkbox-source",
+      "schema": {
+        "properties": [
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "every_child_done",
+            "label": "All done",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "all",
+            "source": "notes"
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-stray-rollup-fields-on-a-non-rollup",
+      "schema": {
+        "properties": [
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "count",
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-required-computed-field",
+      "schema": {
+        "properties": [
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "formula",
+            "options": [],
+            "required": true,
+            "expression": "1 + 1",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-formula-cycle",
+      "schema": {
+        "properties": [
+          {
+            "key": "a",
+            "label": "A",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "[b] + 1",
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "b",
+            "label": "B",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "[a] + 1",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-board-with-no-groupby",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "board",
+          "name": "Board",
+          "kind": "board",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-board-grouped-by-a-non-select",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "board",
+          "name": "Board",
+          "kind": "board",
+          "columns": [],
+          "groupBy": "notes",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-a-calendar-with-no-date",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "calendar",
+          "name": "Calendar",
+          "kind": "calendar",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-timeline-dated-by-a-non-date-shaped-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "timeline",
+          "name": "Timeline",
+          "kind": "timeline",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": "status",
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-a-gallery-covered-by-a-non-picture-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "gallery",
+          "name": "Gallery",
+          "kind": "gallery",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": "notes",
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-a-chart-with-an-invalid-measure",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "chart",
+          "name": "Chart",
+          "kind": "chart",
+          "columns": [],
+          "groupBy": "status",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": "average",
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-chart-that-totals-with-no-measure-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "chart",
+          "name": "Chart",
+          "kind": "chart",
+          "columns": [],
+          "groupBy": "status",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": "sum",
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-chart-that-totals-a-non-numeric-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "chart",
+          "name": "Chart",
+          "kind": "chart",
+          "columns": [],
+          "groupBy": "status",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": "sum",
+          "measureProperty": "notes",
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-a-filter-with-an-unknown-operator",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "query",
+          "name": "Query",
+          "kind": "query",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [
+            {
+              "property": "status",
+              "operator": "greater-than",
+              "value": "Done"
+            }
+          ],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-filter-with-no-value",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "query",
+          "name": "Query",
+          "kind": "query",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": ""
+            }
+          ],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-day-filter-with-a-value-that-is-not-a-day",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "query",
+          "name": "Query",
+          "kind": "query",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [
+            {
+              "property": "due_date",
+              "operator": "on",
+              "value": "tomorrow"
+            }
+          ],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-within-next-out-of-range",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "query",
+          "name": "Query",
+          "kind": "query",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [
+            {
+              "property": "due_date",
+              "operator": "within-next",
+              "value": "400"
+            }
+          ],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-more-than-eight-filters",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "query",
+          "name": "Query",
+          "kind": "query",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 0"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 1"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 2"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 3"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 4"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 5"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 6"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 7"
+            },
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Value 8"
+            }
+          ],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-well-formed-interactive-form",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "equals",
+                        "value": "anything"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "field",
+            "titleFieldBlockId": "b1",
+            "confirmationTitle": "Thanks",
+            "confirmationMessage": "Your response has been recorded."
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-form-with-no-pages",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [],
+            "titleMode": "field",
+            "titleFieldBlockId": "b1",
+            "confirmationTitle": "Thanks",
+            "confirmationMessage": "Your response has been recorded."
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-form-with-an-invalid-title-mode",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "equals",
+                        "value": "anything"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "nonsense",
+            "titleFieldBlockId": "b1",
+            "confirmationTitle": "Thanks",
+            "confirmationMessage": "Your response has been recorded."
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-form-with-duplicate-page-ids",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "equals",
+                        "value": "anything"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "equals",
+                        "value": "anything"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "field",
+            "titleFieldBlockId": "b1",
+            "confirmationTitle": "Thanks",
+            "confirmationMessage": "Your response has been recorded."
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-form-with-duplicate-block-ids",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-field-block-with-no-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": null,
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-an-unknown-form-block-kind",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "table",
+                    "propertyKey": null,
+                    "text": "x",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-condition-that-does-not-reference-an-earlier-field",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b2",
+                        "operator": "equals",
+                        "value": "x"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-condition-with-an-unknown-operator",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "greater_than",
+                        "value": "x"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-condition-missing-its-required-value",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "equals",
+                        "value": null
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-a-checked-condition-carrying-a-value",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "checked",
+                        "value": "yes"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-an-invalid-identity-role",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": "phone",
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-duplicate-identity-role",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": "email",
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": "email",
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-field-block-naming-a-computed-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "1 + 1",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "total",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "generated",
+            "titleFieldBlockId": null,
+            "confirmationTitle": "",
+            "confirmationMessage": ""
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "client-only"
+    },
+    {
+      "id": "views-refuses-a-title-mode-field-with-no-matching-block",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "form",
+          "name": "Form",
+          "kind": "interactive_form",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Your response",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "notes",
+                    "text": "",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "status",
+                    "text": "",
+                    "help": null,
+                    "required": false,
+                    "identityRole": null,
+                    "visibleWhen": [
+                      {
+                        "fieldBlockId": "b1",
+                        "operator": "equals",
+                        "value": "anything"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "titleMode": "field",
+            "titleFieldBlockId": "nonexistent",
+            "confirmationTitle": "Thanks",
+            "confirmationMessage": "Your response has been recorded."
+          }
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-an-inherited-assignee-key-mismatch",
+      "schema": {
+        "properties": [
+          {
+            "key": "owner_id",
+            "label": "Owner",
+            "type": "assignee",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-an-expression-over-the-length-limit",
+      "schema": {
+        "properties": [
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-accepts-a-blank-expression-on-a-non-formula-field",
+      "schema": {
+        "properties": [
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": "   ",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-blank-source-on-a-summing-rollup",
+      "schema": {
+        "properties": [
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "total",
+            "label": "Total",
+            "type": "rollup",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": "sum",
+            "source": "   "
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "schema-refuses-a-cycle-through-an-unparseable-formula",
+      "schema": {
+        "properties": [
+          {
+            "key": "a",
+            "label": "A",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "[b] +",
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "b",
+            "label": "B",
+            "type": "formula",
+            "options": [],
+            "required": false,
+            "expression": "[a] +",
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "All",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "refused",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-board-grouped-by-a-select",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "board",
+          "name": "Board",
+          "kind": "board",
+          "columns": [],
+          "groupBy": "status",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-calendar-dated-by-a-date-shaped-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "calendar",
+          "name": "Calendar",
+          "kind": "calendar",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": "due_date",
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-chart-that-sums-a-number-property",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "chart",
+          "name": "Chart",
+          "kind": "chart",
+          "columns": [],
+          "groupBy": "status",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": "sum",
+          "measureProperty": "estimate",
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-stray-measure-on-a-non-chart-view",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": "average",
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-day-filter-on-an-impossible-calendar-day",
+      "schema": {
+        "properties": [
+          {
+            "key": "status",
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Done"],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "notes",
+            "label": "Notes",
+            "type": "text",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "due_date",
+            "label": "Ship by",
+            "type": "due_date",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "cover",
+            "label": "Cover",
+            "type": "image",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          },
+          {
+            "key": "estimate",
+            "label": "Estimate",
+            "type": "estimate",
+            "options": [],
+            "required": false,
+            "expression": null,
+            "aggregate": null,
+            "source": null
+          }
+        ],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "query",
+          "name": "Query",
+          "kind": "query",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [
+            {
+              "property": "due_date",
+              "operator": "on",
+              "value": "2026-02-30"
+            }
+          ],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-more-than-twelve-views",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-2",
+          "name": "List-2",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-3",
+          "name": "List-3",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-4",
+          "name": "List-4",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-5",
+          "name": "List-5",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-6",
+          "name": "List-6",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-7",
+          "name": "List-7",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-8",
+          "name": "List-8",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-9",
+          "name": "List-9",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-10",
+          "name": "List-10",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-11",
+          "name": "List-11",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-12",
+          "name": "List-12",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-13",
+          "name": "List-13",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-twelve-views",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-2",
+          "name": "List-2",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-3",
+          "name": "List-3",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-4",
+          "name": "List-4",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-5",
+          "name": "List-5",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-6",
+          "name": "List-6",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-7",
+          "name": "List-7",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-8",
+          "name": "List-8",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-9",
+          "name": "List-9",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-10",
+          "name": "List-10",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-11",
+          "name": "List-11",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-12",
+          "name": "List-12",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-duplicate-view-id",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list",
+          "name": "List again",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-distinct-view-ids",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "list-2",
+          "name": "List-2",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-an-empty-view-id",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "",
+          "name": "",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-non-empty-view-id",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-the-reserved-document-view-id",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "document",
+          "name": "Document",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-non-reserved-view-id",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "notes-list",
+          "name": "Notes-list",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-an-invalid-card-size",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": "huge",
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-valid-card-size",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": "large",
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-an-invalid-layout",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": "table",
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-valid-layout",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": "grid",
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-default-view-that-does-not-exist",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": "nonexistent",
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-default-view-that-exists",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": "list",
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-companion-view-with-no-placement",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "companionViewId": "list-2"
+        },
+        {
+          "id": "list-2",
+          "name": "List-2",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-well-formed-companion-view",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "list",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "companionViewId": "list-2",
+          "companionPlacement": "beside"
+        },
+        {
+          "id": "list-2",
+          "name": "List-2",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-refuses-a-habit-widget-with-no-identifier",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "habits",
+          "name": "Habits",
+          "kind": "habit_tracker",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "habitWidgets": [
+            {
+              "id": "",
+              "kind": "completion",
+              "habitId": "11111111-1111-1111-1111-111111111111",
+              "from": "2026-01-01",
+              "to": "2026-01-02"
+            }
+          ]
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "refused"
+      },
+      "viewsScope": "parity"
+    },
+    {
+      "id": "views-accepts-a-well-formed-habit-widget",
+      "schema": {
+        "properties": [],
+        "inherit": true
+      },
+      "views": [
+        {
+          "id": "habits",
+          "name": "Habits",
+          "kind": "habit_tracker",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "layout": null,
+          "filters": [],
+          "measure": null,
+          "measureProperty": null,
+          "interactiveForm": null,
+          "habitWidgets": [
+            {
+              "id": "w1",
+              "kind": "completion",
+              "habitId": "11111111-1111-1111-1111-111111111111",
+              "from": "2026-01-01",
+              "to": "2026-01-02"
+            }
+          ]
+        }
+      ],
+      "default": null,
+      "expect": {
+        "schema": "ok",
+        "views": "ok"
+      },
+      "viewsScope": "parity"
+    }
+  ]
+}

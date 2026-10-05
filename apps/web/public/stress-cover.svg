@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 500" role="img" aria-label="Geometric stress-test cover">
+  <rect width="800" height="500" fill="#263238"/>
+  <path d="M0 390 210 180l145 145L515 90l285 300v110H0Z" fill="#7ea6a1"/>
+  <circle cx="650" cy="105" r="48" fill="#d7b66f"/>
+</svg>

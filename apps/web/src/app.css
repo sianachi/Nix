@@ -1,0 +1,46 @@
+/*
+ * The one and only stylesheet in @nix/web.
+ *
+ * Repository rule (engineering plan section 5.2): the only .css files that
+ * may exist are this Tailwind entry, one per app, and the design token
+ * sheet. No CSS modules, no styled-components, no inline style
+ * attributes, no @apply. Everything else is utility classes in TSX.
+ *
+ * Order matters. `tailwindcss` must come first so its @theme defaults are
+ * registered; the token sheet then clears the default color, radius and
+ * shadow namespaces and installs the Industry values in their place.
+ */
+@import 'tailwindcss';
+@import '@nix/design-tokens';
+
+/*
+ * The component library is compiled here, not discovered.
+ *
+ * Tailwind v4 detects content automatically by scanning the Vite root and
+ * honouring .gitignore, which means it never looks inside node_modules. @nix/ui
+ * resolves through a pnpm workspace symlink that lands there, so every class
+ * used only inside packages/ui - control heights, button padding, the table
+ * border model, the heading face's tracking - was absent from this stylesheet
+ * while looking perfectly correct in the source. Storybook has always declared
+ * this (packages/ui/.storybook/tailwind.css), which is why the library rendered
+ * one way there and another way here.
+ *
+ * app.css.test.ts compiles this file and fails if the library's own classes
+ * stop arriving.
+ */
+@source '../../../packages/ui/src';
+
+/*
+ * Fonts are self-hosted, served from our own origin, and only the weights the
+ * Industry sheet actually names are imported. No external font CDN: Nix is
+ * deployed self-hosted and air-gapped, enterprise networks block third-party
+ * origins, and a font CDN would send every reader's IP to a third party -
+ * awkward for a product whose pitch is tenant isolation and auditability.
+ *
+ * Nunito Sans 400/600/700 - one family for headings and body, told apart by
+ * weight rather than by a second face. Adding a weight here means adding it to
+ * the token sheet's intent too, not just importing more bytes.
+ */
+@import '@fontsource/nunito-sans/400.css';
+@import '@fontsource/nunito-sans/600.css';
+@import '@fontsource/nunito-sans/700.css';

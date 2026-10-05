@@ -1,0 +1,167 @@
+import { Button, Icon, Segmented, Text, cn, focusRing } from '@nix/ui';
+import { PanelRightClose } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
+
+import { ErrorPanel } from '../components/states/status-panels';
+import { settingsPanelWidth } from '../layout/regions';
+import { BacklinksPane } from '../links/backlinks-panel';
+import { PropertyPanel } from '../properties/property-panel';
+import type { ItemProperties } from '../properties/use-item-properties';
+import type { ContainerData } from '../views/core/use-container';
+import { SchemaEditor } from '../views/core/schema-editor';
+import { ViewEditor } from '../views/core/view-editor';
+
+/**
+ * One panel, four panes: what this item *is*, what its children may carry, how they are shown, and
+ * what elsewhere points at it.
+ *
+ * **The rename is the point.** Two surfaces were called Properties - the values on this item, and
+ * the schema it gives its children - and they are different questions with the same answer only by
+ * accident. "Details" is what this one holds. "Fields" is what the things inside it may hold.
+ *
+ * It replaces two ghost buttons that opened modals. A dialog is the wrong shape for configuring a
+ * view: it covers the view you are configuring, so every change means closing it to look and
+ * reopening it to continue.
+ */
+
+export type Pane = 'details' | 'fields' | 'views' | 'links';
+
+const PANES = [
+  { value: 'details', label: 'Details' },
+  { value: 'fields', label: 'Fields' },
+  { value: 'views', label: 'Views' },
+  // Last, and not first: what points *at* this item is a question people ask after the ones about
+  // what it is. It sits here rather than in a surface of its own because it is another way of
+  // configuring nothing and reading something, which is what this panel already is.
+  { value: 'links', label: 'Links' },
+] as const;
+
+export interface ItemPanelProps {
+  readonly container: ContainerData;
+
+  /** This item's own property values, from `useItemProperties`. */
+  readonly details: ItemProperties;
+
+  readonly onClose: () => void;
+  readonly overlay?: boolean;
+}
+
+export function ItemPanel({
+  container,
+  details,
+  onClose,
+  overlay = false,
+}: ItemPanelProps): ReactNode {
+  const [pane, setPane] = useState<Pane>('details');
+
+  return (
+    // The panel clips and the pane content inside it scrolls, rather than the panel itself
+    // scrolling. With the scroller on the aside, the pane switcher and the only control that closes
+    // the panel scrolled away with the fields - so on a container with a long schema you could edit
+    // your way to a position with no visible way back. The workspace tree is built the same way,
+    // for the same reason.
+    <aside
+      aria-label="Item settings"
+      className={cn(
+        'flex shrink-0 flex-col overflow-hidden bg-surface',
+        settingsPanelWidth,
+        overlay && 'min-h-0 w-full flex-1 shrink',
+      )}
+    >
+      <div className="flex shrink-0 items-center gap-2 px-3 py-3">
+        <Segmented
+          label="What to configure"
+          options={PANES}
+          value={pane}
+          onChange={setPane}
+          className="min-w-0 flex-1"
+        />
+
+        <button
+          type="button"
+          aria-label="Hide the settings panel"
+          onClick={onClose}
+          className={`flex size-7 max-xl:min-h-11 max-xl:min-w-11 shrink-0 items-center justify-center rounded-sm text-muted hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+        >
+          <Icon icon={PanelRightClose} size="sm" />
+        </button>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
+        {pane === 'details' ? (
+          <DetailsPane container={container} details={details} />
+        ) : pane === 'links' ? (
+          <BacklinksPane itemId={details.item?.id ?? null} />
+        ) : pane === 'fields' ? (
+          // Both editors render inline now rather than as modals. `open` stays in their contract
+          // because it is what re-seeds their draft, and a pane that is not showing is closed as
+          // far as they are concerned.
+          <SchemaEditor container={container} open onClose={onClose} inline />
+        ) : (
+          <ViewEditor container={container} open onClose={onClose} inline />
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/**
+ * This item's own values.
+ *
+ * Says nothing rather than apologising when there is no schema: a panel reading "no properties" on
+ * every note would be a permanent notice about a situation that is normal.
+ */
+function DetailsPane({
+  container,
+  details,
+}: {
+  readonly container: ContainerData;
+  readonly details: ItemPanelProps['details'];
+}): ReactNode {
+  const properties = container.schema?.properties ?? [];
+
+  if (details.error !== null) {
+    return (
+      <ErrorPanel
+        title="This item's details could not be loaded"
+        detail={details.error}
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              details.retry();
+            }}
+          >
+            Retry
+          </Button>
+        }
+      />
+    );
+  }
+
+  if (details.item === null) {
+    return (
+      <Text variant="note" tone="muted">
+        Loading this item&rsquo;s details…
+      </Text>
+    );
+  }
+
+  if (!details.loading && properties.length === 0) {
+    return (
+      <Text variant="note" tone="muted">
+        Nothing carries properties here yet. Add one under Fields and it appears on every item
+        inside this one.
+      </Text>
+    );
+  }
+
+  return (
+    <PropertyPanel
+      item={details.item}
+      properties={properties}
+      loading={details.loading}
+      onChange={details.write}
+    />
+  );
+}

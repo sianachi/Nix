@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The schema is defined with TipTap node specs, whose parseHTML and renderHTML
+    // descriptors are typed against DOM interfaces. Nothing here touches a document
+    // at runtime - the collaboration service builds the same schema in Node - but
+    // the types have to resolve.
+    "lib": ["ES2023", "DOM"],
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "vitest.config.ts"]
+}

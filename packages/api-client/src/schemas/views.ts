@@ -1,0 +1,73 @@
+/**
+ * A container's views, as `GET /items/{id}/views` returns them — the summary a caller needs to
+ * decide what to open.
+ *
+ * **A summary on purpose, not the whole `ViewResponse`.** A view's full configuration — its columns,
+ * grouping, filters, form — is what `query` runs, not what a caller listing a container's views
+ * reads; so this parses each view down to its identity (id, name, kind) and the two container-level
+ * facts (which views cannot currently render, and which one opens by default). The `satisfies` ties
+ * below are to a `Pick` of the generated contract, so a rename of any field we *do* read fails this
+ * package's build, while the fields we deliberately drop cost nothing to carry.
+ */
+
+import { z } from 'zod';
+import type { components } from '../generated/api.js';
+
+export const viewSummarySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+});
+
+export type ViewSummary = z.infer<typeof viewSummarySchema>;
+
+export const containerViewsSchema = z.object({
+  views: z.array(viewSummarySchema),
+
+  /** Views whose configured property is gone or no longer fits, so they cannot draw. */
+  unrenderable: z.array(z.string()),
+
+  /** What opens: a view id, or `document` for the item's own body. */
+  default: z.string(),
+
+  /**
+   * Whether the item's own document tab is left out of its switcher. A hidden tab, not a protected
+   * body: nothing about who can read the item changes. Defaulted so an older server, which never
+   * sends it, still parses as "shown".
+   */
+  hideDocument: z.boolean().default(false),
+});
+
+export type ContainerViews = z.infer<typeof containerViewsSchema>;
+
+/** The configuration fields needed when a caller must write through a view. */
+type ViewConfigurationContract = Pick<
+  components['schemas']['ViewResponse'],
+  'id' | 'name' | 'kind' | 'dateProperty'
+>;
+const viewConfigurationSchema = z.looseObject({
+  id: z.string(),
+  name: z.string(),
+  kind: z.string(),
+  dateProperty: z.string().nullable(),
+}) satisfies z.ZodType<ViewConfigurationContract>;
+
+export const containerViewConfigurationsSchema = z.object({
+  views: z.array(viewConfigurationSchema),
+  unrenderable: z.array(z.string()),
+  default: z.string(),
+  hideDocument: z.boolean().default(false),
+});
+
+export type ContainerViewConfigurations = z.infer<typeof containerViewConfigurationsSchema>;
+
+type ViewSummaryContract = Pick<components['schemas']['ViewResponse'], 'id' | 'name' | 'kind'>;
+const _viewContract = viewSummarySchema satisfies z.ZodType<ViewSummaryContract>;
+void _viewContract;
+
+type ContainerViewsSummaryContract = Pick<
+  components['schemas']['ContainerViewsResponse'],
+  'unrenderable' | 'default' | 'hideDocument'
+> & { views: ViewSummaryContract[] };
+const _containerContract = containerViewsSchema satisfies z.ZodType<ContainerViewsSummaryContract>;
+void _containerContract;

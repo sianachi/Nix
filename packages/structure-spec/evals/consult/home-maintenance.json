@@ -1,0 +1,33 @@
+{
+  "id": "home-maintenance",
+  "problem": "I want a place to track maintenance jobs around my home.",
+  "answers": [
+    {
+      "pattern": "repeat|routine",
+      "reply": "Some tasks recur monthly or yearly."
+    },
+    {
+      "pattern": "room|location",
+      "reply": "Group work by room."
+    },
+    {
+      "pattern": "date|due",
+      "reply": "I want due dates."
+    }
+  ],
+  "fallbackReply": "Please keep the design simple and ask only what you need to know.",
+  "expectations": {
+    "mustHave": [
+      {
+        "kind": "recurrence"
+      },
+      {
+        "kind": "fieldKey",
+        "key": "due_date"
+      }
+    ],
+    "mustNot": [],
+    "maxItems": 16,
+    "preferComputed": []
+  }
+}

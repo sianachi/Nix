@@ -1,0 +1,16 @@
+{
+  "name": "@nix/template-catalog",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node ./src/build-catalog.mjs",
+    "pretest": "pnpm run build",
+    "test": "node --test ./src/catalog.test.mjs"
+  },
+  "dependencies": {
+    "@nix/editor-schema": "workspace:*",
+    "@nix/export": "workspace:*",
+    "fflate": "^0.8.2"
+  }
+}

@@ -1,0 +1,917 @@
+import { files as fileResources } from '@nix/api-client';
+import { Button, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { ImagePlus } from 'lucide-react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
+
+import { useApiClient } from '../../api/api-client-provider';
+import { PartialNotice } from '../../components/states/status-panels';
+import { mediaTypeForFile } from '../../lib/file-kind';
+import { fileImageReference, isDisplayableImageValue } from '../../properties/image-value';
+import { FileThumbnail } from '../../thumbnails';
+import { useWorkspace } from '../../workspaces/workspace-context';
+import {
+  readPropertyText,
+  type Item,
+  type PropertyDefinition,
+  type PropertyValue,
+  type View,
+} from '../core/container-model';
+import { CoverImage } from './cover-image';
+import { CoverPickerDialog } from './cover-picker-dialog';
+import { CreateItemControl } from '../core/create-item-control';
+import { useItemContextActions } from '../core/use-item-context-actions';
+import { propertyTypeLabel } from '../core/property-types';
+import type { ContainerData } from '../core/use-container';
+import type { ViewRendererProps } from '../core/view-kinds';
+import { drawable, useViewChrome } from '../core/view-chrome';
+import { useViewState } from '../core/view-state';
+import { useVirtualWindow } from '../core/use-virtual-window';
+import { ListCell } from '../list/list-cell';
+
+const VIRTUALIZATION_THRESHOLD = 100;
+const GALLERY_ROW_GAP = 12;
+
+/**
+ * The gallery: a container's children as a grid of cards, each optionally showing a cover picture.
+ *
+ * **The cover is not a requirement, and that is the decision this whole file is shaped around.** A
+ * board with no grouping property has no columns, so it says so instead of drawing; a calendar with
+ * no date property has nowhere to put anything. A gallery with no cover property is a grid of
+ * titled cards - readable, useful, and what most galleries are on the day somebody makes one. So
+ * this view is never undrawable: every path below ends in every item being on screen, and the four
+ * things that can be wrong with a cover are said *on* or *above* the cards rather than instead of
+ * them.
+ *
+ * **Four cases, four different sentences**, because collapsing any two of them tells somebody
+ * something untrue:
+ *
+ *   - The view names no cover property. Cards are titles and properties, and there is no picture
+ *     region at all. Not a grey box: a placeholder is a claim that something is loading.
+ *   - A cover is configured and this item has no value. The frame says "No cover" in words. Not an
+ *     empty box, which is indistinguishable from a failed load and from a white picture.
+ *   - A cover is configured, the item has one, and it will not load. The frame says so, names the
+ *     property to correct, and keeps the address readable. It must not fall back to the case above,
+ *     which would claim the item has no cover when what it has is a broken one - and would send
+ *     somebody to re-enter a URL that is already correct.
+ *   - The cover property was deleted or retyped. Every card draws coverless and a notice above the
+ *     grid names the property. The items are the container's; the property was somebody else's
+ *     edit, and losing sight of the items over it would be the worst answer available.
+ *
+ * **A file item's thumbnail is one more source for the picture region, and the lowest.** Where a
+ * card would otherwise have no cover - none configured, the property lost, or no value on this
+ * item - a file card draws its own thumbnail (the worker's JPEG for images, cover art and EPUBs),
+ * or a glyph for its kind where it has none, in the same fixed frame. A configured cover with a
+ * value is never displaced, broken or not. The gallery holds no file records, so the thumbnail is
+ * asked for lazily, only for cards that are on screen and only for file items whose name says they
+ * could have one; a miss is an answer and not an error. Non-file items make no request.
+ * PDFs are not drawn here: their first page is rendered in the browser from the whole file, and
+ * without a byte length the gallery cannot tell a page from a book.
+ *
+ * **Two more that the four-way telling misses, and both draw an empty box if you let them:**
+ *
+ *   - *Still loading.* Every cover below the fold is in this state on first paint, because they are
+ *     lazy. An unframed `img` with nothing in it yet is precisely the empty box the second case
+ *     forbids, so the picture region is **always** a drawn frame and the picture fills it - the
+ *     geometry is identical in all states and never changes as covers resolve.
+ *   - *A value that is not a fetchable address.* Retyping a text property to Picture does not
+ *     revalidate what is already stored, so `cover: "draft notes"` is reachable without the server
+ *     ever having seen it. Handed to an `img` it resolves against this origin, fetches the
+ *     application shell, and reports as a failed load - a request fired at our own server, per
+ *     card, for something nobody attempted to load. It gets its own sentence instead.
+ */
+
+/**
+ * The sizes a card can be drawn at, in the order the editor offers them.
+ *
+ * **One tuple, and everything else on this axis is derived from it** - the union below, the two
+ * class tables, the resolver's accepted tokens, and the editor's `<Segmented>` options through
+ * `view-kinds.tsx`. The vocabulary used to be written out four times with nothing tying the copies
+ * together, so a fourth size added to the editor's options compiled clean and drew as medium.
+ * Adding one now is this line plus the two tables, and every other site follows or fails to
+ * compile.
+ *
+ * The only copy left outside TypeScript is the server's `GalleryCardSizes`, which the OpenAPI
+ * contract check covers.
+ */
+export const CARD_SIZES = ['small', 'medium', 'large'] as const;
+
+/** The wire tokens; anything else draws as {@link DEFAULT_CARD_SIZE}. */
+export type CardSize = (typeof CARD_SIZES)[number];
+
+/**
+ * What a gallery that has never been asked draws at.
+ *
+ * Named once because two places need the same answer for different reasons: this file resolves a
+ * null or unrecognised token to it, and the editor marks it current so the control describes what
+ * is on screen rather than proposing a change.
+ */
+export const DEFAULT_CARD_SIZE: CardSize = 'medium';
+
+/**
+ * The grid each size lays out, as one whole literal per size.
+ *
+ * Full class strings rather than assembled ones, because Tailwind only generates what it can read
+ * in the source text - a computed `grid-cols-${n}` is a class that does not exist at runtime.
+ * Medium is verbatim what this grid was before sizes existed, so a stored gallery that has never
+ * been asked keeps looking exactly as it always has.
+ */
+const CARD_SIZE_GRID: Record<CardSize, string> = {
+  small: 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
+  medium: 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
+  large: 'grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3',
+};
+
+/**
+ * The shape of the picture region at each size.
+ *
+ * Part of the size, not left to the grid: a small card keeping a 16:9 cover would be a sliver of
+ * letterbox nobody can read a picture in, so the denser the columns the squarer the frame. Medium
+ * keeps `aspect-video`, which is what every cover drew at before sizes existed.
+ */
+const CARD_SIZE_COVER: Record<CardSize, string> = {
+  small: 'aspect-square',
+  medium: 'aspect-video',
+  large: 'aspect-4/3',
+};
+
+/**
+ * Which size to draw, given what the view stores.
+ *
+ * Null is the ordinary state - every gallery stored before the field existed - and an unrecognised
+ * token is a newer server's word this build has no classes for. Both draw as medium, because a
+ * fallback that keeps every card on screen at the size galleries have always been is honest, and
+ * failing the render over a cosmetic token would not be.
+ */
+function resolveCardSize(stored: string | null): CardSize {
+  // Read off the tuple rather than a hand-written literal check, so a size added there is
+  // recognised here without a second edit - and so the resolver can never fall behind the classes.
+  return CARD_SIZES.find((size) => size === stored) ?? DEFAULT_CARD_SIZE;
+}
+
+export function GalleryView(props: ViewRendererProps): ReactNode {
+  const { container, view, onOpen } = props;
+  const viewState = useViewState();
+  const client = useApiClient();
+  const { workspaceId } = useWorkspace();
+
+  const cover = resolveCover(container, view);
+  const size = resolveCardSize(view.cardSize);
+
+  // Which card's "Set cover" dialog is open, if any - one dialog shared by every card rather than
+  // one per card, since a gallery can hold hundreds of them and only one is ever in front of
+  // somebody at a time.
+  const [coverItemId, setCoverItemId] = useState<string | null>(null);
+
+  /**
+   * The property this gallery's covers write to, making one if none exists yet.
+   *
+   * **The whole point of the corner button on an unconfigured gallery.** Before this, a cover
+   * property had to be declared through the schema editor and then chosen in the view's own
+   * settings before a single picture could go anywhere - two dialogs before the one that matters.
+   * The first card somebody sets a cover from does both in one step, the same way choosing a date
+   * property on an empty board makes the board's grouping property if none is declared.
+   *
+   * Returns the property's key, or the reason either write was refused - honestly: a property
+   * that was declared but never made it into `coverProperty` is not a silent partial success, it
+   * is a refusal that still names what broke.
+   */
+  async function ensureCoverProperty(): Promise<
+    { readonly key: string } | { readonly error: string }
+  > {
+    if (cover.kind === 'ready') return { key: cover.property.key };
+
+    const declared = container.schema?.declared ?? [];
+    const used = new Set(declared.map((property) => property.key));
+    let key = 'cover';
+    for (let suffix = 2; used.has(key); suffix += 1) key = `cover_${String(suffix)}`;
+
+    const schemaRefusal = await container.setSchema({
+      properties: [
+        ...declared,
+        { key, label: 'Cover', type: 'image', options: [], required: false },
+      ],
+      inherit: container.schema?.inherit ?? true,
+    });
+    if (schemaRefusal !== null) return { error: schemaRefusal };
+
+    const nextViews = (container.views?.views ?? []).map((candidate) =>
+      candidate.id === view.id ? { ...candidate, coverProperty: key } : candidate,
+    );
+    const viewsRefusal = await container.setViews(nextViews);
+    if (viewsRefusal !== null) return { error: viewsRefusal };
+
+    return { key };
+  }
+
+  async function uploadCoverFile(itemId: string, file: File): Promise<void> {
+    const ensured = await ensureCoverProperty();
+    if ('error' in ensured) throw new Error(ensured.error);
+
+    const upload = await client.execute(
+      fileResources.beginUpload({
+        workspaceId,
+        parentId: itemId,
+        fileName: file.name,
+        mediaType: mediaTypeForFile(file),
+        byteLength: file.size,
+        idempotencyKey: `web-gallery-cover:${crypto.randomUUID()}`,
+      }),
+    );
+    const uploaded = await fileResources.uploadAndCompleteFile(client, upload, file);
+    const refusal = await container.setProperties(itemId, {
+      [ensured.key]: fileImageReference(uploaded.itemId),
+    });
+    if (refusal !== null) throw new Error(refusal);
+  }
+
+  async function setCoverAddress(itemId: string, address: string): Promise<void> {
+    const ensured = await ensureCoverProperty();
+    if ('error' in ensured) throw new Error(ensured.error);
+
+    const refusal = await container.setProperties(itemId, { [ensured.key]: address });
+    if (refusal !== null) throw new Error(refusal);
+  }
+
+  async function removeCover(itemId: string): Promise<void> {
+    // Nothing to clear when there was never a cover property to clear it from.
+    if (cover.kind !== 'ready') return;
+
+    const refusal = await container.setProperties(itemId, { [cover.property.key]: null });
+    if (refusal !== null) throw new Error(refusal);
+  }
+
+  const chrome = useViewChrome({
+    container,
+    viewState,
+    subject: 'this gallery',
+    // Always drawable, and this is the one line that says so. A gallery has cards whatever the
+    // schema is doing; see the header. Note that Core never reports a gallery in `unrenderable`
+    // either - the kind carries no requirement server-side - so there is no verdict to reconcile
+    // with, unlike the board.
+    drawable: drawable(cover),
+    emptyTitle: 'Nothing in here yet',
+    emptyDetail: 'Items added to this one appear here as cards.',
+    emptyAction: <CreateItemControl label="Add the first item" onCreate={container.create} />,
+    filtered: (total) => ({
+      title: 'No items match the filters',
+      detail: `This holds ${countOf(total, 'item')}. The filters in the address are hiding ${total === 1 ? 'it' : 'all of them'}, so the gallery is empty by request rather than because there is nothing here.`,
+    }),
+    savedRules: view.filters,
+    view,
+    sortBy: viewState.sortBy ?? view.sortBy,
+    descending:
+      viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',
+  });
+
+  if (chrome.kind === 'chrome') {
+    return chrome.node;
+  }
+
+  const resolved = chrome.drawable;
+
+  // The same rule the board's card faces use: the view's `columns` are the properties worth showing
+  // under a title. The cover is not one of them - it is the picture - and neither is the title,
+  // which the card already leads with.
+  //
+  // Read off the *view* rather than off the resolved cover, so a property that has been retyped
+  // away from a picture stays excluded. It is text now, so listing it would be defensible and
+  // would put a wall of raw URLs under the titles - directly against what the notice above the
+  // grid is saying, which is that nothing has been lost. Somebody chose it as the cover, not as a
+  // column, and undoing that choice for them is not this view's decision to make.
+  const secondary = view.columns.filter((key) => key !== view.coverProperty && key !== 'title');
+  const schema = container.schema?.properties ?? [];
+  const coverItem =
+    coverItemId === null ? null : (chrome.items.find((item) => item.id === coverItemId) ?? null);
+
+  return (
+    <div className="flex min-h-0 flex-col gap-3">
+      {chrome.notice}
+
+      {/* Above the grid rather than repeated on every card. The property is gone once, not once per
+          item, and a notice on forty cards would say one fact forty times. */}
+      {resolved.kind === 'missing' || resolved.kind === 'wrongType' ? (
+        <PartialNotice pending={describeLostCover(resolved)} />
+      ) : null}
+
+      {/* `role="list"` is not redundant. Tailwind's preflight sets `list-style: none` on every
+          `ul`, and WebKit drops the list and listitem roles when it sees that - so on Safari with
+          VoiceOver this grid would stop announcing "list, 24 items" and become an undifferentiated
+          run of controls. That announcement is the whole of what this view promises: every item is
+          still here. jsdom does not reproduce the stripping, so the tests below cannot catch it and
+          this attribute is what keeps the promise on the platform where it breaks.
+
+          Named after the view, so a switcher tab and the region it opens agree on what they are. */}
+      <GalleryGrid
+        items={chrome.items}
+        label={view.name}
+        cover={resolved}
+        size={size}
+        secondary={secondary}
+        schema={schema}
+        onOpen={onOpen}
+        onWrite={(itemId, propertyKey, value) =>
+          container.setProperties(itemId, { [propertyKey]: value })
+        }
+        onRequestCover={(itemId) => {
+          setCoverItemId(itemId);
+        }}
+      />
+
+      <CreateItemControl
+        label="Add an item"
+        onCreate={container.create}
+        className="mt-1 self-start"
+      />
+
+      {coverItem === null ? null : (
+        <CoverPickerDialog
+          itemTitle={coverItem.title}
+          hasCover={
+            cover.kind === 'ready' && readPropertyText(coverItem, cover.property.key).length > 0
+          }
+          canUpload
+          onClose={() => {
+            setCoverItemId(null);
+          }}
+          onUpload={(file) => uploadCoverFile(coverItem.id, file)}
+          onSetAddress={(address) => setCoverAddress(coverItem.id, address)}
+          onRemove={() => removeCover(coverItem.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+interface GalleryGridProps {
+  readonly items: readonly Item[];
+  readonly label: string;
+  readonly cover: Cover;
+  readonly size: CardSize;
+  readonly secondary: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly onOpen: (itemId: string) => void;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
+  readonly onRequestCover: (itemId: string) => void;
+}
+
+function GalleryGrid(props: GalleryGridProps): ReactNode {
+  const { items, label, cover, size, secondary, schema, onOpen, onWrite, onRequestCover } = props;
+  const [failedCovers, setFailedCovers] = useState<ReadonlySet<string>>(() => new Set());
+
+  const card = (item: Item, index: number, virtualIndex?: number): ReactNode => {
+    const src = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
+    const failureKey = `${item.id}\u0000${src}`;
+    return (
+      <GalleryCard
+        key={item.id}
+        item={item}
+        cover={cover}
+        size={size}
+        secondary={secondary}
+        schema={schema}
+        onOpen={onOpen}
+        onWrite={onWrite}
+        coverFailed={failedCovers.has(failureKey)}
+        onCoverFailure={() => {
+          setFailedCovers((current) => new Set(current).add(failureKey));
+        }}
+        onRequestCover={() => {
+          onRequestCover(item.id);
+        }}
+        position={index + 1}
+        setSize={items.length}
+        {...(virtualIndex === undefined ? {} : { virtualIndex })}
+      />
+    );
+  };
+
+  if (items.length <= VIRTUALIZATION_THRESHOLD) {
+    return (
+      // eslint-disable-next-line jsx-a11y/no-redundant-roles -- Tailwind removes the list style, and with it this implicit role in WebKit.
+      <ul role="list" aria-label={label} className={CARD_SIZE_GRID[size]}>
+        {items.map((item, index) => card(item, index))}
+      </ul>
+    );
+  }
+
+  return <VirtualGalleryGrid {...props} renderCard={card} />;
+}
+
+function VirtualGalleryGrid(
+  props: GalleryGridProps & {
+    readonly renderCard: (item: Item, index: number, virtualIndex: number) => ReactNode;
+  },
+): ReactNode {
+  const { items, label, size, renderCard } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const viewportWidth = useViewportWidth();
+  const columns = galleryColumnCount(size, viewportWidth);
+  const rowCount = Math.ceil(items.length / columns);
+  // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
+  const keys = useMemo(
+    () =>
+      Array.from({ length: rowCount }, (_unused, row) => {
+        const first = row * columns;
+        return `${String(columns)}:${items
+          .slice(first, first + columns)
+          .map((item) => item.id)
+          .join(',')}`;
+      }),
+    [columns, items, rowCount],
+  );
+  const windowed = useVirtualWindow({
+    keys,
+    rootRef,
+    estimate: galleryRowEstimate(size),
+    measurementGap: GALLERY_ROW_GAP,
+    // Five rows above and below the viewport leaves room for one separately retained focused row
+    // while keeping even the six-column card size below the 100-card stress ceiling at 900px.
+    overscan: galleryRowEstimate(size) * 5,
+  });
+
+  return (
+    <div
+      ref={rootRef}
+      role="list"
+      aria-label={label}
+      className="relative"
+      style={{ height: windowed.totalSize }} // design-token-exempt: virtual content height is derived from measured gallery rows at runtime and cannot be represented by a design token
+    >
+      {windowed.segments.map((segment) => {
+        const firstItem = segment.first * columns;
+        const afterLastItem = Math.min(items.length, (segment.last + 1) * columns);
+        return (
+          <ul
+            key={`${String(segment.first)}-${String(segment.last)}`}
+            role="presentation"
+            className={cn(CARD_SIZE_GRID[size], 'absolute inset-x-0')}
+            style={{ top: windowed.offsets[segment.first] ?? 0 }} // design-token-exempt: virtual segment position is calculated from measured gallery-row offsets at runtime
+          >
+            {items
+              .slice(firstItem, afterLastItem)
+              .map((item, offset) =>
+                renderCard(item, firstItem + offset, Math.floor((firstItem + offset) / columns)),
+              )}
+          </ul>
+        );
+      })}
+    </div>
+  );
+}
+
+function useViewportWidth(): number {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const update = (): void => {
+      setWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', update, { passive: true });
+    return () => {
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+  return width;
+}
+
+export function galleryColumnCount(size: CardSize, viewportWidth: number): number {
+  if (size === 'small') {
+    return viewportWidth >= 1280 ? 6 : viewportWidth >= 1024 ? 4 : viewportWidth >= 640 ? 3 : 2;
+  }
+  if (size === 'medium') {
+    return viewportWidth >= 1280 ? 4 : viewportWidth >= 1024 ? 3 : viewportWidth >= 640 ? 2 : 1;
+  }
+  return viewportWidth >= 1280 ? 3 : viewportWidth >= 1024 ? 2 : 1;
+}
+
+function galleryRowEstimate(size: CardSize): number {
+  return size === 'small' ? 260 : size === 'large' ? 420 : 320;
+}
+
+/**
+ * What this gallery's cover column is, or why it has none - as data rather than as flags read in
+ * four places.
+ *
+ * `none` and the two broken cases draw the same card, and are deliberately not the same value:
+ * only the broken ones earn a notice, and "nobody asked for covers" must never produce one.
+ */
+type Cover =
+  | { readonly kind: 'ready'; readonly property: PropertyDefinition }
+  | { readonly kind: 'none' }
+  | { readonly kind: 'missing'; readonly key: string }
+  | { readonly kind: 'wrongType'; readonly property: PropertyDefinition };
+
+function resolveCover(container: ContainerData, view: View): Cover {
+  if (view.coverProperty === null || view.coverProperty.length === 0) {
+    return { kind: 'none' };
+  }
+
+  const property = container.schema?.properties.find(
+    (candidate) => candidate.key === view.coverProperty,
+  );
+
+  if (property === undefined) {
+    // Told apart from `none` on purpose. Somebody configured covers and they have stopped
+    // appearing; a silent fallback to titled cards would look like the gallery had never been
+    // configured, and the person would configure it again.
+    return { kind: 'missing', key: view.coverProperty };
+  }
+
+  return property.type === 'image' ? { kind: 'ready', property } : { kind: 'wrongType', property };
+}
+
+/** A lost cover, named. */
+type LostCover = Extract<Cover, { kind: 'missing' } | { kind: 'wrongType' }>;
+
+/**
+ * What the notice says about a cover property that is gone.
+ *
+ * Both sentences end the same way and they have to: the sentence somebody needs is not "your
+ * covers are missing" but "your items are not".
+ */
+function describeLostCover(cover: LostCover): string {
+  const still = 'Every item is still here; the cards are showing their titles instead.';
+
+  // "properties", not "fields": that is the word the schema editor's title and the view editor's
+  // hint both use, and two names for one concept across two panels is one name too many.
+  //
+  // The type is named by its label and quoted rather than dropped into the sentence raw. The stored
+  // token is not a word anybody has been shown - somebody who picked "Picture" from a list would
+  // otherwise be told their property is now a "multi_select" - and quoting keeps the sentence
+  // grammatical whatever the label turns out to be.
+  return cover.kind === 'missing'
+    ? `Covers came from "${cover.key}", which is no longer one of this item's properties. ${still}`
+    : `Covers came from "${cover.property.label}", which is now "${propertyTypeLabel(cover.property.type)}" rather than a picture. ${still}`;
+}
+
+/** "1 item", "4 items" - said once here because three views had three spellings of it. */
+function countOf(total: number, noun: string): string {
+  return `${String(total)} ${total === 1 ? noun : `${noun}s`}`;
+}
+
+interface GalleryCardProps {
+  readonly item: Item;
+  readonly cover: Cover;
+  readonly size: CardSize;
+  readonly secondary: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly onOpen: (itemId: string) => void;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
+  readonly coverFailed: boolean;
+  readonly onCoverFailure: () => void;
+  readonly onRequestCover: () => void;
+  readonly position: number;
+  readonly setSize: number;
+  readonly virtualIndex?: number;
+}
+
+function GalleryCard(props: GalleryCardProps): ReactNode {
+  const {
+    item,
+    cover,
+    size,
+    secondary,
+    schema,
+    onOpen,
+    onWrite,
+    coverFailed,
+    onCoverFailure,
+    onRequestCover,
+    position,
+    setSize,
+    virtualIndex,
+  } = props;
+  const itemActions = useItemContextActions(onOpen);
+  const isFileCard = item.type === 'file' && !item.hasChildren;
+  const coverValue = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
+
+  // Absent values render as nothing rather than as an empty row: a card is a summary, and a column
+  // of blank labels tells nobody anything.
+  const fields = secondary.flatMap((key) => {
+    const definition = schema.find((entry) => entry.key === key);
+    return definition === undefined ? [] : [definition];
+  });
+
+  return (
+    // `blueprintFrame` composed directly rather than `<Blueprint className="bg-surface">`: that
+    // component's `className` is documented as layout only, with its border, corners and
+    // *transparency* being its contract, so passing a fill through it is the restyle the doc
+    // forbids. `Card` in packages/ui composes the frame the same way for the same reason.
+    //
+    // `relative` is load-bearing - it is what the title button's stretched hit area is measured
+    // against - and `shadow-sm` is the resting elevation every other card in the product has.
+    <ContextMenu
+      label={`${item.title || 'Untitled'} actions`}
+      items={() => itemActions(item.id, item.title)}
+    >
+      {(contextTarget) => (
+        <li
+          {...contextTarget}
+          {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
+          aria-posinset={position}
+          aria-setsize={setSize}
+          data-virtual-index={virtualIndex}
+          className={cn(
+            blueprintFrame,
+            'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
+          )}
+        >
+          {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
+          reader reading in source order would otherwise meet "No cover" before it had been told
+          which item that was about - the status arriving ahead of its subject. `order-first` puts
+          the picture back on top for everyone reading with their eyes. */}
+          {/* A real heading, so a card grid can be walked by heading rather than only by tabbing
+          through every title in it. A gallery is the view where that matters most - it is a page of
+          named things and nothing else - and a `span` styled to look like a heading gives a screen
+          reader user no way through it. The control lives inside the heading so both the outline
+          and the affordance survive. */}
+          <h3>
+            <button
+              type="button"
+              onClick={() => {
+                onOpen(item.id);
+              }}
+              // The card is mostly picture, and in a gallery the picture *is* the affordance - it is
+              // why somebody chose this view. A stretched pseudo-element makes the whole card clickable
+              // while the accessible tree keeps exactly one control per card; a second click target on
+              // the image would be two controls with one name.
+              className={cn(
+                'w-full text-left after:absolute after:inset-0 after:content-[""]',
+                focusRing,
+              )}
+            >
+              <Text variant="h5" as="span" lines={2}>
+                {item.title || 'Untitled'}
+              </Text>
+            </button>
+          </h3>
+
+          {/* **Always on screen, never only on hover.** A hover-revealed control is invisible to a
+          tap - there is no hover state on a touch screen - which was the whole of the complaint
+          this answers: "no easy way to put images on grids". `z-20` clears the title button's
+          stretched hit area above it (see the `z-10` note on the fields below, which faces the
+          same problem one layer down) and the `bg-surface` wrapper is what keeps a transparent
+          icon button legible sitting on top of an arbitrary photograph. */}
+          <div className="absolute right-2 top-2 z-20 rounded-md bg-surface">
+            <Button
+              variant="icon"
+              aria-label={
+                cover.kind === 'ready' && readPropertyText(item, cover.property.key).length > 0
+                  ? `Change cover for ${item.title || 'Untitled'}`
+                  : `Set cover for ${item.title || 'Untitled'}`
+              }
+              onClick={onRequestCover}
+            >
+              <Icon icon={ImagePlus} size="sm" />
+            </Button>
+          </div>
+
+          {/* Nothing at all when no cover was asked for. A grey rectangle here would be a placeholder
+          for a picture that was never coming, which reads as a load that never finished. */}
+          {/* A file with no cover of its own - none configured, or none set on this card - draws its
+          thumbnail, or a glyph for its kind, in the same frame a cover would fill. A configured
+          cover that has a value always wins, working or not: it is somebody's explicit choice, and
+          a broken one must say so rather than quietly show something else. */}
+          {isFileCard && coverValue.length === 0 ? (
+            <div className="order-first">
+              <FileThumbnail
+                itemId={item.id}
+                // The title is the file's name for a file item, and it is all a gallery has: it holds no
+                // file records, so there is no media type, byte length or version to give. `undefined`
+                // is what tells the hook to ask the server, and only for a type that can have one.
+                fileName={item.title}
+                mediaType=""
+                version={null}
+                hasServerThumbnail={undefined}
+                className={cn('w-full', CARD_SIZE_COVER[size])}
+                iconSize="lg"
+              />
+            </div>
+          ) : cover.kind === 'ready' ? (
+            <div className="order-first">
+              <CoverPane
+                src={coverValue}
+                label={cover.property.label}
+                size={size}
+                failed={coverFailed}
+                onFailure={onCoverFailure}
+              />
+            </div>
+          ) : null}
+
+          {fields.length === 0 ? null : (
+            // `relative z-10`: the title button's `after:absolute after:inset-0` stretched hit area
+            // sits on top of the card in DOM order, and without a stacking context of its own this
+            // layer would swallow every click a field control below it is meant to receive - a tap
+            // meant for a select or a checkbox opening the item instead.
+            <div className="relative z-10 flex flex-col gap-1">
+              {fields.map((field) => (
+                <div key={field.key}>
+                  <Text variant="kicker" tone="muted" as="span">
+                    {field.label}
+                  </Text>
+                  <ListCell
+                    density="card"
+                    item={item}
+                    property={field}
+                    onWrite={(value) => onWrite(item.id, field.key, value)}
+                  />
+                  <Text variant="caption" as="span" className="sr-only">
+                    {readPropertyText(item, field.key)}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          )}
+        </li>
+      )}
+    </ContextMenu>
+  );
+}
+
+/** The card's picture region: the cover, or the words that say why there is not one. */
+/** The longer side of a stored thumbnail, in pixels (Core's `MaximumThumbnailSide`). */
+const THUMBNAIL_SIDE = 480;
+
+/**
+ * How far a thumbnail may be stretched before the original is worth its download. A cover is a
+ * duotone wash behind a title, not a photograph being inspected, so mild softness is the right
+ * price for not fetching every original on every dense screen.
+ */
+const TOLERATED_UPSCALE = 1.5;
+
+function CoverPane({
+  src,
+  label,
+  size,
+  failed,
+  onFailure,
+}: {
+  readonly src: string;
+  readonly label: string;
+  readonly size: CardSize;
+  readonly failed: boolean;
+  readonly onFailure: () => void;
+}): ReactNode {
+  // Whether this frame is wider, in device pixels, than a stored thumbnail can fill acceptably.
+  // Measured rather than read off the card size: a medium card is one narrow column on a desktop
+  // and the full width of a dense phone screen. Until it is measured the answer is no, which is
+  // the cheap one - the thumbnail is drawn either way and the original only follows it.
+  const frame = useRef<HTMLDivElement>(null);
+  const [sharp, setSharp] = useState(false);
+  // Only the picture's own frame is measured, so the effect follows the pane into that state.
+  const showsPicture = src.length > 0 && isDisplayableImageValue(src) && !failed;
+  useLayoutEffect(() => {
+    const element = frame.current;
+    if (element === null) return;
+    const measure = () => {
+      const devicePixels = element.getBoundingClientRect().width * window.devicePixelRatio;
+      setSharp(devicePixels > THUMBNAIL_SIDE * TOLERATED_UPSCALE);
+    };
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+    };
+  }, [showsPicture]);
+
+  if (src.length === 0) {
+    // In words, not as an empty box. An empty box is indistinguishable from a cover that failed to
+    // load and from a picture that happens to be white.
+    return (
+      <CoverFrame size={size}>
+        <Text variant="caption" tone="muted" as="span">
+          No cover
+        </Text>
+      </CoverFrame>
+    );
+  }
+
+  if (!isDisplayableImageValue(src)) {
+    // **Its own state, and never handed to an `img`.** A schema retype does not revalidate values
+    // already stored, so a property that was text yesterday can hold "draft notes" and be a picture
+    // property today - the server's write-time scheme check never saw it. Given to an `img` that
+    // resolves against this origin, fetches the application shell, fails to decode, and reports as
+    // a broken cover: a request fired at our own server, per card, for something nobody ever
+    // attempted to load, and the no-referrer reasoning quietly voided because it is same-origin.
+    //
+    // It is not "No cover" either - there is a value - so it says what is actually wrong. A value
+    // an upload wrote is always displayable (see `isDisplayableImageValue`), so this is reachable
+    // only for a stored web address that never validated, exactly as before uploading existed.
+    return (
+      <CoverFrame size={size}>
+        <Text variant="caption" tone="muted" as="span">
+          This is not a picture address
+        </Text>
+        <CoverDetail>{src}</CoverDetail>
+      </CoverFrame>
+    );
+  }
+
+  if (failed) {
+    // Never the "No cover" state. This item has a cover; it is the fetch that is broken, and
+    // telling somebody the property is empty would send them to re-enter an address that is
+    // already right. The property is named because that is where the correction is made, and the
+    // address is shown because it is the only evidence on the card.
+    return (
+      <CoverFrame size={size}>
+        <Text variant="caption" tone="muted" as="span">
+          {`This cover could not be loaded. Check the address in ${label}.`}
+        </Text>
+        <CoverDetail>{src}</CoverDetail>
+      </CoverFrame>
+    );
+  }
+
+  // **Framed even while it is loading, which is the state the four-way telling forgets.** Covers
+  // are lazy, so every card below the fold sits here on first paint; a bare `img` with nothing in
+  // it yet is exactly the empty box the "No cover" case exists to avoid, and a grid half-framed and
+  // half-hollow reads as a fault. The frame is a hairline rather than a fill, so it claims nothing
+  // about progress - it just means the card never has a hole in it, and the geometry is identical
+  // in every state so nothing reflows as pictures resolve.
+  return (
+    <CoverFrame size={size} frameRef={frame}>
+      <CoverImage
+        src={src}
+        // Empty on purpose, and this is the accessible-name decision rather than an omission. The
+        // cover carries nothing the card does not already say as text - the title is right beside
+        // it, and it is what the picture is *of*. `alt={item.title}` would have a screen reader
+        // announce the same words twice, once as a picture and once as the control. A decorative
+        // duplicate of adjacent text is exactly what an empty alt is for.
+        alt=""
+        className="absolute inset-0 size-full object-cover"
+        sharp={sharp}
+        onError={onFailure}
+      />
+    </CoverFrame>
+  );
+}
+
+/**
+ * The address under a cover's refusal.
+ *
+ * Clamped, because a presigned or CDN address runs to hundreds of characters and `break-all` inside
+ * a fixed-ratio box wraps it to a dozen lines that spill straight through the frame and collide with
+ * the title. The full value stays reachable as the title attribute and, properly, in the property
+ * panel - the card's job is to say which address it was, not to be the place it is read.
+ */
+function CoverDetail({ children }: { readonly children: string }): ReactNode {
+  return (
+    <Text
+      variant="caption"
+      as="span"
+      tone="muted"
+      title={children}
+      className="line-clamp-2 break-all"
+    >
+      {children}
+    </Text>
+  );
+}
+
+/**
+ * The picture-shaped space a cover occupies - holding the picture, or the words about it.
+ *
+ * One box for all four states, so a grid does not reflow as covers resolve and a card is never a
+ * hole. `overflow-hidden` is what keeps a long address inside the hairline; `relative` is what the
+ * picture fills.
+ */
+function CoverFrame({
+  children,
+  size,
+  frameRef,
+}: {
+  readonly children: ReactNode;
+  readonly size: CardSize;
+  readonly frameRef?: RefObject<HTMLDivElement | null>;
+}): ReactNode {
+  return (
+    <div
+      ref={frameRef}
+      className={cn(
+        blueprintFrame,
+        CARD_SIZE_COVER[size],
+        'relative flex w-full flex-col items-center justify-center gap-1 overflow-hidden p-3 text-center',
+      )}
+    >
+      {children}
+    </div>
+  );
+}

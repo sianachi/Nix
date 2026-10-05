@@ -1,0 +1,40 @@
+{
+  "changes": [
+    {
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "externalId": null,
+      "version": null,
+      "op": "create",
+      "title": "Dentist",
+      "start": "2026-10-02T15:00:00+01:00[Europe/London]",
+      "end": "2026-10-02T16:00:00+01:00[Europe/London]",
+      "location": "High Street",
+      "details": "",
+      "updatedAt": "2026-09-30T10:00:00Z"
+    },
+    {
+      "itemId": "22222222-2222-4222-8222-222222222222",
+      "externalId": "evt-timed",
+      "version": "\"3181161784712000\"",
+      "op": "update",
+      "title": "Standup (moved)",
+      "start": "2026-10-01",
+      "end": null,
+      "location": "",
+      "details": "Bring notes",
+      "updatedAt": "2026-09-30T11:00:00Z"
+    },
+    {
+      "itemId": "33333333-3333-4333-8333-333333333333",
+      "externalId": "evt-old",
+      "version": "ck-9",
+      "op": "delete",
+      "title": "",
+      "start": "",
+      "end": null,
+      "location": "",
+      "details": "",
+      "updatedAt": "2026-09-30T11:30:00Z"
+    }
+  ]
+}

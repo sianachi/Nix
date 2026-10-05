@@ -1,0 +1,170 @@
+// @vitest-environment node
+
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+// The application's baseline content security policy is written twice - as a meta tag in
+// index.html, so it holds on the Vite dev server and any static preview, and as a header in
+// deploy/Caddyfile, so it holds in front of the built bundle. Production Compose and Kubernetes
+// carry deliberate connection/frame differences, but every deployed variant still has to admit
+// the image sources the browser uses. CSP drift is silent until somebody hits the feature it broke:
+// a blocked inline style attribute is an invisible layout collapse, a blocked authorized blob is a
+// file preview that never appears.
+//
+// So this pins both. Every relaxation asserted below is one a reviewer found the strict policy had
+// broken, and each is named so removing it fails here with the feature it would break, rather than
+// in a browser weeks later.
+
+const appDir = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const repoRoot = join(appDir, '..', '..');
+
+const indexHtml = readFileSync(join(appDir, 'index.html'), 'utf8');
+const caddyfile = readFileSync(join(repoRoot, 'deploy', 'Caddyfile'), 'utf8');
+const productionCaddyfile = readFileSync(join(repoRoot, 'deploy', 'Caddyfile.prod'), 'utf8');
+const kubernetesCaddyfile = readFileSync(join(repoRoot, 'deploy', 'k8s', 'Caddyfile'), 'utf8');
+
+/** The first capture of a match, or a failure naming what was being looked for. */
+function captured(pattern: RegExp, text: string, what: string): string {
+  const value = pattern.exec(text)?.[1];
+
+  if (value === undefined) {
+    throw new Error(`no ${what}`);
+  }
+
+  return value;
+}
+
+/** The policy string of the meta tag, before any substitution. */
+function metaPolicy(html: string): string {
+  return captured(
+    /http-equiv="Content-Security-Policy"\s+content="([^"]+)"/,
+    html,
+    'Content-Security-Policy meta tag in index.html',
+  );
+}
+
+/** The policy string of the Caddy header. */
+function caddyPolicy(text: string): string {
+  return captured(
+    /^\s*Content-Security-Policy "([^"]+)"/m,
+    text,
+    'Content-Security-Policy header in deploy/Caddyfile',
+  );
+}
+
+/** A policy as directive name to source expressions, so assertions name one directive at a time. */
+function directives(policy: string): ReadonlyMap<string, readonly string[]> {
+  return new Map(
+    policy
+      .split(';')
+      .map((directive) => directive.trim())
+      .filter((directive) => directive.length > 0)
+      .map((directive) => {
+        const [name = directive, ...sources] = directive.split(/\s+/);
+
+        return [name, sources] as const;
+      }),
+  );
+}
+
+const meta = directives(metaPolicy(indexHtml));
+const caddy = directives(caddyPolicy(caddyfile));
+const productionCaddy = directives(caddyPolicy(productionCaddyfile));
+const kubernetesCaddy = directives(caddyPolicy(kubernetesCaddyfile));
+
+describe('the content security policy', () => {
+  it('allows inline styles, because runtime geometry travels in style attributes', () => {
+    // The calendar's hour rows and timed-item offsets, the sheet grid's row positions, pane shares
+    // and sidebar width, and the caret-anchored slash and reference menus all set a style
+    // attribute, which style-src governs. Vite's dev server also injects styles as inline <style>
+    // elements, so without this the dev server serves the app unstyled.
+    expect(meta.get('style-src')).toContain("'unsafe-inline'");
+    expect(caddy.get('style-src')).toContain("'unsafe-inline'");
+  });
+
+  it('allows remote and authorized blob images', () => {
+    // The server's PropertyValidator accepts both HTTP schemes, and the file viewer creates a blob
+    // URL after it fetches an authorized preview. Blocking any of these makes the corresponding
+    // UI path report a correct image address or preview as broken.
+    for (const policy of [meta, caddy, productionCaddy, kubernetesCaddy]) {
+      for (const scheme of ['http:', 'https:', 'blob:']) {
+        expect(policy.get('img-src')).toContain(scheme);
+      }
+    }
+  });
+
+  it('keeps provider communication out of the browser', () => {
+    // Core owns discovery, token exchange and UserInfo. The browser reaches only its own origin,
+    // so a compromised provider page cannot become an admitted script connection or frame.
+    expect(meta.get('connect-src')).toEqual(["'self'"]);
+    expect(meta.get('frame-src')).toEqual(["'self'", 'blob:']);
+    expect(caddy.get('frame-src')).toEqual(["'self'", 'blob:']);
+  });
+
+  it('admits exactly the configured object-store origin in deployed browser policies', () => {
+    for (const policy of [caddy, productionCaddy, kubernetesCaddy]) {
+      expect(policy.get('connect-src')).toEqual(["'self'", '{$NIX_OBJECT_STORE_PUBLIC_ORIGIN}']);
+    }
+  });
+
+  it('limits media to the app, blob URLs and the same object-store origin connect-src names', () => {
+    // Audio and video do not inherit from img-src; without media-src they fall back to
+    // default-src 'self' and a signed object-store URL on an audio element is blocked. The owner's
+    // rule is media from their own file storage only, so a widening to https: or a wildcard fails
+    // here. The document policy has no object-store origin in connect-src, so none in media-src.
+    for (const policy of [meta, caddy, productionCaddy, kubernetesCaddy]) {
+      const connect = (policy.get('connect-src') ?? []).filter((source) => source !== "'self'");
+
+      expect(policy.get('media-src')).toEqual(["'self'", 'blob:', ...connect]);
+    }
+  });
+
+  it('keeps everything else closed', () => {
+    for (const policy of [meta, caddy]) {
+      expect(policy.get('default-src')).toEqual(["'self'"]);
+      expect(policy.get('object-src')).toEqual(["'none'"]);
+      expect(policy.get('base-uri')).toEqual(["'self'"]);
+      expect(policy.get('form-action')).toEqual(["'self'"]);
+      expect(policy.get('font-src')).toEqual(["'self'"]);
+      expect(policy.get('script-src')?.[0]).toBe("'self'");
+    }
+
+    // Only a header can carry frame-ancestors, which is the one directive the two do not share.
+    expect(caddy.get('frame-ancestors')).toEqual(["'none'"]);
+    expect(meta.has('frame-ancestors')).toBe(false);
+  });
+
+  it('keeps the same baseline policy in the document and standalone server', () => {
+    // media-src differs for the same reason connect-src does: it names the object-store origin,
+    // which only the serving header knows; its own test above pins both.
+    const shared = (policy: ReadonlyMap<string, readonly string[]>) =>
+      [...policy].filter(
+        ([name]) => name !== 'frame-ancestors' && name !== 'connect-src' && name !== 'media-src',
+      );
+
+    expect(shared(caddy)).toEqual(shared(meta));
+  });
+
+  it('hashes the inline theme script it allows', () => {
+    // script-src carries no 'unsafe-inline'; the theme script runs on a hash of its exact bytes,
+    // so editing that script without recomputing the hash would leave the first paint unthemed.
+    // The last inline <script> is the theme script: the comment above it in index.html contains an
+    // earlier <script> spelling, which a first match would find instead.
+    const scripts = [...indexHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)]
+      .map((match) => match[1])
+      .filter((body): body is string => body !== undefined);
+    const theme = scripts.at(-1);
+
+    expect(theme).toBeDefined();
+
+    const expected = `'sha256-${createHash('sha256')
+      .update(theme ?? '')
+      .digest('base64')}'`;
+
+    expect(meta.get('script-src')).toContain(expected);
+    expect(caddy.get('script-src')).toContain(expected);
+  });
+});

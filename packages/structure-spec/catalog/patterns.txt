@@ -1,0 +1,40 @@
+Efficiency patterns
+
+These are the habits that keep a design small: fewest items for the job, fields declared on the
+parent so every child inherits them, one container with several views rather than parallel copies
+of the same list, a smart list instead of a duplicated set of items, a `formula` or `rollup`
+instead of a field the owner has to keep updated by hand, task-semantic types so the machinery
+built for them works without extra filters - `due_date` is recurrence's anchor and half of what
+the shipped Overdue and Today smart lists match on, `completion` is Overdue's other half - and
+`start_date`, `priority` and `estimate` for their plain meaning even where nothing reads them
+specially yet. Use recurrence or a `habit_tracker` view for anything repeating, a `form` or
+`interactive_form` for capture, a `board` or `calendar` for review, and a `chart` for trends. Every
+example below uses only field types, view kinds and operators this build actually has.
+
+Reading log
+
+One container, not one item per book plus a separate list. Fields: "status" (a `select`, the
+stages a book moves through), "rating" (a `number`), "started" (a `start_date`), "finished" (a
+`due_date`) and "done" (a `completion`) - the pair the shipped Overdue smart list needs, so it and
+Today both work on this schema without extra configuration. Two views on the same container: a
+`board` grouped by "status" for picking up a book, and a `list` for the whole collection sorted by
+when it was finished. No separate "currently reading" item is needed - a `query` view filtering
+"status" `equals` "Reading" answers that.
+
+Job hunt
+
+One container for every application, not one board per company. Fields: "stage" (a `select`),
+"applied" (a `date`), "follow up" (a `due_date`). Views: a `board` grouped by "stage" for the
+pipeline, and a `query` view filtering "follow up" `within-next` 7 to see what needs a nudge this
+week - no duplicated "follow up" item alongside each application, and no field to hand-track which
+ones are about to come due. A `chart` grouped by "stage" shows the funnel without maintaining
+separate counts anywhere.
+
+Meal plan
+
+One container for the week, not one item per day. Fields: "date" (a `date`, the day the meal
+lands on), "meal" (a `select`, Breakfast, Lunch or Dinner) and "notes" (`text`) on each entry, with
+a `calendar` view placed by "date" so the week reads at a glance, and a `board` grouped by "meal"
+as an alternative look at the same data. No `rollup` is needed here because nothing is being
+totalled; a grocery list that did total quantities would declare an `estimate` field per
+ingredient and a parent `rollup` rather than a field the owner adds up by hand.

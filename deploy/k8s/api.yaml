@@ -1,0 +1,167 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: nix-api-data-protection, namespace: nix }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 16Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: nix-api, namespace: nix }
+spec:
+  selector: { app: nix-api }
+  ports: [{ port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-api, namespace: nix }
+spec:
+  # The Data Protection key ring is a ReadWriteOnce volume. Scale only after moving that ring to a
+  # shared provider; callbacks must be decryptable by whichever Core instance receives them.
+  replicas: 1
+  selector: { matchLabels: { app: nix-api } }
+  template:
+    metadata:
+      labels: { app: nix-api }
+      annotations:
+        nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}"
+        nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile: { type: RuntimeDefault }
+      initContainers:
+        - name: data-protection-permissions
+          image: busybox:1.37
+          command: ["sh", "-c", "chown -R 1654:1654 /var/lib/nix/data-protection"]
+          volumeMounts:
+            - { name: data-protection, mountPath: /var/lib/nix/data-protection }
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"], add: ["CHOWN"] }
+      containers:
+        - name: api
+          image: ${REGISTRY}/api:${TAG}
+          ports: [{ containerPort: 8080 }]
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: Logging__Console__FormatterName
+              value: json
+            - name: ConnectionStrings__Nix
+              valueFrom: { secretKeyRef: { name: nix-connections, key: core } }
+            - name: Nix__InternalSecret
+              valueFrom: { secretKeyRef: { name: nix-internal, key: secret } }
+            - name: Nix__Collaboration__BaseUrl
+              value: http://nix-collab:8100
+            - name: Nix__RabbitMq__Uri
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: api-url } }
+            - name: Nix__ObjectStorage__Endpoint
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: Nix__ObjectStorage__PublicOrigin
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
+            - name: Nix__ObjectStorage__Region
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: region } }
+            - name: Nix__ObjectStorage__Bucket
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: bucket } }
+            - name: Nix__ObjectStorage__AccessKey
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: access-key } }
+            - name: Nix__ObjectStorage__SecretKey
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: secret-key } }
+            - name: Nix__GoWorkers__ExportEnabled
+              value: "true"
+            - name: Nix__GoWorkers__ImportEnabled
+              value: "true"
+            - name: Nix__Search__OpenSearchEnabled
+              value: "${NIX_SEARCH_OPENSEARCH_ENABLED}"
+            - name: Nix__Search__OpenSearchUrl
+              value: http://nix-opensearch:9200
+            - name: Nix__Search__OpenSearchIndex
+              value: nix-items
+            - name: Nix__PublicForms__SigningKey
+              valueFrom: { secretKeyRef: { name: nix-internal, key: public-forms-signing-key } }
+            # Core sits behind Caddy and Traefik. Without this every request appears
+            # to come from the proxy and both rate limiters collapse into one global
+            # bucket: ten bad tokens from anyone would 429 everyone. Confirm $POD_CIDR
+            # with: kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
+            - name: Nix__ForwardedHeaders__KnownNetworks
+              value: "${POD_CIDR}"
+            - name: Nix__ForwardedHeaders__ForwardLimit
+              value: "2"          # Traefik, then Caddy
+            - name: Nix__RateLimits__WritesPerMinute
+              value: "120"
+            - name: Nix__RateLimits__PublicFormSubmissionsPerMinute
+              value: "20"
+            - name: Nix__RateLimits__SuggestionsPerMinute
+              value: "60"
+            - name: Nix__Bff__Authority
+              value: "${OIDC_ISSUER}"
+            - name: Nix__Bff__ClientId
+              value: "${OIDC_CLIENT_ID}"
+            - name: Nix__Bff__PublicOrigin
+              value: "https://${DOMAIN}"
+            - name: Nix__Bff__AccountPage
+              value: "${OIDC_ISSUER}/ui/console/users/me?id=security"   # the IdP's password and passkey page
+            # Also protects stored calendar refresh tokens (ADR-0052). Scaling Core past one
+            # replica needs this key ring on shared storage, or connections must be reconnected.
+            - name: Nix__Bff__DataProtectionKeysPath
+              value: /var/lib/nix/data-protection
+            # Two-way calendar sync. The secret and each key are optional: a provider without a
+            # client id and secret is reported unavailable. See create-secrets.sh --calendar-only.
+            - name: Nix__Calendar__Google__ClientId
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: google-client-id, optional: true } }
+            - name: Nix__Calendar__Google__ClientSecret
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: google-client-secret, optional: true } }
+            - name: Nix__Calendar__Microsoft__ClientId
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-client-id, optional: true } }
+            - name: Nix__Calendar__Microsoft__ClientSecret
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-client-secret, optional: true } }
+            - name: Nix__Calendar__Microsoft__Tenant
+              valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-tenant, optional: true } }
+            - name: Nix__AccessTokens__Issuer
+              value: "https://${DOMAIN}"
+            - name: Nix__AccessTokens__Audience
+              value: nix
+            - name: Nix__AccessTokens__KeyId
+              value: nix-core
+            - name: Nix__AccessTokens__SigningKeyPemFile
+              value: /run/secrets/access-token-signing-key.pem
+            - name: Nix__AccessTokens__LifetimeMinutes
+              value: "10"
+          livenessProbe:
+            # Deliberately touches no dependency - a liveness probe that queried Postgres
+            # would report the database's health and restart healthy pods when the database
+            # was briefly slow.
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            # 150-250 MB resident is the design's Workstation GC budget, not a guess.
+            # If Core routinely approaches this limit, that is a finding, not a reason to raise it.
+            limits: { memory: 512Mi }
+          volumeMounts:
+            # readOnlyRootFilesystem needs somewhere writable: the runtime uses /tmp.
+            - { name: tmp, mountPath: /tmp }
+            - { name: data-protection, mountPath: /var/lib/nix/data-protection }
+            - { name: auth-key, mountPath: /run/secrets, readOnly: true }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - name: data-protection
+          persistentVolumeClaim: { claimName: nix-api-data-protection }
+        - name: auth-key
+          secret: { secretName: nix-auth, defaultMode: 0440 }

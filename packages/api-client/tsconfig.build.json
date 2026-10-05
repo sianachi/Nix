@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    // The published surface targets the browser: AbortController, AbortSignal
+    // and console come from the DOM lib, not from Node types, so nothing
+    // Node-shaped leaks into the emitted declarations.
+    "lib": ["ES2023", "DOM"],
+    "types": []
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/**/*.test.ts", "src/testing/**/*.ts"]
+}

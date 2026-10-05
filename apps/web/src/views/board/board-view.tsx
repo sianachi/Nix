@@ -1,0 +1,804 @@
+import { useNarrowViewport } from '../../layout/viewport';
+import { ContextMenu, Field, Select, Blueprint, Icon, Text, cn, focusRing } from '@nix/ui';
+import { CircleAlert } from 'lucide-react';
+import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+
+import { PartialNotice } from '../../components/states/status-panels';
+import {
+  UNSET_LABEL,
+  UNSET_VALUE,
+  readSelectValue,
+  readPropertyText,
+  type Item,
+  type PropertyDefinition,
+  type PropertyValue,
+  type View,
+} from '../core/container-model';
+import { CreateItemControl } from '../core/create-item-control';
+import { canGroupBy } from '../core/property-types';
+import { staleMembers, type StaleMember } from '../../lib/suggest/staleness';
+import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissals';
+import { suggestSourceOf, type CreateSuggestSource } from '../suggest/suggest-source';
+import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
+import { StaleCardHint } from './stale-card-hint';
+import { useItemContextActions } from '../core/use-item-context-actions';
+import type { ContainerData } from '../core/use-container';
+import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
+import { useViewState } from '../core/view-state';
+import { useVirtualWindow } from '../core/use-virtual-window';
+import { ListCell } from '../list/list-cell';
+
+const VIRTUALIZATION_THRESHOLD = 100;
+const ESTIMATED_CARD_HEIGHT = 150;
+const BOARD_CARD_GAP = 8;
+
+/**
+ * The board: a container's children as cards, in columns, grouped by one select property.
+ *
+ * **Where a card sits *is* its property value.** The board holds no position of its own - no
+ * per-view ordering, no "which column is this card in" stored anywhere. Dropping a card into
+ * "Done" writes `status = "Done"` and nothing else, so the same fact is true in the list view, in
+ * search, and in whatever reads the property next. A board that kept its own copy of the placement
+ * would have two answers to one question, and the day they disagreed the person would be right to
+ * trust neither.
+ *
+ * **Columns are freely definable and are not the property's allowed values.** The view's
+ * `groupOrder` names the columns and their order when it says anything at all; the property's
+ * declared `options` are only the fallback for a view that has not chosen. This is deliberate and
+ * load-bearing: a status property with six options can be shown as a three-column board in an
+ * order somebody picked, and adding a seventh option must not silently rearrange every board in
+ * the workspace. The cost is that a card whose value is not one of the chosen columns has nowhere
+ * to sit, which this view reports rather than hides - see `hidden` below.
+ */
+
+export interface BoardViewProps {
+  readonly container: ContainerData;
+  readonly view: View;
+
+  /** Opening an item is the page's business, not the board's - so the board is told how. */
+  readonly onOpen: (itemId: string) => void;
+}
+
+interface BoardColumn {
+  /** The property value this column writes, or null for the unset column. */
+  readonly value: string | null;
+  readonly label: string;
+  readonly items: readonly Item[];
+}
+
+export function BoardView(props: BoardViewProps): ReactNode {
+  const { container, view, onOpen } = props;
+  const viewState = useViewState();
+
+  // The one piece of genuinely view-local state on this screen: which card the pointer is
+  // currently holding. It describes a gesture in progress, not the document, so it is right here
+  // and not in the URL or in a store.
+  const narrow = useNarrowViewport();
+  const [mobileColumn, setMobileColumn] = useState<string | null>(null);
+  const [dragged, setDragged] = useState<string | null>(null);
+
+  // The banner below is specifically about a column move, so its sentence has to be true only of
+  // one: `container.writeError` is set by every failed `setProperties` call, including a field
+  // edit made through a card's own `ListCell` - which already reports its own refusal beside the
+  // field (see `list-cell.tsx`). Reading that shared channel here would print "the card has
+  // returned to the column it was in" over a field edit that never touched the column, so the
+  // move failure is tracked locally instead and the shared channel is left alone.
+  const [moveError, setMoveError] = useState<string | null>(null);
+
+  // The stale-card hint's clock and its dismissals. The clock is read once per mount rather than
+  // per render: ages that crept forward on every keystroke would re-sort nothing and only make the
+  // sentence's day count jump at midnight mid-gesture. Dismissals are remembered in this browser
+  // under a key that includes the card's `updatedAt` (`staleDismissalKey`), so a waved-away note
+  // stays away until the card changes and goes stale again; read once here, written on dismiss.
+  const [mountedAt] = useState(() => Date.now());
+  const viewSuggestions = useViewSuggestionPreference((state) => state.setting);
+  const [dismissedStale, setDismissedStale] = useState<ReadonlySet<string>>(() => readDismissals());
+
+  // Whether the board can be drawn at all is resolved before the chrome so the chrome can report
+  // it, and handed back by the chrome so this does not have to check it twice. An empty board and a
+  // broken board look identical if you let them, and somebody staring at an empty board goes
+  // looking for their missing items rather than for the missing property.
+  const grouping = resolveGrouping(container, view);
+
+  // The URL's sort wins over the view's own, because it is the more specific statement - somebody
+  // chose it just now, possibly in a link they were handed.
+  const chrome = useViewChrome({
+    container,
+    viewState,
+    subject: 'this board',
+    drawable:
+      grouping.kind === 'ready'
+        ? drawable(grouping.property)
+        : undrawable<PropertyDefinition>(describeUnrenderable(grouping, view)),
+    emptyTitle: 'Nothing in here yet',
+    emptyDetail:
+      'Nothing has been added here yet. Items added to this one appear on the board as cards.',
+    // Without a column to add to there is no value to set, so this makes an item with none - it
+    // lands in the unset column, which is where an item with no status belongs.
+    emptyAction: <CreateItemControl label="Add the first item" onCreate={container.create} />,
+    filtered: (total) => ({
+      title: 'No items match the filters',
+      detail: `This holds ${String(total)} items. The filters in the address are hiding all of them, so the board is empty by request rather than because there is nothing here.`,
+    }),
+    savedRules: view.filters,
+    view,
+    sortBy: viewState.sortBy ?? view.sortBy,
+    descending:
+      viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',
+  });
+
+  if (chrome.kind === 'chrome') {
+    return chrome.node;
+  }
+
+  const property = chrome.drawable;
+  const key = property.key;
+
+  const buckets = new Map<string | null, Item[]>();
+  for (const item of chrome.items) {
+    const value = readSelectValue(item, key);
+    const bucket = buckets.get(value);
+    if (bucket === undefined) {
+      buckets.set(value, [item]);
+    } else {
+      bucket.push(item);
+    }
+  }
+
+  const chosen = [...new Set(view.groupOrder.length > 0 ? view.groupOrder : property.options)];
+
+  const columns: readonly BoardColumn[] = [
+    ...chosen.map((value) => ({ value, label: value, items: buckets.get(value) ?? [] })),
+
+    // The unset column is not optional. Without it, every item whose grouping property has no
+    // value disappears from the board - the single most alarming thing a board can do, because
+    // nothing on screen says the items exist. It is rendered even when empty, so the board always
+    // shows that it has somewhere to put them.
+    { value: null, label: UNSET_LABEL, items: buckets.get(null) ?? [] },
+  ];
+
+  const columnId = (column: BoardColumn): string =>
+    column.value === null ? 'unset' : `value:${column.value}`;
+  const selectedColumn = columns.find((column) => columnId(column) === mobileColumn) ?? columns[0];
+  const visibleColumns = narrow && selectedColumn ? [selectedColumn] : columns;
+
+  // Cards untouched far longer than their column's usual, by `updatedAt` - see `StaleCardHint` for
+  // why that is the only clock available and why no "move it to" suggestion comes with it. The
+  // unset column is a column like any other here: an item nobody has triaged in a month is exactly
+  // what the hint is for.
+  //
+  // The usual is the whole column's, bucketed by the same grouping value from every loaded child,
+  // never just the cards a filter leaves on screen: a filter that shows only old cards would make
+  // them look ordinary, and one that shows a few would leave too few to judge. The filtered cards
+  // only decide which hints are drawn, by id. A truncated container's columns are a sample, and a
+  // median over a sample is a guess, so then nothing is said at all.
+  const stale: ReadonlyMap<string, StaleMember> =
+    viewSuggestions === 'off' || container.truncated
+      ? NO_STALE
+      : staleMembers(columnAges(container.children, key, mountedAt));
+
+  const placed = new Set<string | null>([...chosen, null]);
+  const hidden = [...buckets].filter(([value]) => !placed.has(value)).flatMap(([, items]) => items);
+
+  function move(item: Item, value: string | null): void {
+    if (readSelectValue(item, key) === value) {
+      return;
+    }
+
+    setMoveError(null);
+
+    // Null clears the property. The board writes the grouping property and only the grouping
+    // property: there is nothing view-local to keep in step. The gesture that fired this is a drag
+    // or a select's onChange - nobody here awaits it - so the refusal is caught and kept local
+    // rather than left to reject into the void.
+    void container.setProperties(item.id, { [key]: value }).then((failure) => {
+      setMoveError(failure);
+    });
+  }
+
+  return (
+    <div className="flex min-h-0 flex-col gap-3">
+      {moveError === null ? null : (
+        <div role="alert" className="flex items-start gap-2 border border-divider p-3">
+          <Icon icon={CircleAlert} size="sm" className="text-accent-text" />
+          <Text variant="bodySmall" as="span" tone="accent">
+            {moveError} The card has returned to the column it was in; nothing was changed.
+          </Text>
+        </div>
+      )}
+
+      {/* Two different partial states, said separately: the chrome's is about what the address is
+          hiding, and the board's own is about what its columns cannot hold. */}
+      {chrome.notice}
+
+      {hidden.length === 0 ? null : (
+        <PartialNotice
+          pending={`${String(hidden.length)} ${hidden.length === 1 ? 'item is' : 'items are'} not on this board: their ${property.label} is not one of its columns. They are still here.`}
+        />
+      )}
+
+      {narrow && selectedColumn ? (
+        <Field label="Board column">
+          {(control) => (
+            <Select
+              {...control}
+              value={columnId(selectedColumn)}
+              onChange={(event) => {
+                setMobileColumn(event.target.value);
+              }}
+            >
+              {columns.map((column) => (
+                <option key={columnId(column)} value={columnId(column)}>
+                  {column.label} ({column.items.length})
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
+      ) : null}
+      <div className="flex min-h-0 flex-col items-stretch gap-3 pb-2 sm:flex-row sm:items-start sm:overflow-x-auto">
+        {visibleColumns.map((column) => (
+          <BoardColumnPanel
+            onCreate={container.create}
+            suggest={suggestSourceOf(container, onOpen)}
+            groupKey={key}
+            key={column.value ?? UNSET_VALUE}
+            column={column}
+            columns={columns}
+            property={property}
+            cardProperties={view.columns.filter((candidate) => candidate !== key)}
+            schema={container.schema?.properties ?? []}
+            dragged={dragged}
+            setDragged={setDragged}
+            onMove={move}
+            onWrite={(itemId, propertyKey, value) =>
+              container.setProperties(itemId, { [propertyKey]: value })
+            }
+            onOpen={onOpen}
+            stale={stale}
+            dismissedStale={dismissedStale}
+            onDismissStale={(item) => {
+              const key = staleDismissalKey(item);
+              rememberDismissal(key);
+              setDismissedStale((current) => new Set([...current, key]));
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface BoardColumnPanelProps {
+  readonly column: BoardColumn;
+  readonly columns: readonly BoardColumn[];
+  readonly property: PropertyDefinition;
+  readonly cardProperties: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly dragged: string | null;
+  readonly setDragged: (itemId: string | null) => void;
+  readonly onMove: (item: Item, value: string | null) => void;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
+  readonly onOpen: (itemId: string) => void;
+  readonly onCreate: (
+    title: string,
+    properties?: Record<string, unknown>,
+  ) => Promise<string | null>;
+  readonly groupKey: string;
+
+  /** What the column's create field learns its suggestions from; see `CreateItemControl`. */
+  readonly suggest: CreateSuggestSource;
+
+  /** Cards untouched far longer than their column's usual, and the ones whose note was waved away. */
+  readonly stale: ReadonlyMap<string, StaleMember>;
+  readonly dismissedStale: ReadonlySet<string>;
+  readonly onDismissStale: (item: Item) => void;
+}
+
+function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
+  const {
+    column,
+    columns,
+    property,
+    cardProperties,
+    schema,
+    dragged,
+    setDragged,
+    onMove,
+    onWrite,
+    onOpen,
+    onCreate,
+    groupKey,
+    suggest,
+    stale,
+    dismissedStale,
+    onDismissStale,
+  } = props;
+
+  const [dropTarget, setDropTarget] = useState(false);
+
+  function onDrop(event: DragEvent<HTMLElement>): void {
+    event.preventDefault();
+    setDropTarget(false);
+    setDragged(null);
+
+    if (dragged === null) {
+      return;
+    }
+
+    // The dragged id is read from state rather than from `dataTransfer`, which the drag start
+    // fills only so Firefox will begin the gesture at all. State is the same fact and is available
+    // during dragover, where the payload deliberately is not.
+    const item = columns
+      .flatMap((candidate) => candidate.items)
+      .find((candidate) => candidate.id === dragged);
+
+    if (item !== undefined) {
+      onMove(item, column.value);
+    }
+  }
+
+  return (
+    <section
+      aria-label={column.label}
+      onDragOver={(event) => {
+        // Preventing the default is what marks this element as a drop target at all; without it
+        // the browser refuses the drop and the gesture silently does nothing.
+        event.preventDefault();
+        setDropTarget(true);
+      }}
+      onDragLeave={() => {
+        setDropTarget(false);
+      }}
+      onDrop={onDrop}
+      className={cn(
+        // p-3, not p-2: every other bordered `flex-col gap-2` panel in the views layer - the
+        // calendar's unscheduled tray, the timeline's off-axis lists and reschedule panel, the
+        // schema and view editors' draft rows - pads at p-3. A column was the one place this rhythm
+        // had drifted, and cards inside it sat visibly closer to the frame than the same shape does
+        // everywhere else it appears.
+        'flex w-full shrink-0 flex-col sm:w-80 gap-2 border border-divider p-3',
+        dropTarget && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        {/* `break-words` is `Text`'s default now; `min-w-0` is what lets a flex child actually
+            shrink and wrap instead of pushing the count beside it out of the fixed-width column. */}
+        <Text variant="h6" as="h3" className="min-w-0">
+          {column.label}
+        </Text>
+        <Text variant="caption" tone="muted" as="span">
+          {column.items.length}
+        </Text>
+      </div>
+
+      {column.items.length === 0 ? (
+        <Text variant="caption" tone="muted" as="p">
+          {column.value === null ? `Nothing without a ${property.label.toLowerCase()}.` : 'Empty.'}
+        </Text>
+      ) : (
+        <BoardCardList
+          items={column.items}
+          label={column.label}
+          columns={columns}
+          property={property}
+          cardProperties={cardProperties}
+          schema={schema}
+          dragged={dragged}
+          setDragged={setDragged}
+          onMove={onMove}
+          onWrite={onWrite}
+          onOpen={onOpen}
+          stale={stale}
+          dismissedStale={dismissedStale}
+          onDismissStale={onDismissStale}
+        />
+      )}
+
+      {/* Created already in this column, rather than created loose and then dragged. The value the
+          column stands for is the value the item gets, which is the same write a drag makes - see
+          `move` above. */}
+      <CreateItemControl
+        label={
+          column.value === null
+            ? `Add an item without a ${property.label.toLowerCase()}`
+            : `Add an item to ${column.label}`
+        }
+        properties={{ [groupKey]: column.value }}
+        onCreate={onCreate}
+        suggest={suggest}
+        className="mt-1 self-start"
+      />
+    </section>
+  );
+}
+
+interface BoardCardListProps {
+  readonly items: readonly Item[];
+  readonly label: string;
+  readonly columns: readonly BoardColumn[];
+  readonly property: PropertyDefinition;
+  readonly cardProperties: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly dragged: string | null;
+  readonly setDragged: (itemId: string | null) => void;
+  readonly onMove: (item: Item, value: string | null) => void;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
+  readonly onOpen: (itemId: string) => void;
+  readonly stale: ReadonlyMap<string, StaleMember>;
+  readonly dismissedStale: ReadonlySet<string>;
+  readonly onDismissStale: (item: Item) => void;
+}
+
+function BoardCardList(props: BoardCardListProps): ReactNode {
+  const { items } = props;
+  if (items.length <= VIRTUALIZATION_THRESHOLD) {
+    return (
+      <ul className="flex min-h-0 flex-col gap-2">
+        {items.map((item, index) => boardCard(props, item, index))}
+      </ul>
+    );
+  }
+  return <VirtualBoardCardList {...props} />;
+}
+
+function VirtualBoardCardList(props: BoardCardListProps): ReactNode {
+  const { items, label, dragged } = props;
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
+  const keys = useMemo(() => items.map((item) => item.id), [items]);
+  const windowed = useVirtualWindow({
+    keys,
+    rootRef,
+    estimate: ESTIMATED_CARD_HEIGHT,
+    measurementGap: BOARD_CARD_GAP,
+    overscan: 500,
+    retainedIndexes:
+      dragged === null ? [] : [items.findIndex((candidate) => candidate.id === dragged)],
+  });
+
+  return (
+    <div
+      ref={rootRef}
+      role="list"
+      aria-label={`${label} cards`}
+      className="relative min-h-0"
+      style={{ height: windowed.totalSize }} // design-token-exempt: virtual content height is derived from measured cards at runtime and cannot be represented by a design token
+    >
+      {windowed.segments.map((segment) => (
+        <ul
+          key={`${String(segment.first)}-${String(segment.last)}`}
+          role="presentation"
+          className="absolute inset-x-0 flex flex-col gap-2"
+          style={{ top: windowed.offsets[segment.first] ?? 0 }} // design-token-exempt: virtual segment position is calculated from measured card offsets at runtime
+        >
+          {items
+            .slice(segment.first, segment.last + 1)
+            .map((item, offset) =>
+              boardCard(props, item, segment.first + offset, segment.first + offset),
+            )}
+        </ul>
+      ))}
+    </div>
+  );
+}
+
+function boardCard(
+  props: BoardCardListProps,
+  item: Item,
+  index: number,
+  virtualIndex?: number,
+): ReactNode {
+  return (
+    <BoardCard
+      key={item.id}
+      item={item}
+      columns={props.columns}
+      property={props.property}
+      cardProperties={props.cardProperties}
+      schema={props.schema}
+      dragging={props.dragged === item.id}
+      setDragged={props.setDragged}
+      onMove={props.onMove}
+      onWrite={props.onWrite}
+      onOpen={props.onOpen}
+      columnLabel={props.label}
+      stale={
+        props.dismissedStale.has(staleDismissalKey(item)) ? undefined : props.stale.get(item.id)
+      }
+      onDismissStale={props.onDismissStale}
+      position={index + 1}
+      setSize={props.items.length}
+      {...(virtualIndex === undefined ? {} : { virtualIndex })}
+    />
+  );
+}
+
+interface BoardCardProps {
+  readonly item: Item;
+  readonly columns: readonly BoardColumn[];
+  readonly property: PropertyDefinition;
+  readonly cardProperties: readonly string[];
+  readonly schema: readonly PropertyDefinition[];
+  readonly dragging: boolean;
+  readonly setDragged: (itemId: string | null) => void;
+  readonly onMove: (item: Item, value: string | null) => void;
+  readonly onWrite: (
+    itemId: string,
+    propertyKey: string,
+    value: PropertyValue,
+  ) => Promise<string | null>;
+  readonly onOpen: (itemId: string) => void;
+  readonly position: number;
+  readonly setSize: number;
+  readonly virtualIndex?: number;
+
+  /** The column the card sits in, for the stale note's sentence. */
+  readonly columnLabel: string;
+
+  /** Set when the card has gone untouched far longer than its column's usual and not been waved off. */
+  readonly stale: StaleMember | undefined;
+  readonly onDismissStale: (item: Item) => void;
+}
+
+function BoardCard(props: BoardCardProps): ReactNode {
+  const {
+    item,
+    columns,
+    property,
+    cardProperties,
+    schema,
+    dragging,
+    setDragged,
+    onMove,
+    onWrite,
+    onOpen,
+    position,
+    setSize,
+    virtualIndex,
+    columnLabel,
+    stale,
+    onDismissStale,
+  } = props;
+  const itemActions = useItemContextActions(onOpen);
+
+  const current = readSelectValue(item, property.key);
+  const titleRef = useRef<HTMLButtonElement>(null);
+
+  // The view's `columns` are the properties worth showing on a card face. An absent value renders
+  // as nothing rather than as an empty row: a card is a summary, and a column of blank labels
+  // tells nobody anything.
+  const fields = cardProperties.flatMap((candidate) => {
+    const definition = schema.find((entry) => entry.key === candidate);
+    return definition === undefined ? [] : [definition];
+  });
+
+  return (
+    <ContextMenu
+      label={`${item.title || 'Untitled'} actions`}
+      items={() => itemActions(item.id, item.title)}
+    >
+      {(contextTarget) => (
+        <li
+          {...contextTarget}
+          {...(virtualIndex === undefined ? {} : { role: 'listitem' })}
+          aria-posinset={position}
+          aria-setsize={setSize}
+          data-virtual-index={virtualIndex}
+          className="min-w-0"
+        >
+          <Blueprint
+            className={cn('flex flex-col gap-1.5 bg-background p-3', dragging ? 'opacity-45' : '')}
+          >
+            <div
+              draggable
+              onDragStart={(event) => {
+                setDragged(item.id);
+                event.dataTransfer.effectAllowed = 'move';
+                // Set, though the drop handler prefers its own state: without data attached, Firefox
+                // refuses to start the drag at all.
+                event.dataTransfer.setData('text/plain', item.id);
+              }}
+              onDragEnd={() => {
+                setDragged(null);
+              }}
+            >
+              <button
+                ref={titleRef}
+                type="button"
+                onClick={() => {
+                  onOpen(item.id);
+                }}
+                className={cn('w-full text-left', focusRing)}
+              >
+                <Text variant="h5" as="span" lines={2}>
+                  {item.title || 'Untitled'}
+                </Text>
+              </button>
+            </div>
+
+            {stale === undefined ? null : (
+              <StaleCardHint
+                title={item.title}
+                columnLabel={columnLabel}
+                ageMs={stale.ageMs}
+                medianMs={stale.medianMs}
+                onDismiss={() => {
+                  onDismissStale(item);
+                  // The dismiss button goes with the note; focus lands on the card it was about
+                  // rather than falling to the document (WCAG 2.4.3).
+                  titleRef.current?.focus();
+                }}
+              />
+            )}
+
+            {fields.length === 0 ? null : (
+              <div className="flex flex-col gap-1">
+                {fields.map((field) => (
+                  <div key={field.key}>
+                    <Text variant="kicker" tone="muted" as="span">
+                      {field.label}
+                    </Text>
+                    <ListCell
+                      density="card"
+                      item={item}
+                      property={field}
+                      onWrite={(value) => onWrite(item.id, field.key, value)}
+                    />
+                    <Text variant="caption" as="span" className="sr-only">
+                      {readPropertyText(item, field.key)}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/*
+        Drag is not the only way to move a card, and it never can be: a keyboard user, a screen
+        reader user and anyone on a touch device with assistive technology all need this control.
+        It carries the same meaning as the drag - it writes the grouping property - so the two
+        gestures cannot drift apart.
+      */}
+            <label className="flex flex-col gap-0.5">
+              <Text variant="kicker" tone="muted" as="span">
+                {property.label}
+              </Text>
+              <Select
+                // Named per card, not per property: a board of twelve cards would otherwise offer twelve
+                // controls all called "Status", and neither a screen reader user nor a test could say
+                // which one they were operating.
+                aria-label={`${property.label} for ${item.title || 'Untitled'}`}
+                value={current ?? UNSET_VALUE}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  onMove(item, next === UNSET_VALUE ? null : next);
+                }}
+              >
+                {/*
+            The card's current value is offered even when it is not one of the board's columns, so
+            a card that arrived here with a value this board does not show can still be read
+            without the control silently reporting some other column.
+          */}
+                {current !== null && !columns.some((column) => column.value === current) ? (
+                  <option value={current}>{current}</option>
+                ) : null}
+
+                {columns.map((column) => (
+                  <option key={column.value ?? UNSET_VALUE} value={column.value ?? UNSET_VALUE}>
+                    {column.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </Blueprint>
+        </li>
+      )}
+    </ContextMenu>
+  );
+}
+
+const NO_STALE: ReadonlyMap<string, StaleMember> = new Map();
+
+/** Every loaded child's age, bucketed by its grouping value: one group per board column. */
+function columnAges(
+  children: readonly Item[],
+  key: string,
+  now: number,
+): readonly (readonly { readonly id: string; readonly ageMs: number }[])[] {
+  const groups = new Map<string | null, { id: string; ageMs: number }[]>();
+  for (const item of children) {
+    const value = readSelectValue(item, key);
+    const member = { id: item.id, ageMs: Math.max(0, now - Date.parse(item.updatedAt)) };
+    const group = groups.get(value);
+    if (group === undefined) {
+      groups.set(value, [member]);
+    } else {
+      group.push(member);
+    }
+  }
+  return [...groups.values()];
+}
+
+/**
+ * What a stale-card dismissal is about: this card, as it was when the note was waved away. An edit
+ * moves `updatedAt`, which makes the key new, so the note can return if the card goes stale again.
+ */
+function staleDismissalKey(item: Item): string {
+  return `stale:${item.workspaceId}:${item.id}:${item.updatedAt}`;
+}
+
+/**
+ * Why a board might not be drawable, as data rather than as four scattered early returns.
+ *
+ * Keeping the reason means the explanation can name the actual problem - a deleted property, a
+ * property that is a date - instead of the generic apology a boolean would leave room for.
+ */
+type Grouping =
+  | { readonly kind: 'ready'; readonly property: PropertyDefinition }
+  | { readonly kind: 'ungrouped' }
+  | { readonly kind: 'missing'; readonly key: string }
+  | { readonly kind: 'wrongType'; readonly property: PropertyDefinition }
+  | { readonly kind: 'flagged'; readonly property: PropertyDefinition };
+
+function resolveGrouping(container: ContainerData, view: View): Grouping {
+  if (view.groupBy === null || view.groupBy.length === 0) {
+    return { kind: 'ungrouped' };
+  }
+
+  const property = container.schema?.properties.find((candidate) => candidate.key === view.groupBy);
+
+  if (property === undefined) {
+    return { kind: 'missing', key: view.groupBy };
+  }
+
+  if (!canGroupBy(property.type)) {
+    return { kind: 'wrongType', property };
+  }
+
+  // Core keeps its own list of views it considers unrenderable. When it disagrees with the check
+  // above, Core is the one holding the schema this build has not seen, so it wins.
+  if ((container.views?.unrenderable ?? []).includes(view.id)) {
+    return { kind: 'flagged', property };
+  }
+
+  return { kind: 'ready', property };
+}
+
+function describeUnrenderable(
+  grouping: Exclude<Grouping, { kind: 'ready' }>,
+  view: View,
+): { readonly title: string; readonly detail: string } {
+  switch (grouping.kind) {
+    case 'ungrouped':
+      return {
+        title: 'This board has no grouping property',
+        detail: `"${view.name}" is a board, but nothing says which property its columns come from. Give the view a select property to group by and the columns will appear.`,
+      };
+
+    case 'missing':
+      return {
+        title: 'This board groups by a property that no longer exists',
+        detail: `"${view.name}" groups by "${grouping.key}", which is not in this item's schema. The items are all still here - it is the property that is gone, so the board cannot say which column each one belongs in.`,
+      };
+
+    case 'wrongType':
+      return {
+        title: 'This board groups by a property that cannot make columns',
+        detail: `"${grouping.property.label}" is a ${grouping.property.type} property, and a board's columns come from a select. The items are all still here; only this view cannot draw them.`,
+      };
+
+    case 'flagged':
+      return {
+        title: 'This board cannot be drawn',
+        detail: `Core reports that "${view.name}" can no longer be rendered as configured. The items are all still here; the view needs a grouping property it can use.`,
+      };
+  }
+}

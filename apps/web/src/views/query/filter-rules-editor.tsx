@@ -1,0 +1,221 @@
+import { Button, Field, Icon, Input, Select, Text } from '@nix/ui';
+import { Trash2 } from 'lucide-react';
+import { useId, type ReactNode } from 'react';
+
+import type { PropertyDefinition, ViewFilterRule } from '../core/container-model';
+import { operatorTakesValue } from '../core/filter-rules';
+import { isComputedType } from '../core/property-types';
+
+/**
+ * The smallest honest editor for a view's filters: one row per rule - property, operator,
+ * value - with add and remove.
+ *
+ * **The property is free text with the local schema as suggestions, and the hint says why.** A
+ * query spans containers, and other containers declare properties this one does not; a `<Select>`
+ * over the local schema would make cross-container filtering impossible from the very editor that
+ * exists for it.
+ *
+ * **The operator select offers the closed set this build knows, but the field preserves a token
+ * it does not.** A rule written by a newer build round-trips through this editor untouched unless
+ * somebody changes it - only the server executes, and the select gains the stray token as a
+ * disabled-looking extra option rather than silently rewriting it.
+ */
+
+interface OperatorChoice {
+  readonly value: string;
+  readonly label: string;
+}
+
+/** The operators a query view's SQL compiles, with the words a person sees. */
+const QUERY_OPERATORS: readonly OperatorChoice[] = [
+  { value: 'equals', label: 'is' },
+  { value: 'not-equals', label: 'is not' },
+  { value: 'on', label: 'is on' },
+  { value: 'before', label: 'is before' },
+  { value: 'on-or-after', label: 'is on or after' },
+  { value: 'within-next', label: 'is within the next (days)' },
+];
+
+/**
+ * Every operator a container view evaluates over its own children (ADR-0054). The six beyond the
+ * compiled ones have no SQL yet, so a query view is never offered them; the server refuses them
+ * there too.
+ */
+const CONTAINER_OPERATORS: readonly OperatorChoice[] = [
+  ...QUERY_OPERATORS,
+  { value: 'contains', label: 'contains' },
+  { value: 'not-contains', label: 'does not contain' },
+  { value: 'greater-than', label: 'is more than' },
+  { value: 'less-than', label: 'is less than' },
+  { value: 'is-empty', label: 'is empty' },
+  { value: 'is-not-empty', label: 'is not empty' },
+];
+
+/** The operators whose value is a number. */
+const NUMBER_OPERATORS: ReadonlySet<string> = new Set(['greater-than', 'less-than']);
+
+/** The operators whose value is a day - `today`, or a date written yyyy-MM-dd. */
+const DAY_OPERATORS: ReadonlySet<string> = new Set(['on', 'before', 'on-or-after']);
+
+/**
+ * The kind of value an operator reads. A value is kept across an operator change only when the
+ * kind stays the same: a day under "is more than" or a number under "is on" would be refused on
+ * save, so it is cleared rather than carried into a grammar it does not fit.
+ */
+function valueKindOf(operator: string): 'none' | 'day' | 'days' | 'number' | 'text' {
+  if (!operatorTakesValue(operator)) {
+    return 'none';
+  }
+  if (DAY_OPERATORS.has(operator)) {
+    return 'day';
+  }
+  if (operator === 'within-next') {
+    return 'days';
+  }
+  return NUMBER_OPERATORS.has(operator) ? 'number' : 'text';
+}
+
+export interface FilterRulesEditorProps {
+  readonly rules: readonly ViewFilterRule[];
+
+  /** The local schema's properties, offered as suggestions - never as a bound. */
+  readonly schema: readonly PropertyDefinition[];
+
+  readonly onChange: (rules: readonly ViewFilterRule[]) => void;
+
+  /** Query views span readable containers; ordinary views filter only their own children. */
+  readonly scope?: 'query' | 'container';
+}
+
+export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
+  const { rules, schema, onChange, scope = 'query' } = props;
+  const listId = useId();
+  const operators = scope === 'query' ? QUERY_OPERATORS : CONTAINER_OPERATORS;
+
+  function replace(index: number, changes: Partial<ViewFilterRule>): void {
+    onChange(rules.map((rule, position) => (position === index ? { ...rule, ...changes } : rule)));
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Text variant="note" tone="muted" as="p">
+        {scope === 'query'
+          ? 'Filters run across every container you can read, joined with AND. A property here is a key that may live in other containers, so it is typed rather than picked.'
+          : 'Filters are joined with AND and hide children from this view only. Other views keep their own filters.'}
+      </Text>
+
+      <datalist id={listId}>
+        {/* Computed properties are not suggested: a filter is compiled and run by the server
+            against stored values, and a formula has none - it is evaluated where it is drawn.
+            A rule over one would match nothing, forever, with nothing on screen to say why.
+            Suggestions are still only suggestions; the box stays free text, so nothing here
+            stops somebody typing a key that lives in another container. */}
+        {schema
+          .filter((property) => !isComputedType(property.type))
+          .map((property) => (
+            <option key={property.key} value={property.key}>
+              {property.label}
+            </option>
+          ))}
+      </datalist>
+
+      {rules.map((rule, index) => {
+        const known = operators.some((operator) => operator.value === rule.operator);
+
+        return (
+          // The index is the identity here: rules have no ids, and reordering is not offered, so
+          // position is stable for the life of the row.
+          <div key={index} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+            <Field label="Property">
+              {(control) => (
+                <Input
+                  {...control}
+                  list={listId}
+                  value={rule.property}
+                  onChange={(event) => {
+                    replace(index, { property: event.target.value });
+                  }}
+                />
+              )}
+            </Field>
+
+            <Field label="Condition">
+              {(control) => (
+                <Select
+                  {...control}
+                  value={rule.operator}
+                  onChange={(event) => {
+                    const operator = event.target.value;
+                    // A value left from an operator that reads another kind of value - or one
+                    // under an operator that takes none - is dropped rather than saved and refused.
+                    replace(
+                      index,
+                      valueKindOf(operator) === valueKindOf(rule.operator)
+                        ? { operator }
+                        : { operator, value: '' },
+                    );
+                  }}
+                >
+                  {operators.map((operator) => (
+                    <option key={operator.value} value={operator.value}>
+                      {operator.label}
+                    </option>
+                  ))}
+                  {/* A token from a newer build: preserved and named, never rewritten. */}
+                  {known ? null : <option value={rule.operator}>{rule.operator}</option>}
+                </Select>
+              )}
+            </Field>
+
+            {operatorTakesValue(rule.operator) ? (
+              <Field
+                label="Value"
+                {...(DAY_OPERATORS.has(rule.operator)
+                  ? { hint: "'today', or a date written 2026-08-15" }
+                  : rule.operator === 'within-next'
+                    ? { hint: 'A number of days, 1 to 365' }
+                    : NUMBER_OPERATORS.has(rule.operator)
+                      ? { hint: 'A number, written like 12 or -3.5' }
+                      : {})}
+              >
+                {(control) => (
+                  <Input
+                    {...control}
+                    value={rule.value}
+                    onChange={(event) => {
+                      replace(index, { value: event.target.value });
+                    }}
+                  />
+                )}
+              </Field>
+            ) : (
+              // Keeps the row's grid columns aligned when the value has nothing to ask.
+              <div aria-hidden="true" />
+            )}
+
+            <Button
+              variant="icon"
+              aria-label={`Remove the filter on ${rule.property.length > 0 ? rule.property : 'this property'}`}
+              onClick={() => {
+                onChange(rules.filter((_, position) => position !== index));
+              }}
+            >
+              <Icon icon={Trash2} size="sm" />
+            </Button>
+          </div>
+        );
+      })}
+
+      <div>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            onChange([...rules, { property: '', operator: 'equals', value: '' }]);
+          }}
+        >
+          Add a filter
+        </Button>
+      </div>
+    </div>
+  );
+}
