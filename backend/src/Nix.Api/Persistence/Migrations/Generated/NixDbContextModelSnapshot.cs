@@ -3553,6 +3553,57 @@ namespace Nix.Persistence.Migrations.Generated
                         });
                 });
 
+            modelBuilder.Entity("Nix.Domain.Transcriptions.ItemTranscription", b =>
+                {
+                    b.Property<Guid>("AudioItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audio_item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("job_id");
+
+                    b.Property<Guid>("NoteItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("note_item_id");
+
+                    b.Property<short>("Progress")
+                        .HasColumnType("smallint")
+                        .HasColumnName("progress");
+
+                    b.Property<Guid>("RequestedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by");
+
+                    b.Property<string>("Speakers")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("speakers");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("AudioItemId");
+
+                    b.HasIndex("TenantId", "AudioItemId");
+
+                    b.ToTable("item_transcription", (string)null);
+                });
+
             modelBuilder.Entity("Nix.Domain.Views.PublicFormLink", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4528,6 +4579,16 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasForeignKey("TenantId", "PersonalOwnerPrincipalId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Transcriptions.ItemTranscription", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AudioItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Nix.Domain.Views.PublicFormLink", b =>

@@ -116,6 +116,16 @@ func Run(service role.Service) {
 		indexControl = apiClient
 		indexHydrator = apiClient
 	}
+	var speech *speechRole
+	var speechHandler http.Handler
+	if roles.Has(role.Speech) {
+		built, speechErr := newSpeechRole(settings, apiClient, logger)
+		if speechErr != nil {
+			logger.Error("speech role configuration failed", "error", speechErr)
+			os.Exit(1)
+		}
+		speech, speechHandler = built, built.handler
+	}
 	serverRole := role.All
 	if len(roles) == 1 {
 		for enabled := range roles {
@@ -135,6 +145,7 @@ func Run(service role.Service) {
 		IndexHealth:    indexState.Snapshot,
 		Ready:          readiness.AllReady,
 		Companion:      companionHandler,
+		Speech:         speechHandler,
 	})
 	httpServer := &http.Server{
 		Addr:              settings.Address,
@@ -152,10 +163,10 @@ func Run(service role.Service) {
 	}
 	var collaborationProbe *serviceProbe
 	var objectProbe *objectStoreProbe
-	if roles.Has(role.Import) || roles.Has(role.Export) {
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Speech) {
 		collaborationProbe = newServiceProbe(settings.CollaborationURL, settings.RequestTimeout)
 	}
-	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) {
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) || roles.Has(role.Speech) {
 		objectProbe = newObjectStoreProbe(settings.ObjectOrigins, settings.RequestTimeout)
 	}
 	var apiProbe *workerapi.Client
@@ -326,6 +337,12 @@ func Run(service role.Service) {
 		}
 		go runner.Run(ctx)
 	}
+	if speech != nil {
+		if speechErr := speech.start(ctx, settings, brokerClient, apiClient, logger); speechErr != nil {
+			logger.Error("speech role configuration failed", "error", speechErr)
+			os.Exit(1)
+		}
+	}
 	serverFailures := make(chan error, 1)
 	go func() {
 		logger.Info("go worker listening", "address", settings.Address, "roles", settings.WorkerRoles)
@@ -429,14 +446,25 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 	if settings.RabbitMQURL == "" {
 		return errors.New("NIX_RABBITMQ_URL is required")
 	}
-	if roles.Has(role.Import) || roles.Has(role.Export) {
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Speech) {
 		if !validServiceOrigin(settings.CollaborationURL) {
-			return errors.New("NIX_WORKER_COLLAB_URL must be a valid collaboration service origin for imports and exports")
+			return errors.New("NIX_WORKER_COLLAB_URL must be a valid collaboration service origin for imports, exports, and speech")
 		}
 	}
-	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) {
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) || roles.Has(role.Speech) {
 		if len(settings.ObjectOrigins) == 0 {
-			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports, exports, and plugins")
+			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports, exports, plugins, and speech")
+		}
+	}
+	if roles.Has(role.Speech) {
+		if settings.SpeechWhisperModel == "" {
+			return errors.New("NIX_SPEECH_WHISPER_MODEL must name the whisper model file for the speech role")
+		}
+		if settings.SpeechWhisperThreads <= 0 || settings.SpeechWhisperThreads > 64 {
+			return errors.New("NIX_SPEECH_WHISPER_THREADS must be between 1 and 64")
+		}
+		if settings.SpeechTranscribeTimeout < time.Minute {
+			return errors.New("NIX_SPEECH_TRANSCRIBE_TIMEOUT_SECONDS must be at least 60")
 		}
 	}
 	if roles.Has(role.Calendar) {
@@ -647,7 +675,9 @@ func (state *readinessState) RoleReady(service role.Service) bool {
 		return false
 	}
 	switch service {
-	case role.Import, role.Export:
+	// Speech is ready to take work once it can reach what a job needs. The model loading is not
+	// part of this: a job waits for it, and dictation answers that speech is warming up.
+	case role.Import, role.Export, role.Speech:
 		return state.collaboration.Load() && state.objects.Load()
 	case role.Index:
 		return state.search.Load() && state.indexReady != nil && state.indexReady()
@@ -686,6 +716,8 @@ func queueForRole(service role.Service) string {
 		return broker.CalendarQueue
 	case role.Notify:
 		return broker.NotifyQueue
+	case role.Speech:
+		return broker.TranscribeQueue
 	default:
 		return ""
 	}
@@ -707,10 +739,10 @@ func startReadinessProbes(
 	if state.roles.Has(role.Index) {
 		go probeDependency(ctx, "OpenSearch", search, &state.search, interval, logger)
 	}
-	if state.roles.Has(role.Import) || state.roles.Has(role.Export) {
+	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Speech) {
 		go probeDependency(ctx, "Collaboration", collaboration, &state.collaboration, interval, logger)
 	}
-	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Plugin) {
+	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Plugin) || state.roles.Has(role.Speech) {
 		go probeDependency(ctx, "object storage", objects, &state.objects, interval, logger)
 	}
 }

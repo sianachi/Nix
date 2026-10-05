@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import { useApiClient } from '../api/api-client-provider';
 import { AudioPlayer } from '../audio/audio-player';
 import { authorisedAudioUrl } from '../audio/audio-source';
+import { TranscriptionPanel } from '../speech/transcription-panel';
 import {
   bareMediaType,
   fileExtension,
@@ -72,13 +73,14 @@ export function MediaViewer({ fileName, source }: FileViewerProps): ReactElement
 export function AudioViewer({ fileName, itemId, onDownload }: FileViewerProps): ReactElement {
   const client = useApiClient();
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-8">
+    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-8">
       <AudioPlayer
         itemId={itemId}
         title={fileName}
         resolveUrl={() => authorisedAudioUrl(client, itemId)}
         onDownload={onDownload}
       />
+      <TranscriptionPanel key={itemId} itemId={itemId} />
     </div>
   );
 }

@@ -33,9 +33,11 @@ using Nix.Features.Query;
 using Nix.Features.Recurrence;
 using Nix.Features.Roles;
 using Nix.Features.Search;
+using Nix.Features.Speech;
 using Nix.Features.TemplateImports;
 using Nix.Features.Templates;
 using Nix.Features.Tokens;
+using Nix.Features.Transcriptions;
 using Nix.Features.Views;
 using Nix.Features.Workspaces;
 using Nix.Http;
@@ -100,6 +102,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(DocumentImportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(ExportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(PluginsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(TranscriptionsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(SpeechJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -123,6 +127,11 @@ if (!string.IsNullOrWhiteSpace(dataProtectionKeysPath))
 {
     dataProtection.PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeysPath));
 }
+
+// Singleton, like the token service above: it holds one protector over the shared key ring and
+// issuing is pure computation. Registered whether or not persistence is, because the redeem route
+// sits on the secret-only internal boundary and needs no database.
+builder.Services.AddSingleton<SpeechCapabilityProtector>();
 
 builder.Services
     .AddHttpClient(BrowserAuthOptions.HttpClientName, static client =>
@@ -539,6 +548,8 @@ app.MapFileEndpoints();
 app.MapDocumentImportEndpoints();
 app.MapTemplateImportEndpoints();
 app.MapExportEndpoints();
+app.MapTranscriptionEndpoints();
+app.MapSpeechEndpoints();
 app.MapPluginEndpoints();
 app.MapOperationEndpoints();
 app.MapMeEndpoints();

@@ -1,0 +1,20 @@
+{
+  "durationMillis": 61000,
+  "paragraphs": [
+    {
+      "startMillis": 0,
+      "speaker": "me",
+      "text": "Shall we start?"
+    },
+    {
+      "startMillis": 4200,
+      "speaker": "others",
+      "text": "Yes, go ahead."
+    },
+    {
+      "startMillis": 30500,
+      "speaker": "",
+      "text": "A line with no speaker."
+    }
+  ]
+}

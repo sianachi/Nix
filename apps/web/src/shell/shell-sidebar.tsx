@@ -26,6 +26,7 @@ export interface ShellSidebarProps {
   readonly templateStatus: TemplateLibraryStatus;
   readonly onStartTemplate: (parentId: string | null, templateId: string) => void;
   readonly onBrowseTemplates: (parentId: string | null) => void;
+  readonly onRecord: (() => void) | undefined;
   readonly treeRegionRef: RefObject<HTMLDivElement | null>;
   readonly sidebarToggleRef: RefObject<HTMLButtonElement | null>;
 }
@@ -46,6 +47,7 @@ export function ShellSidebar({
   templateStatus,
   onStartTemplate,
   onBrowseTemplates,
+  onRecord,
   treeRegionRef,
   sidebarToggleRef,
 }: ShellSidebarProps): ReactNode {
@@ -86,6 +88,7 @@ export function ShellSidebar({
       templateStatus={templateStatus}
       onStartTemplate={onStartTemplate}
       onBrowseTemplates={onBrowseTemplates}
+      onRecord={onRecord === undefined ? undefined : closeDrawerAfter(onRecord)}
       treeRegionRef={treeRegionRef}
     />
   );

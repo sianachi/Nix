@@ -10,6 +10,7 @@ import * as Y from 'yjs';
 import type { ContentDocRow } from '../db/documents.ts';
 import { withTenantScope, type ScopedQuery, type TenantScope } from '../db/tenant-scope.ts';
 import { lockedAmong } from '../db/locks.ts';
+import { workerExecutionHeld, type WorkerExecutionFence } from '../db/worker-executions.ts';
 import { CANVAS_ELEMENTS, FRAGMENT_NAME, strategyFor } from '../documents/body-kinds.ts';
 import { checkMergedDocument } from '../documents/service.ts';
 import { LIMITS } from '../documents/limits.ts';
@@ -32,11 +33,7 @@ export interface BodyCopy {
   readonly expectedHeadSeq?: number | null;
 }
 
-export interface WorkerExecutionFence {
-  readonly jobId: string;
-  readonly executionId: string;
-  readonly kind: 'import.commit' | 'template.commit';
-}
+export type { WorkerExecutionFence };
 
 export interface TemplateBodyBindings {
   readonly textBindings?: Readonly<Record<string, string>> | undefined;
@@ -191,19 +188,7 @@ async function assertWorkerExecution(
   authorization: OperationItemAuthorization,
   fence: WorkerExecutionFence,
 ): Promise<void> {
-  const result = await sql.query<{ authorized: boolean }>(
-    `SELECT nix_fence_worker_execution(
-         $1::uuid, $2, $3, $4::uuid, $5::uuid, $6::uuid) AS authorized`,
-    [
-      fence.jobId,
-      fence.executionId,
-      fence.kind,
-      authorization.tenantId,
-      authorization.workspaceId,
-      authorization.principalId,
-    ],
-  );
-  if (result.rows.length !== 1 || result.rows[0]?.authorized !== true) {
+  if (!(await workerExecutionHeld(sql, authorization, fence))) {
     throw new TemplateBodyError(
       'template.execution_lost',
       'The worker no longer owns this body-write execution.',

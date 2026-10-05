@@ -256,6 +256,9 @@ const apiOrigin =
   process.env.NIX_API_ORIGIN ?? `http://localhost:${process.env.NIX_API_PORT ?? '5014'}`;
 const collaborationOrigin =
   process.env.NIX_COLLAB_ORIGIN ?? `http://localhost:${process.env.NIX_COLLAB_PORT ?? '8100'}`;
+// The speech role runs as its own worker process in development (scripts/dev-worker.sh).
+const speechOrigin =
+  process.env.NIX_SPEECH_ORIGIN ?? `http://localhost:${process.env.NIX_SPEECH_PORT ?? '8303'}`;
 const browserPolicy = contentSecurityPolicy(objectStorePublicOrigin);
 // The React plugin injects a development-only inline preamble. Production and static preview keep
 // the hash-only policy; the dev server is local tooling and must permit that preamble to run.
@@ -303,6 +306,14 @@ export default defineConfig({
         // answers the upgrade itself and the socket never opens.
         ws: true,
         rewrite: (path: string) => path.replace(/^\/collab/, ''),
+      },
+
+      // Voices and dictation. The path is passed through whole, as the edge does in production;
+      // with no speech worker running the proxy answers an error and the app says speech is
+      // unavailable.
+      '/speech': {
+        target: speechOrigin,
+        changeOrigin: true,
       },
     },
   },

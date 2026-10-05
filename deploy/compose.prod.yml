@@ -72,6 +72,8 @@ services:
       NIX_RABBITMQ_PLUGIN_PASSWORD: ${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}
       NIX_RABBITMQ_CALENDAR_PASSWORD: ${NIX_RABBITMQ_CALENDAR_PASSWORD:?set NIX_RABBITMQ_CALENDAR_PASSWORD}
       NIX_RABBITMQ_NOTIFY_PASSWORD: ${NIX_RABBITMQ_NOTIFY_PASSWORD:?set NIX_RABBITMQ_NOTIFY_PASSWORD}
+      # Optional: empty where the speech role is not deployed, and then the account does not exist.
+      NIX_RABBITMQ_SPEECH_PASSWORD: ${NIX_RABBITMQ_SPEECH_PASSWORD:-}
     volumes:
       - nix-rabbitmq-data:/var/lib/rabbitmq
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -514,6 +516,69 @@ services:
         aliases:
           - nix-notify-worker
 
+  # The speech role (ADR-0059): meeting transcription, spoken voices and dictation. Optional, behind
+  # the `speech` profile: set COMPOSE_PROFILES=speech in the private env file to deploy it, after
+  # filling the models volume with deploy/compose/speech-models.sh. The default image is the
+  # Jetson build and needs the NVIDIA container runtime on the host; for a host without a GPU set
+  # NIX_SPEECH_IMAGE=speech-worker, NIX_SPEECH_RUNTIME=runc, NIX_SPEECH_WHISPER_GPU=false and
+  # NIX_SPEECH_WHISPER_MODEL=ggml-small.en.bin.
+  nix-speech-worker:
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/${NIX_SPEECH_IMAGE:-speech-worker-l4t}:${NIX_SPEECH_IMAGE_TAG:-${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}}
+    profiles: ["speech"]
+    runtime: ${NIX_SPEECH_RUNTIME:-nvidia}
+    user: "65532:65532"
+    # The Jetson's GPU device nodes belong to the video group; a non-root process needs it.
+    group_add:
+      - "44"
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+      nix-collab:
+        condition: service_healthy
+    environment:
+      TMPDIR: /var/lib/nix-worker/spool
+      NIX_WORKER_ROLES: speech
+      NIX_WORKER_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_WORKER_API_URL: http://nix-api:8080
+      NIX_WORKER_COLLAB_URL: http://nix-collab:8100
+      NIX_WORKER_OBJECT_ORIGINS: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT},${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      # No `:?` here: the role is optional, and Compose interpolates this file whether or not the
+      # profile is on. A deployment that turns the profile on must set the password.
+      NIX_RABBITMQ_URL: ${NIX_RABBITMQ_SPEECH_URL:-amqp://nix-speech:${NIX_RABBITMQ_SPEECH_PASSWORD:-unset}@rabbitmq:5672/%2Fnix}
+      NIX_WORKER_MAX_CONCURRENCY: "1"
+      NIX_WORKER_MAX_INPUT_BYTES: "104857600"
+      NIX_SPEECH_WHISPER_MODEL: /var/lib/nix-speech/models/${NIX_SPEECH_WHISPER_MODEL:-ggml-large-v3-turbo.bin}
+      NIX_SPEECH_WHISPER_VAD_MODEL: /var/lib/nix-speech/models/ggml-silero-v5.1.2.bin
+      NIX_SPEECH_WHISPER_GPU: ${NIX_SPEECH_WHISPER_GPU:-true}
+      NIX_SPEECH_WHISPER_THREADS: ${NIX_SPEECH_WHISPER_THREADS:-3}
+      NIX_SPEECH_VOICES_DIR: /var/lib/nix-speech/models/voices
+    volumes:
+      - nix-speech-models:/var/lib/nix-speech/models:ro
+    healthcheck:
+      test: ["CMD", "/nix-worker", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    # Bounds this container's own processes and its spool. On a Jetson the model sits in GPU
+    # memory, which is the host's memory, and whether that is counted against this limit has not
+    # been measured: see the speech section of deploy/README.md before relying on it.
+    mem_limit: ${NIX_SPEECH_MEMORY_LIMIT:-4g}
+    cpus: 3
+    read_only: true
+    tmpfs:
+      - "/var/lib/nix-worker/spool:rw,noexec,nosuid,nodev,size=256m,uid=65532,gid=65532,mode=0700"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-speech-worker
+
   nix-opensearch:
     image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}
     restart: unless-stopped
@@ -688,6 +753,8 @@ networks:
 volumes:
   nix-companion-data:
     name: nix-companion-data
+  nix-speech-models:
+    name: nix-speech-models
   nix-postgres-data:
     name: nix-postgres-data
   nix-rabbitmq-data:

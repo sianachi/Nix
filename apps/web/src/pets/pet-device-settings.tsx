@@ -1,5 +1,9 @@
-import { Field, Select, Text } from '@nix/ui';
+import { Button, Field, Select, Text } from '@nix/ui';
 import { useEffect, useState, type ReactElement } from 'react';
+
+import { useOptionalApiClient } from '../api/api-client-provider';
+import { NIX_VOICE_PREFIX, speak, stopSpeaking, useOwnSpeech } from '../speech/speaker';
+import { useSpeechStatus } from '../speech/speech-status';
 import {
   PET_SURFACE_OPTIONS,
   readDevicePreference,
@@ -8,7 +12,21 @@ import {
   type PetSurface,
 } from './device-preferences';
 
+/** What the preview says, and the settings' name in the shared speaker. */
+const PREVIEW_TEXT = 'Good morning. Here is how I sound when I read to you.';
+const PREVIEW_OWNER = 'voice-preview';
+
 export function PetDeviceSettings(): ReactElement {
+  const client = useOptionalApiClient();
+  const speech = useSpeechStatus(client);
+  const speaker = useOwnSpeech(PREVIEW_OWNER);
+  const previewing = speaker.status !== 'idle';
+  useEffect(
+    () => () => {
+      stopSpeaking(PREVIEW_OWNER);
+    },
+    [],
+  );
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voice, setVoice] = useState(() => readDevicePreference('voice'));
   const [placement, setPlacement] = useState(() => readDevicePreference('placement') || 'right');
@@ -89,25 +107,65 @@ export function PetDeviceSettings(): ReactElement {
           <Select
             {...control}
             value={voice}
-            disabled={voices.length === 0}
+            disabled={voices.length === 0 && speech.voices.length === 0}
             onChange={(event) => {
               const value = event.currentTarget.value;
               setVoice(value);
               writeDevicePreference('voice', value);
+              stopSpeaking(PREVIEW_OWNER);
             }}
           >
             <option value="">System default</option>
-            {voices.map((entry) => (
-              <option key={entry.voiceURI} value={entry.voiceURI}>
-                {entry.name} ({entry.lang})
-              </option>
-            ))}
+            {speech.voices.length === 0 ? null : (
+              <optgroup label="Nix voices, the same on every device">
+                {speech.voices.map((entry) => (
+                  <option key={entry.id} value={`${NIX_VOICE_PREFIX}${entry.id}`}>
+                    {entry.name} ({entry.accent}, {entry.gender})
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            {voices.length === 0 ? null : (
+              <optgroup label="This device’s voices">
+                {voices.map((entry) => (
+                  <option key={entry.voiceURI} value={entry.voiceURI}>
+                    {entry.name} ({entry.lang})
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </Select>
         )}
       </Field>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => {
+            if (previewing) stopSpeaking(PREVIEW_OWNER);
+            else speak({ owner: PREVIEW_OWNER, text: PREVIEW_TEXT, preference: voice, client });
+          }}
+        >
+          {previewing ? 'Stop' : 'Hear this voice'}
+        </Button>
+        {speaker.fellBack ? (
+          <Text as="span" variant="caption" tone="muted" role="status">
+            That Nix voice is unavailable right now; this is the device’s voice.
+          </Text>
+        ) : null}
+        {speaker.error === null ? null : (
+          <Text as="span" variant="caption" role="alert">
+            {speaker.error}
+          </Text>
+        )}
+      </div>
       <Text variant="note" tone="muted">
-        Voices depend on your browser and device. Some voices and browser dictation use an online
-        speech service. Microphone access starts only when you choose Dictate.
+        {speech.voices.length === 0
+          ? 'Voices depend on your browser and device. Some voices and browser dictation use an online speech service.'
+          : 'Nix voices are made on your server and sound the same everywhere. The device’s own voices depend on your browser, and some of them use an online speech service.'}{' '}
+        {speech.dictation
+          ? 'Dictation is recognised on your server.'
+          : 'Browser dictation may use an online speech service.'}{' '}
+        Microphone access starts only when you choose Dictate.
       </Text>
     </div>
   );

@@ -4,6 +4,13 @@ import { forgetThumbnails } from '../lib/thumbnail-cache';
 import { clearPendingDailyTemplate } from '../lib/pending-daily-template';
 import { clearPetDrafts } from '../pets/pet-drafts';
 import { clearBodyCache, openBodyCache } from '../editor/body-cache';
+import { abandonRecording } from '../recording/recorder-store';
+import { clearRecordingSpool } from '../recording/recording-spool';
+import { clearSpeechVocabulary } from '../lib/speech-vocabulary';
+import { cancelDictation } from '../speech/dictation';
+import { stopSpeaking } from '../speech/speaker';
+import { clearSpeechCapabilities } from '../speech/speech-client';
+import { forgetSpeechStatus } from '../speech/speech-status';
 import { clearFrecency } from '../lib/frecency';
 import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
 import { clearDrafts } from '../editor/draft-journal';
@@ -140,6 +147,18 @@ async function readJson(response: Response): Promise<unknown> {
   }
 
   return response.json();
+}
+
+/**
+ * Ends everything speech holds for the person signing out: what is being said or dictated, the
+ * capabilities issued to them, and the names remembered from their workspace.
+ */
+function endSpeechSession(): void {
+  stopSpeaking();
+  cancelDictation();
+  clearSpeechCapabilities();
+  forgetSpeechStatus();
+  clearSpeechVocabulary();
 }
 
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
@@ -290,6 +309,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       // The signing-out tab already cleared the shared store; clearing here as well stops this
       // tab's editors from writing a copy back after it did.
       if (typeof indexedDB !== 'undefined') void clearBodyCache().catch(() => undefined);
+      abandonRecording();
+      void clearRecordingSpool().catch(() => undefined);
+      endSpeechSession();
     };
     window.addEventListener('nix:signed-out-elsewhere', clearSession);
     return () => {
@@ -321,6 +343,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         clearFrecency();
         clearSuggestionDismissals();
         stopAudio();
+        abandonRecording();
+        endSpeechSession();
         clearAudioPositions();
         clearPetDrafts();
         clearPendingDailyTemplate();
@@ -328,7 +352,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         await unsubscribePushBeforeSignOut(accessTokenRef.current?.value ?? null);
         const draftsCleared =
           typeof indexedDB === 'undefined' ||
-          (await Promise.all([clearDrafts(), clearBodyCache()]).then(
+          (await Promise.all([clearDrafts(), clearBodyCache(), clearRecordingSpool()]).then(
             () => true,
             () => false,
           ));

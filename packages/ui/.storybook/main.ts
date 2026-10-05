@@ -22,6 +22,8 @@ const config: StorybookConfig = {
     '../../../apps/web/src/views/suggest/*.stories.tsx',
     '../../../apps/web/src/properties/*.stories.tsx',
     '../../../apps/web/src/automations/*.stories.tsx',
+    '../../../apps/web/src/recording/*.stories.tsx',
+    '../../../apps/web/src/speech/*.stories.tsx',
   ],
   staticDirs: [{ from: '../../../apps/web/public/pets', to: '/pets' }],
   addons: ['@storybook/addon-a11y', '@storybook/addon-docs', '@storybook/addon-vitest'],

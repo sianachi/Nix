@@ -524,6 +524,14 @@ internal static class M0SchemaSeed
                     END IF;
                 END IF;
 
+                IF to_regclass('public.item_transcription') IS NOT NULL THEN
+                    INSERT INTO item_transcription
+                        (audio_item_id, tenant_id, workspace_id, note_item_id, job_id, speakers,
+                         progress, requested_by, created_at, updated_at)
+                    VALUES ({item}, {tenant}, {workspace}, {item}, {acl}, 'none', 0,
+                            {principal}, now(), now());
+                END IF;
+
                 IF to_regclass('public.file_version') IS NOT NULL THEN
                     INSERT INTO file_version
                         (file_version_id, tenant_id, workspace_id, item_id, version, object_key,

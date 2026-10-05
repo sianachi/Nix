@@ -21,6 +21,7 @@ import {
   ListChecks,
   ListOrdered,
   Maximize2,
+  Mic,
   Minimize2,
   Minus,
   Pilcrow,
@@ -34,6 +35,7 @@ import {
   Trash2,
   Underline,
   Undo2,
+  Volume2,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
@@ -100,6 +102,22 @@ export interface ToolbarProps {
    */
   readonly onUndo: () => void;
   readonly onRedo: () => void;
+
+  /** Dictation and reading aloud, where the editor has them to offer. */
+  readonly speech?: ToolbarSpeech | undefined;
+}
+
+/**
+ * The editor's speech controls. Each is absent, not disabled, where it cannot work: a microphone
+ * button that never does anything teaches people not to press it.
+ */
+export interface ToolbarSpeech {
+  /** `off` where dictation is not on offer at all. */
+  readonly dictation: 'off' | 'idle' | 'recording' | 'transcribing';
+  readonly onDictate: () => void;
+  /** `off` where there is no voice to read with. */
+  readonly reading: 'off' | 'idle' | 'reading';
+  readonly onReadAloud: () => void;
 }
 
 export function EditorToolbar({
@@ -111,6 +129,7 @@ export function EditorToolbar({
   onInsertLink,
   onUndo,
   onRedo,
+  speech,
 }: ToolbarProps): ReactNode {
   const [moreOpen, setMoreOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
@@ -312,6 +331,37 @@ export function EditorToolbar({
     },
   ];
 
+  const speechControls: readonly Control[] =
+    speech === undefined
+      ? []
+      : [
+          ...(speech.dictation === 'off'
+            ? []
+            : [
+                {
+                  id: 'dictate',
+                  // One name, with the pressed state saying whether it is on: a label that also
+                  // changed would be read as "Finish dictating, pressed", which says two things.
+                  label: 'Dictate',
+                  icon: Mic,
+                  active: speech.dictation === 'recording',
+                  enabled: speech.dictation !== 'transcribing',
+                  run: speech.onDictate,
+                } satisfies Control,
+              ]),
+          ...(speech.reading === 'off'
+            ? []
+            : [
+                {
+                  id: 'read-aloud',
+                  label: 'Read aloud',
+                  icon: Volume2,
+                  active: speech.reading === 'reading',
+                  run: speech.onReadAloud,
+                } satisfies Control,
+              ]),
+        ];
+
   /**
    * The keyboard's way to reorder a block, offered in the compact toolbar's sheet because there
    * is no drag handle to reach for on a screen this narrow - `note-editor.tsx` documents why
@@ -453,6 +503,8 @@ export function EditorToolbar({
       >
         <Group controls={marks.filter((control) => ['bold', 'italic'].includes(control.id))} />
         <Group controls={lists.filter((control) => control.id === 'bulletList')} />
+        {/* In the bar and not the sheet: on a phone, speaking is the fast way to write. */}
+        {speechControls.length === 0 ? null : <Group controls={speechControls} label="Speech" />}
         <Button
           variant="ghost"
           onClick={() => {
@@ -643,6 +695,12 @@ export function EditorToolbar({
       ) : null}
       <Separator />
       <Group controls={history} label="History" />
+      {speechControls.length === 0 ? null : (
+        <>
+          <Separator />
+          <Group controls={speechControls} label="Speech" />
+        </>
+      )}
 
       {inColumns ? (
         <>

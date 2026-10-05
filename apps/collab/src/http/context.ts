@@ -8,6 +8,7 @@ import type { ImportBodyService } from '../imports/bodies.ts';
 import type { CollabMetrics } from '../metrics.ts';
 import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
 import type { TemplateService } from '../templates/service.ts';
+import type { TranscriptionAppendService } from '../transcriptions/append.ts';
 import type { SessionHub } from '../ws/server.ts';
 import type { SessionAuthenticator } from '../ws/session-auth.ts';
 import { requestToken } from './auth.ts';
@@ -51,6 +52,7 @@ export interface ServerDependencies {
   readonly templates?: TemplateService | undefined;
   readonly importBodies?: ImportBodyService | undefined;
   readonly templateImportBodies?: TemplateImportBodyService | undefined;
+  readonly transcriptions?: TranscriptionAppendService | undefined;
 
   /** The document layer behind the sockets. Defaults to the handshake-only hub. */
   readonly hub?: SessionHub | undefined;

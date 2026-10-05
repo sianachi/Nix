@@ -15,6 +15,7 @@ const (
 	Plugin   Service = "plugin-events"
 	Calendar Service = "calendar"
 	Notify   Service = "notify"
+	Speech   Service = "speech"
 )
 
 type Set map[Service]bool
@@ -24,7 +25,7 @@ func Parse(value string) (Set, error) {
 	for raw := range strings.SplitSeq(value, ",") {
 		candidate := Service(strings.TrimSpace(raw))
 		switch candidate {
-		case Import, Export, Index, Plugin, Calendar, Notify:
+		case Import, Export, Index, Plugin, Calendar, Notify, Speech:
 			roles[candidate] = true
 		case "":
 			continue

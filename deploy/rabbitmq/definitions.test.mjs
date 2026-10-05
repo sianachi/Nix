@@ -13,6 +13,7 @@ test('every worker command family is routed to its durable queue', () => {
     ['nix.worker.export.v1', ['export.#']],
     ['nix.worker.calendar.v1', ['calendar.#']],
     ['nix.worker.notify.v1', ['notify.#']],
+    ['nix.worker.transcribe.v1', ['transcribe.#']],
   ]);
 
   for (const [queue, routingKeys] of expected) {
@@ -31,7 +32,7 @@ test('every worker command family is routed to its durable queue', () => {
 test('the API publisher may emit every command family bound by the topology', () => {
   assert.match(
     bootstrap,
-    /\^\(import\|template\|file\|object\|export\|calendar\|notify\)\\\.\.\+\$/,
+    /\^\(import\|template\|file\|object\|export\|calendar\|notify\|transcribe\)\\\.\.\+\$/,
   );
 });
 
@@ -43,6 +44,7 @@ test('worker queues retain commands and dead-letter refused deliveries', () => {
     'nix.worker.plugin-events.v1',
     'nix.worker.calendar.v1',
     'nix.worker.notify.v1',
+    'nix.worker.transcribe.v1',
     'nix.api.results.v1',
   ]) {
     const queue = definitions.queues.find((candidate) => candidate.name === name);
@@ -73,6 +75,7 @@ test('authoritative queues cannot lose work to the quorum default delivery limit
     'nix.worker.plugin-events.v1',
     'nix.worker.calendar.v1',
     'nix.worker.notify.v1',
+    'nix.worker.transcribe.v1',
   ]) {
     assert.match(name, new RegExp(policy.pattern, 'u'), `${name} is protected`);
   }
@@ -122,5 +125,24 @@ test('broker retry delays are not duplicated outside the durable Postgres schedu
   assert.equal(
     definitions.queues.some((queue) => 'x-message-ttl' in queue.arguments),
     false,
+  );
+});
+
+test('a long recording is not taken back from the worker that is transcribing it', () => {
+  // The broker reclaims a delivery left unacknowledged for an hour. One recording is one
+  // delivery, and on the processor fallback a long meeting takes longer than that.
+  const queue = definitions.queues.find(
+    (candidate) => candidate.name === 'nix.worker.transcribe.v1',
+  );
+  assert.ok(queue, 'the transcribe queue is declared');
+  assert.ok(queue.arguments['x-consumer-timeout'] >= 4 * 60 * 60 * 1000);
+});
+
+test('the speech worker may consume only its own queue and publish only results', () => {
+  // And has no account at all where the role is not deployed.
+  assert.match(bootstrap, /else\n {2}delete_user nix-speech\nfi/);
+  assert.match(
+    bootstrap,
+    /set_permissions --vhost \/nix nix-speech "\$no_resources" \\\n {4}'\^nix\\\.results\\\.v1\$' '\^nix\\\.worker\\\.transcribe\\\.v1\$'/,
   );
 });

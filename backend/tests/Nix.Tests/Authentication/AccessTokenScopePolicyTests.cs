@@ -70,6 +70,7 @@ public sealed class AccessTokenScopePolicyTests
         ["GetTemplateImport"] = Requirement.Read,
         ["ListExportFormats"] = Requirement.Read,
         ["GetExport"] = Requirement.Read,
+        ["GetItemTranscription"] = Requirement.Read,
         ["AuthorizeExportDownload"] = Requirement.Read,
         ["GetOperation"] = Requirement.Read,
         ["GetBacklinks"] = Requirement.Read,
@@ -178,6 +179,12 @@ public sealed class AccessTokenScopePolicyTests
         ["CommitTemplateImport"] = Requirement.Write,
         ["CancelTemplateImport"] = Requirement.Write,
         ["BeginExport"] = Requirement.Write,
+
+        // Starting a transcription queues a job that appends to a note as the token's principal:
+        // an ordinary content write. A speech capability stores nothing, but it spends the speech
+        // worker's time as that principal, so a read-only token does not get one.
+        ["StartItemTranscription"] = Requirement.Write,
+        ["CreateSpeechCapability"] = Requirement.Write,
         ["CancelExport"] = Requirement.Write,
         ["CancelOperation"] = Requirement.Write,
 
