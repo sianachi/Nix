@@ -132,6 +132,13 @@ internal static class ItemEndpoints
             .ProducesProblem(StatusCodes.Status501NotImplemented)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
+        items.MapGet("/{itemId:guid}/move-workspaces", ListItemMoveWorkspacesEndpoint.Handle)
+            .WithName("ListItemMoveWorkspaces")
+            .WithSummary("Writable destination workspaces for an item")
+            .Produces<ItemMoveWorkspacePage>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+
         items.MapPost("/{itemId:guid}/move", MoveItemEndpoint.Handle)
             .WithName("MoveItem")
             .WithSummary("Move an item to a new parent")
@@ -211,7 +218,8 @@ internal static class ItemEndpoints
         var status = error.Code switch
         {
             CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode
-                or DeleteProtectedCode or ChildrenProtectedCode or ProtectionManagedCode or ReadOnlyCode =>
+                or DeleteProtectedCode or ChildrenProtectedCode or ProtectionManagedCode or ReadOnlyCode
+                or "items.transfer_conflict" =>
                 StatusCodes.Status409Conflict,
             LockedCode => StatusCodes.Status423Locked,
             _ => StatusCodes.Status404NotFound,

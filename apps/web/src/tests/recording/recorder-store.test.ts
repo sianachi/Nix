@@ -72,6 +72,26 @@ async function start(): Promise<void> {
 }
 
 describe('recording a meeting', () => {
+  it('releases capture and allows another attempt when the browser refuses to start', async () => {
+    const failStart = vi.spyOn(FakeMediaRecorder.prototype, 'start').mockImplementationOnce(() => {
+      throw new DOMException('Encoding unavailable', 'NotSupportedError');
+    });
+    try {
+      expect(
+        await store.startRecording({
+          workspaceId: WORKSPACE,
+          principalId: OWNER,
+          deviceId: null,
+          shareAudio: true,
+        }),
+      ).toBe(false);
+      expect(capture.close).toHaveBeenCalledOnce();
+      expect(store.getRecorderState()).toMatchObject({ phase: 'idle', failure: 'failed' });
+      await start();
+    } finally {
+      failStart.mockRestore();
+    }
+  });
   it('records in stereo slices and hands back one file when stopped', async () => {
     await start();
     expect(store.getRecorderState()).toMatchObject({

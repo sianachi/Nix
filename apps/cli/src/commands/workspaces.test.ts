@@ -137,12 +137,13 @@ describe('workspace administration commands', () => {
     await profile.done();
   });
 
-  it('lists eligible people and lets the recipient accept or decline an invitation', async () => {
+  it('searches the people directory and lets the recipient accept or decline an invitation', async () => {
     const profile = await withProfile();
     server.use(
-      http.get(`${API}/api/v1/workspaces/:workspaceId/invitees`, () =>
-        HttpResponse.json({ items: [invitee()], nextCursor: null }),
-      ),
+      http.get(`${API}/api/v1/workspaces/:workspaceId/invitees`, ({ request }) => {
+        expect(new URL(request.url).searchParams.get('query')).toBe('person@');
+        return HttpResponse.json({ items: [invitee()], nextCursor: null });
+      }),
       http.post(
         `${API}/api/v1/workspaces/:workspaceId/invitations/:invitationId/accept`,
         () => new HttpResponse(null, { status: 204 }),
@@ -154,7 +155,9 @@ describe('workspace administration commands', () => {
     );
 
     expect(
-      await capture((json) => listWorkspaceInvitees('default', WORKSPACE, {}, json, profile.deps)),
+      await capture((json) =>
+        listWorkspaceInvitees('default', WORKSPACE, { query: ' person@ ' }, json, profile.deps),
+      ),
     ).toMatchObject({
       count: 1,
       invitees: [{ principalId: PRINCIPAL, displayName: 'Collaborator' }],
@@ -307,6 +310,8 @@ function invitee(): Record<string, unknown> {
     principalId: PRINCIPAL,
     displayName: 'Collaborator',
     email: 'person@example.test',
+    canInvite: true,
+    cannotInviteReason: null,
   };
 }
 

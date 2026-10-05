@@ -167,14 +167,30 @@ export async function openCapture(options: {
     };
   }
 
-  const context = new AudioContext();
-  const merger = context.createChannelMerger(2);
-  const destination = context.createMediaStreamDestination();
-  const sharedSource = context.createMediaStreamSource(shared);
-  context.createMediaStreamSource(microphone).connect(merger, 0, 0);
-  sharedSource.connect(merger, 0, 1);
-  merger.connect(destination);
-  void context.resume().catch(() => undefined);
+  let context: AudioContext;
+  let destination: MediaStreamAudioDestinationNode;
+  let sharedSource: MediaStreamAudioSourceNode;
+  try {
+    context = new AudioContext();
+  } catch {
+    stopTracks(shared);
+    stopTracks(microphone);
+    throw new CaptureError('failed');
+  }
+  try {
+    const merger = context.createChannelMerger(2);
+    destination = context.createMediaStreamDestination();
+    sharedSource = context.createMediaStreamSource(shared);
+    context.createMediaStreamSource(microphone).connect(merger, 0, 0);
+    sharedSource.connect(merger, 0, 1);
+    merger.connect(destination);
+    await context.resume();
+  } catch {
+    stopTracks(shared);
+    stopTracks(microphone);
+    void context.close().catch(() => undefined);
+    throw new CaptureError('failed');
+  }
 
   const listeners = new Set<() => void>();
   for (const track of shared.getAudioTracks()) {

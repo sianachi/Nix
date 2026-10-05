@@ -1,4 +1,4 @@
-import { readToggleLevel } from '@nix/editor-schema';
+import { readTextAlignment, readToggleLevel } from '@nix/editor-schema';
 import { ICON_STROKE_WIDTH } from '@nix/ui';
 
 /**
@@ -126,6 +126,7 @@ export function renderToggleButton({ element, isOpen, node }: ToggleButtonArgs):
 
 /** The slice of a node view's arguments the summary renderer reads. */
 interface ToggleSummaryViewArgs {
+  readonly node: { readonly attrs: Record<string, unknown> };
   readonly editor: {
     readonly state: {
       readonly doc: {
@@ -142,7 +143,10 @@ interface ToggleSummaryViewArgs {
 interface ToggleSummaryView {
   readonly dom: HTMLElement;
   readonly contentDOM: HTMLElement;
-  readonly update: (node: { readonly type: { readonly name: string } }) => boolean;
+  readonly update: (node: {
+    readonly type: { readonly name: string };
+    readonly attrs: Record<string, unknown>;
+  }) => boolean;
 }
 
 /**
@@ -159,8 +163,13 @@ interface ToggleSummaryView {
  * toggle's level after creation today - the slash menu sets it in the same transaction that
  * builds the node. A control that re-levels an existing toggle must revisit this.
  */
-export function toggleSummaryView({ editor, getPos }: ToggleSummaryViewArgs): ToggleSummaryView {
+export function toggleSummaryView({
+  editor,
+  getPos,
+  node,
+}: ToggleSummaryViewArgs): ToggleSummaryView {
   const dom = document.createElement('summary');
+  dom.style.textAlign = readTextAlignment(node.attrs.textAlign) ?? '';
 
   const pos = getPos();
   const level =
@@ -175,6 +184,10 @@ export function toggleSummaryView({ editor, getPos }: ToggleSummaryViewArgs): To
   return {
     dom,
     contentDOM: dom,
-    update: (node) => node.type.name === 'detailsSummary',
+    update: (updated) => {
+      if (updated.type.name !== 'detailsSummary') return false;
+      dom.style.textAlign = readTextAlignment(updated.attrs.textAlign) ?? '';
+      return true;
+    },
   };
 }

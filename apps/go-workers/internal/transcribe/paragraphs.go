@@ -3,6 +3,7 @@ package transcribe
 import (
 	"sort"
 	"strings"
+	"unicode"
 )
 
 // Speaker says whose channel an utterance came from, when the recording keeps them apart.
@@ -53,30 +54,54 @@ func Paragraphs(spoken []Spoken) []Paragraph {
 	for _, utterance := range ordered {
 		// A NUL cannot be stored in the note, and a recogniser has been known to emit one.
 		text := strings.TrimSpace(strings.ReplaceAll(utterance.Text, "\x00", ""))
-		if len([]rune(text)) > paragraphMaxRunes {
-			text = string([]rune(text)[:paragraphMaxRunes])
-		}
 		if text == "" {
 			continue
 		}
-		if count := len(paragraphs); count > 0 {
-			current := &paragraphs[count-1]
-			joins := current.Speaker == utterance.Speaker &&
-				utterance.StartMillis-lastEnd < paragraphGapMillis &&
-				!(len([]rune(current.Text)) >= paragraphTargetRunes && endsSentence(current.Text)) &&
-				len([]rune(current.Text))+1+len([]rune(text)) <= paragraphMaxRunes
-			if joins {
-				current.Text += " " + text
-				lastEnd = max(lastEnd, utterance.EndMillis)
-				continue
+		for _, text := range splitParagraphText(text) {
+			if count := len(paragraphs); count > 0 {
+				current := &paragraphs[count-1]
+				joins := current.Speaker == utterance.Speaker &&
+					utterance.StartMillis-lastEnd < paragraphGapMillis &&
+					!(len([]rune(current.Text)) >= paragraphTargetRunes && endsSentence(current.Text)) &&
+					len([]rune(current.Text))+1+len([]rune(text)) <= paragraphMaxRunes
+				if joins {
+					current.Text += " " + text
+					lastEnd = max(lastEnd, utterance.EndMillis)
+					continue
+				}
 			}
+			paragraphs = append(paragraphs, Paragraph{StartMillis: utterance.StartMillis, Speaker: utterance.Speaker, Text: text})
+			lastEnd = utterance.EndMillis
 		}
-		paragraphs = append(paragraphs, Paragraph{StartMillis: utterance.StartMillis, Speaker: utterance.Speaker, Text: text})
-		lastEnd = utterance.EndMillis
 	}
 	return paragraphs
 }
 
 func endsSentence(text string) bool {
 	return strings.HasSuffix(text, ".") || strings.HasSuffix(text, "?") || strings.HasSuffix(text, "!")
+}
+
+// Split long recogniser utterances without discarding their ending. Prefer word boundaries;
+// timestamps remain at the utterance's start because the recogniser supplies no finer timing.
+func splitParagraphText(text string) []string {
+	runes := []rune(text)
+	var parts []string
+	for len(runes) > paragraphMaxRunes {
+		cut := paragraphMaxRunes
+		for at := cut; at > 0; at-- {
+			if unicode.IsSpace(runes[at]) {
+				cut = at
+				break
+			}
+		}
+		parts = append(parts, strings.TrimSpace(string(runes[:cut])))
+		runes = runes[cut:]
+		for len(runes) > 0 && unicode.IsSpace(runes[0]) {
+			runes = runes[1:]
+		}
+	}
+	if len(runes) > 0 {
+		parts = append(parts, string(runes))
+	}
+	return parts
 }

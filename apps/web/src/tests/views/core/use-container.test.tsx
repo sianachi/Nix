@@ -9,6 +9,7 @@ import { WorkspaceProvider } from '../../../workspaces/workspace-context';
 import { item, STUB_WORKSPACE } from '../../api-stub';
 import { notifyItemChildrenChanged } from '../../../lib/item-children-changed';
 import { useQueryResults } from '../../../views/query/use-query-results';
+import { useWorkspaceTree } from '../../../items/use-workspace-tree';
 
 const getAccessToken = (): Promise<string> => Promise.resolve('token');
 
@@ -132,6 +133,53 @@ describe('container loading', () => {
       notifyItemChildrenChanged(STUB_WORKSPACE.id, parentId);
     });
     expect(fetchMock.mock.calls).toHaveLength(afterUnmount);
+  });
+
+  it('removes a confirmed deletion from the tree and view before refresh finishes, then restores both', async () => {
+    const note = item({
+      id: 'e1000000-0000-4000-8000-000000000001',
+      workspaceId: STUB_WORKSPACE.id,
+      title: 'Delete from both places',
+    });
+    let deleted = false;
+    let holdRefresh = false;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const method = input instanceof Request ? input.method : (init?.method ?? 'GET');
+      if (method === 'DELETE') {
+        deleted = true;
+        holdRefresh = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      if (method === 'POST') {
+        deleted = false;
+        holdRefresh = false;
+        return Promise.resolve(new Response(JSON.stringify(note)));
+      }
+      if (holdRefresh) return new Promise<Response>(() => undefined);
+      return Promise.resolve(
+        new Response(JSON.stringify({ items: deleted ? [] : [note], nextCursor: null })),
+      );
+    });
+    const { result } = renderHook(() => ({ tree: useWorkspaceTree(), view: useContainer(null) }), {
+      wrapper: Wrapper,
+    });
+    await waitFor(() => {
+      expect(result.current.tree.childrenOf(null)).toHaveLength(1);
+      expect(result.current.view.children).toHaveLength(1);
+    });
+    await act(async () => {
+      expect(await result.current.tree.remove(note.id)).toEqual({ refusal: null });
+    });
+    expect(result.current.tree.find(note.id)).toBeNull();
+    expect(result.current.view.children).toHaveLength(0);
+    expect(result.current.view.refreshing).toBe(true);
+    await act(async () => {
+      expect(await result.current.tree.restore(note.id)).toEqual({ refusal: null });
+    });
+    await waitFor(() => {
+      expect(result.current.tree.find(note.id)?.title).toBe(note.title);
+      expect(result.current.view.children[0]?.id).toBe(note.id);
+    });
   });
 
   it('cancels an unfinished page walk when its consumer unmounts', async () => {

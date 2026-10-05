@@ -2,6 +2,7 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
 import { Button, Input, Text } from '@nix/ui';
 import { useMemo, useState, type ReactNode } from 'react';
 import { useNarrowViewport } from '../layout/viewport';
+import { useHiddenItems } from '../items/use-hidden-items';
 import { GraphView } from './graph-view';
 
 interface Connection {
@@ -29,8 +30,8 @@ export function graphConnections(
 }
 
 export function GraphExplorer({
-  nodes,
-  links,
+  nodes: allNodes,
+  links: allLinks,
   onOpen,
   partial = false,
   workspaceId,
@@ -49,6 +50,16 @@ export function GraphExplorer({
   readonly onMove?: ((itemId: string, parentId: string) => void) | undefined;
   readonly onLink?: ((sourceId: string, targetId: string) => void) | undefined;
 }): ReactNode {
+  const visibility = useHiddenItems();
+  // GraphView's simulation consumes array identity: rebuild only for graph or visibility changes.
+  const nodes = useMemo(
+    () => allNodes.filter((node) => !visibility.hiddenSet.has(node.id)),
+    [allNodes, visibility.hiddenSet],
+  );
+  const links = useMemo(() => {
+    const ids = new Set(nodes.map((node) => node.id));
+    return allLinks.filter((link) => ids.has(link.sourceId) && ids.has(link.targetId));
+  }, [allLinks, nodes]);
   const narrow = useNarrowViewport();
   const [choice, setChoice] = useState<'browse' | 'spatial' | null>(null);
   const [visitedSpatial, setVisitedSpatial] = useState(!narrow);
@@ -69,6 +80,11 @@ export function GraphExplorer({
   );
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {nodes.length < allNodes.length ? (
+        <Text variant="note" role="status">
+          Some items are hidden for you. Open Hidden items to show them again.
+        </Text>
+      ) : null}
       <div className="flex flex-wrap gap-2" aria-label="Graph presentation">
         <Button
           variant="ghost"

@@ -7,6 +7,7 @@ import { anchorRange, applyInlineResult } from '../../editor/inline-ai/inline-ai
 import { contextFor, gatherMaterial } from '../../editor/inline-ai/inline-ai-material';
 import {
   InlineAiError,
+  MAX_INLINE_OUTPUT_BYTES,
   streamInline,
   truncateUtf8,
   utf8Length,
@@ -124,6 +125,28 @@ describe('inline stream failure and completion', () => {
       stream: vi.fn().mockResolvedValue(new Response(body, { status })),
     } as unknown as NixClient;
   }
+  it('rejects oversized terminal and cumulative delta text before displaying it', async () => {
+    const onDelta = vi.fn();
+    const oversized = 'x'.repeat(MAX_INLINE_OUTPUT_BYTES + 1);
+    await expect(
+      streamInline(
+        client(`event: done\ndata: ${JSON.stringify({ text: oversized })}\n\n`),
+        request,
+        { signal: new AbortController().signal, onDelta },
+      ),
+    ).rejects.toMatchObject({ code: 'inline.interrupted' });
+    const first = 'x'.repeat(MAX_INLINE_OUTPUT_BYTES);
+    await expect(
+      streamInline(
+        client(
+          `event: delta\ndata: ${JSON.stringify({ text: first })}\n\nevent: delta\ndata: ${JSON.stringify({ text: 'extra' })}\n\n`,
+        ),
+        request,
+        { signal: new AbortController().signal, onDelta },
+      ),
+    ).rejects.toMatchObject({ code: 'inline.interrupted' });
+    expect(onDelta).toHaveBeenCalledExactlyOnceWith(first);
+  });
   it('receives split deltas and requires a terminal done event', async () => {
     const onDelta = vi.fn();
     expect(

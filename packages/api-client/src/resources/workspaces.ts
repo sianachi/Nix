@@ -239,21 +239,34 @@ export const createInvitation = (
       ['workspaces', workspaceId, 'members'],
     ],
   });
-export const listInvitees = (workspaceId: string): PagedQueryEndpoint<WorkspaceInvitee> =>
+export const listInvitees = (
+  workspaceId: string,
+  query?: string,
+): PagedQueryEndpoint<WorkspaceInvitee> =>
   definePagedQuery({
     operation: 'workspaces.invitees.list',
     path: `/api/v1/workspaces/${workspaceId}/invitees`,
+    query: query === undefined ? undefined : { query },
     itemSchema: workspaceInviteeSchema,
   });
 export const listInviteesPage = (
   workspaceId: string,
-  options: WorkspacePageOptions = {},
+  options: AssignablePrincipalPageOptions = {},
 ): QueryEndpoint<CursorPage<WorkspaceInvitee>> =>
   defineQuery({
     operation: 'workspaces.invitees.list.page',
     path: `/api/v1/workspaces/${workspaceId}/invitees`,
-    query: { cursor: options.cursor, limit: options.limit },
+    query: { query: options.query, cursor: options.cursor, limit: options.limit },
     schema: cursorPageSchema(workspaceInviteeSchema),
+    cacheKey: [
+      'workspaces',
+      workspaceId,
+      'invitees',
+      options.query ?? '',
+      options.cursor ?? '',
+      String(options.limit ?? 50),
+    ],
+    staleAfterMs: 0,
   });
 export const revokeInvitation = (
   workspaceId: string,

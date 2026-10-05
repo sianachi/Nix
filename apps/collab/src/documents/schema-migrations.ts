@@ -81,6 +81,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     to: 4,
     describe: 'Block item references and explicit page breaks; existing content is unchanged.',
   },
+  {
+    from: 4,
+    to: 5,
+    describe: 'Text block alignment; existing content is unchanged.',
+  },
 ];
 
 /** What became of one document. */

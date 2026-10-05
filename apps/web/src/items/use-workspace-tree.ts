@@ -1,4 +1,8 @@
-import { onItemChildrenChanged } from '../lib/item-children-changed';
+import {
+  itemSubtreeIds,
+  notifyItemChildrenChanged,
+  onItemChildrenChanged,
+} from '../lib/item-children-changed';
 import { isCanceledError, isNixApiError, items as coreItems, type Item } from '@nix/api-client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -218,6 +222,9 @@ export function useWorkspaceTree(): WorkspaceTree {
   const activeRequests = useRef(new Set<AbortController>());
   const activeLoad = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const deletedSubtrees = useRef(new Map<string, ReadonlySet<string>>());
+  const deletedIds = useRef(new Set<string>());
+  const readRevision = useRef(0);
 
   const [status, setStatus] = useState<TreeStatus>('loading');
   const [error, setError] = useState<string | null>(null);
@@ -249,6 +256,7 @@ export function useWorkspaceTree(): WorkspaceTree {
 
   const fetchChildren = useCallback(
     async (parentId: string | null, signal: AbortSignal): Promise<readonly TreeItem[]> => {
+      const revision = readRevision.current;
       const children: TreeItem[] = [];
       for await (const item of client.paginate(
         coreItems.listItems(workspaceId, {
@@ -259,7 +267,10 @@ export function useWorkspaceTree(): WorkspaceTree {
       )) {
         children.push(toItem(item));
       }
-      return children;
+      if (revision === readRevision.current) return children;
+      return parentId !== null && deletedIds.current.has(parentId)
+        ? []
+        : children.filter((item) => !deletedIds.current.has(item.id));
     },
     [client, workspaceId],
   );
@@ -270,11 +281,21 @@ export function useWorkspaceTree(): WorkspaceTree {
    * Merging would leave an item that was deleted elsewhere on screen forever, because a merge has
    * no way to learn that something is gone - only that it was not mentioned.
    */
-  const absorb = useCallback((parentId: string | null, children: readonly TreeItem[]): void => {
-    setItems((current) => [...current.filter((item) => item.parentId !== parentId), ...children]);
-  }, []);
+  const absorb = useCallback(
+    (parentId: string | null, children: readonly TreeItem[], revision: number): void => {
+      const visible =
+        revision === readRevision.current
+          ? children
+          : parentId !== null && deletedIds.current.has(parentId)
+            ? []
+            : children.filter((item) => !deletedIds.current.has(item.id));
+      setItems((current) => [...current.filter((item) => item.parentId !== parentId), ...visible]);
+    },
+    [],
+  );
 
   const load = useCallback(async (): Promise<void> => {
+    const revision = readRevision.current;
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
@@ -286,7 +307,11 @@ export function useWorkspaceTree(): WorkspaceTree {
       const roots = await fetchChildren(null, controller.signal);
       if (controller.signal.aborted || !mounted.current) return;
 
-      setItems(roots);
+      setItems(
+        revision === readRevision.current
+          ? roots
+          : roots.filter((item) => !deletedIds.current.has(item.id)),
+      );
       setExpanded(new Set());
       setStatus('ready');
     } catch (reason) {
@@ -316,6 +341,7 @@ export function useWorkspaceTree(): WorkspaceTree {
 
   const expand = useCallback(
     async (itemId: string): Promise<void> => {
+      const revision = readRevision.current;
       const controller = new AbortController();
       activeRequests.current.add(controller);
       setExpanded((current) => new Set(current).add(itemId));
@@ -324,7 +350,7 @@ export function useWorkspaceTree(): WorkspaceTree {
       try {
         const children = await fetchChildren(itemId, controller.signal);
         if (!controller.signal.aborted && mounted.current) {
-          absorb(itemId, children);
+          absorb(itemId, children, revision);
           markLocked(itemId, false);
         }
       } catch (reason) {
@@ -361,10 +387,36 @@ export function useWorkspaceTree(): WorkspaceTree {
     () =>
       onItemChildrenChanged((detail) => {
         if (detail.workspaceId !== workspaceId) return;
+        if (detail.removedItemIds.length > 0) {
+          readRevision.current += 1;
+          const root = detail.removedItemIds[0];
+          if (root !== undefined && !deletedSubtrees.current.has(root))
+            deletedSubtrees.current.set(root, new Set(detail.removedItemIds));
+          for (const id of detail.removedItemIds) deletedIds.current.add(id);
+          for (const id of detail.removedItemIds) revealsRef.current.set(id, 'missing');
+          bumpReveals();
+          setItems((current) => {
+            const removed = itemSubtreeIds(current, detail.removedItemIds);
+            return current.filter((item) => !removed.has(item.id));
+          });
+          return;
+        }
+        if (detail.restoredItemIds.length > 0) {
+          readRevision.current += 1;
+          for (const root of detail.restoredItemIds) {
+            for (const id of deletedSubtrees.current.get(root) ?? [root])
+              revealsRef.current.delete(id);
+            deletedSubtrees.current.delete(root);
+          }
+          deletedIds.current = new Set(
+            [...deletedSubtrees.current.values()].flatMap((ids) => [...ids]),
+          );
+          bumpReveals();
+        }
         if (detail.parentId === null) void load();
         else void expand(detail.parentId);
       }),
-    [expand, load, workspaceId],
+    [bumpReveals, expand, load, workspaceId],
   );
 
   const toggle = useCallback(
@@ -385,6 +437,7 @@ export function useWorkspaceTree(): WorkspaceTree {
 
   const reveal = useCallback(
     async (itemId: string): Promise<void> => {
+      const revision = readRevision.current;
       // Once per identifier, ever. Without this, an item that cannot be revealed - deleted, or
       // not this caller's to see - is retried by every render that asks, because `find` keeps
       // answering null and nothing remembers having tried. That is a thirty-two request walk per
@@ -462,6 +515,14 @@ export function useWorkspaceTree(): WorkspaceTree {
           return;
         }
 
+        if (
+          revision !== readRevision.current &&
+          found.some((item) => deletedIds.current.has(item.id))
+        ) {
+          settle('missing');
+          return;
+        }
+
         setItems((current) => {
           const known = new Set(current.map((entry) => entry.id));
           return [...current, ...found.filter((entry) => !known.has(entry.id))];
@@ -484,10 +545,15 @@ export function useWorkspaceTree(): WorkspaceTree {
             }
             throw reason;
           }
-          if (!controller.signal.aborted && mounted.current) absorb(parentId, siblings);
+          if (!controller.signal.aborted && mounted.current) absorb(parentId, siblings, revision);
         }
 
-        if (!controller.signal.aborted && mounted.current) settle('found');
+        if (!controller.signal.aborted && mounted.current)
+          settle(
+            revision !== readRevision.current && deletedIds.current.has(itemId)
+              ? 'missing'
+              : 'found',
+          );
       }
     },
     [absorb, bumpReveals, client, fetchChildren, markLocked],
@@ -645,9 +711,10 @@ export function useWorkspaceTree(): WorkspaceTree {
 
         // The destination's order changed for every sibling, not just the moved item, so its
         // children are re-read rather than patched.
+        const revision = readRevision.current;
         const siblings = await fetchChildren(parentId, controller.signal);
         if (requestCanCommit(controller.signal, mounted.current)) {
-          absorb(parentId, siblings);
+          absorb(parentId, siblings, revision);
         }
         return { refusal: null };
       } catch (reason) {
@@ -687,7 +754,13 @@ export function useWorkspaceTree(): WorkspaceTree {
           signal: controller.signal,
         });
         if (!controller.signal.aborted && mounted.current) {
-          setItems((current) => current.filter((item) => item.id !== itemId));
+          const removed = itemSubtreeIds(items, [itemId]);
+          deletedSubtrees.current.set(itemId, removed);
+          notifyItemChildrenChanged(
+            workspaceId,
+            items.find((item) => item.id === itemId)?.parentId ?? null,
+            { removedItemIds: [...removed] },
+          );
         }
         return { refusal: null };
       } catch (reason) {
@@ -700,7 +773,7 @@ export function useWorkspaceTree(): WorkspaceTree {
         if (mounted.current) setIsSaving(false);
       }
     },
-    [client, workspaceId],
+    [client, items, workspaceId],
   );
 
   const setProtection = useCallback(
@@ -747,6 +820,7 @@ export function useWorkspaceTree(): WorkspaceTree {
         );
         if (!controller.signal.aborted && mounted.current) {
           setItems((current) => [...current.filter((item) => item.id !== itemId), restored]);
+          notifyItemChildrenChanged(workspaceId, restored.parentId, { restoredItemIds: [itemId] });
         }
         return { refusal: null };
       } catch (reason) {

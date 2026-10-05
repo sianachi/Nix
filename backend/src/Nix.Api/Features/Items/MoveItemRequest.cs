@@ -22,4 +22,4 @@ namespace Nix.Features.Items;
 /// stable code, not an exception.
 /// </para>
 /// </remarks>
-internal sealed record MoveItemRequest(Guid? ParentId, Guid? AfterId);
+internal sealed record MoveItemRequest(Guid? ParentId, Guid? AfterId, Guid? WorkspaceId = null);

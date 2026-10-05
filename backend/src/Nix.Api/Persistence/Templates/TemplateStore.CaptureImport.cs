@@ -45,6 +45,11 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateCapturePlan>(TemplateErrors.NotFound("No such workspace is visible."));
         }
 
+        // Share the structural lock before discovering/copying source rows. The transfer's
+        // provisioning guard and capture publication must see one another atomically.
+        await _database.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({$"finance-workspace:{workspaceId.Value:D}"}, 0))",
+            cancellationToken).ConfigureAwait(false);
         await LockWorkspaceTemplatesAsync(workspaceId, cancellationToken).ConfigureAwait(false);
         await LockIdempotencyKeyAsync(idempotencyKey, cancellationToken).ConfigureAwait(false);
         if (await IdempotencyKeyBelongsElsewhereAsync(
@@ -82,7 +87,7 @@ public sealed partial class TemplateStore
             return Result.Failure<TemplateCapturePlan>(capacity.Error);
         }
 
-        var root = await RegularItemAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
+        var root = await LockRegularItemAsync(sourceItemId, cancellationToken).ConfigureAwait(false);
         if (root is null || root.WorkspaceId != workspaceId)
         {
             return Result.Failure<TemplateCapturePlan>(

@@ -1,3 +1,4 @@
+import { useHiddenItems } from '../items/use-hidden-items';
 import { MobileItemMove } from '../items/mobile-item-move';
 import {
   Button,
@@ -488,6 +489,7 @@ export function OpenItem({
   onClose,
   onCommit,
 }: OpenItemProps): ReactNode {
+  const visibility = useHiddenItems();
   const navigate = useNavigate();
   const narrow = useNarrowViewport();
   // Zen draws the item and its sync state alone. Everything it removes below is not rendered
@@ -699,16 +701,25 @@ export function OpenItem({
               on the document rather than on the pane around it, which the two controls beside it
               both do. */}
         <BookmarkButton compact itemId={itemId} title={title} />
-        {narrow ? (
+        {visibility.enabled ? (
           <Button
             variant="ghost"
             onClick={() => {
-              setMoveOpen(true);
+              if (visibility.hiddenSet.has(itemId)) visibility.show(itemId, title);
+              else visibility.hide(itemId, title);
             }}
           >
-            Move item
+            {visibility.hiddenSet.has(itemId) ? 'Show for me' : 'Hide for me'}
           </Button>
         ) : null}
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setMoveOpen(true);
+          }}
+        >
+          Move item
+        </Button>
 
         {/* Beside the bookmark for the reason stated above it: both act on the document rather
               than on the pane around it, and the two controls after them do not. */}

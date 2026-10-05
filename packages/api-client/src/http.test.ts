@@ -10,6 +10,24 @@ function transport(timeoutMs = 15_000): ReturnType<typeof createHttpTransport> {
 }
 
 describe('the http transport', () => {
+  it.each(['//external.example/steal', 'https://external.example/steal'])(
+    'refuses an external request path before sending authorization: %s',
+    async (path) => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+      try {
+        await expect(
+          transport().send({
+            method: 'GET',
+            path,
+            headers: { Authorization: 'Bearer private-token' },
+          }),
+        ).rejects.toThrow(TypeError);
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
   it('sends JSON requests against the configured base url and returns the parsed body', async () => {
     server.use(
       http.post(testUrl('/items'), async ({ request }) => {

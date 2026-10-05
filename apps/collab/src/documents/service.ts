@@ -94,7 +94,7 @@ export async function openDocument(
 ): Promise<ContentDocRow | null> {
   const existing = await findDocByItem(sql, tenantId, itemId);
   if (existing !== null) {
-    return existing;
+    return existing.workspace_id === workspaceId ? existing : null;
   }
 
   await createDoc(sql, {
@@ -108,7 +108,11 @@ export async function openDocument(
   // Re-read rather than trusting the identifier just minted: the insert may have done
   // nothing because another request created the document first, and that request's
   // identifier is the one everybody else will use.
-  return await findDocByItem(sql, tenantId, itemId);
+  const opened = await findDocByItem(sql, tenantId, itemId);
+  // Creating the body may have waited behind a workspace transfer. Its metadata trigger
+  // follows the item's new containment; the authorization supplied by this caller does not.
+  // Require a fresh Core authorization before exposing or writing the transferred body.
+  return opened?.workspace_id === workspaceId ? opened : null;
 }
 
 /**

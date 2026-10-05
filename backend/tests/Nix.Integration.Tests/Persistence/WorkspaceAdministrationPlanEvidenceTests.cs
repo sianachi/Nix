@@ -92,10 +92,10 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
             [
                 Uuid("principal_id", M0SchemaSeed.Alpha.PrincipalId),
                 Uuid("workspace_id", InviteeWorkspaceId),
-                UuidNull("after_id"), Integer("limit", 51),
+                UuidNull("after_id"), Integer("limit", 51), TextNull("query"),
             ]);
         Report("invitee listing", plan);
-        Assert.Contains("ix_principal_workspace_invitee", plan, StringComparison.Ordinal);
+        Assert.Contains("AK_principal_tenant_id_principal_id", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Seq Scan on principal candidate", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Sort", plan, StringComparison.Ordinal);
     }
@@ -217,7 +217,7 @@ public sealed class WorkspaceAdministrationPlanEvidenceTests : IAsyncLifetime
                        'plan-' || n || '@example.test', 'plan-' || n || '@example.test', true, 'active'
                 FROM generate_series(1, {{CorpusSize}}) n;
 
-                -- Include ineligible users so the invitee index's partial predicate is selective.
+                -- Include unverified people who are visible with disabled invitation eligibility.
                 INSERT INTO principal
                     (principal_id, tenant_id, external_issuer, external_subject, kind,
                      display_name, email, email_normalized, email_verified, status)

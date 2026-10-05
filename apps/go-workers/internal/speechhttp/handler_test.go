@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -327,8 +329,9 @@ func TestAnExpiredGrantIsCheckedAgain(t *testing.T) {
 	redeemer := &fakeRedeemer{grant: workerapi.SpeechGrant{TenantID: "t", PrincipalID: "p", ExpiresAt: now.Add(time.Minute)}}
 	handler := &Handler{
 		redeemer: redeemer, options: Options{}.withDefaults(), logger: slog.New(slog.DiscardHandler),
-		now:    func() time.Time { return now },
-		grants: map[[32]byte]workerapi.SpeechGrant{}, refusals: map[[32]byte]time.Time{}, counts: map[string]window{},
+		redemptions: make(chan struct{}, maxRedemptions),
+		now:         func() time.Time { return now },
+		grants:      map[[32]byte]workerapi.SpeechGrant{}, refusals: map[[32]byte]time.Time{}, counts: map[string]window{},
 	}
 	ask := func() int {
 		request := httptest.NewRequest("GET", "/speech/v1/voices", nil)
@@ -387,5 +390,98 @@ func TestOnlyAFewClipsAreRecognisedAtOnce(t *testing.T) {
 	close(recogniser.release)
 	if first, second := <-done, <-done; first != 200 || second != 200 {
 		t.Fatalf("held clips answered %d and %d", first, second)
+	}
+}
+
+func TestPrincipalRateWindowsStayBoundedWithoutResettingLiveBudgets(t *testing.T) {
+	handler := &Handler{counts: map[string]window{}}
+	now := time.Now()
+	for index := range maxRememberedGrants {
+		owner := strconv.Itoa(index)
+		if !handler.allow(owner, 1, now) {
+			t.Fatal("a window was refused before the bound")
+		}
+	}
+	if handler.allow("new-owner", 1, now) || len(handler.counts) != maxRememberedGrants {
+		t.Fatal("a new owner grew the full set of live windows")
+	}
+	if handler.allow("0", 1, now) {
+		t.Fatal("admitting a new owner reset a live owner's budget")
+	}
+	if !handler.allow("new-owner", 1, now.Add(time.Minute)) {
+		t.Fatal("expired windows did not release capacity")
+	}
+}
+
+type blockedRedeemer struct {
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (redeemer *blockedRedeemer) RedeemSpeechCapability(ctx context.Context, _ string, _ workerapi.SpeechPurpose) (*workerapi.SpeechGrant, error) {
+	redeemer.entered <- struct{}{}
+	select {
+	case <-redeemer.release:
+		return &workerapi.SpeechGrant{TenantID: "tenant", PrincipalID: "ada", ExpiresAt: time.Now().Add(time.Minute)}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestPublicCapabilityRedemptionsHaveABoundedConcurrentGate(t *testing.T) {
+	redeemer := &blockedRedeemer{entered: make(chan struct{}, maxRedemptions), release: make(chan struct{})}
+	handler := New(redeemer, nil, nil, Options{}, slog.New(slog.DiscardHandler))
+	var pending sync.WaitGroup
+	for index := range maxRedemptions {
+		pending.Add(1)
+		go func() {
+			defer pending.Done()
+			request := httptest.NewRequest("GET", "/speech/v1/voices", nil)
+			request.Header.Set("Authorization", "Bearer "+synthesizeToken+strconv.Itoa(index))
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+		}()
+	}
+	defer func() { close(redeemer.release); pending.Wait() }()
+	for range maxRedemptions {
+		select {
+		case <-redeemer.entered:
+		case <-time.After(2 * time.Second):
+			t.Fatal("redemptions did not reach Core")
+		}
+	}
+	request := httptest.NewRequest("GET", "/speech/v1/voices", nil)
+	request.Header.Set("Authorization", "Bearer "+synthesizeOther)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || code(response) != "speech.busy" {
+		t.Fatalf("saturated gate = %d %s", response.Code, response.Body)
+	}
+}
+
+type redeemFunc func(context.Context, string, workerapi.SpeechPurpose) (*workerapi.SpeechGrant, error)
+
+func (redeem redeemFunc) RedeemSpeechCapability(ctx context.Context, token string, purpose workerapi.SpeechPurpose) (*workerapi.SpeechGrant, error) {
+	return redeem(ctx, token, purpose)
+}
+
+func TestRedemptionCannotUseAGrantThatExpiredDuringTheCoreCall(t *testing.T) {
+	now := time.Now()
+	expires := now.Add(time.Second)
+	handler := &Handler{
+		now:     func() time.Time { return now },
+		options: Options{}.withDefaults(), logger: slog.New(slog.DiscardHandler),
+		grants: map[[32]byte]workerapi.SpeechGrant{}, refusals: map[[32]byte]time.Time{}, counts: map[string]window{},
+		redemptions: make(chan struct{}, maxRedemptions),
+		redeemer: redeemFunc(func(context.Context, string, workerapi.SpeechPurpose) (*workerapi.SpeechGrant, error) {
+			now = now.Add(2 * time.Second)
+			return &workerapi.SpeechGrant{TenantID: "tenant", PrincipalID: "ada", ExpiresAt: expires}, nil
+		}),
+	}
+	request := httptest.NewRequest("GET", "/speech/v1/voices", nil)
+	request.Header.Set("Authorization", "Bearer "+synthesizeToken)
+	response := httptest.NewRecorder()
+	handler.listVoices(response, request)
+	if response.Code != http.StatusForbidden || len(handler.grants) != 0 {
+		t.Fatalf("expired redemption = %d, remembered %d grants", response.Code, len(handler.grants))
 	}
 }

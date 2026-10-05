@@ -57,6 +57,8 @@ import { isApplePlatform } from '../lib/shortcuts';
 import { useAutomateEntry } from '../automations/automate-entry';
 import { useMuteRemindersEntry } from '../settings/mute-reminders-entry';
 import { bookmarkEntry, copyLinkEntry } from './item-menu-entries';
+import { useHiddenItems } from './use-hidden-items';
+import { HiddenItemsPanel } from './hidden-items-panel';
 import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 
@@ -285,6 +287,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           landing spot - see `treeRegionRef`'s own comment on why the delete toast returns focus
           here rather than to the row it deleted, which is gone by the time that matters. */}
       <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
+        <HiddenItemsPanel onOpen={onSelect} />
         <SidebarPins onSelect={onSelect} />
         <TreeBody
           tree={tree}
@@ -590,6 +593,7 @@ const TREE_SKELETON_WIDTHS = ['w-3/4', 'w-1/2', 'w-2/3', 'w-5/12', 'w-3/5'] as c
 
 function TreeBody(props: TreeBodyProps): ReactNode {
   const { tree } = props;
+  const visibility = useHiddenItems();
 
   if (tree.status === 'loading') {
     // Rows in the positions the tree will take, so the sidebar fills in rather than appearing.
@@ -622,11 +626,13 @@ function TreeBody(props: TreeBodyProps): ReactNode {
     );
   }
 
-  const roots = tree.childrenOf(null);
+  const roots = tree.childrenOf(null).filter((item) => !visibility.hiddenSet.has(item.id));
   if (roots.length === 0) {
     return (
       <Text variant="note" tone="muted" className="px-3 py-2">
-        Nothing here yet. &ldquo;New&rdquo; creates the first item.
+        {tree.childrenOf(null).length > 0
+          ? 'Items here are hidden for you. Open Hidden items to show them.'
+          : 'Nothing here yet. New creates the first item.'}
       </Text>
     );
   }
@@ -763,7 +769,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
 
   // Loading/revealing children must not opt the sidebar into showing them.
   const [expanded, setExpanded] = useState(false);
-  const children = tree.childrenOf(item.id);
+  const visibility = useHiddenItems();
+  const children = tree.childrenOf(item.id).filter((child) => !visibility.hiddenSet.has(child.id));
   const selected = selectedId === item.id;
 
   // Whether to offer an expand control at all. From the server's answer rather than from the
@@ -918,6 +925,17 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             },
           ]),
       { kind: 'separator' },
+      ...(visibility.enabled
+        ? [
+            {
+              kind: 'action' as const,
+              label: 'Hide for me',
+              onSelect: () => {
+                visibility.hide(item.id, title);
+              },
+            },
+          ]
+        : []),
       bookmarkEntry(item.id),
       copyLinkEntry(workspaceId, item.id, title),
       ...(automateEntry === null ? [] : [automateEntry(item.id)]),
@@ -1237,7 +1255,10 @@ function SidebarPins({ onSelect }: { readonly onSelect: (itemId: string) => void
   const items = useBookmarksStore((state) => state.items);
   const status = useBookmarksStore((state) => state.status);
   const error = useBookmarksStore((state) => state.error);
-  const pins = items.filter((item) => item.workspaceId === workspaceId);
+  const visibility = useHiddenItems();
+  const pins = items.filter(
+    (item) => item.workspaceId === workspaceId && !visibility.hiddenSet.has(item.itemId),
+  );
   return (
     <section aria-label="Pinned items" className="border-b border-divider px-3 py-2">
       <Text as="p" variant="caption" tone="muted">

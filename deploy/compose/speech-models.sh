@@ -62,7 +62,7 @@ for entry in "${missing[@]}"; do
   read -r digest path source <<< "$entry"
   mkdir -p "$scratch/$(dirname "$path")"
   echo "Fetching $path"
-  curl --fail --silent --show-error --location --retry 3 --output "$scratch/$path" "$source"
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' --retry 3 --output "$scratch/$path" "$source"
   printf '%s  %s\n' "$digest" "$path" >> "$scratch/.expected"
 done
 # Checked and copied in one step, in the helper, so the host needs no checksum tool and nothing

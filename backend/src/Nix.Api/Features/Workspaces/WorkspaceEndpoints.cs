@@ -197,6 +197,7 @@ internal static class WorkspaceEndpoints
             "workspaces.invalid_daily_date" or
             DailyNoteSettings.InvalidCode or
             "paging.invalid_cursor" => StatusCodes.Status422UnprocessableEntity,
+            "workspaces.invitee_search_invalid" => StatusCodes.Status422UnprocessableEntity,
             "workspaces.human_required" => StatusCodes.Status403Forbidden,
             "workspaces.recovery_forbidden" => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status409Conflict,

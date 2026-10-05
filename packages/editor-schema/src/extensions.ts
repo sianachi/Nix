@@ -18,6 +18,7 @@ import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table
 import { Text } from '@tiptap/extension-text';
 import { Underline } from '@tiptap/extension-underline';
 
+import { TextAlignmentAttributes, TextAlignmentEditing } from './text-alignment.js';
 import { ItemBlock, PageBreak } from './note-blocks.js';
 import { Callout } from './callout.js';
 import { ColumnEditing } from './column-commands.js';
@@ -44,6 +45,7 @@ export const nixExtensions: Extensions = [
   // Structure.
   Document.extend({ content: '(block | pageBoundary)+' }),
   Paragraph,
+  TextAlignmentAttributes,
   Text,
   HardBreak,
 
@@ -135,4 +137,8 @@ export const nixExtensions: Extensions = [
  * nothing (see `columnRepairPlugin` for why the repair is a client's job today), so the schema
  * alone is what it needs.
  */
-export const nixEditingExtensions: Extensions = [...nixExtensions, ColumnEditing];
+export const nixEditingExtensions: Extensions = [
+  ...nixExtensions,
+  ColumnEditing,
+  TextAlignmentEditing,
+];

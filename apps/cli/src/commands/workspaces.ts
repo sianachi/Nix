@@ -105,13 +105,20 @@ export async function listWorkspaceInvitations(
 export async function listWorkspaceInvitees(
   profileName: string | undefined,
   workspaceId: string,
-  page: WorkspacePageOptions,
+  page: WorkspacePageOptions & { readonly query?: string | undefined },
   output: OutputOptions,
   deps: SessionDeps = {},
 ): Promise<void> {
+  const query = page.query?.trim();
+  if (query !== undefined && query.length > 128) {
+    throw new Error('Search text must not exceed 128 characters.');
+  }
   const session = await resolveSession(profileName, deps);
   const result = await session.client.query(
-    workspaces.listInviteesPage(workspaceId, validatePage(page)),
+    workspaces.listInviteesPage(workspaceId, {
+      ...validatePage(page),
+      ...(query === undefined ? {} : { query }),
+    }),
   );
   printResult(
     { invitees: result.items, count: result.items.length, nextCursor: result.nextCursor },

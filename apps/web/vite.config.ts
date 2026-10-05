@@ -27,9 +27,12 @@ const requireFromViteConfig = createRequire(import.meta.url);
 const excalidrawFontSourceDirectory = fileURLToPath(
   new URL('./node_modules/@excalidraw/excalidraw/dist/prod/fonts/', import.meta.url),
 );
-const roughjsEntry = requireFromViteConfig.resolve('roughjs/bin/rough.js', {
-  paths: [fileURLToPath(new URL('./node_modules/@excalidraw/excalidraw/', import.meta.url))],
-});
+// Resolve through Excalidraw's real package entry: pnpm keeps transitive dependencies beside
+// that package, rather than below the workspace's node_modules symlink.
+const requireFromExcalidraw = createRequire(
+  requireFromViteConfig.resolve('@excalidraw/excalidraw'),
+);
+const roughjsEntry = requireFromExcalidraw.resolve('roughjs/bin/rough.js');
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code;

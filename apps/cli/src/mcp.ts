@@ -310,14 +310,20 @@ export async function createWorkspaceMcpServer(
   server.registerTool(
     'list_workspace_invitees',
     {
-      description: 'List active Nix users who can be invited to a workspace.',
-      inputSchema: { workspaceId: identifier, ...pageInput },
+      description:
+        'List active Nix users in the organization with Core-decided invitation eligibility; search by name or email.',
+      inputSchema: {
+        workspaceId: identifier,
+        ...pageInput,
+        query: z.string().trim().max(128).optional(),
+      },
     },
-    ({ workspaceId, limit, cursor }) =>
+    ({ workspaceId, limit, cursor, query }) =>
       toolResult(async () =>
         (await session()).client.query(
           workspaces.listInviteesPage(workspaceId, {
             limit,
+            ...(query === undefined ? {} : { query }),
             ...(cursor === undefined ? {} : { cursor }),
           }),
         ),

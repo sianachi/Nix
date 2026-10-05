@@ -8,7 +8,8 @@ namespace Nix.Features.Workspaces;
 public sealed record ListWorkspaceInvitees(
     WorkspaceId WorkspaceId,
     PrincipalId? AfterId,
-    int Limit) : IQuery<IReadOnlyList<WorkspaceInviteeSnapshot>>;
+    int Limit,
+    string? Search = null) : IQuery<IReadOnlyList<WorkspaceInviteeSnapshot>>;
 
 public sealed class ListWorkspaceInviteesHandler(WorkspaceAdministrationStore store)
     : IQueryHandler<ListWorkspaceInvitees, IReadOnlyList<WorkspaceInviteeSnapshot>>
@@ -18,6 +19,6 @@ public sealed class ListWorkspaceInviteesHandler(WorkspaceAdministrationStore st
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
-        return store.ListInviteesAsync(query.WorkspaceId, query.AfterId, query.Limit, cancellationToken);
+        return store.ListInviteesAsync(query.WorkspaceId, query.AfterId, query.Limit, cancellationToken, query.Search);
     }
 }

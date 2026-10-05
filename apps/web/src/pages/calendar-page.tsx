@@ -1,3 +1,4 @@
+import { useHiddenItems } from '../items/use-hidden-items';
 import { publishNotice } from '../lib/notices';
 import { useItemDialog } from '../items/item-dialog-context';
 import { Button, Text } from '@nix/ui';
@@ -69,6 +70,7 @@ function todayHere(): CalendarDay {
 }
 
 export function CalendarPage(): ReactElement {
+  const visibility = useHiddenItems();
   const [params, setParams] = useSearchParams();
   const { openPreview } = useOpenItem();
   const openDialog = useItemDialog();
@@ -143,11 +145,15 @@ export function CalendarPage(): ReactElement {
     );
   }
 
-  const unplaceableEntries = unplaceableEntryCount(calendar);
-  const unplaceableNotices = describeUnplaceable(calendar.unplaceable);
   const notes = parseNotes(params.get('notes'));
-  const options = noteOptions(calendar.entries);
-  const shown = filterByNotes(calendar.entries, notes);
+  const visible = calendar.entries.filter((entry) => !visibility.hiddenSet.has(entry.itemId));
+  const unplaceable = calendar.unplaceable.filter(
+    (row) => !visibility.hiddenSet.has(row.itemId ?? row.containerId),
+  );
+  const unplaceableEntries = unplaceableEntryCount({ ...calendar, entries: visible });
+  const unplaceableNotices = describeUnplaceable(unplaceable);
+  const options = noteOptions(visible);
+  const shown = filterByNotes(visible, notes);
 
   // Nothing scheduled anywhere *and* nothing misconfigured. A workspace with only a misconfigured
   // container is not empty - it has a calendar nobody finished setting up, and saying "nothing to
@@ -181,6 +187,12 @@ export function CalendarPage(): ReactElement {
         />
       )}
 
+      {visible.length < calendar.entries.length ||
+      unplaceable.length < calendar.unplaceable.length ? (
+        <Text role="status" variant="note">
+          Some scheduled items are hidden for you. Open Hidden items to show them again.
+        </Text>
+      ) : null}
       <NoteFilter
         options={options}
         selected={notes}

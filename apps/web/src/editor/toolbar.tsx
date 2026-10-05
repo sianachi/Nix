@@ -1,9 +1,13 @@
+import { TEXT_ALIGNMENTS } from '@nix/editor-schema';
 import { Button, Dialog, chromeSurface } from '@nix/ui';
 import type { ItemInsertKind } from './item-insert-dialog';
 import { TableSizePicker } from './table-size-picker';
 import { Icon } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
   ArrowDown,
   ArrowUp,
   Bold,
@@ -182,6 +186,21 @@ export function EditorToolbar({
       run: () => void editor.chain().focus().toggleHeading({ level: 3 }).run(),
     },
   ];
+
+  const alignmentIcons = { left: AlignLeft, center: AlignCenter, right: AlignRight };
+  const alignmentKeys = { left: 'L', center: 'E', right: 'R' };
+  const alignment: readonly Control[] = TEXT_ALIGNMENTS.map((value) => ({
+    id: `align-${value}`,
+    label: `Align ${value}`,
+    icon: alignmentIcons[value],
+    active:
+      editor.isActive({ textAlign: value }) ||
+      (value === 'left' && editor.isActive({ textAlign: null })),
+    enabled: editor.can().setTextAlign(value),
+    shortcut: `${visibleModifier}+Shift+${alignmentKeys[value]}`,
+    ariaShortcut: `${ariaModifier}+Shift+${alignmentKeys[value]}`,
+    run: () => void editor.chain().focus().setTextAlign(value).run(),
+  }));
 
   const lists: readonly Control[] = [
     {
@@ -487,6 +506,7 @@ export function EditorToolbar({
     const more = [
       ...blocks,
       ...lists,
+      ...alignment,
       ...marks.filter((control) => !['bold', 'italic'].includes(control.id)),
       ...inserts,
       tableInsert,
@@ -599,6 +619,8 @@ export function EditorToolbar({
       <Group controls={lists} />
       <Separator />
       <Group controls={marks} />
+      <Separator />
+      <Group controls={alignment} label="Text alignment" />
       <Separator />
       <Group controls={inserts} />
       <div className="relative shrink-0" ref={tableInsertRef}>

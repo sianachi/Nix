@@ -22,7 +22,7 @@ const DECLARED_LOSS: readonly LossNotice[] = [
   {
     kind: 'text-formatting-dropped',
     detail:
-      'Text colour, highlight and underline have no Markdown equivalent and are dropped, though the text they covered is kept.',
+      'Text alignment, colour, highlight and underline have no Markdown equivalent and are dropped, though the text they covered is kept.',
   },
   {
     kind: 'columns-flattened',
@@ -59,6 +59,7 @@ const DECLARED_LOSS: readonly LossNotice[] = [
 const LOSS_KIND_BY_MARKDOWN_KIND: Readonly<Record<string, LossKind>> = {
   'comment-dropped': 'comment-dropped',
   'color-dropped': 'text-formatting-dropped',
+  'alignment-dropped': 'text-formatting-dropped',
   'highlight-dropped': 'text-formatting-dropped',
   'underline-dropped': 'text-formatting-dropped',
   'columns-flattened': 'columns-flattened',

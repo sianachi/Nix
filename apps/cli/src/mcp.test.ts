@@ -119,6 +119,50 @@ describe('nixctl mcp workspace tools', () => {
     }
   });
 
+  it('searches the people directory and preserves invitation eligibility in the result', async () => {
+    const fetchImpl: FetchImpl = (input) => {
+      const url = new URL(input);
+      if (url.pathname.endsWith('/public/v1/auth/token')) {
+        return Promise.resolve(
+          Response.json({
+            accessToken: 'jwt-owner',
+            tokenType: 'Bearer',
+            expiresInSeconds: 600,
+          }),
+        );
+      }
+      expect(url.pathname).toBe(`/api/v1/workspaces/${WORKSPACE}/invitees`);
+      expect(url.searchParams.get('query')).toBe('Ada');
+      expect(url.searchParams.get('cursor')).toBe('next');
+      return Promise.resolve(
+        Response.json({
+          items: [
+            {
+              principalId: WORKSPACE,
+              displayName: 'Ada',
+              email: null,
+              canInvite: false,
+              cannotInviteReason: 'email_missing',
+            },
+          ],
+          nextCursor: null,
+        }),
+      );
+    };
+    vi.stubGlobal('fetch', fetchImpl);
+    const connected = await connect('owner', fetchImpl);
+    try {
+      const result = await connected.client.callTool({
+        name: 'list_workspace_invitees',
+        arguments: { workspaceId: WORKSPACE, query: ' Ada ', cursor: 'next' },
+      });
+      expect(result.isError).toBeFalsy();
+      expect(JSON.stringify(result.content)).toContain('email_missing');
+    } finally {
+      await connected.close();
+    }
+  });
+
   it('requires explicit confirmation before a blueprint build reaches the API', async () => {
     const connected = await connect('owner', async () => unexpectedRequest());
     try {

@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { readSse, type SseRecord } from '../../lib/sse';
+import { MAX_SSE_RECORD_CHARS, readSse, type SseRecord } from '../../lib/sse';
 
 /**
  * The SSE framer against byte streams cut where a network would cut them.
@@ -32,6 +32,18 @@ function splitAt(bytes: Uint8Array, offset: number): Uint8Array[] {
 }
 
 describe('readSse', () => {
+  it('bounds a sender that never terminates a line or event and cancels its stream', async () => {
+    const cancel = vi.fn();
+    const unfinished = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: ' + 'x'.repeat(MAX_SSE_RECORD_CHARS + 1)));
+      },
+      cancel,
+    });
+    await expect(readSse(unfinished).next()).rejects.toThrow('size limit');
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('reads one event with its name and data', async () => {
     expect(await collect([encoder.encode('event: delta\ndata: {"text":"hi"}\n\n')])).toEqual([
       { event: 'delta', data: '{"text":"hi"}' },

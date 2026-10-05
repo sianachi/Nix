@@ -120,7 +120,7 @@ describe('the schema version a document requires', () => {
   });
 
   it('rises to what the shipped fixture actually uses', () => {
-    expect(requiredSchemaVersion(parse(FIXTURE_DOCUMENT))).toBe(4);
+    expect(requiredSchemaVersion(parse(FIXTURE_DOCUMENT))).toBe(5);
   });
 
   it('requires version 3 for an image backed by a durable file item', () => {

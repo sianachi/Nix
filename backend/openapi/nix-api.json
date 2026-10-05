@@ -1025,6 +1025,13 @@
               "format": "int32",
               "default": 50
             }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2129,6 +2136,77 @@
           },
           "501": {
             "description": "Not Implemented",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{itemId}/move-workspaces": {
+      "get": {
+        "tags": [
+          "Items"
+        ],
+        "summary": "Writable destination workspaces for an item",
+        "operationId": "ListItemMoveWorkspaces",
+        "parameters": [
+          {
+            "name": "itemId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemMoveWorkspacePage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -14315,6 +14393,43 @@
           }
         }
       },
+      "ItemMoveWorkspace": {
+        "required": [
+          "id",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "ItemMoveWorkspacePage": {
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ItemMoveWorkspace"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "ItemPermissionsResponse": {
         "required": [
           "itemId",
@@ -14981,6 +15096,13 @@
             "format": "uuid"
           },
           "afterId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "workspaceId": {
             "type": [
               "null",
               "string"
@@ -19371,7 +19493,9 @@
         "required": [
           "principalId",
           "displayName",
-          "email"
+          "email",
+          "canInvite",
+          "cannotInviteReason"
         ],
         "type": "object",
         "properties": {
@@ -19383,7 +19507,19 @@
             "type": "string"
           },
           "email": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "canInvite": {
+            "type": "boolean"
+          },
+          "cannotInviteReason": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

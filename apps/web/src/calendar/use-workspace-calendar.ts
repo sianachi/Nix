@@ -13,6 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { addEndTimes as addEndTimesTo } from '../views/calendar/add-end-times';
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
+import { onItemChildrenChanged } from '../lib/item-children-changed';
 
 export type CalendarStatus = 'loading' | 'ready' | 'error';
 
@@ -199,6 +200,37 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
       pendingOperations.clear();
     };
   }, [load]);
+
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        if (
+          detail.workspaceId !== workspaceId ||
+          (detail.removedItemIds.length === 0 && detail.restoredItemIds.length === 0)
+        )
+          return;
+        if (detail.removedItemIds.length > 0) {
+          const removed = new Set(detail.removedItemIds);
+          setCalendar((current) =>
+            current === null
+              ? null
+              : {
+                  ...current,
+                  entries: current.entries.filter(
+                    (entry) => !removed.has(entry.itemId) && !removed.has(entry.containerId),
+                  ),
+                  unplaceable: current.unplaceable.filter(
+                    (entry) =>
+                      !removed.has(entry.containerId) &&
+                      (entry.itemId === null || !removed.has(entry.itemId)),
+                  ),
+                },
+          );
+        }
+        void load();
+      }),
+    [load, workspaceId],
+  );
 
   return {
     status,

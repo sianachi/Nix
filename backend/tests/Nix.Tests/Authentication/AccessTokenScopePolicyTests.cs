@@ -36,6 +36,7 @@ public sealed class AccessTokenScopePolicyTests
         ["GetServiceStatus"] = Requirement.Read,
         ["GetLiveness"] = Requirement.Read,
         ["GetItem"] = Requirement.Read,
+        ["ListItemMoveWorkspaces"] = Requirement.Read,
         ["GetHabitTracker"] = Requirement.Read,
         ["SetHabitSettings"] = Requirement.Write,
         ["SetHabitStatus"] = Requirement.Write,

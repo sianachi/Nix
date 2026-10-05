@@ -39,7 +39,8 @@ internal sealed record WorkspaceInvitationResponse(
 internal sealed record CreateWorkspaceInvitationRequest(
     Guid PrincipalId,
     [property: AllowedValues("owner", "editor", "viewer")] string Role);
-internal sealed record WorkspaceInviteeResponse(Guid PrincipalId, string DisplayName, string Email);
+internal sealed record WorkspaceInviteeResponse(
+    Guid PrincipalId, string DisplayName, string? Email, bool CanInvite, string? CannotInviteReason);
 internal sealed record ChangeWorkspaceMemberRoleRequest(
     [property: AllowedValues("owner", "editor", "viewer")] string Role);
 internal sealed record RecoverWorkspaceRequest(Guid NewOwnerPrincipalId);
@@ -115,7 +116,7 @@ internal static class WorkspaceAdministrationMapping
         row.Role, row.Status, row.InvitedByPrincipalId.Value,
         row.InvitedAt, row.AcceptedAt, row.AcceptedByPrincipalId?.Value, row.RevokedAt);
     internal static WorkspaceInviteeResponse Invitee(WorkspaceInviteeSnapshot row) => new(
-        row.PrincipalId.Value, row.DisplayName, row.Email);
+        row.PrincipalId.Value, row.DisplayName, row.Email, row.CanInvite, row.CannotInviteReason);
 
     internal static bool TryInviteeCursor(string? value, out PrincipalId? id)
     {
@@ -242,8 +243,14 @@ internal static class WorkspaceAdministrationEndpoints
 {
     internal static async Task<Results<Ok<CursorPage<WorkspaceInviteeResponse>>, ProblemHttpResult>> ListInvitees(
         Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher,
-        string? cursor = null, int limit = CursorPaging.DefaultLimit)
+        string? cursor = null, int limit = CursorPaging.DefaultLimit, string? query = null)
     {
+        var search = query?.Trim();
+        if (search?.Length > 128)
+        {
+            return TypedResults.Problem(WorkspaceEndpoints.Problem(context,
+                new NixError("workspaces.invitee_search_invalid", "Search must be 128 characters or fewer.")));
+        }
         if (limit is < 1 or > CursorPaging.MaximumLimit
             || !WorkspaceAdministrationMapping.TryInviteeCursor(cursor, out var afterId))
         {
@@ -252,7 +259,7 @@ internal static class WorkspaceAdministrationEndpoints
         }
         var take = limit;
         var rows = await dispatcher.QueryAsync<ListWorkspaceInvitees, IReadOnlyList<WorkspaceInviteeSnapshot>>(
-            new ListWorkspaceInvitees(WorkspaceId.From(workspaceId), afterId, take + 1),
+            new ListWorkspaceInvitees(WorkspaceId.From(workspaceId), afterId, take + 1, string.IsNullOrEmpty(search) ? null : search),
             context.RequestAborted).ConfigureAwait(false);
         var responses = new WorkspaceInviteeResponse[Math.Min(take, rows.Count)];
         for (var index = 0; index < responses.Length; index++)

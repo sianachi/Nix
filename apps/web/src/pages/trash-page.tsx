@@ -7,6 +7,7 @@ import { useApiClient } from '../api/api-client-provider';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/states/status-panels';
 import { paneScroller } from '../layout/regions';
 import { useWorkspace } from '../workspaces/workspace-context';
+import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 
 function Frame({ children }: { readonly children: ReactNode }): ReactElement {
   return (
@@ -54,7 +55,8 @@ export function TrashPage(): ReactElement {
     setRestoring(item.id);
     setNotice(null);
     try {
-      await client.execute(coreItems.restoreItem(workspaceId, item.id));
+      const restored = await client.execute(coreItems.restoreItem(workspaceId, item.id));
+      notifyItemChildrenChanged(workspaceId, restored.parentId, { restoredItemIds: [item.id] });
       setState((current) => ({
         ...current,
         items: current.items.filter((candidate) => candidate.id !== item.id),

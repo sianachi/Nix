@@ -462,7 +462,9 @@ export interface StubInvitation {
 export interface StubInvitee {
   readonly principalId: string;
   readonly displayName: string;
-  readonly email: string;
+  readonly email: string | null;
+  readonly canInvite?: boolean;
+  readonly cannotInviteReason?: string | null;
 }
 
 const DEFAULT_INVITEE: StubInvitee = {
@@ -1029,7 +1031,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           role?: 'owner' | 'editor' | 'viewer';
         };
         const target = heldInvitees.find((entry) => entry.principalId === body.principalId);
-        if (target === undefined) {
+        if (target === undefined || target.canInvite === false || target.email === null) {
           return Promise.resolve(json({ detail: 'The selected person cannot be invited.' }, 409));
         }
         const created: StubInvitation = {
@@ -1056,7 +1058,11 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           canRemove: false,
           assignableRoles: [],
         });
-        heldInvitees = heldInvitees.filter((entry) => entry.principalId !== target.principalId);
+        heldInvitees = heldInvitees.map((entry) =>
+          entry.principalId === target.principalId
+            ? { ...entry, canInvite: false, cannotInviteReason: 'invitation_pending' }
+            : entry,
+        );
         return Promise.resolve(json(created, 201));
       }
 
@@ -1064,7 +1070,21 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         parsedUrl.pathname,
       );
       if (inviteeList !== null && method === 'GET') {
-        return Promise.resolve(json({ items: heldInvitees, nextCursor: null }));
+        const search = (parsedUrl.searchParams.get('query') ?? '').trim().toLowerCase();
+        const matches = heldInvitees.filter(
+          (person) =>
+            person.displayName.toLowerCase().includes(search) ||
+            (person.email?.toLowerCase().includes(search) ?? false),
+        );
+        const offset = Number(parsedUrl.searchParams.get('cursor') ?? 0);
+        const limit = Number(parsedUrl.searchParams.get('limit') ?? 50);
+        const items = matches.slice(offset, offset + limit).map((person) => ({
+          ...person,
+          canInvite: person.canInvite ?? true,
+          cannotInviteReason: person.cannotInviteReason ?? null,
+        }));
+        const nextCursor = offset + limit < matches.length ? String(offset + limit) : null;
+        return Promise.resolve(json({ items, nextCursor }));
       }
 
       const invitationDetail =

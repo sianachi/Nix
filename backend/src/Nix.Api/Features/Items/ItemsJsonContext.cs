@@ -16,6 +16,7 @@ namespace Nix.Serialization;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ItemResponse))]
+[JsonSerializable(typeof(ItemMoveWorkspacePage))]
 [JsonSerializable(typeof(CursorPage<ItemResponse>))]
 [JsonSerializable(typeof(CreateItemRequest))]
 [JsonSerializable(typeof(UpdateItemRequest))]

@@ -87,7 +87,9 @@ void _workspaceInvitationContract;
 export const workspaceInviteeSchema = z.object({
   principalId: z.uuid(),
   displayName: z.string(),
-  email: z.string().min(1).max(320),
+  email: z.string().max(320).nullable(),
+  canInvite: z.boolean(),
+  cannotInviteReason: z.string().nullable(),
 });
 export type WorkspaceInvitee = z.infer<typeof workspaceInviteeSchema>;
 

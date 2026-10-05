@@ -234,6 +234,14 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
   const block: NodeHandler<string> = (_node, _ctx, children) => children().join('\n\n');
   const inline: NodeHandler<string> = (_node, _ctx, children) => children().join('');
 
+  const alignedInline: NodeHandler<string> = (node, ctx, children) => {
+    if (node.attrs.textAlign != null && node.attrs.textAlign !== 'left') {
+      const notice = MARKDOWN_LOSSES.alignmentDropped;
+      loss.note(notice.kind, notice.detail);
+    }
+    return inline(node, ctx, children);
+  };
+
   const renderList = (start: number | null): NodeHandler<string> => {
     return (_node, _ctx, children) =>
       children()
@@ -246,11 +254,11 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
 
   return {
     doc: block,
-    paragraph: inline,
+    paragraph: alignedInline,
     text: (node) => renderText(node, loss),
     hardBreak: () => '\\\n',
-    heading: (node, _ctx, children) =>
-      `${'#'.repeat(clampLevel(readNumber(node.attrs, 'level')))} ${children().join('')}`,
+    heading: (node, ctx, children) =>
+      `${'#'.repeat(clampLevel(readNumber(node.attrs, 'level')))} ${alignedInline(node, ctx, children) ?? ''}`,
     blockquote: (_node, _ctx, children) => quote(children().join('\n\n')),
     codeBlock: (node) =>
       `\`\`\`${readString(node.attrs, 'language') ?? ''}\n${rawText(node)}\n\`\`\``,
@@ -304,7 +312,7 @@ function buildHandlers(loss: LossCollector): NodeHandlers<string> {
       const open = level === null ? '<details>' : `<details data-toggle-level="${String(level)}">`;
       return `${open}\n<summary>${summary}</summary>\n\n${content}\n\n</details>`;
     },
-    detailsSummary: inline,
+    detailsSummary: alignedInline,
     detailsContent: block,
     reference: (node) => {
       const kind = referenceKind(node);

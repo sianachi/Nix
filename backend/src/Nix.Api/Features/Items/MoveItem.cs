@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Domain.Tenancy;
 using Nix.Messaging;
 
 namespace Nix.Features.Items;
@@ -27,7 +28,7 @@ namespace Nix.Features.Items;
 /// that is still meaningful when the list has changed underneath it.
 /// </para>
 /// </remarks>
-public sealed record MoveItem(ItemId ItemId, ItemId? NewParentId, ItemId? AfterId) : ICommand<Item>;
+public sealed record MoveItem(ItemId ItemId, ItemId? NewParentId, ItemId? AfterId, WorkspaceId? WorkspaceId = null) : ICommand<Item>;
 
 /// <summary>Moves an item to a new parent, at a chosen position among its new siblings.</summary>
 /// <remarks>
@@ -52,6 +53,7 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
     private readonly TimeProvider _clock;
     private readonly IItemLocks _locks;
     private readonly IFinanceMutationGuard? _financeGuard;
+    private readonly IFinanceLock? _topology;
 
     /// <summary>Initializes a new instance of the <see cref="MoveItemHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -66,7 +68,8 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
         INixSessionContextAccessor session,
         TimeProvider clock,
         IItemLocks locks,
-        IFinanceMutationGuard? financeGuard = null)
+        IFinanceMutationGuard? financeGuard = null,
+        IFinanceLock? topology = null)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -80,6 +83,7 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
         _clock = clock;
         _locks = locks;
         _financeGuard = financeGuard;
+        _topology = topology;
     }
 
     /// <summary>Moves the item.</summary>
@@ -113,6 +117,11 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
             return Result.Failure<Item>(ItemErrors.LifecycleConflict("A purged item cannot be moved."));
         }
 
+        if (command.WorkspaceId is { } destinationWorkspace && destinationWorkspace != workspaceId)
+        {
+            return await TransferAsync(command, item, destinationWorkspace, cancellationToken).ConfigureAwait(false);
+        }
+
         if (newParentId != item.ParentId && item.ManagedBy == ItemManagers.CalendarEvent)
         {
             // Leaving the linked container is how an event is deleted upstream, so it is a
@@ -126,9 +135,6 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
             var parent = await _tree.FindAsync(destination, cancellationToken).ConfigureAwait(false);
             if (parent is null || parent.WorkspaceId != item.WorkspaceId)
             {
-                // Cross-workspace moves are not a move; they are a copy and a delete, with their
-                // own permission questions on both ends. Refusing here keeps a single operation
-                // from quietly becoming that.
                 return Result.Failure<Item>(
                     ItemErrors.ParentNotFound($"No parent {destination} is visible in this workspace."));
             }
@@ -253,6 +259,93 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
             ? Result.Failure<Item>(ItemErrors.NotFound($"Item {itemId} disappeared during the move."))
             : Result.Success(moved);
     }
+    private async ValueTask<Result<Item>> TransferAsync(
+        MoveItem command, Item original, WorkspaceId destination, CancellationToken cancellationToken)
+    {
+        if (!await _permissions.CanWriteWorkspaceAsync(destination, cancellationToken).ConfigureAwait(false)
+            || !await _tree.WorkspaceExistsAsync(destination, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<Item>(ItemErrors.WorkspaceNotFound("No writable destination workspace is visible."));
+        }
+
+        // Structural writes already share this lock with finance operations. Acquire both before
+        // discovery, in a stable order, so opposing transfers cannot deadlock or discover stale trees.
+        if (_topology is not null)
+        {
+            foreach (var workspace in new[] { original.WorkspaceId, destination }.OrderBy(id => id.Value))
+            {
+                await _topology.AcquireWorkspaceTopologyAsync(workspace, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        var item = await _tree.FindAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+        if (item is null || item.WorkspaceId != original.WorkspaceId)
+        {
+            return Result.Failure<Item>(ItemErrors.TransferConflict("The item moved while this request was being checked. Reload it before retrying."));
+        }
+        if (item.ParentId is { } oldParent
+            && !await _locks.MayReadBodyAsync(oldParent, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<Item>(ItemErrors.Locked("Unlock the current parent before moving this item to another workspace."));
+        }
+        if (command.NewParentId is { } parentId)
+        {
+            var parent = await _tree.FindAsync(parentId, cancellationToken).ConfigureAwait(false);
+            if (parent is null || parent.WorkspaceId != destination)
+            {
+                return Result.Failure<Item>(ItemErrors.ParentNotFound("The destination parent is not visible in the selected workspace."));
+            }
+            if (parent.LifecycleState != ItemLifecycleState.Active)
+            {
+                return Result.Failure<Item>(ItemErrors.LifecycleConflict("An item cannot be moved into a deleted parent."));
+            }
+            if (parent.NoChildren)
+            {
+                return Result.Failure<Item>(ItemErrors.ChildrenProtected("The destination does not accept new children."));
+            }
+            if (!await _locks.MayReadBodyAsync(parentId, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<Item>(ItemErrors.Locked("Unlock the destination before moving an item into it."));
+            }
+        }
+        if (command.AfterId is { } anchorId)
+        {
+            var anchor = await _tree.FindAsync(anchorId, cancellationToken).ConfigureAwait(false);
+            if (anchor is null || anchor.WorkspaceId != destination || anchor.ParentId != command.NewParentId)
+            {
+                return Result.Failure<Item>(ItemErrors.SiblingNotInDestination("The chosen sibling is not in the destination."));
+            }
+        }
+        if (_financeGuard is not null)
+        {
+            var error = await _financeGuard.CheckAsync(item.WorkspaceId, item.Id, null, true, cancellationToken).ConfigureAwait(false);
+            if (error is not null)
+            {
+                return Result.Failure<Item>(error.Value);
+            }
+            if (command.NewParentId is { } financeParentId)
+            {
+                error = await _financeGuard.CheckAsync(destination, financeParentId, null, false, cancellationToken).ConfigureAwait(false);
+                if (error is not null)
+                {
+                    return Result.Failure<Item>(error.Value);
+                }
+            }
+        }
+        var context = _session.Current
+            ?? throw new InvalidOperationException("No session context was established.");
+        var refusal = await _tree.TransferWorkspaceAsync(
+            item.Id, item.WorkspaceId, destination, command.NewParentId, command.AfterId,
+            context.PrincipalId, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false);
+        if (refusal is not null)
+        {
+            return Result.Failure<Item>(ItemErrors.TransferConflict(refusal));
+        }
+        var moved = await _tree.FindAsync(item.Id, cancellationToken).ConfigureAwait(false);
+        return moved is null
+            ? Result.Failure<Item>(ItemErrors.NotFound("The moved item could not be read."))
+            : Result.Success(moved);
+    }
+
 }
 
 /// <summary>
@@ -282,7 +375,8 @@ internal static class MoveItemEndpoint
                 new MoveItem(
                     ItemId.From(itemId),
                     request.ParentId is { } parent ? ItemId.From(parent) : null,
-                    request.AfterId is { } after ? ItemId.From(after) : null),
+                    request.AfterId is { } after ? ItemId.From(after) : null,
+                    request.WorkspaceId is { } workspace ? WorkspaceId.From(workspace) : null),
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 

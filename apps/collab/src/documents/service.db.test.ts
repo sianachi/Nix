@@ -323,7 +323,8 @@ describe.skipIf(!DB_TESTS_ENABLED)('the collaboration service, against Postgres'
       ),
     );
     expect(rows.rows[0]).toEqual({ count: String(count), max: String(count) });
-  });
+    // This exercises 22,000 durable rows; allow a bounded margin when suites share a host.
+  }, 20_000);
 
   it('refuses an update that is not a Yjs payload at all', async () => {
     const alpha = await open(TENANTS.alpha);

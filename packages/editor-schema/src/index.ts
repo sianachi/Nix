@@ -61,3 +61,12 @@ export {
   requiredSchemaVersion,
   type MinimumVersions,
 } from './versions.js';
+
+export {
+  TEXT_ALIGNMENTS,
+  ALIGNED_TEXT_BLOCKS,
+  readTextAlignment,
+  TextAlignmentAttributes,
+  TextAlignmentEditing,
+  type TextAlignment,
+} from './text-alignment.js';

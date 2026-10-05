@@ -21,7 +21,7 @@ const (
 	nixSchemaMinimum      = 1
 	// Keep this in lockstep with @nix/editor-schema's SCHEMA_VERSION. The importer
 	// preserves newer ProseMirror content opaquely after checking the body envelope.
-	nixSchemaMaximum = 4
+	nixSchemaMaximum = 5
 )
 
 var archiveIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)

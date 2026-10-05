@@ -143,7 +143,7 @@ export function createHttpTransport(options: HttpTransportOptions): HttpTranspor
 
   return {
     async send(request: HttpRequest): Promise<HttpResponse> {
-      if (!request.path.startsWith('/')) {
+      if (!request.path.startsWith('/') || request.path.startsWith('//')) {
         throw new TypeError(
           `Request path must be relative to the base URL and start with "/": ${request.path}`,
         );

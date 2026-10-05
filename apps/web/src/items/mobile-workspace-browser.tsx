@@ -2,6 +2,8 @@ import { Button, Icon, Text } from '@nix/ui';
 import { ArrowLeft, ChevronRight, FileText } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { PaneViewport } from '../layout/pane-viewport';
+import { useHiddenItems } from './use-hidden-items';
+import { HiddenItemsPanel } from './hidden-items-panel';
 import type { WorkspaceTree } from './use-workspace-tree';
 
 export function MobileWorkspaceBrowser({
@@ -15,6 +17,8 @@ export function MobileWorkspaceBrowser({
   readonly onParent: (id: string | null) => void;
   readonly onOpen: (id: string) => void;
 }): ReactNode {
+  const visibility = useHiddenItems();
+  const visible = tree.childrenOf(parentId).filter((item) => !visibility.hiddenSet.has(item.id));
   const parent = parentId === null ? null : tree.find(parentId);
   const loading =
     tree.status === 'loading' || (parentId !== null && tree.isLoadingChildren(parentId));
@@ -73,7 +77,8 @@ export function MobileWorkspaceBrowser({
         scrollKey={`mobile-workspace:${parentId ?? 'root'}`}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"
       >
-        {tree.childrenOf(parentId).map((item) => (
+        <HiddenItemsPanel onOpen={onOpen} />
+        {visible.map((item) => (
           <div key={item.id} className="flex items-center border-b border-divider">
             <Button
               variant="ghost"
@@ -88,6 +93,15 @@ export function MobileWorkspaceBrowser({
               </Text>
             </Button>
             <Button
+              variant="ghost"
+              aria-label={`Hide ${item.title || 'Untitled'} for me`}
+              onClick={() => {
+                visibility.hide(item.id, item.title);
+              }}
+            >
+              Hide
+            </Button>
+            <Button
               variant="icon"
               className="min-h-12 min-w-12"
               aria-label={`Browse children of ${item.title || 'Untitled'}`}
@@ -100,9 +114,11 @@ export function MobileWorkspaceBrowser({
             </Button>
           </div>
         ))}
-        {!loading && !tree.error && tree.childrenOf(parentId).length === 0 ? (
+        {!loading && !tree.error && visible.length === 0 ? (
           <Text as="p" variant="note" tone="muted" className="p-3">
-            No items here yet. Use New note to create one.
+            {tree.childrenOf(parentId).length > 0
+              ? 'Items here are hidden for you.'
+              : 'No items here yet. Use New note to create one.'}
           </Text>
         ) : null}
       </PaneViewport>

@@ -176,7 +176,9 @@ function saved(transcription: SavedTranscription): ReactElement {
   );
 }
 
-function watching(status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'): ReactElement {
+function watching(
+  status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled',
+): ReactElement {
   return saved({
     kind: 'watching',
     view: {

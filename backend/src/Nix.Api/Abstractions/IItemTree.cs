@@ -256,6 +256,14 @@ public interface IItemTree
         DateTimeOffset at,
         CancellationToken cancellationToken);
 
+    /// <summary>Transfers a subtree within this tenant without replacing its durable identities.</summary>
+    /// <returns>Null on success, or a safe reason the atomic transfer was refused.</returns>
+    public ValueTask<string?> TransferWorkspaceAsync(
+        ItemId id, WorkspaceId sourceWorkspaceId, WorkspaceId destinationWorkspaceId,
+        ItemId? newParentId, ItemId? afterId, Nix.Domain.Identity.PrincipalId actor,
+        DateTimeOffset at, CancellationToken cancellationToken) =>
+        ValueTask.FromException<string?>(new NotSupportedException("This item tree does not support workspace transfers."));
+
     /// <summary>Changes an item's lifecycle state.</summary>
     /// <param name="id">The item.</param>
     /// <param name="state">The new state.</param>

@@ -19,16 +19,21 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
     attrs: { targetId: '00000000-0000-4000-8000-000000000001', presentation: 'embed' },
   },
   pageBreak: { type: 'pageBreak' },
-  paragraph: { type: 'paragraph', content: [{ type: 'text', text: 'A paragraph.' }] },
+  paragraph: {
+    type: 'paragraph',
+    attrs: { textAlign: null },
+    content: [{ type: 'text', text: 'A paragraph.' }],
+  },
 
   heading: {
     type: 'heading',
-    attrs: { level: 2 },
+    attrs: { level: 2, textAlign: null },
     content: [{ type: 'text', text: 'A heading' }],
   },
 
   hardBreak: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [
       { type: 'text', text: 'Before' },
       { type: 'hardBreak' },
@@ -38,7 +43,13 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
 
   blockquote: {
     type: 'blockquote',
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Quoted.' }] }],
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { textAlign: null },
+        content: [{ type: 'text', text: 'Quoted.' }],
+      },
+    ],
   },
 
   codeBlock: {
@@ -54,19 +65,35 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
     content: [
       {
         type: 'listItem',
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'First' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'First' }],
+          },
+        ],
       },
       {
         // Nested, because a list that cannot nest is not the list anyone means.
         type: 'listItem',
         content: [
-          { type: 'paragraph', content: [{ type: 'text', text: 'Second' }] },
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'Second' }],
+          },
           {
             type: 'bulletList',
             content: [
               {
                 type: 'listItem',
-                content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nested' }] }],
+                content: [
+                  {
+                    type: 'paragraph',
+                    attrs: { textAlign: null },
+                    content: [{ type: 'text', text: 'Nested' }],
+                  },
+                ],
               },
             ],
           },
@@ -81,7 +108,13 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
     content: [
       {
         type: 'listItem',
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Step one' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'Step one' }],
+          },
+        ],
       },
     ],
   },
@@ -92,12 +125,24 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
       {
         type: 'taskItem',
         attrs: { checked: true },
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Done' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'Done' }],
+          },
+        ],
       },
       {
         type: 'taskItem',
         attrs: { checked: false },
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Not done' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'Not done' }],
+          },
+        ],
       },
     ],
   },
@@ -105,7 +150,13 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
   callout: {
     type: 'callout',
     attrs: { tone: 'warning' },
-    content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Mind the gap.' }] }],
+    content: [
+      {
+        type: 'paragraph',
+        attrs: { textAlign: null },
+        content: [{ type: 'text', text: 'Mind the gap.' }],
+      },
+    ],
   },
 
   image: {
@@ -129,12 +180,24 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
           {
             type: 'tableHeader',
             attrs: { colspan: 1, rowspan: 1, colwidth: null, align: null },
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Name' }] }],
+            content: [
+              {
+                type: 'paragraph',
+                attrs: { textAlign: null },
+                content: [{ type: 'text', text: 'Name' }],
+              },
+            ],
           },
           {
             type: 'tableHeader',
             attrs: { colspan: 1, rowspan: 1, colwidth: null, align: null },
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Value' }] }],
+            content: [
+              {
+                type: 'paragraph',
+                attrs: { textAlign: null },
+                content: [{ type: 'text', text: 'Value' }],
+              },
+            ],
           },
         ],
       },
@@ -144,12 +207,24 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
           {
             type: 'tableCell',
             attrs: { colspan: 1, rowspan: 1, colwidth: null, align: null },
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Answer' }] }],
+            content: [
+              {
+                type: 'paragraph',
+                attrs: { textAlign: null },
+                content: [{ type: 'text', text: 'Answer' }],
+              },
+            ],
           },
           {
             type: 'tableCell',
             attrs: { colspan: 1, rowspan: 1, colwidth: null, align: null },
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: '42' }] }],
+            content: [
+              {
+                type: 'paragraph',
+                attrs: { textAlign: null },
+                content: [{ type: 'text', text: '42' }],
+              },
+            ],
           },
         ],
       },
@@ -162,13 +237,25 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
       {
         type: 'column',
         attrs: { width: 2 },
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The wider side.' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'The wider side.' }],
+          },
+        ],
       },
       {
         // No width: an equal share of what is left, which is what most columns want.
         type: 'column',
         attrs: { width: null },
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'The other side.' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'The other side.' }],
+          },
+        ],
       },
     ],
   },
@@ -177,16 +264,27 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
     type: 'details',
     attrs: { toggleLevel: 2 },
     content: [
-      { type: 'detailsSummary', content: [{ type: 'text', text: 'Show the details' }] },
+      {
+        type: 'detailsSummary',
+        attrs: { textAlign: null },
+        content: [{ type: 'text', text: 'Show the details' }],
+      },
       {
         type: 'detailsContent',
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Here they are.' }] }],
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: null },
+            content: [{ type: 'text', text: 'Here they are.' }],
+          },
+        ],
       },
     ],
   },
 
   reference: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [
       { type: 'text', text: 'See ' },
       {
@@ -214,30 +312,37 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
 export const MARK_FIXTURES: Readonly<Record<string, unknown>> = {
   bold: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [{ type: 'text', marks: [{ type: 'bold' }], text: 'strong' }],
   },
   italic: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [{ type: 'text', marks: [{ type: 'italic' }], text: 'emphasis' }],
   },
   underline: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [{ type: 'text', marks: [{ type: 'underline' }], text: 'underlined' }],
   },
   strike: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [{ type: 'text', marks: [{ type: 'strike' }], text: 'struck' }],
   },
   code: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [{ type: 'text', marks: [{ type: 'code' }], text: 'inline()' }],
   },
   highlight: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [{ type: 'text', marks: [{ type: 'highlight' }], text: 'highlighted' }],
   },
   link: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [
       {
         type: 'text',
@@ -259,6 +364,7 @@ export const MARK_FIXTURES: Readonly<Record<string, unknown>> = {
   },
   textColor: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [
       {
         type: 'text',
@@ -269,6 +375,7 @@ export const MARK_FIXTURES: Readonly<Record<string, unknown>> = {
   },
   comment: {
     type: 'paragraph',
+    attrs: { textAlign: null },
     content: [
       {
         type: 'text',
@@ -287,7 +394,15 @@ export const MARK_FIXTURES: Readonly<Record<string, unknown>> = {
  */
 export const FIXTURE_DOCUMENT: unknown = {
   type: 'doc',
-  content: [...Object.values(NODE_FIXTURES), ...Object.values(MARK_FIXTURES)],
+  content: [
+    ...Object.values(NODE_FIXTURES),
+    ...Object.values(MARK_FIXTURES),
+    {
+      type: 'paragraph',
+      attrs: { textAlign: 'center' },
+      content: [{ type: 'text', text: 'A centered line.' }],
+    },
+  ],
 };
 
 /**

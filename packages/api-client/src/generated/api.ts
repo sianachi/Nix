@@ -502,6 +502,23 @@ export interface paths {
     patch: operations['UpdateItem'];
     trace?: never;
   };
+  '/api/v1/items/{itemId}/move-workspaces': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Writable destination workspaces for an item */
+    get: operations['ListItemMoveWorkspaces'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/move': {
     parameters: {
       query?: never;
@@ -3615,6 +3632,15 @@ export interface components {
       lockItemId: null | string;
       selfLocked: boolean;
     };
+    ItemMoveWorkspace: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+    };
+    ItemMoveWorkspacePage: {
+      items: components['schemas']['ItemMoveWorkspace'][];
+      nextCursor: null | string;
+    };
     ItemPermissionsResponse: {
       /** Format: uuid */
       itemId: string;
@@ -3779,6 +3805,8 @@ export interface components {
       parentId: null | string;
       /** Format: uuid */
       afterId: null | string;
+      /** Format: uuid */
+      workspaceId?: null | string;
     };
     NotificationDto: {
       /** Format: uuid */
@@ -4797,7 +4825,9 @@ export interface components {
       /** Format: uuid */
       principalId: string;
       displayName: string;
-      email: string;
+      email: null | string;
+      canInvite: boolean;
+      cannotInviteReason: null | string;
     };
     WorkspaceMemberResponse: {
       subjectType: string;
@@ -5582,6 +5612,7 @@ export interface operations {
       query?: {
         cursor?: string;
         limit?: number | string;
+        query?: string;
       };
       header?: never;
       path: {
@@ -6369,6 +6400,49 @@ export interface operations {
       };
       /** @description Not Implemented */
       501: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListItemMoveWorkspaces: {
+    parameters: {
+      query?: {
+        cursor?: string;
+        limit?: number | string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ItemMoveWorkspacePage'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };

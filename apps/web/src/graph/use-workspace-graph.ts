@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
+import { itemSubtreeIds, onItemChildrenChanged } from '../lib/item-children-changed';
 
 export type GraphStatus = 'loading' | 'ready' | 'error';
 
@@ -92,6 +93,31 @@ export function useWorkspaceGraph(): WorkspaceGraphState {
       activeLoad.current?.abort();
     };
   }, [load]);
+
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        if (
+          detail.workspaceId !== workspaceId ||
+          (detail.removedItemIds.length === 0 && detail.restoredItemIds.length === 0)
+        )
+          return;
+        if (detail.removedItemIds.length > 0)
+          setGraph((current) => {
+            if (current === null) return null;
+            const removed = itemSubtreeIds(current.nodes, detail.removedItemIds);
+            return {
+              ...current,
+              nodes: current.nodes.filter((node) => !removed.has(node.id)),
+              links: current.links.filter(
+                (link) => !removed.has(link.sourceId) && !removed.has(link.targetId),
+              ),
+            };
+          });
+        void refresh();
+      }),
+    [refresh, workspaceId],
+  );
 
   return { status, graph, error, reload: load, refresh };
 }
