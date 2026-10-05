@@ -20,6 +20,31 @@ internal static class PetEndpoints
         group.MapPost("/runtime", Runtime).WithName("PetRuntime")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        group.MapPost("/inline", PetInlineEndpoint.Handle).WithName("PetInlineWrite")
+            .WithSummary("Stream an inline writing result for text selected in a note")
+            .WithDescription(
+                "Sends the selected text to the companion and streams the answer back as server-sent "
+                + "events, unchanged from the worker. 'delta' events carry {\"text\": \"...\"} for each "
+                + "piece as it is written; the stream then ends with exactly one 'done' event carrying "
+                + "{\"text\": \"<the whole text>\"} or one 'error' event carrying {\"code\": \"inline.provider_failed"
+                + " | inline.timeout | inline.too_long | inline.refused | inline.cancelled\", \"message\": \"...\"}. "
+                + "Comment lines ': keep-alive' arrive after 15 seconds of silence. Closing the "
+                + "connection cancels the model's turn. The request is refused before anything is sent "
+                + "when it is malformed (422 'pets.invalid_request', byte limits apply to the UTF-8 "
+                + "encoding), when inline writing is not turned on in the caller's pet settings (409 "
+                + "'pets.inline_disabled'), when the item is not readable in that workspace (404 "
+                + "'pets.not_found'), when the item is locked or under a locked ancestor even if this "
+                + "credential has it unlocked (409 'pets.inline_item_locked'), or when two requests are "
+                + "already open (429 'pets.inline_busy'). A companion that cannot answer is 503 "
+                + "'pets.unavailable'. The server does not read the item's body: 'selection' and "
+                + "'context' come from the client and are not verified to belong to 'itemId'.")
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
+            .Produces(StatusCodes.Status200OK, contentType: "text/event-stream")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         // Not rate limited by the writes policy: this is a read, and it must never wait behind
         // one, however often the client long-polls it. Cost: NixUnitOfWorkMiddleware keeps a
         // Postgres connection and transaction open for the whole wait (up to 20 s). The worker

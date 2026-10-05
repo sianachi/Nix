@@ -406,6 +406,30 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/daily-notes/settings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * A workspace's daily-note settings
+     * @description Returns the effective settings with defaults applied. A workspace the caller cannot read is reported as not found.
+     */
+    get: operations['GetDailyNoteSettings'];
+    /**
+     * Replace a workspace's daily-note settings
+     * @description Allowed for a workspace owner, a tenant administrator, or the owner of a personal workspace; anyone else gets not found. Settings affect only notes created afterwards.
+     */
+    put: operations['SaveDailyNoteSettings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/items/trash': {
     parameters: {
       query?: never;
@@ -627,6 +651,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations['AuthorizeFileDownload'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/items/{itemId}/file/thumbnail': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['AuthorizeFileThumbnail'];
     put?: never;
     post?: never;
     delete?: never;
@@ -1029,7 +1069,7 @@ export interface paths {
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -1261,6 +1301,26 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations['PetRuntime'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/pets/inline': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Stream an inline writing result for text selected in a note
+     * @description Sends the selected text to the companion and streams the answer back as server-sent events, unchanged from the worker. 'delta' events carry {"text": "..."} for each piece as it is written; the stream then ends with exactly one 'done' event carrying {"text": "<the whole text>"} or one 'error' event carrying {"code": "inline.provider_failed | inline.timeout | inline.too_long | inline.refused | inline.cancelled", "message": "..."}. Comment lines ': keep-alive' arrive after 15 seconds of silence. Closing the connection cancels the model's turn. The request is refused before anything is sent when it is malformed (422 'pets.invalid_request', byte limits apply to the UTF-8 encoding), when inline writing is not turned on in the caller's pet settings (409 'pets.inline_disabled'), when the item is not readable in that workspace (404 'pets.not_found'), when the item is locked or under a locked ancestor even if this credential has it unlocked (409 'pets.inline_item_locked'), or when two requests are already open (429 'pets.inline_busy'). A companion that cannot answer is 503 'pets.unavailable'. The server does not read the item's body: 'selection' and 'context' come from the client and are not verified to belong to 'itemId'.
+     */
+    post: operations['PetInlineWrite'];
     delete?: never;
     options?: never;
     head?: never;
@@ -2668,6 +2728,8 @@ export interface components {
       kind: string;
       generated: boolean;
       completed: null | boolean;
+      endProperty: null | string;
+      endValue: null | string;
     };
     CalendarLinkContainerRequest: {
       /** Format: uuid */
@@ -2827,6 +2889,7 @@ export interface components {
       views: components['schemas']['ViewResponse'][];
       unrenderable: string[];
       default: string;
+      hideDocument: boolean;
     };
     CreateAccessTokenRequest: {
       name: null | string;
@@ -2916,6 +2979,16 @@ export interface components {
     DailyNoteResponse: {
       /** Format: uuid */
       itemId: string;
+      created: boolean;
+    };
+    DailyNoteSettingsResponse: {
+      enabled: boolean;
+      folders: string;
+      titleFormat: string;
+      template: string;
+      /** Format: int32 */
+      rolloverHour: number | string;
+      showOnCalendar: boolean;
     };
     DocumentImportPreviewCapabilityResponse: {
       /** Format: uri */
@@ -3059,6 +3132,24 @@ export interface components {
       current: components['schemas']['FileVersionRecord'];
       versions: components['schemas']['FileVersionRecord'][];
     };
+    FileThumbnailCapabilityResponse: {
+      /** Format: uri */
+      url: string;
+      /** Format: date-time */
+      expiresAt: string;
+      /** Format: int32 */
+      width: number | string;
+      /** Format: int32 */
+      height: number | string;
+      /** Format: int32 */
+      byteLength: number | string;
+    };
+    FileThumbnailRecord: {
+      /** Format: int32 */
+      width: number | string;
+      /** Format: int32 */
+      height: number | string;
+    };
     FileUploadCapabilityResponse: {
       /** Format: uuid */
       id: string;
@@ -3101,6 +3192,7 @@ export interface components {
       /** Format: date-time */
       createdAt: string;
       current: boolean;
+      thumbnail?: null | components['schemas']['FileThumbnailRecord'];
     };
     FilterRuleContract: {
       property: string;
@@ -3343,6 +3435,8 @@ export interface components {
       sourceId: string;
       /** Format: uuid */
       targetId: string;
+      /** Format: int32 */
+      occurrences: number | string;
     };
     GraphNodeResponse: {
       /** Format: uuid */
@@ -3351,6 +3445,10 @@ export interface components {
       parentId: null | string;
       type: string;
       title: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      lastModifiedAt: null | string;
     };
     HabitCheckInRequest: {
       completed: boolean;
@@ -3721,6 +3819,20 @@ export interface components {
       title: string;
       createdAt: string;
     };
+    PetInlineRequest: {
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      itemId: string;
+      /** Format: uuid */
+      requestId: string;
+      kind: string;
+      selection: string;
+      instruction?: null | string;
+      context?: null | string;
+      language?: null | string;
+      model?: null | string;
+    };
     PetMessage: {
       id: string;
       role: string;
@@ -3777,6 +3889,8 @@ export interface components {
       motion: string;
       narration: boolean;
       profiles: components['schemas']['PetProfile'][];
+      /** @default false */
+      inlineWriting: boolean;
     };
     PetSettingsResponse: {
       /** Format: int64 */
@@ -4022,6 +4136,15 @@ export interface components {
     SaveCanvasLibraryRequest: {
       items: components['schemas']['JsonArray'];
     };
+    SaveDailyNoteSettingsRequest: {
+      enabled: boolean;
+      folders: string;
+      titleFormat: string;
+      template: null | string;
+      /** Format: int32 */
+      rolloverHour: number | string;
+      showOnCalendar: boolean;
+    };
     SavePetSettingsRequest: {
       /** Format: int64 */
       expectedRevision: number | string;
@@ -4088,6 +4211,7 @@ export interface components {
     SetViewsRequest: {
       views: components['schemas']['ViewRequest'][];
       default: null | string;
+      hideDocument?: null | boolean;
     };
     ShelfResponse: {
       items: components['schemas']['KeptItemResponse'][];
@@ -5827,6 +5951,90 @@ export interface operations {
           'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetDailyNoteSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DailyNoteSettingsResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SaveDailyNoteSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SaveDailyNoteSettingsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DailyNoteSettingsResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
       /** @description Unprocessable Entity */
       422: {
         headers: {
@@ -6515,6 +6723,48 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['FileDownloadCapabilityResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AuthorizeFileThumbnail: {
+    parameters: {
+      query?: {
+        versionId?: string;
+      };
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FileThumbnailCapabilityResponse'];
         };
       };
       /** @description Not Found */
@@ -8298,6 +8548,73 @@ export interface operations {
       };
       /** @description Conflict */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PetInlineWrite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PetInlineRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown;
         };

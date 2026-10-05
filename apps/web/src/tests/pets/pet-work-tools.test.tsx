@@ -504,7 +504,9 @@ describe('companion work approvals', () => {
     expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
     // A write whose preview has problems is auto-declined, never something the owner is asked to
     // decide - `needsDecision` (and this prop) must exclude it once its problems are known.
-    expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+    await waitFor(() => {
+      expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+    });
     const resultCall: unknown = client.execute.mock.calls[1]?.[0];
     expect(resultCall).toMatchObject({
       body: { operation: 'tool_result', toolSuccess: false },
@@ -515,7 +517,7 @@ describe('companion work approvals', () => {
     // reflects the persisted result - only the receipt this component tracks itself does. The
     // richer "Sent N problems back to {pet}" wording (`WriteReceiptRow` in pet-work-tools.tsx)
     // needs that persisted `tool.result`, which the live app supplies through `setRuntime`.
-    expect(screen.getByText('Declined')).toBeVisible();
+    expect(await screen.findByText('Declined')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
 

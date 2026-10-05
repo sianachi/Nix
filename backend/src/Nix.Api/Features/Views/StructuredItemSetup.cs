@@ -266,12 +266,14 @@ public sealed class AppendViewSetupHandler : ICommandHandler<AppendViewSetup, It
         {
             var mergedViews = storedViews.Views.AddRange(command.Views);
             var defaultView = command.MakeDefault ? command.Views[0].Id : storedViews.Default;
-            if (SetContainerViewsHandler.Validate(mergedViews, defaultView) is { } viewError)
+            if (SetContainerViewsHandler.Validate(mergedViews, defaultView, storedViews.HideDocument) is { } viewError)
             {
                 return Result.Failure<Item>(viewError);
             }
 
-            viewsJson = ViewDefinitionsJson.Write(mergedViews, defaultView);
+            // Appending keeps a hidden document tab hidden: views only grow here, so the flag
+            // always still has something to stand beside.
+            viewsJson = ViewDefinitionsJson.Write(mergedViews, defaultView, storedViews.HideDocument);
             if (viewsJson is not null && Encoding.UTF8.GetByteCount(viewsJson) > ViewDefinitionsJson.MaximumBytes)
             {
                 return Result.Failure<Item>(PropertyErrors.InvalidViews("This setup is too large to store."));
@@ -428,13 +430,13 @@ public sealed class ReplaceViewSetupHandler : ICommandHandler<ReplaceViewSetup, 
             return Result.Failure<Item>(schemaError);
         }
 
-        if (SetContainerViewsHandler.Validate(nextViews, nextDefault) is { } viewError)
+        if (SetContainerViewsHandler.Validate(nextViews, nextDefault, stored.HideDocument) is { } viewError)
         {
             return Result.Failure<Item>(viewError);
         }
 
         var schemaJson = nextSchema.IsEmpty ? null : PropertySchemaJson.Write(nextSchema);
-        var viewsJson = ViewDefinitionsJson.Write(nextViews, nextDefault);
+        var viewsJson = ViewDefinitionsJson.Write(nextViews, nextDefault, stored.HideDocument);
         if ((schemaJson is not null && Encoding.UTF8.GetByteCount(schemaJson) > PropertyValidator.MaximumBytes)
             || (viewsJson is not null && Encoding.UTF8.GetByteCount(viewsJson) > ViewDefinitionsJson.MaximumBytes))
         {
@@ -516,7 +518,7 @@ internal static class StructuredItemSetupEndpoints
         var response = new StructuredItemResponse(
             ItemMapping.ToResponse(item, false),
             PropertyMapping.ToResponse(schema, schema),
-            new ContainerViewsResponse([.. views.Select(ViewMapping.ToResponse)], [], request.Views.Default ?? "document"),
+            new ContainerViewsResponse([.. views.Select(ViewMapping.ToResponse)], [], request.Views.Default ?? "document", false),
             publicForm);
         return TypedResults.Created($"/api/v1/items/{item.Id}", response);
     }
@@ -591,7 +593,8 @@ internal static class StructuredItemSetupEndpoints
             new ContainerViewsResponse(
                 [.. stored.Value.Views.Select(ViewMapping.ToResponse)],
                 stored.Value.Unrenderable,
-                stored.Value.Default),
+                stored.Value.Default,
+                stored.Value.HideDocument),
             publicForm));
     }
 
@@ -670,7 +673,8 @@ internal static class StructuredItemSetupEndpoints
             new ContainerViewsResponse(
                 [.. stored.Value.Views.Select(ViewMapping.ToResponse)],
                 stored.Value.Unrenderable,
-                stored.Value.Default),
+                stored.Value.Default,
+                stored.Value.HideDocument),
             publicForm));
     }
 

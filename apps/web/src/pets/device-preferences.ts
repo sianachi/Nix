@@ -1,6 +1,22 @@
 export type PetPlacement = 'left' | 'right';
 export type PetConversationMode = 'chat' | 'consult';
 
+/** Where the chat opens: the floating panel, its own page, or both. A device preference because
+ * the right answer depends on the screen in front of the owner, not on the pet. */
+export type PetSurface = 'floating' | 'page-on-phones' | 'page' | 'both';
+
+export const PET_SURFACE_DEFAULT: PetSurface = 'page-on-phones';
+
+export const PET_SURFACE_OPTIONS: readonly {
+  readonly value: PetSurface;
+  readonly label: string;
+}[] = [
+  { value: 'floating', label: 'Floating panel everywhere' },
+  { value: 'page-on-phones', label: 'Its own page on phones, floating elsewhere' },
+  { value: 'page', label: 'Its own page everywhere' },
+  { value: 'both', label: 'Both: floating panel, and a page in the navigation' },
+];
+
 export interface PetPosition {
   x: number;
   y: number;
@@ -74,7 +90,9 @@ export function writeConversationModel(
   }
 }
 
-export function readDevicePreference(key: 'voice' | 'placement'): string {
+type DevicePreferenceKey = 'voice' | 'placement' | 'surface' | 'inlineContext';
+
+export function readDevicePreference(key: DevicePreferenceKey): string {
   try {
     return localStorage.getItem(`nix.pet.${key}`) ?? '';
   } catch {
@@ -82,13 +100,22 @@ export function readDevicePreference(key: 'voice' | 'placement'): string {
   }
 }
 
-export function writeDevicePreference(key: 'voice' | 'placement', value: string): void {
+export function writeDevicePreference(key: DevicePreferenceKey, value: string): void {
   try {
     localStorage.setItem(`nix.pet.${key}`, value);
   } catch {
     /* Storage may be disabled. */
   }
   window.dispatchEvent(new Event('nix-pet-device-changed'));
+}
+
+/** The stored surface, or the default when nothing valid is stored - a value written by a
+ * different build must not leave the chat with nowhere to open. */
+export function readPetSurface(): PetSurface {
+  const stored = readDevicePreference('surface');
+  return (
+    PET_SURFACE_OPTIONS.find((option) => option.value === stored)?.value ?? PET_SURFACE_DEFAULT
+  );
 }
 
 /** Whether reads (and, in Design mode, checking a blueprint) run without an approval click.

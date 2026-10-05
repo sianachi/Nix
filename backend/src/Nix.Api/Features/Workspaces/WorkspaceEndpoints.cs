@@ -155,6 +155,25 @@ internal static class WorkspaceEndpoints
             .WithName("OpenDailyNote")
             .Produces<DailyNoteResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
+        workspaces.MapGet("/{workspaceId:guid}/daily-notes/settings", GetDailyNoteSettingsEndpoint.Handle)
+            .WithName("GetDailyNoteSettings")
+            .WithSummary("A workspace's daily-note settings")
+            .WithDescription(
+                "Returns the effective settings with defaults applied. A workspace the caller cannot "
+                + "read is reported as not found.")
+            .Produces<DailyNoteSettingsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound);
+        workspaces.MapPut("/{workspaceId:guid}/daily-notes/settings", SaveDailyNoteSettingsEndpoint.Handle)
+            .WithName("SaveDailyNoteSettings")
+            .WithSummary("Replace a workspace's daily-note settings")
+            .WithDescription(
+                "Allowed for a workspace owner, a tenant administrator, or the owner of a personal "
+                + "workspace; anyone else gets not found. Settings affect only notes created afterwards.")
+            .Produces<DailyNoteSettingsResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
 
@@ -176,6 +195,7 @@ internal static class WorkspaceEndpoints
             "workspaces.invalid_invitation" or
             "workspaces.invalid_role" or
             "workspaces.invalid_daily_date" or
+            DailyNoteSettings.InvalidCode or
             "paging.invalid_cursor" => StatusCodes.Status422UnprocessableEntity,
             "workspaces.human_required" => StatusCodes.Status403Forbidden,
             "workspaces.recovery_forbidden" => StatusCodes.Status403Forbidden,
@@ -190,13 +210,52 @@ internal static class OpenDailyNoteEndpoint
     internal static async Task<Results<Ok<DailyNoteResponse>, ProblemHttpResult>> Handle(
         Guid workspaceId, string date, HttpContext context, [FromServices] NixDispatcher dispatcher)
     {
-        var result = await dispatcher.SendAsync<OpenDailyNote, Guid>(
+        var result = await dispatcher.SendAsync<OpenDailyNote, DailyNoteOpened>(
             new OpenDailyNote(WorkspaceId.From(workspaceId), date), context.RequestAborted)
             .ConfigureAwait(false);
         return result.Match<Results<Ok<DailyNoteResponse>, ProblemHttpResult>>(
-            itemId => TypedResults.Ok(new DailyNoteResponse(itemId)),
+            opened => TypedResults.Ok(new DailyNoteResponse(opened.ItemId, opened.Created)),
             error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
     }
+}
+
+internal static class GetDailyNoteSettingsEndpoint
+{
+    internal static async Task<Results<Ok<DailyNoteSettingsResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var settings = await dispatcher.QueryAsync<GetDailyNoteSettings, DailyNoteSettings?>(
+            new GetDailyNoteSettings(WorkspaceId.From(workspaceId)), context.RequestAborted)
+            .ConfigureAwait(false);
+        return settings is null
+            ? TypedResults.Problem(WorkspaceEndpoints.Problem(context, WorkspaceErrors.NotFound()))
+            : TypedResults.Ok(DailyNoteSettingsEndpoints.ToResponse(settings));
+    }
+}
+
+internal static class SaveDailyNoteSettingsEndpoint
+{
+    internal static async Task<Results<Ok<DailyNoteSettingsResponse>, ProblemHttpResult>> Handle(
+        Guid workspaceId, SaveDailyNoteSettingsRequest request, HttpContext context,
+        [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<SaveDailyNoteSettings, DailyNoteSettings>(
+            new SaveDailyNoteSettings(
+                WorkspaceId.From(workspaceId), request.Enabled, request.Folders, request.TitleFormat,
+                request.Template, request.RolloverHour, request.ShowOnCalendar),
+            context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Ok<DailyNoteSettingsResponse>, ProblemHttpResult>>(
+            settings => TypedResults.Ok(DailyNoteSettingsEndpoints.ToResponse(settings)),
+            error => TypedResults.Problem(WorkspaceEndpoints.Problem(context, error)));
+    }
+}
+
+internal static class DailyNoteSettingsEndpoints
+{
+    internal static DailyNoteSettingsResponse ToResponse(DailyNoteSettings settings) => new(
+        settings.Enabled, DailyNoteSettings.FoldersName(settings.Folders),
+        DailyNoteSettings.TitleFormatName(settings.TitleFormat), settings.Template,
+        settings.RolloverHour, settings.ShowOnCalendar);
 }
 
 internal static class ListWorkspacesEndpoint

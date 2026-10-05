@@ -1,6 +1,7 @@
 using Nix.Abstractions;
 using Nix.Domain.Calendar;
 using Nix.Domain.Items;
+using Nix.Domain.Provisioning;
 using Nix.Domain.Tenancy;
 using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
@@ -99,6 +100,10 @@ public sealed class WorkspaceCalendarReader : IWorkspaceCalendar
                 new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = Tenant.Value },
                 new NpgsqlParameter("workspace_id", NpgsqlDbType.Uuid) { Value = workspaceId.Value },
                 new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
+                new NpgsqlParameter("daily_root_id", NpgsqlDbType.Uuid)
+                {
+                    Value = DeterministicProvisioningId.DailyNotesRoot(workspaceId),
+                },
                 new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = firstDay },
                 new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = lastDay },
                 await LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken).ConfigureAwait(false),
@@ -134,7 +139,11 @@ public sealed class WorkspaceCalendarReader : IWorkspaceCalendar
                     row.Value ?? throw new InvalidOperationException(
                         "An entry row came back with no value. The calendar statement filters on "
                         + "it being present, so this is a statement that has been edited into "
-                        + "returning rows it cannot describe.")));
+                        + "returning rows it cannot describe."))
+                {
+                    EndProperty = row.EndProperty,
+                    EndValue = row.EndValue,
+                });
             }
             else
             {
@@ -169,7 +178,9 @@ public sealed class WorkspaceCalendarReader : IWorkspaceCalendar
         Guid ContainerId,
         string? ContainerTitle,
         string? DateProperty,
-        string? Value);
+        string? Value,
+        string? EndProperty,
+        string? EndValue);
 
     /// <summary>Reads the seven columns both row kinds share.</summary>
     /// <remarks>
@@ -190,8 +201,19 @@ public sealed class WorkspaceCalendarReader : IWorkspaceCalendar
             var containerTitle = reader.IsDBNull(4) ? null : reader.GetString(4);
             var dateProperty = reader.IsDBNull(5) ? null : reader.GetString(5);
             var value = reader.IsDBNull(6) ? null : reader.GetString(6);
+            var endProperty = reader.IsDBNull(7) ? null : reader.GetString(7);
+            var endValue = reader.IsDBNull(8) ? null : reader.GetString(8);
 
-            return new CalendarRow(kind, itemId, itemTitle, containerId, containerTitle, dateProperty, value);
+            return new CalendarRow(
+                kind,
+                itemId,
+                itemTitle,
+                containerId,
+                containerTitle,
+                dateProperty,
+                value,
+                endProperty,
+                endValue);
         }
     }
 }

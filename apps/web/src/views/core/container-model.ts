@@ -376,6 +376,14 @@ export const ContainerViewsSchema = z.object({
    * as `document`. Nothing here has to check that the id it was handed still exists.
    */
   default: z.string(),
+
+  /**
+   * Whether the item's own document tab is left out of its switcher.
+   *
+   * A hidden tab, not a protected body: nothing about who can read the item changes. Defaulted so a
+   * response from a server that predates the field still reads as "shown".
+   */
+  hideDocument: z.boolean().default(false),
 });
 
 /** What the `default` field says when the item opens on its own body rather than on a view. */
@@ -455,6 +463,12 @@ export interface PropertyOwner {
    * there were no rollups declared".
    */
   readonly computed?: Readonly<Record<string, unknown>> | null;
+}
+
+/** The text up to its first line break, for a surface that has room for one line of a long text. */
+export function firstLine(text: string): string {
+  const end = text.search(/\r?\n/);
+  return end === -1 ? text : text.slice(0, end);
 }
 
 /**

@@ -110,6 +110,18 @@ describe('the content security policy', () => {
     }
   });
 
+  it('limits media to the app, blob URLs and the same object-store origin connect-src names', () => {
+    // Audio and video do not inherit from img-src; without media-src they fall back to
+    // default-src 'self' and a signed object-store URL on an audio element is blocked. The owner's
+    // rule is media from their own file storage only, so a widening to https: or a wildcard fails
+    // here. The document policy has no object-store origin in connect-src, so none in media-src.
+    for (const policy of [meta, caddy, productionCaddy, kubernetesCaddy]) {
+      const connect = (policy.get('connect-src') ?? []).filter((source) => source !== "'self'");
+
+      expect(policy.get('media-src')).toEqual(["'self'", 'blob:', ...connect]);
+    }
+  });
+
   it('keeps everything else closed', () => {
     for (const policy of [meta, caddy]) {
       expect(policy.get('default-src')).toEqual(["'self'"]);
@@ -126,8 +138,12 @@ describe('the content security policy', () => {
   });
 
   it('keeps the same baseline policy in the document and standalone server', () => {
+    // media-src differs for the same reason connect-src does: it names the object-store origin,
+    // which only the serving header knows; its own test above pins both.
     const shared = (policy: ReadonlyMap<string, readonly string[]>) =>
-      [...policy].filter(([name]) => name !== 'frame-ancestors' && name !== 'connect-src');
+      [...policy].filter(
+        ([name]) => name !== 'frame-ancestors' && name !== 'connect-src' && name !== 'media-src',
+      );
 
     expect(shared(caddy)).toEqual(shared(meta));
   });

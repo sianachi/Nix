@@ -31,4 +31,6 @@ namespace Nix.Serialization;
 [JsonSerializable(typeof(ChangeWorkspaceMemberRoleRequest))]
 [JsonSerializable(typeof(RecoverWorkspaceRequest))]
 [JsonSerializable(typeof(DailyNoteResponse))]
+[JsonSerializable(typeof(DailyNoteSettingsResponse))]
+[JsonSerializable(typeof(SaveDailyNoteSettingsRequest))]
 internal sealed partial class WorkspacesJsonContext : JsonSerializerContext;

@@ -158,3 +158,33 @@ export function withAuthentication(
     },
   };
 }
+
+/**
+ * The same attach-and-retry-once rule for a request the transport cannot carry: a streamed
+ * response has to stay a `Response` so the caller can read it as it arrives, which the axios layer
+ * above never allows. `send` performs one attempt with the headers it is given; a 401 gets the
+ * single-flight refresh and exactly one more attempt, as `withAuthentication` does.
+ */
+export async function sendAuthenticated(
+  send: (headers: Readonly<Record<string, string>>) => Promise<Response>,
+  options: AuthenticationOptions,
+): Promise<Response> {
+  const scheme = options.scheme ?? 'Bearer';
+  const tokens = options.tokens;
+  const coordinator =
+    options.coordinator ?? createRefreshCoordinator(() => tokens.refreshAccessToken());
+
+  const headersFor = (token: string | null): Readonly<Record<string, string>> =>
+    token === null ? {} : { [AUTHORIZATION_HEADER]: `${scheme} ${token}` };
+
+  const attempted = await tokens.getAccessToken();
+  const response = await send(headersFor(attempted));
+  if (response.status !== 401) return response;
+
+  const current = await tokens.getAccessToken();
+  const replaced = current !== null && current !== attempted;
+  const token = replaced ? current : await coordinator.refresh();
+  if (token === null) return response;
+
+  return send(headersFor(token));
+}

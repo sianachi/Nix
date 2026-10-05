@@ -1,7 +1,7 @@
 import { Icon, focusRing } from '@nix/ui';
 import { FileText, List as ListIcon, TriangleAlert } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 
 import { DOCUMENT_VIEW, type View } from './container-model';
 import { findViewKind } from './view-kinds';
@@ -36,6 +36,18 @@ export interface ViewSwitcherProps {
   readonly documentLabel?: string;
 
   /**
+   * Whether the item has chosen to leave its document tab out. The body is still there; only the
+   * way to it from this row is gone, so the entry is dropped rather than disabled.
+   */
+  readonly documentHidden?: boolean;
+
+  /**
+   * Which entry the item opens as when nobody has asked for another. Marked quietly, so the choice
+   * made in the settings panel is visible where people actually look.
+   */
+  readonly defaultViewId?: string;
+
+  /**
    * Controls about the item itself rather than its views - on a phone, its details and actions -
    * held at the end of the row and kept in place while the tabs scroll.
    */
@@ -43,7 +55,16 @@ export interface ViewSwitcherProps {
 }
 
 export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
-  const { views, unrenderable, activeViewId, onSelect, documentLabel, trailing } = props;
+  const {
+    views,
+    unrenderable,
+    activeViewId,
+    onSelect,
+    documentLabel,
+    documentHidden,
+    defaultViewId,
+    trailing,
+  } = props;
 
   // Nothing to choose between. An item nobody has configured a view on shows its body and no
   // chrome at all, which is every plain note - a lone "Document" tab would be a control with one
@@ -59,6 +80,8 @@ export function ViewSwitcher(props: ViewSwitcherProps): ReactNode {
       activeViewId={activeViewId}
       onSelect={onSelect}
       {...(documentLabel === undefined ? {} : { documentLabel })}
+      {...(documentHidden === undefined ? {} : { documentHidden })}
+      {...(defaultViewId === undefined ? {} : { defaultViewId })}
       {...(trailing === undefined ? {} : { trailing })}
     />
   );
@@ -78,7 +101,15 @@ function ViewStrip(props: ViewSwitcherProps): ReactNode {
 }
 
 function ViewTabs(props: ViewSwitcherProps): ReactNode {
-  const { views, unrenderable, activeViewId, onSelect, documentLabel } = props;
+  const {
+    views,
+    unrenderable,
+    activeViewId,
+    onSelect,
+    documentLabel,
+    documentHidden,
+    defaultViewId,
+  } = props;
   const stripRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -109,11 +140,12 @@ function ViewTabs(props: ViewSwitcherProps): ReactNode {
       aria-label="Views"
       className="flex snap-x items-center gap-1 overflow-x-auto px-8 py-1.5"
     >
-      {documentLabel === undefined ? null : (
+      {documentLabel === undefined || documentHidden === true ? null : (
         <SwitcherTab
           icon={FileText}
           label={documentLabel}
           active={activeViewId === DOCUMENT_VIEW}
+          isDefault={defaultViewId === DOCUMENT_VIEW}
           broken={false}
           onSelect={() => {
             onSelect(DOCUMENT_VIEW);
@@ -134,6 +166,7 @@ function ViewTabs(props: ViewSwitcherProps): ReactNode {
             icon={icon}
             label={view.name}
             active={active}
+            isDefault={view.id === defaultViewId}
             broken={broken}
             onSelect={() => {
               onSelect(view.id);
@@ -149,11 +182,20 @@ interface SwitcherTabProps {
   readonly icon: LucideIcon;
   readonly label: string;
   readonly active: boolean;
+  readonly isDefault: boolean;
   readonly broken: boolean;
   readonly onSelect: () => void;
 }
 
-function SwitcherTab({ icon, label, active, broken, onSelect }: SwitcherTabProps): ReactNode {
+function SwitcherTab({
+  icon,
+  label,
+  active,
+  isDefault,
+  broken,
+  onSelect,
+}: SwitcherTabProps): ReactNode {
+  const descriptionId = useId();
   return (
     <button
       type="button"
@@ -161,11 +203,14 @@ function SwitcherTab({ icon, label, active, broken, onSelect }: SwitcherTabProps
       // a destination within the item, and the pattern a screen reader should announce is
       // "current", not a tablist we would then owe arrow-key navigation.
       aria-current={active ? 'page' : undefined}
+      // The default is a description, not part of the name: a name that changes with state breaks
+      // voice control ("click Body") and exact-name queries, while a description is read after it.
+      aria-describedby={isDefault ? descriptionId : undefined}
       onClick={onSelect}
       className={[
         // Shrink-free and snapping, so a scrolled strip stops on a tab rather than half of one, and
         // a full touch target on a coarse pointer, where 28px is smaller than a fingertip.
-        'flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap border px-2 py-1 text-sm pointer-coarse:min-h-(--control-lg)',
+        'relative flex shrink-0 snap-start items-center gap-1.5 whitespace-nowrap border px-2 py-1 text-sm pointer-coarse:min-h-(--control-lg)',
         focusRing,
         active
           ? 'border-divider bg-foreground/7 text-foreground'
@@ -174,6 +219,16 @@ function SwitcherTab({ icon, label, active, broken, onSelect }: SwitcherTabProps
     >
       <Icon icon={icon} size="sm" />
       {label}
+      {isDefault ? (
+        <>
+          {/* Absolutely placed in the tab's corner so marking one never changes its width. The dot
+              is the eye's cue; the button's description is the same fact for a screen reader. */}
+          <span aria-hidden className="absolute right-1 top-1 size-1 rounded-full bg-muted" />
+          <span id={descriptionId} hidden>
+            Opens by default
+          </span>
+        </>
+      ) : null}
       {broken ? (
         <>
           <Icon icon={TriangleAlert} size="sm" />

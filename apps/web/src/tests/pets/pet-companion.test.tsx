@@ -89,11 +89,13 @@ describe('companion workflow', () => {
     await userEvent.click(launcher);
 
     const companion = screen.getByRole('complementary', { name: 'Cat companion' });
+    // jsdom lays the panel out at 0x0, so the panel's bottom aligns with the launcher's bottom
+    // (760) and the viewport clamp keeps it 8px inside the window's bottom edge.
     expect(companion).toHaveStyle({
-      bottom: `${String(window.innerHeight - 760)}px`,
+      top: `${String(Math.min(760, window.innerHeight - 8))}px`,
       left: '24px',
     });
-    expect(companion.style.top).toBe('');
+    expect(companion.style.bottom).toBe('');
     expect(screen.getByRole('button', { name: 'Close Cat' })).toHaveClass('hidden');
   });
 

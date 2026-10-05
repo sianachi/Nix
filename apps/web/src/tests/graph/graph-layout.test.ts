@@ -19,11 +19,18 @@ import {
  */
 
 function aNode(id: string, parentId: string | null, title: string | null = id): GraphNode {
-  return { id, parentId, type: 'note', title };
+  return {
+    id,
+    parentId,
+    type: 'note',
+    title,
+    createdAt: '2026-01-01T00:00:00+00:00',
+    lastModifiedAt: '2026-01-01T00:00:00+00:00',
+  };
 }
 
 function aLink(sourceId: string, targetId: string): GraphLink {
-  return { sourceId, targetId };
+  return { sourceId, targetId, occurrences: 1 };
 }
 
 function find(nodes: readonly PositionedNode[], id: string): PositionedNode {

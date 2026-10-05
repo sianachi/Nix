@@ -289,7 +289,9 @@ export function renderConsult(catalog: Catalog, patterns: string): string {
       ...(kind.requires === null ? [] : [kind.requires.field]),
       ...kind.optional.map((field) => field.field),
     ];
-    lines.push(`- ${kind.kind}: ${settings.length ? settings.join(', ') : 'no kind-specific settings'}`);
+    lines.push(
+      `- ${kind.kind}: ${settings.length ? settings.join(', ') : 'no kind-specific settings'}`,
+    );
   }
   lines.push('');
 

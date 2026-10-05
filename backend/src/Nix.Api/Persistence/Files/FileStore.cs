@@ -251,6 +251,9 @@ public sealed class FileStore(
             Previewable = request.Previewable,
             PixelWidth = request.PixelWidth,
             PixelHeight = request.PixelHeight,
+            ThumbnailWidth = request.ThumbnailWidth,
+            ThumbnailHeight = request.ThumbnailHeight,
+            ThumbnailBytes = request.ThumbnailBytes,
             CreatedBy = context.PrincipalId,
             CreatedAt = clock.GetUtcNow(),
         };
@@ -402,6 +405,35 @@ public sealed class FileStore(
 
     public async ValueTask<FileDownloadRecord?> AuthorizeDownloadAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken)
     {
+        var version = await FindReadableVersionAsync(itemId, versionId, cancellationToken).ConfigureAwait(false);
+        return version is null
+            ? null
+            : new(
+                version.ObjectKey,
+                version.FileName,
+                PreviewMediaType(version.FileName, version.MediaType, version.ByteLength) ?? version.MediaType,
+                version.ByteLength,
+                version.Sha256,
+                Previewable(version.FileName, version.MediaType, version.ByteLength, version.Previewable));
+    }
+
+    public async ValueTask<FileThumbnailDownloadRecord?> AuthorizeThumbnailAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken)
+    {
+        // The same lookup as the download: a thumbnail is derived from the body, so whatever
+        // withholds the body (no read access, a hidden item, a closed lock) withholds it too.
+        var version = await FindReadableVersionAsync(itemId, versionId, cancellationToken).ConfigureAwait(false);
+        return version is { ThumbnailWidth: { } width, ThumbnailHeight: { } height, ThumbnailBytes: { } bytes }
+            ? new FileThumbnailDownloadRecord(version.ObjectKey, width, height, bytes)
+            : null;
+    }
+
+    /// <summary>
+    /// The version of a file the caller may read the bytes of, or null. The single authorization
+    /// path for everything served from a file version's object: the permission check, the tree
+    /// filter and the lock check all happen here.
+    /// </summary>
+    private async ValueTask<FileVersion?> FindReadableVersionAsync(ItemId itemId, FileVersionId? versionId, CancellationToken cancellationToken)
+    {
         var context = Context;
         var body = await database.FileBodies.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId, cancellationToken).ConfigureAwait(false);
         if (body is null
@@ -412,16 +444,7 @@ public sealed class FileStore(
             return null;
         }
         var wanted = versionId ?? body.CurrentVersionId;
-        var version = await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.Id == wanted && candidate.ObjectReady, cancellationToken).ConfigureAwait(false);
-        return version is null
-            ? null
-            : new(
-                version.ObjectKey,
-                version.FileName,
-                PreviewMediaType(version.FileName, version.MediaType, version.ByteLength) ?? version.MediaType,
-                version.ByteLength,
-                version.Sha256,
-                Previewable(version.FileName, version.MediaType, version.ByteLength, version.Previewable));
+        return await database.FileVersions.AsNoTracking().SingleOrDefaultAsync(candidate => candidate.TenantId == context.TenantId && candidate.ItemId == itemId && candidate.Id == wanted && candidate.ObjectReady, cancellationToken).ConfigureAwait(false);
     }
 
     public async ValueTask RenameCurrentVersionAsync(ItemId itemId, string title, CancellationToken cancellationToken)
@@ -495,19 +518,27 @@ public sealed class FileStore(
         value.PixelWidth,
         value.PixelHeight,
         value.CreatedAt,
-        current);
+        current,
+        value is { ThumbnailWidth: { } width, ThumbnailHeight: { } height } ? new FileThumbnailRecord(width, height) : null);
 
     private static bool Previewable(string fileName, string mediaType, long byteLength, bool storedPreviewable) =>
         storedPreviewable
         || (string.Equals(mediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase)
             && byteLength <= 10L * 1024 * 1024
-            && PreviewMediaType(fileName, mediaType, byteLength) is not null);
+            && PreviewMediaType(fileName, mediaType, byteLength) is { } resolved
+            && !ServedAudio.IsServed(resolved));
 
     private static string? PreviewMediaType(string fileName, string mediaType, long byteLength)
     {
         if (!string.Equals(mediaType, "application/octet-stream", StringComparison.OrdinalIgnoreCase))
         {
             return mediaType;
+        }
+        // Audio first and with no size ceiling: it is streamed with range requests, not decoded
+        // whole, and a recording is routinely larger than the image bound below.
+        if (ServedAudio.ForExtension(fileName) is { } audio)
+        {
+            return audio;
         }
         if (byteLength > 10L * 1024 * 1024)
         {

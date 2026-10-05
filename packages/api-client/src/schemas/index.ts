@@ -62,12 +62,14 @@ export {
 } from './references.js';
 export {
   dailyNoteSchema,
+  dailyNoteSettingsSchema,
   workspaceInvitationSchema,
   workspaceInviteeSchema,
   workspaceMemberSchema,
   workspacePrincipalSchema,
   workspaceSchema,
   type DailyNote,
+  type DailyNoteSettings,
   type Workspace,
   type WorkspaceInvitation,
   type WorkspaceInvitee,

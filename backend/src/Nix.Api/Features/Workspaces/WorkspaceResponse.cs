@@ -35,4 +35,36 @@ internal sealed record CreateWorkspaceRequest(string Name);
 internal sealed record RenameWorkspaceRequest(string Name);
 
 /// <summary>The canonical dated note opened for a workspace day.</summary>
-internal sealed record DailyNoteResponse(Guid ItemId);
+/// <param name="ItemId">The note's identifier.</param>
+/// <param name="Created">True only for the request that inserted the note.</param>
+internal sealed record DailyNoteResponse(Guid ItemId, bool Created);
+
+/// <summary>A workspace's daily-note settings, as read and as replaced.</summary>
+/// <param name="Enabled">Whether daily notes are available in the workspace.</param>
+/// <param name="Folders">One of <c>flat</c>, <c>by-year</c>, <c>by-month</c>.</param>
+/// <param name="TitleFormat">One of <c>iso</c>, <c>long</c>, <c>weekday-long</c>.</param>
+/// <param name="Template">Markdown a client inserts into a new note, at most 4000 characters.</param>
+/// <param name="RolloverHour">The hour, 0 to 6, a client treats as the start of a day.</param>
+/// <param name="ShowOnCalendar">Whether a client shows daily notes on the calendar.</param>
+internal sealed record DailyNoteSettingsResponse(
+    bool Enabled,
+    string Folders,
+    string TitleFormat,
+    string Template,
+    int RolloverHour,
+    bool ShowOnCalendar);
+
+/// <summary>A request to replace a workspace's daily-note settings.</summary>
+/// <param name="Enabled">Whether daily notes are available in the workspace.</param>
+/// <param name="Folders">One of <c>flat</c>, <c>by-year</c>, <c>by-month</c>.</param>
+/// <param name="TitleFormat">One of <c>iso</c>, <c>long</c>, <c>weekday-long</c>.</param>
+/// <param name="Template">Markdown a client inserts into a new note, at most 4000 characters.</param>
+/// <param name="RolloverHour">The hour, 0 to 6, a client treats as the start of a day.</param>
+/// <param name="ShowOnCalendar">Whether a client shows daily notes on the calendar.</param>
+internal sealed record SaveDailyNoteSettingsRequest(
+    bool Enabled,
+    string Folders,
+    string TitleFormat,
+    string? Template,
+    int RolloverHour,
+    bool ShowOnCalendar);

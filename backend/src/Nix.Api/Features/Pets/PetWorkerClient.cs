@@ -175,6 +175,68 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         }
     }
 
+    /// <summary>Opens the worker's inline stream and hands back the response, headers read and body unread.</summary>
+    /// <remarks>
+    /// The caller owns the returned response: it copies the body as it arrives and disposes the
+    /// response on every path, which is also what tells the worker to interrupt the model's turn.
+    /// <paramref name="cancellationToken"/> bounds the whole exchange, headers and body, so it is
+    /// the caller's token that carries the browser's disconnect and the overall deadline; a
+    /// cancellation by it propagates as <see cref="OperationCanceledException"/>. A worker that
+    /// answers anything but a 200 event stream is turned into a coded failure here and its
+    /// plain-text body is neither read nor forwarded. Nothing the person wrote is logged.
+    /// </remarks>
+    internal async Task<Result<HttpResponseMessage>> OpenInlineAsync(PetInlineRequest request, Guid petId, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var context = session.Current ?? throw new InvalidOperationException("A session is required.");
+        var address = configuration["Nix:Pets:WorkerUrl"];
+        var secret = configuration["Nix:InternalSecret"];
+        if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(secret)
+            || !Uri.TryCreate(address, UriKind.Absolute, out var origin) || origin.Scheme is not ("http" or "https")
+            || origin.UserInfo.Length != 0 || origin.Query.Length != 0 || origin.Fragment.Length != 0 || origin.AbsolutePath != "/")
+        {
+            ApiLog.PetWorkerFailed(log, "inline", "the worker URL or internal secret is not configured", "pets.unavailable");
+            return Result.Failure<HttpResponseMessage>(new("pets.unavailable", "The companion is not available on this server."));
+        }
+
+        using var outgoing = new HttpRequestMessage(HttpMethod.Post, new Uri(origin, "/v1/companion"));
+        HttpResponseMessage? response = null;
+        try
+        {
+            outgoing.Headers.Add("X-Nix-Internal-Secret", secret);
+            outgoing.Content = JsonContent.Create(new PetInlineWorkerRequest(context.TenantId.Value.ToString(), context.PrincipalId.Value.ToString(),
+                request.WorkspaceId.ToString(), petId.ToString(), "inline", request.RequestId.ToString(), request.Instruction ?? "",
+                request.Selection ?? "", request.Context ?? "", request.Kind, request.Kind == "translate" ? request.Language ?? "" : "",
+                request.Model ?? ""), PetJsonContext.Default.PetInlineWorkerRequest);
+            response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.OK
+                && string.Equals(response.Content.Headers.ContentType?.MediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
+            {
+                var opened = response;
+                response = null;
+                return Result.Success(opened);
+            }
+
+            var failure = response.StatusCode switch
+            {
+                HttpStatusCode.UnprocessableEntity => new NixError("pets.invalid_request", "The companion refused this request. Check the text and try again."),
+                HttpStatusCode.TooManyRequests => new NixError("pets.inline_busy", "Too many writing requests are open. Wait for one to finish."),
+                _ => new NixError("pets.unavailable", "The companion could not complete this request. Retry or reconnect ChatGPT."),
+            };
+            ApiLog.PetWorkerFailed(log, "inline", $"worker returned HTTP {(int)response.StatusCode} {response.Content.Headers.ContentType?.MediaType}", failure.Code);
+            return Result.Failure<HttpResponseMessage>(failure);
+        }
+        catch (HttpRequestException exception)
+        {
+            ApiLog.PetWorkerFailed(log, "inline", exception.GetType().Name, "pets.unavailable");
+            return Result.Failure<HttpResponseMessage>(new("pets.unavailable", "The companion is unreachable. Check the existing worker and try again."));
+        }
+        finally
+        {
+            response?.Dispose();
+        }
+    }
+
     private const int MaxResponseBytes = 4 * 1024 * 1024;
 
     /// <summary>Thrown by <see cref="CappedStream"/> once more than its byte limit has been read.</summary>

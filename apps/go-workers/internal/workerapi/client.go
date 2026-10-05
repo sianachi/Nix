@@ -228,6 +228,11 @@ type InspectedFile struct {
 	Previewable       bool   `json:"previewable"`
 	PixelWidth        *int   `json:"pixelWidth"`
 	PixelHeight       *int   `json:"pixelHeight"`
+	// The thumbnail facts are null together when the file has none. Core derives the thumbnail's
+	// object key itself; the worker only reports what it uploaded to the capability Core signed.
+	ThumbnailWidth  *int   `json:"thumbnailWidth"`
+	ThumbnailHeight *int   `json:"thumbnailHeight"`
+	ThumbnailBytes  *int64 `json:"thumbnailBytes"`
 }
 
 type PublishedFile struct {
@@ -887,6 +892,24 @@ func (client *Client) PublishFileInspection(ctx context.Context, uploadID string
 		return nil, err
 	}
 	return &published, nil
+}
+
+// ThumbnailUploadURL asks Core to sign the upload of the upload's thumbnail, sized to byteLength.
+func (client *Client) ThumbnailUploadURL(ctx context.Context, uploadID string, byteLength int64) (string, error) {
+	body, err := json.Marshal(struct {
+		ByteLength int64 `json:"byteLength"`
+	}{byteLength})
+	if err != nil {
+		return "", err
+	}
+	path := "/internal/worker-executions/files/uploads/" + url.PathEscape(uploadID) + "/thumbnail-upload"
+	var capability struct {
+		UploadURL string `json:"uploadUrl"`
+	}
+	if err := client.requestJSON(ctx, http.MethodPost, path, strings.NewReader(string(body)), &capability); err != nil {
+		return "", err
+	}
+	return capability.UploadURL, nil
 }
 
 func (client *Client) RejectFileInspection(ctx context.Context, uploadID, code string) error {

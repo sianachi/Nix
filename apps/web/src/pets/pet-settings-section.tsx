@@ -4,7 +4,7 @@ import {
   type PetSettings,
   type PetSettingsResponse,
 } from '@nix/api-client';
-import { Button, Field, Input, Select, Text, focusRing } from '@nix/ui';
+import { Button, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 import { newPet, petCatalog, personalityDescriptions } from './catalog';
 import { usePetSettings } from './use-pet-settings';
@@ -147,6 +147,23 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
           />
           <Text>Read new replies aloud while the companion is open</Text>
         </label>
+        <div className="flex flex-col gap-1">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.inlineWriting}
+              disabled={draft.activePetId === null || !draft.enabled}
+              onChange={(event) => {
+                change({ ...draft, inlineWriting: event.currentTarget.checked });
+              }}
+            />
+            <Text>Use AI while writing notes</Text>
+          </label>
+          <Text variant="note" tone="muted">
+            Adds AI commands to the slash menu and the selection menu in notes. The text you select
+            is sent to your connected model. Locked notes are never sent.
+          </Text>
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -280,12 +297,11 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
               hint="Tell your pet how you like to work. These preferences do not grant additional access."
             >
               {(control) => (
-                <textarea
+                <Textarea
                   {...control}
                   rows={4}
                   maxLength={2000}
                   value={pet.instructions}
-                  className={`w-full border border-divider bg-background p-3 text-foreground ${focusRing}`}
                   onChange={(event) => {
                     updatePet({ instructions: event.currentTarget.value });
                   }}

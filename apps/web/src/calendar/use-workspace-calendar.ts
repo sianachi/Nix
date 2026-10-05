@@ -10,6 +10,7 @@ import {
 } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { addEndTimes as addEndTimesTo } from '../views/calendar/add-end-times';
 import { useApiClient } from '../api/api-client-provider';
 import { useWorkspace } from '../workspaces/workspace-context';
 
@@ -21,6 +22,15 @@ export interface WorkspaceCalendarState {
   readonly error: string | null;
   readonly reload: () => Promise<void>;
   readonly reschedule: (itemId: string, dateProperty: string, value: string) => Promise<boolean>;
+
+  /** Writes several of an item's properties at once - a start and its end together. */
+  readonly write: (itemId: string, values: Record<string, string | null>) => Promise<boolean>;
+
+  /**
+   * Gives one container's calendar an end property, then reloads. Resolves to why it could not,
+   * or null when it did.
+   */
+  readonly addEndTimes: (containerId: string) => Promise<string | null>;
   readonly create: (containerId: string, title: string, day: string) => Promise<string | null>;
 
   /** Marks one day of a repeating item's series done, then reloads the window it changed. */
@@ -79,12 +89,12 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     }
   }, [client, from, to, workspaceId]);
 
-  const reschedule = useCallback(
-    async (itemId: string, dateProperty: string, value: string): Promise<boolean> => {
+  const write = useCallback(
+    async (itemId: string, values: Record<string, string | null>): Promise<boolean> => {
       const controller = new AbortController();
       operations.current.add(controller);
       try {
-        await client.execute(coreStructure.setItemProperties(itemId, { [dateProperty]: value }), {
+        await client.execute(coreStructure.setItemProperties(itemId, values), {
           signal: controller.signal,
         });
         if (controller.signal.aborted) return false;
@@ -95,6 +105,23 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
       } finally {
         operations.current.delete(controller);
       }
+    },
+    [client, load],
+  );
+
+  const reschedule = useCallback(
+    (itemId: string, dateProperty: string, value: string): Promise<boolean> =>
+      write(itemId, { [dateProperty]: value }),
+    [write],
+  );
+
+  const addEndTimes = useCallback(
+    async (containerId: string): Promise<string | null> => {
+      const refusal = await addEndTimesTo(client, containerId);
+      if (refusal === null) {
+        await load();
+      }
+      return refusal;
     },
     [client, load],
   );
@@ -173,5 +200,15 @@ export function useWorkspaceCalendar(from: string, to: string): WorkspaceCalenda
     };
   }, [load]);
 
-  return { status, calendar, error, reload: load, reschedule, create, complete };
+  return {
+    status,
+    calendar,
+    error,
+    reload: load,
+    reschedule,
+    write,
+    addEndTimes,
+    create,
+    complete,
+  };
 }

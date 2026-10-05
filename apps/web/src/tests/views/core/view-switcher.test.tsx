@@ -133,4 +133,39 @@ describe('the view switcher', () => {
     // an older client look like it had deleted their work.
     expect(screen.getByRole('button', { name: /sketch/i })).toBeVisible();
   });
+
+  it('marks the default entry with a description and leaves its name plain', () => {
+    render(
+      <ViewSwitcher
+        views={VIEWS}
+        unrenderable={[]}
+        activeViewId="all"
+        onSelect={vi.fn()}
+        documentLabel="Body"
+        defaultViewId="document"
+      />,
+    );
+
+    // The state rides on the description, not the name: a name that grows "(default)" breaks
+    // voice control ("click Body") and every exact-name lookup.
+    const body = screen.getByRole('button', { name: 'Body' });
+    expect(body).toHaveAccessibleDescription('Opens by default');
+    expect(screen.getByRole('button', { name: /^all$/i })).not.toHaveAccessibleDescription();
+  });
+
+  it('drops the Document entry, not the views, when the item hides it', () => {
+    render(
+      <ViewSwitcher
+        views={VIEWS}
+        unrenderable={[]}
+        activeViewId="all"
+        onSelect={vi.fn()}
+        documentLabel="Body"
+        documentHidden
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Body' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^all$/i })).toBeVisible();
+  });
 });

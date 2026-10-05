@@ -39,6 +39,7 @@ describe('the capability catalog', () => {
     // The full type list, minus assignee, as PROPERTY_TYPES declares it (property-types.ts).
     expect(names).toEqual([
       'text',
+      'long_text',
       'number',
       'select',
       'multi_select',

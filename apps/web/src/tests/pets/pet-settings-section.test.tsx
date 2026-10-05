@@ -8,7 +8,14 @@ vi.mock('../../pets/pet-avatar', () => ({ PetAvatar: () => null }));
 
 const initial: PetSettingsResponse = {
   revision: 0,
-  settings: { enabled: false, activePetId: null, motion: 'system', narration: false, profiles: [] },
+  settings: {
+    enabled: false,
+    activePetId: null,
+    motion: 'system',
+    narration: false,
+    profiles: [],
+    inlineWriting: false,
+  },
 };
 
 describe('pet configuration', () => {

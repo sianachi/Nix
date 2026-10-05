@@ -8,35 +8,58 @@ using Nix.Persistence.Workspaces;
 
 namespace Nix.Features.Workspaces;
 
-public sealed record OpenDailyNote(WorkspaceId WorkspaceId, string Date) : ICommand<Guid>;
+/// <summary>Opens, creating when needed, the dated daily note of a workspace.</summary>
+/// <param name="WorkspaceId">The workspace.</param>
+/// <param name="Date">The canonical <c>yyyy-MM-dd</c> day.</param>
+public sealed record OpenDailyNote(WorkspaceId WorkspaceId, string Date) : ICommand<DailyNoteOpened>;
 
+/// <summary>The note a daily-note open resolved to.</summary>
+/// <param name="ItemId">The note's identifier.</param>
+/// <param name="Created">True only when this request inserted the note, so a client inserts its template once.</param>
+public sealed record DailyNoteOpened(Guid ItemId, bool Created);
+
+/// <summary>Handles <see cref="OpenDailyNote"/>.</summary>
+/// <remarks>
+/// A note's identifier comes from the workspace and the date alone, whatever the workspace's
+/// settings say, so settings only shape notes created after they change: an existing note is
+/// returned where it is, with no move and no retitle. That is a deliberate owner decision, and it is
+/// what keeps opening a day idempotent across settings changes.
+/// </remarks>
 public sealed class OpenDailyNoteHandler(
     WorkspaceAdministrationStore store,
     IPermissionResolver permissions,
-    TimeProvider clock) : ICommandHandler<OpenDailyNote, Guid>
+    TimeProvider clock) : ICommandHandler<OpenDailyNote, DailyNoteOpened>
 {
-    public async ValueTask<Result<Guid>> HandleAsync(OpenDailyNote command, CancellationToken cancellationToken)
+    /// <inheritdoc />
+    public async ValueTask<Result<DailyNoteOpened>> HandleAsync(OpenDailyNote command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
         if (!DateOnly.TryParseExact(command.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture,
                 DateTimeStyles.None, out var parsed)
             || parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) != command.Date)
         {
-            return Result.Failure<Guid>(new NixError(
+            return Result.Failure<DailyNoteOpened>(new NixError(
                 "workspaces.invalid_daily_date", "The daily note date must be canonical yyyy-MM-dd."));
         }
 
         if (!await permissions.CanWriteWorkspaceAsync(command.WorkspaceId, cancellationToken)
                 .ConfigureAwait(false))
         {
-            return Result.Failure<Guid>(WorkspaceErrors.NotFound());
+            return Result.Failure<DailyNoteOpened>(WorkspaceErrors.NotFound());
         }
 
         var rootId = DeterministicProvisioningId.DailyNotesRoot(command.WorkspaceId);
         var itemId = DeterministicProvisioningId.DatedDailyNote(command.WorkspaceId, command.Date);
-        var opened = await store.OpenDailyNoteAsync(
-            command.WorkspaceId, rootId, itemId, command.Date, clock.GetUtcNow(), cancellationToken)
+        var opening = await store.OpenDailyNoteAsync(
+            command.WorkspaceId, rootId, itemId, parsed, command.Date, clock.GetUtcNow(), cancellationToken)
             .ConfigureAwait(false);
-        return opened is { } id ? Result.Success(id) : Result.Failure<Guid>(WorkspaceErrors.NotFound());
+        return opening.Outcome switch
+        {
+            DailyNoteOutcome.Opened => Result.Success(new DailyNoteOpened(opening.ItemId, opening.Created)),
+            DailyNoteOutcome.Disabled => Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNotesDisabled()),
+            DailyNoteOutcome.RootUnavailable =>
+                Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNotesRootUnavailable()),
+            _ => Result.Failure<DailyNoteOpened>(WorkspaceErrors.NotFound()),
+        };
     }
 }

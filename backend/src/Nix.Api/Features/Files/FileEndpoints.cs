@@ -21,6 +21,15 @@ internal static class FileEndpoints
     private const long MaximumPreviewBytes = 10L * 1024 * 1024;
     private const long MaximumPreviewPixels = 40_000_000;
 
+    /// <summary>
+    /// The longest side of a thumbnail in pixels. Must agree with <c>thumbnail.MaxSide</c> in the Go
+    /// worker's <c>internal/thumbnail</c> package, and with <c>CK_file_version_thumbnail</c>.
+    /// </summary>
+    private const int MaximumThumbnailSide = 480;
+
+    /// <summary>The largest thumbnail object Core will sign an upload for or record.</summary>
+    private const int MaximumThumbnailBytes = 2 * 1024 * 1024;
+
     internal static IEndpointRouteBuilder MapFileEndpoints(this IEndpointRouteBuilder endpoints)
     {
         var uploads = endpoints.MapGroup("/api/v1/files/uploads").WithTags("Files");
@@ -54,6 +63,11 @@ internal static class FileEndpoints
             .Produces<FileDownloadCapabilityResponse>()
             .ProducesProblem(404)
             .ProducesProblem(503);
+        files.MapGet("/thumbnail", AuthorizeThumbnail)
+            .WithName("AuthorizeFileThumbnail")
+            .Produces<FileThumbnailCapabilityResponse>()
+            .ProducesProblem(404)
+            .ProducesProblem(503);
         return endpoints;
     }
 
@@ -61,6 +75,7 @@ internal static class FileEndpoints
     internal static void MapWorkerExecutions(IEndpointRouteBuilder group)
     {
         group.MapGet("/files/uploads/{uploadId:guid}", GetInspection);
+        group.MapPost("/files/uploads/{uploadId:guid}/thumbnail-upload", AuthorizeThumbnailUpload);
         group.MapPost("/files/uploads/{uploadId:guid}/publish", PublishInspection);
         group.MapPost("/files/uploads/{uploadId:guid}/reject", RejectInspection);
     }
@@ -249,7 +264,7 @@ internal static class FileEndpoints
         {
             return TypedResults.Problem(NotFound(context));
         }
-        var inline = preview && result.Previewable;
+        var inline = preview && (result.Previewable || ServedAudio.IsServed(result.MediaType));
         var capability = signer.GetForBrowser(
             result.ObjectKey,
             result.FileName,
@@ -266,6 +281,85 @@ internal static class FileEndpoints
             inline,
             Unscanned: true,
             NoSniff: true));
+    }
+
+    private static async Task<IResult> AuthorizeThumbnail(
+        Guid itemId,
+        Guid? versionId,
+        HttpContext context,
+        [FromServices] IFileStore files,
+        [FromServices] S3CapabilitySigner signer)
+    {
+        if (!signer.IsConfigured)
+        {
+            return StorageUnavailable(context);
+        }
+
+        // Authorization is the file download's, by construction: the store answers both from one
+        // lookup, so an unreadable, hidden or locked file and a file without a thumbnail are the same
+        // 404 here and a caller cannot tell them apart.
+        var result = await files.AuthorizeThumbnailAsync(
+            ItemId.From(itemId),
+            versionId is { } value ? FileVersionId.From(value) : null,
+            context.RequestAborted).ConfigureAwait(false);
+        if (result is null)
+        {
+            return TypedResults.Problem(ApiProblem.Create(
+                context,
+                404,
+                "files.thumbnail_not_found",
+                "Thumbnail not found",
+                "No such thumbnail is visible."));
+        }
+        var capability = signer.GetForBrowser(
+            ObjectStorageKeys.FileThumbnail(result.VersionObjectKey),
+            "thumbnail.jpg",
+            "image/jpeg",
+            inline: true);
+        context.Response.Headers.XContentTypeOptions = "nosniff";
+        return TypedResults.Ok(new FileThumbnailCapabilityResponse(
+            capability.Url,
+            capability.ExpiresAt,
+            result.Width,
+            result.Height,
+            result.ByteLength));
+    }
+
+    /// <summary>
+    /// Signs the upload of one upload's thumbnail, sized to the bytes the worker has produced.
+    /// </summary>
+    /// <remarks>
+    /// Lease-bound like the rest of the worker surface: only the running <c>file.publish</c> job for
+    /// this upload may ask, and the key is the one Core derives, so the worker cannot name an object.
+    /// </remarks>
+    private static async Task<IResult> AuthorizeThumbnailUpload(
+        Guid uploadId,
+        WorkerThumbnailUploadRequest request,
+        HttpContext context,
+        [FromServices] IFileStore files,
+        [FromServices] IWorkerJobStore jobs,
+        [FromServices] INixSessionContextAccessor session,
+        [FromServices] S3CapabilitySigner signer)
+    {
+        if (!signer.IsConfigured
+            || request.ByteLength is < 1 or > MaximumThumbnailBytes
+            || !await ExecutionOwnsUpload(context, jobs, session, uploadId).ConfigureAwait(false))
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+        var upload = await files.GetInspectionAsync(
+            FileUploadId.From(uploadId),
+            context.RequestAborted).ConfigureAwait(false);
+        if (upload is not { Purpose: FileUploadPurposes.File, Status: "pending_upload" })
+        {
+            return TypedResults.Problem(NotFound(context));
+        }
+        var scoped = session.Current
+            ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
+        var capability = signer.PutSized(
+            ObjectStorageKeys.FileThumbnail(scoped.TenantId, FileUploadId.From(uploadId)),
+            request.ByteLength);
+        return TypedResults.Ok(new WorkerThumbnailUploadResponse(capability.Url, capability.ExpiresAt));
     }
 
     private static async Task<IResult> GetInspection(
@@ -402,6 +496,7 @@ internal static class FileEndpoints
             [
                 ObjectStorageKeys.FileUpload(scoped.TenantId, FileUploadId.From(uploadId)),
                 ObjectStorageKeys.FileVersion(scoped.TenantId, FileUploadId.From(uploadId)),
+                ObjectStorageKeys.FileThumbnail(scoped.TenantId, FileUploadId.From(uploadId)),
             ],
             context.RequestAborted).ConfigureAwait(false);
         return await ExecutionStillLive(context, dispatch).ConfigureAwait(false)
@@ -484,6 +579,7 @@ internal static class FileEndpoints
             [
                 ObjectStorageKeys.FileUpload(scoped.TenantId, id),
                 ObjectStorageKeys.FileVersion(scoped.TenantId, id),
+                ObjectStorageKeys.FileThumbnail(scoped.TenantId, id),
             ],
             context.RequestAborted).ConfigureAwait(false);
         return TypedResults.NoContent();
@@ -510,7 +606,17 @@ internal static class FileEndpoints
         && ValidSha256(request.Sha256)
         && request.ByteLength >= 0
         && request.ByteLength <= MaximumFileBytes
-        && ValidImageMetadata(request);
+        && ValidImageMetadata(request)
+        && ValidThumbnail(request);
+
+    private static bool ValidThumbnail(CompleteFileUploadRequest request) =>
+        request is { ThumbnailWidth: null, ThumbnailHeight: null, ThumbnailBytes: null }
+        || request is
+        {
+            ThumbnailWidth: > 0 and <= MaximumThumbnailSide,
+            ThumbnailHeight: > 0 and <= MaximumThumbnailSide,
+            ThumbnailBytes: > 0 and <= MaximumThumbnailBytes,
+        };
 
     private static bool ValidSha256(string value) =>
         value.Length == 64
@@ -555,7 +661,10 @@ internal static class FileEndpoints
             request.Sha256,
             request.Previewable,
             request.PixelWidth,
-            request.PixelHeight);
+            request.PixelHeight,
+            request.ThumbnailWidth,
+            request.ThumbnailHeight,
+            request.ThumbnailBytes);
 
     private static Microsoft.AspNetCore.Mvc.ProblemDetails NotFound(HttpContext context) =>
         ApiProblem.Create(context, 404, "files.not_found", "File not found", "No such file is visible.");

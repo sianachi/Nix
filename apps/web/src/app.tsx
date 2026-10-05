@@ -11,6 +11,7 @@ import { BookmarksPage } from './pages/bookmarks-page';
 import { CalendarPage } from './pages/calendar-page';
 import { EditorPage } from './pages/editor-page';
 import { GraphPage } from './pages/graph-page';
+import { PetPage } from './pages/pet-page';
 import { NotFoundPage } from './pages/not-found-page';
 import { PublicFormPage } from './pages/public-form-page';
 import { SettingsPage } from './pages/settings-page';
@@ -112,6 +113,7 @@ export function App(): ReactElement {
                     <Route path="daily" element={<DailyNotePage />} />
                     <Route path="daily/:date" element={<DailyNotePage />} />
                     <Route path="graph" element={<GraphPage />} />
+                    <Route path="pet" element={<PetPage />} />
                     <Route path="bookmarks" element={<BookmarksPage />} />
                     <Route path="trash" element={<TrashPage />} />
                     <Route path="templates" element={<TemplateLibraryPage />} />

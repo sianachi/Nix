@@ -170,10 +170,10 @@ public sealed class GetWorkspaceGraphTests
     }
 
     private static GraphNode Node(string seed) =>
-        new(ItemId.From(Deterministic(seed)), null, "note", seed);
+        new(ItemId.From(Deterministic(seed)), null, "note", seed, DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch);
 
     private static GraphLink Link(string source, string target) =>
-        new(ItemId.From(Deterministic(source)), ItemId.From(Deterministic(target)));
+        new(ItemId.From(Deterministic(source)), ItemId.From(Deterministic(target)), 1);
 
     /// <summary>An identifier that is the same every run, so a failure is reproducible.</summary>
     private static Guid Deterministic(string seed)

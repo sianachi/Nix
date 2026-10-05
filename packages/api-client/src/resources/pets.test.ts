@@ -23,6 +23,7 @@ describe('the pets resource', () => {
     ).toMatchObject({
       kind: 'query',
       operation: 'pets.watchRuntime',
+      timeoutMs: 35_000,
       path: '/api/v1/me/pets/runtime/watch',
       query: { workspaceId: WORKSPACE_ID, petId: PET_ID, mode: 'chat', after: 42 },
     });

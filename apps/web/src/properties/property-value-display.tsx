@@ -2,7 +2,11 @@ import { Avatar, Icon, Tag, Text } from '@nix/ui';
 import { AlarmClock, Check, Square } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import type { PropertyDefinition, PropertyOwner } from '../views/core/container-model';
+import {
+  firstLine,
+  type PropertyDefinition,
+  type PropertyOwner,
+} from '../views/core/container-model';
 import { isComputedType, valueShapeOf } from '../views/core/property-types';
 import { readTimestampValue, readerToday, readerZone } from '../views/core/timestamps';
 import { useMember } from './member-directory';
@@ -80,6 +84,8 @@ export function PropertyValueDisplay(props: PropertyValueDisplayProps): ReactNod
       return typeof value === 'string' ? <AssigneeDisplay id={value} density={density} /> : null;
     case 'url':
       return typeof value === 'string' ? <LinkDisplay href={value} /> : null;
+    case 'long_text':
+      return typeof value === 'string' ? <LongTextDisplay value={value} density={density} /> : null;
     case 'image':
       // A picture is drawn as a cover where a view chooses one; as a value it would be a thumbnail
       // in every card, which is the gallery's job rather than every view's.
@@ -165,6 +171,30 @@ function AssigneeDisplay(props: {
         {shown}
       </Text>
     </span>
+  );
+}
+
+/**
+ * Several lines of text at the size the surface allows: a cell shows the first line and truncates,
+ * as a one-line text value does, while a card keeps its line breaks and clips at three lines. The
+ * item's own panel edits the whole text through `PropertyInput`, so it never comes through here.
+ */
+function LongTextDisplay(props: {
+  readonly value: string;
+  readonly density: ValueDensity;
+}): ReactNode {
+  if (props.density === 'cell') {
+    return (
+      <Text as="span" variant="caption" truncate>
+        {firstLine(props.value)}
+      </Text>
+    );
+  }
+
+  return (
+    <Text as="span" variant="caption" lines={3} className="whitespace-pre-line">
+      {props.value}
+    </Text>
   );
 }
 

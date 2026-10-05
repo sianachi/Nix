@@ -7,6 +7,10 @@ import { readTimestampValue, writeTimestampValue } from '../core/timestamps';
 import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
 import { FreeSlotHint } from './free-slot-hint';
 import { suggestSlot } from './schedule-slot';
+import { durationLabel } from './span-gesture';
+
+/** The lengths offered in one tap, in minutes. The same quarter-hour steps a drag snaps to. */
+const LENGTHS = [15, 30, 45, 60, 90, 120] as const;
 
 /**
  * The keyboard road to the same write a drag performs, in a modal.
@@ -306,6 +310,34 @@ export function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
             )}
           </Field>
         )}
+
+        {/* A length in one tap. Typing an end into a `datetime-local` field is the slow way to
+            say "half an hour", and on a phone - where an item cannot be dragged to move it - this
+            dialog is the main road to a length at all. Each sets the end from the start as it is
+            drafted now; Move still does the writing. */}
+        {endDateProperty !== null && placesByTime ? (
+          <div role="group" aria-label="Length" className="flex flex-wrap items-center gap-1">
+            {LENGTHS.map((minutes) => (
+              <Button
+                key={minutes}
+                type="button"
+                variant="secondary"
+                className="py-1 text-sm"
+                onClick={() => {
+                  const start = DateTime.fromISO(draft);
+                  if (!start.isValid) {
+                    setError('Enter a date and a time of day.');
+                    return;
+                  }
+                  setEndDraft(start.plus({ minutes }).toFormat("yyyy-MM-dd'T'HH:mm"));
+                  setEndError(null);
+                }}
+              >
+                {durationLabel(minutes)}
+              </Button>
+            ))}
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap items-center gap-1">
           <Button type="submit" className="py-1 text-sm">

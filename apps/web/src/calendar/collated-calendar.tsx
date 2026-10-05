@@ -4,7 +4,13 @@ import { CalendarClock, CircleCheck, Repeat, ChevronLeft, ChevronRight } from 'l
 import { useMemo, useState, type ReactNode } from 'react';
 
 import { HourGrid } from '../views/calendar/calendar-hours';
-import { MonthGrid, type DayCellSpec } from '../views/calendar/month-grid';
+import {
+  DayNumber,
+  MONTH_CELL,
+  MONTH_VISIBLE_ITEMS,
+  MonthGrid,
+  type DayCellSpec,
+} from '../views/calendar/month-grid';
 import { RescheduleDialog } from '../views/calendar/reschedule-dialog';
 import {
   addDays,
@@ -16,20 +22,20 @@ import {
   weekOf,
   type CalendarDay,
 } from '../views/core/calendar-dates';
-import { readerZone } from '../views/core/timestamps';
+import { readTimestampValue, readerZone } from '../views/core/timestamps';
 import type { CalendarGrain } from './calendar-window';
 import {
   bucketByDay,
   noteOptions,
   COLLATED_DATE_KEY,
+  COLLATED_END_KEY,
   toGridItem,
   toGridItems,
 } from './collated-entries';
 import { CreateEntryButton } from './create-entry-button';
-import { valueForDay } from './reschedule';
+import { shiftedEnd, valueForDay } from './reschedule';
 
 /** How many entries a month cell shows before it collapses the rest, matching `DayCell`'s own. */
-const MAXIMUM_COLLAPSED_DAY_ITEMS = 6;
 
 /**
  * Every calendar in the workspace, drawn as one.
@@ -80,6 +86,20 @@ export interface CollatedCalendarProps {
   readonly onReschedule: (entry: CalendarEntry, value: string) => void;
 
   /**
+   * Writes several of an entry's own properties together - its start and its end - under the keys
+   * its own container names. Optional: without it this calendar moves items but cannot give them
+   * a length, which is what it did before entries carried an end.
+   */
+  readonly onWrite?:
+    ((entry: CalendarEntry, values: Record<string, string | null>) => void) | undefined;
+
+  /**
+   * Gives the calendar an entry came from an end property, so its items can have a length.
+   * Offered on entries whose calendar has none.
+   */
+  readonly onAddEndTimes?: ((entry: CalendarEntry) => void) | undefined;
+
+  /**
    * Makes a new item in a chosen container, dated on that container's own calendar property.
    *
    * Optional, matching the grids' own `onCreate` - absent means this caller offers no way to
@@ -102,6 +122,16 @@ export interface CollatedCalendarProps {
   readonly onComplete?: ((entry: CalendarEntry, occurredOn: string) => void) | undefined;
 }
 
+/**
+ * The date property a daily note is placed by. A daily note's date is its identity - the note is
+ * that day's - so unlike an ordinary entry it is never moved to another day from here.
+ */
+const DAILY_DATE_PROPERTY = '$daily';
+
+function isDailyNote(entry: CalendarEntry): boolean {
+  return entry.dateProperty === DAILY_DATE_PROPERTY;
+}
+
 const GRAINS = [
   { value: 'month', label: 'Month' },
   { value: 'week', label: 'Week' },
@@ -118,6 +148,8 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
     today,
     onOpen,
     onReschedule,
+    onWrite,
+    onAddEndTimes,
     onCreate,
     onComplete,
   } = props;
@@ -126,13 +158,46 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
   const byDay = useMemo(() => bucketByDay(entries), [entries]);
   const items = useMemo(() => toGridItems(entries), [entries]);
 
-  // Occurrences a recurrence rule produced have no row to write to, so the hour grid offers no
-  // way to move them - the month cell already withholds the same controls. Memoized for the same
-  // reason `items` is: the grid takes it as a prop and a fresh set every render is a fresh grid.
-  const generatedIds = useMemo(
-    () => new Set(entries.filter((entry) => entry.generated).map((entry) => entry.itemId)),
+  // Occurrences a recurrence rule produced have no row to write to, and a daily note's day is the
+  // note's identity, so the hour grid offers no way to move either - the month cell already
+  // withholds the same controls. Memoized for the same reason `items` is: the grid takes it as a
+  // prop and a fresh set every render is a fresh grid.
+  const fixedIds = useMemo(
+    () =>
+      new Set(
+        entries
+          .filter((entry) => entry.generated || isDailyNote(entry))
+          .map((entry) => entry.itemId),
+      ),
     [entries],
   );
+
+  // Entries whose own calendar has no end property: the grid draws no foot on them and offers to
+  // add one instead. Memoized for the same reason as the set above.
+  const endlessIds = useMemo(
+    () =>
+      new Set(
+        entries
+          .filter((entry) => entry.endProperty === null || onWrite === undefined)
+          .map((entry) => entry.itemId),
+      ),
+    [entries, onWrite],
+  );
+
+  /**
+   * Moves an entry's start, carrying its end with it so it keeps its length.
+   *
+   * Every road that sets a start alone comes through here - a drop on a month cell, the
+   * reschedule dialog of an entry with no end - so none of them can leave an end behind.
+   */
+  const moveStart = (entry: CalendarEntry, value: string): void => {
+    const end = shiftedEnd(entry, value, zone);
+    if (end !== null && entry.endProperty !== null && onWrite !== undefined) {
+      onWrite(entry, { [entry.dateProperty]: value, [entry.endProperty]: end });
+      return;
+    }
+    onReschedule(entry, value);
+  };
 
   // The containers a new entry may land in - the same notes the filter above offers, since every
   // one of them is already known to place by a real property (an entry could not exist otherwise).
@@ -164,7 +229,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
     // A drop whose value cannot be expressed is refused rather than written as something else - the
     // same condition the page counts as unplaceable.
     if (value !== null && value !== draggedEntry.value) {
-      onReschedule(draggedEntry, value);
+      moveStart(draggedEntry, value);
     }
   };
 
@@ -292,6 +357,20 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             // Every entry was rewritten onto one key, because the grid takes one and these entries
             // came placed by whatever their own container names. See collated-entries.ts.
             dateProperty={COLLATED_DATE_KEY}
+            // And every end onto one key, likewise. An entry whose own calendar has no end
+            // property is named in `endlessItemIds`, so it gets no foot to stretch.
+            endDateProperty={COLLATED_END_KEY}
+            endlessItemIds={endlessIds}
+            onAddEndProperty={
+              onAddEndTimes === undefined
+                ? undefined
+                : (itemId) => {
+                    const entry = entries.find((candidate) => candidate.itemId === itemId);
+                    if (entry !== undefined && !entry.generated && !isDailyNote(entry)) {
+                      onAddEndTimes(entry);
+                    }
+                  }
+            }
             zone={zone}
             today={todayText}
             onOpen={onOpen}
@@ -301,20 +380,36 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             // `CreateEntryButton` above is where creating lives in every grain instead. Moving is
             // unaffected either way, because the entry carries its own property key.
             dragged={dragged}
-            fixedItemIds={generatedIds}
+            fixedItemIds={fixedIds}
             onMove={(itemId, values) => {
-              // This grid was never given an end property, so the bag it hands back always holds
-              // exactly the one key it was given: `COLLATED_DATE_KEY`.
+              // The bag holds the start, the end, or both, each under the collated key it was
+              // given: a move writes the start and carries the end, a stretch writes the end alone.
               const value = values[COLLATED_DATE_KEY] ?? null;
+              const end = values[COLLATED_END_KEY];
               const entry = entries.find((candidate) => candidate.itemId === itemId);
               setDragged(null);
-              if (entry === undefined || value === null) {
+              if (entry === undefined) {
                 return;
               }
 
               // A generated occurrence has no row of its own to move: the write would land on the
               // series it came from and shift every occurrence with it.
-              if (entry.generated) {
+              // A daily note keeps the day it is for, so it cannot be moved either.
+              if (entry.generated || isDailyNote(entry)) {
+                return;
+              }
+
+              // Anything that touches the end goes out as one write under the entry's own keys,
+              // so a start and the end that travelled with it cannot land separately.
+              if (end !== undefined && entry.endProperty !== null && onWrite !== undefined) {
+                onWrite(entry, {
+                  ...(value === null ? {} : { [entry.dateProperty]: value }),
+                  [entry.endProperty]: end,
+                });
+                return;
+              }
+
+              if (value === null) {
                 return;
               }
 
@@ -324,7 +419,7 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
               const written = entry.kind === 'date' ? value.slice(0, 10) : value;
 
               if (written !== entry.value) {
-                onReschedule(entry, written);
+                moveStart(entry, written);
               }
             }}
           />
@@ -339,6 +434,13 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
           key={reschedulingEntry.itemId}
           item={toGridItem(reschedulingEntry)}
           dateProperty={COLLATED_DATE_KEY}
+          // The end field, and the one-tap lengths with it, for an entry whose calendar has an
+          // end property to write them to.
+          endDateProperty={
+            reschedulingEntry.endProperty !== null && onWrite !== undefined
+              ? COLLATED_END_KEY
+              : null
+          }
           placesByTime={reschedulingEntry.kind === 'timestamp'}
           zone={zone}
           canRemove={false}
@@ -346,12 +448,29 @@ export function CollatedCalendar(props: CollatedCalendarProps): ReactNode {
             setRescheduling(null);
           }}
           onMove={(values) => {
-            // No `endDateProperty` is passed above, so the dialog draws no end field and this bag
-            // always holds exactly the one key it was given.
             const value = values[COLLATED_DATE_KEY] ?? null;
+            const end = values[COLLATED_END_KEY];
             setRescheduling(null);
-            if (value !== null && value !== reschedulingEntry.value) {
-              onReschedule(reschedulingEntry, value);
+            if (value === null) {
+              return;
+            }
+
+            // With an end field drawn, the dialog hands back both and they are written together
+            // exactly as drafted - a blank end clears it. Without one it hands back the start
+            // alone, and the end, if there is one, travels with it.
+            if (
+              end !== undefined &&
+              reschedulingEntry.endProperty !== null &&
+              onWrite !== undefined
+            ) {
+              onWrite(reschedulingEntry, {
+                [reschedulingEntry.dateProperty]: value,
+                [reschedulingEntry.endProperty]: end,
+              });
+              return;
+            }
+            if (value !== reschedulingEntry.value) {
+              moveStart(reschedulingEntry, value);
             }
           }}
         />
@@ -390,6 +509,12 @@ interface CollatedDayCellProps {
  * single cell, and a flag held anywhere else would either re-render every cell in the month for one
  * of them opening or have nowhere honest to live.
  */
+/** The time of day a timed entry is at, in the reader's zone, or nothing if it cannot be read. */
+function timeOf(entry: CalendarEntry): string {
+  const moment = readTimestampValue({ value: entry.value }, 'value');
+  return moment === null ? '' : moment.at.setZone(readerZone()).toFormat('HH:mm');
+}
+
 function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
   const {
     cell,
@@ -407,7 +532,7 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
     onComplete,
   } = props;
   const [expanded, setExpanded] = useState(false);
-  const visibleEntries = expanded ? entries : entries.slice(0, MAXIMUM_COLLAPSED_DAY_ITEMS);
+  const visibleEntries = expanded ? entries : entries.slice(0, MONTH_VISIBLE_ITEMS);
   const hiddenEntries = entries.length - visibleEntries.length;
 
   return (
@@ -425,14 +550,14 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
         event.preventDefault();
         onDrop();
       }}
-      className={`h-24 border border-divider align-top ${
-        over ? 'outline-2 -outline-offset-2 outline-accent' : ''
-      }`}
+      className={cn(
+        MONTH_CELL,
+        cell.outside ? 'bg-surface/50' : '',
+        over ? 'outline-2 -outline-offset-2 outline-accent' : '',
+      )}
     >
       <div className="flex h-full flex-col gap-0.5 p-1">
-        <Text variant="caption" as="span" tone={isToday ? 'accent' : 'muted'}>
-          {String(cell.day)}
-        </Text>
+        <DayNumber day={cell.day} isToday={isToday} outside={cell.outside} />
 
         {visibleEntries.length === 0 ? null : (
           <ul className="flex flex-col gap-0.5">
@@ -490,8 +615,28 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
                 );
               }
 
+              // A daily note is a stored row but its day is what makes it that day's note, so it is
+              // drawn as a plain chip that opens: not draggable, with no reschedule control, and
+              // without the repeat marks and "Mark done" of an occurrence, which it is not.
+              if (isDailyNote(entry)) {
+                return (
+                  <li key={entry.itemId} className="flex items-center gap-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onOpen(entry.itemId);
+                      }}
+                      aria-label={`${title}, in ${container}`}
+                      className={`${focusRing} min-w-0 flex-1 truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
+                    >
+                      {title}
+                    </button>
+                  </li>
+                );
+              }
+
               return (
-                <li key={entry.itemId} className="flex items-center gap-0.5">
+                <li key={entry.itemId} className="group/chip relative flex items-center gap-0.5">
                   <button
                     type="button"
                     draggable
@@ -508,6 +653,9 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
                     aria-label={`${title}, in ${container}`}
                     className={`${focusRing} min-w-0 flex-1 truncate rounded-sm bg-accent/18 px-1.5 py-0.5 text-left text-xs hover:bg-accent/25`}
                   >
+                    {entry.kind === 'timestamp' ? (
+                      <span className="mr-1 text-muted">{timeOf(entry)}</span>
+                    ) : null}
                     {title}
                   </button>
 
@@ -515,7 +663,9 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
                     variant="ghost"
                     aria-label={`Reschedule ${title || 'Untitled'}`}
                     aria-haspopup="dialog"
-                    className="shrink-0 px-0.5 py-0.5"
+                    // Shown on hover, on focus and always on a coarse pointer: on every chip at
+                    // once it is forty clocks beside forty titles.
+                    className="absolute inset-y-0 right-0 rounded-sm bg-background px-0.5 py-0 opacity-0 focus-visible:opacity-100 group-hover/chip:opacity-100 pointer-coarse:opacity-100"
                     onClick={() => {
                       onReschedule(entry.itemId);
                     }}
@@ -528,10 +678,10 @@ function CollatedDayCell(props: CollatedDayCellProps): ReactNode {
           </ul>
         )}
 
-        {entries.length <= MAXIMUM_COLLAPSED_DAY_ITEMS ? null : (
+        {entries.length <= MONTH_VISIBLE_ITEMS ? null : (
           <Button
             variant="ghost"
-            className="self-start px-1 py-0.5 text-xs"
+            className="self-start px-1 py-0 text-xs"
             aria-expanded={expanded}
             onClick={() => {
               setExpanded((current) => !current);

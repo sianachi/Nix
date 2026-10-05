@@ -15,6 +15,7 @@ type RecurrenceStep = Extract<Step, { kind: 'setRecurrence' }>;
 function typeWord(type: string): string {
   const labels: Record<string, string> = {
     text: 'text',
+    long_text: 'long text',
     number: 'number',
     select: 'select',
     multi_select: 'multi-select',

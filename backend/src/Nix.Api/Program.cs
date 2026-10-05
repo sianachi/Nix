@@ -137,6 +137,7 @@ builder.Services
     });
 builder.Services.AddSingleton<OidcMetadataClient>();
 builder.Services.AddSingleton<NotificationWatchGate>();
+builder.Services.AddSingleton<Nix.Features.Pets.PetInlineLimiter>();
 builder.Services.AddHttpClient<PetWorkerClient>(client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(static () => new HttpClientHandler { AllowAutoRedirect = false });
 

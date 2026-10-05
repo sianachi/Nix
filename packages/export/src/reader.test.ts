@@ -324,6 +324,7 @@ describe('the hostile archive reader', () => {
     // A new type must appear here AND in the reader's set, deliberately: the failure is loud.
     const everyType = [
       'text',
+      'long_text',
       'number',
       'select',
       'multi_select',

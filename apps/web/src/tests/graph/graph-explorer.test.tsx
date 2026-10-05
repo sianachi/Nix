@@ -3,12 +3,19 @@ import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { GraphExplorer, graphConnections } from '../../graph/graph-explorer';
 import { stubViewport } from '../stub-viewport';
+const DATES = {
+  createdAt: '2026-01-01T00:00:00+00:00',
+  lastModifiedAt: '2026-01-01T00:00:00+00:00',
+};
+
 const nodes = [
-  { id: 'project', title: 'Project', parentId: null, type: 'note' },
-  { id: 'plan', title: 'Plan', parentId: 'project', type: 'note' },
+  { id: 'project', title: 'Project', parentId: null, type: 'note', ...DATES },
+  { id: 'plan', title: 'Plan', parentId: 'project', type: 'note', ...DATES },
 ];
 it('indexes both directions of structural and reference connections', () => {
-  const connections = graphConnections(nodes, [{ sourceId: 'plan', targetId: 'project' }]);
+  const connections = graphConnections(nodes, [
+    { sourceId: 'plan', targetId: 'project', occurrences: 1 },
+  ]);
   expect(connections.get('plan')).toEqual([
     { id: 'project', relation: 'Inside' },
     { id: 'project', relation: 'Links to' },

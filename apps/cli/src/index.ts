@@ -27,6 +27,8 @@ import {
   listWorkspaceMembers,
   listWorkspaceAssignablePrincipals,
   listWorkspaces,
+  dailyNoteSettings,
+  openDailyNote,
   purgeWorkspace,
   removeWorkspaceMember,
   renameWorkspace,
@@ -98,7 +100,7 @@ import {
   commitDocumentImport,
   getDocumentImport,
 } from './commands/document-import.ts';
-import { downloadFile, listFileVersions, uploadFile } from './commands/files.ts';
+import { downloadFile, listFileVersions, probeFile, uploadFile } from './commands/files.ts';
 import { getOperation } from './commands/operations.ts';
 import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, printResult, ExitCode } from './output.ts';
@@ -337,6 +339,22 @@ export function buildProgram(): Command {
     .action(async (options: PageCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() => listWorkspaces(flags.profile, options, outputOptions(flags.json)));
+    });
+
+  ws.command('daily-settings <workspaceId>')
+    .description('Read daily-note settings, or save all settings from a JSON file.')
+    .option('--file <path>', 'JSON settings file to save')
+    .action(async (workspaceId: string, options: { file?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        dailyNoteSettings(flags.profile, workspaceId, options.file, outputOptions(flags.json)),
+      );
+    });
+  ws.command('daily <workspaceId> <date>')
+    .description('Open or create the workspace daily note for yyyy-MM-dd.')
+    .action(async (workspaceId: string, date: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => openDailyNote(flags.profile, workspaceId, date, outputOptions(flags.json)));
     });
 
   ws.command('create <name>')
@@ -2219,6 +2237,16 @@ export function buildProgram(): Command {
   const file = program
     .command('file')
     .description('Upload, replace, inspect, and download file items.');
+  file
+    .command('probe <itemId>')
+    .description('Check preview or thumbnail delivery, including byte-range support.')
+    .option('--thumbnail', 'check the generated JPEG thumbnail', false)
+    .action(async (itemId: string, options: { thumbnail: boolean }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        probeFile(flags.profile, itemId, options.thumbnail, outputOptions(flags.json)),
+      );
+    });
   file
     .command('upload <path>')
     .requiredOption('--workspace <id>', 'the workspace to upload into')

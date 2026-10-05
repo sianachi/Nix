@@ -174,6 +174,14 @@ export interface ContainerData {
   readonly setDefaultView: (viewId: string) => Promise<string | null>;
 
   /**
+   * Hides or shows the item's Document tab, keeping its views and default as they are.
+   *
+   * Returns Core's own sentence when it refuses - an item with no views has nothing else to open -
+   * so the control can say why rather than snap back unexplained.
+   */
+  readonly setDocumentHidden: (hidden: boolean) => Promise<string | null>;
+
+  /**
    * The last property write that failed, for a view to report without losing the item.
    *
    * The drag channel: a gesture nobody awaits still has to be answered somewhere, and a card that
@@ -728,13 +736,13 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
   );
 
   /**
-   * Remembers which view opens.
+   * Stores which view the item opens as.
    *
-   * **Called from a deliberate switch and from nowhere else.** Arriving at a URL that already
-   * carries `?view=` must not write anything: a shared link would otherwise rewrite the default for
-   * everybody in the workspace, silently, for the person who followed it. That rule is kept by
-   * where this is called rather than by a check inside it - there is no effect watching the URL,
-   * so there is nothing to get wrong.
+   * **Called from the item's "Open as" choice and from nowhere else.** Following a link that
+   * carries `?view=`, or glancing at another tab, must not write anything: the default is what the
+   * item opens as for everybody in the workspace, and it changes only when somebody says so. That
+   * rule is kept by where this is called rather than by a check inside it - there is no effect
+   * watching the URL, so there is nothing to get wrong.
    */
   const setDefaultView = useCallback(
     async (viewId: string): Promise<string | null> => {
@@ -786,6 +794,41 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
       }
     },
     [client, containerId, views],
+  );
+
+  const setDocumentHidden = useCallback(
+    async (hidden: boolean): Promise<string | null> => {
+      if (containerId === null || views === null) {
+        return 'A workspace root cannot offer views.';
+      }
+
+      const controller = new AbortController();
+      activeRequests.current.add(controller);
+      try {
+        const body = ContainerViewsSchema.parse(views);
+        // The one write that sends the flag. The others leave it out, which Core reads as "keep what
+        // is stored", so a rename or a reorder cannot bring the tab back by accident. The default
+        // goes as it stands: asked to hide a document that was the default, Core moves the default
+        // to the first view itself.
+        await client.execute(
+          coreViews.setContainerViews(containerId, {
+            views: body.views,
+            default: body.default,
+            hideDocument: hidden,
+          }),
+          { signal: controller.signal },
+        );
+        if (!controller.signal.aborted) await load();
+        return null;
+      } catch (reason) {
+        return isNixApiError(reason)
+          ? (reason.detail ?? 'That could not be saved.')
+          : 'That could not be saved. Check the connection and try again.';
+      } finally {
+        activeRequests.current.delete(controller);
+      }
+    },
+    [client, containerId, load, views],
   );
 
   const create = useCallback(
@@ -841,6 +884,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     setPropertiesMany,
     setSchema,
     setDefaultView,
+    setDocumentHidden,
     setViews,
     appendViewSetup,
     replaceViewSetup,

@@ -11,7 +11,21 @@ namespace Nix.Domain.Views;
 /// <param name="Default">
 /// The id of the view that opens, or <see langword="null"/> for the item's own document.
 /// </param>
-public sealed record StoredViews(ImmutableArray<ViewDefinition> Views, string? Default)
+/// <param name="HideDocument">
+/// Whether the item's switcher leaves out its own document tab. Only ever true alongside at least
+/// one view: <see cref="ViewDefinitionsJson.Read"/> and <see cref="ViewDefinitionsJson.Write"/> both
+/// refuse to carry it for an item with nothing else to show.
+/// </param>
+/// <remarks>
+/// <b>Hiding the document hides a tab and nothing more.</b> It is not an access control: the body
+/// is still readable through every body read, search, link and export, and no permission changes.
+/// It exists so an item whose views are what matter, a board that should simply open as a board,
+/// is not shown a tab for an empty note. Do not mistake it for a privacy feature.
+/// </remarks>
+public sealed record StoredViews(
+    ImmutableArray<ViewDefinition> Views,
+    string? Default,
+    bool HideDocument = false)
 {
     /// <summary>A container that has said nothing.</summary>
     public static readonly StoredViews None = new([], null);
@@ -26,9 +40,20 @@ public sealed record StoredViews(ImmutableArray<ViewDefinition> Views, string? D
     /// A default naming a view that has since been deleted resolves to the document rather than to
     /// nothing. Falling back to the first view instead would mean deleting a view silently promoted
     /// whichever one happened to be first, which is a different item opening than the one anybody
-    /// chose.
+    /// chose. The one exception is an item that hides its document tab: there is no document to
+    /// open, so the first view opens, which is also what a write would have stored.
     /// </remarks>
     public string Resolve()
+    {
+        var resolved = ResolveStored();
+        return HideDocument
+            && Views.Length > 0
+            && string.Equals(resolved, ViewDefinitionsJson.DocumentView, StringComparison.Ordinal)
+                ? Views[0].Id
+                : resolved;
+    }
+
+    private string ResolveStored()
     {
         if (Default is not { } id)
         {
@@ -80,6 +105,7 @@ public static class ViewDefinitionsJson
 
     private const string ViewsKey = "views";
     private const string DefaultKey = "default";
+    private const string HideDocumentKey = "hideDocument";
     private const string IdKey = "id";
     private const string NameKey = "name";
     private const string KindKey = "kind";
@@ -159,8 +185,15 @@ public static class ViewDefinitionsJson
         }
 
         // Read as written, not validated here: a default naming a view that no longer exists is a
-        // resolution question rather than a parse failure, and StoredViews.Resolve answers it.
-        return new StoredViews(views.ToImmutable(), ReadString(document[DefaultKey]));
+        // resolution question rather than a parse failure, and StoredViews.Resolve answers it. The
+        // hidden-document flag is the exception that is dropped rather than carried: with no view
+        // that survived parsing there is nothing else to show, so the flag cannot stand.
+        var hideDocument = views.Count > 0
+            && document[HideDocumentKey] is JsonValue hide
+            && hide.TryGetValue(out bool hidden)
+            && hidden;
+
+        return new StoredViews(views.ToImmutable(), ReadString(document[DefaultKey]), hideDocument);
     }
 
     /// <summary>
@@ -170,12 +203,26 @@ public static class ViewDefinitionsJson
     /// <param name="defaultView">
     /// The id of the view that should open, or <see langword="null"/> for the item's document.
     /// </param>
+    /// <param name="hideDocument">
+    /// Whether the item's own document tab is left out of its switcher. A tab is hidden, not
+    /// protected: see <see cref="StoredViews.HideDocument"/>.
+    /// </param>
     /// <returns>The JSON to store, or <see langword="null"/> when there are none.</returns>
     /// <remarks>
     /// Null rather than an empty document for an empty set, so a container that offers no views
     /// stores nothing at all - the column reads the same as it did before anybody configured one.
+    /// That is also where the hidden-document flag is cleared when the last view goes: an item can
+    /// never be left with nothing to show.
+    /// <para>
+    /// When the document is hidden the stored default is always a view that exists, falling back to
+    /// the first in order, because the document is not there to open. The flag is written only when
+    /// true, so every existing row stays byte-identical.
+    /// </para>
     /// </remarks>
-    public static string? Write(ImmutableArray<ViewDefinition> views, string? defaultView = null)
+    public static string? Write(
+        ImmutableArray<ViewDefinition> views,
+        string? defaultView = null,
+        bool hideDocument = false)
     {
         if (views.IsDefaultOrEmpty)
         {
@@ -339,16 +386,28 @@ public static class ViewDefinitionsJson
 
         // Only written when it names a view that exists. "document" is what an absent default
         // already means, so storing it would be a second spelling of the same thing.
+        string? storedDefault = null;
         if (defaultView is { } id && id.Length > 0 && !string.Equals(id, DocumentView, StringComparison.Ordinal))
         {
             foreach (var view in views)
             {
                 if (string.Equals(view.Id, id, StringComparison.Ordinal))
                 {
-                    document[DefaultKey] = id;
+                    storedDefault = id;
                     break;
                 }
             }
+        }
+
+        if (hideDocument)
+        {
+            storedDefault ??= views[0].Id;
+            document[HideDocumentKey] = true;
+        }
+
+        if (storedDefault is not null)
+        {
+            document[DefaultKey] = storedDefault;
         }
 
         return document.ToJsonString();

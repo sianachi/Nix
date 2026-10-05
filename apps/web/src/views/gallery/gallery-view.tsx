@@ -7,6 +7,7 @@ import { useApiClient } from '../../api/api-client-provider';
 import { PartialNotice } from '../../components/states/status-panels';
 import { mediaTypeForFile } from '../../lib/file-kind';
 import { fileImageReference, isDisplayableImageValue } from '../../properties/image-value';
+import { FileThumbnail } from '../../thumbnails';
 import { useWorkspace } from '../../workspaces/workspace-context';
 import {
   readPropertyText,
@@ -55,6 +56,16 @@ const GALLERY_ROW_GAP = 12;
  *   - The cover property was deleted or retyped. Every card draws coverless and a notice above the
  *     grid names the property. The items are the container's; the property was somebody else's
  *     edit, and losing sight of the items over it would be the worst answer available.
+ *
+ * **A file item's thumbnail is one more source for the picture region, and the lowest.** Where a
+ * card would otherwise have no cover - none configured, the property lost, or no value on this
+ * item - a file card draws its own thumbnail (the worker's JPEG for images, cover art and EPUBs),
+ * or a glyph for its kind where it has none, in the same fixed frame. A configured cover with a
+ * value is never displaced, broken or not. The gallery holds no file records, so the thumbnail is
+ * asked for lazily, only for cards that are on screen and only for file items whose name says they
+ * could have one; a miss is an answer and not an error. Non-file items make no request.
+ * PDFs are not drawn here: their first page is rendered in the browser from the whole file, and
+ * without a byte length the gallery cannot tell a page from a book.
  *
  * **Two more that the four-way telling misses, and both draw an empty box if you let them:**
  *
@@ -578,6 +589,8 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     virtualIndex,
   } = props;
   const itemActions = useItemContextActions(onOpen);
+  const isFileCard = item.type === 'file' && !item.hasChildren;
+  const coverValue = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
 
   // Absent values render as nothing rather than as an empty row: a card is a summary, and a column
   // of blank labels tells nobody anything.
@@ -662,10 +675,29 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
 
           {/* Nothing at all when no cover was asked for. A grey rectangle here would be a placeholder
           for a picture that was never coming, which reads as a load that never finished. */}
-          {cover.kind === 'ready' ? (
+          {/* A file with no cover of its own - none configured, or none set on this card - draws its
+          thumbnail, or a glyph for its kind, in the same frame a cover would fill. A configured
+          cover that has a value always wins, working or not: it is somebody's explicit choice, and
+          a broken one must say so rather than quietly show something else. */}
+          {isFileCard && coverValue.length === 0 ? (
+            <div className="order-first">
+              <FileThumbnail
+                itemId={item.id}
+                // The title is the file's name for a file item, and it is all a gallery has: it holds no
+                // file records, so there is no media type, byte length or version to give. `undefined`
+                // is what tells the hook to ask the server, and only for a type that can have one.
+                fileName={item.title}
+                mediaType=""
+                version={null}
+                hasServerThumbnail={undefined}
+                className={cn('w-full', CARD_SIZE_COVER[size])}
+                iconSize="lg"
+              />
+            </div>
+          ) : cover.kind === 'ready' ? (
             <div className="order-first">
               <CoverPane
-                src={readPropertyText(item, cover.property.key)}
+                src={coverValue}
                 label={cover.property.label}
                 size={size}
                 failed={coverFailed}
@@ -686,6 +718,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
                     {field.label}
                   </Text>
                   <ListCell
+                    density="card"
                     item={item}
                     property={field}
                     onWrite={(value) => onWrite(item.id, field.key, value)}

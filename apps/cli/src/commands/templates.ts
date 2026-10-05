@@ -181,6 +181,8 @@ export function collabClientFor(session: Session): NixClient {
       transport.queryResult(directRoute(endpoint), options),
     execute: <T>(endpoint: CommandEndpoint<T>, options?: CallOptions) =>
       transport.execute(directRoute(endpoint), options),
+    stream: (request) =>
+      transport.stream({ ...request, path: request.path.replace(/^\/collab(?=\/)/, '') }),
     download: (endpoint: BinaryQueryEndpoint, options?: CallOptions) =>
       transport.download(directRoute(endpoint), options),
     async *paginate<T>(endpoint: PagedQueryEndpoint<T>, options?: CallOptions) {

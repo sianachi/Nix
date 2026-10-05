@@ -2,7 +2,7 @@ import { Blueprint, Text, cn, focusRing } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 import {
-  daysInMonth,
+  addDays,
   dayText,
   monthEntry,
   monthLabel,
@@ -32,38 +32,91 @@ import {
 export interface DayCellSpec {
   readonly day: number;
   readonly date: string;
+
+  /**
+   * Whether the day belongs to the month before or after the one being shown.
+   *
+   * A month grid is whole weeks, so its first and last rows usually reach into the neighbouring
+   * months. Those days are drawn - a calendar with blank squares at its corners reads as broken,
+   * and an item on the 1st of next month is something a reader planning this week wants to see -
+   * but muted, so the month itself is still the shape that stands out.
+   */
+  readonly outside: boolean;
+
+  /** The day spelled out, for the cell's accessible name: "Monday 3 March 2026". */
+  readonly name: string;
 }
 
 /**
- * The grid, as weeks of days with nulls for the slots either end that belong to another month.
+ * How many items a day shows before the rest fold into "+N more".
  *
- * Built from the month's own arithmetic - length from the leap rule, first weekday from Sakamoto's
- * - so every cell carries the date text it stands for and no cell exists that this view cannot
- * name. Nothing here reads a clock or a zone.
+ * Three, because that is what fits in a row of the height below without the row growing. Rows that
+ * grow with their busiest day are what make a month stop looking like a calendar: one crowded
+ * Tuesday and its whole week is twice as tall as the others.
  */
-export function buildWeeks(month: CalendarMonth): readonly (readonly (DayCellSpec | null)[])[] {
-  const cells: (DayCellSpec | null)[] = [];
+export const MONTH_VISIBLE_ITEMS = 3;
+
+/**
+ * A day cell's box: every row the same height, whatever is in it.
+ *
+ * A table cell's `height` is a floor, so a day somebody has expanded still grows to show everything
+ * - but an untouched month is an even grid.
+ */
+export const MONTH_CELL = 'h-32 border border-divider align-top';
+
+/**
+ * The weeks of a month as whole rows, Monday first, reaching into the months either side.
+ */
+export function buildWeeks(month: CalendarMonth): readonly (readonly DayCellSpec[])[] {
+  const first = { year: month.year, month: month.month, day: 1 };
   const lead = weekdayIndex(month.year, month.month, 1);
+  const start = addDays(first, -lead);
 
-  for (let index = 0; index < lead; index += 1) {
-    cells.push(null);
-  }
+  const weeks: DayCellSpec[][] = [];
+  for (let week = 0; week < 6; week += 1) {
+    const row: DayCellSpec[] = [];
+    for (let index = 0; index < 7; index += 1) {
+      const day = addDays(start, week * 7 + index);
+      row.push({
+        day: day.day,
+        date: dayText(day),
+        outside: day.month !== month.month || day.year !== month.year,
+        name: `${monthEntry(WEEKDAY_NAMES, index)} ${String(day.day)} ${monthLabel(day)}`,
+      });
+    }
 
-  const length = daysInMonth(month);
-  for (let day = 1; day <= length; day += 1) {
-    cells.push({ day, date: dayText({ ...month, day: day }) });
-  }
-
-  while (cells.length % 7 !== 0) {
-    cells.push(null);
-  }
-
-  const weeks: (DayCellSpec | null)[][] = [];
-  for (let index = 0; index < cells.length; index += 7) {
-    weeks.push(cells.slice(index, index + 7));
+    // A sixth row that lies wholly in next month is not part of this one. Five rows is the usual
+    // month; four happens for a February that starts on a Monday.
+    if (week > 3 && row.every((cell) => cell.outside)) {
+      break;
+    }
+    weeks.push(row);
   }
 
   return weeks;
+}
+
+/**
+ * The day's number. Today's is a filled disc, the way a wall calendar circles the date: it marks
+ * one square without tinting the whole cell, which fought with the tint the items themselves use.
+ */
+export function DayNumber(props: {
+  readonly day: number;
+  readonly isToday: boolean;
+  readonly outside: boolean;
+}): ReactNode {
+  const { day, isToday, outside } = props;
+
+  return (
+    <span
+      className={cn(
+        'inline-flex size-6 shrink-0 items-center justify-center rounded-full text-xs',
+        isToday ? 'bg-accent-fill font-medium text-background' : outside ? 'text-muted' : '',
+      )}
+    >
+      {String(day)}
+    </span>
+  );
 }
 
 /** The width floor of a single day column. */
@@ -120,8 +173,12 @@ export function MonthGrid(props: MonthGridProps): ReactNode {
       `role="region"` plus a tab stop, matching timeline-view.tsx's and calendar-hours.tsx's own
       scrollable tracks: without one, this axis is reachable by keyboard only by tabbing through
       every focusable control inside it. `<Blueprint>` cannot carry any of this itself - it forwards
-      only `children`, `as` and `className` - so the scroll moves to this plain wrapper. `min-w-max`
-      on the frame is what makes its box span the true scroll-content width; jsdom cannot verify any
+      only `children`, `as` and `className` - so the scroll moves to this plain wrapper. `min-w-fit`
+      on the frame is what makes its box span the true scroll-content width - the pane's width when
+      there is room, the table's floor when there is not. It was `min-w-max`, and the max-content
+      width of a `table-fixed` table that is itself `width: 100%` is not a real number: Chrome
+      resolved it to a million pixels, each day column came out 142,857px wide, and the month drew
+      as a single column of Mondays with the other six days far off to the right; jsdom cannot verify any
       of the layout above, so the classes here are asserted as a contract in calendar-view.test.tsx.
     */
     <div
@@ -131,7 +188,7 @@ export function MonthGrid(props: MonthGridProps): ReactNode {
       tabIndex={0}
       className={cn(regionClassName, 'overflow-x-auto', focusRing)}
     >
-      <Blueprint className="min-w-max overflow-hidden p-3">
+      <Blueprint className="min-w-fit overflow-hidden p-0">
         <table className={cn('w-full table-fixed border-collapse', MONTH_GRID_MIN_WIDTH)}>
           <Text as="caption" variant="caption" className="sr-only">
             {`${monthLabel(month)}, items placed on the day their date names`}
@@ -144,7 +201,9 @@ export function MonthGrid(props: MonthGridProps): ReactNode {
                   key={name}
                   scope="col"
                   aria-label={name}
-                  className={cn('border border-divider p-1 text-left', MONTH_DAY_COLUMN)}
+                  // Centred over its column and ruled off underneath only: the weekday row is a
+                  // heading for the grid, not seven more cells of it.
+                  className={cn('border-b border-divider px-1 py-2 text-center', MONTH_DAY_COLUMN)}
                 >
                   <Text variant="kicker" as="span" tone="muted">
                     {monthEntry(WEEKDAY_ABBREVIATIONS, index)}
@@ -157,23 +216,7 @@ export function MonthGrid(props: MonthGridProps): ReactNode {
           <tbody>
             {buildWeeks(month).map((week, weekIndex) => (
               <tr key={`${prefix}week-${String(weekIndex)}`}>
-                {week.map((cell, dayIndex) =>
-                  cell === null ? (
-                    <td
-                      key={`${prefix}blank-${String(weekIndex)}-${String(dayIndex)}`}
-                      className="h-24 border border-divider bg-surface align-top"
-                    />
-                  ) : (
-                    // The cell's accessible name carries the whole date, so somebody moving through
-                    // the grid with a screen reader always knows which day they are on rather than
-                    // hearing a bare "17".
-                    renderDay(
-                      cell,
-                      `${monthEntry(WEEKDAY_NAMES, dayIndex)} ${String(cell.day)} ${monthLabel(month)}`,
-                      cell.date === todayText,
-                    )
-                  ),
-                )}
+                {week.map((cell) => renderDay(cell, cell.name, cell.date === todayText))}
               </tr>
             ))}
           </tbody>

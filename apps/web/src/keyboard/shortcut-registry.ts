@@ -8,7 +8,7 @@ import type { Shortcut } from '../lib/shortcuts';
  * the complete answer to "what can I do from the keyboard?" rather than half of it.
  */
 export type ShellShortcutId =
-  'search' | 'new-note' | 'toggle-sidebar' | 'back' | 'forward' | 'shortcuts';
+  'search' | 'new-note' | 'toggle-sidebar' | 'zen' | 'back' | 'forward' | 'shortcuts';
 
 type Group = 'General' | 'Editor' | 'Views' | 'Panes and tabs' | 'Workspace tree';
 
@@ -77,6 +77,17 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     handledBy: 'shell',
     whileTyping: true,
   },
+  {
+    id: 'zen',
+    label: 'Zen mode: the open note or file alone in the window',
+    group: 'General',
+    // Command-Option-Z, like New note, rather than a bare chord: Mod+Shift+Z is redo in the editor
+    // and in the sheet, and no editor keymap, Vim or Emacs preset binds Mod+Alt+Z. `code` because
+    // Option turns Z into a composed character on a Mac.
+    keys: [{ key: 'z', code: 'KeyZ', mod: true, alt: true }],
+    handledBy: 'shell',
+    whileTyping: true,
+  },
   // An installed window has no Back button of its own; these are the platform's history keys.
   {
     id: 'back',
@@ -101,6 +112,12 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     keys: [{ key: '/', code: 'Slash', mod: true }, { key: '?' }],
     handledBy: 'shell',
     whileTyping: false,
+  },
+  {
+    label: 'Leave Zen mode when focus is not in a text field or a dialog',
+    group: 'General',
+    keys: [{ key: 'Escape' }],
+    handledBy: 'local',
   },
   {
     label: 'Actions for the focused row, tab or card',

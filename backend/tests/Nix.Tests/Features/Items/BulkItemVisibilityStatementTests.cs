@@ -30,7 +30,12 @@ public sealed class BulkItemVisibilityStatementTests
             1,
             OwnAncestors
         },
-        { nameof(CalendarSql.WorkspaceCalendar), CalendarSql.WorkspaceCalendar, 1, OwnAncestors },
+
+        // Two predicates: one for the containers the dated children hang from, one for the daily
+        // notes arm (alias note), which reaches its rows through the daily root rather than a
+        // container. Every fragment is counted, so dropping either arm's predicate fails here.
+        { nameof(CalendarSql.WorkspaceCalendar), CalendarSql.WorkspaceCalendar, 2, OwnAncestors },
+
         {
             nameof(RecurrenceSql.WorkspaceRecurrenceCandidates),
             RecurrenceSql.WorkspaceRecurrenceCandidates,

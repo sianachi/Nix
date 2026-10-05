@@ -16,6 +16,7 @@ import {
 } from '../endpoints.js';
 import {
   dailyNoteSchema,
+  dailyNoteSettingsSchema,
   noContentSchema,
   workspaceInvitationSchema,
   workspaceInviteeSchema,
@@ -23,6 +24,7 @@ import {
   workspacePrincipalSchema,
   workspaceSchema,
   type DailyNote,
+  type DailyNoteSettings,
   type Workspace,
   type WorkspaceInvitation,
   type WorkspaceInvitee,
@@ -36,6 +38,7 @@ import type {
   CreateWorkspaceRequestContract,
   RecoverWorkspaceRequestContract,
   RenameWorkspaceRequestContract,
+  SaveDailyNoteSettingsRequestContract,
 } from '../contracts.js';
 
 export type AssignableWorkspaceRole = ChangeWorkspaceMemberRoleRequestContract['role'];
@@ -291,4 +294,33 @@ export const openDailyNote = (workspaceId: string, date: string): CommandEndpoin
     method: 'PUT',
     path: `/api/v1/workspaces/${workspaceId}/daily-notes/${date}`,
     schema: dailyNoteSchema,
+  });
+
+const dailyNoteSettingsKey = (workspaceId: string) =>
+  ['workspaces', workspaceId, 'daily-notes', 'settings'] as const;
+
+/** The workspace's effective daily-note settings, defaults applied. */
+export const dailyNoteSettings = (workspaceId: string): QueryEndpoint<DailyNoteSettings> =>
+  defineQuery<DailyNoteSettings>({
+    operation: 'workspaces.daily.settings.get',
+    path: `/api/v1/workspaces/${workspaceId}/daily-notes/settings`,
+    schema: dailyNoteSettingsSchema,
+    cacheKey: dailyNoteSettingsKey(workspaceId),
+  });
+
+/**
+ * Replaces the workspace's daily-note settings. It also invalidates the workspace queries, because
+ * `canUseDailyNotes` follows the `enabled` setting.
+ */
+export const saveDailyNoteSettings = (
+  workspaceId: string,
+  settings: DailyNoteSettings,
+): CommandEndpoint<DailyNoteSettings> =>
+  defineCommand({
+    operation: 'workspaces.daily.settings.save',
+    method: 'PUT',
+    path: `/api/v1/workspaces/${workspaceId}/daily-notes/settings`,
+    body: settings satisfies SaveDailyNoteSettingsRequestContract,
+    schema: dailyNoteSettingsSchema,
+    invalidates: [workspaceListKey, ['workspaces', workspaceId], dailyNoteSettingsKey(workspaceId)],
   });

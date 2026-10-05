@@ -99,14 +99,14 @@ public sealed class TemplateMergePlanner(TemplateDefinitionValidator validator)
         // be applied. Import never reaches here.
         if (_validator.ValidateViewDependencies(
                 dependencySchema,
-                new StoredViews(mergedViewsModel, currentViews.Default),
+                new StoredViews(mergedViewsModel, currentViews.Default, currentViews.HideDocument),
                 tolerateDrift: true) is { } dependencyConflict)
         {
             conflicts.Add(dependencyConflict);
         }
 
         var mergedSchema = PropertySchemaJson.Write(mergedSchemaModel);
-        var mergedViews = ViewDefinitionsJson.Write(mergedViewsModel, currentViews.Default);
+        var mergedViews = ViewDefinitionsJson.Write(mergedViewsModel, currentViews.Default, currentViews.HideDocument);
         if (Encoding.UTF8.GetByteCount(mergedSchema) > PropertyValidator.MaximumBytes)
         {
             conflicts.Add($"The merged property schema would exceed {PropertyValidator.MaximumBytes} bytes.");

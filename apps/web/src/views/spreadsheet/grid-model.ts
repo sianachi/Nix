@@ -3,6 +3,7 @@ import { type CellRange, type CellRef, cellKey } from '@nix/sheet';
 import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
 import { isComputedType, valueShapeOf } from '../core/property-types';
 import {
+  firstLine,
   readPropertyText,
   type EffectiveSchema,
   type Item,
@@ -48,6 +49,7 @@ export interface SpreadsheetColumn {
  */
 const TEXT_EDITABLE_TYPES: readonly string[] = [
   'text',
+  'long_text',
   'number',
   'select',
   'multi_select',
@@ -163,6 +165,11 @@ export function cellDisplay(item: Item, column: SpreadsheetColumn): string {
       const zone = readerZone();
       return `${dayFor(stored, zone)} ${formatTime(stored, zone)}`;
     }
+  }
+
+  // One row tall, so the first line is what there is room for. The copy value stays the whole text.
+  if (column.type === 'long_text') {
+    return firstLine(cellText(item, column));
   }
 
   return cellText(item, column);

@@ -61,4 +61,14 @@ describe('Input', () => {
     expect(className).toContain('h-(--control-md)');
     expect(className).toContain('pointer-coarse:h-(--control-lg)');
   });
+
+  it('draws focus as one ring flush with the field, not a halo offset from it', () => {
+    render(<Input aria-label="Title" />);
+
+    const className = screen.getByRole('textbox', { name: 'Title' }).className;
+    // An offset ring around a framed field reads as a second frame: a box inside a box.
+    expect(className).toContain('focus-visible:outline-offset-0');
+    expect(className).toContain('focus-visible:border-accent');
+    expect(className).not.toContain('focus-visible:outline-offset-2');
+  });
 });

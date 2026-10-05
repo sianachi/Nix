@@ -36,7 +36,12 @@ import {
   type HttpMethod,
   type HttpTransport,
 } from './http.js';
-import { withAuthentication, type TokenProvider } from './auth.js';
+import {
+  createRefreshCoordinator,
+  sendAuthenticated,
+  withAuthentication,
+  type TokenProvider,
+} from './auth.js';
 import { parseAtBoundary } from './parse.js';
 import { CURSOR_PARAM, PAGE_SIZE_PARAM, cursorPageSchema } from './schemas/pagination.js';
 import type { NixTelemetry } from './telemetry.js';
@@ -84,6 +89,16 @@ export interface BinaryResult {
   readonly headers: Readonly<Record<string, string>>;
 }
 
+/** A POST whose response is read as it arrives rather than parsed whole. */
+export interface StreamRequest {
+  /** Path relative to the base URL; must start with `/`. */
+  readonly path: string;
+  /** Serialised as JSON. */
+  readonly body: unknown;
+  /** Aborting it aborts the underlying request, which is how a cancel reaches the server. */
+  readonly signal?: AbortSignal | undefined;
+}
+
 export interface NixClient {
   /** Server state, for subscription and for the invalidation channel. */
   readonly cache: ServerCache;
@@ -98,6 +113,13 @@ export interface NixClient {
   execute<TResult>(endpoint: CommandEndpoint<TResult>, options?: CallOptions): Promise<TResult>;
   /** Downloads an authenticated binary response through the same refusal and cancellation path. */
   download(endpoint: BinaryQueryEndpoint, options?: CallOptions): Promise<BinaryResult>;
+  /**
+   * Sends an authenticated POST and hands back the raw response without reading its body, for an
+   * endpoint that answers with a stream. Any status comes back as-is - mapping a problem document
+   * is the caller's, since only it knows to read the body incrementally on success. There is no
+   * whole-request timeout: a stream's length is the server's, and the signal is the way out.
+   */
+  stream(request: StreamRequest): Promise<Response>;
   /** Walks a cursor-paginated collection item by item. */
   paginate<TItem>(
     endpoint: PagedQueryEndpoint<TItem>,
@@ -123,6 +145,8 @@ function requestCacheKey(
 
 export function createNixClient(config: NixClientConfig): NixClient {
   const telemetry = config.telemetry;
+  // Shared by the request pipeline and `stream`, so a 401 seen by both collapses into one refresh.
+  const coordinator = createRefreshCoordinator(() => config.tokens.refreshAccessToken());
   const transport: HttpTransport = withErrorMapping(
     withAuthentication(
       createHttpTransport({
@@ -130,7 +154,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
         timeoutMs: config.timeoutMs,
         defaultHeaders: config.defaultHeaders,
       }),
-      { tokens: config.tokens },
+      { tokens: config.tokens, coordinator },
     ),
     telemetry,
   );
@@ -145,8 +169,17 @@ export function createNixClient(config: NixClientConfig): NixClient {
     operation: string,
     signal: AbortSignal | undefined,
     headers: Readonly<Record<string, string>> | undefined,
+    timeoutMs?: number,
   ): Promise<TResult> {
-    const response = await transport.send({ method, path, query, body, signal, headers });
+    const response = await transport.send({
+      method,
+      path,
+      query,
+      body,
+      signal,
+      headers,
+      timeoutMs,
+    });
     return parseAtBoundary(schema, response.body, {
       operation,
       status: response.status,
@@ -172,6 +205,7 @@ export function createNixClient(config: NixClientConfig): NixClient {
           endpoint.operation,
           signal,
           undefined,
+          endpoint.timeoutMs,
         ),
       {
         signal: options.signal,
@@ -230,6 +264,33 @@ export function createNixClient(config: NixClientConfig): NixClient {
         telemetry,
       });
       return { blob, headers: response.headers };
+    },
+
+    async stream(request: StreamRequest): Promise<Response> {
+      if (!request.path.startsWith('/')) {
+        throw new TypeError(
+          `Request path must be relative to the base URL and start with "/": ${request.path}`,
+        );
+      }
+      const url = `${config.baseUrl.replace(/\/+$/, '')}${request.path}`;
+      const body = JSON.stringify(request.body);
+      return sendAuthenticated(
+        (authorization) =>
+          fetch(url, {
+            method: 'POST',
+            // Bearer tokens only, as the transport: no ambient cookies.
+            credentials: 'omit',
+            headers: {
+              ...config.defaultHeaders,
+              ...authorization,
+              'Content-Type': 'application/json',
+              Accept: 'text/event-stream, application/problem+json',
+            },
+            body,
+            ...(request.signal === undefined ? {} : { signal: request.signal }),
+          }),
+        { tokens: config.tokens, coordinator },
+      );
     },
 
     async *paginate<TItem>(

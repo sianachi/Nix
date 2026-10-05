@@ -79,6 +79,13 @@ public static class GraphSql
     /// because an edge needs both ends. The locked item itself is still drawn.
     /// </para>
     /// <para>
+    /// <b>A node under a lock reports no modification time.</b> <c>last_modified_at</c> is a
+    /// record of activity on the item, so for a locked item it says that somebody is working
+    /// behind the lock and when. It is nulled for the same set that draws no outgoing edges
+    /// (<c>body_locked_nodes</c>), and for the same reason. The creation time stays: that the item
+    /// exists is already what drawing it says.
+    /// </para>
+    /// <para>
     /// <b>The ancestor probe runs lazily, in node order.</b> The candidates are sorted by
     /// <c>seq</c> behind an <c>OFFSET 0</c> fence, and the per-row deleted-or-template-ancestor
     /// probe runs on them in that order until the node ceiling is met, rather than on every item in
@@ -110,12 +117,16 @@ public static class GraphSql
             SELECT item.id AS id,
                    item.parent_id AS parent_id,
                    item.type AS type,
-                   item.title AS title
+                   item.title AS title,
+                   item.created_at AS created_at,
+                   item.last_modified_at AS last_modified_at
             FROM (
                 SELECT item.id,
                        item.parent_id,
                        item.type,
                        item.properties ->> 'title' AS title,
+                       item.created_at,
+                       item.last_modified_at,
                        item.seq
                 FROM item
                 WHERE item.tenant_id = @tenant_id
@@ -158,7 +169,8 @@ public static class GraphSql
         ),
         edge AS (
             SELECT link.source_item_id AS source_id,
-                   link.target_item_id AS target_id
+                   link.target_item_id AS target_id,
+                   link.occurrences AS occurrences
             FROM item_link AS link
             JOIN visible AS target ON target.id = link.target_item_id
             WHERE link.tenant_id = @tenant_id
@@ -175,7 +187,17 @@ public static class GraphSql
                node.id AS left_id,
                parent.id AS right_id,
                node.type AS type,
-               node.title AS title
+               node.title AS title,
+               node.created_at AS created_at,
+               CASE
+                   WHEN EXISTS (
+                       SELECT 1
+                       FROM body_locked_nodes AS locked
+                       WHERE locked.descendant_id = node.id
+                   ) THEN NULL
+                   ELSE node.last_modified_at
+               END AS last_modified_at,
+               NULL::integer AS occurrences
         FROM visible AS node
         LEFT JOIN visible AS parent
           ON parent.id = node.parent_id
@@ -184,7 +206,10 @@ public static class GraphSql
                edge.source_id AS left_id,
                edge.target_id AS right_id,
                NULL::text AS type,
-               NULL::text AS title
+               NULL::text AS title,
+               NULL::timestamptz AS created_at,
+               NULL::timestamptz AS last_modified_at,
+               edge.occurrences AS occurrences
         FROM edge
         ORDER BY row_kind, left_id, right_id
         """;

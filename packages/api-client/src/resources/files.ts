@@ -7,10 +7,12 @@ import {
 import {
   fileDownloadCapabilitySchema,
   fileRecordSchema,
+  fileThumbnailCapabilitySchema,
   fileUploadSchema,
   fileUploadStatusSchema,
   type FileDownloadCapability,
   type FileRecord,
+  type FileThumbnailCapability,
   type FileUpload,
   type FileUploadStatus,
 } from '../schemas/files.js';
@@ -78,6 +80,22 @@ export const downloadFile = (
     path: `/api/v1/items/${itemId}/file/download`,
     query: { versionId, preview },
     schema: fileDownloadCapabilitySchema,
+    staleAfterMs: 0,
+  });
+
+/**
+ * A short-lived URL for a file version's JPEG thumbnail. Core answers 404 for a file the caller
+ * cannot read, a file under a closed lock, and a version with no thumbnail alike.
+ */
+export const thumbnailFile = (
+  itemId: string,
+  versionId?: string,
+): QueryEndpoint<FileThumbnailCapability> =>
+  defineQuery({
+    operation: 'files.thumbnail',
+    path: `/api/v1/items/${itemId}/file/thumbnail`,
+    query: { versionId },
+    schema: fileThumbnailCapabilitySchema,
     staleAfterMs: 0,
   });
 

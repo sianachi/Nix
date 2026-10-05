@@ -22,7 +22,7 @@ describe('which viewer claims a file', () => {
     ['export.csv', 'application/octet-stream', 'nix.csv.viewer'],
     ['data.tsv', 'text/tab-separated-values', 'nix.csv.viewer'],
     ['diagram.mmd', 'application/octet-stream', 'nix.mermaid-js.viewer'],
-    ['talk.mp3', 'audio/mpeg', 'nix.media.viewer'],
+    ['talk.mp3', 'audio/mpeg', 'nix.audio.viewer'],
     ['demo.mp4', 'application/octet-stream', 'nix.media.viewer'],
     ['main.go', 'application/octet-stream', 'nix.text.viewer'],
     ['config.yaml', 'application/x-yaml', 'nix.text.viewer'],

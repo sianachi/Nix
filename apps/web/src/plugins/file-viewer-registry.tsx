@@ -11,16 +11,32 @@ export interface FileViewerPluginInput {
  *
  * `text` viewers receive the file's decoded text and draw it themselves. `url` viewers receive an
  * object URL for the authorised bytes, for the elements that can only take a URL - `<audio>`,
- * `<video>` - and for anything too large to hold as a string.
+ * `<video>` - and for anything too large to hold as a string. `stream` viewers are handed nothing
+ * to read: the host downloads no bytes for them, and they ask for their own authorised address
+ * (by `itemId`) so the browser can stream with range requests - audio, which can run to the
+ * upload limit and must start playing before it has arrived.
  */
-export type FileViewerSourceKind = 'text' | 'url';
+export type FileViewerSourceKind = 'text' | 'url' | 'stream';
+
+/** What the host gives a viewer. `source` is empty for a `stream` viewer. */
+export interface FileViewerProps extends Pick<FileViewerPluginInput, 'fileName' | 'source'> {
+  readonly itemId: string;
+  /**
+   * The authorised bytes, held by the host for a `url` viewer. For a viewer that has to read the
+   * file rather than hand a URL to an element: the application's policy lets it fetch from its
+   * own origin and the object store, but not from an object URL.
+   */
+  readonly blob?: Blob;
+  /** The file page's own download, for a viewer that has to say it cannot show the file. */
+  readonly onDownload: () => void;
+}
 
 export interface FileViewerPlugin {
   readonly id: string;
   readonly matches: (file: Pick<FileViewerPluginInput, 'fileName' | 'mediaType'>) => boolean;
   /** Defaults to `text`. */
   readonly source?: FileViewerSourceKind;
-  readonly Component: ComponentType<Pick<FileViewerPluginInput, 'fileName' | 'source'>>;
+  readonly Component: ComponentType<FileViewerProps>;
 }
 
 /** The host owns this registry so file viewers remain plugins rather than conditionals in FileViewer. */

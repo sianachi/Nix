@@ -29,6 +29,18 @@ public sealed class ViewDefinitionsJsonTests
 
 
     [Fact]
+    public void Hiding_document_requires_a_view_and_a_non_document_default()
+    {
+        ImmutableArray<ViewDefinition> views = [new ViewDefinition("v1", "List", ViewKind.List, [], null, [], null, null, false)];
+        Assert.NotNull(ViewDefinitionRules.RefuseDocumentVisibility([], null, true));
+        Assert.NotNull(ViewDefinitionRules.RefuseDocumentVisibility(views, "document", true));
+        Assert.Null(ViewDefinitionRules.RefuseDocumentVisibility(views, "v1", true));
+        var stored = ViewDefinitionsJson.Read(ViewDefinitionsJson.Write(views, "v1", hideDocument: true));
+        Assert.True(stored.HideDocument);
+        Assert.Equal("v1", stored.Default);
+    }
+
+    [Fact]
     public void A_written_view_set_reads_back_as_the_one_that_was_written()
     {
         ImmutableArray<ViewDefinition> views =

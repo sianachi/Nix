@@ -69,6 +69,9 @@ export type WorkspaceMemberContract = components['schemas']['WorkspaceMemberResp
 export type WorkspaceInvitationContract = components['schemas']['WorkspaceInvitationResponse'];
 export type WorkspaceInviteeContract = components['schemas']['WorkspaceInviteeResponse'];
 export type DailyNoteContract = components['schemas']['DailyNoteResponse'];
+export type DailyNoteSettingsContract = components['schemas']['DailyNoteSettingsResponse'];
+export type SaveDailyNoteSettingsRequestContract =
+  components['schemas']['SaveDailyNoteSettingsRequest'];
 export type CreateWorkspaceRequestContract = components['schemas']['CreateWorkspaceRequest'];
 export type RenameWorkspaceRequestContract = components['schemas']['RenameWorkspaceRequest'];
 export type ChangeWorkspaceMemberRoleRequestContract =
@@ -76,3 +79,6 @@ export type ChangeWorkspaceMemberRoleRequestContract =
 export type CreateWorkspaceInvitationRequestContract =
   components['schemas']['CreateWorkspaceInvitationRequest'];
 export type RecoverWorkspaceRequestContract = components['schemas']['RecoverWorkspaceRequest'];
+
+/** The inline writing request the editor posts to the companion, generated from the contract. */
+export type PetInlineRequestContract = components['schemas']['PetInlineRequest'];

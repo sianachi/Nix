@@ -126,7 +126,12 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
                     row.Type ?? throw new InvalidOperationException(
                         "A node row came back with no type. The column is NOT NULL, so the graph "
                         + "statement has been edited into returning rows it cannot describe."),
-                    row.Title));
+                    row.Title,
+                    row.CreatedAt ?? throw new InvalidOperationException(
+                        "A node row came back with no creation time. The column is NOT NULL, so "
+                        + "the graph statement has been edited into returning rows it cannot "
+                        + "describe."),
+                    row.LastModifiedAt));
             }
             else
             {
@@ -138,7 +143,8 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
                     ItemId.From(row.Right ?? throw new InvalidOperationException(
                         "A link row came back with no target. The graph statement inner-joins both "
                         + "ends of every edge, so this is a statement that has been edited into "
-                        + "returning rows it cannot describe."))));
+                        + "returning rows it cannot describe.")),
+                    row.Occurrences ?? 1));
             }
         }
 
@@ -162,9 +168,17 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
     /// A struct, so streaming a couple of thousand rows through the mapper allocates only the
     /// records that survive into the result.
     /// </remarks>
-    private readonly record struct GraphRow(GraphRowKind Kind, Guid Left, Guid? Right, string? Type, string? Title);
+    private readonly record struct GraphRow(
+        GraphRowKind Kind,
+        Guid Left,
+        Guid? Right,
+        string? Type,
+        string? Title,
+        DateTimeOffset? CreatedAt,
+        DateTimeOffset? LastModifiedAt,
+        int? Occurrences);
 
-    /// <summary>Reads the five columns both row kinds share.</summary>
+    /// <summary>Reads the eight columns both row kinds share.</summary>
     /// <remarks>
     /// A struct, so the query loop devirtualises. Columns are read left to right because the reader
     /// is opened with sequential access.
@@ -181,8 +195,11 @@ public sealed class WorkspaceGraphReader : IWorkspaceGraph
             var right = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2);
             var type = reader.IsDBNull(3) ? null : reader.GetString(3);
             var title = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var createdAt = reader.IsDBNull(5) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(5);
+            var lastModifiedAt = reader.IsDBNull(6) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(6);
+            var occurrences = reader.IsDBNull(7) ? (int?)null : reader.GetInt32(7);
 
-            return new GraphRow(kind, left, right, type, title);
+            return new GraphRow(kind, left, right, type, title, createdAt, lastModifiedAt, occurrences);
         }
     }
 }

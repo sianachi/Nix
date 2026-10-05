@@ -40,6 +40,21 @@ export function zoomIn(zoom: Zoom): Zoom {
   return next ?? zoom;
 }
 
+/**
+ * The nearest step above an arbitrary scale, or that scale when it is already past the top.
+ *
+ * A wheel or a pinch leaves the camera between steps. The buttons still move along the ladder, so
+ * from 137% "zoom in" lands on 150% - a place a reader can return to - rather than on 205%.
+ */
+export function stepIn(scale: number): number {
+  return STEPS.find((step) => step > scale + 1e-6) ?? scale;
+}
+
+/** The nearest step below an arbitrary scale, or that scale when it is already past the bottom. */
+export function stepOut(scale: number): number {
+  return [...STEPS].reverse().find((step) => step < scale - 1e-6) ?? scale;
+}
+
 /** The next step out, or the same value at the floor. */
 export function zoomOut(zoom: Zoom): Zoom {
   const index = STEPS.indexOf(zoom);

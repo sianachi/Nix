@@ -123,7 +123,12 @@ internal static class StructureEndpoints
                 + $"name is checked here{ViewKindProse.RequirementsAside}, but whether that "
                 + "property exists is not: a view may be configured before the property is "
                 + "declared, and the read path reports the mismatch instead. Fails with "
-                + "'views.invalid' when a view is not storable.")
+                + "'views.invalid' when a view is not storable. 'hideDocument' hides the "
+                + "document tab and nothing else: it is not an access control, and the body stays "
+                + "readable everywhere it already was. Absent leaves the stored flag as it is; true "
+                + "makes the first view open when the default was the document, and fails with "
+                + "'views.document_cannot_be_hidden' when there are no views or the default "
+                + "explicitly names the document. Replacing the set with no views clears the flag.")
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -150,7 +155,8 @@ internal static class StructureEndpoints
         {
             PropertyErrors.InvalidPropertiesCode
                 or PropertyErrors.InvalidSchemaCode
-                or PropertyErrors.InvalidViewsCode => StatusCodes.Status422UnprocessableEntity,
+                or PropertyErrors.InvalidViewsCode
+                or PropertyErrors.DocumentCannotBeHiddenCode => StatusCodes.Status422UnprocessableEntity,
             PropertyErrors.SetupCollisionCode => StatusCodes.Status409Conflict,
             ItemEndpoints.LifecycleConflictCode => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status404NotFound,

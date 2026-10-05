@@ -6,6 +6,11 @@
       "shape": "text"
     },
     {
+      "type": "long_text",
+      "label": "Long text (several lines)",
+      "shape": "long_text"
+    },
+    {
       "type": "number",
       "label": "Number",
       "shape": "number"

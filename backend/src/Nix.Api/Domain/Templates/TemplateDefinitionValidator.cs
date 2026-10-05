@@ -246,6 +246,14 @@ public sealed class TemplateDefinitionValidator
                     return viewReason;
                 }
 
+                if (ViewDefinitionRules.RefuseDocumentVisibility(
+                        typedViews.Views,
+                        typedViews.Default,
+                        typedViews.HideDocument) is { } visibilityReason)
+                {
+                    return visibilityReason;
+                }
+
                 parsedViews = typedViews;
             }
             catch (JsonException)

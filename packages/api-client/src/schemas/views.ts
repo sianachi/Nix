@@ -29,6 +29,13 @@ export const containerViewsSchema = z.object({
 
   /** What opens: a view id, or `document` for the item's own body. */
   default: z.string(),
+
+  /**
+   * Whether the item's own document tab is left out of its switcher. A hidden tab, not a protected
+   * body: nothing about who can read the item changes. Defaulted so an older server, which never
+   * sends it, still parses as "shown".
+   */
+  hideDocument: z.boolean().default(false),
 });
 
 export type ContainerViews = z.infer<typeof containerViewsSchema>;
@@ -49,6 +56,7 @@ export const containerViewConfigurationsSchema = z.object({
   views: z.array(viewConfigurationSchema),
   unrenderable: z.array(z.string()),
   default: z.string(),
+  hideDocument: z.boolean().default(false),
 });
 
 export type ContainerViewConfigurations = z.infer<typeof containerViewConfigurationsSchema>;
@@ -59,7 +67,7 @@ void _viewContract;
 
 type ContainerViewsSummaryContract = Pick<
   components['schemas']['ContainerViewsResponse'],
-  'unrenderable' | 'default'
+  'unrenderable' | 'default' | 'hideDocument'
 > & { views: ViewSummaryContract[] };
 const _containerContract = containerViewsSchema satisfies z.ZodType<ContainerViewsSummaryContract>;
 void _containerContract;

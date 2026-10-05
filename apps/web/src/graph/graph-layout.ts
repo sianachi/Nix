@@ -28,11 +28,34 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
 /** Distance between one ring and the next. Chosen against a screen, like the rest of the geometry. */
 const RING_SPACING = 130;
 
+/**
+ * The least arc a node is given on its ring: its own disc, and a gap its neighbour cannot close.
+ *
+ * Depth alone used to decide a ring's radius, so a wide workspace put hundreds of leaves on a ring
+ * with room for dozens and drew them on top of each other. A ring now grows until its narrowest
+ * wedge is at least this long - or longer, where the node in it is drawn larger.
+ */
+const MIN_ARC = 22;
+
 /** The drawing's breathing room, so the outermost ring is not flush against the viewBox. */
 const PADDING = 48;
 
-/** The radius of a node's disc. */
+/** The radius of a node no reference touches. The smallest a disc gets. */
 export const NODE_RADIUS = 7;
+
+/**
+ * How large a node is drawn, from how many references touch it.
+ *
+ * Square-root, so area rather than radius follows the count and a hub of forty references is not
+ * drawn forty times as wide as a note with one. Capped, because past sixteen the disc would start
+ * to crowd its own ring and "very connected" has already been said.
+ */
+export function nodeRadius(degree: number): number {
+  return NODE_RADIUS + Math.min(Math.sqrt(Math.max(degree, 0)), 4) * 1.75;
+}
+
+/** The gap kept between two neighbouring discs on a ring. */
+const NODE_GAP = 8;
 
 /**
  * How much room an arrowhead needs at the end of a path.
@@ -53,6 +76,18 @@ export interface PositionedNode {
 
   /** How far from a root. Ring index, and what the accessible tree reports as its level. */
   readonly depth: number;
+
+  /** How many references touch it, in either direction. Containment is not counted. */
+  readonly degree: number;
+
+  /** The radius it is drawn at, which grows with {@link degree}. */
+  readonly radius: number;
+
+  /** When it was created, as the server sent it. What the time-lapse orders by. */
+  readonly createdAt: string;
+
+  /** When it was last modified, or null where a lock withholds that. */
+  readonly lastModifiedAt: string | null;
 }
 
 /** A containment edge - this node's parent is that node. Drawn as the structure, not the point. */
@@ -67,6 +102,9 @@ export interface ReferenceEdge {
   readonly sourceId: string;
   readonly targetId: string;
   readonly path: string;
+
+  /** How many times the source refers to the target. Drawn as the line's weight. */
+  readonly occurrences: number;
 }
 
 export interface GraphLayout {
@@ -83,6 +121,63 @@ interface Polar {
   readonly radius: number;
   readonly angle: number;
   readonly depth: number;
+}
+
+/** A node given its angle and ring index, before the rings have been given radii. */
+interface Wedge {
+  readonly node: GraphNode;
+  readonly angle: number;
+  readonly span: number;
+  readonly depth: number;
+}
+
+/**
+ * How far out each ring sits.
+ *
+ * A ring is never closer than the regular spacing puts it, never closer to the ring inside it than
+ * one spacing, and never so tight that its narrowest wedge is shorter than {@link MIN_ARC}. The
+ * first two keep a small workspace drawing exactly as it always has; the third is what a dense one
+ * needs. Worked out from the wedges alone, so it is as deterministic as the angles are.
+ */
+function ringRadii(
+  wedges: readonly Wedge[],
+  singleRoot: boolean,
+  degrees: ReadonlyMap<string, number>,
+): readonly number[] {
+  // The radius each ring needs so that its most cramped node - the widest disc in the narrowest
+  // wedge - still has its arc.
+  const needed: number[] = [];
+  for (const wedge of wedges) {
+    const arc = Math.max(MIN_ARC, nodeRadius(degrees.get(wedge.node.id) ?? 0) * 2 + NODE_GAP);
+    const radius = wedge.span > 0 ? arc / wedge.span : 0;
+    needed[wedge.depth] = Math.max(needed[wedge.depth] ?? 0, radius);
+  }
+
+  const radii: number[] = [];
+  for (let depth = 0; depth < needed.length; depth++) {
+    const regular = (singleRoot ? depth : depth + 1) * RING_SPACING;
+    if (regular === 0) {
+      radii.push(0);
+      continue;
+    }
+
+    const inner = depth === 0 ? 0 : (radii[depth - 1] ?? 0) + RING_SPACING;
+    radii.push(Math.max(regular, inner, needed[depth] ?? 0));
+  }
+
+  return radii;
+}
+
+/** How many references touch each node. A self-reference counts once. */
+function referenceDegrees(links: readonly GraphLink[]): ReadonlyMap<string, number> {
+  const degrees = new Map<string, number>();
+  for (const link of links) {
+    degrees.set(link.sourceId, (degrees.get(link.sourceId) ?? 0) + 1);
+    if (link.targetId !== link.sourceId) {
+      degrees.set(link.targetId, (degrees.get(link.targetId) ?? 0) + 1);
+    }
+  }
+  return degrees;
 }
 
 /**
@@ -182,12 +277,12 @@ function place(
   roots: readonly GraphNode[],
   children: Map<string, GraphNode[]>,
   counts: Map<string, number>,
+  degrees: ReadonlyMap<string, number>,
 ): readonly Polar[] {
-  const placed: Polar[] = [];
+  const placed: Wedge[] = [];
   const visited = new Set<string>();
 
   const singleRoot = roots.length === 1;
-  const ringOf = (depth: number): number => (singleRoot ? depth : depth + 1) * RING_SPACING;
 
   const walk = (node: GraphNode, depth: number, from: number, to: number): void => {
     if (visited.has(node.id)) {
@@ -195,7 +290,7 @@ function place(
     }
     visited.add(node.id);
 
-    placed.push({ node, radius: ringOf(depth), angle: (from + to) / 2, depth });
+    placed.push({ node, angle: (from + to) / 2, span: to - from, depth });
 
     const kids = children.get(node.id) ?? [];
     if (kids.length === 0) {
@@ -231,7 +326,13 @@ function place(
     }
   }
 
-  return placed;
+  const radii = ringRadii(placed, singleRoot, degrees);
+  return placed.map((wedge) => ({
+    node: wedge.node,
+    radius: radii[wedge.depth] ?? 0,
+    angle: wedge.angle,
+    depth: wedge.depth,
+  }));
 }
 
 /**
@@ -246,6 +347,7 @@ function shortenedEnd(
   fromY: number,
   toX: number,
   toY: number,
+  targetRadius: number,
 ): { readonly x: number; readonly y: number } {
   const dx = toX - fromX;
   const dy = toY - fromY;
@@ -255,7 +357,7 @@ function shortenedEnd(
     return { x: toX, y: toY };
   }
 
-  const back = Math.min(NODE_RADIUS + ARROW_CLEARANCE, distance);
+  const back = Math.min(targetRadius + ARROW_CLEARANCE, distance);
   return { x: toX - (dx / distance) * back, y: toY - (dy / distance) * back };
 }
 
@@ -267,7 +369,7 @@ function shortenedEnd(
  * of the pair a reader has to tell apart.
  */
 function spoke(parent: PositionedNode, child: PositionedNode): string {
-  const end = shortenedEnd(parent.x, parent.y, child.x, child.y);
+  const end = shortenedEnd(parent.x, parent.y, child.x, child.y, child.radius);
   return `M ${String(parent.x)} ${String(parent.y)} L ${String(end.x)} ${String(end.y)}`;
 }
 
@@ -299,7 +401,7 @@ function arc(source: PositionedNode, target: PositionedNode): string {
   // Backed off along the curve's own tangent at the target, which points from the control - not
   // from the source. Shortening along the chord instead would leave the head sitting beside the
   // curve it belongs to on any edge with a real bow.
-  const end = shortenedEnd(controlX, controlY, target.x, target.y);
+  const end = shortenedEnd(controlX, controlY, target.x, target.y, target.radius);
 
   return `M ${String(source.x)} ${String(source.y)} Q ${String(controlX)} ${String(controlY)}, ${String(end.x)} ${String(end.y)}`;
 }
@@ -319,7 +421,8 @@ export function layoutGraph(nodes: readonly GraphNode[], links: readonly GraphLi
 
   const children = childrenByParent(nodes);
   const counts = leafCounts(nodes, children);
-  const polar = place(nodes, rootsOf(nodes), children, counts);
+  const degrees = referenceDegrees(links);
+  const polar = place(nodes, rootsOf(nodes), children, counts, degrees);
 
   // Polar to cartesian, then translated so the whole drawing sits in positive space. The extent is
   // measured rather than assumed: a single node has radius zero, and a viewBox derived from the
@@ -345,6 +448,10 @@ export function layoutGraph(nodes: readonly GraphNode[], links: readonly GraphLi
     x: point.x - minX + PADDING,
     y: point.y - minY + PADDING,
     depth: point.entry.depth,
+    degree: degrees.get(point.entry.node.id) ?? 0,
+    radius: nodeRadius(degrees.get(point.entry.node.id) ?? 0),
+    createdAt: point.entry.node.createdAt,
+    lastModifiedAt: point.entry.node.lastModifiedAt,
   }));
 
   const { parentEdges, referenceEdges } = buildEdges(placed, links);
@@ -405,8 +512,65 @@ export function buildEdges(
       sourceId: link.sourceId,
       targetId: link.targetId,
       path: arc(source, target),
+      // The contract publishes the count as an integer or its decimal string; a count that is
+      // neither is treated as the one occurrence an edge's existence already proves.
+      occurrences: Math.max(1, Number(link.occurrences) || 1),
     });
   }
+
+  return { parentEdges, referenceEdges };
+}
+
+/**
+ * The layout's edges, with only the ones touching a moved node drawn again.
+ *
+ * A drag moves one node and fires on every pointer move. Rebuilding every path for that is work
+ * proportional to the workspace for a change proportional to one node's degree, so an edge neither
+ * of whose ends has moved is handed back as the very object the layout made - which is also what
+ * lets the renderer skip it.
+ */
+export function moveEdges(
+  layout: Pick<GraphLayout, 'nodes' | 'parentEdges' | 'referenceEdges'>,
+  moved: ReadonlyMap<string, PositionedNode>,
+): {
+  readonly parentEdges: readonly ParentEdge[];
+  readonly referenceEdges: readonly ReferenceEdge[];
+} {
+  if (moved.size === 0) {
+    return layout;
+  }
+
+  let home: Map<string, PositionedNode> | undefined;
+  const at = (id: string): PositionedNode | undefined => {
+    const nudged = moved.get(id);
+    if (nudged !== undefined) {
+      return nudged;
+    }
+    home ??= new Map(layout.nodes.map((node) => [node.id, node]));
+    return home.get(id);
+  };
+
+  const parentEdges = layout.parentEdges.map((edge) => {
+    if (!moved.has(edge.parentId) && !moved.has(edge.childId)) {
+      return edge;
+    }
+    const parent = at(edge.parentId);
+    const child = at(edge.childId);
+    return parent === undefined || child === undefined
+      ? edge
+      : { ...edge, path: spoke(parent, child) };
+  });
+
+  const referenceEdges = layout.referenceEdges.map((edge) => {
+    if (!moved.has(edge.sourceId) && !moved.has(edge.targetId)) {
+      return edge;
+    }
+    const source = at(edge.sourceId);
+    const target = at(edge.targetId);
+    return source === undefined || target === undefined
+      ? edge
+      : { ...edge, path: arc(source, target) };
+  });
 
   return { parentEdges, referenceEdges };
 }

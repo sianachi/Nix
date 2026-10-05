@@ -43,6 +43,11 @@ type Request struct {
 	ToolResult      string `json:"toolResult"`
 	ToolSuccess     bool   `json:"toolSuccess"`
 	HistoryID       string `json:"historyId"`
+	// InlineKind, ContextText and Language belong to the "inline" operation only (inline.go):
+	// the kind of writing task, the surrounding note text for context, and the translate target.
+	InlineKind  string `json:"inlineKind"`
+	ContextText string `json:"contextText"`
+	Language    string `json:"language"`
 	// After is the client's last known conversation revision. Only "watch" uses it: the
 	// operation waits for a change past this revision instead of returning immediately.
 	After int64 `json:"after"`
@@ -120,6 +125,11 @@ type account struct {
 	// watchers counts concurrent "watch" operations for this account, capping them so a
 	// pile of open long-polls cannot exhaust the worker.
 	watchers int32
+	// inlineStreams counts open "inline" streams for this account (inline.go), capping them
+	// the way watchers caps watches. inline routes each inline provider thread to its stream;
+	// guarded by mu.
+	inlineStreams int32
+	inline        map[string]*inlineRun
 	// chatEffort and consultEffort are the owner's configured reasoning effort per mode
 	// (NIX_COMPANION_CHAT_EFFORT, default "low"; NIX_COMPANION_CONSULT_EFFORT, default empty
 	// meaning provider default). effortFor only sends one on turn/start when the effective
@@ -264,8 +274,12 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	var extra any
-	if decoder.Decode(&request) != nil || decoder.Decode(&extra) != io.EOF || !validRequest(request) {
+	if decoder.Decode(&request) != nil || decoder.Decode(&extra) != io.EOF || (request.Operation != "inline" && !validRequest(request)) {
 		http.Error(w, "Invalid companion request", http.StatusBadRequest)
+		return
+	}
+	if request.Operation == "inline" {
+		m.serveInline(w, r, request)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
@@ -760,6 +774,11 @@ func (a *account) notify(method string, raw json.RawMessage) {
 		if a.trace && method != "account/rateLimits/updated" {
 			a.record("", slog.LevelDebug, "provider.notification", []any{"method", method}, map[string]any{"params": traceRaw(raw)})
 		}
+		return
+	}
+	// An inline thread (inline.go) belongs to no conversation: it goes to its stream and must
+	// never reach the conversation code below.
+	if a.routeInlineLocked(p.ThreadID, method, p.Item.Type, p.Item.Phase, p.Delta, p.Turn.Status) {
 		return
 	}
 	for key, c := range a.conversations {

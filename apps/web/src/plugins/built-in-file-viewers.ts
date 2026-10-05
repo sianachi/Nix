@@ -1,7 +1,8 @@
 import { csvViewerPlugin } from './csv-viewer';
+import { epubViewerPlugin } from './epub-viewer';
 import { createFileViewerRegistry } from './file-viewer-registry';
 import { markdownViewerPlugin } from './markdown-viewer';
-import { mediaViewerPlugin } from './media-viewer';
+import { audioViewerPlugin, mediaViewerPlugin } from './media-viewer';
 import { mermaidJsViewerPlugin } from './mermaid-js-viewer';
 import { textViewerPlugin } from './text-viewer';
 
@@ -13,6 +14,8 @@ export const builtInFileViewerPlugins = [
   mermaidJsViewerPlugin,
   markdownViewerPlugin,
   csvViewerPlugin,
+  epubViewerPlugin,
+  audioViewerPlugin,
   mediaViewerPlugin,
   textViewerPlugin,
 ] as const;

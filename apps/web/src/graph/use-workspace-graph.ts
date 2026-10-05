@@ -16,6 +16,15 @@ export interface WorkspaceGraphState {
   readonly graph: WorkspaceGraph | null;
   readonly error: string | null;
   readonly reload: () => Promise<void>;
+
+  /**
+   * Reads the graph again without leaving the one on screen.
+   *
+   * `reload` is the way out of a failure and shows the loading state, which is right there. After
+   * a change made from the graph itself that would unmount the drawing the reader is working in
+   * and lose their place, so this keeps it up and swaps the payload in when it arrives.
+   */
+  readonly refresh: () => Promise<void>;
 }
 
 function graphError(reason: unknown): string {
@@ -36,31 +45,42 @@ export function useWorkspaceGraph(): WorkspaceGraphState {
   const [graph, setGraph] = useState<WorkspaceGraph | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
-    activeLoad.current?.abort();
-    const controller = new AbortController();
-    activeLoad.current = controller;
-    setStatus('loading');
-    setError(null);
+  const read = useCallback(
+    async (keepShowing: boolean): Promise<void> => {
+      activeLoad.current?.abort();
+      const controller = new AbortController();
+      activeLoad.current = controller;
+      if (!keepShowing) {
+        setStatus('loading');
+      }
+      setError(null);
 
-    try {
-      const next = await client.query(coreWorkspaceGraph.workspaceGraph(workspaceId), {
-        signal: controller.signal,
-        forceRefresh: true,
-      });
-      if (controller.signal.aborted || activeLoad.current !== controller) return;
-      setGraph(next);
-      setStatus('ready');
-    } catch (reason) {
-      if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
-        return;
-      setGraph(null);
-      setError(graphError(reason));
-      setStatus('error');
-    } finally {
-      if (activeLoad.current === controller) activeLoad.current = null;
-    }
-  }, [client, workspaceId]);
+      try {
+        const next = await client.query(coreWorkspaceGraph.workspaceGraph(workspaceId), {
+          signal: controller.signal,
+          forceRefresh: true,
+        });
+        if (controller.signal.aborted || activeLoad.current !== controller) return;
+        setGraph(next);
+        setStatus('ready');
+      } catch (reason) {
+        if (
+          controller.signal.aborted ||
+          activeLoad.current !== controller ||
+          isCanceledError(reason)
+        )
+          return;
+        setGraph(null);
+        setError(graphError(reason));
+        setStatus('error');
+      } finally {
+        if (activeLoad.current === controller) activeLoad.current = null;
+      }
+    },
+    [client, workspaceId],
+  );
+  const load = useCallback(() => read(false), [read]);
+  const refresh = useCallback(() => read(true), [read]);
 
   useEffect(() => {
     let active = true;
@@ -73,5 +93,5 @@ export function useWorkspaceGraph(): WorkspaceGraphState {
     };
   }, [load]);
 
-  return { status, graph, error, reload: load };
+  return { status, graph, error, reload: load, refresh };
 }

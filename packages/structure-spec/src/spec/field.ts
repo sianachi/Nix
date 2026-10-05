@@ -9,6 +9,7 @@ import { z } from 'zod';
  */
 export const FIELD_SPEC_TYPES = [
   'text',
+  'long_text',
   'number',
   'select',
   'multi_select',

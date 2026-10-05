@@ -5,6 +5,7 @@ import { isDateShaped, PROPERTY_TYPES, valueShapeOf } from './property-types.js'
 describe('valueShapeOf', () => {
   const expected: Record<string, string> = {
     text: 'text',
+    long_text: 'long_text',
     number: 'number',
     select: 'select',
     multi_select: 'multi_select',

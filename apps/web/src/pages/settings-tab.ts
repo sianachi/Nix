@@ -11,6 +11,7 @@ export const SettingsTabSchema = z.enum([
   'workspace',
   'editor',
   'notifications',
+  'daily-notes',
   'pets',
   'integrations',
   'access-tokens',

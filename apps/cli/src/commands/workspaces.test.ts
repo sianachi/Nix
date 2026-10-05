@@ -8,6 +8,8 @@ import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
 import {
   acceptWorkspaceInvitation,
+  dailyNoteSettings,
+  openDailyNote,
   archiveWorkspace,
   changeWorkspaceMemberRole,
   createWorkspace,
@@ -321,3 +323,30 @@ function member(role: string): Record<string, unknown> {
     assignableRoles: ['owner', 'editor', 'viewer'],
   };
 }
+
+it('routes daily settings and dates to their distinct Core endpoints', async () => {
+  const profile = await withProfile();
+  const settings = {
+    enabled: true,
+    folders: 'flat',
+    titleFormat: 'iso',
+    template: '',
+    rolloverHour: 0,
+    showOnCalendar: true,
+  };
+  server.use(
+    http.get(`${API}/api/v1/workspaces/${WORKSPACE}/daily-notes/settings`, () =>
+      HttpResponse.json(settings),
+    ),
+    http.put(`${API}/api/v1/workspaces/${WORKSPACE}/daily-notes/2026-10-04`, () =>
+      HttpResponse.json({ itemId: PRINCIPAL, created: true }),
+    ),
+  );
+  expect(
+    await capture((json) => dailyNoteSettings('default', WORKSPACE, undefined, json, profile.deps)),
+  ).toEqual(settings);
+  expect(
+    await capture((json) => openDailyNote('default', WORKSPACE, '2026-10-04', json, profile.deps)),
+  ).toEqual({ itemId: PRINCIPAL, created: true });
+  await profile.done();
+});

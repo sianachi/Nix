@@ -9,6 +9,9 @@ namespace Nix.Persistence.ObjectStorage;
 /// <summary>Stable private-object names; upload staging and immutable versions never share a key.</summary>
 public static class ObjectStorageKeys
 {
+    private const string FileVersionPrefix = "files/versions/";
+    private const string FileThumbnailPrefix = "files/thumbnails/";
+
     public static string FileUpload(TenantId tenantId, FileUploadId uploadId) =>
         $"files/uploads/{tenantId}/{uploadId}";
 
@@ -17,6 +20,48 @@ public static class ObjectStorageKeys
 
     public static string FileVersion(TenantId tenantId, FileUploadId uploadId) =>
         $"files/versions/{tenantId}/{uploadId}";
+
+    /// <summary>
+    /// The key of the JPEG thumbnail derived from one file version's object, which is the only place
+    /// that rule exists in Core.
+    /// </summary>
+    /// <remarks>
+    /// The worker never derives or sees this key: Core signs the upload capability for it, so the
+    /// two sides cannot disagree. The key is a function of the version key alone, lives under its own
+    /// prefix and ends in <c>.jpg</c>, so it cannot equal any user-visible object key (all of which
+    /// are server-assigned) and a file's thumbnail is found, and deleted, from the file's own key.
+    /// </remarks>
+    public static string FileThumbnail(string versionObjectKey)
+    {
+        ArgumentNullException.ThrowIfNull(versionObjectKey);
+        if (!versionObjectKey.StartsWith(FileVersionPrefix, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("A thumbnail is derived only from a file version key.", nameof(versionObjectKey));
+        }
+
+        return string.Concat(FileThumbnailPrefix, versionObjectKey.AsSpan(FileVersionPrefix.Length), ".jpg");
+    }
+
+    /// <summary>
+    /// Derives the thumbnail key when <paramref name="objectKey"/> is a file version key, and says
+    /// no for any other key. For bulk cleanup, which sees every kind of key.
+    /// </summary>
+    public static bool TryFileThumbnail(string objectKey, out string thumbnailKey)
+    {
+        ArgumentNullException.ThrowIfNull(objectKey);
+        if (objectKey.StartsWith(FileVersionPrefix, StringComparison.Ordinal))
+        {
+            thumbnailKey = FileThumbnail(objectKey);
+            return true;
+        }
+
+        thumbnailKey = string.Empty;
+        return false;
+    }
+
+    /// <summary>The thumbnail key for the file version a completed upload will publish.</summary>
+    public static string FileThumbnail(TenantId tenantId, FileUploadId uploadId) =>
+        FileThumbnail(FileVersion(tenantId, uploadId));
 
     public static string ImportPlan(TenantId tenantId, DocumentImportId importId) =>
         $"imports/plans/{tenantId}/{importId}.json";
@@ -100,6 +145,7 @@ public static class ObjectStorageKeys
         var tenant = tenantId.ToString();
         return key.StartsWith($"files/uploads/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"files/versions/{tenant}/", StringComparison.Ordinal)
+            || key.StartsWith($"files/thumbnails/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"imports/plans/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"plugins/components/{tenant}/", StringComparison.Ordinal)
             || key.StartsWith($"exports/results/{tenant}/", StringComparison.Ordinal);

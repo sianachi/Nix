@@ -14,11 +14,18 @@ namespace Nix.Domain.Graph;
 /// </param>
 /// <param name="Type">How the item's own body is drawn.</param>
 /// <param name="Title">What it is called, or <see langword="null"/> when it has never been named.</param>
+/// <param name="CreatedAt">When the item was created. What a time-lapse orders the drawing by.</param>
+/// <param name="LastModifiedAt">
+/// When the item was last modified, or <see langword="null"/> when the item is locked or sits under
+/// a lock. The moment a locked item last changed is a record of activity behind the lock: it
+/// would say that somebody is working there, and when. Withheld for a credential that
+/// holds the lock open too, like every other body-derived answer in the graph.
+/// </param>
 /// <remarks>
 /// <para>
 /// Deliberately not <see cref="ItemDigest"/>. A digest carries the workspace identifier, which is
 /// the same value on every node of a workspace graph, and carries no parent, which is the one
-/// structural fact a graph is drawn from. Four columns on two thousand rows is worth its own
+/// structural fact a graph is drawn from. Six columns on two thousand rows is worth its own
 /// projection.
 /// </para>
 /// <para>
@@ -27,4 +34,10 @@ namespace Nix.Domain.Graph;
 /// because its edges describe the shape of what is being hidden.
 /// </para>
 /// </remarks>
-public sealed record GraphNode(ItemId Id, ItemId? ParentId, string Type, string? Title);
+public sealed record GraphNode(
+    ItemId Id,
+    ItemId? ParentId,
+    string Type,
+    string? Title,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? LastModifiedAt);

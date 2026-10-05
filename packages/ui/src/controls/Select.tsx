@@ -1,7 +1,7 @@
 import { type ComponentPropsWithRef, type ReactNode } from 'react';
 
 import { blueprintFrame } from '../primitives/Blueprint';
-import { disabledState, focusRing } from '../primitives/interaction';
+import { disabledState, fieldFocus } from '../primitives/interaction';
 import { cn } from '../lib/cn';
 
 /**
@@ -36,7 +36,7 @@ export function Select({ children, className, ...rest }: SelectProps): ReactNode
         blueprintFrame,
         'w-full border-divider bg-background px-3',
         'h-(--control-md) pointer-coarse:h-(--control-lg) font-body text-md text-foreground',
-        focusRing,
+        fieldFocus,
         disabledState,
         'aria-invalid:border-foreground',
         className,

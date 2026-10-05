@@ -1272,6 +1272,7 @@ function parseBundle(value: unknown, name: string): ItemBundle {
 // current fourteen names so the drift is a failing test, not a refused import.
 const PROPERTY_TYPES = new Set([
   'text',
+  'long_text',
   'number',
   'select',
   'multi_select',

@@ -28,6 +28,16 @@ namespace Nix.Tests.Domain.Properties;
 public sealed class PropertyValidatorTests
 {
     [Fact]
+    public void Long_text_accepts_line_breaks_but_refuses_non_strings_and_over_limit_values()
+    {
+        var schema = SchemaOf(Property("notes", PropertyType.LongText, "Notes"));
+        Assert.Empty(PropertyValidator.ValidateSupplied(new JsonObject { ["notes"] = "One\nTwo" }.ToJsonString(), schema));
+        Assert.Empty(PropertyValidator.ValidateSupplied(new JsonObject { ["notes"] = new string('a', 8000) }.ToJsonString(), schema));
+        Assert.Single(PropertyValidator.ValidateSupplied(new JsonObject { ["notes"] = new string('a', 8001) }.ToJsonString(), schema));
+        Assert.Single(PropertyValidator.ValidateSupplied("""{"notes":42}""", schema));
+    }
+
+    [Fact]
     public void A_key_the_schema_does_not_declare_is_neither_checked_nor_reported()
     {
         // The single most important assertion in the file. Every value here would be refused if it

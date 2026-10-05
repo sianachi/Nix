@@ -22,7 +22,10 @@ import { automationsHref } from '../automations/automation-url';
 import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
 import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/use-bookmarks';
+import { MiniPlayer } from '../audio/mini-player';
 import { useOpenItem } from '../tabs/use-open-item';
+import { useOpenDailyOnLaunch } from '../launch/use-open-daily-on-launch';
+import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
 import { useSessionStore } from '../auth/session-store';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from '../layout/regions';
@@ -34,7 +37,8 @@ import { useTemplates } from '../templates/use-templates';
 import { TemplateLibraryProvider } from '../templates/template-library-context';
 import { ShellHeader } from './shell-header';
 import { KeyboardShortcutsDialog } from '../keyboard/keyboard-shortcuts-dialog';
-import { useRevealOpenPanes, useShellShortcuts } from './shell-effects';
+import { useRevealOpenPanes, useShellShortcuts, useZenEscape } from './shell-effects';
+import { ZenExit } from './zen-exit';
 import { NotificationInboxPanel } from './notifications/notification-inbox-panel';
 import { useNotificationsInbox } from './notifications/use-notifications-inbox';
 import { ShellSidebar } from './shell-sidebar';
@@ -44,6 +48,7 @@ import { WorkspaceInvitationNotice } from '../workspaces/workspace-invitation-no
 import type { LaunchNavigationState } from '../launch/launch-intent';
 import { viewCommitted } from '../lib/view-transition';
 import { onNotice } from '../lib/notices';
+import { onZenModeChanged, setZenMode, toggleZenMode, useZenActive } from '../lib/zen-mode';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -90,8 +95,10 @@ import { onNotice } from '../lib/notices';
 
 export function AppShell(): ReactNode {
   const navigate = useNavigate();
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspace } = useWorkspace();
   useRememberLocation(workspaceId);
+  useOpenDailyOnLaunch();
+  const [dailyCaptureOpen, setDailyCaptureOpen] = useState(false);
   const [captureOpen, setCaptureOpen] = useState(false);
   const { getAccessToken } = useAuth();
   const tree = useWorkspaceTree();
@@ -103,6 +110,9 @@ export function AppShell(): ReactNode {
   const narrow = useDrawerNavigation();
   const keyboardVisible = useMobileKeyboard(narrow);
   const templateLibrary = useTemplates();
+  // Whether Zen is both asked for and has an item to act on (see `lib/zen-mode.ts`). The chrome
+  // below is not drawn while it holds - not hidden, so nothing of it stays in the tab order.
+  const zen = useZenActive();
 
   // The shelf is loaded once, here, because four places read it at the same time - this page's
   // rail, the tree's rows, the open document's control and the palette. See use-bookmarks.ts.
@@ -333,12 +343,26 @@ export function AppShell(): ReactNode {
     });
   }
 
+  // Said once, here, whatever asked: the shortcut, the palette, the page's button and the exit
+  // control all change the same store, and the layout change is otherwise silent to a screen reader.
+  useEffect(
+    () =>
+      onZenModeChanged((on) => {
+        announce(on ? 'Zen mode on' : 'Zen mode off');
+      }),
+    [],
+  );
+  useZenEscape(zen, () => {
+    setZenMode(false);
+  });
+
   useShellShortcuts({
     search: () => {
       setSearchOpen(true);
     },
     'new-note': createUntitledNote,
     'toggle-sidebar': sidebar.toggle,
+    zen: toggleZenMode,
     back: () => {
       void navigate(-1);
     },
@@ -354,11 +378,11 @@ export function AppShell(): ReactNode {
   // navigation rather than under it. No token names the nav's rendered height - it depends on the
   // PWA install/update banner above it (see `bottomChromeRef` below) as much as on the nav
   // itself - so it is measured here, where both live, rather than guessed at in the launcher.
-  // Removed rather than left stale whenever the nav is not rendered (a wide screen, or the
-  // software keyboard covering it), so a leftover value from before a resize never survives past
-  // the layout it was measured for.
+  // Removed rather than left stale whenever the nav is not rendered (a wide screen, the software
+  // keyboard covering it, or Zen having taken it away), so a leftover value from before a resize
+  // never survives past the layout it was measured for.
   const bottomChromeRef = useRef<HTMLDivElement | null>(null);
-  const navRendered = narrow && !keyboardVisible;
+  const navRendered = narrow && !keyboardVisible && !zen;
   useEffect(() => {
     const node = bottomChromeRef.current;
     if (!navRendered || !node) {
@@ -436,26 +460,33 @@ export function AppShell(): ReactNode {
         {announcement.text}
       </p>
 
-      <a
-        href="#main"
-        onClick={(event) => {
-          // `#main` is `inert` while the drawer covers it (see the `<main>` element below), so the
-          // browser's own anchor-jump would land focus nowhere - the one thing "skip to content" is
-          // for. Dismissing the drawer is part of getting to the content it is covering, the same
-          // reading the sidebar's row-selection path gives it, so this closes it and sends
-          // focus to the pane exactly as that path does. Left alone everywhere else: on a wide
-          // screen, or a narrow one with the drawer already closed, `<main>` was never inert and the
-          // default jump already works.
-          if (narrow && sidebar.visible) {
-            event.preventDefault();
-            sidebar.toggle();
-            focusPane(0);
-          }
-        }}
-        className={`sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:shadow-md ${focusRing}`}
-      >
-        Skip to content
-      </a>
+      {/* In Zen the exit control is the first thing Tab reaches, and the skip link is not drawn:
+          with the rail, tree and header gone there is nothing between the top of the page and the
+          content for it to skip. */}
+      {zen ? (
+        <ZenExit />
+      ) : (
+        <a
+          href="#main"
+          onClick={(event) => {
+            // `#main` is `inert` while the drawer covers it (see the `<main>` element below), so the
+            // browser's own anchor-jump would land focus nowhere - the one thing "skip to content" is
+            // for. Dismissing the drawer is part of getting to the content it is covering, the same
+            // reading the sidebar's row-selection path gives it, so this closes it and sends
+            // focus to the pane exactly as that path does. Left alone everywhere else: on a wide
+            // screen, or a narrow one with the drawer already closed, `<main>` was never inert and the
+            // default jump already works.
+            if (narrow && sidebar.visible) {
+              event.preventDefault();
+              sidebar.toggle();
+              focusPane(0);
+            }
+          }}
+          className={`sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:shadow-md ${focusRing}`}
+        >
+          Skip to content
+        </a>
+      )}
 
       {/* The rail, then everything else. This row exists so the rail can run the full height of
           the window at the very left edge - outboard of the workspace tree, alongside the header
@@ -471,7 +502,7 @@ export function AppShell(): ReactNode {
           `min-h-0` so this row can shrink inside the `h-dvh` column, which is what gives the pane
           row underneath a definite height to scroll against. */}
       <div className="flex min-h-0 flex-1">
-        {!narrow || sidebar.visible ? (
+        {!zen && (!narrow || sidebar.visible) ? (
           <NavRail
             onImport={() => {
               // The import is modal, so there is no reason to leave a narrow-screen drawer open
@@ -496,22 +527,24 @@ export function AppShell(): ReactNode {
         ) : null}
 
         <div className={`flex flex-1 flex-col ${paneClip}`}>
-          <div hidden={keyboardVisible}>
-            <ShellHeader
-              sidebarVisible={sidebar.visible}
-              sidebarToggleRef={sidebarToggleRef}
-              workspaceId={workspaceId}
-              principal={principal}
-              unreadNotifications={notificationsInbox.unread}
-              onToggleSidebar={sidebar.toggle}
-              onOpenSearch={() => {
-                setSearchOpen(true);
-              }}
-              onOpenInbox={() => {
-                setInboxOpen(true);
-              }}
-            />
-          </div>
+          {zen ? null : (
+            <div hidden={keyboardVisible}>
+              <ShellHeader
+                sidebarVisible={sidebar.visible}
+                sidebarToggleRef={sidebarToggleRef}
+                workspaceId={workspaceId}
+                principal={principal}
+                unreadNotifications={notificationsInbox.unread}
+                onToggleSidebar={sidebar.toggle}
+                onOpenSearch={() => {
+                  setSearchOpen(true);
+                }}
+                onOpenInbox={() => {
+                  setInboxOpen(true);
+                }}
+              />
+            </div>
+          )}
           <WorkspaceInvitationNotice />
 
           {/* `relative`, so the drawer's scrim and panel - `absolute inset-*` - anchor to this row
@@ -520,26 +553,28 @@ export function AppShell(): ReactNode {
               own toggle button is what closes the drawer, and covering it would take away the way
               back. */}
           <div className={`relative flex flex-1 ${paneClip}`}>
-            <ShellSidebar
-              key={workspaceId}
-              narrow={narrow}
-              sidebar={sidebar}
-              tree={tree}
-              selectedId={selectedId}
-              openItem={{ openPreview, openPinned, openBeside, canOpenBeside, besideRefusal }}
-              onDeleteItem={(item) => {
-                void requestDelete(item);
-              }}
-              onStartStructured={startStructured}
-              templates={templateLibrary.templates.filter(
-                (template) => template.capabilities.canApply,
-              )}
-              templateStatus={templateLibrary.status}
-              onStartTemplate={startTemplate}
-              onBrowseTemplates={browseTemplates}
-              treeRegionRef={treeRegionRef}
-              sidebarToggleRef={sidebarToggleRef}
-            />
+            {zen ? null : (
+              <ShellSidebar
+                key={workspaceId}
+                narrow={narrow}
+                sidebar={sidebar}
+                tree={tree}
+                selectedId={selectedId}
+                openItem={{ openPreview, openPinned, openBeside, canOpenBeside, besideRefusal }}
+                onDeleteItem={(item) => {
+                  void requestDelete(item);
+                }}
+                onStartStructured={startStructured}
+                templates={templateLibrary.templates.filter(
+                  (template) => template.capabilities.canApply,
+                )}
+                templateStatus={templateLibrary.status}
+                onStartTemplate={startTemplate}
+                onBrowseTemplates={browseTemplates}
+                treeRegionRef={treeRegionRef}
+                sidebarToggleRef={sidebarToggleRef}
+              />
+            )}
 
             {/* The shell owns the main landmark so every screen has exactly one, and a screen that
                 renders panels side by side does not have to nest them inside another.
@@ -563,7 +598,7 @@ export function AppShell(): ReactNode {
                 `<main>`. */}
             <main
               id="main"
-              inert={narrow && sidebar.visible}
+              inert={narrow && sidebar.visible && !zen}
               className={`isolate flex flex-1 ${paneClip}`}
             >
               {/* Mutable server-owned template state has its own subscribed context. Router
@@ -584,6 +619,10 @@ export function AppShell(): ReactNode {
           above the nav in normal block flow, so a single ref around both is what lets the
           launcher clear whichever of them is actually showing above it. */}
       <div ref={bottomChromeRef}>
+        {/* In this region, not over content: it takes its own row, so the pet launcher, which
+            clears this region's measured height, clears the player too. Hidden while the software
+            keyboard is up, when the room is better spent on the text being typed. */}
+        {keyboardVisible ? null : <MiniPlayer onOpen={openPinned} />}
         <PwaControls compact={keyboardVisible} />
         {navRendered ? (
           <MobileNavigation
@@ -655,9 +694,15 @@ export function AppShell(): ReactNode {
           openToday: () => {
             void navigate(`/w/${workspaceId}/daily`);
           },
+          captureToToday: workspace.canUseDailyNotes
+            ? () => {
+                setDailyCaptureOpen(true);
+              }
+            : null,
           openShortcuts: () => {
             setShortcutsOpen(true);
           },
+          toggleZen: toggleZenMode,
           openAutomations: () => {
             void navigate(automationsHref(workspaceId, { kind: 'list' }));
           },
@@ -674,6 +719,15 @@ export function AppShell(): ReactNode {
         onClose={() => {
           setSearchOpen(false);
         }}
+      />
+
+      <DailyCaptureDialog
+        open={dailyCaptureOpen}
+        workspaceId={workspaceId}
+        onClose={() => {
+          setDailyCaptureOpen(false);
+        }}
+        onOpenItem={openPinned}
       />
 
       <NotificationInboxPanel

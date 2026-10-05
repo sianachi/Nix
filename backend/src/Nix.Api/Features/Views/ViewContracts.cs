@@ -168,7 +168,13 @@ internal sealed record InteractiveFormContract(
 /// </param>
 /// <param name="Default">
 /// Which view opens: a view's id, or <c>document</c> for the item's own body. Already resolved, so
-/// a default naming a deleted view arrives as <c>document</c> rather than as a dangling id.
+/// a default naming a deleted view arrives as <c>document</c> rather than as a dangling id. While
+/// the document tab is hidden it is never <c>document</c>: the first view stands in.
+/// </param>
+/// <param name="HideDocument">
+/// Whether the item's own document tab is left out of its switcher. Always present. A hidden tab is
+/// not a protected body: this is not an access control, and the body stays readable through every
+/// body read, search, link and export.
 /// </param>
 /// <remarks>
 /// <b><see cref="Unrenderable"/> is the honest-state field.</b> Without it, such a board renders as
@@ -178,7 +184,8 @@ internal sealed record InteractiveFormContract(
 internal sealed record ContainerViewsResponse(
     IReadOnlyList<ViewResponse> Views,
     IReadOnlyList<string> Unrenderable,
-    string Default);
+    string Default,
+    bool HideDocument);
 
 /// <summary>
 /// Replaces every view a container offers.
@@ -188,11 +195,22 @@ internal sealed record ContainerViewsResponse(
 /// Which view should open: a view's id, or <c>document</c> (or absent) for the item's own body.
 /// Refused when it names a view this request does not also contain.
 /// </param>
+/// <param name="HideDocument">
+/// Whether to hide the item's own document tab. Absent leaves the stored flag as it is. True needs
+/// at least one view in this request and is refused with <c>views.document_cannot_be_hidden</c>
+/// otherwise; it makes the first view open when <paramref name="Default"/> is <c>document</c> or
+/// absent. While the flag is stored, an explicit <c>document</c> default is refused with the same
+/// code. A request that leaves no views clears the flag. This hides a tab only; it is not an
+/// access control.
+/// </param>
 /// <remarks>
 /// A whole-set replacement because the order is part of what is being edited, and reordering
 /// through per-view endpoints is a sequence of writes that can half-apply.
 /// </remarks>
-internal sealed record SetViewsRequest(IReadOnlyList<ViewRequest> Views, string? Default);
+internal sealed record SetViewsRequest(
+    IReadOnlyList<ViewRequest> Views,
+    string? Default,
+    bool? HideDocument = null);
 
 /// <summary>One view being configured. Mirrors <see cref="ViewResponse"/>.</summary>
 /// <param name="Id">Stable across renames.</param>

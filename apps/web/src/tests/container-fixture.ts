@@ -34,6 +34,7 @@ export function aContainer(overrides: Partial<ContainerData> = {}): ContainerDat
     appendViewSetup: () => Promise.resolve(null),
     replaceViewSetup: () => Promise.resolve(null),
     setDefaultView: () => Promise.resolve(null),
+    setDocumentHidden: () => Promise.resolve(null),
     reload: () => Promise.resolve(),
     ...overrides,
   };
@@ -53,6 +54,7 @@ export function views(
     views: [...offered],
     unrenderable: [],
     default: DOCUMENT_VIEW,
+    hideDocument: false,
     ...overrides,
   };
 }

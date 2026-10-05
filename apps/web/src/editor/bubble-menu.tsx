@@ -3,7 +3,7 @@ import { isPointerCoarse } from '../lib/pointer';
 import type { TextColor } from '@nix/editor-schema';
 import type { Editor } from '@tiptap/react';
 import type { MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { Baseline, Highlighter, type LucideIcon } from 'lucide-react';
+import { Baseline, Highlighter, Sparkles, type LucideIcon } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /**
@@ -249,7 +249,14 @@ interface MenuPlacement {
   readonly to: number;
 }
 
-export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
+export function BubbleMenu({
+  editor,
+  onOpenInlineAi,
+}: {
+  readonly editor: Editor;
+  /** Present only when the writing assistance is on offer; the control exists only then. */
+  readonly onOpenInlineAi?: (() => void) | undefined;
+}): ReactNode {
   const [placement, setPlacement] = useState<MenuPlacement | null>(null);
 
   // The selection Escape dismissed the menu over. Selecting something else opens it again.
@@ -395,6 +402,10 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
   // captures one transaction and every probe through it runs undispatched.
   const can = editor.can();
   const runnable = ROW.map((entry) => canSet(can, entry.group.axis, entry.option.color));
+  // The writing assistance is one more stop at the end of the row, so the toolbar stays one
+  // widget with one tab stop. Offered only where the note can be written to.
+  const aiIndex = onOpenInlineAi !== undefined && editor.isEditable ? runnable.length : null;
+  if (aiIndex !== null) runnable.push(true);
 
   // The tab stop has to sit on a button that can actually be used.
   const firstRunnable = runnable.indexOf(true);
@@ -402,7 +413,7 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
 
   /** Moves the roving focus along by `step` buttons, passing over any that cannot run. */
   function rove(from: number, step: number): void {
-    const count = ROW.length;
+    const count = runnable.length;
     for (let i = 1; i <= count; i += 1) {
       const next = (((from + step * i) % count) + count) % count;
       if (runnable[next] === true) {
@@ -475,7 +486,7 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
             rove(tabStop, -1);
           } else if (event.key === 'Home') {
             event.preventDefault();
-            rove(ROW.length - 1, 1);
+            rove(runnable.length - 1, 1);
           } else if (event.key === 'End') {
             event.preventDefault();
             rove(0, -1);
@@ -532,6 +543,23 @@ export function BubbleMenu({ editor }: { readonly editor: Editor }): ReactNode {
             })}
           </div>
         ))}
+        {aiIndex === null ? null : (
+          <button
+            ref={(element) => {
+              buttons.current[aiIndex] = element;
+            }}
+            type="button"
+            aria-label="Write with AI"
+            title="Write with AI"
+            aria-haspopup="dialog"
+            tabIndex={aiIndex === tabStop ? 0 : -1}
+            onClick={onOpenInlineAi}
+            className="flex h-7 items-center gap-1 rounded-sm px-1.5 text-xs hover:bg-foreground/7 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          >
+            <Icon icon={Sparkles} size="sm" />
+            <span className="px-0.5">AI</span>
+          </button>
+        )}
       </div>
     </>
   );

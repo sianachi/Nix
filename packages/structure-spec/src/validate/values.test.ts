@@ -26,6 +26,22 @@ describe('validateValue', () => {
     expect(validateValue(text, 5)).toBe('Field must be text.');
   });
 
+  it('accepts long_text up to exactly 8,000 characters and refuses 8,001', () => {
+    const longText = property({ type: 'long_text' });
+    expect(validateValue(longText, 'line one\nline two')).toBeNull();
+    expect(validateValue(longText, 'x'.repeat(8000))).toBeNull();
+    expect(validateValue(longText, 'x'.repeat(8001))).toBe(
+      'Field must be at most 8,000 characters.',
+    );
+  });
+
+  it('refuses a value that is not a string for long_text', () => {
+    const longText = property({ type: 'long_text' });
+    expect(validateValue(longText, 5)).toBe('Field must be text.');
+    expect(validateValue(longText, ['a'])).toBe('Field must be text.');
+    expect(validateValue(longText, true)).toBe('Field must be text.');
+  });
+
   it('accepts a finite number and refuses text and NaN', () => {
     const number = property({ type: 'number' });
     expect(validateValue(number, 3.5)).toBeNull();

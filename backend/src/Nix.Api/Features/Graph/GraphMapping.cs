@@ -26,7 +26,9 @@ internal static class GraphMapping
                 node.Id.Value,
                 node.ParentId?.Value,
                 node.Type,
-                node.Title));
+                node.Title,
+                node.CreatedAt,
+                node.LastModifiedAt));
         }
 
         return responses;
@@ -42,7 +44,7 @@ internal static class GraphMapping
         var responses = new List<GraphLinkResponse>(links.Count);
         foreach (var link in links)
         {
-            responses.Add(new GraphLinkResponse(link.SourceId.Value, link.TargetId.Value));
+            responses.Add(new GraphLinkResponse(link.SourceId.Value, link.TargetId.Value, link.Occurrences));
         }
 
         return responses;

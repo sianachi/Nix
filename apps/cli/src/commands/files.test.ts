@@ -6,7 +6,7 @@ import { HttpResponse, http } from 'msw';
 import { setupServer } from 'msw/node';
 
 import { saveProfile } from '../config.ts';
-import { downloadFileValue, uploadFileValue } from './files.ts';
+import { downloadFileValue, probeFileValue, uploadFileValue } from './files.ts';
 
 const API = 'http://nix.test';
 const WS = '22222222-2222-4222-8222-222222222222';
@@ -157,5 +157,49 @@ describe('nixctl file', () => {
     ).rejects.toThrow(/exist/i);
     await rm(dir, { recursive: true, force: true });
     await profile.done();
+  });
+});
+
+describe('file delivery probe', () => {
+  it('uses Core authorization and checks ranges without returning a capability', async () => {
+    const profile = await withProfile();
+    try {
+      server.use(
+        http.get(`${API}/api/v1/items/${ITEM}/file/thumbnail`, () =>
+          HttpResponse.json({
+            url: 'https://objects.test/cover',
+            expiresAt: '2099-01-01T00:00:00Z',
+            width: 40,
+            height: 60,
+            byteLength: 100,
+          }),
+        ),
+      );
+      expect(
+        await probeFileValue(undefined, ITEM, true, {
+          env: profile.env,
+          fetchImpl: async (input, init) => {
+            if (input !== 'https://objects.test/cover') return fetch(input, init);
+            expect(new Headers(init?.headers).get('Range')).toBe('bytes=0-63');
+            expect(new Headers(init?.headers).has('Authorization')).toBe(false);
+            expect(init?.credentials).toBe('omit');
+            return new Response(new Uint8Array(64), {
+              status: 206,
+              headers: { 'content-type': 'image/jpeg', 'content-range': 'bytes 0-63/100' },
+            });
+          },
+        }),
+      ).toEqual({
+        itemId: ITEM,
+        thumbnail: true,
+        status: 206,
+        mediaType: 'image/jpeg',
+        contentRange: 'bytes 0-63/100',
+        disposition: null,
+        bytes: 64,
+      });
+    } finally {
+      await profile.done();
+    }
   });
 });

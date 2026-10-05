@@ -65,6 +65,8 @@ describe('companion on a phone', () => {
       },
     });
     sessionStorage.clear();
+    // These tests are about the panel on a phone; the default there is the pet page.
+    localStorage.setItem('nix.pet.surface', 'floating');
     client.execute.mockResolvedValue(connected);
     client.query.mockResolvedValue(connected);
   });

@@ -102,7 +102,8 @@ describe('the view editor', () => {
       />,
     );
 
-    expect(screen.getByText('Delivery plan')).toBeVisible();
+    // Named in the view list and as an "Open as" choice.
+    expect(screen.getAllByText('Delivery plan')).not.toHaveLength(0);
     expect(screen.getByText(/timeline.*has companion/i)).toBeVisible();
     expect(screen.queryByRole('combobox', { name: /starts on/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Configure' })).toBeVisible();

@@ -8,6 +8,7 @@ import {
   Table,
   Tag,
   Text,
+  Textarea,
   type TableColumn,
 } from '@nix/ui';
 import {
@@ -795,10 +796,10 @@ function ImportForm({ state, finance, onClose }: ImportDialogProps): ReactNode {
         </Field>
         <Field label="Or paste the CSV">
           {(control) => (
-            <textarea
+            <Textarea
               {...control}
               rows={6}
-              className="w-full rounded-lg border border-divider bg-surface p-2 font-mono"
+              className="font-mono"
               value={csv}
               onChange={(event) => {
                 setCsv(event.target.value);
