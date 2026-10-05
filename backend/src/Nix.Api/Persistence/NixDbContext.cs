@@ -14,6 +14,7 @@ using Nix.Domain.Plugins;
 using Nix.Domain.Scheduling;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
+using Nix.Domain.Transcriptions;
 using Nix.Domain.Views;
 using Nix.Domain.Workers;
 using Nix.Persistence.Configurations;
@@ -160,6 +161,9 @@ public sealed class NixDbContext : DbContext
 
     /// <summary>Gets the passwords item bodies are held behind.</summary>
     public DbSet<ItemLock> ItemLocks => Set<ItemLock>();
+
+    /// <summary>Gets the current transcription of each audio item.</summary>
+    public DbSet<ItemTranscription> ItemTranscriptions => Set<ItemTranscription>();
 
     /// <summary>Gets the short-lived grants past item locks.</summary>
     public DbSet<ItemUnlock> ItemUnlocks => Set<ItemUnlock>();
@@ -332,6 +336,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new BookmarkConfiguration());
         modelBuilder.ApplyConfiguration(new ItemLockConfiguration());
         modelBuilder.ApplyConfiguration(new ItemUnlockConfiguration());
+        modelBuilder.ApplyConfiguration(new ItemTranscriptionConfiguration());
         modelBuilder.ApplyConfiguration(new PublicFormLinkConfiguration());
         modelBuilder.ApplyConfiguration(new PersonalAccessTokenConfiguration());
         modelBuilder.ApplyConfiguration(new BrowserSessionConfiguration());

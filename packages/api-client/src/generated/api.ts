@@ -883,6 +883,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/transcription': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetItemTranscription'];
+    put?: never;
+    post: operations['StartItemTranscription'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/speech/capabilities': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['CreateSpeechCapability'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/plugins': {
     parameters: {
       query?: never;
@@ -2921,6 +2953,9 @@ export interface components {
       parentId: null | string;
       properties: null | components['schemas']['JsonObject'];
     };
+    CreateSpeechCapabilityRequest: {
+      purpose: null | string;
+    };
     CreateStructuredItemRequest: {
       type: string;
       title: string;
@@ -4218,6 +4253,14 @@ export interface components {
       /** Format: int32 */
       hidden: number | string;
     };
+    SpeechCapabilityResponse: {
+      token: string;
+      /** Format: date-time */
+      expiresAt: string;
+    };
+    StartTranscriptionRequest: {
+      speakers: null | string;
+    };
     StructuredItemResponse: {
       item: components['schemas']['ItemResponse'];
       schema: components['schemas']['EffectiveSchemaResponse'];
@@ -4549,6 +4592,23 @@ export interface components {
       tokenType: string;
       /** Format: int64 */
       expiresInSeconds: number | string;
+    };
+    TranscriptionResponse: {
+      /** Format: uuid */
+      audioItemId: string;
+      /** Format: uuid */
+      noteItemId: string;
+      status: string;
+      /** Format: int32 */
+      progress: number | string;
+      speakers: string;
+      /** Format: uuid */
+      operationId: string;
+      errorCode: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      completedAt: null | string;
     };
     UnlockItemResponse: {
       /** Format: date-time */
@@ -7447,6 +7507,132 @@ export interface operations {
       };
       /** @description Service Unavailable */
       503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetItemTranscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TranscriptionResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  StartItemTranscription: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StartTranscriptionRequest'];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TranscriptionResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  CreateSpeechCapability: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateSpeechCapabilityRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SpeechCapabilityResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
         headers: {
           [name: string]: unknown;
         };

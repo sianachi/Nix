@@ -77,7 +77,7 @@ require_rabbitmq_topic_permission() {
   fi
 }
 require_rabbitmq_topic_permission nix-api nix.commands.v1 \
-  '^(import|template|file|object|export|calendar|notify)\..+$' '^$'
+  '^(import|template|file|object|export|calendar|notify|transcribe)\..+$' '^$'
 require_rabbitmq_topic_permission nix-api nix.workspace.v1 '^.+$' '^$'
 require_rabbitmq_topic_permission nix-api nix.capabilities.v1 '^$' '^#$'
 require_rabbitmq_topic_permission nix-import nix.results.v1 '^job\.result$' '^$'

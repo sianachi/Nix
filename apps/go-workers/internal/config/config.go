@@ -46,6 +46,19 @@ type Settings struct {
 	CalendarMicrosoftOrigin string
 	PushVAPIDPrivateKey     []byte
 	PushVAPIDSubject        string
+	// The speech role's binaries and models (ADR-0059). Paths, not downloads: models are mounted
+	// from a volume and never fetched by the worker.
+	SpeechWhisperServer     string
+	SpeechWhisperModel      string
+	SpeechWhisperVADModel   string
+	SpeechWhisperThreads    int
+	SpeechWhisperGPU        bool
+	SpeechFFmpeg            string
+	SpeechFFprobe           string
+	SpeechPiper             string
+	SpeechVoicesDir         string
+	SpeechVoices            string
+	SpeechTranscribeTimeout time.Duration
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -113,6 +126,14 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_PUSH_VAPID_PRIVATE_KEY: %w", err)
 	}
+	speechThreads, err := parseInt(getenv("NIX_SPEECH_WHISPER_THREADS"), 3)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_SPEECH_WHISPER_THREADS: %w", err)
+	}
+	speechTranscribeSeconds, err := parseInt(getenv("NIX_SPEECH_TRANSCRIBE_TIMEOUT_SECONDS"), 4*60*60)
+	if err != nil {
+		return Settings{}, fmt.Errorf("NIX_SPEECH_TRANSCRIBE_TIMEOUT_SECONDS: %w", err)
+	}
 	settings := Settings{
 		CompanionDataDir:        getenv("NIX_COMPANION_DATA_DIR"),
 		CompanionBinary:         valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
@@ -148,6 +169,17 @@ func Load(getenv func(string) string) (Settings, error) {
 		CalendarMicrosoftOrigin: valueOr(getenv("NIX_CALENDAR_MICROSOFT_ORIGIN"), "https://graph.microsoft.com"),
 		PushVAPIDPrivateKey:     pushVAPIDPrivateKey,
 		PushVAPIDSubject:        getenv("NIX_PUSH_VAPID_SUBJECT"),
+		SpeechWhisperServer:     valueOr(getenv("NIX_SPEECH_WHISPER_SERVER"), "whisper-server"),
+		SpeechWhisperModel:      getenv("NIX_SPEECH_WHISPER_MODEL"),
+		SpeechWhisperVADModel:   getenv("NIX_SPEECH_WHISPER_VAD_MODEL"),
+		SpeechWhisperThreads:    speechThreads,
+		SpeechWhisperGPU:        getenv("NIX_SPEECH_WHISPER_GPU") == "true" || getenv("NIX_SPEECH_WHISPER_GPU") == "1",
+		SpeechFFmpeg:            valueOr(getenv("NIX_SPEECH_FFMPEG"), "ffmpeg"),
+		SpeechFFprobe:           valueOr(getenv("NIX_SPEECH_FFPROBE"), "ffprobe"),
+		SpeechPiper:             valueOr(getenv("NIX_SPEECH_PIPER"), "piper"),
+		SpeechVoicesDir:         getenv("NIX_SPEECH_VOICES_DIR"),
+		SpeechVoices:            getenv("NIX_SPEECH_VOICES"),
+		SpeechTranscribeTimeout: time.Duration(speechTranscribeSeconds) * time.Second,
 	}
 	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 || settings.PluginMaxModuleBytes <= 0 || settings.PluginMaxModuleBytes > 32<<20 || settings.PluginMemoryPages <= 0 || settings.PluginMemoryPages > 4096 || settings.PluginTimeout <= 0 || settings.PluginTimeout > 5*time.Second || settings.PluginMaxHostCalls <= 0 || settings.PluginMaxHostCalls > 256 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")

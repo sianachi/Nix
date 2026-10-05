@@ -41,6 +41,10 @@ type Dependencies struct {
 	IndexHealth    func() indexer.Health
 	Ready          func() bool
 	Companion      http.Handler
+	// Speech serves /speech/v1/ for the speech role. It is the one handler here a browser
+	// reaches, and it authenticates each request itself with a capability Core issued, so it is
+	// deliberately not behind the internal secret.
+	Speech http.Handler
 }
 
 type Server struct {
@@ -61,6 +65,9 @@ func NewForRole(service role.Service, deps Dependencies) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /readyz", server.ready)
+	if deps.Speech != nil {
+		mux.Handle("/speech/v1/", deps.Speech)
+	}
 	if deps.Companion != nil {
 		mux.Handle("POST /v1/companion", server.requireInternal(deps.Companion))
 	}

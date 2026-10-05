@@ -17,6 +17,7 @@ var prefixes = []string{
 	"nix-file-inspection-",
 	"nix-import-stage-",
 	"nix-pdf-pages-",
+	"nix-speech-",
 	"nix-template-import-",
 }
 

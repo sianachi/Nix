@@ -390,7 +390,8 @@ func HeaderLimit() int { return maxHeaderBytes }
 // audioMediaType names an audio container from its leading bytes, or returns "" when the header is
 // not one. Magic numbers only, as for images: the declared type and the extension are claims, the
 // bytes are the evidence. Ogg is claimed only when the first packet is an audio codec's, because
-// the same container carries Theora video.
+// the same container carries Theora video. WebM is claimed on the same terms: the track list a
+// recorder writes at the front must name an audio codec and no video codec.
 func audioMediaType(header []byte) string {
 	switch {
 	case len(header) >= 3 && string(header[:3]) == "ID3":
@@ -426,6 +427,22 @@ func audioMediaType(header []byte) string {
 		case "M4A ", "M4B ", "M4P ":
 			return "audio/mp4"
 		}
+	case len(header) >= 4 && bytes.Equal(header[:4], []byte{0x1a, 0x45, 0xdf, 0xa3}):
+		if !bytes.Contains(header[:min(len(header), 64)], []byte("webm")) {
+			return ""
+		}
+		// Whole codec identifiers, and only where the track list sits: two stray bytes of
+		// compressed audio spell "V_" often enough to matter across a full header.
+		tracks := header[:min(len(header), 4096)]
+		if !bytes.Contains(tracks, []byte("A_OPUS")) && !bytes.Contains(tracks, []byte("A_VORBIS")) {
+			return ""
+		}
+		for _, video := range []string{"V_VP8", "V_VP9", "V_AV1"} {
+			if bytes.Contains(tracks, []byte(video)) {
+				return ""
+			}
+		}
+		return "audio/webm"
 	}
 	return ""
 }

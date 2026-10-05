@@ -1,0 +1,8 @@
+{
+  "sourceUrl": "https://objects.example.test/nix/files/versions/aaaaaaaa/cccccccc?X-Amz-Signature=abc",
+  "byteLength": 1048576,
+  "audioItemId": "cccccccc-0000-4000-8000-000000000003",
+  "noteItemId": "dddddddd-0000-4000-8000-000000000004",
+  "workspaceId": "eeeeeeee-0000-4000-8000-000000000005",
+  "speakers": "channels"
+}

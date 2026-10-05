@@ -4,7 +4,9 @@ using Nix.Errors;
 using Nix.Features.DocumentImports;
 using Nix.Features.Exports;
 using Nix.Features.Files;
+using Nix.Features.Speech;
 using Nix.Features.TemplateImports;
+using Nix.Features.Transcriptions;
 using Nix.Http;
 
 namespace Nix.Features.Internal;
@@ -42,6 +44,7 @@ internal static class InternalEndpoints
         WorkerJobEndpoints.Map(group);
         WorkerOutboxEndpoints.Map(group);
         WorkerDispatchEndpoints.Map(group);
+        SpeechEndpoints.MapWorkerDispatch(group);
         SearchIndexDispatchEndpoints.Map(group);
         PluginDispatchEndpoints.Map(group);
         FileEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
@@ -49,6 +52,7 @@ internal static class InternalEndpoints
         TemplateImportWorkerEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         TemplateFileTransferEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         ExportEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
+        TranscriptionWorkerEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));
         ObjectCleanupEndpoints.Map(group.MapGroup("/worker-executions"));
         WorkspacePurgeEndpoints.Map(group.MapGroup("/worker-executions"));
         NotificationDeliveryEndpoints.MapWorkerExecutions(group.MapGroup("/worker-executions"));

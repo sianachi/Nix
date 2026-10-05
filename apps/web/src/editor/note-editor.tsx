@@ -45,6 +45,10 @@ import { useSessionStore } from '../auth/session-store';
 import { BubbleMenu } from './bubble-menu';
 import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
+import { useNoteSpeech } from './use-note-speech';
+import { announce } from '../a11y/announcer';
+import { playRecordingFrom } from '../audio/play-from';
+import { parseAudioTimestamp } from '../lib/audio-timestamp-link';
 import { EditorAddressDialog, type EditorAddressKind } from './editor-address-dialog';
 import { EmacsKeymap } from './emacs-keymap';
 import { GhostText, setGhostTextContext } from './ghost-text';
@@ -671,6 +675,24 @@ export function NoteEditor({
           void uploadDroppedFiles(view, files, view.state.selection.from);
           return true;
         },
+        // A transcript's timestamp is a link to its recording at a moment (see
+        // `lib/audio-timestamp-link.ts`). Links here do not open on a plain click, but this one
+        // has an answer that is not navigation: play the recording from that line.
+        handleClick: (view, position, event) => {
+          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return false;
+          const link = view.state.doc
+            .resolve(position)
+            .marks()
+            .find((mark) => mark.type.name === 'link');
+          const href: unknown = link?.attrs.href;
+          const timestamp =
+            typeof href === 'string' ? parseAudioTimestamp(href, window.location.origin) : null;
+          if (timestamp === null) return false;
+          void playRecordingFrom(client, timestamp.itemId, timestamp.seconds).catch(() => {
+            announce('That recording could not be played.');
+          });
+          return true;
+        },
         attributes: {
           class: `${proseRoot} min-h-full outline-none`,
           'aria-label': 'Note body',
@@ -692,6 +714,7 @@ export function NoteEditor({
   // State rather than a ref, so the overlay renders once the box exists rather than one render late.
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const inlineAi = useInlineAi({ editor, itemId, workspaceId });
+  const speech = useNoteSpeech(editor, client, itemId);
 
   const activeVimMode = useEditorState({
     editor,
@@ -958,6 +981,7 @@ export function NoteEditor({
             editor.view.focus();
           }
         }}
+        speech={speech.toolbar}
       />
       <PresenceList awareness={awareness} />
     </div>
@@ -987,6 +1011,33 @@ export function NoteEditor({
 
             {stale ? <StaleCopyNotice noun="note" /> : null}
             <PendingReferenceNotice itemId={itemId} editor={editor} />
+            {speech.status === null ? null : (
+              <Text
+                variant="caption"
+                as="p"
+                tone="muted"
+                role="status"
+                className="shrink-0 px-8 py-1.5"
+              >
+                {speech.status}
+              </Text>
+            )}
+            {speech.error === null ? null : (
+              <div className="flex shrink-0 items-center gap-2 px-8 py-1.5">
+                <Text
+                  variant="caption"
+                  as="p"
+                  tone="accent"
+                  role="alert"
+                  className="min-w-0 flex-1"
+                >
+                  {speech.error}
+                </Text>
+                <Button variant="ghost" onClick={speech.dismissError}>
+                  Dismiss
+                </Button>
+              </div>
+            )}
             {refusal === null ? null : (
               <Text
                 variant="caption"

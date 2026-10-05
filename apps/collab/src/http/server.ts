@@ -11,6 +11,7 @@ import type { RouteDependencies, ServerDependencies } from './context.ts';
 import { registerExportRoutes } from './routes/exports.ts';
 import { registerHistoryRoutes } from './routes/history.ts';
 import { registerInternalImportRoutes } from './routes/internal-imports.ts';
+import { registerInternalTranscriptionRoutes } from './routes/internal-transcriptions.ts';
 import { registerTemplateRoutes } from './routes/templates.ts';
 import { registerUpdateRoutes } from './routes/updates.ts';
 
@@ -91,6 +92,7 @@ export function createServer(deps: ServerDependencies): FastifyInstance {
   const routes: RouteDependencies = { ...deps, rateWindow, newDocId, hub };
 
   registerInternalImportRoutes(app, routes);
+  registerInternalTranscriptionRoutes(app, routes);
 
   if (deps.metrics !== undefined) {
     const metrics = deps.metrics;

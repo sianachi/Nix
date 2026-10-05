@@ -24,6 +24,11 @@ import { CommandPalette } from '../search/command-palette';
 import { builtInCommands } from '../search/commands';
 import { useBookmarksLoader, useBookmarksStore, useIsKept } from '../bookmarks/use-bookmarks';
 import { MiniPlayer } from '../audio/mini-player';
+import { recordingFormat } from '../recording/capture';
+import { RecordDialog } from '../recording/record-dialog';
+import { useRecorderIdle } from '../recording/recorder-store';
+import { RecordingBar } from '../recording/recording-bar';
+import { rememberSpeechVocabulary } from '../lib/speech-vocabulary';
 import { useOpenItem } from '../tabs/use-open-item';
 import { useOpenDailyOnLaunch } from '../launch/use-open-daily-on-launch';
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
@@ -142,6 +147,27 @@ export function AppShell(): ReactNode {
     void navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
   }, [launchState, location.pathname, location.search, navigate]);
   const [workspaceImportOpen, setWorkspaceImportOpen] = useState(false);
+  const [recordOpen, setRecordOpen] = useState(false);
+  // Dictation spells names better when it has seen them; the tree is where this workspace's are.
+  useEffect(() => {
+    rememberSpeechVocabulary(tree.items.map((item) => item.title));
+  }, [tree.items]);
+  // One boolean, not the recorder's whole state: that is replaced twice a second while the clock
+  // runs, and the shell (the tree, the palette's commands) must not re-render to its beat.
+  const recorderIdle = useRecorderIdle();
+  // A recording belongs to whoever made it, so nothing is offered until that is known.
+  const recordingOwner =
+    principal.principal === null
+      ? null
+      : `${principal.principal.tenantId}:${principal.principal.id}`;
+  // Offered only when it would do something: a browser that can record, and no recording already
+  // running or waiting to be saved.
+  const openRecorder =
+    recordingFormat() !== null && recorderIdle && recordingOwner !== null
+      ? () => {
+          setRecordOpen(true);
+        }
+      : undefined;
   const [inboxOpen, setInboxOpen] = useState(false);
   const notificationsInbox = useNotificationsInbox();
   const petAttention = usePetAttention();
@@ -573,6 +599,7 @@ export function AppShell(): ReactNode {
                 templateStatus={templateLibrary.status}
                 onStartTemplate={startTemplate}
                 onBrowseTemplates={browseTemplates}
+                onRecord={openRecorder}
                 treeRegionRef={treeRegionRef}
                 sidebarToggleRef={sidebarToggleRef}
               />
@@ -625,6 +652,17 @@ export function AppShell(): ReactNode {
             clears this region's measured height, clears the player too. Hidden while the software
             keyboard is up, when the room is better spent on the text being typed. */}
         {keyboardVisible ? null : <MiniPlayer onOpen={openPinned} />}
+        {/* Not hidden for the keyboard: a recording in progress is the one thing here that must
+            stay in sight while notes are being typed. */}
+        <RecordingBar
+          workspaceId={workspaceId}
+          principalId={recordingOwner}
+          createNote={(title) => tree.create(null, title)}
+          onSaved={() => {
+            void tree.reload();
+          }}
+          onOpenItem={openPreview}
+        />
         <PwaControls compact={keyboardVisible} />
         {navRendered ? (
           <MobileNavigation
@@ -674,6 +712,18 @@ export function AppShell(): ReactNode {
         />
       ) : null}
 
+      {/* Mounted only while open: its subscription to the recorder is not the shell's to carry. */}
+      {recordOpen && recordingOwner !== null ? (
+        <RecordDialog
+          open
+          workspaceId={workspaceId}
+          principalId={recordingOwner}
+          onClose={() => {
+            setRecordOpen(false);
+          }}
+        />
+      ) : null}
+
       <CommandPalette
         key={workspaceId}
         preserveQuery={narrow}
@@ -702,6 +752,7 @@ export function AppShell(): ReactNode {
                 setDailyCaptureOpen(true);
               }
             : null,
+          recordMeeting: openRecorder ?? null,
           openShortcuts: () => {
             setShortcutsOpen(true);
           },

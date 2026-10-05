@@ -18,6 +18,8 @@ import { createCoreImportClient } from './imports/core.ts';
 import { createMetrics } from './metrics.ts';
 import { createTemplateImportBodyService } from './template-imports/bodies.ts';
 import { createCoreTemplateImportClient } from './template-imports/core.ts';
+import { createTranscriptionAppendService } from './transcriptions/append.ts';
+import { createCoreTranscriptionClient } from './transcriptions/core.ts';
 import { createSessionAuthenticator } from './ws/session-auth.ts';
 
 /**
@@ -150,6 +152,13 @@ const app = createServer({
   templateImportBodies: createTemplateImportBodyService({
     pool,
     core: createCoreTemplateImportClient({
+      coreBaseUrl: config.coreBaseUrl,
+      internalSecret: config.internalSecret,
+    }),
+  }),
+  transcriptions: createTranscriptionAppendService({
+    pool,
+    core: createCoreTranscriptionClient({
       coreBaseUrl: config.coreBaseUrl,
       internalSecret: config.internalSecret,
     }),

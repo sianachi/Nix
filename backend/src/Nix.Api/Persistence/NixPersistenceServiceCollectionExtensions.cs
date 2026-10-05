@@ -328,6 +328,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
         services.AddScoped<IItemLocks, ItemLockStore>();
+        services.AddScoped<Nix.Abstractions.Transcriptions.IItemTranscriptionStore, Nix.Persistence.Transcriptions.ItemTranscriptionStore>();
         services.AddScoped<IItemProtections, Nix.Persistence.Items.ItemProtectionStore>();
 
         // One per process: the backoff it keeps and the derivation ceiling it enforces are only

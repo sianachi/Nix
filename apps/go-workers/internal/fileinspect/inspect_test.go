@@ -123,3 +123,21 @@ func FuzzInspectHeaderNeverPanicsOrExceedsImageBounds(fuzz *testing.F) {
 		}
 	})
 }
+
+func TestWebMIsAudioOnlyWhenItsTracksAreAudioOnly(t *testing.T) {
+	ebml := []byte{0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x82, 0x84}
+	recording := append(append([]byte{}, ebml...), []byte("webm\x18\x53\x80\x67\x86A_OPUS")...)
+	if metadata := InspectHeader(recording, 1024); metadata.MediaType != "audio/webm" || metadata.Preview {
+		t.Fatalf("recording metadata = %#v", metadata)
+	}
+
+	video := append(append([]byte{}, recording...), []byte("\x86V_VP9")...)
+	if metadata := InspectHeader(video, 1024); metadata.MediaType != "application/octet-stream" {
+		t.Fatalf("video metadata = %#v", metadata)
+	}
+
+	matroska := append(append([]byte{}, ebml...), []byte("matroska\x86A_OPUS")...)
+	if metadata := InspectHeader(matroska, 1024); metadata.MediaType != "application/octet-stream" {
+		t.Fatalf("matroska metadata = %#v", metadata)
+	}
+}

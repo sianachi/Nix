@@ -226,7 +226,7 @@ export function Conversation({
   const voice = usePetVoice((text) => {
     setDraft(`${draft}${draft ? ' ' : ''}${text}`.slice(0, 8000));
     regenerateRequestId();
-  });
+  }, client);
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
   const approvalPending = needsDecisionIds.length > 0;
@@ -915,13 +915,23 @@ export function Conversation({
                   variant="icon"
                   aria-label="Dictate"
                   aria-pressed={voice.listening}
-                  disabled={running}
+                  disabled={running || voice.transcribing}
                   onClick={voice.dictate}
                 >
                   <Icon icon={Mic} size="sm" />
                 </Button>
               ) : null}
-              {voice.listening || voice.speaking ? (
+              {voice.pressToFinish || voice.transcribing ? (
+                <Text as="span" variant="caption" tone="muted" role="status">
+                  {voice.transcribing ? 'Recognising' : 'Listening. Press again to finish.'}
+                </Text>
+              ) : null}
+              {/* While words are being taken down this button throws them away, so it says so. */}
+              {voice.listening || voice.transcribing ? (
+                <Button variant="icon" aria-label="Cancel dictation" onClick={voice.stop}>
+                  <Icon icon={X} size="sm" />
+                </Button>
+              ) : voice.speaking ? (
                 <Button variant="icon" aria-label="Stop audio" onClick={voice.stop}>
                   <Icon icon={VolumeX} size="sm" />
                 </Button>

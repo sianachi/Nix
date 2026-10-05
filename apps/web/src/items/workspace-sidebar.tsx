@@ -31,6 +31,7 @@ import {
   Shield,
   ShieldOff,
   Trash2,
+  Mic,
   Upload,
   type LucideIcon,
 } from 'lucide-react';
@@ -127,6 +128,8 @@ export interface WorkspaceSidebarProps {
   readonly templateStatus?: TemplateLibraryStatus;
   readonly onStartTemplate?: (parentId: string | null, templateId: string) => void;
   readonly onBrowseTemplates?: (parentId: string | null) => void;
+  /** Opens the recorder's setup. Absent where recording is not on offer. */
+  readonly onRecord?: (() => void) | undefined;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
@@ -248,6 +251,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           onBrowseTemplates={(parentId) => {
             props.onBrowseTemplates?.(parentId);
           }}
+          onRecord={props.onRecord}
           onUpload={(parentId) => {
             uploadParentRef.current = parentId;
             uploadInputRef.current?.click();
@@ -338,6 +342,7 @@ interface CreateMenuProps {
   readonly onStartTemplate: (parentId: string | null, templateId: string) => void;
   readonly onBrowseTemplates: (parentId: string | null) => void;
   readonly onUpload: (parentId: string | null) => void;
+  readonly onRecord: (() => void) | undefined;
 }
 
 /**
@@ -375,6 +380,7 @@ function CreateMenu({
   onStartTemplate,
   onBrowseTemplates,
   onUpload,
+  onRecord,
 }: CreateMenuProps): ReactNode {
   const [insideSelected, setInsideSelected] = useState(false);
 
@@ -444,6 +450,20 @@ function CreateMenu({
         onUpload(destination?.id ?? null);
       },
     },
+    // Always at the top of the workspace, whatever the destination above says: a meeting is
+    // filed afterwards, once there is something to file. The label says so, because every
+    // entry beside it obeys the destination.
+    ...(onRecord === undefined
+      ? []
+      : [
+          {
+            kind: 'action',
+            key: 'record',
+            icon: Mic,
+            label: 'Record a meeting (saved at the top of the workspace)',
+            onSelect: onRecord,
+          } satisfies MenuEntry,
+        ]),
     { kind: 'separator' },
     {
       kind: 'content',
