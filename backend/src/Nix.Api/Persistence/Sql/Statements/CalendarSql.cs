@@ -76,9 +76,11 @@ public static class CalendarSql
     /// filed under the Daily notes root, directly or inside a year or month folder, so it is not
     /// the direct child of anything with a calendar view and the container arm cannot reach it. The
     /// second arm of <c>entries</c> reads the notes through the closure of the root instead, and
-    /// is gated by <c>daily_on</c>: the workspace's <c>showOnCalendar</c> setting, read in the
-    /// statement beside everything else so the whole answer is one instant. While the setting is
-    /// false, absent or not a boolean, the gate is a one-time filter and the arm never runs.
+    /// is gated by <c>daily_on</c>: the workspace's <c>showOnCalendar</c> setting together with
+    /// its <c>enabled</c> flag (whose default is on for a personal workspace and off for a shared
+    /// one), read in the statement beside everything else so the whole answer is one instant. While
+    /// daily notes are switched off, or <c>showOnCalendar</c> is false, absent or not a boolean, the
+    /// gate is a one-time filter and the arm never runs.
     /// </para>
     /// <para>
     /// A note counts only when it sits under the root the reader derives for this workspace
@@ -138,13 +140,14 @@ public static class CalendarSql
         ),
         daily_on AS (
             SELECT 1
-            FROM workspace AS settings
-            WHERE settings.tenant_id = @tenant_id
-              AND settings.workspace_id = @workspace_id
-              AND settings.workspace_id = ANY(@workspace_ids)
+            FROM workspace AS w
+            WHERE w.tenant_id = @tenant_id
+              AND w.workspace_id = @workspace_id
+              AND w.workspace_id = ANY(@workspace_ids)
+              AND {WorkspaceAdministrationSql.DailyNoteEnabled}
               AND COALESCE(
-                    CASE WHEN jsonb_typeof(settings.daily_notes -> 'showOnCalendar') = 'boolean'
-                         THEN (settings.daily_notes ->> 'showOnCalendar')::boolean END,
+                    CASE WHEN jsonb_typeof(w.daily_notes -> 'showOnCalendar') = 'boolean'
+                         THEN (w.daily_notes ->> 'showOnCalendar')::boolean END,
                     false)
         ),
         entries AS (

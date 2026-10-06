@@ -9,6 +9,7 @@ import { anchorOf, anchorText, grainOf, windowFor } from '../calendar/calendar-w
 import { CollatedCalendar } from '../calendar/collated-calendar';
 import {
   filterByNotes,
+  isDailyNote,
   noteOptions,
   notesParam,
   parseNotes,
@@ -25,6 +26,7 @@ import {
 import { paneScroller } from '../layout/regions';
 import { useOpenItem } from '../tabs/use-open-item';
 import type { CalendarDay } from '../views/core/calendar-dates';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 /**
  * The calendar destination: every calendar in the workspace, drawn as one.
@@ -71,6 +73,7 @@ function todayHere(): CalendarDay {
 
 export function CalendarPage(): ReactElement {
   const visibility = useHiddenItems();
+  const { workspace } = useWorkspace();
   const [params, setParams] = useSearchParams();
   const { openPreview } = useOpenItem();
   const openDialog = useItemDialog();
@@ -146,7 +149,12 @@ export function CalendarPage(): ReactElement {
   }
 
   const notes = parseNotes(params.get('notes'));
-  const visible = calendar.entries.filter((entry) => !visibility.hiddenSet.has(entry.itemId));
+  // Daily notes are left off while the workspace has them switched off, whatever the read sent:
+  // their chips open the day's note, which such a workspace no longer offers.
+  const listed = workspace.canUseDailyNotes
+    ? calendar.entries
+    : calendar.entries.filter((entry) => !isDailyNote(entry));
+  const visible = listed.filter((entry) => !visibility.hiddenSet.has(entry.itemId));
   const unplaceable = calendar.unplaceable.filter(
     (row) => !visibility.hiddenSet.has(row.itemId ?? row.containerId),
   );
@@ -158,7 +166,7 @@ export function CalendarPage(): ReactElement {
   // Nothing scheduled anywhere *and* nothing misconfigured. A workspace with only a misconfigured
   // container is not empty - it has a calendar nobody finished setting up, and saying "nothing to
   // show" would hide the one thing worth acting on.
-  if (calendar.entries.length === 0 && calendar.unplaceable.length === 0) {
+  if (listed.length === 0 && calendar.unplaceable.length === 0) {
     return (
       <CalendarFrame>
         <EmptyPanel
@@ -187,8 +195,7 @@ export function CalendarPage(): ReactElement {
         />
       )}
 
-      {visible.length < calendar.entries.length ||
-      unplaceable.length < calendar.unplaceable.length ? (
+      {visible.length < listed.length || unplaceable.length < calendar.unplaceable.length ? (
         <Text role="status" variant="note">
           Some scheduled items are hidden for you. Open Hidden items to show them again.
         </Text>

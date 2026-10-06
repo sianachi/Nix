@@ -23,6 +23,15 @@ internal static class WorkspaceEndpoints
     /// <summary>Stable code for "no such workspace, or the caller cannot see it".</summary>
     internal const string NotFoundCode = "workspaces.not_found";
 
+    /// <summary>Stable code for "the day's note, or a folder above it, is in Trash".</summary>
+    internal const string DailyNoteInTrashCode = "workspaces.daily_note_in_trash";
+
+    /// <summary>Stable code for "the day's note sits under a lock the caller has not opened".</summary>
+    internal const string DailyNoteLockedCode = "workspaces.daily_note_locked";
+
+    /// <summary>Stable code for "the day's note could not be opened for any other reason".</summary>
+    internal const string DailyNoteUnavailableCode = "workspaces.daily_note_unavailable";
+
     /// <summary>
     /// Registers the workspaces feature's routes on <paramref name="endpoints"/>.
     /// </summary>
@@ -153,10 +162,19 @@ internal static class WorkspaceEndpoints
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         workspaces.MapPut("/{workspaceId:guid}/daily-notes/{date}", OpenDailyNoteEndpoint.Handle)
             .WithName("OpenDailyNote")
+            .WithDescription(
+                "Opens the day's note, creating it when needed. 'workspaces.not_found' (404) means "
+                + "only that the workspace is missing or the caller may not write it. A note that "
+                + "cannot be opened fails with 'workspaces.daily_note_in_trash' (409) when it or a "
+                + "folder above it is in Trash, 'workspaces.daily_note_locked' (423) when a lock the "
+                + "caller has not opened covers it, and 'workspaces.daily_note_unavailable' (409) "
+                + "otherwise. A purged note, or one moved to another workspace, no longer holds the "
+                + "day: the next open creates a fresh note.")
             .Produces<DailyNoteResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status423Locked)
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         workspaces.MapGet("/{workspaceId:guid}/daily-notes/settings", GetDailyNoteSettingsEndpoint.Handle)
             .WithName("GetDailyNoteSettings")
@@ -200,6 +218,8 @@ internal static class WorkspaceEndpoints
             "workspaces.invitee_search_invalid" => StatusCodes.Status422UnprocessableEntity,
             "workspaces.human_required" => StatusCodes.Status403Forbidden,
             "workspaces.recovery_forbidden" => StatusCodes.Status403Forbidden,
+            DailyNoteLockedCode => StatusCodes.Status423Locked,
+            DailyNoteInTrashCode or DailyNoteUnavailableCode => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status409Conflict,
         };
         return ApiProblem.Create(context, status, error.Code, "Workspace request refused", error.Message);

@@ -5,6 +5,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useAuth } from '../auth/auth-provider';
 import { ErrorPanel } from '../components/states/status-panels';
+import { publishNotice } from '../lib/notices';
 import { useWorkspace } from '../workspaces/workspace-context';
 import { createNote } from './create-note';
 import { MAX_LAUNCH_FILES, receiveLaunchFiles, type LaunchedFiles } from './launch-files';
@@ -111,7 +112,32 @@ export function LaunchPage(): ReactNode {
         return;
       }
       if (intent.kind === 'today') {
-        void navigate(`${home}/daily`, { replace: true });
+        if (workspace.canUseDailyNotes) {
+          void navigate(`${home}/daily`, { replace: true });
+          return;
+        }
+        // The shortcut names a feature this workspace has switched off. The daily address would
+        // only bounce to the workspace in silence, so land there directly and say why, with the
+        // way to switch them on for whoever may. Published a microtask late: on a cold launch the
+        // shell mounts with this page, and its notice subscription is an effect that runs after
+        // this child's.
+        void navigate(home, { replace: true });
+        queueMicrotask(() => {
+          publishNotice({
+            key: 'launch-daily-off',
+            message: `Daily notes are switched off in ${workspace.name}.`,
+            ...(workspace.canRename
+              ? {
+                  action: {
+                    label: 'Turn on',
+                    onAction: () => {
+                      void navigate(`${home}/settings?tab=daily-notes`);
+                    },
+                  },
+                }
+              : {}),
+          });
+        });
         return;
       }
       if (intent.kind === 'search') {
@@ -129,7 +155,18 @@ export function LaunchPage(): ReactNode {
     }
 
     void run();
-  }, [client, getAccessToken, home, intent, navigate, phase.name, workspaceId]);
+  }, [
+    client,
+    getAccessToken,
+    home,
+    intent,
+    navigate,
+    phase.name,
+    workspace.canRename,
+    workspace.canUseDailyNotes,
+    workspace.name,
+    workspaceId,
+  ]);
 
   async function confirm(chosen: Extract<LaunchIntent, { kind: 'new' | 'share' }>): Promise<void> {
     started.current = true;

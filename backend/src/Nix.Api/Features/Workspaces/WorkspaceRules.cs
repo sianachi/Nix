@@ -24,6 +24,15 @@ internal static class WorkspaceErrors
     internal static NixError DailyNotesRootUnavailable() =>
         new("workspaces.daily_notes_root_unavailable",
             "The Daily notes root or a folder under it is unavailable; restore or unlock it to open daily notes.");
+    internal static NixError DailyNoteInTrash() =>
+        new(WorkspaceEndpoints.DailyNoteInTrashCode,
+            "This day's note is in Trash. Restore it from Trash to open it.");
+    internal static NixError DailyNoteLocked() =>
+        new(WorkspaceEndpoints.DailyNoteLockedCode,
+            "This day's note is inside a locked item. Unlock it first to open the note.");
+    internal static NixError DailyNoteUnavailable() =>
+        new(WorkspaceEndpoints.DailyNoteUnavailableCode,
+            "This day's note could not be opened or created.");
     internal static NixError HumansOnly() =>
         new("workspaces.human_required", "Only an active human principal can create a workspace.");
 }

@@ -298,6 +298,13 @@ export interface StubOptions {
   /** Makes the calendar read fail with the refusal Core gives for an invisible workspace. */
   readonly calendarFails?: boolean;
 
+  /** Makes opening a daily note fail with this problem, as Core refuses one it cannot open. */
+  readonly dailyNoteOpenFails?: {
+    readonly status: number;
+    readonly code: string;
+    readonly detail?: string;
+  };
+
   /** Makes the calendar read claim it hit its entry ceiling. */
   readonly calendarTruncated?: boolean;
 
@@ -522,6 +529,11 @@ export interface StubWrites {
   }[];
   /** Every push subscription POST, in the order it was sent. */
   readonly pushSubscriptionWrites: readonly { endpoint: string; p256dh: string; auth: string }[];
+  /** Every daily-note settings PUT, in the order it was sent. */
+  readonly dailyNoteSettingsWrites: readonly {
+    workspaceId: string;
+    settings: Record<string, unknown>;
+  }[];
   /** Every push subscription DELETE's endpoint, in the order it was sent. */
   readonly pushSubscriptionRemovals: readonly string[];
 }
@@ -573,6 +585,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     lockedItems = [],
     calendarFails = false,
     calendarTruncated = false,
+    dailyNoteOpenFails,
     views = {},
     schemas = {},
     createRefusal,
@@ -610,6 +623,10 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   let heldPushSubscriptions = pushSubscriptions.map((entry) => ({ ...entry }));
   const pushSubscriptionWrites: { endpoint: string; p256dh: string; auth: string }[] = [];
   const pushSubscriptionRemovals: string[] = [];
+  // Daily-note settings per workspace. Unwritten, a workspace reports the switch its listing does,
+  // and a write flips the listing's flag the way Core derives it from `enabled`.
+  const heldDailyNoteSettings = new Map<string, Record<string, unknown>>();
+  const dailyNoteSettingsWrites: { workspaceId: string; settings: Record<string, unknown> }[] = [];
   let heldMembers = members.map((member) => ({
     ...member,
     email: member.email ?? null,
@@ -1160,20 +1177,39 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         return Promise.resolve(new Response(null, { status: 204 }));
       }
 
-      if (
-        /^\/api\/v1\/workspaces\/[0-9a-f-]{36}\/daily-notes\/settings$/.test(parsedUrl.pathname) &&
-        method === 'GET'
-      ) {
+      const dailySettings = /^\/api\/v1\/workspaces\/([0-9a-f-]{36})\/daily-notes\/settings$/.exec(
+        parsedUrl.pathname,
+      );
+      if (dailySettings !== null && method === 'GET') {
+        const workspaceId = dailySettings[1] ?? '';
         return Promise.resolve(
-          json({
-            enabled: true,
-            folders: 'flat',
-            titleFormat: 'iso',
-            template: '',
-            rolloverHour: 0,
-            showOnCalendar: true,
-          }),
+          json(
+            heldDailyNoteSettings.get(workspaceId) ?? {
+              enabled:
+                knownWorkspaces.find((entry) => entry.id === workspaceId)?.canUseDailyNotes ?? true,
+              folders: 'flat',
+              titleFormat: 'iso',
+              template: '',
+              rolloverHour: 0,
+              showOnCalendar: true,
+            },
+          ),
         );
+      }
+      if (dailySettings !== null && method === 'PUT') {
+        const workspaceId = dailySettings[1] ?? '';
+        const settings = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as Record<
+          string,
+          unknown
+        >;
+        dailyNoteSettingsWrites.push({ workspaceId, settings });
+        heldDailyNoteSettings.set(workspaceId, settings);
+        knownWorkspaces = knownWorkspaces.map((entry) =>
+          entry.id === workspaceId
+            ? { ...entry, canUseDailyNotes: settings.enabled === true }
+            : entry,
+        );
+        return Promise.resolve(json(settings));
       }
 
       const dailyNote =
@@ -1181,6 +1217,22 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           parsedUrl.pathname,
         );
       if (dailyNote !== null && method === 'PUT') {
+        if (dailyNoteOpenFails !== undefined) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                code: dailyNoteOpenFails.code,
+                ...(dailyNoteOpenFails.detail === undefined
+                  ? {}
+                  : { detail: dailyNoteOpenFails.detail }),
+              }),
+              {
+                status: dailyNoteOpenFails.status,
+                headers: { 'content-type': 'application/problem+json' },
+              },
+            ),
+          );
+        }
         const date = dailyNote[2] ?? '';
         const existing = known.find((entry) => entry.title === date);
         if (existing !== undefined)
@@ -2474,6 +2526,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     preferencesWrites,
     pushSubscriptionWrites,
     pushSubscriptionRemovals,
+    dailyNoteSettingsWrites,
   };
 }
 

@@ -41,6 +41,7 @@ function storeScheduleOpen(open: boolean): void {
  * Drawn from the note's own `$daily` marker by the page that hosts it, never from its title - the
  * title is whatever the workspace's format made it. Every move is a navigation to the daily
  * address, which opens or creates that day's note, so the bar holds no state about other days.
+ * Absent while the workspace has daily notes switched off.
  */
 export function DailyNoteBar({
   date,
@@ -49,10 +50,14 @@ export function DailyNoteBar({
   readonly date: string;
   readonly itemId: string;
 }): ReactNode {
-  const { workspaceId } = useWorkspace();
+  const { workspaceId, workspace } = useWorkspace();
   const navigate = useNavigate();
-  const settings = useDailyNoteSettings(workspaceId, true);
+  const settings = useDailyNoteSettings(workspaceId, workspace.canUseDailyNotes);
   const [scheduleOpen, setScheduleOpen] = useState(readScheduleOpen);
+
+  // Every move the bar offers opens the daily address, which a workspace with daily notes switched
+  // off refuses. The note itself stays an ordinary note; only the way between days goes.
+  if (!workspace.canUseDailyNotes) return null;
 
   const today =
     settings.status === 'ready'

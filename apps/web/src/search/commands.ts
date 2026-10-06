@@ -63,7 +63,11 @@ export interface CommandContext {
   /** Whether the open item is already kept, so the command can say which way it goes. */
   readonly openItemIsKept: boolean;
 
-  readonly openToday: () => void;
+  /**
+   * Opens today's note, or null when daily notes are switched off in this workspace - left out of
+   * the list rather than offered and refused, for the reason `toggleBookmark` is.
+   */
+  readonly openToday: (() => void) | null;
 
   /**
    * Opens the quick capture into today's note, or null when daily notes cannot be used here - left
@@ -104,13 +108,17 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
       keywords: ['new', 'note', 'create', 'add', 'document'],
       run: context.createItem,
     },
-    {
-      id: 'open-today',
-      label: 'Open today’s note',
-      icon: CalendarDays,
-      keywords: ['today', 'daily', 'journal', 'date'],
-      run: context.openToday,
-    },
+    ...(context.openToday === null
+      ? []
+      : [
+          {
+            id: 'open-today',
+            label: 'Open today’s note',
+            icon: CalendarDays,
+            keywords: ['today', 'daily', 'journal', 'date'],
+            run: context.openToday,
+          },
+        ]),
     ...(context.captureToToday === null
       ? []
       : [

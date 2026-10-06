@@ -743,9 +743,11 @@ export function AppShell(): ReactNode {
                   void toggleBookmark(selectedId);
                 },
           openItemIsKept: selectedIsKept,
-          openToday: () => {
-            void navigate(`/w/${workspaceId}/daily`);
-          },
+          openToday: workspace.canUseDailyNotes
+            ? () => {
+                void navigate(`/w/${workspaceId}/daily`);
+              }
+            : null,
           captureToToday: workspace.canUseDailyNotes
             ? () => {
                 setDailyCaptureOpen(true);

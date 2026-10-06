@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Nix.Abstractions;
 using Nix.Authentication;
 using Nix.Domain.Identity;
+using Nix.Domain.Provisioning;
 using Nix.Domain.Tenancy;
 using Nix.Features.Tokens;
 using Nix.Integration.Tests.Harness;
@@ -144,6 +145,35 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_trashed_daily_note_is_409_and_a_locked_one_is_423_never_a_missing_workspace()
+    {
+        var ownerJwt = await JwtAsync(Owner);
+        var path = $"/api/v1/workspaces/{PersonalWorkspace:D}/daily-notes/2026-08-30";
+        var opened = await SendAsync(HttpMethod.Put, path, ownerJwt);
+        Assert.Equal(HttpStatusCode.OK, opened.StatusCode);
+        Guid itemId;
+        using (var document = JsonDocument.Parse(await opened.Content.ReadAsStringAsync(Cancellation)))
+        {
+            itemId = document.RootElement.GetProperty("itemId").GetGuid();
+        }
+
+        await ExecuteAsMigratorAsync($"UPDATE item SET lifecycle_state = 'deleted' WHERE id = '{itemId:D}'");
+        var trashed = await SendAsync(HttpMethod.Put, path, ownerJwt);
+        Assert.Equal(HttpStatusCode.Conflict, trashed.StatusCode);
+        Assert.Equal("workspaces.daily_note_in_trash", await ProblemCodeAsync(trashed));
+
+        await ExecuteAsMigratorAsync($"""
+            UPDATE item SET lifecycle_state = 'active' WHERE id = '{itemId:D}';
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            VALUES ('{DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(PersonalWorkspace)):D}',
+                    '{M0SchemaSeed.Alpha.TenantId:D}', '{new string('a', 64)}', '{Owner:D}', now());
+            """);
+        var locked = await SendAsync(HttpMethod.Put, path, ownerJwt);
+        Assert.Equal(HttpStatusCode.Locked, locked.StatusCode);
+        Assert.Equal("workspaces.daily_note_locked", await ProblemCodeAsync(locked));
+    }
+
+    [Fact]
     public async Task Workspace_lifecycle_requires_archive_before_scheduling_permanent_deletion()
     {
         var ownerJwt = await JwtAsync(Owner);
@@ -214,6 +244,15 @@ public sealed class WorkspaceAdministrationHttpTests : IAsyncLifetime
     {
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Cancellation));
         return document.RootElement.GetProperty("code").GetString();
+    }
+
+    private async Task ExecuteAsMigratorAsync(string sql)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null, sql);
+        }
     }
 
     private async Task SeedAsync()

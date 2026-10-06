@@ -32,6 +32,22 @@ public sealed class DeterministicProvisioningIdTests
     }
 
     [Fact]
+    public void Daily_note_generation_zero_keeps_the_original_identifier_and_later_generations_differ()
+    {
+        var workspace = WorkspaceId.From(Guid.Parse("a223a8a8-2d53-8a5a-82ba-a33b57dd8b3d"));
+        var original = DeterministicProvisioningId.DatedDailyNote(workspace, "2026-08-30");
+
+        Assert.Equal(original, DeterministicProvisioningId.DatedDailyNote(workspace, "2026-08-30", 0));
+        var first = DeterministicProvisioningId.DatedDailyNote(workspace, "2026-08-30", 1);
+        var second = DeterministicProvisioningId.DatedDailyNote(workspace, "2026-08-30", 2);
+        Assert.NotEqual(original, first);
+        Assert.NotEqual(first, second);
+        Assert.Equal(first, DeterministicProvisioningId.DatedDailyNote(workspace, "2026-08-30", 1));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => DeterministicProvisioningId.DatedDailyNote(workspace, "2026-08-30", -1));
+    }
+
+    [Fact]
     public void Exact_issuer_and_subject_bytes_are_significant()
     {
         var canonical = DeterministicProvisioningId.Principal(Tenant, "https://issuer.test", "subject");

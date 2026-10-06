@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router';
 
 import { useApiClient } from '../api/api-client-provider';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../components/states/status-panels';
+import { DailyNotesSwitch } from '../settings/daily-notes-switch';
 import { useWorkspace } from './workspace-context';
 import { useWorkspaceAdministration } from './use-workspace-administration';
 
@@ -173,6 +174,8 @@ export function WorkspaceManagementSection(): ReactNode {
           </Button>
         </form>
       ) : null}
+
+      <DailyNotesSwitch />
 
       <Blueprint className="flex max-w-xl flex-col gap-3 p-4">
         <Text variant="h4" as="h3">
