@@ -4,7 +4,6 @@ import type { Finance, FinanceDashboard, QueryEndpoint } from '@nix/api-client';
 import { aContainer } from '../../container-fixture';
 import { aView } from '../../view-fixture';
 import { FinanceView } from '../../../views/finance/finance-view';
-import { formatMonth } from '../../../views/finance/money';
 import type { FinanceState } from '../../../views/finance/use-finance';
 import type * as UseFinance from '../../../views/finance/use-finance';
 
@@ -227,11 +226,14 @@ describe('the finance view', () => {
     mount();
     expect(screen.getByRole('heading', { name: 'Finances' })).toBeInTheDocument();
     expect(screen.getByText('September 2026')).toBeInTheDocument();
-    expect(screen.getByText(`Net ${formatMonth('2026-09')}`)).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'At the end of September 2026' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Money left this month')).toBeInTheDocument();
     expect(screen.getByText('Commuting')).toBeInTheDocument();
     expect(screen.getByText('Commuting').closest('li')).toHaveTextContent('+£72.00 over');
     expect(screen.getByText('Rent')).toBeInTheDocument();
-    expect(screen.getByRole('meter', { name: 'Emergency fund progress' })).toHaveAttribute(
+    expect(screen.getByRole('meter', { name: 'Cash and card buffer progress' })).toHaveAttribute(
       'aria-valuenow',
       '100',
     );
@@ -267,7 +269,7 @@ describe('the finance view', () => {
 
   it('closes the month from the checklist', async () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Close month' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close selected month' }));
     const dialog = screen.getByRole('dialog', { name: 'Close September 2026?' });
     expect(within(dialog).getByText(/1 scheduled line not posted yet/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Close month' }));
@@ -281,6 +283,16 @@ describe('the finance view', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
     expect(screen.getByText('August 2026')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled();
+  });
+
+  it('jumps directly to a historical month and returns to the current month', () => {
+    mount();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Month' }), {
+      target: { value: '2026-08' },
+    });
+    expect(screen.getByRole('combobox', { name: 'Month' })).toHaveValue('2026-08');
+    fireEvent.click(screen.getByRole('button', { name: 'This month' }));
+    expect(screen.getByRole('combobox', { name: 'Month' })).toHaveValue('2026-09');
   });
 
   it('keeps the selected month inside a shortened plan horizon', () => {

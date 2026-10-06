@@ -29,7 +29,7 @@ import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states
 import { BudgetActualDialog } from './budget-actual-dialog';
 import { LineDialog } from './finance-setup';
 import { Money, SectionHeading, editableTextButton } from './finance-shared';
-import { formatMonth, parseAmount, shiftMonth } from './money';
+import { formatMonth, parseAmount } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 
 type Figure = 'plan' | 'actual' | 'left';
@@ -45,7 +45,7 @@ const FIGURES: readonly { readonly value: Figure; readonly label: string }[] = [
  * The workbook's Budget, Actual and Variance sheets as one grid.
  *
  * One month shows plan, actual and what is left side by side; the year view shows one figure
- * across every month in the horizon window. Every number is Core's. A plan cell is edited in
+ * across the selected calendar year. Every number is Core's. A plan cell is edited in
  * place; an actual cell opens what is behind it, where a new total can be typed or the
  * transactions changed one by one. Narrowed to an account, the grid keeps only that account's
  * lines and every total at the foot is that account's alone.
@@ -80,12 +80,21 @@ export function FinanceBudget({
     | 'running'
     | { readonly done: number; readonly failed: readonly string[] }
   >('idle');
-  // A year window: up to twelve months, starting at the selected month, inside the horizon.
-  const from = month;
+  // Calendar years include earlier months, so the year view also explains historical spending.
+  const yearFrom = `${month.slice(0, 4)}-01`;
+  const yearTo = `${month.slice(0, 4)}-12`;
+  const from =
+    span === 'month'
+      ? month
+      : yearFrom < finance.settings.startMonth
+        ? finance.settings.startMonth
+        : yearFrom;
   const to =
     span === 'month'
       ? month
-      : ([shiftMonth(month, 11), finance.settings.endMonth].sort()[0] ?? month);
+      : yearTo > finance.settings.endMonth
+        ? finance.settings.endMonth
+        : yearTo;
   const itemId = finance.itemId;
   const account = accountId === '' ? undefined : accountId;
   const endpoint = useMemo(
@@ -125,13 +134,13 @@ export function FinanceBudget({
   const accountName = finance.accounts.find((each) => each.id === grid.accountId)?.name;
   const switching = query.status === 'loading' && (grid.accountId ?? '') !== accountId;
   const closedMonth = finance.closedMonths.includes(month);
-  // Lines with no actual yet, whose plan is not nothing, for the selected month: `cells[0]`
-  // always keys to `month` regardless of the span toggle, since the query starts its window
-  // there. The account filter is already baked into `grid`, so nothing more is needed to honour it.
+  const mismatchedScope =
+    (grid.accountId ?? '') !== accountId || grid.months[0] !== from || grid.months.at(-1) !== to;
+  // Bulk recording always targets the selected month, including inside a calendar-year grid.
   const bulkCandidates = grid.sections
     .flatMap((section) => section.lines)
     .filter((row) => {
-      const cell = row.cells[0];
+      const cell = row.cells.find((candidate) => candidate.month === month);
       return cell?.actual === 0 && cell.plan !== 0;
     });
   const runBulk = async (): Promise<void> => {
@@ -139,7 +148,7 @@ export function FinanceBudget({
     let done = 0;
     const failed: string[] = [];
     for (const row of bulkCandidates) {
-      const cell = row.cells[0];
+      const cell = row.cells.find((candidate) => candidate.month === month);
       if (cell === undefined) continue;
       const outcome = await state.setActual(row.line.id, month, { amount: cell.plan });
       if (typeof outcome === 'string') failed.push(row.line.name);
@@ -198,7 +207,7 @@ export function FinanceBudget({
         detail={
           span === 'month'
             ? `${formatMonth(month, 'long')}${scope}: plan, actual and what is left on each line.${editHint}`
-            : `${formatMonth(from)} to ${formatMonth(to)}${scope}: ${FIGURES.find((option) => option.value === figure)?.label.toLowerCase() ?? ''} by month.${figure === 'plan' ? ' Choose a figure to change that month.' : figure === 'actual' ? ' Choose a figure to see what is behind it.' : ' Choose a figure to open its month.'}`
+            : `${month.slice(0, 4)} calendar year (${formatMonth(from)} to ${formatMonth(to)} covered by your plan)${scope}: ${FIGURES.find((option) => option.value === figure)?.label.toLowerCase() ?? ''} by month.${figure === 'plan' ? ' Choose a figure to change that month.' : figure === 'actual' ? ' Choose a figure to see what is behind it.' : ' Choose a figure to open its month.'}`
         }
         actions={
           <>
@@ -231,7 +240,9 @@ export function FinanceBudget({
             {closedMonth ? null : (
               <Button
                 variant="secondary"
-                disabled={bulkCandidates.length === 0}
+                disabled={
+                  bulkCandidates.length === 0 || mismatchedScope || query.status !== 'ready'
+                }
                 onClick={() => {
                   setBulk('confirming');
                 }}
@@ -259,6 +270,7 @@ export function FinanceBudget({
             Cancel
           </Button>
           <Button
+            disabled={mismatchedScope || query.status !== 'ready'}
             onClick={() => {
               void runBulk();
             }}
@@ -280,8 +292,34 @@ export function FinanceBudget({
           {accountName ?? 'every account'}.
         </Text>
       ) : null}
-      {query.status === 'error' ? <PartialNotice pending="the latest figures" /> : null}
-      {grid.sections.length === 0 ? (
+      {query.status === 'loading' ? (
+        <Text variant="bodySmall" tone="muted" role="status">
+          Updating budget figures. Editing resumes when the latest figures arrive.
+        </Text>
+      ) : null}
+      {query.status === 'error' && !mismatchedScope ? (
+        <div className="flex flex-col gap-2">
+          <PartialNotice pending="the latest figures" />
+          <Button variant="secondary" onClick={state.reload}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
+      {mismatchedScope ? (
+        query.status === 'error' ? (
+          <ErrorPanel
+            title="The selected budget could not be loaded"
+            detail={query.error ?? ''}
+            action={
+              <Button variant="secondary" onClick={state.reload}>
+                Try again
+              </Button>
+            }
+          />
+        ) : (
+          <LoadingPanel label="selected budget" />
+        )
+      ) : grid.sections.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
           {accountName === undefined
             ? 'No budget lines yet. Add the plan line by line: Salary under Income, Rent under Housing, Groceries under whichever card pays for them.'
@@ -352,6 +390,7 @@ export function FinanceBudget({
                       <button
                         type="button"
                         className={editableTextButton}
+                        disabled={query.status !== 'ready'}
                         onClick={() => {
                           setEditing(row.line);
                         }}
@@ -377,7 +416,7 @@ export function FinanceBudget({
                             month={month}
                             amount={row.cells[0]?.plan ?? 0}
                             currency={currency}
-                            closed={closedMonth}
+                            closed={closedMonth || query.status !== 'ready'}
                             onSave={(amount) => savePlan(row.line, month, amount)}
                           />
                         </NumberCell>
@@ -387,6 +426,7 @@ export function FinanceBudget({
                             month={month}
                             cell={row.cells[0] ?? EMPTY_CELL}
                             currency={currency}
+                            disabled={query.status !== 'ready'}
                             onOpen={() => {
                               setOpened({ lineId: row.line.id, month });
                             }}
@@ -409,7 +449,10 @@ export function FinanceBudget({
                               month={cell.month}
                               amount={cell.plan}
                               currency={currency}
-                              closed={finance.closedMonths.includes(cell.month)}
+                              closed={
+                                finance.closedMonths.includes(cell.month) ||
+                                query.status !== 'ready'
+                              }
                               onSave={(amount) => savePlan(row.line, cell.month, amount)}
                             />
                           ) : figure === 'actual' ? (
@@ -418,6 +461,7 @@ export function FinanceBudget({
                               month={cell.month}
                               cell={cell}
                               currency={currency}
+                              disabled={query.status !== 'ready'}
                               onOpen={() => {
                                 setOpened({ lineId: row.line.id, month: cell.month });
                               }}
@@ -426,6 +470,7 @@ export function FinanceBudget({
                             <button
                               type="button"
                               className={cellButton}
+                              disabled={query.status !== 'ready'}
                               onClick={() => {
                                 onMonth(cell.month);
                               }}
@@ -748,15 +793,17 @@ function ActualCell({
   cell,
   currency,
   onOpen,
+  disabled = false,
 }: {
   readonly line: BudgetLine;
   readonly month: string;
   readonly cell: BudgetCell;
   readonly currency: string;
   readonly onOpen: () => void;
+  readonly disabled?: boolean;
 }): ReactNode {
   return (
-    <button type="button" className={cellButton} onClick={onOpen}>
+    <button type="button" className={cellButton} disabled={disabled} onClick={onOpen}>
       <span className="sr-only">
         Actual for {line.name} in {formatMonth(month, 'long')}:{' '}
       </span>
