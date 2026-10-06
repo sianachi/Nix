@@ -72,6 +72,13 @@ export const proseRoot = [
   // selection at all.
   'caret-foreground selection:bg-accent-200 selection:text-neutral-900',
 
+  // Vim basics' block cursor (`vim-motions.ts`): the character under the Normal-mode cursor is
+  // inverted while the editor has focus, and the thin caret is hidden so there is one cursor, not
+  // two. Unfocused, the block is left undrawn, so a second pane never shows a cursor it is not
+  // taking keys for.
+  '[&.nix-vim-command]:caret-transparent',
+  '[&.ProseMirror-focused_.nix-vim-cursor]:bg-foreground [&.ProseMirror-focused_.nix-vim-cursor]:text-background',
+
   // A selected block - an image, a rule - carries the same accent ring as a focused control.
   '[&_.ProseMirror-selectednode]:outline-2 [&_.ProseMirror-selectednode]:outline-offset-2 [&_.ProseMirror-selectednode]:outline-accent',
 

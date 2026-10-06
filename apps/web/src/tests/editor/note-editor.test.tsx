@@ -594,6 +594,9 @@ describe('collaborative history keys', () => {
       expect(shared).not.toContain('heading');
       expect(shared).toContain('Peer note');
     });
+    // Emacs basics owns Ctrl+Y (yank) on Windows and Linux, so the alternate redo chord is
+    // checked with the preset off.
+    useKeyboardModeStore.setState({ mode: 'standard' });
     fireEvent.keyDown(body, { key: 'y', ...MODIFIER });
     await waitFor(() => {
       const shared = JSON.stringify(doc.getXmlFragment('default').toJSON());

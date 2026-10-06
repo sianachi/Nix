@@ -77,7 +77,7 @@ import { SlashMenu } from './slash-menu';
 import { InlineAiPanel } from './inline-ai/inline-ai-panel';
 import { useInlineAi } from './inline-ai/use-inline-ai';
 import { renderToggleButton, toggleSummaryView } from './toggle-button';
-import { setVimEnabled, vimStatusMode, VimMotions } from './vim-motions';
+import { setVimEnabled, vimModeLabel, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
 import { PendingReferenceNotice } from './pending-reference-notice';
@@ -995,8 +995,8 @@ export function NoteEditor({
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="relative flex min-h-0 flex-1 flex-col">
             <Text id={vimDescriptionId} variant="note" className="sr-only">
-              Vim basics starts in Normal mode. Press i to insert text and Escape to return to
-              Normal.
+              Vim basics starts in Normal mode. Press i to insert text, Escape to return to Normal,
+              and v or V for Visual mode.
             </Text>
             {hideToolbar ? null : narrow ? (
               <MobileNoteToolbar
@@ -1301,7 +1301,7 @@ export function NoteEditor({
                 aria-atomic="true"
                 className="px-8 py-1.5 font-heading font-semibold tracking-wider uppercase text-muted"
               >
-                Vim {activeVimMode}
+                Vim {vimModeLabel(activeVimMode)}
               </Text>
             )}
           </div>
