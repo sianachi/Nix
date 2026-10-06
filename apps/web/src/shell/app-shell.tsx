@@ -599,7 +599,6 @@ export function AppShell(): ReactNode {
                 templateStatus={templateLibrary.status}
                 onStartTemplate={startTemplate}
                 onBrowseTemplates={browseTemplates}
-                onRecord={openRecorder}
                 treeRegionRef={treeRegionRef}
                 sidebarToggleRef={sidebarToggleRef}
               />

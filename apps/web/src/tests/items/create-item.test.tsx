@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -31,6 +31,29 @@ const CHILD = item({
   parentId: PARENT.id,
 });
 
+/** Opens New, picks an entry, and returns the dialog it opened. */
+async function openNew(
+  user: ReturnType<typeof userEvent.setup>,
+  entry: string,
+  dialogName: string,
+): Promise<HTMLElement> {
+  await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+  await user.click(await screen.findByRole('menuitem', { name: entry }));
+  return screen.findByRole('dialog', { name: dialogName });
+}
+
+/** Makes a note through the New dialog, optionally inside the selected item. */
+async function createNote(
+  user: ReturnType<typeof userEvent.setup>,
+  inside?: string,
+): Promise<void> {
+  const dialog = await openNew(user, 'Note…', 'New note');
+  if (inside !== undefined) {
+    await user.click(within(dialog).getByRole('button', { name: `Inside ${inside}` }));
+  }
+  await user.click(within(dialog).getByRole('button', { name: 'Create note' }));
+}
+
 describe('creating an item', () => {
   it('puts it in the tree without collapsing what was open', async () => {
     const user = userEvent.setup();
@@ -40,8 +63,7 @@ describe('creating an item', () => {
     await user.click(await screen.findByRole('button', { name: /expand engineering/i }));
     expect(await screen.findByRole('button', { name: 'Roadmap' })).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /new note in the workspace/i }));
+    await createNote(user);
 
     // `tree.reload()` re-fetches roots and empties the expanded set, so calling it after a create
     // would close every folder somebody had opened to get here. `tree.create` puts the item into
@@ -59,9 +81,7 @@ describe('creating an item', () => {
     // Open the parent without expanding it, so the new child lands somewhere closed.
     await screen.findByRole('button', { name: 'Engineering' });
 
-    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /new note inside engineering/i }));
+    await createNote(user, 'Engineering');
 
     await waitFor(() => {
       expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Untitled note');
@@ -83,8 +103,7 @@ describe('creating an item', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Engineering' });
-    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /new note in the workspace/i }));
+    await createNote(user);
 
     // The server's own sentence, beside the control that was pressed. It used to report the status
     // code alone - "(422)" in place of a sentence naming the property at fault - and it used to put
@@ -103,17 +122,12 @@ describe('creating an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
 
-    async function createNote(): Promise<void> {
-      await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-      await user.click(await screen.findByRole('menuitem', { name: /new note in the workspace/i }));
-    }
-
-    await createNote();
+    await createNote(user);
     expect(await screen.findByRole('alert')).toBeVisible();
 
     // A refusal left on screen through the next attempt describes a request that is no longer
     // happening, and somebody reads it as the new one having failed too.
-    await createNote();
+    await createNote(user);
     await waitFor(() => {
       expect(screen.getAllByRole('alert')).toHaveLength(1);
     });
@@ -130,21 +144,17 @@ describe('the new-item menu', () => {
     const trigger = screen.getByRole('button', { name: /new item in the workspace/i });
     await user.click(trigger);
 
-    // The destination toggle is a `content` entry in `<Menu>` - a settings widget, not a command -
-    // so it sits outside the arrow-key roving order the same way the profile menu's appearance
-    // switcher does. Opening the menu focuses the first real command instead, and Home/End cycle
-    // only across those commands.
-    expect(screen.getByRole('menuitem', { name: /new note in the workspace/i })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Note…' })).toHaveFocus();
     await user.keyboard('{End}');
-    expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'From a template…' })).toHaveFocus();
     await user.keyboard('{Home}');
-    expect(screen.getByRole('menuitem', { name: /new note in the workspace/i })).toHaveFocus();
+    expect(screen.getByRole('menuitem', { name: 'Note…' })).toHaveFocus();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
   });
 
-  it('offers every kind the client can draw, and closes once one is chosen', async () => {
+  it('offers six entries: the three kinds, upload, structured items and templates', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT] });
     renderAt(<App />, `/?item=${PARENT.id}`);
@@ -152,37 +162,66 @@ describe('the new-item menu', () => {
     await screen.findByRole('button', { name: 'Engineering' });
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
 
-    // A body kind with no way to create an item of it is a body kind nobody can use.
-    expect(screen.getByRole('menuitem', { name: /new note in the workspace/i })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /new canvas in the workspace/i })).toBeVisible();
-    expect(
-      screen.getByRole('menuitem', { name: /new spreadsheet in the workspace/i }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i }),
-    ).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByRole('menu')).toHaveTextContent('Templates');
-    expect(
-      await screen.findByRole('menuitem', { name: /new kanban in the workspace/i }),
-    ).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /new calendar in the workspace/i })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /new list in the workspace/i })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /upload files/i })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /browse all templates/i })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /habit tracker/i })).toBeVisible();
-    // A drive is made on purpose, like a board, so it is offered here and not only as a view.
-    expect(screen.getByRole('menuitem', { name: /new drive in the workspace/i })).toBeVisible();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(18);
-    expect(screen.queryByText('Today')).not.toBeInTheDocument();
-    expect(screen.queryByText('Next 7 days')).not.toBeInTheDocument();
-    expect(screen.queryByText('Overdue')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('menuitem').map((entry) => entry.textContent)).toEqual([
+      'Note…',
+      'Canvas…',
+      'Sheet…',
+      'Upload files…',
+      'Structured…',
+      'From a template…',
+    ]);
+  });
 
-    await user.click(screen.getByRole('menuitem', { name: /new note in the workspace/i }));
+  it('names a new item in a dialog before creating it, and closes the menu', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [PARENT] });
+    renderAt(<App />);
 
-    // A menu still open over the tree would cover the item it just created.
-    await waitFor(() => {
-      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    });
+    await screen.findByRole('button', { name: 'Engineering' });
+    const dialog = await openNew(user, 'Canvas…', 'New canvas');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    // Nothing is selected, so there is no "inside" choice to offer.
+    expect(within(dialog).getByText(/top of the workspace/i)).toBeVisible();
+
+    const title = within(dialog).getByRole('textbox', { name: 'Title' });
+    expect(title).toHaveFocus();
+    await user.type(title, 'Moodboard{Enter}');
+
+    expect(await screen.findByRole('button', { name: 'Moodboard' })).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('defaults to the top of the workspace every time it opens', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [PARENT] });
+    renderAt(<App />, `/?item=${PARENT.id}`);
+
+    await screen.findByRole('button', { name: 'Engineering' });
+    let dialog = await openNew(user, 'Note…', 'New note');
+    expect(within(dialog).getByRole('button', { name: 'Top of workspace' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Inside Engineering' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    dialog = await openNew(user, 'Note…', 'New note');
+    expect(within(dialog).getByRole('button', { name: 'Top of workspace' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  it('lists every structured item with what it is, and starts the chosen one', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [PARENT] });
+    renderAt(<App />);
+
+    await screen.findByRole('button', { name: 'Engineering' });
+    const dialog = await openNew(user, 'Structured…', 'New structured item');
+    const list = within(dialog).getByRole('list', { name: 'Structured items' });
+    expect(within(list).getAllByRole('button').length).toBeGreaterThan(3);
+    expect(within(list).getByText(/columns defined by a select field/i)).toBeVisible();
   });
 
   it('creates from a library template through a reviewable wizard', async () => {
@@ -191,8 +230,8 @@ describe('the new-item menu', () => {
     renderAt(<App />);
 
     await screen.findByRole('button', { name: 'Engineering' });
-    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /new kanban in the workspace/i }));
+    const dialog = await openNew(user, 'From a template…', 'New from a template');
+    await user.click(await within(dialog).findByRole('button', { name: /^kanban/i }));
 
     expect(await screen.findByRole('heading', { name: /create from kanban/i })).toBeVisible();
     expect(screen.getByText(/destination: workspace root/i)).toBeVisible();
@@ -208,7 +247,7 @@ describe('the new-item menu', () => {
     expect(await screen.findByDisplayValue('Kanban')).toBeVisible();
   });
 
-  it('closes on Escape without creating anything', async () => {
+  it('closes without creating anything', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [PARENT] });
     renderAt(<App />);
@@ -225,5 +264,14 @@ describe('the new-item menu', () => {
       expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     });
     expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    // jsdom does not turn Escape into the native dialog's cancel event, so the visible way out
+    // stands in for it here; `Dialog`'s own tests cover Escape.
+    const dialog = await openNew(user, 'Note…', 'New note');
+    await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+    await waitFor(() => {
+      expect(dialog).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: 'Untitled note' })).not.toBeInTheDocument();
   });
 });
