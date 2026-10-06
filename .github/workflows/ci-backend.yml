@@ -53,6 +53,7 @@ jobs:
   go-workers:
     name: Go workers
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
 
@@ -84,6 +85,7 @@ jobs:
   backend-static:
     name: backend static
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -130,6 +132,7 @@ jobs:
   backend-unit:
     name: backend unit
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     needs: backend-static
     steps:
       - uses: actions/checkout@v5
@@ -163,6 +166,7 @@ jobs:
   backend-integration:
     name: backend integration
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     needs: backend-static
     steps:
       - uses: actions/checkout@v5

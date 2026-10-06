@@ -9,6 +9,15 @@
 # then stitched into one multi-arch manifest per image, so a plain `docker pull`
 # on either an Intel/AMD or an ARM host resolves to the matching build.
 #
+# Only images whose inputs changed since the previous main commit are rebuilt. The
+# rest are carried forward: the previous commit's published manifest is tagged
+# with this commit's SHA, so every main commit still has every image and a
+# release can deploy any SHA. A manual dispatch rebuilds everything.
+#
+# Build layers are cached in GHCR (a buildcache-<arch> tag per image), not in the
+# Actions cache: the Jetson base alone is several gigabytes, and the 10 GB Actions
+# cache limit would evict the pnpm, NuGet and Go caches the test workflows rely on.
+#
 # Published as ghcr.io/<owner>/nix/<image>:<full commit SHA>. There is
 # deliberately no "latest": a floating tag with imagePullPolicy IfNotPresent
 # keeps running the old build. Deploy with REGISTRY=ghcr.io/<owner>/nix
@@ -33,41 +42,139 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build ${{ matrix.image.name }} (${{ matrix.arch }})
-    # A manual dispatch can name any branch; only main is ever built and published.
+  # Decides, per image, whether this commit rebuilds it or carries the previous
+  # commit's image forward. An image is rebuilt when any path its Dockerfile copies
+  # changed, when the previous commit's image is not published (its run failed or
+  # was superseded while pending), or when there is no previous commit to compare
+  # against (manual dispatch, first push, force push). The path lists mirror the
+  # COPY lines of deploy/docker/*.Dockerfile; keep them in step.
+  plan:
+    name: Plan image builds
     if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+      retag: ${{ steps.plan.outputs.retag }}
+      l4t: ${{ steps.plan.outputs.l4t }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Plan
+        id: plan
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix"
+          changed="$RUNNER_TEMP/changed"
+          all=false
+          if [ -z "${BEFORE:-}" ] || [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            all=true
+          elif ! git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            all=true
+          else
+            git diff --name-only "$BEFORE" "$GITHUB_SHA" > "$changed"
+            # The build context and this workflow affect every image.
+            if grep -qxE '\.dockerignore|\.github/workflows/ci-images\.yml' "$changed"; then all=true; fi
+          fi
+          echo "Rebuild everything: $all"
+
+          # A path ending in / matches everything under it; any other path matches itself.
+          touches() {
+            [ "$all" = true ] && return 0
+            local f p
+            while IFS= read -r f; do
+              for p in "$@"; do
+                if [ "$f" = "$p" ] || { [[ "$p" == */ ]] && [[ "$f" == "$p"* ]]; }; then return 0; fi
+              done
+            done < "$changed"
+            return 1
+          }
+
+          decide() {
+            local name="$1"; shift
+            if touches "$@"; then echo build; return; fi
+            if ! docker buildx imagetools inspect "$registry/$name:$BEFORE" >/dev/null 2>&1; then
+              echo "::notice::$name:$BEFORE is not published; rebuilding $name" >&2
+              echo build; return
+            fi
+            echo retag
+          }
+
+          build='[]'; publish='[]'; retag='[]'
+          plan() {
+            local name="$1" dockerfile="$2" target="$3"; shift 3
+            if [ "$(decide "$name" "$dockerfile" "$@")" = build ]; then
+              for arch in amd64 arm64; do
+                runner=ubuntu-24.04; [ "$arch" = arm64 ] && runner=ubuntu-24.04-arm
+                build=$(jq -c --arg n "$name" --arg d "$dockerfile" --arg t "$target" --arg a "$arch" --arg r "$runner" \
+                  '. + [{name: $n, dockerfile: $d, target: $t, arch: $a, runner: $r}]' <<< "$build")
+              done
+              publish=$(jq -c --arg n "$name" '. + [$n]' <<< "$publish")
+            else
+              retag=$(jq -c --arg n "$name" '. + [$n]' <<< "$retag")
+            fi
+          }
+
+          node_root="package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json packages/"
+          # shellcheck disable=SC2086
+          {
+            plan api deploy/docker/backend.Dockerfile api Nix.slnx backend/
+            plan migrator deploy/docker/backend.Dockerfile migrator Nix.slnx backend/
+            plan collab deploy/docker/node.Dockerfile collab $node_root deploy/template-sync/ apps/collab/ apps/web/package.json
+            plan worker deploy/docker/go-workers.Dockerfile '' apps/go-workers/
+            plan speech-worker deploy/docker/speech-worker.Dockerfile '' apps/go-workers/
+            plan web deploy/docker/web.Dockerfile web $node_root apps/web/ apps/collab/package.json
+            plan release-tools deploy/docker/release-tools.Dockerfile release-tools $node_root deploy/template-sync/ \
+              apps/cli/ apps/web/package.json apps/collab/package.json deploy/compose/smoke.mjs deploy/compose/nixctl.sh \
+              deploy/compose/verify-artifact.py deploy/docker/release-tools-entrypoint.sh
+          }
+
+          l4t=$(decide speech-worker-l4t deploy/docker/speech-worker.l4t.Dockerfile apps/go-workers/)
+          if [ "$l4t" = retag ]; then retag=$(jq -c '. + ["speech-worker-l4t"]' <<< "$retag"); fi
+
+          {
+            echo "build=$build"
+            echo "publish=$publish"
+            echo "retag=$retag"
+            echo "l4t=$l4t"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Image plan"
+            echo "- Rebuild: $(jq -r 'join(", ")' <<< "$publish") $([ "$l4t" = build ] && echo '(and speech-worker-l4t)')"
+            echo "- Carried forward from \`${BEFORE:-none}\`: $(jq -r 'join(", ")' <<< "$retag")"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.name }} (${{ matrix.arch }})
+    needs: plan
+    if: needs.plan.outputs.build != '[]'
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - { name: api, dockerfile: deploy/docker/backend.Dockerfile, target: api }
-          - { name: migrator, dockerfile: deploy/docker/backend.Dockerfile, target: migrator }
-          - { name: collab, dockerfile: deploy/docker/node.Dockerfile, target: collab }
-          - { name: worker, dockerfile: deploy/docker/go-workers.Dockerfile, target: '' }
-          - { name: speech-worker, dockerfile: deploy/docker/speech-worker.Dockerfile, target: '' }
-          - { name: web, dockerfile: deploy/docker/web.Dockerfile, target: web }
-          - {
-              name: release-tools,
-              dockerfile: deploy/docker/release-tools.Dockerfile,
-              target: release-tools,
-            }
-        arch: [amd64, arm64]
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+        include: ${{ fromJSON(needs.plan.outputs.build) }}
     steps:
       - uses: actions/checkout@v5
 
       # GHCR repository paths must be lowercase; the owner may not be.
       - name: Image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.image.name }}" >> "$GITHUB_ENV"
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.name }}" >> "$GITHUB_ENV"
 
       - uses: docker/setup-buildx-action@v4
 
@@ -82,13 +189,13 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ${{ matrix.image.dockerfile }}
-          target: ${{ matrix.image.target }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
           platforms: linux/${{ matrix.arch }}
           # Pushed by digest only; the merge job attaches the tags to the manifest list.
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.arch }},mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Record digest
         run: |
@@ -98,22 +205,24 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: digests-${{ matrix.image.name }}-${{ matrix.arch }}
+          name: digests-${{ matrix.name }}-${{ matrix.arch }}
           path: ${{ runner.temp }}/digests/*
           if-no-files-found: error
           retention-days: 1
 
   publish:
     name: Publish ${{ matrix.image }}
-    needs: build
+    needs: [plan, build]
+    if: needs.plan.outputs.publish != '[]'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        image: [api, migrator, collab, worker, speech-worker, web, release-tools]
+        image: ${{ fromJSON(needs.plan.outputs.publish) }}
     steps:
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/${{ matrix.image }}" >> "$GITHUB_ENV"
@@ -157,8 +266,11 @@ jobs:
   # stops, if this job did not publish the commit's image.
   speech-l4t:
     name: Build speech-worker-l4t (arm64)
-    if: github.ref == 'refs/heads/main'
+    needs: plan
+    if: needs.plan.outputs.l4t == 'build'
     runs-on: ubuntu-24.04-arm
+    # A cold build compiles whisper.cpp against CUDA and takes about half an hour.
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -188,8 +300,41 @@ jobs:
           platforms: linux/arm64
           push: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha,scope=speech-worker-l4t-arm64
-          cache-to: type=gha,mode=max,scope=speech-worker-l4t-arm64
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-arm64
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-arm64,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Inspect
         run: docker buildx imagetools inspect "$IMAGE:${{ github.sha }}"
+
+  # Unchanged images: the previous commit's manifest, tagged with this commit's SHA. The
+  # plan job confirmed each source tag exists before choosing this over a rebuild.
+  retag:
+    name: Carry forward unchanged images
+    needs: plan
+    if: needs.plan.outputs.retag != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the previous commit's images with this commit
+        env:
+          RETAG: ${{ needs.plan.outputs.retag }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          registry="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix"
+          for name in $(jq -r '.[]' <<< "$RETAG"); do
+            echo "$name: $BEFORE -> $GITHUB_SHA"
+            docker buildx imagetools create -t "$registry/$name:$GITHUB_SHA" "$registry/$name:$BEFORE"
+            docker buildx imagetools inspect "$registry/$name:$GITHUB_SHA" >/dev/null
+          done
