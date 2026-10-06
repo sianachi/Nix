@@ -67,4 +67,21 @@ public sealed class DeterministicProvisioningIdTests
         Assert.Equal(8, bytes[6] >> 4);
         Assert.Equal(2, bytes[8] >> 6);
     }
+    [Fact]
+    public void Daily_notes_containers_keep_their_original_identifier_at_generation_zero()
+    {
+        var workspace = DeterministicProvisioningId.PersonalWorkspace(
+            DeterministicProvisioningId.Principal(Tenant, "https://issuer.test", "subject"));
+
+        var roots = DeterministicProvisioningId.DailyNotesRootGenerations(workspace);
+        var months = DeterministicProvisioningId.DailyNotesFolderGenerations(workspace, "2026-10");
+
+        Assert.Equal(DeterministicProvisioningId.DailyNotesRootGenerations(workspace), roots);
+        Assert.Equal(DeterministicProvisioningId.DailyNoteGenerations, roots.Length);
+        Assert.Equal(DeterministicProvisioningId.DailyNotesRoot(workspace), roots[0]);
+        Assert.Equal(DeterministicProvisioningId.DailyNotesFolder(workspace, "2026-10"), months[0]);
+        Assert.Equal(roots.Length, roots.Distinct().Count());
+        Assert.Empty(roots.Intersect(months));
+        Assert.Throws<ArgumentOutOfRangeException>(() => DeterministicProvisioningId.DailyNotesRoot(workspace, -1));
+    }
 }

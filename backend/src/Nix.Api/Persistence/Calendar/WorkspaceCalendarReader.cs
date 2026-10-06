@@ -100,9 +100,11 @@ public sealed class WorkspaceCalendarReader : IWorkspaceCalendar
                 new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = Tenant.Value },
                 new NpgsqlParameter("workspace_id", NpgsqlDbType.Uuid) { Value = workspaceId.Value },
                 new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers },
-                new NpgsqlParameter("daily_root_id", NpgsqlDbType.Uuid)
+                // Every root generation: a purged root is replaced, and the notes under its successor
+                // are as much the workspace's daily notes as those under the original.
+                new NpgsqlParameter("daily_root_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
                 {
-                    Value = DeterministicProvisioningId.DailyNotesRoot(workspaceId),
+                    Value = DeterministicProvisioningId.DailyNotesRootGenerations(workspaceId),
                 },
                 new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = firstDay },
                 new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = lastDay },

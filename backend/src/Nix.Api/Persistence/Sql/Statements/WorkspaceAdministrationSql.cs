@@ -1016,6 +1016,41 @@ public static class WorkspaceAdministrationSql
         """;
 
     /// <summary>
+    /// Picks which generation of a daily-notes container - the root, a year folder or a month
+    /// folder - the open uses, by the same rule as <see cref="DailyNoteContext"/> uses for the note:
+    /// the newest candidate that is ours, else the first free one above every taken one. No row
+    /// means every candidate is taken.
+    /// </summary>
+    /// <remarks>
+    /// A container is ours when it is in this workspace, not purged, and still sits under the
+    /// parent the tree needs (<c>@parent_id</c>; null for the root). Purging a container is terminal
+    /// and moves its children up a level, so a purged root leaves its year folders at the top of the
+    /// workspace: they are no longer where the tree needs them, retire, and the tree starts anew
+    /// under the next generation. A trashed or locked container is still ours, so the open reports
+    /// it rather than building a second tree beside it. Like the note probe, this reads candidate
+    /// rows across the tenant and returns only one of this workspace's own derived identifiers.
+    /// </remarks>
+    public const string DailyNoteContainerSlot = $$"""
+        WITH candidates AS (
+            SELECT candidate.id, candidate.generation, held.id IS NOT NULL AS taken,
+                   COALESCE(held.workspace_id = @workspace_id
+                            AND held.lifecycle_state <> 'purged'
+                            AND held.parent_id IS NOT DISTINCT FROM @parent_id, false) AS ours
+            FROM unnest(@candidate_ids::uuid[]) WITH ORDINALITY AS candidate(id, generation)
+            LEFT JOIN item held ON held.tenant_id = @tenant_id AND held.id = candidate.id
+        )
+        SELECT c.id
+        FROM candidates c
+        JOIN workspace w ON w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+        WHERE {{DailyNoteWriter}}
+          AND (c.ours
+               OR (NOT c.taken
+                   AND c.generation > COALESCE((SELECT max(generation) FROM candidates WHERE taken), 0)))
+        ORDER BY c.ours DESC, CASE WHEN c.ours THEN -c.generation ELSE c.generation END
+        LIMIT 1
+        """;
+
+    /// <summary>
     /// Idempotently creates one container of the daily-notes tree - the root, a year folder or a
     /// month folder - and returns its lifecycle state. A null parent makes the root, as the personal
     /// provisioner does; otherwise the parent must be active in the same workspace. The writer and

@@ -36,9 +36,6 @@ public sealed class OpenDailyNoteHandler(
     IPermissionResolver permissions,
     TimeProvider clock) : ICommandHandler<OpenDailyNote, DailyNoteOpened>
 {
-    /// <summary>How many identifiers one day can move through before it refuses to open.</summary>
-    private const int NoteGenerations = 64;
-
     /// <inheritdoc />
     public async ValueTask<Result<DailyNoteOpened>> HandleAsync(OpenDailyNote command, CancellationToken cancellationToken)
     {
@@ -58,12 +55,7 @@ public sealed class OpenDailyNoteHandler(
         }
 
         var rootId = DeterministicProvisioningId.DailyNotesRoot(command.WorkspaceId);
-        var candidateIds = new Guid[NoteGenerations];
-        for (var generation = 0; generation < candidateIds.Length; generation++)
-        {
-            candidateIds[generation] = DeterministicProvisioningId.DatedDailyNote(
-                command.WorkspaceId, command.Date, generation);
-        }
+        var candidateIds = DeterministicProvisioningId.DatedDailyNoteGenerations(command.WorkspaceId, command.Date);
 
         var opening = await store.OpenDailyNoteAsync(
             command.WorkspaceId, rootId, candidateIds, parsed, command.Date, clock.GetUtcNow(), cancellationToken)

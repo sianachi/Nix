@@ -75,9 +75,11 @@ public sealed partial class ItemTree
         {
             return "Unlink the calendar before moving its container or events to another workspace.";
         }
-        var dailyRoot = ItemId.From(DeterministicProvisioningId.DailyNotesRoot(sourceWorkspaceId));
+        // Any root generation: a purged root is replaced, and the successor's tree is guarded the same.
+        var dailyRoots = DeterministicProvisioningId.DailyNotesRootGenerations(sourceWorkspaceId)
+            .Select(ItemId.From).ToArray();
         if (await _dbContext.ItemClosure.AnyAsync(edge => edge.TenantId == tenant
-            && edge.AncestorId == dailyRoot && subtree.Contains(edge.DescendantId), cancellationToken).ConfigureAwait(false))
+            && dailyRoots.Contains(edge.AncestorId) && subtree.Contains(edge.DescendantId), cancellationToken).ConfigureAwait(false))
         {
             return "Daily notes and their folders belong to their workspace. Move their content into an ordinary note first.";
         }
