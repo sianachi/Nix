@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Nix.Abstractions;
 using Nix.Domain.Primitives;
@@ -24,12 +25,20 @@ public sealed record DailyNoteOpened(Guid ItemId, bool Created);
 /// settings say, so settings only shape notes created after they change: an existing note is
 /// returned where it is, with no move and no retitle. That is a deliberate owner decision, and it is
 /// what keeps opening a day idempotent across settings changes.
+/// <para>
+/// A day has a short sequence of candidate identifiers, generation 0 being the original one. A
+/// purged note, or one moved to another workspace, retires its identifier and the day's next open
+/// creates a fresh note under the next generation; the purged row and its audit stay untouched.
+/// </para>
 /// </remarks>
 public sealed class OpenDailyNoteHandler(
     WorkspaceAdministrationStore store,
     IPermissionResolver permissions,
     TimeProvider clock) : ICommandHandler<OpenDailyNote, DailyNoteOpened>
 {
+    /// <summary>How many identifiers one day can move through before it refuses to open.</summary>
+    private const int NoteGenerations = 64;
+
     /// <inheritdoc />
     public async ValueTask<Result<DailyNoteOpened>> HandleAsync(OpenDailyNote command, CancellationToken cancellationToken)
     {
@@ -49,9 +58,15 @@ public sealed class OpenDailyNoteHandler(
         }
 
         var rootId = DeterministicProvisioningId.DailyNotesRoot(command.WorkspaceId);
-        var itemId = DeterministicProvisioningId.DatedDailyNote(command.WorkspaceId, command.Date);
+        var candidateIds = new Guid[NoteGenerations];
+        for (var generation = 0; generation < candidateIds.Length; generation++)
+        {
+            candidateIds[generation] = DeterministicProvisioningId.DatedDailyNote(
+                command.WorkspaceId, command.Date, generation);
+        }
+
         var opening = await store.OpenDailyNoteAsync(
-            command.WorkspaceId, rootId, itemId, parsed, command.Date, clock.GetUtcNow(), cancellationToken)
+            command.WorkspaceId, rootId, candidateIds, parsed, command.Date, clock.GetUtcNow(), cancellationToken)
             .ConfigureAwait(false);
         return opening.Outcome switch
         {
@@ -59,7 +74,11 @@ public sealed class OpenDailyNoteHandler(
             DailyNoteOutcome.Disabled => Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNotesDisabled()),
             DailyNoteOutcome.RootUnavailable =>
                 Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNotesRootUnavailable()),
-            _ => Result.Failure<DailyNoteOpened>(WorkspaceErrors.NotFound()),
+            DailyNoteOutcome.InTrash => Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNoteInTrash()),
+            DailyNoteOutcome.Locked => Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNoteLocked()),
+            DailyNoteOutcome.NotAuthorized => Result.Failure<DailyNoteOpened>(WorkspaceErrors.NotFound()),
+            DailyNoteOutcome.Unavailable => Result.Failure<DailyNoteOpened>(WorkspaceErrors.DailyNoteUnavailable()),
+            _ => throw new UnreachableException($"Unmapped daily-note outcome {opening.Outcome}."),
         };
     }
 }

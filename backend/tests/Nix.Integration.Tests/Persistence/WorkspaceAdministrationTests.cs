@@ -522,7 +522,7 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
                 var opening = await work.Resolve<WorkspaceAdministrationStore>().OpenDailyNoteAsync(
                     WorkspaceId.From(Visible),
                     DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible)),
-                    expected,
+                    Candidates(date),
                     DateOnly.ParseExact(date, "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture),
                     date,
                     DateTimeOffset.UtcNow,
@@ -543,6 +543,235 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
                 transaction: null,
                 $"SELECT count(*) FROM item WHERE id = '{expected:D}'::uuid");
             Assert.Equal(1, count);
+        }
+    }
+
+    [Fact]
+    public async Task A_trashed_daily_note_reports_trash_instead_of_a_missing_workspace()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        await ExecuteAsMigratorAsync($"UPDATE item SET lifecycle_state = 'deleted' WHERE id = '{first.Value.ItemId:D}'");
+
+        var reopened = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+
+        Assert.True(reopened.IsFailure);
+        Assert.Equal("workspaces.daily_note_in_trash", reopened.Error.Code);
+        Assert.Equal(1, await CountDailyNotesAsync("2026-10-04"));
+    }
+
+    [Fact]
+    public async Task A_daily_note_under_a_trashed_month_folder_reports_trash()
+    {
+        await SetPersonalOwnerAsync();
+        await SaveDailySettingsAsync(DailyNoteSettings.Create(true, "by-month", "iso", null, 0, false).Value);
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        var month = DeterministicProvisioningId.DailyNotesFolder(WorkspaceId.From(Visible), "2026-10");
+        await ExecuteAsMigratorAsync($"UPDATE item SET lifecycle_state = 'deleted' WHERE id = '{month:D}'");
+
+        var reopened = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+
+        Assert.True(reopened.IsFailure);
+        Assert.Equal("workspaces.daily_note_in_trash", reopened.Error.Code);
+        Assert.Equal(1, await CountDailyNotesAsync("2026-10-04"));
+    }
+
+    [Fact]
+    public async Task A_daily_note_under_a_closed_lock_reports_the_lock()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        await ExecuteAsMigratorAsync($"""
+            INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+            VALUES ('{DeterministicProvisioningId.DailyNotesRoot(WorkspaceId.From(Visible)):D}',
+                    '{M0SchemaSeed.Alpha.TenantId:D}', '{new string('a', 64)}', '{Alice:D}', now());
+            """);
+
+        var reopened = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+
+        Assert.True(reopened.IsFailure);
+        Assert.Equal("workspaces.daily_note_locked", reopened.Error.Code);
+        Assert.Equal(1, await CountDailyNotesAsync("2026-10-04"));
+    }
+
+    [Fact]
+    public async Task A_caller_who_cannot_write_learns_nothing_about_a_trashed_daily_note()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        await ExecuteAsMigratorAsync($"UPDATE item SET lifecycle_state = 'deleted' WHERE id = '{first.Value.ItemId:D}'");
+        await AddGroupMembershipAsync(Bob, "editor");
+
+        // An editor of someone else's personal workspace gets the answer a stranger gets, not the
+        // note's state.
+        var refused = await OpenDailyThroughCoreAsync(Bob, "2026-10-04");
+
+        Assert.True(refused.IsFailure);
+        Assert.Equal("workspaces.not_found", refused.Error.Code);
+    }
+
+    [Fact]
+    public async Task The_day_keeps_its_newest_note_when_an_older_identifier_frees_up_or_returns()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        await ExecuteAsMigratorAsync($"""
+            SELECT set_config('nix.tenant_id', '{M0SchemaSeed.Alpha.TenantId:D}', true);
+            DELETE FROM item_closure WHERE descendant_id = '{first.Value.ItemId:D}' AND depth > 0;
+            UPDATE item SET workspace_id = '{Hidden:D}', parent_id = NULL WHERE id = '{first.Value.ItemId:D}';
+            """);
+        var successor = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(successor.IsSuccess);
+        Assert.Equal(Candidates("2026-10-04")[1], successor.Value.ItemId);
+
+        // The original comes back into this workspace: the successor, which has been in use since,
+        // stays the day's note.
+        await ExecuteAsMigratorAsync($"""
+            SELECT set_config('nix.tenant_id', '{M0SchemaSeed.Alpha.TenantId:D}', true);
+            UPDATE item SET workspace_id = '{Visible:D}' WHERE id = '{first.Value.ItemId:D}';
+            """);
+        var afterReturn = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(afterReturn.IsSuccess);
+        Assert.False(afterReturn.Value.Created);
+        Assert.Equal(successor.Value.ItemId, afterReturn.Value.ItemId);
+
+        // The original disappears outright, as a purged workspace's items do: its identifier is
+        // free again but sits below the successor, so it is not reused.
+        await ExecuteAsMigratorAsync($"""
+            SELECT set_config('nix.tenant_id', '{M0SchemaSeed.Alpha.TenantId:D}', true);
+            DELETE FROM item_closure WHERE descendant_id = '{first.Value.ItemId:D}' OR ancestor_id = '{first.Value.ItemId:D}';
+            DELETE FROM item WHERE id = '{first.Value.ItemId:D}';
+            """);
+        var afterDelete = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(afterDelete.IsSuccess);
+        Assert.False(afterDelete.Value.Created);
+        Assert.Equal(successor.Value.ItemId, afterDelete.Value.ItemId);
+    }
+
+    [Fact]
+    public async Task A_purged_daily_note_is_left_alone_and_the_day_opens_one_fresh_note()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        Assert.Equal(Candidates("2026-10-04")[0], first.Value.ItemId);
+        await ExecuteAsMigratorAsync($"UPDATE item SET lifecycle_state = 'purged' WHERE id = '{first.Value.ItemId:D}'");
+
+        var fresh = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        var again = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+
+        Assert.True(fresh.IsSuccess);
+        Assert.True(fresh.Value.Created);
+        Assert.Equal(Candidates("2026-10-04")[1], fresh.Value.ItemId);
+        Assert.True(again.IsSuccess);
+        Assert.False(again.Value.Created);
+        Assert.Equal(fresh.Value.ItemId, again.Value.ItemId);
+        Assert.Equal(1, await CountDailyNotesAsync("2026-10-04"));
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                $"SELECT count(*) FROM item WHERE id = '{first.Value.ItemId:D}' AND lifecycle_state = 'purged'"));
+        }
+    }
+
+    [Fact]
+    public async Task Concurrent_opens_of_a_purged_day_converge_on_one_successor()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        await ExecuteAsMigratorAsync($"UPDATE item SET lifecycle_state = 'purged' WHERE id = '{first.Value.ItemId:D}'");
+
+        var opened = await Task.WhenAll(
+            OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04"),
+            OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04"));
+
+        Assert.All(opened, opening => Assert.Equal(Candidates("2026-10-04")[1], opening.Value.ItemId));
+        Assert.Single(opened, opening => opening.Value.Created);
+        Assert.Equal(1, await CountDailyNotesAsync("2026-10-04"));
+    }
+
+    [Fact]
+    public async Task A_daily_note_moved_to_another_workspace_frees_the_day_for_a_new_note()
+    {
+        await SetPersonalOwnerAsync();
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        await ExecuteAsMigratorAsync($"""
+            SELECT set_config('nix.tenant_id', '{M0SchemaSeed.Alpha.TenantId:D}', true);
+            DELETE FROM item_closure WHERE descendant_id = '{first.Value.ItemId:D}' AND depth > 0;
+            UPDATE item SET workspace_id = '{Hidden:D}', parent_id = NULL WHERE id = '{first.Value.ItemId:D}';
+            """);
+
+        var fresh = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+
+        Assert.True(fresh.IsSuccess);
+        Assert.True(fresh.Value.Created);
+        Assert.NotEqual(first.Value.ItemId, fresh.Value.ItemId);
+        Assert.Equal(1, await CountDailyNotesAsync("2026-10-04"));
+    }
+
+    [Fact]
+    public async Task Daily_calendar_entries_disappear_when_daily_notes_are_switched_off()
+    {
+        await SetPersonalOwnerAsync();
+        await SaveDailySettingsAsync(DailyNoteSettings.Create(true, "flat", "iso", null, 0, true).Value);
+        Assert.True((await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04")).IsSuccess);
+        Assert.Single((await ReadDailyCalendarAsync(Alice)).Value.Entries);
+
+        await SaveDailySettingsAsync(DailyNoteSettings.Create(false, "flat", "iso", null, 0, true).Value);
+
+        var listed = await ReadDailyCalendarAsync(Alice);
+        Assert.True(listed.IsSuccess);
+        Assert.Empty(listed.Value.Entries);
+    }
+
+    private static Guid[] Candidates(string date)
+    {
+        var candidates = new Guid[64];
+        for (var generation = 0; generation < candidates.Length; generation++)
+        {
+            candidates[generation] = DeterministicProvisioningId.DatedDailyNote(WorkspaceId.From(Visible), date, generation);
+        }
+
+        return candidates;
+    }
+
+    private async Task SaveDailySettingsAsync(DailyNoteSettings settings)
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(Context(Alice), Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            Assert.True(await work.Resolve<WorkspaceAdministrationStore>().SaveDailyNoteSettingsAsync(
+                WorkspaceId.From(Visible), settings, Cancellation));
+            await work.CommitAsync(Cancellation);
+        }
+    }
+
+    private async Task ExecuteAsMigratorAsync(string sql)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, null, sql);
+        }
+    }
+
+    private async Task<long> CountDailyNotesAsync(string date)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            return await RawSql.CountAsync(connection, null, $"""
+                SELECT count(*) FROM item
+                WHERE workspace_id = '{Visible:D}' AND properties ->> '$daily' = '{date}'
+                  AND lifecycle_state <> 'purged'
+                """);
         }
     }
 

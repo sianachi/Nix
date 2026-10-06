@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { useWorkspace } from '../workspaces/workspace-context';
 
 export interface DailyNoteSettingsState {
   readonly saved: DailyNoteSettings | null;
@@ -31,6 +32,7 @@ function isAborted(signal: AbortSignal): boolean {
  */
 export function useDailyNoteSettings(workspaceId: string): DailyNoteSettingsState {
   const client = useApiClient();
+  const { workspaces: accessible, workspaceUpdated, reload } = useWorkspace();
   const [saved, setSaved] = useState<DailyNoteSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -75,6 +77,22 @@ export function useDailyNoteSettings(workspaceId: string): DailyNoteSettingsStat
     };
   }, [load]);
 
+  /**
+   * The switch is also what `canUseDailyNotes` on the accessible workspace list reports, and the
+   * rail, the palette and the daily bar read that flag. The list is loaded once, so a save that
+   * flips the switch updates it here. Switching off is known to clear the flag and is applied at
+   * once; switching on clears only one of the conditions the server weighs (the caller's role, a
+   * personal workspace's owner), so the list is reloaded for the server's answer, which also
+   * replaces the optimistic copy.
+   */
+  function refreshWorkspace(enabled: boolean): void {
+    const current = accessible.find((entry) => entry.id === workspaceId);
+    if (current !== undefined && !enabled && current.canUseDailyNotes) {
+      workspaceUpdated({ ...current, canUseDailyNotes: false });
+    }
+    reload();
+  }
+
   async function save(value: DailyNoteSettings): Promise<boolean> {
     const controller = lifetime.current;
     if (saved === null || savingRef.current || !controller || isAborted(controller.signal)) {
@@ -88,6 +106,7 @@ export function useDailyNoteSettings(workspaceId: string): DailyNoteSettingsStat
         signal: controller.signal,
       });
       if (isAborted(controller.signal)) return false;
+      if (response.enabled !== saved.enabled) refreshWorkspace(response.enabled);
       setSaved(response);
       return true;
     } catch (cause) {

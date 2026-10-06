@@ -398,6 +398,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
+    /** @description Opens the day's note, creating it when needed. 'workspaces.not_found' (404) means only that the workspace is missing or the caller may not write it. A note that cannot be opened fails with 'workspaces.daily_note_in_trash' (409) when it or a folder above it is in Trash, 'workspaces.daily_note_locked' (423) when a lock the caller has not opened covers it, and 'workspaces.daily_note_unavailable' (409) otherwise. A purged note, or one moved to another workspace, no longer holds the day: the next open creates a fresh note. */
     put: operations['OpenDailyNote'];
     post?: never;
     delete?: never;
@@ -6053,6 +6054,15 @@ export interface operations {
       };
       /** @description Unprocessable Entity */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Locked */
+      423: {
         headers: {
           [name: string]: unknown;
         };

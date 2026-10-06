@@ -917,8 +917,9 @@ public static class WorkspaceAdministrationSql
     /// <summary>
     /// The condition, over a <c>workspace w</c> row, that daily notes are switched on: the stored
     /// flag when it is a boolean, otherwise the default, which is on only for a personal workspace.
+    /// The calendar's daily-note arm shares it, so a switched-off workspace shows no daily chips.
     /// </summary>
-    private const string DailyNoteEnabled = """
+    internal const string DailyNoteEnabled = """
         COALESCE(
             CASE WHEN jsonb_typeof(w.daily_notes -> 'enabled') = 'boolean'
                  THEN (w.daily_notes ->> 'enabled')::boolean END,
@@ -935,17 +936,83 @@ public static class WorkspaceAdministrationSql
     /// <summary>
     /// Authorises the caller to use daily notes in the workspace, locks the workspace row, and
     /// reports what creation needs to know: the stored settings, whether the workspace is personal,
-    /// and whether the dated note already exists. No row means the caller cannot write the workspace, or it does not exist.
+    /// and the day's note slot with whether a note already occupies it. No row means the caller
+    /// cannot write the workspace, or it does not exist.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>@candidate_ids</c> are the day's deterministic identifiers in generation order. A
+    /// candidate is <em>ours</em> when it is held by a note of this workspace in any state but
+    /// purged; a purged note is terminal and a note moved to another workspace is no longer this
+    /// day's, so each retires its identifier. The slot is the highest-generation candidate that is
+    /// ours - the day's newest note, so a lower identifier that becomes ours again (its note moved
+    /// back) or free again (its workspace purged) never displaces the note that has been in use
+    /// since. With none ours, the slot is the first free candidate above every taken one, so a hole
+    /// that reopens below a retired identifier is never reused. A trashed or locked note is ours, so
+    /// the open reports it rather than filing a duplicate. A null slot means every candidate is
+    /// taken: 64 purges or moves of one day's note, which only a writer of this workspace can do,
+    /// and which is reported as unavailable rather than recovered silently.
+    /// </para>
+    /// <para>
+    /// The probe reads <c>item</c> rows of every workspace in the tenant - row-level security is
+    /// tenant-wide - because a candidate held elsewhere must retire. Nothing about such a row leaves
+    /// the statement: the only output is which of this workspace's own derived identifiers is the
+    /// slot, so it discloses neither where the row is nor whether it still exists.
+    /// </para>
+    /// </remarks>
     public const string DailyNoteContext = $$"""
-        SELECT w.daily_notes::text, w.personal_owner_principal_id IS NOT NULL,
-               EXISTS (SELECT 1 FROM item note
-                       WHERE note.tenant_id = w.tenant_id AND note.workspace_id = w.workspace_id
-                         AND note.id = @item_id)
+        SELECT w.daily_notes::text, w.personal_owner_principal_id IS NOT NULL, slot.id, slot.present
         FROM workspace w
+        LEFT JOIN LATERAL (
+            WITH candidates AS (
+                SELECT candidate.id, candidate.generation, note.id IS NOT NULL AS taken,
+                       COALESCE(note.workspace_id = w.workspace_id
+                                AND note.lifecycle_state <> 'purged', false) AS ours
+                FROM unnest(@candidate_ids::uuid[]) WITH ORDINALITY AS candidate(id, generation)
+                LEFT JOIN item note ON note.tenant_id = w.tenant_id AND note.id = candidate.id
+            )
+            SELECT id, taken AS present
+            FROM candidates
+            WHERE ours
+               OR (NOT taken
+                   AND generation > COALESCE((SELECT max(generation) FROM candidates WHERE taken), 0))
+            ORDER BY ours DESC, CASE WHEN ours THEN -generation ELSE generation END
+            LIMIT 1
+        ) slot ON true
         WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
           AND {{DailyNoteWriter}}
         FOR UPDATE OF w
+        """;
+
+    /// <summary>
+    /// Explains why an existing dated note could not be opened: <c>trash</c> when the note or an
+    /// ancestor is soft-deleted, <c>locked</c> when an ancestor carries a lock the caller's
+    /// credential has not opened, and <c>unavailable</c> for anything else. Trash is reported before
+    /// a lock because restoring is the step that has to come first. The writer condition is
+    /// repeated so the statement describes nothing outside a workspace the caller may write.
+    /// </summary>
+    public const string DailyNoteBlocker = $$"""
+        SELECT CASE
+                 WHEN n.lifecycle_state = 'deleted' OR EXISTS (
+                     SELECT 1 FROM item_closure edge
+                     JOIN item ancestor ON ancestor.tenant_id = edge.tenant_id AND ancestor.id = edge.ancestor_id
+                     WHERE edge.tenant_id = @tenant_id AND edge.descendant_id = n.id AND edge.depth > 0
+                       AND ancestor.lifecycle_state = 'deleted') THEN 'trash'
+                 WHEN EXISTS (
+                     SELECT 1 FROM item_closure edge
+                     JOIN item_lock locked ON locked.tenant_id = edge.tenant_id AND locked.item_id = edge.ancestor_id
+                     WHERE edge.tenant_id = @tenant_id AND edge.descendant_id = n.id AND edge.depth > 0
+                       AND NOT EXISTS (
+                           SELECT 1 FROM item_unlock grant_row
+                           WHERE grant_row.tenant_id = @tenant_id AND grant_row.item_id = locked.item_id
+                             AND grant_row.credential_id = @credential_id AND grant_row.expires_at > @now))
+                   THEN 'locked'
+                 ELSE 'unavailable'
+               END
+        FROM item n
+        JOIN workspace w ON w.tenant_id = n.tenant_id AND w.workspace_id = n.workspace_id
+        WHERE n.tenant_id = @tenant_id AND n.workspace_id = @workspace_id AND n.id = @item_id
+          AND {{DailyNoteWriter}}
         """;
 
     /// <summary>

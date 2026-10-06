@@ -29,6 +29,16 @@ import type { Item } from '../views/core/container-model';
 export const COLLATED_DATE_KEY = 'nix:collated-date';
 
 /**
+ * The date property a daily note is placed by. A daily note's date is its identity - the note is
+ * that day's - so unlike an ordinary entry it is never moved to another day from the calendar.
+ */
+const DAILY_DATE_PROPERTY = '$daily';
+
+export function isDailyNote(entry: CalendarEntry): boolean {
+  return entry.dateProperty === DAILY_DATE_PROPERTY;
+}
+
+/**
  * One entry as the grids expect an item.
  *
  * **A view model wearing `Item`'s shape.** The grids read exactly

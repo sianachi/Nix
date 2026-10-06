@@ -78,6 +78,15 @@ public sealed record DailyNoteOpening(DailyNoteOutcome Outcome, Guid ItemId = de
 
     /// <summary>The Daily notes root, or a folder that should hold the note, is trashed.</summary>
     public static DailyNoteOpening RootUnavailable { get; } = new(DailyNoteOutcome.RootUnavailable);
+
+    /// <summary>The day's note, or a folder above it, is in Trash.</summary>
+    public static DailyNoteOpening InTrash { get; } = new(DailyNoteOutcome.InTrash);
+
+    /// <summary>The day's note sits under a lock the caller has not opened.</summary>
+    public static DailyNoteOpening Locked { get; } = new(DailyNoteOutcome.Locked);
+
+    /// <summary>The day's note could not be opened or created for any other reason.</summary>
+    public static DailyNoteOpening Unavailable { get; } = new(DailyNoteOutcome.Unavailable);
 }
 
 /// <summary>The result classes of opening a daily note.</summary>
@@ -94,6 +103,18 @@ public enum DailyNoteOutcome
 
     /// <summary>The Daily notes root, or a folder that should hold the note, is trashed.</summary>
     RootUnavailable,
+
+    /// <summary>The day's note, or a folder above it, is in Trash.</summary>
+    InTrash,
+
+    /// <summary>The day's note sits under a lock the caller has not opened.</summary>
+    Locked,
+
+    /// <summary>
+    /// The day's note could not be opened or created for any other reason, such as every
+    /// generation of its identifier being retired.
+    /// </summary>
+    Unavailable,
 }
 
 /// <summary>Database operations for workspace administration.</summary>
@@ -626,18 +647,29 @@ public sealed partial class WorkspaceAdministrationStore
     /// any folder the workspace's settings call for, all in the request's transaction.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// An existing note is returned where it is. Folders and the root are created only for a note
     /// that does not exist yet, so reopening an old note after the settings changed files nothing new.
+    /// </para>
+    /// <para>
+    /// <paramref name="candidateIds"/> are the day's identifiers in generation order. The note opened
+    /// is the one in the first slot that is not retired - see
+    /// <see cref="WorkspaceAdministrationSql.DailyNoteContext"/> - so a purged day gets a fresh note
+    /// under the next generation, and every open of that day finds the same one. The advisory lock
+    /// serializes opens in the workspace, so two concurrent opens choose the same slot and the
+    /// second finds the note the first inserted.
+    /// </para>
     /// </remarks>
     public async ValueTask<DailyNoteOpening> OpenDailyNoteAsync(
         WorkspaceId workspaceId,
         Guid rootId,
-        Guid itemId,
+        Guid[] candidateIds,
         DateOnly day,
         string date,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(candidateIds);
         var context = Session;
         await _sql.ExecuteAsync(
             WorkspaceAdministrationSql.LockDailyNote,
@@ -651,7 +683,8 @@ public sealed partial class WorkspaceAdministrationStore
             [
                 Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
                 UuidOrNull("credential_id", _credential.CredentialId),
-                Uuid("workspace_id", workspaceId.Value), Uuid("item_id", itemId),
+                Uuid("workspace_id", workspaceId.Value),
+                new NpgsqlParameter("candidate_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = candidateIds },
             ],
             cancellationToken);
         await foreach (var row in contextRows.ConfigureAwait(false))
@@ -668,6 +701,11 @@ public sealed partial class WorkspaceAdministrationStore
         if (!settings.Enabled)
         {
             return DailyNoteOpening.Disabled;
+        }
+
+        if (known.SlotId is not { } itemId)
+        {
+            return DailyNoteOpening.Unavailable;
         }
 
         var parentId = rootId;
@@ -708,7 +746,44 @@ public sealed partial class WorkspaceAdministrationStore
             opened = row;
         }
 
-        return opened ?? DailyNoteOpening.NotAuthorized;
+        if (opened is not null)
+        {
+            return opened;
+        }
+
+        return known.NoteExists
+            ? await ExplainDailyNoteBlockAsync(workspaceId, itemId, now, cancellationToken).ConfigureAwait(false)
+            : DailyNoteOpening.Unavailable;
+    }
+
+    private async ValueTask<DailyNoteOpening> ExplainDailyNoteBlockAsync(
+        WorkspaceId workspaceId,
+        Guid itemId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        string? blocker = null;
+        var rows = _sql.QueryAsync<string, ObjectKeyMapper>(
+            WorkspaceAdministrationSql.DailyNoteBlocker,
+            default,
+            [
+                Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+                UuidOrNull("credential_id", _credential.CredentialId),
+                Uuid("workspace_id", workspaceId.Value), Uuid("item_id", itemId), Timestamp("now", now),
+            ],
+            cancellationToken);
+        await foreach (var row in rows.ConfigureAwait(false))
+        {
+            blocker = row;
+        }
+
+        return blocker switch
+        {
+            "trash" => DailyNoteOpening.InTrash,
+            "locked" => DailyNoteOpening.Locked,
+            _ => DailyNoteOpening.Unavailable,
+        };
     }
 
     private async ValueTask<bool> EnsureContainerAsync(
@@ -768,12 +843,13 @@ public sealed partial class WorkspaceAdministrationStore
     }
 
     private readonly record struct DailyNoteContextRow(
-        string? SettingsJson, bool Personal, bool NoteExists);
+        string? SettingsJson, bool Personal, Guid? SlotId, bool NoteExists);
 
     private readonly struct DailyNoteContextMapper : INixRowMapper<DailyNoteContextRow>
     {
         public DailyNoteContextRow Map(NpgsqlDataReader reader) => new(
-            reader.IsDBNull(0) ? null : reader.GetString(0), reader.GetBoolean(1), reader.GetBoolean(2));
+            reader.IsDBNull(0) ? null : reader.GetString(0), reader.GetBoolean(1),
+            reader.IsDBNull(2) ? null : reader.GetGuid(2), !reader.IsDBNull(3) && reader.GetBoolean(3));
     }
 
     private readonly struct DailyNoteSettingsMapper : INixRowMapper<DailyNoteSettings>

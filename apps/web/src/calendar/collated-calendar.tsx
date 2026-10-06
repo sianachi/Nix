@@ -26,6 +26,7 @@ import { readTimestampValue, readerZone } from '../views/core/timestamps';
 import type { CalendarGrain } from './calendar-window';
 import {
   bucketByDay,
+  isDailyNote,
   noteOptions,
   COLLATED_DATE_KEY,
   COLLATED_END_KEY,
@@ -120,16 +121,6 @@ export interface CollatedCalendarProps {
    * `recurrence.completeOccurrence` takes.
    */
   readonly onComplete?: ((entry: CalendarEntry, occurredOn: string) => void) | undefined;
-}
-
-/**
- * The date property a daily note is placed by. A daily note's date is its identity - the note is
- * that day's - so unlike an ordinary entry it is never moved to another day from here.
- */
-const DAILY_DATE_PROPERTY = '$daily';
-
-function isDailyNote(entry: CalendarEntry): boolean {
-  return entry.dateProperty === DAILY_DATE_PROPERTY;
 }
 
 const GRAINS = [

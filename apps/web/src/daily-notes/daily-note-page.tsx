@@ -27,6 +27,29 @@ function openFailure(reason: unknown): OpenFailure {
         fix: 'trash',
       };
     }
+    // The day's own note, rather than its folder, is what stands in the way. The server's detail is
+    // kept because it is the more specific statement; the fallback says the same thing.
+    if (reason.code === 'workspaces.daily_note_in_trash') {
+      return {
+        message: reason.detail ?? 'This day’s note is in Trash. Restore it from Trash to open it.',
+        fix: 'trash',
+      };
+    }
+    if (reason.code === 'workspaces.daily_note_locked') {
+      return {
+        message: reason.detail ?? 'This day’s note is locked. Unlock it before opening it.',
+        fix: null,
+      };
+    }
+    // Core answers not-found when the caller may not write here, and its detail then speaks of an
+    // inaccessible workspace - untrue of the one on screen, so it is not repeated.
+    if (reason.code === 'workspaces.not_found') {
+      return {
+        message:
+          'You cannot create or open daily notes in this workspace. Ask an owner for edit access.',
+        fix: null,
+      };
+    }
     return { message: reason.detail ?? 'This daily note could not be opened.', fix: null };
   }
   return {

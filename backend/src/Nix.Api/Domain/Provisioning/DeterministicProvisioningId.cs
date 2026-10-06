@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Nix.Domain.Identity;
@@ -13,6 +14,7 @@ public static class DeterministicProvisioningId
     private const string PersonalWorkspacePurpose = "nix:provisioning:personal-workspace:v1";
     private const string DailyNotesRootPurpose = "nix:provisioning:daily-notes-root:v1";
     private const string DatedDailyNotePurpose = "nix:provisioning:dated-daily-note:v1";
+    private const string DatedDailyNoteSuccessorPurpose = "nix:provisioning:dated-daily-note-successor:v1";
     private const string DailyNotesFolderPurpose = "nix:provisioning:daily-notes-folder:v1";
     private const string PresetObjectPurpose = "nix:provisioning:preset-object:v1";
 
@@ -33,10 +35,22 @@ public static class DeterministicProvisioningId
         Derive(DailyNotesRootPurpose, workspaceId.Value);
 
     /// <summary>Derives one dated Daily Note from its canonical route date.</summary>
-    public static Guid DatedDailyNote(WorkspaceId workspaceId, string canonicalDate)
+    public static Guid DatedDailyNote(WorkspaceId workspaceId, string canonicalDate) =>
+        DatedDailyNote(workspaceId, canonicalDate, 0);
+
+    /// <summary>
+    /// Derives one generation of a dated Daily Note. Generation 0 is the original identifier, so
+    /// notes created before generations existed keep theirs; a later generation is the successor a
+    /// day moves to once every earlier identifier is purged or held by another workspace.
+    /// </summary>
+    public static Guid DatedDailyNote(WorkspaceId workspaceId, string canonicalDate, int generation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalDate);
-        return Derive(DatedDailyNotePurpose, workspaceId.Value, canonicalDate);
+        ArgumentOutOfRangeException.ThrowIfNegative(generation);
+        return generation == 0
+            ? Derive(DatedDailyNotePurpose, workspaceId.Value, canonicalDate)
+            : Derive(DatedDailyNoteSuccessorPurpose, workspaceId.Value, canonicalDate,
+                generation.ToString(CultureInfo.InvariantCulture));
     }
 
     /// <summary>

@@ -1578,6 +1578,7 @@
         "tags": [
           "Workspaces"
         ],
+        "description": "Opens the day's note, creating it when needed. 'workspaces.not_found' (404) means only that the workspace is missing or the caller may not write it. A note that cannot be opened fails with 'workspaces.daily_note_in_trash' (409) when it or a folder above it is in Trash, 'workspaces.daily_note_locked' (423) when a lock the caller has not opened covers it, and 'workspaces.daily_note_unavailable' (409) otherwise. A purged note, or one moved to another workspace, no longer holds the day: the next open creates a fresh note.",
         "operationId": "OpenDailyNote",
         "parameters": [
           {
@@ -1631,6 +1632,16 @@
           },
           "422": {
             "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
             "content": {
               "application/problem+json": {
                 "schema": {
