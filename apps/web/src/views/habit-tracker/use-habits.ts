@@ -172,7 +172,10 @@ export function useHabits(habitIds: readonly string[], from: string, to: string)
           });
           return null;
         }
-        return messageFor(reason);
+        const detail = `Updated habit data could not be loaded: ${messageFor(reason)} Reload to verify the latest totals.`;
+        setError(detail);
+        setLoadStatus('partial');
+        return detail;
       } finally {
         setRefreshingIds((current) => {
           const next = new Set(current);

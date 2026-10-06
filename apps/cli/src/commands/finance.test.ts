@@ -11,6 +11,7 @@ import {
   seed,
   setTransaction,
   setup,
+  transactions,
 } from './finance.ts';
 
 import { resolveSession } from './shared.ts';
@@ -83,6 +84,40 @@ function mockSeedSession(execute: (endpoint: { operation: string; body?: unknown
 }
 
 describe('finance CLI validation', () => {
+  it('passes history filters and offset through to Core', async () => {
+    const { query } = mockSeedSession(() => undefined);
+    query.mockResolvedValue({ transactions: [], total: 0, truncated: false });
+    await transactions(
+      undefined,
+      ROOT,
+      {
+        from: '2025-01-01',
+        to: '2026-12-31',
+        search: 'shop',
+        source: 'manual',
+        minAmount: '10',
+        maxAmount: '50',
+        offset: '5',
+        limit: '10',
+      },
+      OUTPUT,
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: {
+          from: '2025-01-01',
+          to: '2026-12-31',
+          search: 'shop',
+          source: 'manual',
+          minAmount: '10',
+          maxAmount: '50',
+          offset: '5',
+          limit: '10',
+        },
+      }),
+    );
+  });
+
   it('refuses a start month that is not yyyy-MM before opening a session', async () => {
     await expect(
       setup(

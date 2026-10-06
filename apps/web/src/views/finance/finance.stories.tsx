@@ -108,9 +108,11 @@ const dashboard: FinanceDashboard = {
     bufferMet: true,
   },
   openingNetPosition: 1900,
+  monthEndDebt: 400,
+  monthEndAfterDebt: 6100,
   emergencyTarget: 5700,
   bufferMetIn: '2026-09',
-  cardFloat: 480,
+  cardFloat: 400,
   cards: [
     {
       accountId: CARD,
@@ -118,10 +120,10 @@ const dashboard: FinanceDashboard = {
       month: '2026-09',
       source: 'plan',
       opening: 400,
-      spend: 480,
+      spend: 400,
       paymentOut: 400,
-      closing: 480,
-      utilisation: 0.16,
+      closing: 400,
+      utilisation: 400 / 3000,
       limit: 3000,
       settlesFrom: ACCOUNT,
     },
@@ -303,6 +305,37 @@ export default {
 export const DashboardOverview = {
   render: (): ReactElement => (
     <ApiClientOverrideProvider client={monthClient}>
+      <Stage>
+        <Dashboard state={state} finance={finance} month="2026-09" onSection={() => undefined} />
+      </Stage>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const DashboardWithCardCredit = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider
+      client={{
+        ...monthClient,
+        query<T>(endpoint: { operation: string }): Promise<T> {
+          if (endpoint.operation !== 'finance.dashboard') return monthClient.query<T>(endpoint);
+          return Promise.resolve({
+            ...dashboard,
+            position: { ...dashboard.position, cardOwed: -500, netPosition: 7000 },
+            monthEndDebt: 0,
+            monthEndAfterDebt: 6500,
+            cardFloat: -500,
+            cards: dashboard.cards.map((card) => ({
+              ...card,
+              opening: -900,
+              paymentOut: 0,
+              closing: -500,
+              utilisation: -500 / 3000,
+            })),
+          } as T);
+        },
+      }}
+    >
       <Stage>
         <Dashboard state={state} finance={finance} month="2026-09" onSection={() => undefined} />
       </Stage>

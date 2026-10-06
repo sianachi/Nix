@@ -6,6 +6,7 @@ import {
   Input,
   Select,
   Table,
+  Segmented,
   Tag,
   Text,
   Textarea,
@@ -20,9 +21,10 @@ import {
   type FinanceTransactions as Transactions,
 } from '@nix/api-client';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useOptionalApiClient } from '../../api/api-client-provider';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
 import { Money, SectionHeading, WriteError, editableTextButton } from './finance-shared';
-import { formatDay, formatMonth, monthOf, parseAmount, todayIn } from './money';
+import { formatDay, formatMonth, monthOf, parseAmount, todayIn, shiftMonth } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 
 /** The month's transactions, newest first, with a way to record, change and import them. */
@@ -30,14 +32,52 @@ export function FinanceTransactions({
   state,
   finance,
   month,
+  initialLineId = '',
+  initialAccountId = '',
+  initialUnassigned = false,
 }: {
   readonly state: FinanceState;
   readonly finance: Finance;
   readonly month: string;
+  readonly initialLineId?: string | undefined;
+  readonly initialAccountId?: string | undefined;
+  readonly initialUnassigned?: boolean | undefined;
 }): ReactNode {
   const currency = finance.settings.currency;
-  const [accountId, setAccountId] = useState('');
-  const [unassigned, setUnassigned] = useState(false);
+  const client = useOptionalApiClient();
+  const reads = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    reads.current = controller;
+    return () => {
+      controller.abort();
+    };
+  }, [client]);
+  const [changes, setChanges] = useState<readonly SessionChange[]>([]);
+  const [restoring, setRestoring] = useState<SessionChange | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState(initialAccountId);
+  const [lineFilter, setLineFilter] = useState(initialLineId);
+  const [range, setRange] = useState<'month' | 'all' | 'custom'>('month');
+  const [from, setFrom] = useState(`${month}-01`);
+  const [to, setTo] = useState(monthEnd(month));
+  const [search, setSearch] = useState('');
+  const [source, setSource] = useState('');
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+  const [filters, setFilters] = useState({
+    search: '',
+    source: '',
+    from: '',
+    to: '',
+    minAmount: '',
+    maxAmount: '',
+  });
+  const [filterError, setFilterError] = useState<string | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [previewAssignment, setPreviewAssignment] = useState(false);
+  const [announcement, setAnnouncement] = useState<string | null>(null);
+  const [unassigned, setUnassigned] = useState(initialUnassigned);
   const [editing, setEditing] = useState<FinanceTransaction | null>(null);
   const [importing, setImporting] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -51,7 +91,12 @@ export function FinanceTransactions({
   // never looked at. Adjusted during render rather than in an effect - the recommended way to
   // reset state on a prop change - so a background reload of the same filter, which changes
   // none of these three, leaves the selection alone and lets it survive the writes it makes.
-  const filterKey = `${accountId}|${String(unassigned)}|${month}`;
+  const filterKey = `${accountId}|${lineFilter}|${String(unassigned)}|${month}|${range}|${JSON.stringify(filters)}|${String(offset)}`;
+  const [previousMonth, setPreviousMonth] = useState(month);
+  if (previousMonth !== month) {
+    setPreviousMonth(month);
+    setOffset(0);
+  }
   const [selectionFilterKey, setSelectionFilterKey] = useState(filterKey);
   if (selectionFilterKey !== filterKey) {
     setSelectionFilterKey(filterKey);
@@ -62,11 +107,25 @@ export function FinanceTransactions({
   const endpoint = useMemo(
     () =>
       financeApi.listTransactions(itemId, {
-        month,
+        ...(range === 'month' ? { month } : {}),
+        ...(range === 'custom' ? { from: filters.from, to: filters.to } : {}),
+        ...(filters.search === '' ? {} : { search: filters.search }),
+        ...(filters.source === ''
+          ? {}
+          : { source: filters.source as FinanceTransaction['source'] }),
+        ...(filters.minAmount === ''
+          ? {}
+          : { minAmount: Number(filters.minAmount.replaceAll(',', '')) }),
+        ...(filters.maxAmount === ''
+          ? {}
+          : { maxAmount: Number(filters.maxAmount.replaceAll(',', '')) }),
+        ...(lineFilter === '' ? {} : { lineId: lineFilter }),
+        offset,
+        limit: 50,
         ...(accountId === '' ? {} : { accountId }),
         ...(unassigned ? { unassigned: true } : {}),
       }),
-    [itemId, month, accountId, unassigned],
+    [itemId, month, accountId, lineFilter, unassigned, range, filters, offset],
   );
   const query = useFinanceQuery<Transactions>(endpoint, state.generation);
   const lines = useMemo(
@@ -77,7 +136,32 @@ export function FinanceTransactions({
     () => new Map(finance.accounts.map((account) => [account.id, account])),
     [finance.accounts],
   );
-  const closed = finance.closedMonths.includes(month);
+  const applyFilters = (): void => {
+    const min = minAmount === '' ? null : parseAmount(minAmount);
+    const max = maxAmount === '' ? null : parseAmount(maxAmount);
+    if (
+      (minAmount !== '' && (min === null || min < 0)) ||
+      (maxAmount !== '' && (max === null || max < 0)) ||
+      (min !== null && max !== null && min > max)
+    ) {
+      setFilterError('Enter valid amounts of zero or more, with the smaller amount first.');
+      return;
+    }
+    if (range === 'custom' && (from === '' || to === '' || from > to)) {
+      setFilterError('Choose a start and end date, with the earlier date first.');
+      return;
+    }
+    setFilterError(null);
+    setOffset(0);
+    setFilters({
+      search: search.trim(),
+      source,
+      from,
+      to,
+      minAmount: min === null ? '' : String(min),
+      maxAmount: max === null ? '' : String(max),
+    });
+  };
   const visibleIds = useMemo(
     () => (query.data === null ? [] : query.data.transactions.map((row) => row.id)),
     [query.data],
@@ -109,6 +193,7 @@ export function FinanceTransactions({
     if (assignLineId === '' || query.data === null) return;
     const targets = query.data.transactions.filter((row) => selected.has(row.id));
     if (targets.length === 0) return;
+    setPreviewAssignment(false);
     setAssigning(true);
     setAssignError(null);
     const failed = new Set<string>();
@@ -125,6 +210,10 @@ export function FinanceTransactions({
         lineId: assignLineId,
         cleared: row.cleared,
       });
+      if (refusal === null)
+        setChanges((current) =>
+          [{ before: row, after: { ...row, lineId: assignLineId } }, ...current].slice(0, 25),
+        );
       if (refusal !== null) {
         failed.add(row.id);
         reasonCounts.set(refusal, (reasonCounts.get(refusal) ?? 0) + 1);
@@ -133,6 +222,9 @@ export function FinanceTransactions({
     setAssigning(false);
     setSelected(failed);
     if (failed.size === 0) {
+      setAnnouncement(
+        `Updated the category for ${String(targets.length)} transactions. Totals are refreshing.`,
+      );
       setAssignLineId('');
     } else {
       const succeeded = targets.length - failed.size;
@@ -148,18 +240,23 @@ export function FinanceTransactions({
   const columns: readonly TableColumn<FinanceTransaction>[] = [
     {
       key: 'select',
-      header: '',
+      header: 'Select',
       cell: (row) => (
         <Checkbox
           aria-label={`Select ${row.description}`}
           checked={selected.has(row.id)}
+          disabled={query.status !== 'ready' || assigning}
           onChange={(event) => {
             toggleRow(row.id, event.target.checked);
           }}
         />
       ),
     },
-    { key: 'date', header: 'Date', cell: (row) => formatDay(row.date) },
+    {
+      key: 'date',
+      header: 'Date',
+      cell: (row) => `${formatDay(row.date)} ${row.date.slice(0, 4)}`,
+    },
     {
       key: 'description',
       header: 'Description',
@@ -168,6 +265,7 @@ export function FinanceTransactions({
         <button
           type="button"
           className={editableTextButton}
+          disabled={query.status !== 'ready' || assigning}
           onClick={() => {
             setEditing(row);
           }}
@@ -178,7 +276,7 @@ export function FinanceTransactions({
     },
     {
       key: 'line',
-      header: 'Budget line',
+      header: 'Category',
       cell: (row) =>
         row.lineId === null ? (
           <Tag tone="accent">Unassigned</Tag>
@@ -209,11 +307,11 @@ export function FinanceTransactions({
     },
   ];
   return (
-    <div className="flex flex-col gap-4">
+    <div className="@container flex min-w-0 flex-col gap-4">
       <SectionHeading
         id="finance-transactions-title"
-        title="Transactions"
-        detail={`${formatMonth(month, 'long')}${closed ? ', closed' : ''}. Negative amounts left an account; positive ones arrived.`}
+        title="Transaction history"
+        detail="Find past payments and correct them. Select a description to edit; money out is negative."
         actions={
           <>
             <Button
@@ -234,40 +332,193 @@ export function FinanceTransactions({
           </>
         }
       />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <Field label="Account">
-          {(control) => (
-            <Select
-              {...control}
-              value={accountId}
-              onChange={(event) => {
-                setAccountId(event.target.value);
-              }}
-            >
-              <option value="">Every account</option>
-              {finance.accounts
-                .filter((account) => account.type !== 'loan')
-                .map((account) => (
-                  <option key={account.id} value={account.id}>
-                    {account.name}
-                  </option>
-                ))}
-            </Select>
-          )}
-        </Field>
-        <label className="flex items-center gap-2 pb-2">
-          <input
-            type="checkbox"
-            checked={unassigned}
-            onChange={(event) => {
-              setUnassigned(event.target.checked);
+      <form
+        className="flex flex-col gap-3 rounded-lg border border-divider p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          applyFilters();
+        }}
+      >
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="Search transactions">
+            {(control) => (
+              <Input
+                {...control}
+                type="search"
+                placeholder="Payee or description"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+          <Segmented<'month' | 'all' | 'custom'>
+            label="History period"
+            options={[
+              { value: 'month', label: 'Selected month' },
+              { value: 'all', label: 'All history' },
+              { value: 'custom', label: 'Date range' },
+            ]}
+            value={range}
+            onChange={(value) => {
+              setRange(value);
+              setOffset(0);
+              if (value === 'custom') setFilters((current) => ({ ...current, from, to }));
             }}
           />
-          <Text as="span" variant="bodySmall">
-            Only those with no budget line
-          </Text>
-        </label>
-      </div>
+          <Button type="submit">Search</Button>
+          {filters.search !== '' ||
+          filters.source !== '' ||
+          accountId !== '' ||
+          lineFilter !== '' ||
+          unassigned ||
+          filters.minAmount !== '' ||
+          filters.maxAmount !== '' ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSearch('');
+                setSource('');
+                setMinAmount('');
+                setMaxAmount('');
+                setAccountId('');
+                setLineFilter('');
+                setUnassigned(false);
+                setOffset(0);
+                setFilterError(null);
+                setFilters({ search: '', source: '', from, to, minAmount: '', maxAmount: '' });
+              }}
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+        {range === 'custom' ? (
+          <div className="flex flex-wrap gap-3">
+            <Field label="From date">
+              {(control) => (
+                <Input
+                  {...control}
+                  type="date"
+                  value={from}
+                  onChange={(event) => {
+                    setFrom(event.target.value);
+                  }}
+                />
+              )}
+            </Field>
+            <Field label="To date">
+              {(control) => (
+                <Input
+                  {...control}
+                  type="date"
+                  value={to}
+                  onChange={(event) => {
+                    setTo(event.target.value);
+                  }}
+                />
+              )}
+            </Field>
+          </div>
+        ) : null}
+        <details>
+          <summary className="cursor-pointer text-muted">
+            Filter by account, category or amount
+          </summary>
+          <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-2">
+            <Field label="Account">
+              {(control) => (
+                <Select
+                  {...control}
+                  value={accountId}
+                  onChange={(event) => {
+                    setAccountId(event.target.value);
+                    setOffset(0);
+                  }}
+                >
+                  <option value="">Every account</option>
+                  {finance.accounts
+                    .filter((account) => account.type !== 'loan')
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name}
+                      </option>
+                    ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Category">
+              {(control) => (
+                <Select
+                  {...control}
+                  value={unassigned ? 'unassigned' : lineFilter}
+                  onChange={(event) => {
+                    setUnassigned(event.target.value === 'unassigned');
+                    setLineFilter(event.target.value === 'unassigned' ? '' : event.target.value);
+                    setOffset(0);
+                  }}
+                >
+                  <option value="">Every category</option>
+                  <option value="unassigned">Unassigned</option>
+                  {finance.lines.map((line) => (
+                    <option key={line.id} value={line.id}>
+                      {line.name}
+                      {line.archived ? ' (archived)' : ''}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Source">
+              {(control) => (
+                <Select
+                  {...control}
+                  value={source}
+                  onChange={(event) => {
+                    setSource(event.target.value);
+                  }}
+                >
+                  <option value="">Every source</option>
+                  <option value="manual">By hand</option>
+                  <option value="import">Imported statement</option>
+                  <option value="scheduled">Posted from plan</option>
+                </Select>
+              )}
+            </Field>
+            <div className="grid min-w-0 grid-cols-1 gap-3 @sm:grid-cols-2">
+              <Field label="Amount from" hint={currency} className="min-w-0">
+                {(control) => (
+                  <Input
+                    {...control}
+                    inputMode="decimal"
+                    value={minAmount}
+                    onChange={(event) => {
+                      setMinAmount(event.target.value);
+                    }}
+                  />
+                )}
+              </Field>
+              <Field label="Amount to" hint="Money in or out" className="min-w-0">
+                {(control) => (
+                  <Input
+                    {...control}
+                    inputMode="decimal"
+                    value={maxAmount}
+                    onChange={(event) => {
+                      setMaxAmount(event.target.value);
+                    }}
+                  />
+                )}
+              </Field>
+            </div>
+          </div>
+          <Button type="submit" variant="secondary" className="mt-3">
+            Apply filters
+          </Button>
+        </details>
+        <WriteError message={filterError} />
+      </form>
       {query.data === null ? (
         query.status === 'error' ? (
           <ErrorPanel title="The transactions could not be loaded" detail={query.error ?? ''} />
@@ -277,17 +528,52 @@ export function FinanceTransactions({
       ) : (
         <>
           {query.status === 'error' ? <PartialNotice pending="the latest transactions" /> : null}
-          {query.data.truncated ? (
+          {query.data.offset === undefined ? (
             <Text variant="bodySmall" tone="muted" role="status">
-              Showing the newest {String(query.data.transactions.length)} of{' '}
-              {String(query.data.total)}. Narrow by account to see the rest.
+              Update the server to use the new history filters and paging. The records below may not
+              match all selected filters.
             </Text>
           ) : null}
+          {query.data.truncated && query.data.nextOffset === undefined ? (
+            <Text variant="bodySmall" tone="muted" role="status">
+              This server returned a partial history. Narrow the dates or account to see more
+              records.
+            </Text>
+          ) : null}
+          {query.status === 'loading' ? (
+            <Text variant="bodySmall" tone="muted" role="status">
+              Updating results. Previous results remain below.
+            </Text>
+          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-divider pb-3">
+            <Text variant="bodySmall">{String(query.data.total)} matching transactions</Text>
+            <dl className="flex flex-wrap gap-6">
+              {(['inflow', 'outflow', 'net'] as const).map((key) => (
+                <div key={key}>
+                  <Text as="dt" variant="caption" tone="muted">
+                    {key === 'inflow'
+                      ? 'Money in'
+                      : key === 'outflow'
+                        ? 'Money out'
+                        : 'Net movement'}
+                  </Text>
+                  <Text as="dd" variant="body" className="font-medium">
+                    {query.data?.[key] === undefined ? (
+                      'Unavailable from this server'
+                    ) : (
+                      <Money amount={query.data[key]} currency={currency} signed={key === 'net'} />
+                    )}
+                  </Text>
+                </div>
+              ))}
+            </dl>
+          </div>
           {query.data.transactions.length === 0 ? null : (
             <div className="flex flex-wrap items-center gap-3 rounded-lg bg-surface-raised p-3">
               <Checkbox
                 label={`Select all ${String(visibleIds.length)} visible`}
                 checked={allVisibleSelected}
+                disabled={query.status !== 'ready' || assigning}
                 indeterminate={someVisibleSelected && !allVisibleSelected}
                 onChange={(event) => {
                   toggleAllVisible(event.target.checked);
@@ -301,6 +587,7 @@ export function FinanceTransactions({
                   <Select
                     aria-label="Assign to line"
                     value={assignLineId}
+                    disabled={assigning}
                     onChange={(event) => {
                       setAssignLineId(event.target.value);
                     }}
@@ -317,12 +604,12 @@ export function FinanceTransactions({
                     ))}
                   </Select>
                   <Button
-                    disabled={assignLineId === '' || assigning}
+                    disabled={assignLineId === '' || assigning || query.status !== 'ready'}
                     onClick={() => {
-                      void applyAssignment();
+                      setPreviewAssignment(true);
                     }}
                   >
-                    Apply
+                    Preview change
                   </Button>
                   <Button
                     variant="secondary"
@@ -340,14 +627,169 @@ export function FinanceTransactions({
           )}
           <WriteError message={assignError} />
           <Table<FinanceTransaction>
-            caption={`Transactions in ${formatMonth(month, 'long')}`}
+            caption="Matching transactions, newest first"
             columns={columns}
             rows={query.data.transactions}
             rowKey={(row) => row.id}
-            emptyMessage="Nothing recorded for this month yet."
+            emptyMessage="No matching transactions. Try another date range or clear your filters."
           />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Text variant="bodySmall" tone="muted">
+              Showing {query.data.total === 0 ? '0' : String((query.data.offset ?? 0) + 1)}–
+              {String((query.data.offset ?? 0) + query.data.transactions.length)} of{' '}
+              {String(query.data.total)}
+            </Text>
+            <div className="flex gap-2">
+              <Button
+                variant="secondary"
+                disabled={offset === 0 || query.status !== 'ready'}
+                onClick={() => {
+                  setOffset(Math.max(0, offset - 50));
+                }}
+              >
+                Previous 50
+              </Button>
+              <Button
+                variant="secondary"
+                disabled={query.data.nextOffset == null || query.status !== 'ready'}
+                onClick={() => {
+                  setOffset(query.data?.nextOffset ?? offset);
+                }}
+              >
+                Next 50
+              </Button>
+            </div>
+          </div>
         </>
       )}
+      {changes.length === 0 ? null : (
+        <details className="rounded-lg border border-divider p-3">
+          <summary className="cursor-pointer text-muted">
+            Changes in this visit ({String(changes.length)})
+          </summary>
+          <Text variant="caption" tone="muted" className="mt-2">
+            Recent edits made in this history screen. This list clears when you leave or reload;
+            saved records remain in your finances.
+          </Text>
+          <ul className="mt-3 flex flex-col gap-3">
+            {changes.map((change, index) => (
+              <li
+                key={`${change.before.id}-${String(index)}`}
+                className="flex flex-wrap items-center justify-between gap-3"
+              >
+                <Text variant="bodySmall">
+                  {change.before.description}:{' '}
+                  <Money amount={change.before.amount} currency={currency} signed /> to{' '}
+                  <Money amount={change.after.amount} currency={currency} signed />;{' '}
+                  {lines.get(change.before.lineId ?? '')?.name ?? 'Unassigned'} to{' '}
+                  {lines.get(change.after.lineId ?? '')?.name ?? 'Unassigned'}
+                </Text>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setUndoError(null);
+                    setRestoring(change);
+                  }}
+                >
+                  Review undo
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <WriteError message={undoError} />
+      {restoring === null ? null : (
+        <TransactionDialog
+          state={state}
+          finance={finance}
+          transaction={restoring.before}
+          storedTransaction={restoring.after}
+          onClose={() => {
+            setRestoring(null);
+          }}
+          beforeSave={async () => {
+            if (client === null) return 'Reconnect to the server before restoring this edit.';
+            try {
+              const latest = await client.query(
+                financeApi.listTransactions(finance.itemId, { transactionId: restoring.after.id }),
+                { forceRefresh: true, signal: reads.current?.signal },
+              );
+              const row = latest.transactions.find(
+                (candidate) => candidate.id === restoring.after.id,
+              );
+              return row === undefined || !sameEditableTransaction(row, restoring.after)
+                ? 'This transaction has changed since that edit. Open its current record and review the changes before correcting it.'
+                : null;
+            } catch {
+              return 'The current transaction could not be checked. Try again before restoring.';
+            }
+          }}
+          onSaved={() => {
+            setChanges((current) => current.filter((candidate) => candidate !== restoring));
+            setAnnouncement('Restored the previous values. Totals are refreshing.');
+          }}
+        />
+      )}
+      {announcement === null ? null : (
+        <Text variant="bodySmall" role="status">
+          {announcement}
+        </Text>
+      )}
+      {previewAssignment ? (
+        <Dialog
+          open
+          title="Review category change"
+          onClose={() => {
+            setPreviewAssignment(false);
+          }}
+        >
+          <div className="flex flex-col gap-4">
+            <Text variant="body">
+              Move {String(selected.size)} transactions to {lines.get(assignLineId)?.name}. Amounts
+              and accounts stay the same; category totals will update.
+            </Text>
+            <ul className="flex flex-col gap-2">
+              {query.data?.transactions
+                .filter((row) => selected.has(row.id))
+                .map((row) => (
+                  <li key={row.id}>
+                    <Text variant="bodySmall">
+                      {row.description}:{' '}
+                      {row.lineId === null ? 'Unassigned' : lines.get(row.lineId)?.name} to{' '}
+                      {lines.get(assignLineId)?.name}
+                      {finance.closedMonths.includes(monthOf(row.date)) ? ' (closed month)' : ''}
+                    </Text>
+                  </li>
+                ))}
+            </ul>
+            {query.data?.transactions.some(
+              (row) => selected.has(row.id) && finance.closedMonths.includes(monthOf(row.date)),
+            ) ? (
+              <Text variant="bodySmall" role="alert">
+                Some selected transactions belong to closed months. Correct these individually first
+                so you can reopen and close each month safely.
+              </Text>
+            ) : (
+              <Button
+                onClick={() => {
+                  void applyAssignment();
+                }}
+              >
+                Apply category change
+              </Button>
+            )}
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPreviewAssignment(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </Dialog>
+      ) : null}
       <QuickAddDialog
         state={state}
         finance={finance}
@@ -362,6 +804,10 @@ export function FinanceTransactions({
           state={state}
           finance={finance}
           transaction={editing}
+          onSaved={(before, after) => {
+            setChanges((current) => [{ before, after }, ...current].slice(0, 25));
+            setAnnouncement('Saved transaction changes. Totals are refreshing.');
+          }}
           onClose={() => {
             setEditing(null);
           }}
@@ -379,12 +825,35 @@ export function FinanceTransactions({
   );
 }
 
+interface SessionChange {
+  readonly before: FinanceTransaction;
+  readonly after: FinanceTransaction;
+}
+
+function sameEditableTransaction(left: FinanceTransaction, right: FinanceTransaction): boolean {
+  return (
+    left.description === right.description &&
+    left.amount === right.amount &&
+    left.date === right.date &&
+    left.accountId === right.accountId &&
+    left.lineId === right.lineId &&
+    left.cleared === right.cleared
+  );
+}
+
+function monthEnd(month: string): string {
+  const next = new Date(`${shiftMonth(month, 1)}-01T00:00:00Z`);
+  next.setUTCDate(0);
+  return next.toISOString().slice(0, 10);
+}
+
 function linesBySection(
   lines: readonly BudgetLine[],
+  retainedId?: string,
 ): readonly (readonly [string, readonly BudgetLine[]])[] {
   const groups = new Map<string, BudgetLine[]>();
   for (const line of lines) {
-    if (line.archived) continue;
+    if (line.archived && line.id !== retainedId) continue;
     groups.set(line.section, [...(groups.get(line.section) ?? []), line]);
   }
   return [...groups.entries()];
@@ -426,6 +895,9 @@ export function TransactionDialog({
   month,
   line = null,
   onClose,
+  onSaved,
+  beforeSave,
+  storedTransaction,
 }: {
   readonly state: FinanceState;
   readonly finance: Finance;
@@ -434,6 +906,9 @@ export function TransactionDialog({
   readonly month?: string;
   /** The budget line a new transaction is for, when it is opened from that line. */
   readonly line?: BudgetLine | null;
+  readonly onSaved?: (before: FinanceTransaction, after: FinanceTransaction) => void;
+  readonly beforeSave?: () => Promise<string | null>;
+  readonly storedTransaction?: FinanceTransaction;
   readonly onClose: () => void;
 }): ReactNode {
   const currency = finance.settings.currency;
@@ -468,6 +943,46 @@ export function TransactionDialog({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [reopened, setReopened] = useState<readonly string[]>([]);
+  const [closeAfter, setCloseAfter] = useState(true);
+  const [closePending, setClosePending] = useState(false);
+  const closedForEdit = [
+    ...new Set([
+      monthOf(date),
+      ...(transaction === null ? [] : [monthOf(storedTransaction?.date ?? transaction.date)]),
+    ]),
+  ].filter(
+    (candidate) => finance.closedMonths.includes(candidate) && !reopened.includes(candidate),
+  );
+  const reopen = async (): Promise<void> => {
+    setBusy(true);
+    for (const candidate of closedForEdit) {
+      const refusal = await state.setMonth(candidate, false);
+      if (refusal !== null) {
+        setError(refusal);
+        setBusy(false);
+        return;
+      }
+      setReopened((current) => [...current, candidate]);
+    }
+    setError(null);
+    setBusy(false);
+  };
+  const finishCorrection = async (): Promise<boolean> => {
+    if (!closeAfter) return true;
+    for (const candidate of reopened) {
+      const refusal = await state.setMonth(candidate, true);
+      if (refusal !== null) {
+        setClosePending(true);
+        setError(
+          `The change was saved, but ${formatMonth(candidate)} could not be closed: ${refusal}`,
+        );
+        return false;
+      }
+    }
+    setClosePending(false);
+    return true;
+  };
   const amountField = useRef<HTMLInputElement | null>(null);
   // The confirm replaces the Delete button, so focus is placed on the safe answer when it appears
   // and handed back to Delete when the person keeps the transaction.
@@ -480,21 +995,34 @@ export function TransactionDialog({
     wasConfirming.current = confirmingDelete;
   }, [confirmingDelete]);
   const spendable = finance.accounts.filter(
-    (account) => account.type !== 'loan' && !account.archived,
+    (account) =>
+      account.type !== 'loan' && (!account.archived || account.id === transaction?.accountId),
   );
   // Choosing a line answers the account and the direction; either can still be changed after.
   const chooseLine = (id: string): void => {
     setLineId(id);
     const line = finance.lines.find((candidate) => candidate.id === id);
     if (line === undefined) return;
-    if (transaction === null) setAccountId(line.accountId);
-    setDirection(line.flow === 'income' ? 'in' : 'out');
+    if (transaction === null) {
+      setAccountId(line.accountId);
+      setDirection(line.flow === 'income' ? 'in' : 'out');
+    }
   };
 
   // `keepOpen` is the "Save and add another" path: the date, account and line usually carry
   // over to the next entry, so only what changes row to row - the amount and description - is
   // cleared, and the dialog stays open for the next one instead of closing.
   const record = async (keepOpen: boolean): Promise<void> => {
+    if (closedForEdit.length > 0) {
+      setError('Reopen the closed month before saving this correction.');
+      return;
+    }
+    if (closePending) {
+      setBusy(true);
+      if (await finishCorrection()) onClose();
+      setBusy(false);
+      return;
+    }
     const magnitude = parseAmount(amount);
     if (magnitude === null || magnitude === 0) {
       setError('Enter the amount that moved.');
@@ -509,13 +1037,25 @@ export function TransactionDialog({
       cleared: transaction?.cleared ?? false,
     };
     setBusy(true);
+    if (beforeSave !== undefined) {
+      const problem = await beforeSave();
+      if (problem !== null) {
+        setBusy(false);
+        setError(problem);
+        return;
+      }
+    }
     const refusal =
       transaction === null
         ? await state.createTransaction(input)
         : await state.setTransaction(transaction.id, input);
-    setBusy(false);
     setError(refusal);
     if (refusal === null) {
+      if (transaction !== null) onSaved?.(transaction, { ...transaction, ...input });
+      if (!(await finishCorrection())) {
+        setBusy(false);
+        return;
+      }
       if (keepOpen) {
         setDescription('');
         setAmount('');
@@ -524,6 +1064,7 @@ export function TransactionDialog({
         onClose();
       }
     }
+    setBusy(false);
   };
 
   const submit = async (event: SyntheticEvent): Promise<void> => {
@@ -537,117 +1078,173 @@ export function TransactionDialog({
     const refusal = await state.deleteTransaction(transaction.id);
     setBusy(false);
     setError(refusal);
-    if (refusal === null) onClose();
+    if (refusal === null && (await finishCorrection())) onClose();
   };
 
   return (
     <Dialog
       open
-      title={transaction === null ? 'Add a transaction' : `Edit ${transaction.description}`}
-      onClose={onClose}
+      title={
+        transaction === null
+          ? 'Add a transaction'
+          : beforeSave === undefined
+            ? `Edit ${transaction.description}`
+            : `Review undo for ${transaction.description}`
+      }
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      closeLabel={busy ? 'Saving transaction' : 'Close'}
       initialFocus={amountField}
-      dirty={dirty}
+      dirty={dirty || reopened.length > 0}
+      presentation={transaction === null ? 'standard' : 'workspace'}
     >
       <form
         className="flex flex-col gap-4"
+        aria-busy={busy}
         onSubmit={(event) => {
           void submit(event);
         }}
       >
-        <Field label="Amount" hint={`In ${currency}. Refunds go in as money in.`}>
-          {(control) => (
-            <div className="flex gap-2">
+        {beforeSave === undefined ? null : (
+          <Text variant="bodySmall">
+            Review the previous values below. Restoring checks that this transaction still matches
+            your saved edit.
+          </Text>
+        )}
+        {closedForEdit.length > 0 ? (
+          <div className="flex flex-col gap-3 rounded-lg border border-divider bg-surface-raised p-3">
+            <Text variant="bodySmall">
+              {closedForEdit.map((candidate) => formatMonth(candidate, 'long')).join(' and ')} is
+              closed. Reopening allows corrections that recalculate account balances, budget totals
+              and later forecasts.
+            </Text>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                void reopen();
+              }}
+            >
+              Reopen to correct
+            </Button>
+          </div>
+        ) : null}
+        {reopened.length > 0 ? (
+          <div className="flex flex-col gap-2">
+            <Checkbox
+              label="Close reopened months after saving"
+              checked={closeAfter}
+              disabled={busy}
+              onChange={(event) => {
+                setCloseAfter(event.target.checked);
+              }}
+            />
+            <Text variant="caption" tone="muted">
+              These months stay open if you leave without saving:{' '}
+              {reopened.map((candidate) => formatMonth(candidate)).join(', ')}.
+            </Text>
+          </div>
+        ) : null}
+        <fieldset disabled={busy || closePending} className="flex flex-col gap-4">
+          <Field label="Amount" hint={`In ${currency}. Refunds go in as money in.`}>
+            {(control) => (
+              <div className="flex gap-2">
+                <Input
+                  {...control}
+                  ref={amountField}
+                  inputMode="decimal"
+                  placeholder="12.40"
+                  value={amount}
+                  onChange={(event) => {
+                    setAmount(event.target.value);
+                  }}
+                />
+                <Select
+                  aria-label="Direction"
+                  value={direction}
+                  onChange={(event) => {
+                    setDirection(event.target.value === 'in' ? 'in' : 'out');
+                  }}
+                >
+                  <option value="out">Money out</option>
+                  <option value="in">Money in</option>
+                </Select>
+              </div>
+            )}
+          </Field>
+          <Field label="Description" hint="The payee, or what it was for.">
+            {(control) => (
               <Input
                 {...control}
-                ref={amountField}
-                inputMode="decimal"
-                placeholder="12.40"
-                value={amount}
+                value={description}
                 onChange={(event) => {
-                  setAmount(event.target.value);
+                  setDescription(event.target.value);
                 }}
               />
+            )}
+          </Field>
+          <Field
+            label="Budget line"
+            hint="Leave unassigned to decide later; it still counts as spending."
+          >
+            {(control) => (
               <Select
-                aria-label="Direction"
-                value={direction}
+                {...control}
+                value={lineId}
                 onChange={(event) => {
-                  setDirection(event.target.value === 'in' ? 'in' : 'out');
+                  chooseLine(event.target.value);
                 }}
               >
-                <option value="out">Money out</option>
-                <option value="in">Money in</option>
+                <option value="">Unassigned</option>
+                {linesBySection(finance.lines, lineId).map(([section, lines]) => (
+                  <optgroup key={section} label={section}>
+                    {lines.map((line) => (
+                      <option key={line.id} value={line.id}>
+                        {line.name}
+                        {line.archived ? ' (archived)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
               </Select>
-            </div>
-          )}
-        </Field>
-        <Field label="Description" hint="The payee, or what it was for.">
-          {(control) => (
-            <Input
-              {...control}
-              value={description}
-              onChange={(event) => {
-                setDescription(event.target.value);
-              }}
-            />
-          )}
-        </Field>
-        <Field
-          label="Budget line"
-          hint="Leave unassigned to decide later; it still counts as spending."
-        >
-          {(control) => (
-            <Select
-              {...control}
-              value={lineId}
-              onChange={(event) => {
-                chooseLine(event.target.value);
-              }}
-            >
-              <option value="">Unassigned</option>
-              {linesBySection(finance.lines).map(([section, lines]) => (
-                <optgroup key={section} label={section}>
-                  {lines.map((line) => (
-                    <option key={line.id} value={line.id}>
-                      {line.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label="Account">
-          {(control) => (
-            <Select
-              {...control}
-              value={accountId === '' ? (spendable[0]?.id ?? '') : accountId}
-              onChange={(event) => {
-                setAccountId(event.target.value);
-              }}
-            >
-              {spendable.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.name}
-                </option>
-              ))}
-            </Select>
-          )}
-        </Field>
-        <Field label="Date">
-          {(control) => (
-            <Input
-              {...control}
-              type="date"
-              value={date}
-              onChange={(event) => {
-                setDate(event.target.value);
-              }}
-            />
-          )}
-        </Field>
+            )}
+          </Field>
+          <Field label="Account">
+            {(control) => (
+              <Select
+                {...control}
+                value={accountId === '' ? (spendable[0]?.id ?? '') : accountId}
+                onChange={(event) => {
+                  setAccountId(event.target.value);
+                }}
+              >
+                {spendable.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                    {account.archived ? ' (archived)' : ''}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Date">
+            {(control) => (
+              <Input
+                {...control}
+                type="date"
+                value={date}
+                onChange={(event) => {
+                  setDate(event.target.value);
+                }}
+              />
+            )}
+          </Field>
+        </fieldset>
         <WriteError message={error} />
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {transaction === null ? null : confirmingDelete ? (
+          {transaction === null || beforeSave !== undefined ? null : confirmingDelete ? (
             <span className="mr-auto flex flex-wrap items-center gap-2">
               <Text as="span" variant="bodySmall">
                 Delete this transaction?
@@ -680,7 +1277,7 @@ export function TransactionDialog({
               type="button"
               variant="ghost"
               className="mr-auto"
-              disabled={busy}
+              disabled={busy || closedForEdit.length > 0 || closePending}
               onClick={() => {
                 setConfirmingDelete(true);
               }}
@@ -688,7 +1285,7 @@ export function TransactionDialog({
               Delete
             </Button>
           )}
-          <Button type="button" variant="secondary" onClick={onClose}>
+          <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
           {transaction === null ? (
@@ -703,8 +1300,16 @@ export function TransactionDialog({
               Save and add another
             </Button>
           ) : null}
-          <Button type="submit" disabled={busy}>
-            {transaction === null ? 'Record' : 'Save'}
+          <Button type="submit" disabled={busy || closedForEdit.length > 0}>
+            {busy
+              ? 'Saving…'
+              : closePending
+                ? 'Retry closing month'
+                : transaction === null
+                  ? 'Record'
+                  : beforeSave === undefined
+                    ? 'Save changes'
+                    : 'Restore previous values'}
           </Button>
         </div>
       </form>

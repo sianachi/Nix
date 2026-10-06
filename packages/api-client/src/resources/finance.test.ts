@@ -94,6 +94,46 @@ beforeEach(() => {
 });
 
 describe('finance requests', () => {
+  it('sends complete history filters and keeps pages and searches separate in the cache', async () => {
+    let reads = 0;
+    server.use(
+      http.get(testUrl(`/api/v1/items/${rootId}/finance/transactions`), ({ request }) => {
+        reads += 1;
+        const query = new URL(request.url).searchParams;
+        expect(query.get('from')).toBe('2025-01-01');
+        expect(query.get('to')).toBe('2026-12-31');
+        expect(query.get('source')).toBe('manual');
+        expect(query.get('minAmount')).toBe('10');
+        expect(query.get('maxAmount')).toBe('50');
+        return HttpResponse.json({
+          transactions: [transaction],
+          total: 3,
+          truncated: true,
+          offset: Number(query.get('offset') ?? 0),
+          nextOffset: 2,
+          inflow: 20,
+          outflow: 40,
+          net: -20,
+        });
+      }),
+    );
+    const filter = {
+      from: '2025-01-01',
+      to: '2026-12-31',
+      source: 'manual' as const,
+      minAmount: 10,
+      maxAmount: 50,
+      limit: 1,
+      search: 'shop',
+    };
+    const first = await client.query(listTransactions(rootId, filter));
+    await client.query(listTransactions(rootId, { ...filter, offset: 1 }));
+    await client.query(listTransactions(rootId, { ...filter, search: 'refund' }));
+    expect(reads).toBe(3);
+    expect(first.net).toBe(-20);
+    expect(first.total).toBe(3);
+  });
+
   it('reads the root and invalidates it after a transaction is recorded', async () => {
     let reads = 0;
     server.use(

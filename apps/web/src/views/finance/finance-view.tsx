@@ -1,4 +1,4 @@
-import { Button, Icon, Segmented, Text } from '@nix/ui';
+import { Button, Icon, Text } from '@nix/ui';
 import type { Finance } from '@nix/api-client';
 import { TriangleAlert } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
@@ -24,9 +24,9 @@ export interface FinanceViewProps {
 export type FinanceSection = 'dashboard' | 'budget' | 'transactions' | 'accounts' | 'cashflow';
 
 const SECTIONS: readonly { readonly value: FinanceSection; readonly label: string }[] = [
-  { value: 'dashboard', label: 'Dashboard' },
+  { value: 'dashboard', label: 'Overview' },
   { value: 'budget', label: 'Budget' },
-  { value: 'transactions', label: 'Transactions' },
+  { value: 'transactions', label: 'History' },
   { value: 'accounts', label: 'Accounts' },
   { value: 'cashflow', label: 'Cash flow' },
 ];
@@ -48,6 +48,11 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
   const [quickAdd, setQuickAdd] = useState(false);
   const [closing, setClosing] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<{
+    lineId?: string;
+    accountId?: string;
+    unassigned?: boolean;
+  }>({});
   const selectedMonth = chosen ?? state.finance?.currentMonth ?? null;
 
   if (state.status === 'loading') {
@@ -103,7 +108,7 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
   const closed = finance.closedMonths.includes(month);
   return (
     <section
-      className="flex min-w-0 flex-col gap-6"
+      className="@container flex min-w-0 flex-col gap-6"
       aria-labelledby="finance-title"
       aria-busy={state.refreshing}
     >
@@ -111,19 +116,23 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
         <div role="alert" className="flex items-start gap-2 border border-divider p-3">
           <Icon icon={TriangleAlert} className="size-4 text-accent-text" />
           <Text variant="note" as="span" tone="accent">
-            {state.refreshError} The figures on screen are unaffected; try again.
+            {state.refreshError} The figures may be out of date.
           </Text>
+          <Button variant="secondary" onClick={state.reload}>
+            Retry
+          </Button>
         </div>
       )}
-      <header className="flex flex-col gap-4 border-b border-divider pb-4 xl:flex-row xl:items-end xl:justify-between">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-divider pb-4">
         <div>
           <Text as="h2" variant="h2" id="finance-title">
             Finances
           </Text>
           <Text variant="bodySmall" tone="muted">
-            {finance.settings.currency}, planned from {finance.settings.startMonth} to{' '}
-            {finance.settings.endMonth}
-            {closed ? '. This month is closed.' : '.'}
+            {finance.settings.currency}.{' '}
+            {closed
+              ? 'Closed month. Reopen it to make a correction.'
+              : 'Open month. Record spending as you go.'}
           </Text>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -132,22 +141,25 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
             min={finance.settings.startMonth}
             max={finance.settings.endMonth}
             onChange={setMonth}
+            current={finance.currentMonth}
           />
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-            <Button
-              onClick={() => {
-                setQuickAdd(true);
-              }}
-            >
-              Add transaction
-            </Button>
+            {section === 'transactions' ? null : (
+              <Button
+                onClick={() => {
+                  setQuickAdd(true);
+                }}
+              >
+                Add transaction
+              </Button>
+            )}
             <Button
               variant="secondary"
               onClick={() => {
                 setClosing(true);
               }}
             >
-              {closed ? 'Reopen month' : 'Close month'}
+              {closed ? 'Reopen selected month' : 'Close selected month'}
             </Button>
             <Button
               variant="secondary"
@@ -174,12 +186,24 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
           </ul>
         </div>
       )}
-      <Segmented<FinanceSection>
-        label="Finance section"
-        options={SECTIONS}
-        value={section}
-        onChange={setSection}
-      />
+      <nav
+        aria-label="Finance section"
+        className="flex flex-wrap gap-2 border-b border-divider pb-3"
+      >
+        {SECTIONS.map((option) => (
+          <Button
+            key={option.value}
+            variant={section === option.value ? 'primary' : 'ghost'}
+            aria-current={section === option.value ? 'page' : undefined}
+            onClick={() => {
+              setSection(option.value);
+              if (option.value === 'transactions') setHistoryFilter({});
+            }}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </nav>
       <FinanceSectionBody
         section={section}
         state={state}
@@ -187,6 +211,11 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
         month={month}
         onMonth={setMonth}
         onSection={setSection}
+        historyFilter={historyFilter}
+        onHistory={(filter) => {
+          setHistoryFilter(filter);
+          setSection('transactions');
+        }}
       />
       <QuickAddDialog
         state={state}
@@ -225,6 +254,8 @@ function FinanceSectionBody({
   month,
   onMonth,
   onSection,
+  historyFilter,
+  onHistory,
 }: {
   readonly section: FinanceSection;
   readonly state: FinanceState;
@@ -232,19 +263,51 @@ function FinanceSectionBody({
   readonly month: string;
   readonly onMonth: (month: string) => void;
   readonly onSection: (section: FinanceSection) => void;
+  readonly historyFilter: { lineId?: string; accountId?: string; unassigned?: boolean };
+  readonly onHistory: (filter: {
+    lineId?: string;
+    accountId?: string;
+    unassigned?: boolean;
+  }) => void;
 }): ReactNode {
   switch (section) {
     case 'dashboard':
       return (
-        <FinanceDashboard state={state} finance={finance} month={month} onSection={onSection} />
+        <FinanceDashboard
+          state={state}
+          finance={finance}
+          month={month}
+          onSection={onSection}
+          onHistory={onHistory}
+        />
       );
     case 'budget':
       return <FinanceBudget state={state} finance={finance} month={month} onMonth={onMonth} />;
     case 'transactions':
-      return <FinanceTransactions state={state} finance={finance} month={month} />;
+      return (
+        <FinanceTransactions
+          key={`${historyFilter.lineId ?? ''}:${historyFilter.accountId ?? ''}:${String(historyFilter.unassigned ?? false)}`}
+          state={state}
+          finance={finance}
+          month={month}
+          initialLineId={historyFilter.lineId}
+          initialAccountId={historyFilter.accountId}
+          initialUnassigned={historyFilter.unassigned}
+        />
+      );
     case 'accounts':
       return <FinanceAccounts state={state} finance={finance} month={month} />;
     case 'cashflow':
-      return <FinanceCashFlow state={state} finance={finance} month={month} />;
+      return (
+        <FinanceCashFlow
+          state={state}
+          finance={finance}
+          month={month}
+          onMonth={(selected) => {
+            onMonth(selected);
+            onSection('dashboard');
+          }}
+        />
+      );
   }
 }

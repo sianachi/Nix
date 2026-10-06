@@ -2005,7 +2005,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** Transactions newest first, narrowed by month, account or line */
+    /** Search transaction history with date, account, category, source and amount filters */
     get: operations['ListFinanceTransactions'];
     put?: never;
     /** Record a transaction; the amount is its cash effect, negative when money left */
@@ -3341,6 +3341,10 @@ export interface components {
       horizonEnd: components['schemas']['CashFlowMonthResponse'];
       /** Format: double */
       horizonNet: number | string;
+      /** Format: double */
+      monthEndDebt: number | string;
+      /** Format: double */
+      monthEndAfterDebt: number | string;
     };
     FinanceImportRequest: {
       /** Format: uuid */
@@ -3459,6 +3463,28 @@ export interface components {
       /** Format: int32 */
       total: number | string;
       truncated: boolean;
+      /**
+       * Format: int32
+       * @default 0
+       */
+      offset: number | string;
+      /** Format: int32 */
+      nextOffset?: null | number | string;
+      /**
+       * Format: double
+       * @default 0
+       */
+      inflow: number | string;
+      /**
+       * Format: double
+       * @default 0
+       */
+      outflow: number | string;
+      /**
+       * Format: double
+       * @default 0
+       */
+      net: number | string;
     };
     FormBlockContract: {
       id: string;
@@ -10507,6 +10533,14 @@ export interface operations {
         lineId?: string;
         unassigned?: boolean;
         limit?: number | string;
+        from?: string;
+        to?: string;
+        search?: string;
+        source?: string;
+        minAmount?: number | string;
+        maxAmount?: number | string;
+        offset?: number | string;
+        transactionId?: string;
       };
       header?: never;
       path: {

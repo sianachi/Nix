@@ -66,7 +66,7 @@ internal static class FinanceEndpoints
 
         group.MapGet("/transactions", Transactions)
             .WithName("ListFinanceTransactions")
-            .WithSummary("Transactions newest first, narrowed by month, account or line")
+            .WithSummary("Search transaction history with date, account, category, source and amount filters")
             .Produces<FinanceTransactionsResponse>().ProducesProblem(404).ProducesProblem(409).ProducesProblem(422);
         group.MapPost("/transactions", CreateTransaction)
             .WithName("CreateFinanceTransaction")
@@ -193,14 +193,18 @@ internal static class FinanceEndpoints
     }
 
     private static async Task<Results<Ok<FinanceTransactionsResponse>, ProblemHttpResult>> Transactions(
-        Guid itemId, [FromQuery] string? month, [FromQuery] Guid? accountId, [FromQuery] Guid? lineId, [FromQuery] bool? unassigned, [FromQuery] int? limit, HttpContext context, [FromServices] NixDispatcher dispatcher)
+        Guid itemId, [FromQuery] string? month, [FromQuery] Guid? accountId, [FromQuery] Guid? lineId, [FromQuery] bool? unassigned, [FromQuery] int? limit,
+        [FromQuery] DateOnly? from, [FromQuery] DateOnly? to, [FromQuery] string? search, [FromQuery] string? source,
+        [FromQuery] decimal? minAmount, [FromQuery] decimal? maxAmount, [FromQuery] int? offset, [FromQuery] Guid? transactionId,
+        HttpContext context, [FromServices] NixDispatcher dispatcher)
     {
         if (!TryMonth(month, out var parsed))
         {
             return Problem(context, InvalidMonth());
         }
         var result = await dispatcher.QueryAsync<ListFinanceTransactions, Result<FinanceTransactionsResponse>>(
-            new ListFinanceTransactions(ItemId.From(itemId), parsed, accountId, lineId, unassigned ?? false, limit ?? 0), context.RequestAborted).ConfigureAwait(false);
+            new ListFinanceTransactions(ItemId.From(itemId), parsed, accountId, lineId, unassigned ?? false, limit ?? 0,
+                from, to, search, source, minAmount, maxAmount, offset ?? 0, transactionId), context.RequestAborted).ConfigureAwait(false);
         return result.Match<Results<Ok<FinanceTransactionsResponse>, ProblemHttpResult>>(value => TypedResults.Ok(value), error => Problem(context, error));
     }
 

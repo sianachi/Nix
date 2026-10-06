@@ -4,6 +4,13 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import { formatShortDate } from '../../lib/date-format';
 import { useHabits } from './use-habits';
+import {
+  HabitConsistency,
+  habitDays,
+  habitDayLabel,
+  habitPeriodSummary,
+  HabitQuantityTrend,
+} from './habit-progress';
 
 export type HabitWidgetKind = 'completion' | 'quantity' | 'heatmap';
 
@@ -20,6 +27,8 @@ export interface HabitChartWidgetsProps {
   readonly trackers: ReadonlyMap<string, HabitTracker>;
   readonly availableHabits: readonly { readonly id: string; readonly title: string }[];
   readonly onChange: (widgets: readonly HabitWidgetConfig[]) => void;
+  readonly renderDay?:
+    ((habitId: string, day: string, tracker: HabitTracker) => ReactNode) | undefined;
 }
 
 const labels: Record<HabitWidgetKind, string> = {
@@ -34,6 +43,7 @@ export function HabitChartWidgets({
   trackers,
   availableHabits,
   onChange,
+  renderDay,
 }: HabitChartWidgetsProps): ReactNode {
   widgets ??= [];
   const [kind, setKind] = useState<HabitWidgetKind>('completion');
@@ -77,66 +87,73 @@ export function HabitChartWidgets({
       <Text as="h3" variant="h3" id="habit-chart-widgets-title">
         Progress charts
       </Text>
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="flex flex-col gap-1">
-          <Text variant="note" tone="muted" as="span">
-            Chart
+      <details>
+        <summary>
+          <Text as="span" variant="bodySmall">
+            Add a custom chart
           </Text>
-          <Select
-            value={kind}
-            onChange={(event) => {
-              setKind(event.target.value as HabitWidgetKind);
-            }}
+        </summary>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1">
+            <Text variant="note" tone="muted" as="span">
+              Chart
+            </Text>
+            <Select
+              value={kind}
+              onChange={(event) => {
+                setKind(event.target.value as HabitWidgetKind);
+              }}
+            >
+              {Object.entries(labels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <Text variant="note" tone="muted" as="span">
+              Habit
+            </Text>
+            <Select
+              value={selectedHabitId}
+              onChange={(event) => {
+                setHabitId(event.target.value);
+              }}
+            >
+              {availableHabits.map((habit) => (
+                <option key={habit.id} value={habit.id}>
+                  {habit.title}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <Text variant="note" tone="muted" as="span">
+              Days
+            </Text>
+            <Select
+              value={range}
+              onChange={(event) => {
+                setRange(Number(event.target.value));
+              }}
+            >
+              {[7, 30, 90].map((days) => (
+                <option key={days} value={days}>
+                  {days}
+                </option>
+              ))}
+            </Select>
+          </label>
+          <Button
+            variant="secondary"
+            onClick={add}
+            disabled={selectedHabitId === '' || widgets.length >= 12}
           >
-            {Object.entries(labels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <Text variant="note" tone="muted" as="span">
-            Habit
-          </Text>
-          <Select
-            value={selectedHabitId}
-            onChange={(event) => {
-              setHabitId(event.target.value);
-            }}
-          >
-            {availableHabits.map((habit) => (
-              <option key={habit.id} value={habit.id}>
-                {habit.title}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <Text variant="note" tone="muted" as="span">
-            Days
-          </Text>
-          <Select
-            value={range}
-            onChange={(event) => {
-              setRange(Number(event.target.value));
-            }}
-          >
-            {[7, 30, 90].map((days) => (
-              <option key={days} value={days}>
-                {days}
-              </option>
-            ))}
-          </Select>
-        </label>
-        <Button
-          variant="secondary"
-          onClick={add}
-          disabled={selectedHabitId === '' || widgets.length >= 12}
-        >
-          Add chart
-        </Button>
-      </div>
+            Add chart
+          </Button>
+        </div>
+      </details>
       {widgets.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
           Add a chart to see progress over time.
@@ -181,69 +198,76 @@ export function HabitChartWidgets({
                 </Button>
               </div>
             </header>
-            <div className="flex flex-wrap items-end gap-2 py-2">
-              <label className="flex flex-col gap-1">
-                <Text variant="note" tone="muted" as="span">
-                  Chart
+            <details>
+              <summary>
+                <Text as="span" variant="caption">
+                  Edit chart settings
                 </Text>
-                <Select
-                  value={widget.kind}
-                  onChange={(event) => {
-                    update(widget.id, { kind: event.target.value as HabitWidgetKind });
-                  }}
-                >
-                  {Object.entries(labels).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <label className="flex flex-col gap-1">
-                <Text variant="note" tone="muted" as="span">
-                  Habit
-                </Text>
-                <Select
-                  value={widget.habitId}
-                  onChange={(event) => {
-                    update(widget.id, { habitId: event.target.value });
-                  }}
-                >
-                  {availableHabits.map((habit) => (
-                    <option key={habit.id} value={habit.id}>
-                      {habit.title}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-              <Field label="From">
-                {(control) => (
-                  <Input
-                    {...control}
-                    className="w-40"
-                    type="date"
-                    value={widget.from}
+              </summary>
+              <div className="flex flex-wrap items-end gap-2 py-2">
+                <label className="flex flex-col gap-1">
+                  <Text variant="note" tone="muted" as="span">
+                    Chart
+                  </Text>
+                  <Select
+                    value={widget.kind}
                     onChange={(event) => {
-                      update(widget.id, { from: event.target.value });
+                      update(widget.id, { kind: event.target.value as HabitWidgetKind });
                     }}
-                  />
-                )}
-              </Field>
-              <Field label="To">
-                {(control) => (
-                  <Input
-                    {...control}
-                    className="w-40"
-                    type="date"
-                    value={widget.to}
+                  >
+                    {Object.entries(labels).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <Text variant="note" tone="muted" as="span">
+                    Habit
+                  </Text>
+                  <Select
+                    value={widget.habitId}
                     onChange={(event) => {
-                      update(widget.id, { to: event.target.value });
+                      update(widget.id, { habitId: event.target.value });
                     }}
-                  />
-                )}
-              </Field>
-            </div>
-            <WidgetData widget={widget} refreshKey={tracker} />
+                  >
+                    {availableHabits.map((habit) => (
+                      <option key={habit.id} value={habit.id}>
+                        {habit.title}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                <Field label="From">
+                  {(control) => (
+                    <Input
+                      {...control}
+                      className="w-40"
+                      type="date"
+                      value={widget.from}
+                      onChange={(event) => {
+                        update(widget.id, { from: event.target.value });
+                      }}
+                    />
+                  )}
+                </Field>
+                <Field label="To">
+                  {(control) => (
+                    <Input
+                      {...control}
+                      className="w-40"
+                      type="date"
+                      value={widget.to}
+                      onChange={(event) => {
+                        update(widget.id, { to: event.target.value });
+                      }}
+                    />
+                  )}
+                </Field>
+              </div>
+            </details>
+            <WidgetData widget={widget} refreshKey={tracker} renderDay={renderDay} />
           </article>
         );
       })}
@@ -254,10 +278,13 @@ export function HabitChartWidgets({
 function WidgetData({
   widget,
   refreshKey,
+  renderDay,
 }: {
   readonly widget: HabitWidgetConfig;
   readonly refreshKey: HabitTracker | undefined;
+  readonly renderDay: HabitChartWidgetsProps['renderDay'];
 }): ReactNode {
+  const [selected, setSelected] = useState<string | null>(null);
   // Stable identity keeps unrelated editor changes from restarting this range query.
   const ids = useMemo(() => [widget.habitId], [widget.habitId]);
   const state = useHabits(ids, widget.from, widget.to);
@@ -287,175 +314,118 @@ function WidgetData({
       This habit is unavailable for the selected range.
     </Text>
   ) : (
-    <Chart widget={widget} tracker={tracker} />
+    <Chart
+      widget={widget}
+      tracker={tracker}
+      selected={selected}
+      onSelect={setSelected}
+      renderDay={renderDay}
+    />
   );
 }
 
 function Chart({
   widget,
   tracker,
+  selected,
+  onSelect,
+  renderDay,
 }: {
   readonly widget: HabitWidgetConfig;
   readonly tracker: HabitTracker;
+  readonly selected: string | null;
+  readonly onSelect: (day: string | null) => void;
+  readonly renderDay: HabitChartWidgetsProps['renderDay'];
 }): ReactNode {
-  if (widget.kind === 'heatmap') {
-    const byDay = new Map((tracker.occurrences ?? []).map((entry) => [entry.date, entry]));
-    const days = dateRange(widget.from, widget.to);
-    const offset = (new Date(`${widget.from}T00:00:00Z`).getUTCDay() + 6) % 7;
+  const today = formatShortDate(new Date(), tracker.timezone);
+  const days = habitDays(tracker, widget.from, widget.to, today);
+  if (widget.kind === 'heatmap' || widget.kind === 'quantity') {
+    const selectedEntry = days.find((day) => day.date === selected);
     return (
-      <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-7 gap-1" aria-label="Habit activity heatmap">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day) => (
-            <Text key={day} variant="caption" className="text-center">
-              {day}
-            </Text>
-          ))}
-          {Array.from({ length: offset }, (_, index) => (
-            <span key={`padding-${String(index)}`} aria-hidden="true" />
-          ))}
-          {days.map((day) => {
-            const occurrence = byDay.get(day);
-            const state = occurrence?.state ?? 'unavailable';
-            return (
-              <span
-                key={day}
-                role="img"
-                aria-label={`${day}: ${state}`}
-                title={`${day}: ${state}`}
-                className={`flex h-8 items-center justify-center rounded-sm ${
-                  state === 'completed'
-                    ? 'bg-accent-fill text-background'
-                    : state === 'partial'
-                      ? 'bg-accent/20'
-                      : state === 'missed'
-                        ? 'bg-divider'
-                        : state === 'scheduled'
-                          ? 'border border-divider bg-surface'
-                          : 'bg-surface'
-                }`}
+      <div className="flex flex-col gap-4">
+        {widget.kind === 'heatmap' ? (
+          <HabitConsistency
+            days={days}
+            selected={selected}
+            onSelect={onSelect}
+            editable={renderDay !== undefined}
+          />
+        ) : (
+          <HabitQuantityTrend
+            days={days}
+            unit={tracker.unit}
+            onSelect={onSelect}
+            editable={renderDay !== undefined}
+          />
+        )}
+        {selectedEntry === undefined ? null : (
+          <div className="border-t border-divider pt-4" aria-label="Selected chart day">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <Text as="h4" variant="h4">
+                Check-in for {selectedEntry.date}
+              </Text>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  onSelect(null);
+                }}
               >
-                <Text
-                  as="span"
-                  variant="caption"
-                  className={state === 'completed' ? 'text-background' : ''}
-                >
-                  {day.slice(8)}
-                </Text>
-              </span>
-            );
-          })}
-        </div>
-        <Text variant="caption" tone="muted">
-          Filled: completed. Light fill: partial. Grey: missed. Outline: scheduled. Faded: not
-          scheduled.
-        </Text>
+                Close day
+              </Button>
+            </div>
+            {renderDay === undefined ? (
+              <Text variant="bodySmall">{habitDayLabel(selectedEntry)}</Text>
+            ) : (
+              renderDay(widget.habitId, selectedEntry.date, tracker)
+            )}
+          </div>
+        )}
       </div>
     );
   }
-  const values =
-    widget.kind === 'completion'
-      ? tracker.weeks.map((week) => ({
-          label: week.weekStart,
-          value: week.planned === 0 ? 0 : (week.completed / week.planned) * 100,
-        }))
-      : (
-          tracker.occurrences ??
-          tracker.checkIns.map((checkIn) => ({
-            date: checkIn.occurredOn,
-            quantity: checkIn.quantity,
-          }))
-        ).map((occurrence) => ({
-          label: occurrence.date,
-          value: occurrence.quantity ?? 0,
-        }));
-  const maximum = Math.max(...values.map((value) => value.value), 1);
-  const points =
-    widget.kind === 'quantity' && values.length > 1
-      ? values
-          .map(
-            (value, index) =>
-              `${String((index / (values.length - 1)) * 100)},${String(100 - (value.value / maximum) * 100)}`,
-          )
-          .join(' ')
-      : null;
+  const values = tracker.weeks.map((week) => {
+    const start = new Date(`${week.weekStart}T00:00:00Z`);
+    start.setUTCDate(start.getUTCDate() + 6);
+    const end = start.toISOString().slice(0, 10);
+    const summary = habitPeriodSummary(
+      days.filter((day) => day.date >= week.weekStart && day.date <= end),
+      today,
+    );
+    return {
+      label: week.weekStart,
+      value: summary.rate,
+      completed: summary.completed,
+      planned: summary.planned,
+    };
+  });
   return (
-    <div className="flex flex-col gap-1" aria-label={`${labels[widget.kind]} chart`}>
-      {points === null ? null : (
-        <svg
-          aria-hidden="true"
-          className="h-24 w-full"
-          viewBox="0 0 100 100"
-          preserveAspectRatio="none"
-        >
-          <polyline
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            vectorEffect="non-scaling-stroke"
-            points={points}
-          />
-        </svg>
-      )}
+    <div className="mt-4 flex flex-col gap-3" aria-label="Weekly completion chart">
+      <Text variant="caption" tone="muted">
+        Share of elapsed scheduled days completed
+      </Text>
       {values.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
-          No data in this range.
+          No scheduled history in this range.
         </Text>
       ) : null}
-      {widget.kind === 'quantity' ? (
-        <details>
-          <summary>
-            <Text as="span" variant="caption">
-              Show daily values ({tracker.unit})
-            </Text>
-          </summary>
-          {values.map((value) => (
-            <div key={value.label} className="flex items-center gap-2">
-              <Text variant="note" tone="muted" className="w-24">
-                {value.label}
-              </Text>
-              <span aria-hidden="true" className="h-2 flex-1 rounded-sm bg-accent/20">
-                <DataBar
-                  value={value.value}
-                  maximum={widget.kind === 'completion' ? 100 : maximum}
-                />
-              </span>
-              <Text variant="note">
-                {widget.kind === 'completion'
-                  ? `${String(Math.round(value.value))}%`
-                  : String(value.value)}
-              </Text>
-            </div>
-          ))}
-        </details>
-      ) : (
-        values.map((value) => (
-          <div key={value.label} className="flex items-center gap-2">
-            <Text variant="note" tone="muted" className="w-24">
-              {value.label}
-            </Text>
-            <span aria-hidden="true" className="h-2 flex-1 rounded-sm bg-accent/20">
-              <DataBar value={value.value} maximum={widget.kind === 'completion' ? 100 : maximum} />
-            </span>
-            <Text variant="note">
-              {widget.kind === 'completion'
-                ? `${String(Math.round(value.value))}%`
-                : String(value.value)}
-            </Text>
-          </div>
-        ))
-      )}
+      {values.map((value) => (
+        <div key={value.label} className="flex items-center gap-3">
+          <Text variant="caption" tone="muted" className="w-24">
+            {value.label}
+          </Text>
+          <span className="h-3 flex-1 rounded-full bg-surface-raised" aria-hidden="true">
+            <DataBar value={(value.value ?? 0) * 100} maximum={100} />
+          </span>
+          <Text variant="bodySmall" className="w-20 text-right">
+            {value.value === null ? '—' : `${String(Math.round(value.value * 100))}%`}
+          </Text>
+          <Text variant="caption" tone="muted">
+            {value.completed}/{value.planned}
+          </Text>
+        </div>
+      ))}
     </div>
   );
-}
-
-function dateRange(from: string, to: string): readonly string[] {
-  const start = new Date(`${from}T00:00:00Z`);
-  const end = new Date(`${to}T00:00:00Z`);
-  const days: string[] = [];
-  for (const day = new Date(start); day <= end; day.setUTCDate(day.getUTCDate() + 1)) {
-    days.push(day.toISOString().slice(0, 10));
-  }
-  return days;
 }
 
 function validRange(from: string, to: string): boolean {
@@ -477,5 +447,5 @@ function DataBar({
   readonly maximum: number;
 }): ReactNode {
   const width = `${String((value / maximum) * 100)}%`;
-  return <span className="block h-2 rounded-sm bg-accent" style={{ width }} />; // design-token-exempt: width encodes the data percentage rather than a chosen design dimension.
+  return <span className="block h-3 rounded-full bg-accent-fill" style={{ width }} />; // design-token-exempt: width encodes the data percentage rather than a chosen design dimension.
 }

@@ -324,6 +324,14 @@ export interface TransactionsOptions {
   readonly line?: string;
   readonly unassigned?: boolean;
   readonly limit?: string;
+  readonly from?: string;
+  readonly to?: string;
+  readonly search?: string;
+  readonly source?: string;
+  readonly minAmount?: string;
+  readonly maxAmount?: string;
+  readonly offset?: string;
+  readonly transaction?: string;
 }
 
 export async function transactions(
@@ -339,6 +347,20 @@ export async function transactions(
     ...(options.line === undefined ? {} : { lineId: options.line }),
     ...(options.unassigned ? { unassigned: true } : {}),
     ...(options.limit === undefined ? {} : { limit: parseWhole(options.limit, '--limit', 1) }),
+    ...(options.from === undefined ? {} : { from: parseDay(options.from, '--from') }),
+    ...(options.to === undefined ? {} : { to: parseDay(options.to, '--to') }),
+    ...(options.search === undefined ? {} : { search: options.search }),
+    ...(options.source === undefined
+      ? {}
+      : { source: z.enum(['manual', 'scheduled', 'import']).parse(options.source) }),
+    ...(options.minAmount === undefined
+      ? {}
+      : { minAmount: parseAmount(options.minAmount, '--min-amount') }),
+    ...(options.maxAmount === undefined
+      ? {}
+      : { maxAmount: parseAmount(options.maxAmount, '--max-amount') }),
+    ...(options.offset === undefined ? {} : { offset: parseWhole(options.offset, '--offset', 0) }),
+    ...(options.transaction === undefined ? {} : { transactionId: options.transaction }),
   };
   const session = await resolveSession(profileName, deps);
   printResult(await session.client.query(finance.listTransactions(rootId, filter)), output);

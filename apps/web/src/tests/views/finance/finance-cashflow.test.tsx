@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CashFlow, Finance } from '@nix/api-client';
 import { FinanceCashFlow } from '../../../views/finance/finance-cashflow';
@@ -45,6 +45,7 @@ describe('cash-flow emergency targets', () => {
   it('shows each month target and follows the selected month in the summary', () => {
     query.data = projection;
     const view = render(<FinanceCashFlow state={state} finance={finance} month="2027-04" />);
+    fireEvent.click(screen.getByText('Detailed monthly ledger and targets'));
     const april = screen.getByRole('row', { name: new RegExp(formatMonth('2027-04')) });
     expect(within(april).getByText('£5,550.00')).toBeInTheDocument();
     expect(screen.getByText('£5,550')).toBeInTheDocument();
