@@ -84,7 +84,7 @@ public static class CalendarSql
     /// </para>
     /// <para>
     /// A note counts only when it sits under the root the reader derives for this workspace
-    /// (<c>@daily_root_id</c>) and carries a well-formed <c>$daily</c> date, so the marker typed
+    /// (any generation in <c>@daily_root_ids</c>) and carries a well-formed <c>$daily</c> date, so the marker typed
     /// onto an unrelated item does not put it on the calendar. The note is shown under the same
     /// rules as any other entry: active, not a template, no deleted or template ancestor, and no
     /// closed lock over its parent or any ancestor of its parent. A lock on the note itself is not
@@ -200,7 +200,7 @@ public static class CalendarSql
                  AND container.id = note.parent_id
                 WHERE EXISTS (SELECT 1 FROM daily_on)
                   AND under_root.tenant_id = @tenant_id
-                  AND under_root.ancestor_id = @daily_root_id
+                  AND under_root.ancestor_id = ANY(@daily_root_ids)
                   AND under_root.depth > 0
                   AND note.workspace_id = @workspace_id
                   AND note.workspace_id = ANY(@workspace_ids)

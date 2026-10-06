@@ -181,7 +181,7 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
                 new NpgsqlParameter("from", NpgsqlDbType.Text) { Value = "2026-08-01" },
                 new NpgsqlParameter("to", NpgsqlDbType.Text) { Value = "2026-08-31" },
                 new NpgsqlParameter("entry_limit", NpgsqlDbType.Integer) { Value = 2000 },
-                new NpgsqlParameter("daily_root_id", NpgsqlDbType.Uuid) { Value = Guid.Empty },
+                new NpgsqlParameter("daily_root_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = new[] { Guid.Empty } },
             ]);
         _output.WriteLine("Workspace calendar, runtime role:");
         _output.WriteLine(plan);

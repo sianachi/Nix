@@ -717,6 +717,76 @@ public sealed class WorkspaceAdministrationTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_purged_daily_notes_root_starts_a_new_tree_and_keeps_existing_days()
+    {
+        await SetPersonalOwnerAsync();
+        var workspace = WorkspaceId.From(Visible);
+        var root = DeterministicProvisioningId.DailyNotesRoot(workspace);
+        var earlier = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(earlier.IsSuccess);
+        await PurgeContainerAsync(root, null);
+
+        var later = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-05");
+        var reopened = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+
+        Assert.True(later.IsSuccess);
+        Assert.True(later.Value.Created);
+        var successor = DeterministicProvisioningId.DailyNotesRoot(workspace, 1);
+        Assert.Equal(1, await CountAsMigratorAsync(
+            $"SELECT count(*) FROM item WHERE id = '{later.Value.ItemId:D}' AND parent_id = '{successor:D}'"));
+        Assert.Equal(1, await CountAsMigratorAsync(
+            $"SELECT count(*) FROM item WHERE id = '{root:D}' AND lifecycle_state = 'purged'"));
+        // The day that already had a note opens it where the purge left it.
+        Assert.True(reopened.IsSuccess);
+        Assert.False(reopened.Value.Created);
+        Assert.Equal(earlier.Value.ItemId, reopened.Value.ItemId);
+    }
+
+    [Fact]
+    public async Task A_purged_month_folder_is_replaced_for_new_days_in_that_month()
+    {
+        await SetPersonalOwnerAsync();
+        await SaveDailySettingsAsync(DailyNoteSettings.Create(true, "by-month", "iso", null, 0, false).Value);
+        var workspace = WorkspaceId.From(Visible);
+        var first = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-04");
+        Assert.True(first.IsSuccess);
+        var year = DeterministicProvisioningId.DailyNotesFolder(workspace, "2026");
+        await PurgeContainerAsync(DeterministicProvisioningId.DailyNotesFolder(workspace, "2026-10"), year);
+
+        var next = await OpenDailyThroughCoreAndCommitAsync(Alice, "2026-10-20");
+
+        Assert.True(next.IsSuccess);
+        Assert.True(next.Value.Created);
+        var month = DeterministicProvisioningId.DailyNotesFolder(workspace, "2026-10", 1);
+        Assert.Equal(1, await CountAsMigratorAsync(
+            $"SELECT count(*) FROM item WHERE id = '{next.Value.ItemId:D}' AND parent_id = '{month:D}'"));
+        Assert.Equal(1, await CountAsMigratorAsync(
+            $"SELECT count(*) FROM item WHERE id = '{month:D}' AND parent_id = '{year:D}' AND lifecycle_state = 'active'"));
+    }
+
+    /// <summary>What <c>PurgeItem</c> does to a container: children move up a level, the row is kept as purged.</summary>
+    private async Task PurgeContainerAsync(Guid container, Guid? grandparent)
+    {
+        var parent = grandparent is { } value ? $"'{value:D}'" : "NULL";
+        await ExecuteAsMigratorAsync($"""
+            SELECT set_config('nix.tenant_id', '{M0SchemaSeed.Alpha.TenantId:D}', true);
+            DELETE FROM item_closure
+            WHERE ancestor_id = '{container:D}' AND depth > 0;
+            UPDATE item SET parent_id = {parent} WHERE parent_id = '{container:D}';
+            UPDATE item SET lifecycle_state = 'purged' WHERE id = '{container:D}';
+            """);
+    }
+
+    private async Task<int> CountAsMigratorAsync(string sql)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            return (int)await RawSql.CountAsync(connection, null, sql);
+        }
+    }
+
+    [Fact]
     public async Task Daily_calendar_entries_disappear_when_daily_notes_are_switched_off()
     {
         await SetPersonalOwnerAsync();

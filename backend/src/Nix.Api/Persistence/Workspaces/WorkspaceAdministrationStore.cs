@@ -708,25 +708,34 @@ public sealed partial class WorkspaceAdministrationStore
             return DailyNoteOpening.Unavailable;
         }
 
-        var parentId = rootId;
+        // An existing note is opened where it is; the parent below matters only when creating one.
+        // `rootId` stays the advisory lock key whichever root generation is in use.
+        Guid parentId = rootId;
         if (!known.NoteExists)
         {
-            if (!await EnsureContainerAsync(
-                    workspaceId, rootId, null, "Daily notes", now, cancellationToken).ConfigureAwait(false))
+            Guid? containerParent = null;
+            var containers = new List<(Guid[] Candidates, string Title)>
             {
-                return DailyNoteOpening.RootUnavailable;
-            }
-
+                (DeterministicProvisioningId.DailyNotesRootGenerations(workspaceId), "Daily notes"),
+            };
             foreach (var key in settings.FolderKeys(day))
             {
-                var folderId = DeterministicProvisioningId.DailyNotesFolder(workspaceId, key);
-                if (!await EnsureContainerAsync(
-                        workspaceId, folderId, parentId, key, now, cancellationToken).ConfigureAwait(false))
+                containers.Add((DeterministicProvisioningId.DailyNotesFolderGenerations(workspaceId, key), key));
+            }
+
+            foreach (var (candidates, title) in containers)
+            {
+                var containerId = await ContainerSlotAsync(workspaceId, candidates, containerParent, cancellationToken)
+                    .ConfigureAwait(false);
+                if (containerId is not { } chosen
+                    || !await EnsureContainerAsync(workspaceId, chosen, containerParent, title, now, cancellationToken)
+                        .ConfigureAwait(false))
                 {
                     return DailyNoteOpening.RootUnavailable;
                 }
 
-                parentId = folderId;
+                containerParent = chosen;
+                parentId = chosen;
             }
         }
 
@@ -784,6 +793,31 @@ public sealed partial class WorkspaceAdministrationStore
             "locked" => DailyNoteOpening.Locked,
             _ => DailyNoteOpening.Unavailable,
         };
+    }
+
+    private async ValueTask<Guid?> ContainerSlotAsync(
+        WorkspaceId workspaceId,
+        Guid[] candidateIds,
+        Guid? parentId,
+        CancellationToken cancellationToken)
+    {
+        var context = Session;
+        Guid? slot = null;
+        var rows = _sql.QueryAsync<Guid, GuidMapper>(
+            WorkspaceAdministrationSql.DailyNoteContainerSlot,
+            default,
+            [
+                Uuid("tenant_id", context.TenantId.Value), Uuid("principal_id", context.PrincipalId.Value),
+                Uuid("workspace_id", workspaceId.Value), UuidOrNull("parent_id", parentId),
+                new NpgsqlParameter("candidate_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = candidateIds },
+            ],
+            cancellationToken);
+        await foreach (var row in rows.ConfigureAwait(false))
+        {
+            slot = row;
+        }
+
+        return slot;
     }
 
     private async ValueTask<bool> EnsureContainerAsync(
@@ -867,6 +901,11 @@ public sealed partial class WorkspaceAdministrationStore
     private readonly struct ObjectKeyMapper : INixRowMapper<string>
     {
         public string Map(NpgsqlDataReader reader) => reader.GetString(0);
+    }
+
+    private readonly struct GuidMapper : INixRowMapper<Guid>
+    {
+        public Guid Map(NpgsqlDataReader reader) => reader.GetGuid(0);
     }
 
     private readonly struct MemberMapper : INixRowMapper<WorkspaceMemberSnapshot>

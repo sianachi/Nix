@@ -16,6 +16,8 @@ public static class DeterministicProvisioningId
     private const string DatedDailyNotePurpose = "nix:provisioning:dated-daily-note:v1";
     private const string DatedDailyNoteSuccessorPurpose = "nix:provisioning:dated-daily-note-successor:v1";
     private const string DailyNotesFolderPurpose = "nix:provisioning:daily-notes-folder:v1";
+    private const string DailyNotesRootSuccessorPurpose = "nix:provisioning:daily-notes-root-successor:v1";
+    private const string DailyNotesFolderSuccessorPurpose = "nix:provisioning:daily-notes-folder-successor:v1";
     private const string PresetObjectPurpose = "nix:provisioning:preset-object:v1";
 
     /// <summary>Derives a principal from tenant, exact issuer, and exact subject.</summary>
@@ -30,9 +32,33 @@ public static class DeterministicProvisioningId
     public static WorkspaceId PersonalWorkspace(PrincipalId principalId) =>
         WorkspaceId.From(Derive(PersonalWorkspacePurpose, principalId.Value));
 
-    /// <summary>Derives the Daily Notes root for a workspace.</summary>
+    /// <summary>
+    /// How many identifiers a daily note, a Daily Notes folder or the root can move through. A
+    /// purged item is terminal, so each purge (or move to another workspace) retires one identifier
+    /// and the next open starts anew under the following generation.
+    /// </summary>
+    public const int DailyNoteGenerations = 64;
+
+    /// <summary>Derives the original Daily Notes root for a workspace (generation 0).</summary>
     public static Guid DailyNotesRoot(WorkspaceId workspaceId) =>
         Derive(DailyNotesRootPurpose, workspaceId.Value);
+
+    /// <summary>
+    /// Derives one generation of the Daily Notes root. Generation 0 is the original identifier the
+    /// personal provisioner creates; a later one replaces a root that was purged.
+    /// </summary>
+    public static Guid DailyNotesRoot(WorkspaceId workspaceId, int generation)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(generation);
+        return generation == 0
+            ? DailyNotesRoot(workspaceId)
+            : Derive(DailyNotesRootSuccessorPurpose, workspaceId.Value,
+                generation.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Every generation of the Daily Notes root, in order.</summary>
+    public static Guid[] DailyNotesRootGenerations(WorkspaceId workspaceId) =>
+        Generations(generation => DailyNotesRoot(workspaceId, generation));
 
     /// <summary>Derives one dated Daily Note from its canonical route date.</summary>
     public static Guid DatedDailyNote(WorkspaceId workspaceId, string canonicalDate) =>
@@ -57,10 +83,40 @@ public static class DeterministicProvisioningId
     /// Derives one Daily Notes folder from its key: the year (<c>2026</c>) or the year-month
     /// (<c>2026-10</c>).
     /// </summary>
-    public static Guid DailyNotesFolder(WorkspaceId workspaceId, string key)
+    public static Guid DailyNotesFolder(WorkspaceId workspaceId, string key) =>
+        DailyNotesFolder(workspaceId, key, 0);
+
+    /// <summary>
+    /// Derives one generation of a Daily Notes folder. Generation 0 is the original identifier; a
+    /// later one replaces a folder that was purged or no longer sits where the tree needs it.
+    /// </summary>
+    public static Guid DailyNotesFolder(WorkspaceId workspaceId, string key, int generation)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(key);
-        return Derive(DailyNotesFolderPurpose, workspaceId.Value, key);
+        ArgumentOutOfRangeException.ThrowIfNegative(generation);
+        return generation == 0
+            ? Derive(DailyNotesFolderPurpose, workspaceId.Value, key)
+            : Derive(DailyNotesFolderSuccessorPurpose, workspaceId.Value, key,
+                generation.ToString(CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Every generation of one Daily Notes folder, in order.</summary>
+    public static Guid[] DailyNotesFolderGenerations(WorkspaceId workspaceId, string key) =>
+        Generations(generation => DailyNotesFolder(workspaceId, key, generation));
+
+    /// <summary>Every generation of one dated Daily Note, in order.</summary>
+    public static Guid[] DatedDailyNoteGenerations(WorkspaceId workspaceId, string canonicalDate) =>
+        Generations(generation => DatedDailyNote(workspaceId, canonicalDate, generation));
+
+    private static Guid[] Generations(Func<int, Guid> derive)
+    {
+        var identifiers = new Guid[DailyNoteGenerations];
+        for (var generation = 0; generation < identifiers.Length; generation++)
+        {
+            identifiers[generation] = derive(generation);
+        }
+
+        return identifiers;
     }
 
     /// <summary>Derives one shipped preset object.</summary>
