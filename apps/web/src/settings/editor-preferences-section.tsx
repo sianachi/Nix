@@ -14,9 +14,9 @@ import { useChoiceOrderPreference, useViewSuggestionPreference } from './suggest
 
 const modeGuidance = {
   standard: 'Uses the editor and platform shortcuts shown throughout Nix.',
-  vim: 'Normal and Insert modes. h/l move by character; w/b/e move by language word within the current text block; 0/$ move within that block; gg/G move across the document; i/a/I/A enter Insert; Escape returns to Normal. Visual mode, j/k, operators, counts, registers, search, macros, and : commands are not included.',
+  vim: 'Normal, Insert, Visual (v) and Visual Line (V) modes; each paragraph, heading or list item is a line. Motions: h/l by character, j/k by line, w/b/e by word, 0/^/$ within the line, gg/G across the document, all with counts. Operators d, c and y take a motion or double for whole lines (dd, cc, yy); x, X, D and C are their shorthands; p/P paste; o/O open a line; i/a/I/A enter Insert; u and Ctrl+R undo and redo your own edits. Not included: the . repeat, named registers, text objects, search, marks, macros and : commands.',
   emacs:
-    'Ctrl+A and Ctrl+E move to the start or end of the current text block. Ctrl+/ and Ctrl+_ undo your last local edit. Prefixes, search, visual-line movement, and kill/yank are not included.',
+    'Ctrl+F/B and Alt+F/B move by character and word; Ctrl+A/E to the start or end of the paragraph; Ctrl+N/P by displayed line; Alt+< and Alt+> to either end of the note. Ctrl+Space sets the mark and Ctrl+G clears it. Ctrl+D deletes a character; Ctrl+K, Alt+D and Ctrl+W kill, Alt+W copies, and Ctrl+Y and Alt+Y yank from the kill ring. Ctrl+/ undoes and Ctrl+? redoes your own edits. These chords replace the editor and browser shortcuts they share a key with; on Windows and Linux the browser keeps Ctrl+N and Ctrl+W. Prefixes and search are not included.',
 } as const;
 
 export function EditorPreferencesSection(): ReactElement {

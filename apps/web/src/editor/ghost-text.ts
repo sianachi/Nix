@@ -23,15 +23,15 @@ import { vimStatusMode } from './vim-motions';
  * **When one is drawn.** After `IDLE_MS` without a local edit, at the end of a text block, in the
  * middle of a word or right after a space, and only when the model is confident (`ngram.ts` holds
  * the thresholds). Never in a code block or inline code, never while the `[[`/`@` or `/` pickers
- * have a trigger open, never in a read-only editor, in Vim Normal mode or during an IME
+ * have a trigger open, never in a read-only editor, in Vim Normal or Visual mode or during an IME
  * composition, and never after anything but typing - moving the caret, pasting, undoing or a
  * colleague's edit does not summon one. Any further edit, caret move or blur removes it.
  *
  * **Why Right Arrow, and only at the end of a block.** Tab is taken: it indents list items and
  * moves between table cells, and outside those it is how a keyboard leaves the editor - claiming
  * it, even only while a suggestion shows, would make Tab mean three things depending on a muted
- * glyph. Emacs basics binds Ctrl+A/E and the undo pair, and the platform's own Emacs-style
- * bindings (Ctrl+F on macOS) move the caret, so no control chord is free either. Right Arrow at the
+ * glyph. Emacs basics binds the Ctrl and Alt movement, kill and yank chords, so no control chord
+ * is free either. Right Arrow at the
  * very end of a block has one native meaning - step into the next block - and a suggestion is only
  * drawn there right after typing, which is the moment that step is least likely. That is the same
  * gesture shells and mail clients use for a completion. Vim Normal mode never shows a suggestion,
@@ -380,7 +380,8 @@ function ghostPlugin(context: () => GhostTextContext): Plugin<GhostState> {
     // Only at the end of the block - see the module comment for why the accept key needs this.
     if ($head.parentOffset !== block.content.size) return;
     if ((state.storedMarks ?? $head.marks()).some((mark) => mark.type.spec.code === true)) return;
-    if (vimStatusMode(state) === 'normal') return;
+    const vim = vimStatusMode(state);
+    if (vim !== null && vim !== 'insert') return;
 
     const start = Math.max(0, $head.parentOffset - CONTEXT_CHARS);
     const before = block.textBetween(start, $head.parentOffset, '\n', '￼');

@@ -42,12 +42,12 @@ describe('editor preferences', () => {
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Keyboard mode' }), 'vim');
 
-    expect(screen.getByText(/h\/l move by character/i)).toBeVisible();
+    expect(screen.getByText(/h\/l by character, j\/k by line, w\/b\/e by word/i)).toBeVisible();
     expect(
-      screen.getByText(/w\/b\/e move by language word within the current text block/i),
+      screen.getByText(/Operators d, c and y take a motion or double for whole lines/i),
     ).toBeVisible();
-    expect(screen.getByText(/Escape returns to Normal/i)).toBeVisible();
-    expect(screen.getByText(/Visual mode, j\/k, operators, counts/i)).toBeVisible();
+    expect(screen.getByText(/Visual \(v\) and Visual Line \(V\)/i)).toBeVisible();
+    expect(screen.getByText(/Not included: the \. repeat, named registers/i)).toBeVisible();
   });
 
   it('applies the choice immediately and explains its scope', async () => {
@@ -57,8 +57,8 @@ describe('editor preferences', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Keyboard mode' }), 'emacs');
 
     expect(useKeyboardModeStore.getState().mode).toBe('emacs');
-    expect(screen.getByText(/Ctrl\+A and Ctrl\+E/i)).toBeVisible();
-    expect(screen.getByText(/kill\/yank are not included/i)).toBeVisible();
+    expect(screen.getByText(/Ctrl\+F\/B and Alt\+F\/B move by character and word/i)).toBeVisible();
+    expect(screen.getByText(/the browser keeps Ctrl\+N and Ctrl\+W/i)).toBeVisible();
   });
 
   it('announces when a new choice cannot be remembered', async () => {
