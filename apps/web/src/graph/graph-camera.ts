@@ -82,6 +82,35 @@ export function centreOn(camera: Camera, pane: Size, graphX: number, graphY: num
   };
 }
 
+/**
+ * A camera the reader chose, independent of the pane it was chosen in: which graph point sits at
+ * the middle of the pane, and how closely.
+ *
+ * A `Camera` is screen offsets, so it is only right for the pane size it was made in. Kept as
+ * offsets, a view saved while the pane was narrow - a sidebar open, a smaller window - came back
+ * shifted towards the left in a wider one, and zooming about the middle of the pane then pulled the
+ * drawing further off. Keeping the centre instead means a restored or resized view stays centred.
+ */
+export interface View {
+  readonly centreX: number;
+  readonly centreY: number;
+  readonly scale: number;
+}
+
+/** The view a camera shows through a pane of this size. */
+export function viewOf(camera: Camera, pane: Size): View {
+  return {
+    centreX: (pane.width / 2 - camera.x) / camera.scale,
+    centreY: (pane.height / 2 - camera.y) / camera.scale,
+    scale: camera.scale,
+  };
+}
+
+/** The camera that shows a view through a pane of this size. */
+export function cameraOf(view: View, pane: Size): Camera {
+  return centreOn({ x: 0, y: 0, scale: clampScale(view.scale) }, pane, view.centreX, view.centreY);
+}
+
 /** The SVG `viewBox` that shows what this camera sees through a pane of this size. */
 export function viewBoxOf(camera: Camera, pane: Size): string {
   const left = -camera.x / camera.scale;

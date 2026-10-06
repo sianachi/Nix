@@ -14,15 +14,17 @@ import {
 import { prefersReducedMotion } from '../lib/motion';
 import { isPointerCoarse } from '../lib/pointer';
 import {
-  centreOn,
+  cameraOf,
   fitCamera,
   panBy,
   viewBoxOf,
+  viewOf,
   zoomAbout,
   SCALE_MAX,
   SCALE_MIN,
   type Camera,
   type Size,
+  type View,
 } from './graph-camera';
 import { NO_ARRANGEMENT, readArrangement, writeArrangement } from './graph-arrangement';
 import { foldEverything, foldGraph } from './graph-collapse';
@@ -786,9 +788,12 @@ export function GraphView({
    * "Fitted" is the absence of a choice rather than a stored camera, so it stays fitted: resizing
    * the pane or reloading a workspace that has grown re-fits by itself, with no effect to keep a
    * copied value in step. The first pan or zoom is what makes it a choice.
+   *
+   * A choice is kept as a `View` - the graph point at the middle of the pane - so it stays centred
+   * however the pane's size changes after it was made.
    */
-  const [chosen, setChosen] = useState<Camera | null>(stored.camera);
-  const camera = chosen ?? fitCamera(layout, pane);
+  const [chosen, setChosen] = useState<View | null>(stored.view);
+  const camera = chosen === null ? fitCamera(layout, pane) : cameraOf(chosen, pane);
 
   const [offsets, setOffsets] = useState<ReadonlyMap<string, Offset>>(stored.offsets);
   const dragRef = useRef<Drag | null>(null);
@@ -811,7 +816,7 @@ export function GraphView({
     }
 
     const timer = setTimeout(() => {
-      writeArrangement(workspaceId, { offsets, collapsed, camera: chosen });
+      writeArrangement(workspaceId, { offsets, collapsed, view: chosen });
     }, 300);
     return () => {
       clearTimeout(timer);
@@ -999,8 +1004,7 @@ export function GraphView({
     if (node === undefined) {
       return;
     }
-    const close = { x: 0, y: 0, scale: Math.max(camera.scale, 1) };
-    setChosen(centreOn(close, pane, node.x, node.y));
+    setChosen({ centreX: node.x, centreY: node.y, scale: Math.max(camera.scale, 1) });
     setFoundId(id);
   };
 
@@ -1047,9 +1051,9 @@ export function GraphView({
    * memoisation they exist for is undone on each render. They therefore read the camera, the
    * offsets and the selection from here instead of closing over them.
    */
-  const live = useRef({ camera, offsets, selectedId, positioned, onMove, onLink });
+  const live = useRef({ camera, pane, offsets, selectedId, positioned, onMove, onLink });
   useEffect(() => {
-    live.current = { camera, offsets, selectedId, positioned, onMove, onLink };
+    live.current = { camera, pane, offsets, selectedId, positioned, onMove, onLink };
   });
 
   // The node a drag would land on if released now, a link being drawn, and a move waiting to be
@@ -1185,7 +1189,7 @@ export function GraphView({
   // wheel does this - build on each other rather than both starting from the last painted camera.
   const moveCamera = useCallback((next: Camera): void => {
     live.current = { ...live.current, camera: next };
-    setChosen(next);
+    setChosen(viewOf(next, live.current.pane));
   }, []);
 
   const zoomTo = useCallback(

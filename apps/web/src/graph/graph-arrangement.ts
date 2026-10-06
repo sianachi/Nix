@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { browserStorage } from '../lib/browser-storage';
-import type { Camera } from './graph-camera';
+import type { View } from './graph-camera';
 import type { Offset } from './graph-layout';
 
 /**
@@ -18,13 +18,13 @@ import type { Offset } from './graph-layout';
 export interface Arrangement {
   readonly offsets: ReadonlyMap<string, Offset>;
   readonly collapsed: ReadonlySet<string>;
-  readonly camera: Camera | null;
+  readonly view: View | null;
 }
 
 export const NO_ARRANGEMENT: Arrangement = {
   offsets: new Map(),
   collapsed: new Set(),
-  camera: null,
+  view: null,
 };
 
 const STORAGE_KEY = 'nix.graph-arrangement';
@@ -35,9 +35,12 @@ const STORED = z.record(
   z.object({
     offsets: z.record(z.string(), z.object({ dx: finite, dy: finite })),
     collapsed: z.array(z.string()),
-    camera: z
-      .object({ x: finite, y: finite, scale: finite.refine((scale) => scale > 0) })
-      .nullable(),
+    // Optional because entries written before views existed carry a `camera` of screen offsets
+    // instead. That key is dropped on read, so such an entry opens fitted rather than off-centre.
+    view: z
+      .object({ centreX: finite, centreY: finite, scale: finite.refine((scale) => scale > 0) })
+      .nullable()
+      .optional(),
   }),
 );
 
@@ -65,7 +68,7 @@ export function readArrangement(workspaceId: string, present: ReadonlySet<string
   return {
     offsets: new Map(Object.entries(stored.offsets).filter(([id]) => present.has(id))),
     collapsed: new Set(stored.collapsed.filter((id) => present.has(id))),
-    camera: stored.camera,
+    view: stored.view ?? null,
   };
 }
 
@@ -81,7 +84,7 @@ export function writeArrangement(workspaceId: string, arrangement: Arrangement):
     const empty =
       arrangement.offsets.size === 0 &&
       arrangement.collapsed.size === 0 &&
-      arrangement.camera === null;
+      arrangement.view === null;
 
     if (empty) {
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- keyed by workspace id
@@ -90,7 +93,7 @@ export function writeArrangement(workspaceId: string, arrangement: Arrangement):
       all[workspaceId] = {
         offsets: Object.fromEntries(arrangement.offsets),
         collapsed: [...arrangement.collapsed],
-        camera: arrangement.camera,
+        view: arrangement.view,
       };
     }
 
