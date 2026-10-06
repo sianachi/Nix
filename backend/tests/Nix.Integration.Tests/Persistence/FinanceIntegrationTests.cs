@@ -99,6 +99,17 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
             var tesco = await dispatcher.SendAsync<CreateFinanceTransaction, FinanceTransactionResponse>(
                 new CreateFinanceTransaction(root.Id, new FinanceTransactionRequest("Example shop", new DateOnly(2026, 8, 3), -59m, card.Value.Id, groceries.Id)), Cancellation);
             Assert.True(tesco.IsSuccess, tesco.IsSuccess ? "" : tesco.Error.Message);
+            var historical = await dispatcher.QueryAsync<ListFinanceTransactions, Result<FinanceTransactionsResponse>>(
+                new ListFinanceTransactions(root.Id, null, card.Value.Id, groceries.Id, false, 1,
+                    new DateOnly(2026, 8, 1), new DateOnly(2026, 8, 31), "SHOP", "manual", 50, 60), Cancellation);
+            Assert.True(historical.IsSuccess, historical.IsSuccess ? "" : historical.Error.Message);
+            Assert.Equal(tesco.Value.Id, Assert.Single(historical.Value.Transactions).Id);
+            Assert.Equal(59m, historical.Value.Outflow);
+            Assert.Equal(-59m, historical.Value.Net);
+            var exact = await dispatcher.QueryAsync<ListFinanceTransactions, Result<FinanceTransactionsResponse>>(
+                new ListFinanceTransactions(root.Id, null, null, null, false, 1, TransactionId: tesco.Value.Id), Cancellation);
+            Assert.True(exact.IsSuccess);
+            Assert.Equal(tesco.Value.Id, Assert.Single(exact.Value.Transactions).Id);
             var wrongAccount = await dispatcher.SendAsync<CreateFinanceTransaction, FinanceTransactionResponse>(
                 new CreateFinanceTransaction(root.Id, new FinanceTransactionRequest("Oops", new DateOnly(2026, 8, 3), -1m, loan.Value.Id, null)), Cancellation);
             Assert.True(wrongAccount.IsFailure);
@@ -253,6 +264,8 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
             Assert.Single(dashboard.Value.Cards);
             Assert.Single(dashboard.Value.Loans);
             Assert.Equal(59m, dashboard.Value.CardFloat);
+            Assert.Equal(dashboard.Value.Position.CardOwed + dashboard.Value.Loans.Single().Balance, dashboard.Value.MonthEndDebt);
+            Assert.Equal(dashboard.Value.Position.ClosingBank - dashboard.Value.MonthEndDebt, dashboard.Value.MonthEndAfterDebt);
 
             var schedule = await dispatcher.QueryAsync<ReadLoanSchedule, Result<LoanScheduleResponse>>(new ReadLoanSchedule(root.Id, loan.Value.Id, 100m), Cancellation);
             Assert.True(schedule.IsSuccess, schedule.IsSuccess ? "" : schedule.Error.Message);
@@ -310,6 +323,59 @@ public sealed class FinanceIntegrationTests : IAsyncLifetime
             Assert.True(afterDelete.IsSuccess);
             Assert.Equal(8, afterDelete.Value.TransactionCount);
             Assert.Empty(afterDelete.Value.Problems);
+        }
+    }
+
+    [Theory]
+    [InlineData(25)]
+    [InlineData(500)]
+    public async Task Month_end_debt_keeps_card_credits_separate_from_other_debts_and_cash(int refund)
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var root = await CreateRootAsync(dispatcher);
+            var configured = await dispatcher.SendAsync<SetFinanceSettings, FinanceResponse>(
+                new SetFinanceSettings(root.Id, new FinanceSettingsRequest("GBP", "2026-08", 2, 1000m, 0m, "UTC")), Cancellation);
+            Assert.True(configured.IsSuccess);
+            var bank = await dispatcher.SendAsync<CreateFinanceAccount, FinanceAccountResponse>(
+                new CreateFinanceAccount(root.Id, new FinanceAccountRequest("Bank", "current", null, 1000m, null, null, null, null, null)), Cancellation);
+            Assert.True(bank.IsSuccess);
+            var spendingCard = await dispatcher.SendAsync<CreateFinanceAccount, FinanceAccountResponse>(
+                new CreateFinanceAccount(root.Id, new FinanceAccountRequest("Spending card", "credit_card", 1000m, 0m, bank.Value.Id, null, null, null, null)), Cancellation);
+            var refundedCard = await dispatcher.SendAsync<CreateFinanceAccount, FinanceAccountResponse>(
+                new CreateFinanceAccount(root.Id, new FinanceAccountRequest("Refunded card", "credit_card", 1000m, 0m, bank.Value.Id, null, null, null, null)), Cancellation);
+            var loan = await dispatcher.SendAsync<CreateFinanceAccount, FinanceAccountResponse>(
+                new CreateFinanceAccount(root.Id, new FinanceAccountRequest("Loan", "loan", null, 400m, null, 0m, 100m, 0m, null)), Cancellation);
+            Assert.True(spendingCard.IsSuccess);
+            Assert.True(refundedCard.IsSuccess);
+            Assert.True(loan.IsSuccess);
+            var repayment = await CreateLineAsync(dispatcher, root.Id,
+                new BudgetLineRequest("Loan repayment", "Bills", "expense", bank.Value.Id, 100m, null, false, null, loan.Value.Id));
+            var spend = await dispatcher.SendAsync<CreateFinanceTransaction, FinanceTransactionResponse>(
+                new CreateFinanceTransaction(root.Id, new FinanceTransactionRequest("Card purchase", new DateOnly(2026, 8, 3), -100m, spendingCard.Value.Id, null)), Cancellation);
+            var credit = await dispatcher.SendAsync<CreateFinanceTransaction, FinanceTransactionResponse>(
+                new CreateFinanceTransaction(root.Id, new FinanceTransactionRequest("Card refund", new DateOnly(2026, 8, 3), refund, refundedCard.Value.Id, null)), Cancellation);
+            var payment = await dispatcher.SendAsync<CreateFinanceTransaction, FinanceTransactionResponse>(
+                new CreateFinanceTransaction(root.Id, new FinanceTransactionRequest("Loan payment", new DateOnly(2026, 8, 3), -100m, bank.Value.Id, repayment.Id)), Cancellation);
+            Assert.True(spend.IsSuccess);
+            Assert.True(credit.IsSuccess);
+            Assert.True(payment.IsSuccess);
+            var closed = await dispatcher.SendAsync<SetFinanceMonth, FinanceMonthResponse>(
+                new SetFinanceMonth(root.Id, new YearMonth(2026, 8), new FinanceMonthRequest(true)), Cancellation);
+            Assert.True(closed.IsSuccess);
+
+            var dashboard = await dispatcher.QueryAsync<ReadFinanceDashboard, Result<FinanceDashboardResponse>>(
+                new ReadFinanceDashboard(root.Id, new YearMonth(2026, 8)), Cancellation);
+            Assert.True(dashboard.IsSuccess, dashboard.IsSuccess ? "" : dashboard.Error.Message);
+            Assert.Equal(-refund, dashboard.Value.Cards.Single(card => card.AccountId == refundedCard.Value.Id).Closing);
+            Assert.Equal(100m, dashboard.Value.Cards.Single(card => card.AccountId == spendingCard.Value.Id).Closing);
+            Assert.Equal(300m, dashboard.Value.Loans.Single().Balance);
+            Assert.Equal(100m - refund, dashboard.Value.Position.CardOwed);
+            Assert.Equal(900m, dashboard.Value.Position.ClosingBank);
+            Assert.Equal(400m, dashboard.Value.MonthEndDebt);
+            Assert.Equal(500m, dashboard.Value.MonthEndAfterDebt);
         }
     }
 

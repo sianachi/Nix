@@ -106,7 +106,10 @@ function ActualSummary({
   readonly onClose: () => void;
 }): ReactNode {
   const currency = finance.settings.currency;
-  const closed = finance.closedMonths.includes(month);
+  const [reopenedHere, setReopenedHere] = useState(false);
+  const [savedNeedsClose, setSavedNeedsClose] = useState(false);
+  const [savedTotal, setSavedTotal] = useState<number | null>(null);
+  const closed = finance.closedMonths.includes(month) && !reopenedHere;
   const accountName = finance.accounts.find((each) => each.id === line.accountId)?.name ?? '';
   const itemId = finance.itemId;
   const lineId = line.id;
@@ -151,13 +154,29 @@ function ActualSummary({
 
   const save = async (total: number): Promise<void> => {
     setBusy(true);
-    const outcome = await state.setActual(line.id, month, { amount: total });
-    setBusy(false);
+    const outcome = savedNeedsClose
+      ? null
+      : await state.setActual(line.id, month, { amount: total });
     if (typeof outcome === 'string') {
+      setBusy(false);
       setError(outcome);
       return;
     }
+    if (!savedNeedsClose) {
+      setSavedTotal(total);
+      setAmount(String(total));
+    }
+    if (reopenedHere) {
+      const refusal = await state.setMonth(month, true);
+      if (refusal !== null) {
+        setBusy(false);
+        setSavedNeedsClose(true);
+        setError(`The total was saved, but the month could not be closed: ${refusal}`);
+        return;
+      }
+    }
     setError(null);
+    setBusy(false);
     onClose();
   };
 
@@ -203,7 +222,7 @@ function ActualSummary({
       key: 'actions',
       header: 'Change',
       cell: (row) =>
-        closed ? null : deleting === row.id ? (
+        deleting === row.id ? (
           <span className="flex flex-wrap items-center gap-2">
             <Text as="span" variant="caption">
               Delete?
@@ -221,7 +240,7 @@ function ActualSummary({
             </Button>
             <Button
               variant="secondary"
-              disabled={busy}
+              disabled={busy || savedNeedsClose}
               aria-label={`Yes, delete ${row.description}`}
               onClick={() => {
                 void remove(row);
@@ -235,7 +254,7 @@ function ActualSummary({
             <Button
               variant="ghost"
               aria-label={`Edit ${row.description}`}
-              disabled={busy}
+              disabled={busy || savedNeedsClose}
               onClick={() => {
                 onEdit(row);
               }}
@@ -245,7 +264,7 @@ function ActualSummary({
             <Button
               variant="ghost"
               aria-label={`Delete ${row.description}`}
-              disabled={busy}
+              disabled={busy || closed || savedNeedsClose}
               onClick={() => {
                 setDeleting(row.id);
               }}
@@ -261,10 +280,13 @@ function ActualSummary({
     <Dialog
       open
       title={`${line.name} in ${formatMonth(month, 'long')}`}
-      onClose={onClose}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      closeLabel={busy ? 'Saving corrected total' : 'Close'}
       initialFocus={amountField}
       presentation="workspace"
-      dirty={dirty}
+      dirty={dirty || reopenedHere}
     >
       <div className="flex flex-col gap-4">
         <dl className="grid grid-cols-2 gap-3 rounded-lg bg-surface-raised p-3 sm:grid-cols-3">
@@ -298,10 +320,28 @@ function ActualSummary({
           </div>
         </dl>
         {closed ? (
-          <Text as="p" variant="bodySmall" tone="muted">
-            {formatMonth(month, 'long')} is closed, so nothing here can change. The Reopen month
-            control at the top of the finances reopens it.
-          </Text>
+          <div className="flex flex-col gap-3 rounded-lg bg-surface-raised p-3">
+            <Text as="p" variant="bodySmall" tone="muted">
+              {formatMonth(month, 'long')} is closed. Correct an individual transaction below, or
+              reopen to change the total. Corrections recalculate balances and later forecasts;
+              saving a corrected total closes the month again.
+            </Text>
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true);
+                  const refusal = await state.setMonth(month, false);
+                  setBusy(false);
+                  setError(refusal);
+                  if (refusal === null) setReopenedHere(true);
+                })();
+              }}
+            >
+              Reopen to update total
+            </Button>
+          </div>
         ) : (
           <form
             className="flex flex-col gap-3"
@@ -310,7 +350,7 @@ function ActualSummary({
             }}
           >
             <Field
-              label="Bring this month's total to"
+              label={savedNeedsClose ? 'Saved total' : "Bring this month's total to"}
               hint={
                 cell.transactions === 0
                   ? `In ${currency}. Nix records it as one transaction on ${line.name}.`
@@ -322,6 +362,7 @@ function ActualSummary({
                   <Input
                     {...control}
                     ref={amountField}
+                    disabled={busy || savedNeedsClose}
                     inputMode="decimal"
                     value={amount}
                     onChange={(event) => {
@@ -329,12 +370,12 @@ function ActualSummary({
                     }}
                   />
                   <Button type="submit" disabled={busy}>
-                    Record
+                    {savedNeedsClose ? 'Retry closing month' : 'Record'}
                   </Button>
                 </div>
               )}
             </Field>
-            {matchesPlan ? null : (
+            {matchesPlan || savedNeedsClose ? null : (
               <Button
                 type="button"
                 variant="secondary"
@@ -346,13 +387,24 @@ function ActualSummary({
                 Same as planned ({formatMoney(cell.plan, currency)})
               </Button>
             )}
-            {preview === null ? null : (
+            {savedNeedsClose ? (
+              <Text variant="bodySmall" role="status">
+                Saved <Money amount={savedTotal ?? cell.actual} currency={currency} />. Retry
+                closing the month; the total will not be recorded again.
+              </Text>
+            ) : preview === null ? null : (
               <Text as="p" variant="caption" tone="muted" role="status">
                 {preview}
               </Text>
             )}
           </form>
         )}
+        {reopenedHere ? (
+          <Text variant="caption" tone="muted">
+            This month is open until you save the corrected total. Close it from the month controls
+            if you leave without saving.
+          </Text>
+        ) : null}
         <WriteError message={error} />
         {announcement === null ? null : (
           <Text as="p" variant="caption" tone="muted" role="status">
@@ -367,7 +419,7 @@ function ActualSummary({
               </Text>
             </div>
             {closed ? null : (
-              <Button variant="secondary" onClick={onAdd}>
+              <Button variant="secondary" disabled={busy || savedNeedsClose} onClick={onAdd}>
                 Add transaction
               </Button>
             )}

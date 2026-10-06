@@ -1,9 +1,21 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { BudgetLine, Finance, FinanceTransaction, QueryEndpoint } from '@nix/api-client';
+import {
+  createNixClient,
+  type BudgetLine,
+  type Finance,
+  type FinanceTransaction,
+  type QueryEndpoint,
+} from '@nix/api-client';
+import { ApiClientOverrideProvider } from '../../../api/api-client-provider';
 import type * as UseFinanceModule from '../../../views/finance/use-finance';
 
-const queries = vi.hoisted((): { transactions: unknown } => ({ transactions: null }));
+const queries = vi.hoisted(
+  (): { transactions: unknown; seen: Readonly<Record<string, unknown>>[] } => ({
+    transactions: null,
+    seen: [],
+  }),
+);
 
 vi.mock('../../../views/finance/use-finance', async () => {
   const actual = await vi.importActual<typeof UseFinanceModule>(
@@ -12,13 +24,17 @@ vi.mock('../../../views/finance/use-finance', async () => {
   return {
     ...actual,
     useFinanceQuery: <T,>(endpoint: QueryEndpoint<T>) => {
-      void endpoint;
+      queries.seen.push(endpoint.query ?? {});
       return { status: 'ready', data: queries.transactions, error: null };
     },
   };
 });
 
-import { FinanceTransactions, QuickAddDialog } from '../../../views/finance/finance-transactions';
+import {
+  FinanceTransactions,
+  QuickAddDialog,
+  TransactionDialog,
+} from '../../../views/finance/finance-transactions';
 import type { FinanceState as FinanceViewState } from '../../../views/finance/use-finance';
 
 const accountId = 'c3333333-3333-4333-8333-333333333333';
@@ -216,7 +232,9 @@ describe('bulk-assigning a selection of transactions to a budget line', () => {
     fireEvent.click(screen.getByLabelText(`Select ${transactionA.description}`));
     fireEvent.click(screen.getByLabelText(`Select ${transactionB.description}`));
     fireEvent.change(screen.getByLabelText('Assign to line'), { target: { value: line.id } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }));
+    expect(setTransaction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply category change' }));
 
     await waitFor(() => {
       expect(setTransaction).toHaveBeenCalledTimes(2);
@@ -242,7 +260,9 @@ describe('bulk-assigning a selection of transactions to a budget line', () => {
     fireEvent.click(screen.getByLabelText(`Select ${transactionA.description}`));
     fireEvent.click(screen.getByLabelText(`Select ${transactionB.description}`));
     fireEvent.change(screen.getByLabelText('Assign to line'), { target: { value: line.id } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }));
+    expect(setTransaction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply category change' }));
 
     await waitFor(() => {
       expect(
@@ -279,7 +299,9 @@ describe('bulk-assigning a selection of transactions to a budget line', () => {
     fireEvent.click(screen.getByLabelText(`Select ${transactionB.description}`));
     fireEvent.click(screen.getByLabelText(`Select ${transactionC.description}`));
     fireEvent.change(screen.getByLabelText('Assign to line'), { target: { value: line.id } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Preview change' }));
+    expect(setTransaction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply category change' }));
 
     await waitFor(() => {
       expect(
@@ -288,5 +310,242 @@ describe('bulk-assigning a selection of transactions to a budget line', () => {
         ),
       ).toBeInTheDocument();
     });
+  });
+});
+
+describe('searchable transaction history', () => {
+  beforeEach(() => {
+    queries.seen = [];
+    queries.transactions = {
+      transactions: [transactionA],
+      total: 51,
+      truncated: true,
+      offset: 0,
+      nextOffset: 50,
+      inflow: 3200,
+      outflow: 500,
+      net: 2700,
+    };
+  });
+  it('searches all history on Core and paginates the result while retaining full totals', () => {
+    render(<FinanceTransactions state={state} finance={finance} month="2026-09" />);
+    fireEvent.click(screen.getByRole('button', { name: 'All history' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search transactions' }), {
+      target: { value: 'shop' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(queries.seen.at(-1)).toMatchObject({ search: 'shop', offset: '0', limit: '50' });
+    expect(queries.seen.at(-1)).not.toHaveProperty('month');
+    expect(screen.getByText('+£2,700.00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Next 50' }));
+    expect(queries.seen.at(-1)).toMatchObject({ search: 'shop', offset: '50' });
+  });
+  it('validates reversed custom dates before sending a new query', () => {
+    render(<FinanceTransactions state={state} finance={finance} month="2026-09" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Date range' }));
+    fireEvent.change(screen.getByLabelText('From date'), { target: { value: '2026-12-01' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(
+      screen.getByText('Choose a start and end date, with the earlier date first.'),
+    ).toBeInTheDocument();
+    expect(queries.seen.at(-1)).not.toMatchObject({ from: '2026-12-01' });
+  });
+});
+
+describe('closed-month transaction correction', () => {
+  it('reopens before writing and closes again after a successful correction', async () => {
+    const setMonth = vi.fn<FinanceViewState['setMonth']>().mockResolvedValue(null);
+    const setTransaction = vi.fn<FinanceViewState['setTransaction']>().mockResolvedValue(null);
+    const onClose = vi.fn();
+    render(
+      <TransactionDialog
+        state={{ ...state, setMonth, setTransaction }}
+        finance={{ ...finance, closedMonths: ['2026-09'] }}
+        transaction={transactionA}
+        onClose={onClose}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen to correct' }));
+    await waitFor(() => {
+      expect(setMonth).toHaveBeenCalledWith('2026-09', false);
+    });
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '17.40' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => {
+      expect(setTransaction).toHaveBeenCalledWith(
+        transactionA.id,
+        expect.objectContaining({ amount: -17.4 }),
+      );
+    });
+    await waitFor(() => {
+      expect(setMonth).toHaveBeenCalledWith('2026-09', true);
+    });
+    expect(onClose).toHaveBeenCalled();
+  });
+  it('retries closing without saving the correction twice', async () => {
+    const setMonth = vi
+      .fn<FinanceViewState['setMonth']>()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('Try again.')
+      .mockResolvedValueOnce(null);
+    const setTransaction = vi.fn<FinanceViewState['setTransaction']>().mockResolvedValue(null);
+    const onClose = vi.fn();
+    render(
+      <TransactionDialog
+        state={{ ...state, setMonth, setTransaction }}
+        finance={{ ...finance, closedMonths: ['2026-09'] }}
+        transaction={transactionA}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen to correct' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Retry closing month' })).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Retry closing month' }));
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(setTransaction).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('restoring changes from this visit', () => {
+  it('checks latest values and refuses to overwrite a later change', async () => {
+    queries.transactions = { transactions: [transactionA], total: 1, truncated: false };
+    const setTransaction = vi.fn<FinanceViewState['setTransaction']>().mockResolvedValue(null);
+    const current = { ...transactionA, amount: -88 };
+    const query = vi
+      .fn()
+      .mockResolvedValue({ transactions: [current], total: 1, truncated: false });
+    const client = {
+      ...createNixClient({
+        baseUrl: 'http://nix.invalid',
+        tokens: {
+          getAccessToken: () => Promise.resolve(null),
+          refreshAccessToken: () => Promise.resolve(null),
+        },
+      }),
+      query,
+    };
+    render(
+      <ApiClientOverrideProvider client={client}>
+        <FinanceTransactions
+          state={{ ...state, setTransaction }}
+          finance={finance}
+          month="2026-09"
+        />
+      </ApiClientOverrideProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Corner shop' }));
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '17.40' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByText('Changes in this visit (1)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Review undo' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Restore previous values' }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          'This transaction has changed since that edit. Open its current record and review the changes before correcting it.',
+        ),
+      ).toBeInTheDocument(),
+    );
+    expect(setTransaction).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({ query: { transactionId: transactionA.id } }),
+      expect.objectContaining({ forceRefresh: true }),
+    );
+  });
+  it('restores captured values when the record still matches the saved edit', async () => {
+    queries.transactions = { transactions: [transactionA], total: 1, truncated: false };
+    const setTransaction = vi.fn<FinanceViewState['setTransaction']>().mockResolvedValue(null);
+    const after = { ...transactionA, amount: -17.4 };
+    const client = {
+      ...createNixClient({
+        baseUrl: 'http://nix.invalid',
+        tokens: {
+          getAccessToken: () => Promise.resolve(null),
+          refreshAccessToken: () => Promise.resolve(null),
+        },
+      }),
+      query: vi.fn().mockResolvedValue({ transactions: [after], total: 1, truncated: false }),
+    };
+    render(
+      <ApiClientOverrideProvider client={client}>
+        <FinanceTransactions
+          state={{ ...state, setTransaction }}
+          finance={finance}
+          month="2026-09"
+        />
+      </ApiClientOverrideProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Corner shop' }));
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '17.40' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByText('Changes in this visit (1)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Review undo' }));
+    expect(screen.getByLabelText('Amount')).toHaveValue('12.4');
+    fireEvent.click(screen.getByRole('button', { name: 'Restore previous values' }));
+    await waitFor(() => {
+      expect(setTransaction).toHaveBeenLastCalledWith(
+        transactionA.id,
+        expect.objectContaining({ amount: -12.4 }),
+      );
+    });
+    expect(
+      screen.getByText('Restored the previous values. Totals are refreshing.'),
+    ).toBeInTheDocument();
+  });
+});
+
+describe('historical edit safety', () => {
+  it('keeps the dialog open during an in-flight reopen', async () => {
+    let finishReopen: ((value: null) => void) | undefined;
+    const setMonth = vi.fn<FinanceViewState['setMonth']>().mockReturnValue(
+      new Promise<null>((resolve) => {
+        finishReopen = resolve;
+      }),
+    );
+    const onClose = vi.fn();
+    render(
+      <TransactionDialog
+        state={{ ...state, setMonth }}
+        finance={{ ...finance, closedMonths: ['2026-09'] }}
+        transaction={transactionA}
+        onClose={onClose}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen to correct' }));
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Saving transaction' }));
+    expect(onClose).not.toHaveBeenCalled();
+    finishReopen?.(null);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    });
+  });
+  it('retains an archived account and category on an old record', () => {
+    const historical = { ...transactionA, lineId: line.id };
+    render(
+      <TransactionDialog
+        state={state}
+        finance={{
+          ...finance,
+          accounts: finance.accounts.map((account) => ({ ...account, archived: true })),
+          lines: [{ ...line, archived: true }],
+        }}
+        transaction={historical}
+        onClose={() => undefined}
+      />,
+    );
+    expect(screen.getByLabelText('Account')).toHaveValue(accountId);
+    expect(screen.getByRole('option', { name: 'Everyday card (archived)' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Budget line')).toHaveValue(line.id);
+    expect(screen.getByRole('option', { name: 'Groceries (archived)' })).toBeInTheDocument();
   });
 });

@@ -38,7 +38,9 @@ public sealed record FinanceResponse(
     int TransactionCount,
     IReadOnlyList<string> Problems);
 
-public sealed record FinanceTransactionsResponse(IReadOnlyList<FinanceTransactionResponse> Transactions, int Total, bool Truncated);
+/// <summary>A bounded history page with totals over every matching record, before pagination.</summary>
+public sealed record FinanceTransactionsResponse(IReadOnlyList<FinanceTransactionResponse> Transactions, int Total, bool Truncated,
+    int Offset = 0, int? NextOffset = null, decimal Inflow = 0, decimal Outflow = 0, decimal Net = 0);
 
 public sealed record BudgetCellResponse(string Month, decimal Plan, decimal Actual, decimal Variance, int Transactions);
 
@@ -111,7 +113,9 @@ public sealed record FinanceDashboardResponse(
     IReadOnlyList<WatchItemResponse> Watch,
     IReadOnlyList<UpcomingResponse> Upcoming,
     CashFlowMonthResponse HorizonEnd,
-    decimal HorizonNet);
+    decimal HorizonNet,
+    decimal MonthEndDebt,
+    decimal MonthEndAfterDebt);
 
 public sealed record FinanceMonthRequest(bool Closed);
 

@@ -14,7 +14,9 @@ public sealed record ReadLoanSchedule(ItemId ItemId, Guid AccountId, decimal? Ov
 public sealed record ReadCashFlow(ItemId ItemId) : IQuery<Result<CashFlowResponse>>;
 public sealed record ReadFinanceDashboard(ItemId ItemId, YearMonth? Month) : IQuery<Result<FinanceDashboardResponse>>;
 /// <summary>Transactions, newest first, narrowed by month, account or line; Unassigned keeps only those with no line.</summary>
-public sealed record ListFinanceTransactions(ItemId ItemId, YearMonth? Month, Guid? AccountId, Guid? LineId, bool Unassigned, int Limit) : IQuery<Result<FinanceTransactionsResponse>>;
+public sealed record ListFinanceTransactions(ItemId ItemId, YearMonth? Month, Guid? AccountId, Guid? LineId, bool Unassigned, int Limit,
+    DateOnly? From = null, DateOnly? To = null, string? Search = null, string? Source = null,
+    decimal? MinAmount = null, decimal? MaxAmount = null, int Offset = 0, Guid? TransactionId = null) : IQuery<Result<FinanceTransactionsResponse>>;
 /// <summary>What closing a month would leave unresolved.</summary>
 public sealed record ReadFinanceMonth(ItemId ItemId, YearMonth Month) : IQuery<Result<MonthChecklistResponse>>;
 
@@ -171,6 +173,8 @@ public sealed class FinanceReportHandler(FinanceLoader loader, TimeProvider cloc
             return new LoanPositionResponse(loan.Id, loan.Name, LoanSchedules.BalanceAfter(schedule, month), schedule.ClearedIn?.ToString(), schedule.TotalInterest);
         }).ToList();
         var horizonNet = YearMonth.Range(settings.StartMonth, settings.EndMonth).Sum(each => book.Figures(each, FigureSource.Auto).Net);
+        // A credit on one card cannot repay another card or a loan, and is not bank cash.
+        var monthEndDebt = cards.Sum(pair => Math.Max(0, pair.Row.Closing)) + loans.Sum(loan => loan.Balance);
         return Result.Success(new FinanceDashboardResponse(
             query.ItemId.Value,
             month.ToString(),
@@ -189,7 +193,9 @@ public sealed class FinanceReportHandler(FinanceLoader loader, TimeProvider cloc
             Watch(book, month),
             Upcoming(book, settings.Today(now), cards),
             projection.Months[^1].ToResponse(),
-            horizonNet));
+            horizonNet,
+            monthEndDebt,
+            position.ClosingBank - monthEndDebt));
     }
 
     /// <inheritdoc />
@@ -201,16 +207,74 @@ public sealed class FinanceReportHandler(FinanceLoader loader, TimeProvider cloc
         {
             return Result.Failure<FinanceTransactionsResponse>(snapshot.Error);
         }
+        var problem = ValidateTransactionFilters(query);
+        if (problem is not null)
+        {
+            return FinanceErrors.Failure<FinanceTransactionsResponse>("invalid_filter", problem);
+        }
+        return Result.Success(FilterTransactions(snapshot.Value.Book.Transactions, query));
+    }
+
+    /// <summary>Checks untrusted history filters before arithmetic or pagination.</summary>
+    public static string? ValidateTransactionFilters(ListFinanceTransactions query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        if (query.From > query.To)
+        {
+            return "The start date must come before or equal the end date.";
+        }
+        if (query.Search?.Length > FinanceTransaction.MaximumDescriptionLength)
+        {
+            return $"Search must be at most {FinanceTransaction.MaximumDescriptionLength} characters.";
+        }
+        if (query.Source is not null && !FinanceSources.IsValid(query.Source))
+        {
+            return "Source must be manual, scheduled or import.";
+        }
+        if ((query.MinAmount is { } minimum && (minimum < 0 || !MoneyRules.IsAmount(minimum)))
+            || (query.MaxAmount is { } maximum && (maximum < 0 || !MoneyRules.IsAmount(maximum)))
+            || query.MinAmount > query.MaxAmount)
+        {
+            return "Amount bounds must be ordered nonnegative amounts with at most two decimal places.";
+        }
+        if (query.Offset < 0 || query.Offset > FinanceLoader.MaximumTransactions)
+        {
+            return $"Offset must be between zero and {FinanceLoader.MaximumTransactions}.";
+        }
+        return null;
+    }
+
+    /// <summary>Filters already authorized records before limiting, and derives totals over the complete match.</summary>
+    public static FinanceTransactionsResponse FilterTransactions(IReadOnlyList<FinanceTransaction> transactions, ListFinanceTransactions query)
+    {
+        ArgumentNullException.ThrowIfNull(transactions);
+        ArgumentNullException.ThrowIfNull(query);
         var limit = query.Limit <= 0 ? DefaultTransactionsPage : Math.Min(query.Limit, MaximumTransactionsPage);
-        var matching = snapshot.Value.Book.Transactions
+        var search = query.Search?.Trim();
+        var matching = transactions
+            .Where(transaction => query.TransactionId is not { } transactionId || transaction.Id == transactionId)
             .Where(transaction => query.Month is not { } month || transaction.Month == month)
             .Where(transaction => query.AccountId is not { } account || transaction.AccountId == account)
             .Where(transaction => query.LineId is not { } line || transaction.LineId == line)
             .Where(transaction => !query.Unassigned || transaction.LineId is null)
+            .Where(transaction => query.From is not { } from || transaction.Date >= from)
+            .Where(transaction => query.To is not { } to || transaction.Date <= to)
+            .Where(transaction => string.IsNullOrEmpty(search) || transaction.Description.Contains(search, StringComparison.OrdinalIgnoreCase))
+            .Where(transaction => query.Source is null || transaction.Source == query.Source)
+            .Where(transaction => query.MinAmount is not { } minAmount || decimal.Abs(transaction.Amount) >= minAmount)
+            .Where(transaction => query.MaxAmount is not { } maxAmount || decimal.Abs(transaction.Amount) <= maxAmount)
             .OrderByDescending(transaction => transaction.Date)
             .ThenBy(transaction => transaction.Description, StringComparer.Ordinal)
+            .ThenBy(transaction => transaction.Id)
             .ToList();
-        return Result.Success(new FinanceTransactionsResponse(matching.Take(limit).Select(transaction => transaction.ToResponse()).ToList(), matching.Count, matching.Count > limit));
+        var page = matching.Skip(query.Offset).Take(limit).Select(transaction => transaction.ToResponse()).ToList();
+        var next = query.Offset + page.Count;
+        var truncated = next < matching.Count;
+        return new FinanceTransactionsResponse(page, matching.Count, truncated, query.Offset,
+            truncated ? next : null,
+            matching.Where(transaction => transaction.Amount > 0).Sum(transaction => transaction.Amount),
+            -matching.Where(transaction => transaction.Amount < 0).Sum(transaction => transaction.Amount),
+            matching.Sum(transaction => transaction.Amount));
     }
 
     /// <inheritdoc />

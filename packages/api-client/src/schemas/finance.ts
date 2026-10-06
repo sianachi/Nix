@@ -93,6 +93,12 @@ export const financeTransactionsSchema = z.object({
   transactions: z.array(financeTransactionSchema),
   total: z.int().nonnegative(),
   truncated: z.boolean(),
+  // Optional while an older Core runs during rollout; never derive totals from a partial page.
+  offset: z.int().nonnegative().optional(),
+  nextOffset: z.int().nonnegative().nullable().optional(),
+  inflow: z.number().nonnegative().optional(),
+  outflow: z.number().nonnegative().optional(),
+  net: z.number().optional(),
 });
 
 export const budgetCellSchema = z.object({
@@ -283,6 +289,8 @@ export const financeDashboardSchema = z.object({
   upcoming: z.array(upcomingSchema),
   horizonEnd: cashFlowMonthSchema,
   horizonNet: z.number(),
+  monthEndDebt: z.number().optional(),
+  monthEndAfterDebt: z.number().optional(),
 });
 
 export const financeMonthSchema = z.object({
@@ -361,6 +369,8 @@ export type FinanceImportRow = z.infer<typeof financeImportRowSchema>;
 export type FinanceImport = z.infer<typeof financeImportSchema>;
 
 // Keep boundary parsing tied to the explicitly generated Core contract.
+// Additive rollout fields are absent on older Core instances.
+type RolloutOptional<T, K extends keyof T> = Omit<T, K> & { [P in K]?: T[P] | undefined };
 const _finance = financeSchema satisfies z.ZodType<components['schemas']['FinanceResponse']>;
 const _account = financeAccountSchema satisfies z.ZodType<
   components['schemas']['FinanceAccountResponse']
@@ -370,7 +380,10 @@ const _transaction = financeTransactionSchema satisfies z.ZodType<
   components['schemas']['FinanceTransactionResponse']
 >;
 const _transactions = financeTransactionsSchema satisfies z.ZodType<
-  components['schemas']['FinanceTransactionsResponse']
+  RolloutOptional<
+    components['schemas']['FinanceTransactionsResponse'],
+    'offset' | 'nextOffset' | 'inflow' | 'outflow' | 'net'
+  >
 >;
 const _grid = budgetGridSchema satisfies z.ZodType<components['schemas']['BudgetGridResponse']>;
 const _actual = budgetActualSchema satisfies z.ZodType<
@@ -382,7 +395,10 @@ const _accounts = financeAccountsSchema satisfies z.ZodType<
 const _loan = loanScheduleSchema satisfies z.ZodType<components['schemas']['LoanScheduleResponse']>;
 const _cashFlow = cashFlowSchema satisfies z.ZodType<components['schemas']['CashFlowResponse']>;
 const _dashboard = financeDashboardSchema satisfies z.ZodType<
-  components['schemas']['FinanceDashboardResponse']
+  RolloutOptional<
+    components['schemas']['FinanceDashboardResponse'],
+    'monthEndDebt' | 'monthEndAfterDebt'
+  >
 >;
 const _month = financeMonthSchema satisfies z.ZodType<
   components['schemas']['FinanceMonthResponse']

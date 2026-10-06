@@ -4,11 +4,12 @@ import {
   type Finance,
   type FinanceDashboard as Dashboard,
 } from '@nix/api-client';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
 import type { FinanceSection } from './finance-view';
-import { Meter, Money, Tile } from './finance-shared';
-import { formatDay, formatMonth, formatPercent } from './money';
+import { Meter, Money } from './finance-shared';
+import { FinanceMonthSummary } from './finance-month-summary';
+import { formatDay, formatMonth, formatPercent, shiftMonth } from './money';
 import { useFinanceQuery, type FinanceState } from './use-finance';
 
 /** The month's position, the cards, the loans, what needs watching and what is due soon. */
@@ -17,17 +18,34 @@ export function FinanceDashboard({
   finance,
   month,
   onSection,
+  onHistory,
 }: {
   readonly state: FinanceState;
   readonly finance: Finance;
   readonly month: string;
   readonly onSection: (section: FinanceSection) => void;
+  readonly onHistory?: (filter: {
+    lineId?: string;
+    accountId?: string;
+    unassigned?: boolean;
+  }) => void;
 }): ReactNode {
   const itemId = finance.itemId;
   const endpoint = useMemo(() => financeApi.readDashboard(itemId, month), [itemId, month]);
   const query = useFinanceQuery<Dashboard>(endpoint, state.generation);
+  const [compare, setCompare] = useState(false);
+  const previousMonth = shiftMonth(month, -1);
+  const previousEndpoint = useMemo(
+    () =>
+      compare && previousMonth >= finance.settings.startMonth
+        ? financeApi.readDashboard(itemId, previousMonth)
+        : null,
+    [compare, itemId, previousMonth, finance.settings.startMonth],
+  );
+  const previous = useFinanceQuery<Dashboard>(previousEndpoint, state.generation);
+  const previousDashboard = previous.data;
   const currency = finance.settings.currency;
-  if (query.data === null) {
+  if (query.data?.month !== month) {
     return query.status === 'error' ? (
       <ErrorPanel title="The dashboard could not be loaded" detail={query.error ?? ''} />
     ) : (
@@ -38,54 +56,97 @@ export function FinanceDashboard({
   const bufferFraction =
     dashboard.emergencyTarget > 0 ? dashboard.position.netPosition / dashboard.emergencyTarget : 0;
   return (
-    <div className="flex flex-col gap-6" aria-labelledby="finance-dashboard-title">
+    <div className="@container flex flex-col gap-6" aria-labelledby="finance-dashboard-title">
       <Text as="h3" variant="h3" id="finance-dashboard-title" className="sr-only">
         Dashboard for {formatMonth(month, 'long')}
       </Text>
       {query.status === 'error' ? <PartialNotice pending="the latest figures" /> : null}
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile
-          label={`Net ${formatMonth(month)}`}
-          value={<Money amount={dashboard.actual.net} currency={currency} round />}
-          caption={
-            <>
-              <Money amount={dashboard.plan.net} currency={currency} round /> planned
-              {dashboard.savingsRateActual === null
-                ? ''
-                : `, saving ${formatPercent(dashboard.savingsRateActual)} of income`}
-            </>
-          }
-        />
-        <Tile
-          label="Net position"
-          value={<Money amount={dashboard.position.netPosition} currency={currency} round />}
-          caption={
-            <>
-              Bank <Money amount={dashboard.position.closingBank} currency={currency} round /> less{' '}
-              <Money amount={dashboard.position.cardOwed} currency={currency} round /> owed to cards
-            </>
-          }
-        />
-        <Tile
-          label="Card float to hold"
-          value={<Money amount={dashboard.cardFloat} currency={currency} round />}
-          caption="Spent on cards, collected next month. Not savings."
-        />
-        <Tile
-          label={`Position at ${formatMonth(dashboard.horizonEnd.month)}`}
-          value={<Money amount={dashboard.horizonEnd.netPosition} currency={currency} round />}
-          caption={
-            <>
-              <Money amount={dashboard.horizonNet} currency={currency} round signed /> over the plan
-            </>
-          }
-        />
-      </div>
+      <FinanceMonthSummary
+        dashboard={dashboard}
+        currency={currency}
+        onAccounts={() => {
+          onSection('accounts');
+        }}
+        onHistory={() => {
+          if (onHistory === undefined) onSection('transactions');
+          else onHistory({});
+        }}
+      />
+      {previousMonth < finance.settings.startMonth ? null : (
+        <details
+          onToggle={(event) => {
+            setCompare(event.currentTarget.open);
+          }}
+          className="rounded-lg border border-divider p-4"
+        >
+          <summary className="cursor-pointer text-base font-semibold">
+            Compare with {formatMonth(previousMonth, 'long')}
+          </summary>
+          <Text variant="bodySmall" tone="muted" className="mt-3">
+            Recorded transactions in each month. An open month can still be incomplete.
+          </Text>
+          {previousDashboard?.month !== previousMonth ? (
+            previous.status === 'error' ? (
+              <ErrorPanel
+                title="The previous month could not be loaded"
+                detail={previous.error ?? ''}
+              />
+            ) : compare ? (
+              <LoadingPanel label="previous month" />
+            ) : null
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full border-collapse text-left">
+                <caption className="sr-only">
+                  Recorded income, outgoings and money left compared with last month
+                </caption>
+                <thead>
+                  <tr>
+                    <th scope="col" className="p-2">
+                      <Text variant="bodySmall">Recorded</Text>
+                    </th>
+                    <th scope="col" className="p-2">
+                      <Text variant="bodySmall">{formatMonth(previousMonth)}</Text>
+                    </th>
+                    <th scope="col" className="p-2">
+                      <Text variant="bodySmall">{formatMonth(dashboard.month)}</Text>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(
+                    [
+                      { label: 'Income', key: 'income' },
+                      { label: 'Outgoings', key: 'outgoings' },
+                      { label: 'Money left', key: 'net' },
+                    ] as const
+                  ).map((row) => (
+                    <tr key={row.key} className="border-t border-divider">
+                      <th scope="row" className="p-2">
+                        <Text variant="bodySmall">{row.label}</Text>
+                      </th>
+                      <td className="p-2">
+                        <Money amount={previousDashboard.actual[row.key]} currency={currency} />
+                      </td>
+                      <td className="p-2">
+                        <Money amount={dashboard.actual[row.key]} currency={currency} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {previous.status === 'error' ? (
+                <PartialNotice pending="the latest comparison" />
+              ) : null}
+            </div>
+          )}
+        </details>
+      )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 @3xl:grid-cols-2">
         <section className="flex flex-col gap-3" aria-labelledby="finance-watch-title">
           <Text as="h4" variant="h5" id="finance-watch-title">
-            Watch
+            Spending to review
           </Text>
           {dashboard.watch.length === 0 ? (
             <Text variant="bodySmall" tone="muted">
@@ -99,9 +160,19 @@ export function FinanceDashboard({
                   className="flex items-center justify-between gap-3 rounded-lg bg-surface-raised p-3"
                 >
                   <div className="min-w-0">
-                    <Text as="p" variant="bodySmall" className="truncate font-medium">
+                    <Button
+                      variant="ghost"
+                      className="max-w-full justify-start px-0 text-left"
+                      onClick={() => {
+                        if (onHistory === undefined) onSection('budget');
+                        else
+                          onHistory(
+                            item.lineId === null ? { unassigned: true } : { lineId: item.lineId },
+                          );
+                      }}
+                    >
                       {item.name}
-                    </Text>
+                    </Button>
                     <Text variant="caption" tone="muted">
                       {item.lineId === null ? (
                         'Recorded against no budget line'
@@ -166,7 +237,7 @@ export function FinanceDashboard({
 
       <section className="flex flex-col gap-3" aria-labelledby="finance-buffer-title">
         <Text as="h4" variant="h5" id="finance-buffer-title">
-          Emergency fund
+          Cash and card buffer
         </Text>
         {dashboard.emergencyTarget <= 0 ? (
           <Text variant="bodySmall" tone="muted">
@@ -181,17 +252,17 @@ export function FinanceDashboard({
                 ? ', not reached inside the plan'
                 : `, reached in ${formatMonth(dashboard.bufferMetIn)}`}
             </Text>
-            <Meter fraction={bufferFraction} label="Emergency fund progress" />
+            <Meter fraction={bufferFraction} label="Cash and card buffer progress" />
             <Text variant="caption" tone="muted">
-              Once the buffer is held, surplus can go to the loan; the loan page shows what an
-              overpayment buys.
+              Includes card credits; cash held is shown above. The target is based on your chosen
+              months of outgoings.
             </Text>
           </div>
         )}
       </section>
 
       {dashboard.cards.length === 0 && dashboard.loans.length === 0 ? null : (
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid gap-6 @3xl:grid-cols-2">
           {dashboard.cards.length === 0 ? null : (
             <section className="flex flex-col gap-3" aria-labelledby="finance-cards-title">
               <Text as="h4" variant="h5" id="finance-cards-title">
@@ -204,7 +275,9 @@ export function FinanceDashboard({
                       <Text as="p" variant="bodySmall" className="font-medium">
                         {card.name}
                       </Text>
-                      {card.utilisation === null ? (
+                      {card.closing < 0 ? (
+                        <Tag tone="muted">Card credit</Tag>
+                      ) : card.utilisation === null ? (
                         <Tag tone="muted">No limit set</Tag>
                       ) : (
                         <Tag tone={card.utilisation > 0.3 ? 'accent' : 'neutral'}>
@@ -213,9 +286,11 @@ export function FinanceDashboard({
                       )}
                     </div>
                     <Text variant="caption" tone="muted">
-                      Spent <Money amount={card.spend} currency={currency} /> this month;{' '}
+                      {card.spend < 0 ? 'Refunds above spending: ' : 'Spent '}
+                      <Money amount={Math.abs(card.spend)} currency={currency} /> this month;{' '}
                       <Money amount={card.paymentOut} currency={currency} /> collected;{' '}
-                      <Money amount={card.closing} currency={currency} /> owed at month end
+                      <Money amount={Math.abs(card.closing)} currency={currency} />{' '}
+                      {card.closing < 0 ? 'card credit' : 'owed'} at month end
                     </Text>
                   </li>
                 ))}

@@ -1507,6 +1507,14 @@ export function buildProgram(): Command {
     .option('--line <lineId>', 'only this budget line')
     .option('--unassigned', 'only those with no budget line')
     .option('--limit <count>', 'at most this many')
+    .option('--offset <count>', 'skip this many matching records')
+    .option('--transaction <transactionId>', 'only this transaction')
+    .option('--from <yyyy-mm-dd>', 'history start date, inclusive')
+    .option('--to <yyyy-mm-dd>', 'history end date, inclusive')
+    .option('--search <text>', 'search descriptions')
+    .option('--source <source>', 'manual, scheduled or import')
+    .option('--min-amount <amount>', 'minimum amount magnitude')
+    .option('--max-amount <amount>', 'maximum amount magnitude')
     .action(
       async (rootId: string, options: financeCommands.TransactionsOptions, command: Command) => {
         const flags = globalFlags(command);

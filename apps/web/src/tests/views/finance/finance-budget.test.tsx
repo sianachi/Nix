@@ -9,8 +9,9 @@ const queries = vi.hoisted(
   (): {
     grid: unknown;
     transactions: unknown;
+    status: 'ready' | 'loading' | 'error';
     seen: { operation: string; query?: Readonly<Record<string, unknown>> }[];
-  } => ({ grid: null, transactions: null, seen: [] }),
+  } => ({ grid: null, transactions: null, status: 'ready', seen: [] }),
 );
 
 vi.mock('../../../views/finance/use-finance', () => ({
@@ -22,7 +23,11 @@ vi.mock('../../../views/finance/use-finance', () => ({
     if (endpoint.operation === 'finance.transactions') {
       return { status: 'ready', data: queries.transactions, error: null };
     }
-    return { status: 'ready', data: queries.grid, error: null };
+    return {
+      status: queries.status,
+      data: queries.grid,
+      error: queries.status === 'error' ? 'Server unavailable.' : null,
+    };
   },
 }));
 
@@ -128,6 +133,7 @@ function mount() {
 }
 
 beforeEach(() => {
+  queries.status = 'ready';
   queries.grid = budgetGrid();
   queries.transactions = { transactions: [transaction], total: 1, truncated: false };
   queries.seen = [];
@@ -155,6 +161,7 @@ describe('monthly budget remaining', () => {
     expect(within(outgoings).getAllByRole('cell').at(-1)).toHaveTextContent('£75.00');
 
     fireEvent.click(screen.getByRole('button', { name: 'Year' }));
+    expect(queries.seen.at(-1)?.query).toMatchObject({ from: '2026-09', to: '2026-12' });
     fireEvent.click(screen.getByRole('button', { name: 'Left' }));
     fireEvent.click(screen.getByRole('button', { name: 'Month' }));
 
@@ -164,6 +171,22 @@ describe('monthly budget remaining', () => {
     expect(monthLeft).toHaveTextContent('£75.00');
     expect(monthLeft).not.toHaveTextContent('£25.00');
   });
+});
+
+it('shows January to December when the complete calendar year is in the plan', () => {
+  render(budget({ ...finance, settings: { ...finance.settings, startMonth: '2025-01' } }));
+  fireEvent.click(screen.getByRole('button', { name: 'Year' }));
+  expect(queries.seen.at(-1)?.query).toMatchObject({ from: '2026-01', to: '2026-12' });
+});
+
+it('withholds old-month cells until the selected month has loaded', () => {
+  queries.grid = { ...budgetGrid(), months: ['2026-08'] };
+  mount();
+  expect(
+    screen.queryByRole('button', { name: /Plan for Groceries in September/ }),
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Record planned as actual' })).toBeDisabled();
+  expect(screen.getByText('Loading selected budget')).toBeInTheDocument();
 });
 
 describe('narrowing the budget to an account', () => {
@@ -184,6 +207,20 @@ describe('narrowing the budget to an account', () => {
     expect(screen.getByRole('row', { name: /Net on Everyday card/ })).toBeInTheDocument();
     expect(screen.getByText(/September 2026 on Everyday card/)).toBeInTheDocument();
   });
+});
+
+it('withholds stale account rows while a new account loads or fails', () => {
+  const view = mount();
+  queries.status = 'loading';
+  fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+    target: { value: accountId },
+  });
+  expect(screen.queryByRole('button', { name: /Plan for Groceries/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Record planned as actual' })).toBeDisabled();
+  queries.status = 'error';
+  view.rerender(budget(finance));
+  expect(screen.getByText('The selected budget could not be loaded')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: /Plan for Groceries/ })).not.toBeInTheDocument();
 });
 
 describe('recording planned as actual in bulk', () => {

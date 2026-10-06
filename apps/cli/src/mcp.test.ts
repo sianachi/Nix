@@ -409,7 +409,22 @@ describe('nixctl mcp workspace tools', () => {
             amount: 300,
           },
         ],
-        ['list_finance_transactions', { rootId, month: '2026-08', accountId }],
+        [
+          'list_finance_transactions',
+          {
+            rootId,
+            month: '2026-08',
+            accountId,
+            from: '2026-08-01',
+            to: '2026-08-31',
+            search: 'Market',
+            source: 'manual',
+            minAmount: 10,
+            maxAmount: 20,
+            offset: 50,
+            limit: 50,
+          },
+        ],
         [
           'set_finance_transaction',
           {
@@ -469,6 +484,9 @@ describe('nixctl mcp workspace tools', () => {
       });
       expect(calls[11]?.body).toMatchObject({ accountId, commit: false });
       expect(calls[7]?.query).toContain('month=2026-08');
+      expect(calls[7]?.query).toContain('from=2026-08-01');
+      expect(calls[7]?.query).toContain('offset=50');
+      expect(calls[7]?.query).toContain('minAmount=10');
       const malformed = await invoke('add_finance_transaction', {
         rootId,
         description: 'Bad money',
