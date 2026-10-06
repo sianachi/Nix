@@ -1,6 +1,6 @@
 import { Button, Checkbox, cn, Field, focusRing, Input, Select, Text } from '@nix/ui';
 import { items } from '@nix/api-client';
-import { CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
+import { Check, CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
@@ -14,10 +14,10 @@ import { useHabits } from './use-habits';
 import type { HabitTracker, SetHabitInput } from '@nix/api-client';
 import { useApiClient } from '../../api/api-client-provider';
 import { useWorkspace } from '../../workspaces/workspace-context';
-import { useNarrowViewport } from '../../layout/viewport';
 import { browserStorage } from '../../lib/browser-storage';
 import { formatShortDate, localTimeZone } from '../../lib/date-format';
 import { HabitChartWidgets, type HabitWidgetConfig } from './habit-chart-widgets';
+import { HabitInsights } from './habit-insights';
 
 export interface HabitTrackerViewProps {
   readonly container: ContainerData;
@@ -42,13 +42,6 @@ function shiftedDay(day: string, offset: number): string {
 
 function weekdayFor(day: string): number {
   return new Date(`${day}T00:00:00Z`).getUTCDay();
-}
-
-function monthWindow(day: string): { from: string; to: string } {
-  const date = new Date(`${day}T00:00:00Z`);
-  const from = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1));
-  const to = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0));
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
 }
 
 const TODAY_ONLY_STORAGE_KEY = 'nix.habit-tracker.today-only';
@@ -91,15 +84,13 @@ export function weekWindow(offset = 0): { from: string; to: string; days: readon
 
 export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewProps): ReactNode {
   const [weekOffset, setWeekOffset] = useState(0);
-  const narrow = useNarrowViewport();
-  // `null` means the person has never chosen: a narrow screen defaults to Today, since seven
-  // full-width day blocks stacked on a phone is what this default exists to avoid. Once they pick
-  // either way, the stored choice wins over the screen width from then on.
   const [todayOnlyChoice, setTodayOnlyChoice] = useState<boolean | null>(() =>
     readStoredTodayOnly(browserStorage()),
   );
-  const todayOnly = todayOnlyChoice ?? narrow;
+  const todayOnly = todayOnlyChoice ?? true;
+  const [screen, setScreen] = useState<'checkins' | 'insights'>('checkins');
   const chooseTodayOnly = useCallback((value: boolean) => {
+    setScreen('checkins');
     setTodayOnlyChoice(value);
     storeTodayOnly(browserStorage(), value);
   }, []);
@@ -121,23 +112,12 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
   const [widgetsPending, setWidgetsPending] = useState(false);
   // Stable identity prevents unrelated input edits from reloading every habit.
   const ids = useMemo(() => container.children.map((item) => item.id), [container.children]);
-  const state = useHabits(
-    ids,
-    todayOnly ? shiftedDay(window.from, -1) : window.from,
-    todayOnly ? shiftedDay(window.to, 1) : window.to,
-  );
-  const month = monthWindow(window.from);
-  const monthlyState = useHabits(ids, month.from, month.to);
-  const { reload: reloadMonth } = monthlyState;
+  const state = useHabits(ids, shiftedDay(window.from, -1), shiftedDay(window.to, 1));
   const localDaySignature = ids
     .map((id) => `${id}:${todayInTimezone(state.trackers.get(id)?.timezone ?? 'UTC')}`)
     .join('|');
   const previousLocalDaySignature = useRef(localDaySignature);
   const observedLocalDays = useRef(false);
-  // Watches `version`, not `trackers`' identity: a single-habit `refetchHabit` also replaces the
-  // `trackers` map, and cascading a full month reload from that would put the 2N requests this
-  // hook exists to avoid right back - one habit's check-in refetching every habit's month data.
-  const previousVersion = useRef(state.version);
   useEffect(() => {
     if (!observedLocalDays.current) {
       if (state.status === 'loading' && state.trackers.size === 0) return;
@@ -148,28 +128,16 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
     if (previousLocalDaySignature.current !== localDaySignature) {
       previousLocalDaySignature.current = localDaySignature;
       state.reload();
-      reloadMonth();
     }
-  }, [localDaySignature, reloadMonth, state]);
-  useEffect(() => {
-    if (state.status === 'loading') return;
-    if (previousVersion.current !== state.version) {
-      previousVersion.current = state.version;
-      reloadMonth();
-    }
-  }, [reloadMonth, state.status, state.version]);
+  }, [localDaySignature, state]);
   const client = useApiClient();
   const workspace = useWorkspace();
   const createdHabitId = useRef<string | null>(null);
-  // A check-in changes exactly one habit's totals, in both the week window and the month window.
-  // Reloading every habit in either range - what a full `reload` does - would cost 2N requests for
-  // a single tap; refetching just this habit in each range costs two.
   const refetchHabitEverywhere = useCallback(
     (habitId: string) => {
-      void state.refetchHabit(habitId);
-      void monthlyState.refetchHabit(habitId);
+      return state.refetchHabit(habitId);
     },
-    [state, monthlyState],
+    [state],
   );
   const saveCheckInAndRefresh = useCallback(
     async (
@@ -179,7 +147,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
       quantity: number | null,
     ): Promise<string | null> => {
       const refusal = await state.saveCheckIn(habitId, day, completed, quantity);
-      if (refusal === null) refetchHabitEverywhere(habitId);
+      if (refusal === null) await refetchHabitEverywhere(habitId);
       return refusal;
     },
     [state, refetchHabitEverywhere],
@@ -187,7 +155,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
   const undoCheckInAndRefresh = useCallback(
     async (habitId: string, day: string): Promise<string | null> => {
       const refusal = await state.undoCheckIn(habitId, day);
-      if (refusal === null) refetchHabitEverywhere(habitId);
+      if (refusal === null) await refetchHabitEverywhere(habitId);
       return refusal;
     },
     [state, refetchHabitEverywhere],
@@ -198,56 +166,54 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
     return tracker === undefined ? [] : [{ ...item, tracker }];
   });
 
+  const renderHabitDay = (habitId: string, day: string, tracker: HabitTracker): ReactNode => (
+    <table className="block w-full border-collapse @lg:table" aria-label="Edit historical check-in">
+      <tbody className="block @lg:table-row-group">
+        <HabitRow
+          key={`${habitId}:${day}`}
+          itemId={habitId}
+          title={habits.find((item) => item.id === habitId)?.title ?? 'Untitled habit'}
+          days={[day]}
+          tracker={tracker}
+          onOpen={onOpen}
+          onSave={saveCheckInAndRefresh}
+          onUndo={undoCheckInAndRefresh}
+          onEdit={() => {
+            setEditingId(habitId);
+          }}
+          onStatus={state.setStatus}
+        />
+      </tbody>
+    </table>
+  );
+
   return (
-    <section className="flex min-w-0 flex-col gap-6" aria-labelledby="habit-tracker-title">
-      <header className="flex flex-col gap-4 border-b border-divider pb-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <Text as="h2" variant="h2" id="habit-tracker-title">
-            {todayOnly
-              ? 'Today'
-              : weekOffset === 0
-                ? 'This week'
-                : weekOffset < 0
-                  ? 'Previous week'
-                  : 'Next week'}
-          </Text>
-          <Text variant="bodySmall" tone="muted">
-            {todayOnly
-              ? 'Each habit follows its saved timezone.'
-              : `${window.from} to ${window.to}`}
-          </Text>
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-          <Button
-            variant="secondary"
-            aria-pressed={todayOnly}
-            onClick={() => {
-              chooseTodayOnly(!todayOnly);
-              setWeekOffset(0);
-            }}
-          >
-            {todayOnly ? 'Show week' : 'Today'}
-          </Button>
-          <Button
-            variant="secondary"
-            aria-label="Previous week"
-            onClick={() => {
-              chooseTodayOnly(false);
-              setWeekOffset((value) => value - 1);
-            }}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="secondary"
-            aria-label="Next week"
-            onClick={() => {
-              chooseTodayOnly(false);
-              setWeekOffset((value) => value + 1);
-            }}
-          >
-            Next
-          </Button>
+    <section
+      className="@container flex min-w-0 flex-col gap-6"
+      aria-labelledby="habit-tracker-title"
+    >
+      <header className="flex flex-col gap-4 border-b border-divider pb-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <Text as="h2" variant="h2" id="habit-tracker-title">
+              {screen === 'insights'
+                ? 'Your progress'
+                : todayOnly
+                  ? 'Today'
+                  : weekOffset === 0
+                    ? 'This week'
+                    : weekOffset < 0
+                      ? 'Previous week'
+                      : 'Next week'}
+            </Text>
+            <Text variant="bodySmall" tone="muted">
+              {screen === 'insights'
+                ? 'See the pattern, then choose a day to update it.'
+                : todayOnly
+                  ? 'One day at a time. Check in with your habits below.'
+                  : `${window.from} to ${window.to}`}
+            </Text>
+          </div>
           <Button
             variant="secondary"
             onClick={() => {
@@ -256,16 +222,89 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           >
             {showSetup ? 'Close setup' : 'Add a habit'}
           </Button>
-          <Button
-            variant="secondary"
-            aria-pressed={showArchived}
-            onClick={() => {
-              setShowArchived((value) => !value);
-            }}
-          >
-            {showArchived ? 'Hide archived' : 'Show archived'}
-          </Button>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <nav className="flex gap-1 rounded-lg bg-surface-raised p-1" aria-label="Habit screens">
+            <Button
+              variant={screen === 'checkins' && todayOnly ? 'primary' : 'ghost'}
+              aria-pressed={screen === 'checkins' && todayOnly}
+              onClick={() => {
+                chooseTodayOnly(true);
+                setWeekOffset(0);
+              }}
+            >
+              Today
+            </Button>
+            <Button
+              variant={screen === 'checkins' && !todayOnly ? 'primary' : 'ghost'}
+              aria-label="Show week"
+              aria-pressed={screen === 'checkins' && !todayOnly}
+              onClick={() => {
+                chooseTodayOnly(false);
+              }}
+            >
+              Week
+            </Button>
+            <Button
+              variant={screen === 'insights' ? 'primary' : 'ghost'}
+              aria-pressed={screen === 'insights'}
+              onClick={() => {
+                setScreen('insights');
+              }}
+            >
+              Insights
+            </Button>
+          </nav>
+          <details>
+            <summary
+              className={cn('cursor-pointer rounded-md px-2 py-1 text-sm text-muted', focusRing)}
+            >
+              Display options
+            </summary>
+            <Button
+              variant="ghost"
+              aria-pressed={showArchived}
+              onClick={() => {
+                setShowArchived((value) => !value);
+              }}
+            >
+              {showArchived ? 'Hide archived' : 'Show archived'}
+            </Button>
+          </details>
+        </div>
+        {screen === 'checkins' && !todayOnly ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              aria-label="Previous week"
+              onClick={() => {
+                setWeekOffset((value) => value - 1);
+              }}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setWeekOffset(0);
+              }}
+            >
+              This week
+            </Button>
+            <Button
+              variant="secondary"
+              aria-label="Next week"
+              onClick={() => {
+                setWeekOffset((value) => value + 1);
+              }}
+            >
+              Next
+            </Button>
+            <Text as="span" variant="caption" tone="muted">
+              Select a day to check in or correct it.
+            </Text>
+          </div>
+        ) : null}
       </header>
       {showSetup ? (
         <HabitSetup
@@ -297,6 +336,10 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
       ) : null}
       {editingId !== null && state.trackers.get(editingId) !== undefined ? (
         <HabitSetup
+          key={editingId}
+          onCancel={() => {
+            setEditingId(null);
+          }}
           initial={state.trackers.get(editingId)}
           initialTitle={container.children.find((item) => item.id === editingId)?.title ?? ''}
           submitLabel="Save changes"
@@ -346,7 +389,12 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
         <PartialNotice pending="Some habits have not been loaded. These totals cover the displayed habits only." />
       ) : null}
       {state.status === 'partial' ? (
-        <PartialNotice pending={state.error ?? 'Some habits are unavailable.'} />
+        <div className="flex flex-wrap items-center gap-3">
+          <PartialNotice pending={state.error ?? 'Some habits are unavailable.'} />
+          <Button variant="secondary" onClick={state.reload}>
+            Reload habits
+          </Button>
+        </div>
       ) : null}
       {habits.length === 0 && container.children.length > 0 && state.status !== 'error' ? (
         <EmptyPanel
@@ -362,19 +410,44 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
             </Button>
           }
         />
-      ) : habits.length > 0 ? (
-        <div className="min-w-0">
+      ) : habits.length > 0 && screen === 'checkins' ? (
+        <div className="min-w-0 overflow-x-auto">
+          {todayOnly ? (
+            <Text variant="bodySmall" tone="muted" className="mb-3">
+              {
+                habits
+                  .filter((item) => item.tracker.status === 'active')
+                  .filter((item) =>
+                    item.tracker.checkIns.some(
+                      (entry) =>
+                        entry.occurredOn === todayInTimezone(item.tracker.timezone) &&
+                        entry.completed,
+                    ),
+                  ).length
+              }{' '}
+              completed today. Each habit follows its saved timezone.
+            </Text>
+          ) : null}
           <table
-            className="block w-full border-collapse md:table"
-            aria-label="Weekly habit check-ins"
+            className={
+              todayOnly ? 'block w-full border-collapse @lg:table' : 'w-full border-collapse'
+            }
+            aria-label={todayOnly ? 'Today habit check-ins' : 'Weekly habit check-ins'}
           >
-            <thead className="hidden md:table-header-group">
+            <thead className={todayOnly ? 'sr-only' : ''}>
               <tr>
                 <th scope="col" className="p-2 text-left">
                   <Text variant="caption">Habit</Text>
                 </th>
                 {(todayOnly ? [dateText(new Date())] : window.days).map((day, index) => (
-                  <th key={day} scope="col" className="p-2 text-center">
+                  <th
+                    key={day}
+                    scope="col"
+                    className={cn(
+                      'p-2 text-center',
+                      day === dateText(new Date()) && 'rounded-t-md bg-accent/10 text-accent',
+                    )}
+                  >
                     <Text variant="caption">
                       {todayOnly ? 'Today' : WEEKDAYS[index]?.slice(0, 3)}
                       <br />
@@ -384,7 +457,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
                 ))}
               </tr>
             </thead>
-            <tbody className="block space-y-4 md:table-row-group md:space-y-0">
+            <tbody className={todayOnly ? 'block @lg:table-row-group' : ''}>
               {habits.map((item) => (
                 <HabitRow
                   key={item.id}
@@ -408,125 +481,52 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
       <Text variant="bodySmall" tone="muted" className="sr-only">
         Progress is calculated from saved check-ins. Select a habit name to open its details.
       </Text>
-      {habits.length > 0 ? (
-        <div
-          className="grid gap-3 border-t border-divider pt-4 sm:grid-cols-2 xl:grid-cols-3"
-          aria-label="Habit progress"
-        >
-          {habits.map((item) => {
-            const progress = item.tracker.progress;
-            const updating = state.refreshingIds.has(item.id);
-            return (
-              <div key={item.id} className="rounded-lg bg-surface-raised p-3">
-                <Text variant="bodySmall" className="font-medium">
-                  {item.title}
-                </Text>
-                {updating ? (
-                  <Text variant="caption" tone="muted">
-                    Updating
-                  </Text>
-                ) : (
-                  <Text variant="caption" tone="muted">
-                    {progress?.currentStreak ?? 0} day streak · {progress?.bestStreak ?? 0} best ·{' '}
-                    {Math.round((progress?.completionRate ?? 0) * 100)}% complete
-                  </Text>
-                )}
-              </div>
-            );
-          })}
-          <Text
-            variant="bodySmall"
-            tone="muted"
-            className="self-center sm:col-span-2 xl:col-span-3"
-          >
-            {habits.some((item) => state.refreshingIds.has(item.id)) ? (
-              'Overall: updating'
-            ) : (
-              <>
-                Overall:{' '}
-                {(() => {
-                  const planned = habits.reduce(
-                    (sum, item) => sum + (item.tracker.progress?.planned ?? 0),
-                    0,
-                  );
-                  const completed = habits.reduce(
-                    (sum, item) => sum + (item.tracker.progress?.completed ?? 0),
-                    0,
-                  );
-                  return planned === 0 ? 0 : Math.round((completed / planned) * 100);
-                })()}
-                % of scheduled days
-              </>
-            )}
-          </Text>
-        </div>
-      ) : null}
-      {monthlyState.status === 'loading' ? (
-        <Text variant="bodySmall" tone="muted">
-          Loading monthly history
-        </Text>
-      ) : null}
-      {monthlyState.status === 'partial' ? (
-        <PartialNotice pending={monthlyState.error ?? 'Some monthly totals are unavailable.'} />
-      ) : null}
-      {monthlyState.status === 'error' ? (
-        <Text variant="bodySmall" tone="muted" role="alert">
-          Monthly history could not be loaded: {monthlyState.error ?? 'Try again.'}
-        </Text>
-      ) : null}
-      {monthlyState.status !== 'error' && monthlyState.status !== 'loading' && habits.length > 0 ? (
-        <div aria-label="Monthly habit history">
-          {habits.map((item) => {
-            if (monthlyState.refreshingIds.has(item.id)) {
-              return (
-                <Text key={item.id} variant="bodySmall" tone="muted">
-                  {item.title}: updating this month&apos;s total
-                </Text>
-              );
-            }
-            const monthly = monthlyState.trackers.get(item.id);
-            const totals = monthly?.months?.at(-1);
-            return totals ? (
-              <Text key={item.id} variant="bodySmall" tone="muted">
-                {item.title}: {String(totals.completed)}/{String(totals.planned)} completed this
-                month
-                {item.tracker.unit === 'times'
-                  ? ''
-                  : `, ${String(totals.quantity)} ${item.tracker.unit}`}
-              </Text>
-            ) : null;
-          })}
-        </div>
-      ) : null}
-      {habits.length > 0 ? (
-        <fieldset
-          disabled={widgetsPending}
-          className="min-w-0"
-          aria-label="Progress chart configuration"
-        >
-          <HabitChartWidgets
-            widgets={widgets}
-            trackers={state.trackers}
-            availableHabits={habits.map((item) => ({ id: item.id, title: item.title }))}
-            onChange={(next) => {
-              const previous = widgets;
-              setWidgetError(null);
-              setWidgets(next);
-              const saved = container.views?.views.map((candidate) =>
-                candidate.id === view.id ? { ...candidate, habitWidgets: [...next] } : candidate,
-              );
-              if (saved === undefined) return;
-              setWidgetsPending(true);
-              void container.setViews(saved).then((refusal) => {
-                if (refusal !== null) {
-                  setWidgets(previous);
-                  setWidgetError(refusal);
-                }
-                setWidgetsPending(false);
-              });
-            }}
+      {habits.length > 0 && screen === 'insights' ? (
+        <>
+          <HabitInsights
+            habits={habits}
+            renderDay={(item, day, tracker) => renderHabitDay(item.id, day, tracker)}
           />
-        </fieldset>
+          <details>
+            <summary
+              className={cn('cursor-pointer rounded-md py-2 text-sm font-medium', focusRing)}
+            >
+              Custom charts{widgets.length > 0 ? ` (${String(widgets.length)})` : ''}
+            </summary>
+            <fieldset disabled={widgetsPending} className="mt-3">
+              <HabitChartWidgets
+                widgets={widgets}
+                trackers={state.trackers}
+                availableHabits={habits}
+                renderDay={renderHabitDay}
+                onChange={(next) => {
+                  const previous = widgets;
+                  setWidgetError(null);
+                  const saved = container.views?.views.map((candidate) =>
+                    candidate.id === view.id
+                      ? { ...candidate, habitWidgets: [...next] }
+                      : candidate,
+                  );
+                  if (saved === undefined) {
+                    setWidgetError(
+                      'Chart settings are unavailable. Reload this view and try again.',
+                    );
+                    return;
+                  }
+                  setWidgets(next);
+                  setWidgetsPending(true);
+                  void container.setViews(saved).then((refusal) => {
+                    if (refusal !== null) {
+                      setWidgets(previous);
+                      setWidgetError(refusal);
+                    }
+                    setWidgetsPending(false);
+                  });
+                }}
+              />
+            </fieldset>
+          </details>
+        </>
       ) : null}
       {widgetError ? (
         <Text variant="note" role="alert">
@@ -537,30 +537,6 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
         <Text variant="caption" tone="muted">
           Saving widgets
         </Text>
-      ) : null}
-      {habits.length > 0 && !todayOnly ? (
-        <div
-          className="flex flex-wrap gap-4 border-t border-divider pt-3"
-          aria-label="Progress summary"
-        >
-          {habits.map((item) => {
-            if (state.refreshingIds.has(item.id)) {
-              return (
-                <Text key={item.id} variant="bodySmall">
-                  {item.title}: updating
-                </Text>
-              );
-            }
-            const tracker = state.trackers.get(item.id);
-            const week = tracker?.weeks[0];
-            return tracker && week ? (
-              <Text key={item.id} variant="bodySmall">
-                {item.title}: {week.completed}/{week.planned} complete
-                {tracker.unit === 'times' ? '' : `, ${String(week.quantity)} ${tracker.unit}`}
-              </Text>
-            ) : null;
-          })}
-        </div>
       ) : null}
     </section>
   );
@@ -598,6 +574,8 @@ function HabitRow({
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [statusPending, setStatusPending] = useState(false);
+  const compact = days.length > 1;
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Readonly<Record<string, string>>>({});
   // A day's completion, as tapped, ahead of the write and the refetch that confirms it. Cleared
   // once the tracker prop itself agrees, or rolled back on a refusal - see the render-time
@@ -626,10 +604,18 @@ function HabitRow({
     }
   }
   return (
-    <tr className="block overflow-hidden rounded-lg border border-divider bg-surface md:table-row md:rounded-none md:border-0">
+    <tr
+      className={
+        compact ? 'border-b border-divider' : 'block border-b border-divider @lg:table-row'
+      }
+    >
       <th
         scope="row"
-        className="block p-4 text-left align-top md:table-cell md:w-64 md:border-t md:border-divider md:p-3"
+        className={
+          compact
+            ? 'min-w-40 p-3 text-left align-top'
+            : 'block p-3 text-left align-middle @lg:table-cell'
+        }
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -644,26 +630,18 @@ function HabitRow({
               {title || 'Untitled habit'}
             </Button>
             <Text variant="caption" tone="muted">
-              Goal: {tracker.target} {tracker.unit}
+              {tracker.target === 1 && tracker.unit === 'times'
+                ? 'Check-in'
+                : `Goal: ${String(tracker.target)} ${tracker.unit}`}
             </Text>
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-              <Text variant="caption" tone="muted">
-                {tracker.progress?.currentStreak ?? 0} day streak
-              </Text>
-              <Text variant="caption" tone="muted">
-                {Math.round((tracker.progress?.completionRate ?? 0) * 100)}% complete
-              </Text>
-            </div>
           </div>
-          <Text
-            variant="caption"
-            tone="muted"
-            className="rounded-full border border-divider px-2 py-1 capitalize"
-          >
-            {lifecycle}
-          </Text>
+          {lifecycle !== 'active' ? (
+            <Text variant="caption" tone="muted" className="capitalize">
+              {lifecycle}
+            </Text>
+          ) : null}
         </div>
-        <details className="mt-3">
+        <details className="mt-1">
           <summary
             className={cn(
               'w-fit cursor-default rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised',
@@ -672,7 +650,7 @@ function HabitRow({
           >
             Habit options
           </summary>
-          <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md bg-surface-raised p-2 md:flex-col md:items-stretch">
+          <div className="mt-2 flex flex-wrap items-center gap-1 rounded-md bg-surface-raised p-2">
             <Text variant="caption" tone="muted" className="px-2 capitalize">
               Status: {lifecycle}
             </Text>
@@ -719,7 +697,7 @@ function HabitRow({
           </Text>
         ) : null}
       </th>
-      {days.map((day, dayIndex) => {
+      {days.map((day) => {
         const entry = checkIns.get(day);
         const occurrence = occurrenceMap.get(day);
         const scheduled =
@@ -732,8 +710,16 @@ function HabitRow({
         // The optimistic tap wins over the last confirmed read until either the refetch this row
         // triggered agrees (the effect above clears it) or the write it followed is refused.
         const checked = optimistic[day] ?? actual;
-        const stateLabel =
-          occurrence?.state ?? (checked ? 'completed' : hasEntry ? 'partial' : 'scheduled');
+        const stateLabel = future
+          ? 'upcoming'
+          : checked
+            ? 'completed'
+            : (occurrence?.state ??
+              (hasEntry
+                ? 'partial'
+                : day === todayInTimezone(tracker.timezone)
+                  ? 'scheduled'
+                  : 'missed'));
         const key = `${itemId}:${day}`;
         const quantity =
           quantities[day] ??
@@ -748,7 +734,10 @@ function HabitRow({
             Number(quantity) < 0 ||
             Number(quantity) > 1_000_000);
         const act = async (undo: boolean): Promise<void> => {
-          setOptimistic((current) => ({ ...current, [day]: !undo }));
+          setOptimistic((current) => ({
+            ...current,
+            [day]: !undo && (!measured || Number(quantity) >= target),
+          }));
           setPending((current) => new Set(current).add(key));
           const refusal = undo
             ? await onUndo(itemId, day)
@@ -777,18 +766,39 @@ function HabitRow({
         return (
           <td
             key={day}
-            className="block border-t border-divider p-3 text-left align-middle md:table-cell md:p-2 md:text-center"
+            className={cn(
+              compact ? 'p-2 text-center align-top' : 'block p-3 align-middle @lg:table-cell',
+              day === todayInTimezone(tracker.timezone) && compact && 'bg-accent/10',
+            )}
           >
-            <div className="mb-2 flex items-baseline justify-between md:hidden">
-              <Text variant="bodySmall" className="font-medium">
-                {days.length === 1 ? 'Today' : WEEKDAYS[dayIndex]}
-              </Text>
-              <Text variant="caption" tone="muted">
-                {day}
-              </Text>
-            </div>
-            {scheduled || hasEntry ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 md:justify-center">
+            {compact && selectedDay !== day ? (
+              <Button
+                variant={checked ? 'primary' : 'ghost'}
+                className="h-10 w-10 p-0"
+                disabled={future || (!scheduled && !hasEntry)}
+                aria-label={`${title}, ${day}, ${future ? 'future' : checked ? 'completed' : scheduled ? 'not completed' : 'not scheduled'}`}
+                aria-pressed={checked}
+                title={`${day}: ${future ? 'Upcoming' : stateLabel}${entry?.quantity == null ? '' : `, ${String(entry.quantity)}/${String(target)} ${unit}`}`}
+                onClick={() => {
+                  setSelectedDay(day);
+                }}
+              >
+                {checked ? (
+                  <Check size={18} aria-hidden="true" />
+                ) : !scheduled ? (
+                  <Text as="span" variant="caption">
+                    —
+                  </Text>
+                ) : stateLabel === 'partial' ? (
+                  <Clock3 size={18} aria-hidden="true" />
+                ) : stateLabel === 'missed' ? (
+                  <CircleAlert size={18} aria-hidden="true" />
+                ) : (
+                  <Circle size={18} aria-hidden="true" />
+                )}
+              </Button>
+            ) : scheduled || hasEntry ? (
+              <div className="flex flex-wrap items-center justify-start gap-2 @lg:justify-end">
                 {measured ? (
                   <Input
                     aria-label={`${title}, ${day}, quantity`}
@@ -806,12 +816,17 @@ function HabitRow({
                 <Button
                   variant={checked ? 'primary' : 'secondary'}
                   disabled={pending.has(key) || future || invalidQuantity || lifecycle !== 'active'}
-                  aria-label={`${title}, ${day}, ${future ? 'future' : checked ? 'completed' : 'not completed'}`}
+                  aria-label={
+                    measured
+                      ? `Save ${title}, ${day}, quantity`
+                      : `${checked ? 'Done: undo check-in for' : 'Check in'} ${title}, ${day}${future ? ', upcoming' : ''}`
+                  }
                   aria-pressed={checked}
                   onClick={() => {
                     void act(!measured && checked);
                   }}
                 >
+                  {!measured && checked ? <Check size={18} aria-hidden="true" /> : null}
                   {pending.has(key) ? 'Saving' : measured ? 'Save' : checked ? 'Done' : 'Check in'}
                 </Button>
                 <Text
@@ -830,12 +845,18 @@ function HabitRow({
                       <Circle size={14} />
                     )}
                   </span>
-                  {stateLabel}
+                  {stateLabel === 'scheduled'
+                    ? 'Due today'
+                    : stateLabel === 'missed'
+                      ? 'No check-in'
+                      : stateLabel === 'partial'
+                        ? 'Partly done'
+                        : stateLabel}
                 </Text>
                 {measured && hasEntry ? (
                   <Button
                     variant="ghost"
-                    disabled={pending.has(key) || future}
+                    disabled={pending.has(key) || future || lifecycle !== 'active'}
                     aria-label={`Undo ${title}, ${day}`}
                     onClick={() => {
                       void act(true);
@@ -846,15 +867,23 @@ function HabitRow({
                 ) : null}
                 {measured && entry ? (
                   <Text variant="caption" tone="muted">
-                    {entry.completed
-                      ? 'Complete'
-                      : `${String(entry.quantity ?? 0)}/${String(target)} ${unit}`}
+                    {`${String(entry.quantity ?? 0)}/${String(target)} ${unit}`}
                   </Text>
+                ) : null}
+                {compact ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedDay(null);
+                    }}
+                  >
+                    Close
+                  </Button>
                 ) : null}
               </div>
             ) : (
               <Text variant="caption" tone="muted">
-                —
+                Not scheduled
               </Text>
             )}
           </td>
@@ -869,11 +898,13 @@ function HabitSetup({
   initial,
   initialTitle,
   submitLabel = 'Create habit',
+  onCancel,
 }: {
   readonly onCreate: (title: string, settings: SetHabitInput) => Promise<string | null>;
   readonly initial?: HabitTracker | undefined;
   readonly initialTitle?: string;
   readonly submitLabel?: string;
+  readonly onCancel?: () => void;
 }): ReactNode {
   const [title, setTitle] = useState(initialTitle ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -1032,6 +1063,11 @@ function HabitSetup({
       >
         {pending ? 'Saving' : submitLabel}
       </Button>
+      {onCancel === undefined ? null : (
+        <Button variant="secondary" disabled={pending} onClick={onCancel}>
+          Cancel
+        </Button>
+      )}
       {error ? (
         <Text variant="note" tone="muted" role="alert">
           {error}

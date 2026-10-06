@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BudgetCell, BudgetLine, Finance, QueryEndpoint } from '@nix/api-client';
 import type * as UseFinanceModule from '../../../views/finance/use-finance';
@@ -127,4 +127,51 @@ describe('a stray tap outside the sheet, while a new total is mid-edit', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('Discard what you typed?')).not.toBeInTheDocument();
   });
+});
+
+it('freezes a saved total while retrying month closure and avoids a duplicate adjustment', async () => {
+  const setMonth = vi
+    .fn<FinanceViewState['setMonth']>()
+    .mockResolvedValueOnce(null)
+    .mockResolvedValueOnce('Server unavailable.')
+    .mockResolvedValueOnce(null);
+  const saveTotal = vi.fn<FinanceViewState['setActual']>().mockResolvedValue({
+    lineId: line.id,
+    month: '2026-09',
+    before: 25,
+    after: 80,
+    transaction: null,
+  });
+  const onClose = vi.fn();
+  render(
+    <BudgetActualDialog
+      state={{ ...state, setActual: saveTotal, setMonth }}
+      finance={{ ...finance, closedMonths: ['2026-09'] }}
+      line={line}
+      month="2026-09"
+      cell={cell}
+      onClose={onClose}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Reopen to update total' }));
+  await waitFor(() => {
+    expect(screen.getByLabelText("Bring this month's total to")).toBeInTheDocument();
+  });
+  fireEvent.change(screen.getByLabelText("Bring this month's total to"), {
+    target: { value: '80' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+  await waitFor(() => {
+    expect(screen.getByLabelText('Saved total')).toBeDisabled();
+  });
+  expect(screen.getByLabelText('Saved total')).toHaveValue('80');
+  expect(screen.queryByRole('button', { name: /Same as planned/ })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Add transaction' })).toBeDisabled();
+  expect(screen.getByText(/the total will not be recorded again/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Retry closing month' }));
+  await waitFor(() => {
+    expect(onClose).toHaveBeenCalled();
+  });
+  expect(saveTotal).toHaveBeenCalledTimes(1);
+  expect(setMonth).toHaveBeenCalledTimes(3);
 });

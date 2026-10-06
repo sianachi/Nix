@@ -1,4 +1,5 @@
-import { Button, Text, cn, focusRing, inkWashStates } from '@nix/ui';
+import { Button, Select, Text, cn, focusRing, inkWashStates } from '@nix/ui';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatMoney, formatMoneyRound, formatMonth, shiftMonth } from './money';
 
@@ -95,14 +96,16 @@ export function MonthNav({
   min,
   max,
   onChange,
+  current,
 }: {
   readonly month: string;
   readonly min: string;
   readonly max: string;
   readonly onChange: (month: string) => void;
+  readonly current?: string;
 }): ReactNode {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2" aria-label="Choose a month">
       <Button
         variant="secondary"
         aria-label="Previous month"
@@ -111,11 +114,35 @@ export function MonthNav({
           onChange(shiftMonth(month, -1));
         }}
       >
-        Previous
+        <ChevronLeft size={18} aria-hidden="true" />
       </Button>
-      <Text as="span" variant="body" className="min-w-24 text-center font-medium">
-        {formatMonth(month, 'long')}
-      </Text>
+      <Select
+        aria-label="Month"
+        value={month}
+        onChange={(event) => {
+          onChange(event.target.value);
+        }}
+      >
+        {Array.from(
+          {
+            length: Math.min(
+              120,
+              Math.max(
+                1,
+                (Number(max.slice(0, 4)) - Number(min.slice(0, 4))) * 12 +
+                  Number(max.slice(5)) -
+                  Number(min.slice(5)) +
+                  1,
+              ),
+            ),
+          },
+          (_, index) => shiftMonth(min, index),
+        ).map((option) => (
+          <option key={option} value={option}>
+            {formatMonth(option, 'long')}
+          </option>
+        ))}
+      </Select>
       <Button
         variant="secondary"
         aria-label="Next month"
@@ -124,8 +151,19 @@ export function MonthNav({
           onChange(shiftMonth(month, 1));
         }}
       >
-        Next
+        <ChevronRight size={18} aria-hidden="true" />
       </Button>
+      {current === undefined ? null : (
+        <Button
+          variant="ghost"
+          disabled={month === current}
+          onClick={() => {
+            onChange(current);
+          }}
+        >
+          This month
+        </Button>
+      )}
     </div>
   );
 }

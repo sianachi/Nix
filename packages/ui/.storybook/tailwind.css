@@ -19,6 +19,9 @@
    guides and the table tools; without this line those stories render with Tailwind's reset. */
 @source '../../../apps/web/src/editor';
 @source '../../../apps/web/src/plugins';
+/* Structured-view previews must compile the same utilities as the application. */
+@source '../../../apps/web/src/views';
+@source '../../../apps/web/src/components';
 
 /* The ground: the light technical paper the whole system sits on. */
 body {

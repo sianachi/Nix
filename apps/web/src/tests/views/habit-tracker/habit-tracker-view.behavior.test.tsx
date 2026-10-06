@@ -97,6 +97,11 @@ const mount = (empty = false, suppliedContainer?: ContainerData) =>
     />,
   );
 
+function openWeekDay(day: string): void {
+  fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
+  fireEvent.click(screen.getByRole('button', { name: `Read, ${day}, not completed` }));
+}
+
 describe('habit tracker user flows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -152,11 +157,12 @@ describe('habit tracker user flows', () => {
 
   it('updates a partial quantity and offers independent undo', async () => {
     mount();
+    openWeekDay('2026-03-16');
     const quantity = screen.getByRole('spinbutton', { name: 'Read, 2026-03-16, quantity' });
     expect(quantity).toHaveValue(1);
     fireEvent.change(quantity, { target: { value: '2' } });
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Read, 2026-03-16, not completed' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Save Read, 2026-03-16, quantity' }));
       await Promise.resolve();
     });
     expect(saveCheckIn).toHaveBeenCalledWith('habit-1', '2026-03-16', true, 2);
@@ -170,20 +176,22 @@ describe('habit tracker user flows', () => {
   it('refuses an empty quantity even for a target of one with a custom unit', () => {
     tracker = { ...tracker, target: 1, unit: 'glass', checkIns: [] };
     mount();
+    openWeekDay('2026-03-16');
     expect(screen.getByRole('spinbutton', { name: 'Read, 2026-03-16, quantity' })).toHaveValue(
       null,
     );
-    expect(screen.getByRole('button', { name: 'Read, 2026-03-16, not completed' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save Read, 2026-03-16, quantity' })).toBeDisabled();
   });
 
   it('uses the saved timezone for Today and disables future weekly cells', async () => {
     vi.setSystemTime(new Date('2026-03-18T23:00:00Z'));
     tracker = { ...tracker, timezone: 'Asia/Tokyo', target: 1, unit: 'times' };
     mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
     expect(screen.getByRole('button', { name: 'Read, 2026-03-20, future' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Today' }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Read, 2026-03-19, not completed' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Check in Read, 2026-03-19' }));
       await Promise.resolve();
     });
     expect(saveCheckIn).toHaveBeenCalledWith('habit-1', '2026-03-19', true, null);
@@ -193,9 +201,9 @@ describe('habit tracker user flows', () => {
     tracker = { ...tracker, target: 1, unit: 'times', checkIns: [] };
     saveCheckIn.mockResolvedValue('Permission changed. Reload the habit.');
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Read, 2026-03-18, not completed' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check in Read, 2026-03-18' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Permission changed');
-    expect(screen.getByRole('button', { name: 'Read, 2026-03-18, not completed' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Check in Read, 2026-03-18' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
@@ -211,13 +219,12 @@ describe('habit tracker user flows', () => {
         }),
     );
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Read, 2026-03-18, not completed' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check in Read, 2026-03-18' }));
     // The write has not resolved yet - saveCheckIn's own promise is still pending - but the tap
     // already reads as completed rather than waiting for a round trip.
-    expect(screen.getByRole('button', { name: 'Read, 2026-03-18, completed' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    expect(
+      screen.getByRole('button', { name: 'Done: undo check-in for Read, 2026-03-18' }),
+    ).toHaveAttribute('aria-pressed', 'true');
     await act(async () => {
       resolveSave(null);
       await Promise.resolve();
@@ -235,16 +242,15 @@ describe('habit tracker user flows', () => {
         }),
     );
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Read, 2026-03-18, not completed' }));
-    expect(screen.getByRole('button', { name: 'Read, 2026-03-18, completed' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Check in Read, 2026-03-18' }));
+    expect(
+      screen.getByRole('button', { name: 'Done: undo check-in for Read, 2026-03-18' }),
+    ).toHaveAttribute('aria-pressed', 'true');
     await act(async () => {
       resolveSave('Permission changed. Reload the habit.');
       await Promise.resolve();
     });
-    expect(screen.getByRole('button', { name: 'Read, 2026-03-18, not completed' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Check in Read, 2026-03-18' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
@@ -259,18 +265,18 @@ describe('habit tracker user flows', () => {
     const secondHabit = { ...habit, id: 'habit-2', title: 'Walk' };
     mount(false, aContainer({ children: [habit, secondHabit] }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Read, 2026-03-18, not completed' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Check in Read, 2026-03-18' }));
       await Promise.resolve();
     });
-    // The week window and the month window each refetch the one habit that changed - two calls,
-    // both for habit-1, none for habit-2 - rather than reloading every habit in either window.
-    expect(refetchHabit).toHaveBeenCalledTimes(2);
+    // Today refetches only the habit that changed; Insights loads only when opened.
+    expect(refetchHabit).toHaveBeenCalledTimes(1);
     expect(refetchHabit).toHaveBeenCalledWith('habit-1');
     expect(refetchHabit).not.toHaveBeenCalledWith('habit-2');
   });
 
   it('allows custom weekday selection and navigation to a previous week', () => {
     mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Show week' }));
     fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
     expect(screen.getByText('2026-03-09 to 2026-03-15')).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Add a habit' }));
@@ -346,6 +352,8 @@ describe('habit tracker user flows', () => {
       .mockResolvedValue('Widget settings could not be saved.');
     Object.assign(container, { setViews, views: { views: [view], defaultView: view.id } });
     mount(false, container);
+    fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+    fireEvent.click(screen.getByText('Custom charts'));
     fireEvent.click(screen.getByRole('button', { name: 'Add chart widget' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Widget settings could not be saved',
@@ -397,11 +405,11 @@ describe('habit tracker narrow-screen default', () => {
     expect(screen.getByRole('button', { name: 'Show week' })).toBeVisible();
   });
 
-  it('defaults to the week on a screen wide enough for it', () => {
+  it('defaults to Today on a wide screen as well', () => {
     stubViewport(true);
     mount();
-    expect(screen.getByRole('heading', { name: 'This week' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Today' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Today' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Show week' })).toBeVisible();
   });
 
   it("keeps the person's own choice over the narrow-screen default", () => {

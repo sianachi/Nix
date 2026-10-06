@@ -106,6 +106,15 @@ export interface FinanceTransactionsQuery {
   readonly lineId?: string;
   readonly unassigned?: boolean;
   readonly limit?: number;
+  readonly from?: string;
+  readonly to?: string;
+  readonly search?: string;
+  readonly source?: 'manual' | 'scheduled' | 'import';
+  /** Nonnegative magnitude, for both money in and money out. */
+  readonly minAmount?: number;
+  readonly maxAmount?: number;
+  readonly offset?: number;
+  readonly transactionId?: string;
 }
 
 export interface FinanceImportInput {
@@ -228,6 +237,14 @@ export const listTransactions = (
   if (filter.lineId !== undefined) query.lineId = filter.lineId;
   if (filter.unassigned) query.unassigned = 'true';
   if (filter.limit !== undefined) query.limit = String(filter.limit);
+  if (filter.from !== undefined) query.from = filter.from;
+  if (filter.to !== undefined) query.to = filter.to;
+  if (filter.search !== undefined) query.search = filter.search;
+  if (filter.source !== undefined) query.source = filter.source;
+  if (filter.minAmount !== undefined) query.minAmount = String(filter.minAmount);
+  if (filter.maxAmount !== undefined) query.maxAmount = String(filter.maxAmount);
+  if (filter.offset !== undefined) query.offset = String(filter.offset);
+  if (filter.transactionId !== undefined) query.transactionId = filter.transactionId;
   return defineQuery({
     operation: 'finance.transactions',
     path: `${root(itemId)}/transactions`,
@@ -240,6 +257,14 @@ export const listTransactions = (
       filter.lineId ?? '',
       filter.unassigned ? 'unassigned' : '',
       String(filter.limit ?? ''),
+      filter.from ?? '',
+      filter.to ?? '',
+      filter.search ?? '',
+      filter.source ?? '',
+      String(filter.minAmount ?? ''),
+      String(filter.maxAmount ?? ''),
+      String(filter.offset ?? ''),
+      filter.transactionId ?? '',
     ],
     schema: financeTransactionsSchema,
   });
