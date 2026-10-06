@@ -16,7 +16,6 @@ import { files as fileResources, isNixApiError } from '@nix/api-client';
 import {
   ChevronDown,
   ChevronRight,
-  Check,
   Columns2,
   ExternalLink,
   FilePlus,
@@ -31,7 +30,6 @@ import {
   Shield,
   ShieldOff,
   Trash2,
-  Mic,
   Upload,
   type LucideIcon,
 } from 'lucide-react';
@@ -49,7 +47,7 @@ import { useWorkspace } from '../workspaces/workspace-context';
 import { BookmarkButton } from '../bookmarks/bookmark-button';
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { OPEN_BESIDE_REFUSAL_COPY, type OpenBesideRefusal } from '../tabs/use-open-item';
-import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
+import type { StructuredRecipeId } from '../views/wizard/structured-recipes';
 import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
 import { publishNotice } from '../lib/notices';
@@ -58,6 +56,7 @@ import { useAutomateEntry } from '../automations/automate-entry';
 import { useMuteRemindersEntry } from '../settings/mute-reminders-entry';
 import { bookmarkEntry, copyLinkEntry } from './item-menu-entries';
 import { useHiddenItems } from './use-hidden-items';
+import { NewItemDialog, type NewItemDialogMode } from './new-item-dialog';
 import { HiddenItemsPanel } from './hidden-items-panel';
 import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
@@ -130,8 +129,6 @@ export interface WorkspaceSidebarProps {
   readonly templateStatus?: TemplateLibraryStatus;
   readonly onStartTemplate?: (parentId: string | null, templateId: string) => void;
   readonly onBrowseTemplates?: (parentId: string | null) => void;
-  /** Opens the recorder's setup. Absent where recording is not on offer. */
-  readonly onRecord?: (() => void) | undefined;
 }
 
 export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
@@ -253,7 +250,6 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           onBrowseTemplates={(parentId) => {
             props.onBrowseTemplates?.(parentId);
           }}
-          onRecord={props.onRecord}
           onUpload={(parentId) => {
             uploadParentRef.current = parentId;
             uploadInputRef.current?.click();
@@ -319,20 +315,28 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
 }
 
 /**
- * The kinds of item the menu offers, which is to say the body kinds this client can draw.
+ * The New menu's six entries: the three body kinds this client can draw, upload, and one entry
+ * each for structured items and templates. Every entry opens `NewItemDialog`, which asks where the
+ * item goes (and, for a plain item, its title) before anything is made.
  *
- * `item.type` is an open string on the server - there is one kind of item, and the type only
- * says how its body renders - so this list is the client's vocabulary, not the schema's.
+ * `item.type` is an open string on the server - there is one kind of item, and the type only says
+ * how its body renders - so the kinds here are the client's vocabulary, not the schema's.
+ *
+ * Recording a meeting is not in this menu; it is in the command palette, beside the other actions
+ * that are not "make an item here".
  */
-const CREATABLE_KINDS: readonly {
-  readonly type: string;
+const MENU_ENTRIES: readonly {
+  readonly key: string;
   readonly label: string;
-  readonly title: string;
   readonly icon: LucideIcon;
+  readonly mode: NewItemDialogMode;
 }[] = [
-  { type: 'note', label: 'Note', title: 'Untitled note', icon: FilePlus },
-  { type: 'canvas', label: 'Canvas', title: 'Untitled canvas', icon: Shapes },
-  { type: 'spreadsheet', label: 'Sheet', title: 'Untitled spreadsheet', icon: Grid3x3 },
+  { key: 'note', label: 'Note…', icon: FilePlus, mode: { kind: 'item', type: 'note' } },
+  { key: 'canvas', label: 'Canvas…', icon: Shapes, mode: { kind: 'item', type: 'canvas' } },
+  { key: 'sheet', label: 'Sheet…', icon: Grid3x3, mode: { kind: 'item', type: 'spreadsheet' } },
+  { key: 'upload', label: 'Upload files…', icon: Upload, mode: { kind: 'upload' } },
+  { key: 'structured', label: 'Structured…', icon: Columns2, mode: { kind: 'structured' } },
+  { key: 'template', label: 'From a template…', icon: LayoutTemplate, mode: { kind: 'template' } },
 ];
 
 interface CreateMenuProps {
@@ -345,231 +349,63 @@ interface CreateMenuProps {
   readonly onStartTemplate: (parentId: string | null, templateId: string) => void;
   readonly onBrowseTemplates: (parentId: string | null) => void;
   readonly onUpload: (parentId: string | null) => void;
-  readonly onRecord: (() => void) | undefined;
 }
 
 /**
- * One "New" control opening a menu of kinds, rather than a button per kind.
+ * One "New" control opening a short menu, each entry of which opens a dialog.
  *
- * Three buttons in the header left the tree's title about a third of the row, and every kind
- * added would take another bite. A menu spends one control's width however many kinds exist.
- *
- * Built on `<Menu>` for its disclosure mechanics - open state, outside-click and Escape dismissal
- * (with the same stop-propagation-at-the-innermost-layer rule `sidebar-drawer.tsx` and
- * `ProfileMenu` rely on), viewport-clamped placement, the phone bottom sheet, 44px touch targets -
- * rather than this component's own copy of all of it. `<Menu>` has no checkbox item kind, so the
- * destination toggle travels in as a `content` entry, exactly the way the profile menu's appearance
- * switcher does: it is a settings widget, not a command, so it sits outside the arrow-key roving
- * order on purpose and is reached by Tab like any other control embedded in a menu. The static
- * "Workspace root" label is a `content` entry for the same reason. Every real command (a body kind,
- * upload, a structured recipe, a template, browse-all) stays a `MenuAction`, which is what keeps
- * ArrowDown/Up/Home/End working across them. `MenuAction` carries one `label` used as both the
- * visible text and the accessible name, so the destination-qualified phrasing that used to live in
- * a separate `aria-label` ("New note inside Engineering") is now the item's own on-screen label. A
- * per-item `title` tooltip (a recipe's detail, a template's description) has no `MenuAction`
- * equivalent and is dropped rather than faked through a `content` entry, which would pull that item
- * out of the roving order too. The panel's own literal `w-[180px]` is dropped along with it - the
- * exact pixel width `<Menu>`'s own doc comment names as the thing it exists to stop every call site
- * re-deriving, and that used to run this panel off a narrow phone screen before falling back to the
- * bottom sheet fixed that.
+ * Built on `<Menu>` for its disclosure mechanics - open state, outside-click and Escape dismissal,
+ * viewport-clamped placement, the phone bottom sheet, 44px touch targets, arrow-key roving. The
+ * dialog is a sibling rather than a child of the menu, so closing the menu on selection does not
+ * unmount the dialog it just opened.
  */
-function CreateMenu({
-  childDestination,
-  disabled,
-  onCreate,
-  onStartStructured,
-  templates,
-  templateStatus,
-  onStartTemplate,
-  onBrowseTemplates,
-  onUpload,
-  onRecord,
-}: CreateMenuProps): ReactNode {
-  const [insideSelected, setInsideSelected] = useState(false);
+function CreateMenu({ childDestination, disabled, ...actions }: CreateMenuProps): ReactNode {
+  const [mode, setMode] = useState<NewItemDialogMode | null>(null);
 
-  const destination = insideSelected && childDestination !== null ? childDestination : null;
-  const destinationSuffix =
-    destination === null ? ' in the workspace' : ` inside ${destination.name}`;
-
-  const items: MenuEntry[] = [
-    childDestination === null
-      ? {
-          kind: 'content',
-          key: 'destination',
-          content: (
-            <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-              Workspace root
-            </span>
-          ),
-        }
-      : {
-          kind: 'content',
-          key: 'destination',
-          content: (
-            <button
-              type="button"
-              role="menuitemcheckbox"
-              aria-checked={insideSelected}
-              onClick={() => {
-                setInsideSelected((selected) => !selected);
-              }}
-              className={`flex w-full items-center gap-2 px-3 py-2 text-left text-base hover:bg-accent/10 ${focusRing}`}
-            >
-              <span
-                aria-hidden="true"
-                className="flex size-4 shrink-0 items-center justify-center border border-divider bg-background"
-              >
-                {insideSelected ? <Icon icon={Check} size="sm" /> : null}
-              </span>
-              <span className="min-w-0 truncate">Create inside {childDestination.name}</span>
-            </button>
-          ),
-        },
-    { kind: 'separator' },
-    {
-      kind: 'content',
-      key: 'create-label',
-      content: (
-        <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-          Create
-        </span>
-      ),
+  const items: MenuEntry[] = MENU_ENTRIES.map((entry): MenuEntry => ({
+    kind: 'action',
+    key: entry.key,
+    icon: entry.icon,
+    label: entry.label,
+    onSelect: () => {
+      setMode(entry.mode);
     },
-    ...CREATABLE_KINDS.map((kind): MenuEntry => ({
-      kind: 'action',
-      key: kind.type,
-      icon: kind.icon,
-      label: `New ${kind.type}${destinationSuffix}`,
-      onSelect: () => {
-        onCreate(destination?.id ?? null, kind.title, kind.type);
-      },
-    })),
-    {
-      kind: 'action',
-      key: 'upload',
-      icon: Upload,
-      label: 'Upload files',
-      onSelect: () => {
-        onUpload(destination?.id ?? null);
-      },
-    },
-    // Always at the top of the workspace, whatever the destination above says: a meeting is
-    // filed afterwards, once there is something to file. The label says so, because every
-    // entry beside it obeys the destination.
-    ...(onRecord === undefined
-      ? []
-      : [
-          {
-            kind: 'action',
-            key: 'record',
-            icon: Mic,
-            label: 'Record a meeting (saved at the top of the workspace)',
-            onSelect: onRecord,
-          } satisfies MenuEntry,
-        ]),
-    { kind: 'separator' },
-    {
-      kind: 'content',
-      key: 'structured-label',
-      content: (
-        <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-          Structured
-        </span>
-      ),
-    },
-    ...STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured').map(
-      (recipe): MenuEntry => ({
-        kind: 'action',
-        key: recipe.id,
-        icon: LayoutTemplate,
-        label: `New ${recipe.label}${destinationSuffix}`,
-        onSelect: () => {
-          onStartStructured(destination?.id ?? null, recipe.id);
-        },
-      }),
-    ),
-    { kind: 'separator' },
-    {
-      kind: 'content',
-      key: 'templates-label',
-      content: (
-        <span role="presentation" className={cn('block px-3 pb-1 pt-2', fieldLabel)}>
-          Templates
-        </span>
-      ),
-    },
-    ...templates.slice(0, 3).map((template): MenuEntry => ({
-      kind: 'action',
-      key: template.id,
-      icon: LayoutTemplate,
-      label: `New ${template.title}${destinationSuffix}`,
-      onSelect: () => {
-        onStartTemplate(destination?.id ?? null, template.id);
-      },
-    })),
-    ...(templateStatus === 'loading' && templates.length === 0
-      ? [
-          {
-            kind: 'content' as const,
-            key: 'templates-loading',
-            content: (
-              <Text variant="caption" tone="muted" className="block px-3 py-2">
-                Loading templates…
-              </Text>
-            ),
-          },
-        ]
-      : []),
-    ...(templateStatus === 'error' && templates.length === 0
-      ? [
-          {
-            kind: 'content' as const,
-            key: 'templates-error',
-            content: (
-              <Text variant="caption" tone="muted" className="block px-3 py-2">
-                Templates are unavailable.
-              </Text>
-            ),
-          },
-        ]
-      : []),
-    {
-      kind: 'action',
-      key: 'browse-templates',
-      icon: LayoutTemplate,
-      label: 'Browse all templates',
-      onSelect: () => {
-        onBrowseTemplates(destination?.id ?? null);
-      },
-    },
-  ];
+  }));
 
   return (
-    <Menu label="New item" items={items}>
-      {(trigger) => (
-        <Button
-          {...trigger}
-          variant="ghost"
-          className="ml-auto px-1.5 py-1 text-xs"
-          aria-label="New item in the workspace"
-          onClick={() => {
-            // Root is the safe default every time the menu opens. A previous contextual creation
-            // must not quietly turn the next global New action into another child creation.
-            setInsideSelected(false);
-            trigger.onClick();
+    <>
+      <Menu label="New item" items={items}>
+        {(trigger) => (
+          <Button
+            {...trigger}
+            variant="ghost"
+            className="ml-auto px-1.5 py-1 text-xs"
+            aria-label="New item in the workspace"
+            disabled={disabled}
+          >
+            <Icon icon={Plus} size="sm" />
+            New
+            <Icon icon={ChevronDown} size="sm" />
+          </Button>
+        )}
+      </Menu>
+      {mode === null ? null : (
+        <NewItemDialog
+          mode={mode}
+          childDestination={childDestination}
+          templates={actions.templates}
+          templateStatus={actions.templateStatus}
+          onClose={() => {
+            setMode(null);
           }}
-          onKeyDown={(event) => {
-            setInsideSelected(false);
-            trigger.onKeyDown(event);
-          }}
-          disabled={disabled}
-        >
-          <Icon icon={Plus} size="sm" />
-          New
-          <Icon icon={ChevronDown} size="sm" />
-        </Button>
+          onCreate={actions.onCreate}
+          onUpload={actions.onUpload}
+          onStartStructured={actions.onStartStructured}
+          onStartTemplate={actions.onStartTemplate}
+          onBrowseTemplates={actions.onBrowseTemplates}
+        />
       )}
-    </Menu>
+    </>
   );
 }
 

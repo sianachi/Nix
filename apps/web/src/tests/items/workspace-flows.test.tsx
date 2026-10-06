@@ -44,7 +44,9 @@ describe('creating an item', () => {
 
     expect(screen.getByRole('button', { name: /new item in the workspace/i })).toBeVisible();
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(await screen.findByRole('menuitem', { name: /new note in the workspace/i }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Note…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New note' });
+    expect(within(dialog).queryByRole('group', { name: 'Where' })).not.toBeInTheDocument();
   });
 
   it('offers an explicit way to put it inside the item you are looking at', async () => {
@@ -54,18 +56,22 @@ describe('creating an item', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
 
-    await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-
-    // Root is the stable default. One checkbox changes the destination of the existing actions;
-    // it does not repeat the complete list of body kinds underneath a second heading.
-    const inside = screen.getByRole('menuitemcheckbox', { name: /create inside engineering/i });
-    expect(inside).not.toBeChecked();
-    const rootActionCount = screen.getAllByRole('menuitem').length;
-
-    await user.click(inside);
-    expect(screen.getAllByRole('menuitem')).toHaveLength(rootActionCount);
-    expect(screen.getByRole('menuitem', { name: /new note inside engineering/i })).toBeVisible();
-    expect(screen.getByRole('menuitem', { name: /new kanban inside engineering/i })).toBeVisible();
+    // Root is the stable default; one choice in the dialog moves the destination, for every kind.
+    for (const [entry, title] of [
+      ['Note…', 'New note'],
+      ['Structured…', 'New structured item'],
+      ['From a template…', 'New from a template'],
+    ] as const) {
+      await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
+      await user.click(await screen.findByRole('menuitem', { name: entry }));
+      const dialog = await screen.findByRole('dialog', { name: title });
+      const where = within(dialog).getByRole('group', { name: 'Where' });
+      expect(within(where).getByRole('button', { name: 'Inside Engineering' })).toBeVisible();
+      await user.click(within(dialog).getByRole('button', { name: 'Close' }));
+      await waitFor(() => {
+        expect(dialog).not.toBeInTheDocument();
+      });
+    }
   });
 
   it('puts it inside a nested item too, rather than beside it', async () => {
@@ -78,8 +84,9 @@ describe('creating an item', () => {
     });
 
     await user.click(screen.getByRole('button', { name: /new item in the workspace/i }));
-    await user.click(screen.getByRole('menuitemcheckbox', { name: /create inside roadmap/i }));
-    expect(screen.getByRole('menuitem', { name: /new note inside roadmap/i })).toBeVisible();
+    await user.click(await screen.findByRole('menuitem', { name: 'Note…' }));
+    const dialog = await screen.findByRole('dialog', { name: 'New note' });
+    expect(within(dialog).getByRole('button', { name: 'Inside Roadmap' })).toBeVisible();
   });
 });
 
