@@ -403,20 +403,32 @@ function describeEditorWith(element: HTMLElement, id: string, enabled: boolean):
   }
 }
 
+/** Frames to wait for a closing modal to unmount, about two seconds at 60Hz. */
+const DIALOG_CLOSE_FRAMES = 120;
+
 function focusAfterDialog(editor: Editor): void {
-  // A modal makes the editor inert. Wait until React has removed it and Dialog has
-  // restored the invoker before focusing the editor, or the browser may refuse focus
-  // and leave the caret stranded on the toolbar button.
-  requestAnimationFrame(() => {
-    // Dialog restores its invoker in an effect cleanup after the unmount paints. The
-    // second frame runs after that cleanup, so editor focus is the final focus rather
-    // than being overwritten by the modal's return-to-invoker guarantee.
+  // A modal makes the editor inert, and Dialog hands focus back to its invoker - the toolbar
+  // button - in the cleanup that runs when React unmounts it. Editor focus has to come after that,
+  // or the caret is left stranded on the button. A fixed two frames used to stand in for "after":
+  // on a loaded machine React can commit the close later than that, the invoker then wins, and the
+  // editor never gets focus. So wait until no modal is open, then focus on the frame after - the
+  // unmount and its cleanup happen in one commit, so that frame is after the hand-back. The wait is
+  // bounded so an unrelated modal left open cannot keep this looping.
+  let frames = 0;
+  const attempt = (): void => {
+    if (editor.isDestroyed) return;
+    if (document.querySelector('dialog[open]') !== null && frames < DIALOG_CLOSE_FRAMES) {
+      frames += 1;
+      requestAnimationFrame(attempt);
+      return;
+    }
     requestAnimationFrame(() => {
       if (!editor.isDestroyed) {
         editor.view.focus();
       }
     });
-  });
+  };
+  requestAnimationFrame(attempt);
 }
 
 export function NoteEditor({
