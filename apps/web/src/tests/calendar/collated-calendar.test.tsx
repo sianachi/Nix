@@ -240,7 +240,7 @@ describe('rescheduling a month cell by tap rather than by drag', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reschedule Filing deadline' }));
 
     const dialog = screen.getByRole('dialog', { name: 'Reschedule Filing deadline' });
-    expect(within(dialog).getByLabelText('New date for Filing deadline')).toHaveValue('2026-03-12');
+    expect(within(dialog).getByLabelText('New date')).toHaveValue('2026-03-12');
 
     // No "Remove date": this calendar has no unscheduled list for that write to be the
     // counterpart of, and offering it anyway would be a control that silently did nothing.
@@ -252,7 +252,7 @@ describe('rescheduling a month cell by tap rather than by drag', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Reschedule Filing deadline' }));
 
-    const field = screen.getByLabelText('New date for Filing deadline');
+    const field = screen.getByLabelText('New date');
     await userEvent.clear(field);
     await userEvent.type(field, '2026-03-20');
     await userEvent.click(screen.getByRole('button', { name: 'Move' }));
@@ -269,10 +269,7 @@ describe('rescheduling a month cell by tap rather than by drag', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
 
-    expect(screen.getByLabelText('New date and time for Standup')).toHaveAttribute(
-      'type',
-      'datetime-local',
-    );
+    expect(screen.getByLabelText('New date and time')).toHaveAttribute('type', 'datetime-local');
   });
 
   it('closes on cancel and reschedules nothing', async () => {

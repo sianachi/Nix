@@ -7,6 +7,7 @@ export function useMobileKeyboard(enabled: boolean): boolean {
     if (!enabled) return;
     const viewport = window.visualViewport;
     let baseline = window.innerHeight;
+    let baselineWidth = window.innerWidth;
     let frame = 0;
     const measure = (): void => {
       cancelAnimationFrame(frame);
@@ -16,15 +17,21 @@ export function useMobileKeyboard(enabled: boolean): boolean {
           active instanceof HTMLElement &&
           (active.isContentEditable ||
             active.matches('input:not([type=checkbox]):not([type=radio]), textarea'));
-        if (!editing) baseline = window.innerHeight;
-        const height = viewport?.height ?? window.innerHeight;
-        const zoomed = (viewport?.scale ?? 1) !== 1;
-        setVisible(editing && !zoomed && baseline - height > 120);
+        // Rotation changes the layout width; its shorter height is not keyboard occlusion.
+        if (!editing || window.innerWidth !== baselineWidth) {
+          baseline = window.innerHeight;
+          baselineWidth = window.innerWidth;
+        }
+        // Scale removes the height lost to pinch or focus zoom. Any remaining loss can be
+        // the keyboard even while zoomed, so zoom must not force the navigation back on screen.
+        const height = viewport ? viewport.height * viewport.scale : window.innerHeight;
+        setVisible(editing && baseline - height > 120);
       });
     };
     document.addEventListener('focusin', measure);
     document.addEventListener('focusout', measure);
     viewport?.addEventListener('resize', measure);
+    viewport?.addEventListener('scroll', measure);
     window.addEventListener('resize', measure);
     measure();
     return () => {
@@ -32,6 +39,7 @@ export function useMobileKeyboard(enabled: boolean): boolean {
       document.removeEventListener('focusin', measure);
       document.removeEventListener('focusout', measure);
       viewport?.removeEventListener('resize', measure);
+      viewport?.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
     };
   }, [enabled]);

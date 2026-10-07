@@ -21,6 +21,21 @@ beforeEach(() => {
   signedIn();
   stubViewport(false);
 });
+it('returns focus to the workspace control after importing from the mobile drawer', async () => {
+  const user = userEvent.setup();
+  stubCoreApi({ items: [root] });
+  renderAt(<App />, `/?item=${root.id}`);
+  await screen.findByRole('textbox', { name: 'Note title' });
+  const workspace = screen.getByRole('button', { name: 'Show the workspace tree' });
+  await user.click(workspace);
+  await user.click(screen.getByRole('button', { name: /^Notes$/ }));
+  await user.click(screen.getByRole('menuitem', { name: 'Import' }));
+  const dialog = await screen.findByRole('dialog', { name: /^Import$/ });
+  await user.click(within(dialog).getByRole('button', { name: /^Close$/ }));
+  await waitFor(() => {
+    expect(workspace).toHaveFocus();
+  });
+});
 it('opens list items as pages, and the parent button returns to the parent', async () => {
   stubCoreApi({
     items: [root, child],
@@ -87,6 +102,24 @@ it('provides one-level browsing, without the desktop tree and its actions', asyn
   expect(screen.queryByRole('tree', { name: 'Items' })).not.toBeInTheDocument();
 });
 
+it('keeps Hide behind item actions and provides an explicit close control', async () => {
+  const user = userEvent.setup();
+  stubCoreApi({ items: [root, child] });
+  renderAt(<App />, `/?item=${root.id}`);
+  await screen.findByRole('textbox', { name: 'Note title' });
+  await user.click(screen.getByRole('button', { name: 'Workspace' }));
+  const browser = screen.getByRole('complementary', { name: 'Workspace' });
+  expect(within(browser).queryByRole('button', { name: /Hide/ })).not.toBeInTheDocument();
+  await user.click(within(browser).getByRole('button', { name: 'Actions for Project' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Hide for me' }));
+  expect(within(browser).queryByRole('button', { name: 'Project' })).not.toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(within(browser).getByRole('button', { name: 'Project' })).toBeVisible();
+  await user.click(within(browser).getByRole('button', { name: 'Close workspace' }));
+  expect(screen.queryByRole('complementary', { name: 'Workspace' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Show the workspace tree' })).toHaveFocus();
+});
+
 it('retains the capture title and reports a refused create without navigating', async () => {
   stubCoreApi({ items: [root], createRefusal: 'You cannot create here.' });
   renderAt(<App />, `/?item=${root.id}`);
@@ -151,11 +184,16 @@ it("keeps a note's details and item actions in its writing dock, not under the t
   await screen.findByRole('textbox', { name: 'Note title' });
 
   expect(screen.queryByRole('navigation', { name: 'Item sections' })).not.toBeInTheDocument();
-  const details = await screen.findByRole('button', { name: 'Details' });
+  expect(screen.queryByRole('button', { name: 'Details' })).not.toBeInTheDocument();
+  const item = await screen.findByRole('button', { name: 'Item' });
+  await userEvent.click(item);
+  const details = screen.getByRole('button', { name: 'Details' });
   expect(details).toHaveAttribute('aria-expanded', 'false');
   await userEvent.click(details);
-  expect(details).toHaveAttribute('aria-expanded', 'true');
-  expect(screen.getByRole('button', { name: 'Item' })).toBeInTheDocument();
+  expect(screen.queryByRole('dialog', { name: 'Item actions' })).not.toBeInTheDocument();
+  const dialog = screen.getByRole('dialog', { name: 'Item details' });
+  await userEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+  expect(item).toHaveFocus();
 });
 
 it("puts an item's details and actions in its views strip, beside Body, with no row of their own", async () => {

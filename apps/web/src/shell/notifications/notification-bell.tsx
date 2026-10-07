@@ -23,7 +23,7 @@ export const NotificationBell = forwardRef<HTMLButtonElement, NotificationBellPr
         onClick={onClick}
         aria-haspopup="dialog"
         aria-label={hasUnread ? `Notifications, ${String(unread)} unread` : 'Notifications'}
-        className={`relative flex size-(--control-sm) shrink-0 items-center justify-center rounded-md text-muted max-sm:min-h-11 max-sm:min-w-11 hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+        className={`relative flex size-(--control-sm) shrink-0 items-center justify-center rounded-md text-muted max-sm:min-h-(--control-lg) max-sm:min-w-(--control-lg) hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
       >
         <Icon icon={Bell} size="sm" />
         {hasUnread ? (

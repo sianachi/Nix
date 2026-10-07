@@ -209,9 +209,27 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
       onClose={dismiss}
       closeLabel={minted === null ? 'Close without creating a token' : 'Close'}
       initialFocus={nameFieldRef}
+      dirty={
+        minted === null &&
+        (name.length > 0 || scopes.size > 0 || expiry !== null || customDays.length > 0)
+      }
+      actions={
+        minted === null ? (
+          <>
+            <Button variant="secondary" onClick={dismiss}>
+              Cancel
+            </Button>
+            {/* The footer stays in the dialog's fixed action area while the longer form scrolls. */}
+            <Button form="access-token-create-form" type="submit" disabled={submitting}>
+              {submitting ? 'Creating the token' : 'Create the token'}
+            </Button>
+          </>
+        ) : null
+      }
     >
       {minted === null ? (
         <form
+          id="access-token-create-form"
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -342,18 +360,6 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
               </Text>
             )}
           </fieldset>
-
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Button variant="secondary" onClick={dismiss}>
-              Cancel
-            </Button>
-            {/* "Create the token", not "Create token": the section's own opener already carries
-                that name, and two buttons with one name is a coin toss for anybody driving the
-                screen by voice or by accessible query. */}
-            <Button type="submit" disabled={submitting}>
-              {submitting ? 'Creating the token' : 'Create the token'}
-            </Button>
-          </div>
         </form>
       ) : (
         <SecretSurface minted={minted} copyState={copyState} onCopy={copySecret} onDone={dismiss} />

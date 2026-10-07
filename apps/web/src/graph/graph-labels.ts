@@ -32,9 +32,24 @@ interface Box {
   readonly bottom: number;
 }
 
-function labelBox(node: PositionedNode): Box {
-  const left = node.x + node.radius * 2;
+export interface LabelPlacement {
+  readonly x: number;
+  readonly textAnchor: 'start' | 'end';
+}
+
+/** Place labels away from the graph's outer edge, where the SVG would otherwise clip them. */
+export function labelPlacement(node: PositionedNode, centreX: number): LabelPlacement {
+  const onRight = node.x > centreX;
+  return {
+    x: node.x + (onRight ? -node.radius * 2 : node.radius * 2),
+    textAnchor: onRight ? 'end' : 'start',
+  };
+}
+
+function labelBox(node: PositionedNode, centreX: number): Box {
+  const placement = labelPlacement(node, centreX);
   const width = Math.min(nodeTitle(node).length, MEASURED_CHARACTERS) * CHARACTER_WIDTH;
+  const left = placement.textAnchor === 'end' ? placement.x - width : placement.x;
   return {
     left,
     right: left + width,
@@ -48,6 +63,13 @@ function overlaps(a: Box, b: Box): boolean {
 }
 
 export function pickLabels(nodes: readonly PositionedNode[]): ReadonlySet<string> {
+  if (nodes.length === 0) {
+    return new Set();
+  }
+
+  const minX = Math.min(...nodes.map((node) => node.x));
+  const maxX = Math.max(...nodes.map((node) => node.x));
+  const centreX = (minX + maxX) / 2;
   const ordered = [...nodes].sort(
     (a, b) =>
       Number(a.depth !== 0) - Number(b.depth !== 0) ||
@@ -60,7 +82,7 @@ export function pickLabels(nodes: readonly PositionedNode[]): ReadonlySet<string
   const chosen = new Set<string>();
 
   for (const node of ordered) {
-    const box = labelBox(node);
+    const box = labelBox(node, centreX);
     const cells: string[] = [];
     let free = true;
 

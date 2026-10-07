@@ -60,29 +60,34 @@ describe('the token list', () => {
     await renderTokens();
 
     // Every token has a row, dead or not: the list is an audit.
-    expect(await screen.findByText('ci deploy')).toBeInTheDocument();
-    expect(screen.getByText('old laptop')).toBeInTheDocument();
-    expect(screen.getByText('stale script')).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: /your personal access tokens/i });
+    expect(within(table).getByText('ci deploy')).toBeInTheDocument();
+    expect(within(table).getByText('old laptop')).toBeInTheDocument();
+    expect(within(table).getByText('stale script')).toBeInTheDocument();
 
-    expect(screen.getByText('Live')).toBeInTheDocument();
-    expect(screen.getByText(/revoked 2026-06-01/i)).toBeInTheDocument();
-    expect(screen.getByText(/expired 2016-02-01/i)).toBeInTheDocument();
+    expect(within(table).getByText('Live')).toBeInTheDocument();
+    expect(within(table).getByText(/revoked 2026-06-01/i)).toBeInTheDocument();
+    expect(within(table).getByText(/expired 2016-02-01/i)).toBeInTheDocument();
+
+    const mobileList = screen.getByRole('list', { name: /your personal access tokens/i });
+    expect(within(mobileList).getByText('ci deploy')).toBeInTheDocument();
+    expect(within(mobileList).getByText('old laptop')).toBeInTheDocument();
   });
 
   it('says "never" for a token that has not been used, rather than leaving the cell blank', async () => {
     stubCoreApi({ accessTokens: [liveToken] });
     await renderTokens();
 
-    await screen.findByText('ci deploy');
-    expect(screen.getByText('never')).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: /your personal access tokens/i });
+    expect(within(table).getByText('never')).toBeInTheDocument();
   });
 
   it('offers Revoke only on live tokens - a dead token has nothing left to end', async () => {
     stubCoreApi({ accessTokens: [liveToken, revokedToken, expiredToken] });
     await renderTokens();
 
-    await screen.findByText('ci deploy');
-    expect(screen.getByRole('button', { name: 'Revoke ci deploy' })).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: /your personal access tokens/i });
+    expect(within(table).getByRole('button', { name: 'Revoke ci deploy' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revoke old laptop' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Revoke stale script' })).not.toBeInTheDocument();
   });
@@ -115,7 +120,8 @@ describe('creating a token', () => {
 
     // The secret is gone for good, and the refreshed list now carries the new token's metadata.
     expect(screen.queryByText(/stub-secret-/)).not.toBeInTheDocument();
-    expect(await screen.findByText('ci robot')).toBeInTheDocument();
+    const table = await screen.findByRole('table', { name: /your personal access tokens/i });
+    expect(within(table).getByText('ci robot')).toBeInTheDocument();
   });
 
   it('refuses to submit until an expiry is chosen - a default lifetime is a decision the person never made', async () => {
@@ -131,6 +137,20 @@ describe('creating a token', () => {
 
     expect(await screen.findByText(/choose how long the token lives/i)).toBeInTheDocument();
     expect(screen.queryByText(/stub-secret-/)).not.toBeInTheDocument();
+  });
+
+  it('asks before discarding a changed form through the dialog close control', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ accessTokens: [] });
+    await renderTokens();
+
+    await user.click(await screen.findByRole('button', { name: 'Create token' }));
+    await user.type(screen.getByRole('textbox', { name: /^name$/i }), 'mobile deploy');
+    await user.click(screen.getByRole('button', { name: 'Close without creating a token' }));
+
+    expect(await screen.findByText('Discard what you typed?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole('textbox', { name: /^name$/i })).toHaveValue('mobile deploy');
   });
 
   it("renders the 409 limit refusal honestly, in the server's own words", async () => {
@@ -182,8 +202,8 @@ describe('revoking a token', () => {
     stubCoreApi({ accessTokens: [liveToken] });
     await renderTokens();
 
-    await screen.findByText('ci deploy');
-    await user.click(screen.getByRole('button', { name: 'Revoke ci deploy' }));
+    const table = await screen.findByRole('table', { name: /your personal access tokens/i });
+    await user.click(within(table).getByRole('button', { name: 'Revoke ci deploy' }));
 
     // The confirmation names what is about to happen before anything does.
     expect(screen.getByRole('heading', { name: 'Revoke ci deploy?' })).toBeInTheDocument();
@@ -192,9 +212,11 @@ describe('revoking a token', () => {
     await user.click(screen.getByRole('button', { name: 'Revoke token' }));
 
     // The row survives revocation - it turns into audit history rather than disappearing.
-    expect(await screen.findByText(/revoked \d{4}-\d{2}-\d{2}/i)).toBeInTheDocument();
-    expect(screen.getByText('ci deploy')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Revoke ci deploy' })).not.toBeInTheDocument();
+    expect(within(table).getByText(/revoked \d{4}-\d{2}-\d{2}/i)).toBeInTheDocument();
+    expect(within(table).getByText('ci deploy')).toBeInTheDocument();
+    expect(
+      within(table).queryByRole('button', { name: 'Revoke ci deploy' }),
+    ).not.toBeInTheDocument();
 
     // The wire call was the idempotent DELETE on this token's own address.
     const calls = (globalThis.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls;
@@ -214,13 +236,13 @@ describe('revoking a token', () => {
     stubCoreApi({ accessTokens: [liveToken] });
     await renderTokens();
 
-    await screen.findByText('ci deploy');
-    await user.click(screen.getByRole('button', { name: 'Revoke ci deploy' }));
+    const table = await screen.findByRole('table', { name: /your personal access tokens/i });
+    await user.click(within(table).getByRole('button', { name: 'Revoke ci deploy' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     // Still live, still revocable: nothing was sent.
-    expect(screen.getByText('Live')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Revoke ci deploy' })).toBeInTheDocument();
+    expect(within(table).getByText('Live')).toBeInTheDocument();
+    expect(within(table).getByRole('button', { name: 'Revoke ci deploy' })).toBeInTheDocument();
   });
 });
 
@@ -238,8 +260,7 @@ describe("the token list's own states", () => {
     stubCoreApi({ accessTokens: [] });
     await renderTokens();
 
-    const empty = await screen.findByText(/you have no access tokens/i);
-    expect(empty).toBeInTheDocument();
+    expect(await screen.findAllByText(/you have no access tokens/i)).toHaveLength(2);
   });
 });
 
@@ -248,7 +269,7 @@ describe('the tokens table shape', () => {
     stubCoreApi({ accessTokens: [liveToken] });
     await renderTokens();
 
-    await screen.findByText('ci deploy');
+    await screen.findByRole('table', { name: /your personal access tokens/i });
     const table = screen.getByRole('table', { name: /your personal access tokens/i });
     for (const header of ['Name', 'Scopes', 'Created', 'Expires', 'Last used', 'Status']) {
       expect(within(table).getByRole('columnheader', { name: header })).toBeInTheDocument();

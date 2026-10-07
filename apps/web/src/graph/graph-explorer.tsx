@@ -1,6 +1,6 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
 import { Button, Input, Text } from '@nix/ui';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNarrowViewport } from '../layout/viewport';
 import { useHiddenItems } from '../items/use-hidden-items';
 import { GraphView } from './graph-view';
@@ -67,6 +67,12 @@ export function GraphExplorer({
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(50);
   const [reveal, setReveal] = useState<{ id: string; token: number } | null>(null);
+  const spatialRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (reveal !== null) {
+      spatialRef.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [reveal]);
   // The graph can contain 2,000 nodes and 4,000 edges. Index only when server data changes,
   // not on each search keystroke or disclosure toggle.
   const connections = useMemo(() => graphConnections(nodes, links), [nodes, links]);
@@ -81,8 +87,8 @@ export function GraphExplorer({
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {nodes.length < allNodes.length ? (
-        <Text variant="note" role="status">
-          Some items are hidden for you. Open Hidden items to show them again.
+        <Text variant="caption" tone="muted" role="status">
+          {String(allNodes.length - nodes.length)} hidden
         </Text>
       ) : null}
       <div className="flex flex-wrap gap-2" aria-label="Graph presentation">
@@ -107,7 +113,7 @@ export function GraphExplorer({
         </Button>
       </div>
       {mode === 'spatial' || visitedSpatial ? (
-        <div hidden={mode !== 'spatial'}>
+        <div ref={spatialRef} hidden={mode !== 'spatial'}>
           <GraphView
             // Remounted per workspace: its arrangement is read once, when it mounts.
             key={workspaceId}

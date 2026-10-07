@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { cn } from '../lib/cn';
 import { blueprintFrame } from '../primitives/Blueprint';
@@ -34,7 +35,8 @@ import { useAnchoredPanel } from './use-anchored-panel';
  * opens onto the last one, the pattern's usual courtesy for "give me the bottom of the list").
  * Inside the open menu, ArrowUp and ArrowDown move between items and wrap at the ends, Home and End
  * jump to the first and last, Escape closes the menu and returns focus to the trigger, and Tab
- * closes it without fighting the browser for where focus goes next. Typeahead is not implemented -
+ * leaves command menus for the next control after the trigger. Ordinary content panels retain
+ * their tab order until focus leaves. Typeahead is not implemented -
  * every menu built on this so far is short enough that scanning beats typing.
  *
  * **Dismissal.** A pointerdown outside the trigger and panel closes the menu; so does choosing an
@@ -134,7 +136,7 @@ export type MenuEntry = MenuAction | MenuLink | MenuSeparator | MenuContent;
 export interface MenuLinkRenderProps {
   readonly href: string;
   readonly className: string;
-  readonly role: 'menuitem';
+  readonly role: 'menuitem' | undefined;
   readonly tabIndex: 0 | -1;
   readonly children: ReactNode;
   readonly onClick: () => void;
@@ -150,7 +152,7 @@ export interface MenuLinkRenderProps {
 export interface MenuTriggerRenderProps {
   readonly ref: RefObject<HTMLButtonElement | null>;
   readonly type: 'button';
-  readonly 'aria-haspopup': 'menu';
+  readonly 'aria-haspopup': 'menu' | 'dialog';
   readonly 'aria-expanded': boolean;
   readonly 'aria-controls': string;
   readonly onClick: () => void;
@@ -191,6 +193,36 @@ function isInteractive(entry: MenuEntry): entry is MenuAction | MenuLink {
   );
 }
 
+function panelRole(items: readonly MenuEntry[]): 'menu' | 'dialog' {
+  // Ordinary navigation and settings controls cannot be children of an ARIA action menu.
+  // A content panel keeps native links/buttons and is announced as a non-modal dialog.
+  return items.some((entry) => entry.kind === 'content') || items.length === 0 ? 'dialog' : 'menu';
+}
+
+function tabStops(root: HTMLElement): HTMLElement[] {
+  return [
+    ...root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]',
+    ),
+  ].filter((element) => {
+    if (element.tabIndex < 0 || element.closest('[hidden], [inert]')) return false;
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- older browsers and jsdom omit this platform method.
+    if (!(element.checkVisibility?.() ?? true)) return false;
+    if (
+      getComputedStyle(element).display === 'none' ||
+      getComputedStyle(element).visibility === 'hidden'
+    )
+      return false;
+    return !(
+      element instanceof HTMLInputElement &&
+      element.type === 'radio' &&
+      element.name !== '' &&
+      !element.checked &&
+      root.querySelector(`input[type="radio"][name="${CSS.escape(element.name)}"]:checked`)
+    );
+  });
+}
+
 const itemClass = cn(
   'flex h-(--control-md) w-full items-center gap-2 px-3 text-left text-sm text-foreground',
   'pointer-coarse:h-(--control-lg) pointer-coarse:text-base',
@@ -203,7 +235,7 @@ export function Menu(props: MenuProps): ReactNode {
   const { label, items, children, renderLink, className } = props;
 
   const panelId = useId();
-  const [open, setOpen] = useState<'first' | 'last' | null>(null);
+  const [open, setOpen] = useState<{ initial: 'first' | 'last'; host: HTMLElement } | null>(null);
   // Bumped whenever a close should hand focus back to the trigger. A counter rather than a plain
   // boolean so two closes in a row - vanishingly unlikely, but free to handle - each still fire the
   // effect below, and a token rather than a direct ref read here: every path that can close the
@@ -212,6 +244,13 @@ export function Menu(props: MenuProps): ReactNode {
   // is what keeps it one.
   const [focusReturnToken, setFocusReturnToken] = useState(0);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  function disclosure(initial: 'first' | 'last'): { initial: 'first' | 'last'; host: HTMLElement } {
+    // Escape pane stacking/scroll containment, while staying in a native modal's top layer.
+    return {
+      initial,
+      host: triggerRef.current?.closest<HTMLElement>('dialog[open]') ?? document.body,
+    };
+  }
 
   useEffect(() => {
     if (focusReturnToken === 0) return;
@@ -221,10 +260,10 @@ export function Menu(props: MenuProps): ReactNode {
   const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
     if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setOpen('first');
+      setOpen(disclosure('first'));
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setOpen('last');
+      setOpen(disclosure('last'));
     }
   };
 
@@ -233,34 +272,38 @@ export function Menu(props: MenuProps): ReactNode {
       {children({
         ref: triggerRef,
         type: 'button',
-        'aria-haspopup': 'menu',
+        'aria-haspopup': panelRole(items),
         'aria-expanded': open !== null,
         'aria-controls': panelId,
         onClick: () => {
-          setOpen((current) => (current === null ? 'first' : null));
+          const next = disclosure('first');
+          setOpen((current) => (current === null ? next : null));
         },
         onKeyDown: onTriggerKeyDown,
       })}
 
-      {open !== null ? (
-        <MenuPanel
-          id={panelId}
-          label={label}
-          items={items}
-          initial={open}
-          renderLink={renderLink}
-          className={className}
-          ignoreOutside={triggerRef}
-          anchor={() => {
-            const rect = triggerRef.current?.getBoundingClientRect();
-            return rect ? { left: rect.left, top: rect.top, bottom: rect.bottom } : null;
-          }}
-          onClose={(returnFocus) => {
-            setOpen(null);
-            if (returnFocus) setFocusReturnToken((token) => token + 1);
-          }}
-        />
-      ) : null}
+      {open !== null
+        ? createPortal(
+            <MenuPanel
+              id={panelId}
+              label={label}
+              items={items}
+              initial={open.initial}
+              renderLink={renderLink}
+              className={className}
+              ignoreOutside={triggerRef}
+              anchor={() => {
+                const rect = triggerRef.current?.getBoundingClientRect();
+                return rect ? { left: rect.left, top: rect.top, bottom: rect.bottom } : null;
+              }}
+              onClose={(returnFocus) => {
+                setOpen(null);
+                if (returnFocus) setFocusReturnToken((token) => token + 1);
+              }}
+            />,
+            open.host,
+          )
+        : null}
     </>
   );
 }
@@ -284,6 +327,8 @@ export interface MenuPanelProps {
   readonly anchor: () => MenuPanelAnchor | null;
   /** A pointerdown inside this element is not an outside click - the trigger toggles itself. */
   readonly ignoreOutside?: RefObject<HTMLElement | null>;
+  /** Keyboard exit follows the invoking control rather than the portal's document position. */
+  readonly tabOrigin?: HTMLElement | null;
   /** `returnFocus` is true for a choice or Escape, false for Tab, an outside click or a content close. */
   readonly onClose: (returnFocus: boolean) => void;
 }
@@ -303,10 +348,12 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
     className,
     anchor,
     ignoreOutside,
+    tabOrigin,
     onClose,
   } = props;
 
   const panelRef = useRef<HTMLDivElement>(null);
+  const role = panelRole(items);
 
   // Indices into `items` - not a separate numbering - so `activeIndex` always names one entry
   // directly, with no second translation table between "which item" and "which interactive item".
@@ -317,6 +364,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
   const firstEnabled = enabledIndices.length > 0 ? enabledIndices[0] : undefined;
   const lastEnabled =
     enabledIndices.length > 0 ? enabledIndices[enabledIndices.length - 1] : undefined;
+  const enabledCount = enabledIndices.length;
   const [activeIndex, setActiveIndex] = useState(
     () => (initial === 'first' ? firstEnabled : lastEnabled) ?? 0,
   );
@@ -354,8 +402,14 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
     const item = panelRef.current?.querySelector<HTMLElement>(
       `[data-menu-item-index="${String(activeIndex)}"]`,
     );
-    item?.focus();
-  }, [activeIndex]);
+    if (item) {
+      item.focus();
+    } else if (enabledCount === 0) {
+      const controls = panelRef.current ? tabStops(panelRef.current) : [];
+      const control = initial === 'last' ? controls[controls.length - 1] : controls[0];
+      control?.focus();
+    }
+  }, [activeIndex, enabledCount, initial]);
 
   // Outside pointerdown closes the menu, the same as every other disclosure in this package.
   useEffect(() => {
@@ -381,7 +435,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
   // from a `content` entry's own controls (the profile menu's appearance radios, the workspace
   // switcher's plain links) exactly as it does from a real item, without those entries having to
   // know this component's key model exists. Arrow keys, Home and End stay scoped to real items -
-  // read off the target's own `role`, not off which handler fired - so they never fight a radio
+  // read off the target's command marker, not off which handler fired - so they never fight a radio
   // group's native left/right cycling for the same keys.
   const onPanelKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
@@ -397,13 +451,31 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
     }
 
     if (event.key === 'Tab') {
-      // Left alone: the browser still moves focus on, this only drops the panel from the tree
-      // first so it does not sit open over whatever comes next.
-      onClose(false);
+      const panel = panelRef.current;
+      const stops = panel ? tabStops(panel) : [];
+      const target = event.target;
+      const leaving =
+        role === 'menu' ||
+        (event.shiftKey ? target === stops[0] : target === stops[stops.length - 1]);
+      if (leaving) {
+        const origin = ignoreOutside?.current ?? tabOrigin ?? null;
+        if (origin) {
+          event.preventDefault();
+          const root = origin.closest<HTMLElement>('dialog[open]') ?? document.body;
+          const outside = tabStops(root).filter((control) => !panel?.contains(control));
+          const next = event.shiftKey
+            ? origin
+            : (outside[outside.indexOf(origin) + 1] ?? outside[0] ?? origin);
+          onClose(false);
+          next.focus();
+        } else {
+          onClose(false);
+        }
+      }
       return;
     }
 
-    if ((event.target as HTMLElement).getAttribute('role') !== 'menuitem') return;
+    if (!(event.target as HTMLElement).hasAttribute('data-menu-item-index')) return;
 
     switch (event.key) {
       case 'ArrowDown':
@@ -429,7 +501,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
 
   const panelClass = cn(
     blueprintFrame,
-    'fixed z-30 flex flex-col overflow-y-auto bg-background py-1 shadow-md',
+    'fixed z-30 flex flex-col overflow-y-auto bg-background py-1 font-body shadow-md',
     chromeSurface,
     // design-token-exempt: 220px is a minimum reading measure for a short label list, the same
     // category as `Dialog.tsx`'s 560px - not a step on any scale.
@@ -441,16 +513,20 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
   );
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- role is menu or dialog; this handler coordinates keyboard navigation among their controls.
     <div
       id={id}
       ref={panelRef}
-      role="menu"
+      role={role}
       aria-label={label}
       // Not a tab stop of its own: focus lands on an item, never on the menu container itself.
       // Still needed on the attribute for the same reason `Dialog`'s own `tabIndex={-1}` is.
       tabIndex={-1}
       className={panelClass}
       onKeyDown={onPanelKeyDown}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) onClose(false);
+      }}
       // A right-click inside an open menu is not a request for the browser's own menu on top of it.
       onContextMenu={(event) => {
         event.preventDefault();
@@ -480,7 +556,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
         }
 
         const tone = entry.destructive === true ? 'font-semibold' : undefined;
-        const tabIndex = index === activeIndex ? 0 : -1;
+        const tabIndex = role === 'dialog' || index === activeIndex ? 0 : -1;
         const key = entry.key ?? entry.label;
 
         if (entry.kind === 'link' && entry.external === true) {
@@ -490,7 +566,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
               href={entry.href}
               target="_blank"
               rel="noopener noreferrer"
-              role="menuitem"
+              role={role === 'menu' ? 'menuitem' : undefined}
               tabIndex={tabIndex}
               className={cn(itemClass, tone)}
               onClick={() => {
@@ -512,7 +588,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
             <Fragment key={key}>
               {renderLink({
                 href: entry.href,
-                role: 'menuitem',
+                role: role === 'menu' ? 'menuitem' : undefined,
                 tabIndex,
                 className: cn(itemClass, tone),
                 onClick: () => {
@@ -534,7 +610,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
           <button
             key={key}
             type="button"
-            role="menuitem"
+            role={role === 'menu' ? 'menuitem' : undefined}
             tabIndex={tabIndex}
             disabled={entry.disabled}
             data-menu-item-index={index}

@@ -1,5 +1,5 @@
-import { Text } from '@nix/ui';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Button, Text } from '@nix/ui';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 import { EmptyPanel, LoadingPanel } from '../components/states/status-panels';
 import type { Item, PropertyDefinition, PropertyValue } from '../views/core/container-model';
@@ -18,9 +18,10 @@ import { PropertyInput } from './property-input';
  * would make one person's edit overwrite another's, and would turn a value this build could not
  * render into a value this build deleted.
  *
- * **Which properties appear is not this component's decision.** They come from the folder the item
+ * **Which properties exist is the schema's decision.** They come from the folder the item
  * is in and from the folders above it, which is exactly what the empty state has to say - otherwise
- * "no properties" reads as a fault rather than as a folder that has not declared any.
+ * "no properties" reads as a fault rather than as a folder that has not declared any. Compact
+ * details initially show required, computed and populated values; disclosure keeps the rest reachable.
  */
 
 export interface PropertyPanelProps {
@@ -43,6 +44,8 @@ export interface PropertyPanelProps {
 
   /** No write is permitted from here - a read-only share, say. */
   readonly disabled?: boolean;
+  /** Details panels start with required, computed and populated values. Forms can show all. */
+  readonly compact?: boolean;
 }
 
 /**
@@ -60,11 +63,27 @@ interface Refusal {
 }
 
 export function PropertyPanel(props: PropertyPanelProps): ReactNode {
-  const { item, properties, onChange, loading = false, disabled = false } = props;
+  const { item, properties, onChange, loading = false, disabled = false, compact = false } = props;
 
   const headingId = useId();
   const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const focusOnReveal = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const key = focusOnReveal.current;
+    if (!expanded || key === null) return;
+    focusOnReveal.current = null;
+    const field = [
+      ...(panelRef.current?.querySelectorAll<HTMLElement>('[data-property-key]') ?? []),
+    ].find((element) => element.dataset.propertyKey === key);
+    const control = field?.querySelector<HTMLElement>(
+      'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])',
+    );
+    (control ?? panelRef.current)?.focus();
+  }, [expanded]);
 
   // The key that just finished saving, cleared a moment later. "Saved" is a fact about the last
   // write, not the field's ongoing state, so it does not linger the way "Saving…" is allowed to.
@@ -84,6 +103,21 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
   }
 
   const editable = properties.filter((property) => property.key !== TITLE_KEY);
+  const visible =
+    !compact || expanded
+      ? editable
+      : editable.filter((property) => {
+          const value = item.properties[property.key];
+          return (
+            property.required ||
+            property.type === 'formula' ||
+            property.type === 'rollup' ||
+            (value !== undefined &&
+              value !== null &&
+              (typeof value !== 'string' || value.trim() !== '') &&
+              (!Array.isArray(value) || value.length > 0))
+          );
+        });
 
   if (editable.length === 0) {
     return (
@@ -126,16 +160,18 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
 
   return (
     <section
+      ref={panelRef}
+      tabIndex={-1}
       aria-labelledby={headingId}
       aria-busy={saving !== null}
-      className="flex flex-col gap-4 border border-divider p-4"
+      className="flex flex-col gap-4"
     >
       <Text variant="h6" as="h2" id={headingId}>
         Properties
       </Text>
 
-      {editable.map((property) => (
-        <div key={property.key} className="flex flex-col gap-1">
+      {visible.map((property) => (
+        <div key={property.key} data-property-key={property.key} className="flex flex-col gap-1">
           <PropertyInput
             item={item}
             property={property}
@@ -162,6 +198,19 @@ export function PropertyPanel(props: PropertyPanelProps): ReactNode {
           </span>
         </div>
       ))}
+      {compact && visible.length < editable.length ? (
+        <Button
+          variant="ghost"
+          className="justify-start"
+          onClick={() => {
+            focusOnReveal.current =
+              editable.find((property) => !visible.includes(property))?.key ?? null;
+            setExpanded(true);
+          }}
+        >
+          More details ({String(editable.length - visible.length)})
+        </Button>
+      ) : null}
     </section>
   );
 }

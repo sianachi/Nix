@@ -1,4 +1,5 @@
 import { Button, Dialog } from '@nix/ui';
+import { flushSync } from 'react-dom';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Editor } from '@tiptap/core';
 import { useMobileToolbarPreference } from './mobile-toolbar-preference';
@@ -93,17 +94,7 @@ export function MobileNoteToolbar({
             >
               {formatting}
             </div>
-            {details ? (
-              <Button
-                variant="ghost"
-                className="shrink-0"
-                aria-expanded={details.open}
-                onClick={details.onToggle}
-              >
-                Details
-              </Button>
-            ) : null}
-            {actions ? (
+            {actions || details ? (
               <Button
                 variant="ghost"
                 className="shrink-0"
@@ -137,6 +128,22 @@ export function MobileNoteToolbar({
             setActionsOpen(false);
           }}
         >
+          {details ? (
+            <Button
+              variant="ghost"
+              className="justify-start"
+              aria-expanded={details.open}
+              onClick={() => {
+                // Restore focus to Item before the details dialog remembers its invoker.
+                flushSync(() => {
+                  setActionsOpen(false);
+                });
+                details.onToggle();
+              }}
+            >
+              Details
+            </Button>
+          ) : null}
           {actions}
         </Dialog>
       ) : null}

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BudgetGrid, BudgetLine, Finance, QueryEndpoint } from '@nix/api-client';
+import { stubViewport } from '../../stub-viewport';
 
 import { FinanceBudget } from '../../../views/finance/finance-budget';
 import type { FinanceState as FinanceViewState } from '../../../views/finance/use-finance';
@@ -177,6 +178,16 @@ it('shows January to December when the complete calendar year is in the plan', (
   render(budget({ ...finance, settings: { ...finance.settings, startMonth: '2025-01' } }));
   fireEvent.click(screen.getByRole('button', { name: 'Year' }));
   expect(queries.seen.at(-1)?.query).toMatchObject({ from: '2026-01', to: '2026-12' });
+});
+
+it('labels and exposes the horizontally scrollable budget on a narrow viewport', () => {
+  stubViewport(false);
+  mount();
+
+  expect(
+    screen.getByText('Swipe horizontally to compare the plan, actual and remaining amounts.'),
+  ).toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Budget figures' })).toHaveAttribute('tabindex', '0');
 });
 
 it('withholds old-month cells until the selected month has loaded', () => {

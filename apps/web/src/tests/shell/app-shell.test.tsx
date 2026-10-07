@@ -276,7 +276,7 @@ describe('the profile menu', () => {
 
     await user.click(await screen.findByRole('button', { name: /ada lovelace/i }));
 
-    expect(screen.getByRole('menu', { name: /account/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /account/i })).toBeInTheDocument();
     expect(screen.getByText('ada@example.test')).toBeVisible();
   });
 
@@ -287,7 +287,7 @@ describe('the profile menu', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Test Person' }));
 
-    expect(screen.getByRole('menuitem', { name: /sign out/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument();
   });
 
   it('says so when the profile could not be loaded instead of pretending it has one', async () => {

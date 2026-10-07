@@ -1,5 +1,5 @@
-import { Button, Icon, Text } from '@nix/ui';
-import { ArrowLeft, ChevronRight, FileText } from 'lucide-react';
+import { Button, Icon, Menu, Text } from '@nix/ui';
+import { ArrowLeft, ChevronRight, EyeOff, FileText, MoreHorizontal, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { PaneViewport } from '../layout/pane-viewport';
 import { useHiddenItems } from './use-hidden-items';
@@ -11,11 +11,15 @@ export function MobileWorkspaceBrowser({
   parentId,
   onParent,
   onOpen,
+  onClose,
+  destinations,
 }: {
   readonly tree: WorkspaceTree;
   readonly parentId: string | null;
   readonly onParent: (id: string | null) => void;
   readonly onOpen: (id: string) => void;
+  readonly onClose: () => void;
+  readonly destinations: ReactNode;
 }): ReactNode {
   const visibility = useHiddenItems();
   const visible = tree.childrenOf(parentId).filter((item) => !visibility.hiddenSet.has(item.id));
@@ -24,23 +28,37 @@ export function MobileWorkspaceBrowser({
     tree.status === 'loading' || (parentId !== null && tree.isLoadingChildren(parentId));
   return (
     <aside aria-label="Workspace" className="flex min-h-0 w-full flex-col bg-background">
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-divider p-3">
+      <div className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2">
         {parentId !== null ? (
           <Button
             variant="ghost"
+            className="min-w-0 flex-1 justify-start"
+            aria-label="Up"
             onClick={() => {
               onParent(parent?.parentId ?? null);
             }}
           >
             <Icon icon={ArrowLeft} size="sm" />
-            Up
+            <span className="min-w-0 truncate">{parent?.title ?? 'Up'}</span>
           </Button>
         ) : (
           <Text variant="h3" as="h2">
             Workspace
           </Text>
         )}
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <HiddenItemsPanel onOpen={onOpen} />
+          <Button
+            variant="ghost"
+            className="min-h-(--control-lg) min-w-(--control-lg) px-2"
+            aria-label="Close workspace"
+            onClick={onClose}
+          >
+            <Icon icon={X} size="sm" />
+          </Button>
+        </div>
       </div>
+      <div className="shrink-0 border-b border-divider px-3 py-2">{destinations}</div>
       {parent ? (
         <Button
           variant="ghost"
@@ -77,12 +95,11 @@ export function MobileWorkspaceBrowser({
         scrollKey={`mobile-workspace:${parentId ?? 'root'}`}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"
       >
-        <HiddenItemsPanel onOpen={onOpen} />
         {visible.map((item) => (
-          <div key={item.id} className="flex items-center border-b border-divider">
+          <div key={item.id} className="flex min-w-0 items-center gap-1 rounded-md">
             <Button
               variant="ghost"
-              className="min-h-12 min-w-0 flex-1 justify-start text-left"
+              className="min-h-(--control-lg) min-w-0 flex-1 justify-start text-left"
               onClick={() => {
                 onOpen(item.id);
               }}
@@ -92,26 +109,43 @@ export function MobileWorkspaceBrowser({
                 {item.title || 'Untitled'}
               </Text>
             </Button>
-            <Button
-              variant="ghost"
-              aria-label={`Hide ${item.title || 'Untitled'} for me`}
-              onClick={() => {
-                visibility.hide(item.id, item.title);
-              }}
+            <Menu
+              label={`Actions for ${item.title || 'Untitled'}`}
+              items={[
+                {
+                  kind: 'action',
+                  label: 'Hide for me',
+                  icon: EyeOff,
+                  onSelect: () => {
+                    visibility.hide(item.id, item.title);
+                  },
+                },
+              ]}
             >
-              Hide
-            </Button>
-            <Button
-              variant="icon"
-              className="min-h-12 min-w-12"
-              aria-label={`Browse children of ${item.title || 'Untitled'}`}
-              onClick={() => {
-                onParent(item.id);
-                void tree.expand(item.id);
-              }}
-            >
-              <Icon icon={ChevronRight} size="sm" />
-            </Button>
+              {(trigger) => (
+                <Button
+                  {...trigger}
+                  variant="ghost"
+                  className="min-h-(--control-lg) min-w-(--control-lg) shrink-0 px-2"
+                  aria-label={`Actions for ${item.title || 'Untitled'}`}
+                >
+                  <Icon icon={MoreHorizontal} size="sm" />
+                </Button>
+              )}
+            </Menu>
+            {item.hasChildren ? (
+              <Button
+                variant="ghost"
+                className="min-h-(--control-lg) min-w-(--control-lg)"
+                aria-label={`Browse children of ${item.title || 'Untitled'}`}
+                onClick={() => {
+                  onParent(item.id);
+                  void tree.expand(item.id);
+                }}
+              >
+                <Icon icon={ChevronRight} size="sm" />
+              </Button>
+            ) : null}
           </div>
         ))}
         {!loading && !tree.error && visible.length === 0 ? (

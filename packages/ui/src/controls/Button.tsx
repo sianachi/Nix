@@ -80,7 +80,7 @@ const buttonVariants = cva(
   cn(
     blueprintFrame,
     'inline-flex cursor-default items-center justify-center gap-2 select-none',
-    'h-(--control-md) pointer-coarse:h-(--control-lg) font-heading text-md font-semibold no-underline',
+    'h-(--control-md) pointer-coarse:h-(--control-lg) pointer-coarse:min-w-(--control-lg) font-heading text-md font-semibold no-underline',
     'transition-colors',
     focusRing,
     disabledState,

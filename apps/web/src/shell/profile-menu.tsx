@@ -98,13 +98,13 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
           {...trigger}
           className={[
             'flex items-center gap-1.5 border border-transparent px-2 py-1',
-            'text-xs text-muted pointer-coarse:min-h-11',
+            'text-xs text-muted pointer-coarse:min-h-(--control-lg) pointer-coarse:min-w-(--control-lg)',
             `hover:bg-foreground/7 ${focusRing}`,
           ].join(' ')}
         >
           <Icon icon={User} size="sm" />
-          <span className="max-w-[16ch] truncate">{name}</span>
-          <Icon icon={ChevronDown} size="sm" />
+          <span className="max-w-[16ch] truncate max-lg:sr-only">{name}</span>
+          <Icon icon={ChevronDown} size="sm" className="max-lg:hidden" />
         </button>
       )}
     </Menu>

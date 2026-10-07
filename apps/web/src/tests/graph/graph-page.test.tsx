@@ -254,6 +254,22 @@ describe('what the graph admits to', () => {
  * that they report where they got to, and that they stop at the ends rather than going quiet.
  */
 describe('zooming the graph', () => {
+  it('shows the drawing before the secondary controls so it is visible on a phone', async () => {
+    stubCoreApi({ items: [ROOT, CHILD, OTHER] });
+    const { container } = renderAt(<App />, '/graph');
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+
+    const drawing = container.querySelector('svg[class~="group/graph"]');
+    const find = screen.getByRole('searchbox', { name: 'Find in graph' });
+
+    if (drawing === null) {
+      throw new Error('the spatial graph drawing was not rendered');
+    }
+
+    expect(drawing.compareDocumentPosition(find) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('offers named controls rather than bare glyphs', async () => {
     stubCoreApi({ items: [ROOT, OTHER] });
     renderAt(<App />, '/graph');

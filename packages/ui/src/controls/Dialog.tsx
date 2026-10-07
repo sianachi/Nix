@@ -350,7 +350,7 @@ export function Dialog(props: DialogProps): ReactNode {
           type="button"
           aria-label="Dismiss sheet"
           onClick={requestClose}
-          className="flex min-h-11 w-full touch-none items-center justify-center rounded-t-md focus-visible:outline-2 focus-visible:outline-accent sm:hidden"
+          className="flex min-h-(--control-lg) w-full touch-none items-center justify-center rounded-t-md focus-visible:outline-2 focus-visible:outline-accent sm:hidden"
         >
           <span aria-hidden="true" className="h-1 w-10 rounded-full bg-divider" />
         </button>
@@ -384,7 +384,7 @@ export function Dialog(props: DialogProps): ReactNode {
           </Text>
           <Button
             variant="icon"
-            className="max-sm:min-h-11 max-sm:min-w-11"
+            className="max-sm:min-h-(--control-lg) max-sm:min-w-(--control-lg)"
             aria-label={closeLabel}
             onClick={requestClose}
           >

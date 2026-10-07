@@ -1,5 +1,6 @@
 import { items as coreItems, isCanceledError, isNixApiError } from '@nix/api-client';
-import { Button } from '@nix/ui';
+import { Button, Dialog, Icon, Menu } from '@nix/ui';
+import { MoreHorizontal } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
@@ -14,18 +15,51 @@ export function HiddenItemsPanel({
   const visibility = useHiddenItems();
   const [open, setOpen] = useState(false);
   return !visibility.enabled ? null : (
-    <div className="flex flex-col gap-2 px-3 py-2">
-      <Button
-        variant="ghost"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(!open);
-        }}
+    <>
+      <Menu
+        label="Workspace options"
+        items={[
+          {
+            kind: 'action',
+            label:
+              visibility.hiddenIds.length === 0
+                ? 'Hidden items'
+                : `Hidden items (${String(visibility.hiddenIds.length)})`,
+            onSelect: () => {
+              setOpen(true);
+            },
+          },
+        ]}
       >
-        Hidden items ({String(visibility.hiddenIds.length)})
-      </Button>
-      {open ? <HiddenEntries key={visibility.scope} onOpen={onOpen} /> : null}
-    </div>
+        {(trigger) => (
+          <Button
+            {...trigger}
+            variant="ghost"
+            className="px-2 pointer-coarse:min-h-(--control-lg) pointer-coarse:min-w-(--control-lg)"
+            aria-label="Workspace options"
+          >
+            <Icon icon={MoreHorizontal} size="sm" />
+          </Button>
+        )}
+      </Menu>
+      {open ? (
+        <Dialog
+          open
+          title="Hidden items"
+          onClose={() => {
+            setOpen(false);
+          }}
+        >
+          <HiddenEntries
+            key={visibility.scope}
+            onOpen={(itemId) => {
+              setOpen(false);
+              onOpen(itemId);
+            }}
+          />
+        </Dialog>
+      ) : null}
+    </>
   );
 }
 

@@ -34,19 +34,20 @@ export function ViewItemVisibility({
     <div className="flex flex-col gap-3">
       {count > 0 ? (
         <div role="status" className="flex flex-wrap items-center gap-2">
-          <Text as="span" variant="note" tone="muted">
-            {String(count)} {count === 1 ? 'item is' : 'items are'} hidden for you in this browser.
-            Manage them in Hidden items in the workspace sidebar.
+          <Text as="span" variant="caption" tone="muted">
+            {String(count)} hidden
+          </Text>
+        </div>
+      ) : null}
+      {count > 0 && visible.length === 0 && container.status === 'ready' ? (
+        <div className="flex flex-col items-start gap-2">
+          <Text variant="note" tone="muted">
+            All items here are hidden for you.
           </Text>
           <Button variant="ghost" onClick={visibility.showAll}>
             Show all hidden items
           </Button>
         </div>
-      ) : null}
-      {count > 0 && visible.length === 0 && container.status === 'ready' ? (
-        <Text role="status" variant="note">
-          Every loaded item here is hidden for you.
-        </Text>
       ) : (
         children({ ...container, children: visible })
       )}

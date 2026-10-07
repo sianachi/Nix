@@ -188,7 +188,7 @@ export function HabitConsistency({
                   aria-pressed={selected === day.date}
                   title={habitDayLabel(day)}
                   className={cn(
-                    'flex h-7 min-w-6 items-center justify-center rounded-sm text-xs transition-colors pointer-coarse:h-10 pointer-coarse:min-w-10',
+                    'flex h-7 min-w-6 items-center justify-center rounded-sm text-xs transition-colors pointer-coarse:h-(--control-lg) pointer-coarse:min-w-(--control-lg)',
                     stateClasses[day.state],
                     selected === day.date && 'ring-2 ring-accent ring-offset-2 ring-offset-surface',
                     focusRing,

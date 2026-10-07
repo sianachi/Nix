@@ -196,8 +196,8 @@ export function CalendarPage(): ReactElement {
       )}
 
       {visible.length < listed.length || unplaceable.length < calendar.unplaceable.length ? (
-        <Text role="status" variant="note">
-          Some scheduled items are hidden for you. Open Hidden items to show them again.
+        <Text role="status" variant="caption" tone="muted">
+          Hidden items excluded
         </Text>
       ) : null}
       <NoteFilter

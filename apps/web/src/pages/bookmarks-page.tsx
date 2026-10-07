@@ -98,9 +98,8 @@ export function BookmarksPage(): ReactElement {
   return (
     <BookmarksFrame>
       {visible.length < items.length ? (
-        <Text role="status" variant="note">
-          Some bookmarks are hidden for you. Open Hidden items in their workspace to show them
-          again.
+        <Text role="status" variant="caption" tone="muted">
+          {String(items.length - visible.length)} hidden
         </Text>
       ) : null}
       {hidden > 0 && (

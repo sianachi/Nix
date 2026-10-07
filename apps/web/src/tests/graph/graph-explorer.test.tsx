@@ -39,3 +39,28 @@ it('defaults to searchable browsing on phones and opens items through the suppli
   await user.click(screen.getByRole('button', { name: 'Plan' }));
   expect(onOpen).toHaveBeenCalledWith('plan');
 });
+
+it('brings the spatial graph into view after choosing an item from the phone list', async () => {
+  stubViewport(false);
+  const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: scrollIntoView,
+  });
+
+  try {
+    const user = userEvent.setup();
+    render(<GraphExplorer nodes={nodes} links={[]} onOpen={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Show Plan in graph' }));
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' });
+  } finally {
+    if (original === undefined) {
+      Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+    } else {
+      Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', original);
+    }
+  }
+});

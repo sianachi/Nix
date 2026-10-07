@@ -1,8 +1,9 @@
-import { Icon, Text, chromeSurface, focusRing } from '@nix/ui';
+import { Button, Icon, Menu, Text, chromeSurface, focusRing, type MenuEntry } from '@nix/ui';
 import {
   Bookmark,
   CalendarClock,
   CalendarDays,
+  ChevronDown,
   FolderInput,
   LayoutTemplate,
   Network,
@@ -28,21 +29,17 @@ import { useWorkspace } from '../workspaces/workspace-context';
  * tree, and why they need a destination of their own rather than a row inside it. Notes sits beside
  * them as the tree's own destination, so the upper group names a complete set of ways into the
  * workspace rather than three extras bolted beside an unlabelled default. Import and Settings sit
- * at the foot: persistent workspace operations rather than views, close enough to discover without
- * pretending either is another way to read the notes. The strip itself sits outboard of the tree,
- * so it stays put while the tree scrolls, resizes, or - on a phone - slides away entirely.
+ * at the foot: persistent workspace operations rather than views. Desktop keeps a strip beside
+ * the tree; compact layouts use one destination menu inside the workspace drawer.
  *
  * ## Why this lives in the app and not in `packages/ui`
  *
  * `<Nav>` (packages/ui/src/controls/Nav.tsx) is already the design system's "a list of links, one
  * of which may be the page you are on", and this is deliberately not it. Two things differ, and
  * both are product facts rather than design-system ones. `<Nav>` requires a visible label per item
- * - correctly, for a settings sidebar - while this rail is icon-only at the width where it runs
- * beside the tree, carrying its name for assistive technology alone. Below `lg` it only ever
- * renders inside the narrow-viewport drawer (`app-shell.tsx` mounts it there and nowhere else once
- * the window is that narrow), where a `title` tooltip never reaches a touch pointer - so the `max-lg`
- * variants below turn the hidden name into a visible one instead of leaving it to a tooltip nobody
- * on a phone can trigger. And a rail is one tab stop
+ * - correctly, for a settings sidebar - while the desktop rail is icon-only beside the tree,
+ * carrying its name for assistive technology alone. The compact menu provides visible labels
+ * and saves drawer width. And a rail is one tab stop
  * with the arrow keys moving inside it, which `<Nav>` does not do and should not learn for a single
  * caller. What is left after those two is a component that knows this application's own destinations
  * and imports this application's router, neither of which belongs in a package that `apps/*` depend
@@ -188,9 +185,10 @@ export interface NavRailProps {
 
   /** Opens the workspace-level import flow. It is an action, so it does not change the address. */
   readonly onImport: () => void;
+  readonly compact?: boolean;
 }
 
-export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
+export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps): ReactNode {
   const { pathname } = useLocation();
   const { workspaceId, workspace } = useWorkspace();
   const workspaceRoot = `/w/${workspaceId}`;
@@ -269,6 +267,43 @@ export function NavRail({ onNavigate, onImport }: NavRailProps): ReactNode {
     event.preventDefault();
     setFocusedIndex(next);
     controlRefs.current[next]?.focus();
+  }
+
+  if (compact) {
+    const currentItem = items[currentIndex];
+    const currentHref =
+      currentItem?.kind === 'destination' ? `${workspaceRoot}${currentItem.to}` : null;
+    const entries: MenuEntry[] = items.map((item) =>
+      item.kind === 'destination'
+        ? {
+            kind: 'link',
+            label: item.label,
+            icon: item.icon,
+            href: `${workspaceRoot}${item.to}`,
+            onSelect: () => {
+              onNavigate?.();
+            },
+          }
+        : { kind: 'action', label: item.label, icon: item.icon, onSelect: onImport },
+    );
+    return (
+      <nav aria-label="Destinations">
+        <Menu
+          label="Workspace pages"
+          items={entries}
+          renderLink={({ href, ...props }) => (
+            <Link to={href} {...props} aria-current={href === currentHref ? 'page' : undefined} />
+          )}
+        >
+          {(trigger) => (
+            <Button {...trigger} variant="ghost" className="w-full justify-between">
+              {items[currentIndex]?.label ?? 'Workspace pages'}
+              <Icon icon={ChevronDown} size="sm" />
+            </Button>
+          )}
+        </Menu>
+      </nav>
+    );
   }
 
   return (

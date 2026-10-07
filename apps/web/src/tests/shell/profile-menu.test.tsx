@@ -55,12 +55,27 @@ beforeEach(() => {
 });
 
 describe('ProfileMenu', () => {
+  it('lets the keyboard reach and change appearance without dismissing the menu', async () => {
+    const user = userEvent.setup();
+    await openMenu();
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('radio', { name: 'System' })).toHaveFocus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('dialog', { name: 'Account' })).toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: 'Light' })).toHaveFocus();
+    expect(screen.getByRole('radio', { name: 'Light' })).toBeChecked();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Account' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Ada Person/ })).toHaveFocus();
+  });
+
   it('links to the identity provider account page in a new tab when Core names one', async () => {
     auth.accountUrl = 'https://sso.example.test/ui/console/users/me?id=security';
 
     await openMenu();
 
-    const link = screen.getByRole('menuitem', { name: /Password and security/ });
+    const link = screen.getByRole('link', { name: /Password and security/ });
     expect(link).toHaveAttribute(
       'href',
       'https://sso.example.test/ui/console/users/me?id=security',
@@ -73,11 +88,11 @@ describe('ProfileMenu', () => {
   it('offers no account link when the deployment names no account page', async () => {
     await openMenu();
 
-    expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
       'href',
       `/w/${WORKSPACE_ID}/settings`,
     );
-    expect(screen.getByRole('menuitem', { name: 'Settings' })).not.toHaveAttribute('target');
-    expect(screen.queryByRole('menuitem', { name: /Password and security/ })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveAttribute('target');
+    expect(screen.queryByRole('link', { name: /Password and security/ })).toBeNull();
   });
 });

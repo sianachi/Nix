@@ -176,15 +176,28 @@ export function AccessTokensSection(): ReactElement {
           }
         />
       ) : (
-        <Table
-          caption="Your personal access tokens, newest first."
-          columns={columns}
-          rows={tokens}
-          rowKey={(token) => token.id}
-          loading={status === 'loading'}
-          loadingMessage="Loading your access tokens."
-          emptyMessage="You have no access tokens. Create one to let a script or machine act as you."
-        />
+        <>
+          <div className="hidden min-w-0 sm:block">
+            <Table
+              caption="Your personal access tokens, newest first."
+              columns={columns}
+              rows={tokens}
+              rowKey={(token) => token.id}
+              loading={status === 'loading'}
+              loadingMessage="Loading your access tokens."
+              emptyMessage="You have no access tokens. Create one to let a script or machine act as you."
+            />
+          </div>
+          <MobileTokenList
+            status={status}
+            tokens={tokens}
+            now={now}
+            onRevoke={(token) => {
+              setRevokeRefusal(null);
+              setRevoking(token);
+            }}
+          />
+        </>
       )}
 
       {/* Mounted only while open, the same call `editor-page.tsx` makes for its export dialog: a
@@ -249,5 +262,118 @@ export function AccessTokensSection(): ReactElement {
         </Dialog>
       )}
     </section>
+  );
+}
+
+function MobileTokenList({
+  status,
+  tokens,
+  now,
+  onRevoke,
+}: {
+  readonly status: 'loading' | 'ready' | 'error';
+  readonly tokens: readonly AccessToken[];
+  readonly now: Date;
+  readonly onRevoke: (token: AccessToken) => void;
+}): ReactElement {
+  if (status === 'loading') {
+    return (
+      <Text as="p" variant="note" role="status" className="sm:hidden">
+        Loading your access tokens.
+      </Text>
+    );
+  }
+
+  if (tokens.length === 0) {
+    return (
+      <Text as="p" variant="note" tone="muted" className="sm:hidden">
+        You have no access tokens. Create one to let a script or machine act as you.
+      </Text>
+    );
+  }
+
+  return (
+    <ul
+      aria-label="Your personal access tokens, newest first"
+      className="flex flex-col gap-2 sm:hidden"
+    >
+      {tokens.map((token) => {
+        const status = tokenStatus(token, now);
+        return (
+          <li
+            key={token.id}
+            className="flex min-w-0 flex-col gap-3 rounded-md border border-divider p-3"
+          >
+            <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+              <Text variant="bodySmall" as="h3" className="min-w-0 flex-1 break-words">
+                {token.name}
+              </Text>
+              {statusTag(status)}
+            </div>
+            <div className="flex flex-col gap-1">
+              <Text variant="caption" tone="muted">
+                Scopes
+              </Text>
+              <div className="flex flex-wrap gap-1">
+                {token.scopes.map((scope) => (
+                  <Tag key={scope}>{scope}</Tag>
+                ))}
+              </div>
+            </div>
+            <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+              <div>
+                <dt>
+                  <Text variant="caption" tone="muted">
+                    Created
+                  </Text>
+                </dt>
+                <dd>
+                  <Text variant="bodySmall">{formatDay(token.createdAt)}</Text>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <Text variant="caption" tone="muted">
+                    Expires
+                  </Text>
+                </dt>
+                <dd>
+                  <Text variant="bodySmall">{formatDay(token.expiresAt)}</Text>
+                </dd>
+              </div>
+              <div>
+                <dt>
+                  <Text variant="caption" tone="muted">
+                    Last used
+                  </Text>
+                </dt>
+                <dd>
+                  {token.lastUsedAt === null ? (
+                    <Text variant="bodySmall" tone="muted">
+                      {NEVER}
+                    </Text>
+                  ) : (
+                    <Text variant="bodySmall">{formatDay(token.lastUsedAt)}</Text>
+                  )}
+                </dd>
+              </div>
+            </dl>
+            {status.kind === 'live' ? (
+              <div className="flex justify-end border-t border-divider pt-2">
+                <Button
+                  variant="secondary"
+                  aria-label={`Revoke ${token.name}`}
+                  onClick={() => {
+                    onRevoke(token);
+                  }}
+                >
+                  Revoke token
+                </Button>
+              </div>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

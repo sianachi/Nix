@@ -257,7 +257,10 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           </nav>
           <details>
             <summary
-              className={cn('cursor-pointer rounded-md px-2 py-1 text-sm text-muted', focusRing)}
+              className={cn(
+                'flex min-h-6 cursor-pointer items-center rounded-md px-2 py-1 text-sm text-muted pointer-coarse:min-h-(--control-lg)',
+                focusRing,
+              )}
             >
               Display options
             </summary>
@@ -489,7 +492,10 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           />
           <details>
             <summary
-              className={cn('cursor-pointer rounded-md py-2 text-sm font-medium', focusRing)}
+              className={cn(
+                'flex min-h-6 cursor-pointer items-center rounded-md py-2 text-sm font-medium pointer-coarse:min-h-(--control-lg)',
+                focusRing,
+              )}
             >
               Custom charts{widgets.length > 0 ? ` (${String(widgets.length)})` : ''}
             </summary>
@@ -774,7 +780,7 @@ function HabitRow({
             {compact && selectedDay !== day ? (
               <Button
                 variant={checked ? 'primary' : 'ghost'}
-                className="h-10 w-10 p-0"
+                className="h-10 w-10 p-0 pointer-coarse:size-(--control-lg)"
                 disabled={future || (!scheduled && !hasEntry)}
                 aria-label={`${title}, ${day}, ${future ? 'future' : checked ? 'completed' : scheduled ? 'not completed' : 'not scheduled'}`}
                 aria-pressed={checked}

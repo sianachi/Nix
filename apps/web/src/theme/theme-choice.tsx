@@ -51,7 +51,7 @@ export function ThemeChoice(): ReactNode {
             <label
               key={option.value}
               className={[
-                'flex flex-1 cursor-default items-center justify-center gap-1 border px-2 py-1',
+                'flex flex-1 cursor-default items-center justify-center gap-1 border px-2 py-1 pointer-coarse:min-h-(--control-lg)',
                 'text-xs',
                 'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent',
                 current

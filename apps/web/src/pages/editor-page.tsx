@@ -927,7 +927,7 @@ export function OpenItem({
 
       {/* A fixed-height strip between the item's own controls and the body, so the body keeps the
           one scroller it always had. Absent for every note that is not a daily note. */}
-      {dailyDate === null ? null : <DailyNoteBar date={dailyDate} itemId={itemId} />}
+      {dailyDate === null || zen ? null : <DailyNoteBar date={dailyDate} itemId={itemId} />}
 
       <div className={`flex flex-1 ${paneClip}`}>
         {/* In Zen a note's text keeps its reading measure but is centred in the window; the
