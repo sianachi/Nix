@@ -29,8 +29,11 @@ it('returns focus to the workspace control after importing from the mobile drawe
   const workspace = screen.getByRole('button', { name: 'Show the workspace tree' });
   await user.click(workspace);
   await user.click(screen.getByRole('button', { name: /^Notes$/ }));
+  const back = vi.spyOn(window.history, 'back');
   await user.click(screen.getByRole('menuitem', { name: 'Import' }));
   const dialog = await screen.findByRole('dialog', { name: /^Import$/ });
+  expect(back).not.toHaveBeenCalled();
+  back.mockRestore();
   await user.click(within(dialog).getByRole('button', { name: /^Close$/ }));
   await waitFor(() => {
     expect(workspace).toHaveFocus();
