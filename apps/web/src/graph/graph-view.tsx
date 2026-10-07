@@ -36,7 +36,7 @@ import {
   NO_FILTER,
   type GraphFilter,
 } from './graph-emphasis';
-import { pickLabels } from './graph-labels';
+import { labelPlacement, pickLabels } from './graph-labels';
 import {
   applyOffsets,
   layoutGraph,
@@ -316,6 +316,7 @@ type Fold = 'none' | 'open' | 'closed';
 
 interface NodeMarkProps {
   readonly node: PositionedNode;
+  readonly centreX: number;
 
   /** Whether the label is written permanently rather than waiting for a hover. */
   readonly named: boolean;
@@ -368,6 +369,7 @@ interface NodeMarkProps {
  */
 const NodeMark = memo(function NodeMark({
   node,
+  centreX,
   named,
   selected,
   lit,
@@ -424,7 +426,7 @@ const NodeMark = memo(function NodeMark({
             raw lengths in it. */}
         <NodeShape type={node.type} x={node.x} y={node.y} radius={node.radius} recency={recency} />
         <text
-          x={node.x + node.radius * 2}
+          {...labelPlacement(node, centreX)}
           y={node.y + 4}
           className={`fill-current text-xs text-muted ${named ? '' : LABEL_REVEAL}`}
         >
@@ -1542,6 +1544,149 @@ export function GraphView({
         )}
       </div>
 
+      {/* A fixed window onto the drawing. The camera, not a scroller, decides what it shows: the
+          drawing can be many times the pane in both directions, and scrollbars are a poor way to
+          move around something that size. */}
+      <div ref={paneRef} className="h-[70vh] overflow-hidden rounded-md border border-divider">
+        <svg
+          ref={svgRef}
+          aria-hidden={true}
+          focusable="false"
+          width="100%"
+          height="100%"
+          viewBox={viewBoxOf(camera, pane)}
+          // Present only while something is picked out; every un-lit mark dims on it (see DIMMED).
+          data-dimming={lit === null ? undefined : ''}
+          className="group/graph cursor-grab touch-none active:cursor-grabbing"
+          onPointerDown={onPanePointerDown}
+          onPointerMove={onPanePointerMove}
+          onPointerUp={onPanePointerEnd}
+          onPointerCancel={onPanePointerEnd}
+        >
+          {/* Two heads rather than one, because a marker cannot inherit the colour of the path that
+              references it: `context-stroke` would do it, but support is uneven enough that a
+              containment head would be the wrong colour on some browsers and right on others.
+
+              `orient="auto"` turns the head to the path's own direction at its end, which is what
+              makes one definition serve both a straight spoke and a bowed arc. The paths already
+              stop short of the disc they point at (see graph-layout.ts), so the head lands in clear
+              space rather than under the node. */}
+          <defs>
+            <marker
+              id="graph-arrow-containment"
+              viewBox="0 0 10 10"
+              refX={9}
+              refY={5}
+              markerWidth={6}
+              markerHeight={6}
+              orient="auto"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-divider" />
+            </marker>
+            <marker
+              id="graph-arrow-reference"
+              viewBox="0 0 10 10"
+              refX={9}
+              refY={5}
+              markerWidth={6}
+              markerHeight={6}
+              orient="auto"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-accent-text" />
+            </marker>
+          </defs>
+
+          <EdgeLayer
+            parentEdges={drawnEdges.parentEdges}
+            referenceEdges={drawnEdges.referenceEdges}
+            settled={settled}
+            hideStructure={hideStructure}
+          />
+
+          {activeEdges !== null && (
+            <HighlightLayer
+              // During a replay, an edge to a node that has not arrived yet is not drawn here
+              // either.
+              parentEdges={
+                arrived === null
+                  ? activeEdges.parentEdges
+                  : activeEdges.parentEdges.filter(
+                      (edge) => arrived.has(edge.parentId) && arrived.has(edge.childId),
+                    )
+              }
+              referenceEdges={
+                arrived === null
+                  ? activeEdges.referenceEdges
+                  : activeEdges.referenceEdges.filter(
+                      (edge) => arrived.has(edge.sourceId) && arrived.has(edge.targetId),
+                    )
+              }
+              pulses={!prefersReducedMotion()}
+            />
+          )}
+
+          {/* The link being drawn, from its source to the pointer. Dashed, because it is a
+              request and not yet a reference. */}
+          {linking !== null && linkSource !== undefined && (
+            <path
+              d={`M ${String(linkSource.x)} ${String(linkSource.y)} L ${String(linking.x)} ${String(linking.y)}`}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeDasharray="4 3"
+              className="pointer-events-none text-accent-text"
+            />
+          )}
+
+          {positioned.map((node) => (
+            <NodeMark
+              key={node.id}
+              node={node}
+              centreX={layout.width / 2}
+              // Named without being asked: the labels the layout had room for, the node just
+              // opened, and - while one node is being pointed at - it and everything it touches.
+              // Everything else waits to be hovered. A class swap rather than a conditional
+              // render, so the text node stays mounted and the transition has something to animate.
+              named={
+                labels.has(node.id) ||
+                node.id === openedId ||
+                (activeId !== null && lit?.has(node.id) === true)
+              }
+              selected={node.id === selectedId}
+              lit={lit?.has(node.id) === true}
+              recency={recencyOf(node.lastModifiedAt, now)}
+              absent={arrived !== null && !arrived.has(node.id)}
+              fold={
+                folded.parents.has(node.id) ? (collapsed.has(node.id) ? 'closed' : 'open') : 'none'
+              }
+              hiddenCount={folded.hidden.get(node.id) ?? 0}
+              onToggleFold={toggleFold}
+              dropTarget={node.id === dropTargetId}
+              // A fold stands in for a whole branch, so it cannot hold a reference of its own.
+              linkable={onLink !== undefined && !collapsed.has(node.id)}
+              linking={linking?.sourceId === node.id}
+              onLinkPointerDown={onLinkPointerDown}
+              onLinkPointerMove={onLinkPointerMove}
+              onLinkPointerUp={onLinkPointerUp}
+              onHover={setHoveredId}
+              // Before the first frame every node sits at the middle; afterwards it sits where the
+              // layout put it, and the transition between the two is the explosion.
+              // `motion-reduce` drops the movement for anybody who has asked their system for less
+              // of it - they get the final arrangement immediately.
+              home={
+                settled
+                  ? undefined
+                  : `translate(${String(layout.width / 2 - node.x)} ${String(layout.height / 2 - node.y)}) scale(0.4)`
+              }
+              onPointerDown={onNodePointerDown}
+              onPointerMove={onNodePointerMove}
+              onPointerUp={onNodePointerUp}
+              onOpen={open}
+            />
+          ))}
+        </svg>
+      </div>
+
       <div className="flex flex-wrap items-center gap-3">
         <Input
           type="search"
@@ -1727,148 +1872,6 @@ export function GraphView({
           </Button>
         </div>
       )}
-
-      {/* A fixed window onto the drawing. The camera, not a scroller, decides what it shows: the
-          drawing can be many times the pane in both directions, and scrollbars are a poor way to
-          move around something that size. */}
-      <div ref={paneRef} className="h-[70vh] overflow-hidden rounded-md border border-divider">
-        <svg
-          ref={svgRef}
-          aria-hidden={true}
-          focusable="false"
-          width="100%"
-          height="100%"
-          viewBox={viewBoxOf(camera, pane)}
-          // Present only while something is picked out; every un-lit mark dims on it (see DIMMED).
-          data-dimming={lit === null ? undefined : ''}
-          className="group/graph cursor-grab touch-none active:cursor-grabbing"
-          onPointerDown={onPanePointerDown}
-          onPointerMove={onPanePointerMove}
-          onPointerUp={onPanePointerEnd}
-          onPointerCancel={onPanePointerEnd}
-        >
-          {/* Two heads rather than one, because a marker cannot inherit the colour of the path that
-              references it: `context-stroke` would do it, but support is uneven enough that a
-              containment head would be the wrong colour on some browsers and right on others.
-
-              `orient="auto"` turns the head to the path's own direction at its end, which is what
-              makes one definition serve both a straight spoke and a bowed arc. The paths already
-              stop short of the disc they point at (see graph-layout.ts), so the head lands in clear
-              space rather than under the node. */}
-          <defs>
-            <marker
-              id="graph-arrow-containment"
-              viewBox="0 0 10 10"
-              refX={9}
-              refY={5}
-              markerWidth={6}
-              markerHeight={6}
-              orient="auto"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-divider" />
-            </marker>
-            <marker
-              id="graph-arrow-reference"
-              viewBox="0 0 10 10"
-              refX={9}
-              refY={5}
-              markerWidth={6}
-              markerHeight={6}
-              orient="auto"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-accent-text" />
-            </marker>
-          </defs>
-
-          <EdgeLayer
-            parentEdges={drawnEdges.parentEdges}
-            referenceEdges={drawnEdges.referenceEdges}
-            settled={settled}
-            hideStructure={hideStructure}
-          />
-
-          {activeEdges !== null && (
-            <HighlightLayer
-              // During a replay, an edge to a node that has not arrived yet is not drawn here
-              // either.
-              parentEdges={
-                arrived === null
-                  ? activeEdges.parentEdges
-                  : activeEdges.parentEdges.filter(
-                      (edge) => arrived.has(edge.parentId) && arrived.has(edge.childId),
-                    )
-              }
-              referenceEdges={
-                arrived === null
-                  ? activeEdges.referenceEdges
-                  : activeEdges.referenceEdges.filter(
-                      (edge) => arrived.has(edge.sourceId) && arrived.has(edge.targetId),
-                    )
-              }
-              pulses={!prefersReducedMotion()}
-            />
-          )}
-
-          {/* The link being drawn, from its source to the pointer. Dashed, because it is a
-              request and not yet a reference. */}
-          {linking !== null && linkSource !== undefined && (
-            <path
-              d={`M ${String(linkSource.x)} ${String(linkSource.y)} L ${String(linking.x)} ${String(linking.y)}`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeDasharray="4 3"
-              className="pointer-events-none text-accent-text"
-            />
-          )}
-
-          {positioned.map((node) => (
-            <NodeMark
-              key={node.id}
-              node={node}
-              // Named without being asked: the labels the layout had room for, the node just
-              // opened, and - while one node is being pointed at - it and everything it touches.
-              // Everything else waits to be hovered. A class swap rather than a conditional
-              // render, so the text node stays mounted and the transition has something to animate.
-              named={
-                labels.has(node.id) ||
-                node.id === openedId ||
-                (activeId !== null && lit?.has(node.id) === true)
-              }
-              selected={node.id === selectedId}
-              lit={lit?.has(node.id) === true}
-              recency={recencyOf(node.lastModifiedAt, now)}
-              absent={arrived !== null && !arrived.has(node.id)}
-              fold={
-                folded.parents.has(node.id) ? (collapsed.has(node.id) ? 'closed' : 'open') : 'none'
-              }
-              hiddenCount={folded.hidden.get(node.id) ?? 0}
-              onToggleFold={toggleFold}
-              dropTarget={node.id === dropTargetId}
-              // A fold stands in for a whole branch, so it cannot hold a reference of its own.
-              linkable={onLink !== undefined && !collapsed.has(node.id)}
-              linking={linking?.sourceId === node.id}
-              onLinkPointerDown={onLinkPointerDown}
-              onLinkPointerMove={onLinkPointerMove}
-              onLinkPointerUp={onLinkPointerUp}
-              onHover={setHoveredId}
-              // Before the first frame every node sits at the middle; afterwards it sits where the
-              // layout put it, and the transition between the two is the explosion.
-              // `motion-reduce` drops the movement for anybody who has asked their system for less
-              // of it - they get the final arrangement immediately.
-              home={
-                settled
-                  ? undefined
-                  : `translate(${String(layout.width / 2 - node.x)} ${String(layout.height / 2 - node.y)}) scale(0.4)`
-              }
-              onPointerDown={onNodePointerDown}
-              onPointerMove={onNodePointerMove}
-              onPointerUp={onNodePointerUp}
-              onOpen={open}
-            />
-          ))}
-        </svg>
-      </div>
 
       <GraphTree
         nodes={layout.nodes}

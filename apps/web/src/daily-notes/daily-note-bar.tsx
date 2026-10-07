@@ -1,10 +1,12 @@
-import { Button, Icon, Input, Text, focusRing } from '@nix/ui';
+import { Button, Dialog, Icon, Input, Text, focusRing } from '@nix/ui';
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 
 import { useWorkspaceCalendar } from '../calendar/use-workspace-calendar';
 import { browserStorage } from '../lib/browser-storage';
+import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
+import { useNarrowViewport } from '../layout/viewport';
 import { useOpenItem } from '../tabs/use-open-item';
 import { readTimestampValue, readerZone } from '../views/core/timestamps';
 import { useWorkspace } from '../workspaces/workspace-context';
@@ -54,6 +56,9 @@ export function DailyNoteBar({
   const navigate = useNavigate();
   const settings = useDailyNoteSettings(workspaceId, workspace.canUseDailyNotes);
   const [scheduleOpen, setScheduleOpen] = useState(readScheduleOpen);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const narrow = useNarrowViewport();
+  const keyboardVisible = useMobileKeyboard(narrow);
 
   // Every move the bar offers opens the daily address, which a workspace with daily notes switched
   // off refuses. The note itself stays an ordinary note; only the way between days goes.
@@ -67,7 +72,93 @@ export function DailyNoteBar({
   const next = shiftDailyNoteDate(date, 1);
 
   function go(target: string | null): void {
-    if (target !== null) void navigate(`/w/${workspaceId}/daily/${target}`);
+    if (target !== null) {
+      setNavigationOpen(false);
+      void navigate(`/w/${workspaceId}/daily/${target}`);
+    }
+  }
+
+  if (narrow) {
+    return (
+      <section
+        aria-label="Daily note"
+        hidden={keyboardVisible && !navigationOpen}
+        className="shrink-0 border-b border-divider px-3 py-1"
+      >
+        <Button
+          variant="ghost"
+          className="w-full justify-between"
+          aria-haspopup="dialog"
+          aria-label={`Day navigation, ${dailyNoteLabel(date)}`}
+          onClick={() => {
+            setNavigationOpen(true);
+          }}
+        >
+          <Text as="span" variant="bodySmall">
+            {dailyNoteLabel(date)}
+          </Text>
+          <Icon icon={ChevronDown} size="sm" />
+        </Button>
+        {navigationOpen ? (
+          <Dialog
+            open
+            title="Day navigation"
+            onClose={() => {
+              setNavigationOpen(false);
+            }}
+          >
+            <div className="flex min-w-0 flex-col gap-4">
+              <Input
+                type="date"
+                aria-label="Go to a day"
+                className="min-w-0 max-w-full"
+                value={date}
+                onChange={(event) => {
+                  go(parseDailyNoteDate(event.target.value));
+                }}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <Button
+                  variant="ghost"
+                  aria-label="Previous day"
+                  disabled={previous === null}
+                  onClick={() => {
+                    go(previous);
+                  }}
+                >
+                  <Icon icon={ChevronLeft} size="sm" />
+                  Previous
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={today === null || today === date}
+                  onClick={() => {
+                    go(today);
+                  }}
+                >
+                  Today
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label="Next day"
+                  disabled={next === null}
+                  onClick={() => {
+                    go(next);
+                  }}
+                >
+                  Next
+                  <Icon icon={ChevronRight} size="sm" />
+                </Button>
+              </div>
+              <Text as="h2" variant="h3">
+                Schedule
+              </Text>
+              <DaySchedule date={date} itemId={itemId} />
+            </div>
+          </Dialog>
+        ) : null}
+      </section>
+    );
   }
 
   return (

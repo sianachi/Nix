@@ -10,6 +10,7 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 import { ApiClientOverrideProvider } from '../api/api-client-provider';
 import { WorkspaceProvider, type WorkspaceLoadState } from '../workspaces/workspace-context';
 import { PetCompanion } from './pet-companion';
+import { PetPage } from '../pages/pet-page';
 import { PetHistory } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
@@ -523,9 +524,27 @@ const phoneConnection = petConnectionSchema.parse({
   state: 'success',
   messages: [
     {
+      id: 'question-1',
+      role: 'user',
+      text: 'Can you help me make a calm plan for the week?',
+      actions: [],
+    },
+    {
+      id: 'answer-1',
+      role: 'assistant',
+      text: 'Of course. Start by choosing one thing that would make the week feel easier.\n\nOn Monday, take ten minutes to look at the commitments already in your calendar. Move anything that is not urgent, then choose one small task to finish before lunch. Keep the afternoon open for the work that needs your attention.\n\nOn Tuesday and Wednesday, leave a short break between meetings if you can. A little space makes it easier to recover when something takes longer than expected.\n\nAt the end of the week, notice what helped and carry only that forward. A plan should make room for the week you actually have, not add another standard to meet.',
+      actions: [],
+    },
+    {
+      id: 'question-2',
+      role: 'user',
+      text: 'I have a busy Monday. What should I protect first?',
+      actions: [],
+    },
+    {
       id: 'reply',
       role: 'assistant',
-      text: 'Ready when you are. Ask me to find a note or plan your day.',
+      text: 'Protect a real lunch break and one focused block for your most important task. If the day fills up, those two anchors give you a place to begin and a chance to reset.\n\nYou could also leave a little space at the end of the day to write down what needs attention tomorrow. That way you do not have to keep the whole list in your head.',
       actions: [],
     },
   ],
@@ -585,8 +604,17 @@ function stubNarrowMatchMedia(): () => void {
   };
 }
 
+function stubPhoneSurface(): () => void {
+  const previous = window.localStorage.getItem('nix.pet.surface');
+  window.localStorage.setItem('nix.pet.surface', 'page-on-phones');
+  return () => {
+    if (previous === null) window.localStorage.removeItem('nix.pet.surface');
+    else window.localStorage.setItem('nix.pet.surface', previous);
+  };
+}
+
 /**
- * A 390x844 frame for the two phone stories below. `transform` on this box gives every
+ * A device-sized frame for the phone stories below. `transform` on this box gives every
  * `position: fixed` descendant it, rather than the Storybook canvas, as its containing block
  * (CSS Transforms), which is what keeps the companion's fixed launcher and full-screen dialog
  * inside the simulated device rather than pinned to the whole preview iframe. `matchMedia` is
@@ -597,12 +625,23 @@ function stubNarrowMatchMedia(): () => void {
 function PhoneFrame({
   children,
   initialEntry = `/w/${PHONE_WORKSPACE}`,
+  width = 390,
+  height = 844,
 }: {
   readonly children: ReactNode;
   readonly initialEntry?: string;
+  readonly width?: number;
+  readonly height?: number;
 }): ReactElement {
   const restore = useRef<(() => void) | null>(null);
-  restore.current ??= stubNarrowMatchMedia();
+  restore.current ??= (() => {
+    const restoreMedia = stubNarrowMatchMedia();
+    const restoreSurface = stubPhoneSurface();
+    return () => {
+      restoreMedia();
+      restoreSurface();
+    };
+  })();
   useEffect(
     () => () => {
       restore.current?.();
@@ -612,8 +651,8 @@ function PhoneFrame({
   );
   return (
     <div
-      style={{ width: 390, height: 844, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
-      className="relative overflow-hidden rounded-lg border border-divider"
+      style={{ width, height, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
+      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-divider"
     >
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
@@ -622,6 +661,16 @@ function PhoneFrame({
             element={
               <ApiClientOverrideProvider client={phoneClient}>
                 <WorkspaceProvider state={phoneWorkspaceState}>{children}</WorkspaceProvider>
+              </ApiClientOverrideProvider>
+            }
+          />
+          <Route
+            path="/w/:workspaceId/pet"
+            element={
+              <ApiClientOverrideProvider client={phoneClient}>
+                <WorkspaceProvider state={phoneWorkspaceState}>
+                  <PetPage />
+                </WorkspaceProvider>
               </ApiClientOverrideProvider>
             }
           />
@@ -653,10 +702,10 @@ export const DarkDesignConversationPhone = {
 };
 
 /**
- * Opens the launcher with a native click (no test-only dependency) so `ConversationPhone` below
- * can show the full-screen dialog without a play function. The launcher only exists once
- * `usePetSettings` has resolved, so a `MutationObserver` waits for it rather than clicking on
- * the empty first render.
+ * Follows the phone's default page preference with a native click (no test-only dependency), so
+ * the conversation stories exercise the same launcher-to-page route a reader uses. The launcher
+ * only exists once settings have resolved, so a `MutationObserver` waits rather than clicking on
+ * the empty first render. The Talk label remains supported for a story where floating is chosen.
  */
 function AutoOpenCompanion(): ReactElement {
   const container = useRef<HTMLDivElement | null>(null);
@@ -664,7 +713,9 @@ function AutoOpenCompanion(): ReactElement {
     const node = container.current;
     if (!node) return;
     const clickWhenReady = (): boolean => {
-      const button = node.querySelector<HTMLButtonElement>('button[aria-label^="Talk with "]');
+      const button = node.querySelector<HTMLButtonElement>(
+        'button[aria-label^="Open "], button[aria-label^="Talk with "]',
+      );
       if (!button) return false;
       button.click();
       return true;
@@ -693,6 +744,30 @@ export const ConversationPhone = {
   ),
 };
 export const DarkConversationPhone = { ...ConversationPhone, globals: { ground: 'dark' } };
+
+export const ConversationPhone320 = {
+  render: (): ReactElement => (
+    <PhoneFrame width={320}>
+      <AutoOpenCompanion />
+    </PhoneFrame>
+  ),
+};
+export const DarkConversationPhone320 = {
+  ...ConversationPhone320,
+  globals: { ground: 'dark' },
+};
+
+export const ConversationPhoneLandscape = {
+  render: (): ReactElement => (
+    <PhoneFrame width={568} height={320}>
+      <AutoOpenCompanion />
+    </PhoneFrame>
+  ),
+};
+export const DarkConversationPhoneLandscape = {
+  ...ConversationPhoneLandscape,
+  globals: { ground: 'dark' },
+};
 
 /** A desktop-width companion, wired the same way `PhoneFrame` is but without the narrow stub, so
  * the redesigned dialog (header row, settings sheet, activity rows) can be shown at its normal
@@ -755,9 +830,11 @@ function AutoOpenPanel({
   useEffect(() => {
     const node = container.current;
     if (!node) return;
+    // Menus are portaled outside their pane; the isolated story document owns those controls.
+    const surface = node.ownerDocument.body;
     const click = (match: (el: HTMLElement) => boolean): boolean => {
       const found = Array.from(
-        node.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
+        surface.querySelectorAll<HTMLElement>('button, [role="menuitem"]'),
       ).find(match);
       if (!found) return false;
       found.click();
@@ -782,7 +859,7 @@ function AutoOpenPanel({
       advance();
       if (stage.current === 'done') observer.disconnect();
     });
-    observer.observe(node, { childList: true, subtree: true });
+    observer.observe(surface, { childList: true, subtree: true });
     return () => {
       observer.disconnect();
     };
@@ -1069,7 +1146,7 @@ export const DarkDisconnected = { ...Disconnected, globals: { ground: 'dark' } }
 export const SettingsSheet = {
   render: (): ReactElement => (
     <DesktopFrame connection={emptyChatConnection}>
-      <AutoOpenPanel menuItemLabel="Settings">
+      <AutoOpenPanel menuItemLabel="Chat settings">
         <PetCompanion />
       </AutoOpenPanel>
     </DesktopFrame>

@@ -138,7 +138,7 @@ export function CreationStudioFrame({
                     goToStep(index);
                   }}
                   className={cn(
-                    `flex w-full items-center gap-2 rounded-md px-2 py-2 text-left ${focusRing}`,
+                    `flex min-h-10 w-full items-center gap-2 rounded-md px-2 py-2 text-left pointer-coarse:min-h-(--control-lg) ${focusRing}`,
                     step === index ? 'bg-accent/10 text-accent-text' : 'hover:bg-foreground/7',
                   )}
                 >

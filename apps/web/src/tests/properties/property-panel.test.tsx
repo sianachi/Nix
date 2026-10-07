@@ -36,6 +36,36 @@ function itemWith(properties: Record<string, unknown>): Item {
 }
 
 describe('the property panel', () => {
+  it('keeps required, computed, false and zero values visible while revealing optional empty fields on demand', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn(() => Promise.resolve(null));
+    renderAt(
+      <PropertyPanel
+        compact
+        item={itemWith({ count: 0, enabled: false, owner: '' })}
+        properties={[
+          propertyOf({ key: 'count', label: 'Count', type: 'number' }),
+          propertyOf({ key: 'enabled', label: 'Enabled', type: 'checkbox' }),
+          propertyOf({ key: 'required', label: 'Required value', required: true }),
+          propertyOf({ key: 'total', label: 'Total', type: 'formula', expression: '1 + 1' }),
+          propertyOf({ key: 'owner', label: 'Owner' }),
+        ]}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByLabelText('Count')).toHaveValue(0);
+    expect(screen.getByRole('checkbox', { name: 'Enabled' })).not.toBeChecked();
+    expect(screen.getByLabelText(/Required value/)).toBeRequired();
+    expect(screen.getByText('Total')).toBeVisible();
+    expect(screen.queryByLabelText('Owner')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'More details (1)' }));
+    expect(screen.getByLabelText('Owner')).toHaveFocus();
+    await user.type(screen.getByLabelText('Owner'), 'Ada');
+    await user.tab();
+    await waitFor(() => {
+      expect(onChange).toHaveBeenCalledWith({ owner: 'Ada' });
+    });
+  });
   it('offers every property the schema puts in force', () => {
     renderAt(
       <PropertyPanel

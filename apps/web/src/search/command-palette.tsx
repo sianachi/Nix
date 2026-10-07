@@ -251,7 +251,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
                 : searching
                   ? 'Searching…'
                   : allHits.length > 0
-                    ? 'Matching items are hidden for you. Open Hidden items to show them again.'
+                    ? 'Matching items are hidden. Manage them in Workspace options.'
                     : `Nothing matches “${needle}”.`
         }
         className="min-h-0 max-h-[calc(100dvh-7rem)] overflow-y-auto"
@@ -264,9 +264,8 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
         */}
       <div role="status" className="empty:hidden">
         {hits.length < allHits.length ? (
-          <Text variant="note" tone="muted">
-            Some matching items are hidden for you. Open Hidden items in their workspace to show
-            them again.
+          <Text variant="caption" tone="muted" className="px-4 py-2">
+            {String(allHits.length - hits.length)} hidden
           </Text>
         ) : null}
         {searching ? (

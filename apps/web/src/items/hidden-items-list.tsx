@@ -31,10 +31,7 @@ export function HiddenItemsList({
   readonly onMore: () => void;
 }): ReactNode {
   return (
-    <section
-      aria-label="Hidden items"
-      className="flex flex-col gap-2 rounded-md border border-divider p-3"
-    >
+    <section aria-label="Hidden items" className="flex flex-col gap-3">
       <Text variant="caption" tone="muted">
         Hidden for you in this workspace and browser. Items remain saved. Direct links can still
         open them. Hiding a parent also hides its branch in the sidebar.

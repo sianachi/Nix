@@ -13,6 +13,7 @@ import { useRef, useState, type ReactNode, type RefObject } from 'react';
 
 export interface ShellSidebarProps {
   readonly narrow: boolean;
+  readonly mobileDestinations: ReactNode;
   readonly sidebar: Sidebar;
   readonly tree: WorkspaceTree;
   readonly selectedId: string | null;
@@ -36,6 +37,7 @@ export interface ShellSidebarProps {
  */
 export function ShellSidebar({
   narrow,
+  mobileDestinations,
   sidebar,
   tree,
   selectedId,
@@ -94,14 +96,15 @@ export function ShellSidebar({
     <>
       {!sidebar.visible ? null : narrow ? (
         <SidebarDrawer onClose={closeDrawer}>
-          {/* Browse and open only. The full tree's actions - structured items, templates, delete,
-              open beside - are laid out for a pointer and a wide pane, and are not offered on a
-              phone. */}
+          {/* One browser owns the phone's width. Occasional item and destination actions are
+              disclosed from it instead of competing in a second navigation column. */}
           <MobileWorkspaceBrowser
             tree={tree}
             parentId={browseParent}
             onParent={setBrowseParent}
             onOpen={closeDrawerAfter(openItem.openPreview)}
+            onClose={closeDrawer}
+            destinations={mobileDestinations}
           />
         </SidebarDrawer>
       ) : (

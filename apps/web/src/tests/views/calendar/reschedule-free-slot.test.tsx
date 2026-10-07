@@ -62,13 +62,11 @@ describe('the free slot in the reschedule dialog', () => {
     use.focus();
     fireEvent.click(use);
 
-    expect(screen.getByLabelText('New date and time for Planning')).toHaveValue('2026-10-01T10:30');
-    expect(screen.getByLabelText('New end date and time for Planning')).toHaveValue(
-      '2026-10-01T11:30',
-    );
+    expect(screen.getByLabelText('New date and time')).toHaveValue('2026-10-01T10:30');
+    expect(screen.getByLabelText('New end date and time')).toHaveValue('2026-10-01T11:30');
     expect(onMove).not.toHaveBeenCalled();
     // The new start is where focus lands, so a screen reader hears the value that was filled in.
-    expect(screen.getByLabelText('New date and time for Planning')).toHaveFocus();
+    expect(screen.getByLabelText('New date and time')).toHaveFocus();
   });
 
   it('works the slot out once, when the dialog opens', () => {

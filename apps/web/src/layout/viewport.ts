@@ -94,9 +94,12 @@ export function useMediaQuery(query: string): boolean {
   );
 }
 
-/** Phone-only content arrangements, independent of the tablet workspace drawer. */
+/** Keep touch devices in the compact arrangement through phone landscape and small tablets. */
 export function useNarrowViewport(): boolean {
-  return !useMediaQuery(WIDE_ENOUGH_FOR_NON_PHONE_LAYOUT);
+  const nonPhoneWidth = useMediaQuery(WIDE_ENOUGH_FOR_NON_PHONE_LAYOUT);
+  const fixedSidebarWidth = useMediaQuery(WIDE_ENOUGH_FOR_A_FIXED_SIDEBAR);
+  const coarsePointer = useCoarsePointer();
+  return !nonPhoneWidth || (!fixedSidebarWidth && coarsePointer);
 }
 
 /**
@@ -128,11 +131,9 @@ export function useOverlayDetails(): boolean {
 /**
  * Whether the primary pointer is a finger rather than a mouse or a pen.
  *
- * **Asked separately from width, because they are separate facts.** Every view's phone arrangement
- * keys off {@link useNarrowViewport}, which a landscape tablet does not satisfy - so a tablet gets
- * the desktop layout, which is right, but must not also get desktop gestures: a drag that needs a
- * mouse, a menu that opens on hover, a 28px control. This answers that second question, and the
- * layout question stays with width.
+ * Width and pointer capability are separate facts. Compact layouts combine them to keep a
+ * landscape phone usable, while wide touch screens still need touch-sized controls and cannot
+ * depend on hover or mouse-only gestures.
  */
 export function useCoarsePointer(): boolean {
   return useMediaQuery('(pointer: coarse)');

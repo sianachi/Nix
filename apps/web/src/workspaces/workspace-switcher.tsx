@@ -31,9 +31,6 @@ export function WorkspaceSwitcher(): ReactNode {
         <section aria-label="Workspaces">
           <div className="border-b border-divider px-3 py-2">
             <Text variant="bodySmall">Workspaces</Text>
-            <Text variant="caption" as="p" tone="muted">
-              Open a workspace or manage its people and settings.
-            </Text>
           </div>
 
           <ul aria-label="Your workspaces" className="max-h-72 overflow-y-auto py-1">
@@ -46,7 +43,7 @@ export function WorkspaceSwitcher(): ReactNode {
                   to={`/w/${entry.id}`}
                   aria-current={entry.id === workspace.id ? 'page' : undefined}
                   onClick={close}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-sm text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-3 text-md text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
                 >
                   <Icon
                     icon={Check}

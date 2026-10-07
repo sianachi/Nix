@@ -528,7 +528,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
                 // line height plus `py-1`), just under WCAG 2.5.8's 24px floor. The pseudo-element
                 // widens the hit area half a step past each edge without moving the row - the
                 // pane-divider technique, at the smallest extension that clears the floor.
-                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5',
+                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5 pointer-coarse:min-h-(--control-lg)',
                 'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
                 mode === grain
                   ? 'bg-foreground/7 text-foreground'

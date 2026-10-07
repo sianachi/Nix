@@ -1,7 +1,7 @@
 import { renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { useCanHover, useCoarsePointer } from '../../layout/viewport';
+import { useCanHover, useCoarsePointer, useNarrowViewport } from '../../layout/viewport';
 import { stubViewport } from '../stub-viewport';
 
 function stubPointer(coarse: boolean): void {
@@ -35,5 +35,31 @@ describe('pointer facts, asked apart from width', () => {
 
     expect(renderHook(() => useCoarsePointer()).result.current).toBe(true);
     expect(renderHook(() => useCanHover()).result.current).toBe(false);
+  });
+
+  it('keeps a landscape phone compact without changing a mouse layout of the same width', () => {
+    const atWidth = (width: number, coarse: boolean) => {
+      stubViewport(width);
+      const widthMedia = globalThis.matchMedia;
+      globalThis.matchMedia = (query) => {
+        if (!query.includes('pointer')) return widthMedia(query);
+        return {
+          matches: query.includes('coarse') ? coarse : !coarse,
+          media: query,
+          onchange: null,
+          addEventListener: () => undefined,
+          removeEventListener: () => undefined,
+          addListener: () => undefined,
+          removeListener: () => undefined,
+          dispatchEvent: () => false,
+        };
+      };
+    };
+    atWidth(844, true);
+    expect(renderHook(() => useNarrowViewport()).result.current).toBe(true);
+    atWidth(844, false);
+    expect(renderHook(() => useNarrowViewport()).result.current).toBe(false);
+    atWidth(1280, true);
+    expect(renderHook(() => useNarrowViewport()).result.current).toBe(false);
   });
 });

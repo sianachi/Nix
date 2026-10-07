@@ -6,6 +6,7 @@ import {
   Tag,
   Text,
   cn,
+  focusRing,
   focusRingInset,
   inkWashStates,
 } from '@nix/ui';
@@ -26,6 +27,7 @@ import {
   type ReactNode,
 } from 'react';
 import { ErrorPanel, LoadingPanel, PartialNotice } from '../../components/states/status-panels';
+import { useNarrowViewport } from '../../layout/viewport';
 import { BudgetActualDialog } from './budget-actual-dialog';
 import { LineDialog } from './finance-setup';
 import { Money, SectionHeading, editableTextButton } from './finance-shared';
@@ -61,6 +63,7 @@ export function FinanceBudget({
   readonly month: string;
   readonly onMonth: (month: string) => void;
 }): ReactNode {
+  const narrow = useNarrowViewport();
   const currency = finance.settings.currency;
   const [span, setSpan] = useState<Span>('month');
   const [figure, setFigure] = useState<Figure>('actual');
@@ -326,219 +329,232 @@ export function FinanceBudget({
             : `No budget lines are paid from ${accountName} yet.`}
         </Text>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse">
-            <caption className="sr-only">Budget lines by month</caption>
-            <thead>
-              <tr className="border-b border-divider text-left">
-                <th scope="col" className="py-2 pr-3">
-                  <Text as="span" variant="caption" tone="muted">
-                    Line
-                  </Text>
-                </th>
-                <th scope="col" className="py-2 pr-3">
-                  <Text as="span" variant="caption" tone="muted">
-                    Paid from
-                  </Text>
-                </th>
-                {span === 'month' ? (
-                  <>
-                    <NumberHeader label="Plan" />
-                    <NumberHeader label="Actual" />
-                    <NumberHeader label="Left / variance" />
-                  </>
-                ) : (
-                  grid.months.map((each) => <NumberHeader key={each} label={formatMonth(each)} />)
-                )}
-              </tr>
-            </thead>
-            {grid.sections.map((section) => (
-              <tbody key={`${section.flow}:${section.name}`}>
-                <tr className="border-b border-divider bg-surface-raised">
-                  <th scope="rowgroup" colSpan={2} className="py-2 pr-3 text-left">
-                    <Text as="span" variant="caption">
-                      {section.name.toUpperCase()}
+        <>
+          {narrow ? (
+            <Text variant="caption" tone="muted">
+              Swipe horizontally to compare the plan, actual and remaining amounts.
+            </Text>
+          ) : null}
+          <div
+            role="region"
+            aria-label="Budget figures"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need a tab stop on the horizontal scroll owner to reach clipped budget columns.
+            tabIndex={0}
+            className={cn('min-w-0 overflow-x-auto', focusRing)}
+          >
+            <table className="w-full min-w-max border-collapse">
+              <caption className="sr-only">Budget lines by month</caption>
+              <thead>
+                <tr className="border-b border-divider text-left">
+                  <th scope="col" className="py-2 pr-3">
+                    <Text as="span" variant="caption" tone="muted">
+                      Line
+                    </Text>
+                  </th>
+                  <th scope="col" className="py-2 pr-3">
+                    <Text as="span" variant="caption" tone="muted">
+                      Paid from
                     </Text>
                   </th>
                   {span === 'month' ? (
                     <>
-                      <NumberCell>
-                        <Money amount={section.totals[0]?.plan ?? 0} currency={currency} />
-                      </NumberCell>
-                      <NumberCell>
-                        <Money amount={section.totals[0]?.actual ?? 0} currency={currency} />
-                      </NumberCell>
-                      <NumberCell>
-                        <Left
-                          value={left(section.totals[0] ?? EMPTY_CELL, section.flow)}
-                          currency={currency}
-                          flow={section.flow}
-                        />
-                      </NumberCell>
+                      <NumberHeader label="Plan" />
+                      <NumberHeader label="Actual" />
+                      <NumberHeader label="Left / variance" />
                     </>
                   ) : (
-                    section.totals.map((cell) => (
-                      <NumberCell key={cell.month}>
-                        <Money amount={value(cell, section.flow)} currency={currency} />
-                      </NumberCell>
-                    ))
+                    grid.months.map((each) => <NumberHeader key={each} label={formatMonth(each)} />)
                   )}
                 </tr>
-                {section.lines.map((row) => (
-                  <tr key={row.line.id} className="border-b border-divider">
-                    <th scope="row" className="py-2 pr-3 text-left font-normal">
-                      <button
-                        type="button"
-                        className={editableTextButton}
-                        disabled={query.status !== 'ready'}
-                        onClick={() => {
-                          setEditing(row.line);
-                        }}
-                      >
-                        <Text as="span" variant="bodySmall">
-                          {row.line.name}
-                        </Text>
-                      </button>
-                      {row.line.archived ? <Tag tone="muted">Archived</Tag> : null}
-                      {row.line.scheduled ? <Tag tone="neutral">Scheduled</Tag> : null}
-                    </th>
-                    <td className="py-2 pr-3">
-                      <Text as="span" variant="bodySmall" tone="muted">
-                        {finance.accounts.find((each) => each.id === row.line.accountId)?.name ??
-                          ''}
+              </thead>
+              {grid.sections.map((section) => (
+                <tbody key={`${section.flow}:${section.name}`}>
+                  <tr className="border-b border-divider bg-surface-raised">
+                    <th scope="rowgroup" colSpan={2} className="py-2 pr-3 text-left">
+                      <Text as="span" variant="caption">
+                        {section.name.toUpperCase()}
                       </Text>
-                    </td>
+                    </th>
                     {span === 'month' ? (
                       <>
                         <NumberCell>
-                          <PlanCell
-                            line={row.line}
-                            month={month}
-                            amount={row.cells[0]?.plan ?? 0}
-                            currency={currency}
-                            closed={closedMonth || query.status !== 'ready'}
-                            onSave={(amount) => savePlan(row.line, month, amount)}
-                          />
+                          <Money amount={section.totals[0]?.plan ?? 0} currency={currency} />
                         </NumberCell>
                         <NumberCell>
-                          <ActualCell
-                            line={row.line}
-                            month={month}
-                            cell={row.cells[0] ?? EMPTY_CELL}
-                            currency={currency}
-                            disabled={query.status !== 'ready'}
-                            onOpen={() => {
-                              setOpened({ lineId: row.line.id, month });
-                            }}
-                          />
+                          <Money amount={section.totals[0]?.actual ?? 0} currency={currency} />
                         </NumberCell>
                         <NumberCell>
                           <Left
-                            value={left(row.cells[0] ?? EMPTY_CELL, section.flow)}
+                            value={left(section.totals[0] ?? EMPTY_CELL, section.flow)}
                             currency={currency}
                             flow={section.flow}
                           />
                         </NumberCell>
                       </>
                     ) : (
-                      row.cells.map((cell) => (
+                      section.totals.map((cell) => (
                         <NumberCell key={cell.month}>
-                          {figure === 'plan' ? (
-                            <PlanCell
-                              line={row.line}
-                              month={cell.month}
-                              amount={cell.plan}
-                              currency={currency}
-                              closed={
-                                finance.closedMonths.includes(cell.month) ||
-                                query.status !== 'ready'
-                              }
-                              onSave={(amount) => savePlan(row.line, cell.month, amount)}
-                            />
-                          ) : figure === 'actual' ? (
-                            <ActualCell
-                              line={row.line}
-                              month={cell.month}
-                              cell={cell}
-                              currency={currency}
-                              disabled={query.status !== 'ready'}
-                              onOpen={() => {
-                                setOpened({ lineId: row.line.id, month: cell.month });
-                              }}
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              className={cellButton}
-                              disabled={query.status !== 'ready'}
-                              onClick={() => {
-                                onMonth(cell.month);
-                              }}
-                            >
-                              <span className="sr-only">
-                                Open {formatMonth(cell.month, 'long')} for {row.line.name}:{' '}
-                              </span>
-                              <Money amount={value(cell, section.flow)} currency={currency} />
-                            </button>
-                          )}
+                          <Money amount={value(cell, section.flow)} currency={currency} />
                         </NumberCell>
                       ))
                     )}
                   </tr>
-                ))}
-              </tbody>
-            ))}
-            <tfoot>
-              {span === 'month' ? (
-                <Totals grid={grid} currency={currency} accountName={accountName} />
-              ) : (
-                <>
-                  <tr className="border-t border-divider">
-                    <th scope="row" colSpan={2} className="py-2 pr-3 text-left">
-                      <Text as="span" variant="bodySmall" className="font-medium">
-                        {accountName === undefined ? 'Net' : `Net on ${accountName}`}
-                      </Text>
-                    </th>
-                    {grid.totals.map((totals) => (
-                      <NumberCell key={totals.month}>
-                        <Money
-                          amount={
-                            figure === 'plan'
-                              ? totals.plan.net
-                              : figure === 'actual'
-                                ? totals.actual.net
-                                : totals.actual.net - totals.plan.net
-                          }
-                          currency={currency}
-                          signed={figure === 'left'}
-                        />
-                      </NumberCell>
-                    ))}
-                  </tr>
-                  <tr>
-                    <th scope="row" colSpan={2} className="py-2 pr-3 text-left">
-                      <Text as="span" variant="bodySmall" tone="muted">
-                        Cumulative net since {formatMonth(finance.settings.startMonth)}
-                      </Text>
-                    </th>
-                    {grid.totals.map((totals) => (
-                      <NumberCell key={totals.month}>
-                        <Money
-                          amount={
-                            figure === 'actual'
-                              ? totals.cumulativeNetActual
-                              : totals.cumulativeNetPlan
-                          }
-                          currency={currency}
-                        />
-                      </NumberCell>
-                    ))}
-                  </tr>
-                </>
-              )}
-            </tfoot>
-          </table>
-        </div>
+                  {section.lines.map((row) => (
+                    <tr key={row.line.id} className="border-b border-divider">
+                      <th scope="row" className="py-2 pr-3 text-left font-normal">
+                        <button
+                          type="button"
+                          className={editableTextButton}
+                          disabled={query.status !== 'ready'}
+                          onClick={() => {
+                            setEditing(row.line);
+                          }}
+                        >
+                          <Text as="span" variant="bodySmall">
+                            {row.line.name}
+                          </Text>
+                        </button>
+                        {row.line.archived ? <Tag tone="muted">Archived</Tag> : null}
+                        {row.line.scheduled ? <Tag tone="neutral">Scheduled</Tag> : null}
+                      </th>
+                      <td className="py-2 pr-3">
+                        <Text as="span" variant="bodySmall" tone="muted">
+                          {finance.accounts.find((each) => each.id === row.line.accountId)?.name ??
+                            ''}
+                        </Text>
+                      </td>
+                      {span === 'month' ? (
+                        <>
+                          <NumberCell>
+                            <PlanCell
+                              line={row.line}
+                              month={month}
+                              amount={row.cells[0]?.plan ?? 0}
+                              currency={currency}
+                              closed={closedMonth || query.status !== 'ready'}
+                              onSave={(amount) => savePlan(row.line, month, amount)}
+                            />
+                          </NumberCell>
+                          <NumberCell>
+                            <ActualCell
+                              line={row.line}
+                              month={month}
+                              cell={row.cells[0] ?? EMPTY_CELL}
+                              currency={currency}
+                              disabled={query.status !== 'ready'}
+                              onOpen={() => {
+                                setOpened({ lineId: row.line.id, month });
+                              }}
+                            />
+                          </NumberCell>
+                          <NumberCell>
+                            <Left
+                              value={left(row.cells[0] ?? EMPTY_CELL, section.flow)}
+                              currency={currency}
+                              flow={section.flow}
+                            />
+                          </NumberCell>
+                        </>
+                      ) : (
+                        row.cells.map((cell) => (
+                          <NumberCell key={cell.month}>
+                            {figure === 'plan' ? (
+                              <PlanCell
+                                line={row.line}
+                                month={cell.month}
+                                amount={cell.plan}
+                                currency={currency}
+                                closed={
+                                  finance.closedMonths.includes(cell.month) ||
+                                  query.status !== 'ready'
+                                }
+                                onSave={(amount) => savePlan(row.line, cell.month, amount)}
+                              />
+                            ) : figure === 'actual' ? (
+                              <ActualCell
+                                line={row.line}
+                                month={cell.month}
+                                cell={cell}
+                                currency={currency}
+                                disabled={query.status !== 'ready'}
+                                onOpen={() => {
+                                  setOpened({ lineId: row.line.id, month: cell.month });
+                                }}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                className={cellButton}
+                                disabled={query.status !== 'ready'}
+                                onClick={() => {
+                                  onMonth(cell.month);
+                                }}
+                              >
+                                <span className="sr-only">
+                                  Open {formatMonth(cell.month, 'long')} for {row.line.name}:{' '}
+                                </span>
+                                <Money amount={value(cell, section.flow)} currency={currency} />
+                              </button>
+                            )}
+                          </NumberCell>
+                        ))
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+              <tfoot>
+                {span === 'month' ? (
+                  <Totals grid={grid} currency={currency} accountName={accountName} />
+                ) : (
+                  <>
+                    <tr className="border-t border-divider">
+                      <th scope="row" colSpan={2} className="py-2 pr-3 text-left">
+                        <Text as="span" variant="bodySmall" className="font-medium">
+                          {accountName === undefined ? 'Net' : `Net on ${accountName}`}
+                        </Text>
+                      </th>
+                      {grid.totals.map((totals) => (
+                        <NumberCell key={totals.month}>
+                          <Money
+                            amount={
+                              figure === 'plan'
+                                ? totals.plan.net
+                                : figure === 'actual'
+                                  ? totals.actual.net
+                                  : totals.actual.net - totals.plan.net
+                            }
+                            currency={currency}
+                            signed={figure === 'left'}
+                          />
+                        </NumberCell>
+                      ))}
+                    </tr>
+                    <tr>
+                      <th scope="row" colSpan={2} className="py-2 pr-3 text-left">
+                        <Text as="span" variant="bodySmall" tone="muted">
+                          Cumulative net since {formatMonth(finance.settings.startMonth)}
+                        </Text>
+                      </th>
+                      {grid.totals.map((totals) => (
+                        <NumberCell key={totals.month}>
+                          <Money
+                            amount={
+                              figure === 'actual'
+                                ? totals.cumulativeNetActual
+                                : totals.cumulativeNetPlan
+                            }
+                            currency={currency}
+                          />
+                        </NumberCell>
+                      ))}
+                    </tr>
+                  </>
+                )}
+              </tfoot>
+            </table>
+          </div>
+        </>
       )}
       <LineDialog
         state={state}

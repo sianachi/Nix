@@ -253,10 +253,7 @@ export function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
         }}
         className="flex flex-col gap-3"
       >
-        <Field
-          label={`${placesByTime ? 'New date and time' : 'New date'} for ${item.title || 'Untitled'}`}
-          error={error}
-        >
+        <Field label={placesByTime ? 'New date and time' : 'New date'} error={error}>
           {(control) => (
             <Input
               {...control}
@@ -293,10 +290,7 @@ export function RescheduleDialog(props: RescheduleDialogProps): ReactNode {
           // configured one draws exactly what it drew before this field existed. Blank is a valid
           // draft here (see `submit`'s own comment): the item may have no end yet, and the field
           // opens empty rather than guessing one.
-          <Field
-            label={`${placesByTime ? 'New end date and time' : 'New end date'} for ${item.title || 'Untitled'}`}
-            error={endError}
-          >
+          <Field label={placesByTime ? 'New end date and time' : 'New end date'} error={endError}>
             {(control) => (
               <Input
                 {...control}

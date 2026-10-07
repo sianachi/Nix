@@ -40,7 +40,11 @@ describe('reaching the settings screen', () => {
 
     // The menu button is named by the profile it shows once /me has answered.
     await user.click(await screen.findByRole('button', { name: /test person/i }));
-    await user.click(screen.getByRole('menuitem', { name: /settings/i }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: /account/i })).getByRole('link', {
+        name: /settings/i,
+      }),
+    );
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   });

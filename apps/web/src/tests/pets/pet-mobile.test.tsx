@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Outlet, Route, Routes } from 'react-router';
 import { StrictMode } from 'react';
 import { PetCompanion } from '../../pets/pet-companion';
+import { PetPage } from '../../pages/pet-page';
 import { stubViewport } from '../stub-viewport';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn() }));
@@ -88,6 +89,54 @@ describe('companion on a phone', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByRole('img', { name: 'Cat' })).toHaveClass('size-24');
+  });
+
+  it('follows the phone page preference from the launcher into the connected conversation', async () => {
+    const user = userEvent.setup();
+    const workspaceId = '33333333-3333-4333-8333-333333333333';
+    stubViewport(320);
+    vi.stubGlobal('innerWidth', 320);
+    localStorage.setItem('nix.pet.surface', 'page-on-phones');
+    client.execute.mockResolvedValue({ models: [] });
+    client.query.mockResolvedValue({
+      ...connected,
+      revision: 1,
+      messages: [
+        { id: 'phone-user', role: 'user', text: 'Help me plan a calmer week.', actions: [] },
+        {
+          id: 'phone-reply',
+          role: 'assistant',
+          text: 'Choose one priority for each day, leave a break between commitments, and keep a little room for the unexpected.',
+          actions: [],
+        },
+      ],
+    });
+
+    function WorkspaceRoute() {
+      return (
+        <>
+          <PetCompanion />
+          <Outlet />
+        </>
+      );
+    }
+
+    render(
+      <MemoryRouter initialEntries={[`/w/${workspaceId}`]}>
+        <Routes>
+          <Route path="/w/:workspaceId" element={<WorkspaceRoute />}>
+            <Route index element={<div>Workspace</div>} />
+            <Route path="pet" element={<PetPage />} />
+          </Route>
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Open Cat' }));
+    expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
+    expect(await screen.findByText(/Choose one priority for each day/)).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Message Cat' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Open Cat' })).not.toBeInTheDocument();
   });
 
   it('keeps the regular launcher size at tablet width while still clearing the bottom nav', async () => {

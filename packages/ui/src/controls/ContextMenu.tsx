@@ -217,6 +217,7 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
               label={label}
               items={open.items}
               initial="first"
+              tabOrigin={open.returnFocus}
               renderLink={renderLink}
               className={className}
               anchor={() => open.anchor}

@@ -511,6 +511,7 @@ export function EditorToolbar({
       ...inserts,
       tableInsert,
       ...history,
+      ...speechControls,
       ...move,
       ...(inColumns ? columns : []),
       ...(inTable ? table : []),
@@ -523,8 +524,6 @@ export function EditorToolbar({
       >
         <Group controls={marks.filter((control) => ['bold', 'italic'].includes(control.id))} />
         <Group controls={lists.filter((control) => control.id === 'bulletList')} />
-        {/* In the bar and not the sheet: on a phone, speaking is the fast way to write. */}
-        {speechControls.length === 0 ? null : <Group controls={speechControls} label="Speech" />}
         <Button
           variant="ghost"
           onClick={() => {
@@ -783,7 +782,7 @@ function ToolbarButton({
       disabled={disabled}
       onClick={control.run}
       className={[
-        'flex size-7 max-xl:min-h-11 max-xl:min-w-11 items-center justify-center rounded-sm',
+        'flex size-7 max-xl:min-h-(--control-lg) max-xl:min-w-(--control-lg) items-center justify-center rounded-sm',
         'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
         disabled
           ? 'cursor-not-allowed text-muted opacity-40'

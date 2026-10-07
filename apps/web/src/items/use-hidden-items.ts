@@ -23,6 +23,7 @@ export interface HiddenItemsPreference {
   readonly saveFailed: boolean;
   readonly hide: (itemId: string, title: string) => void;
   readonly show: (itemId: string, title: string) => void;
+  readonly showItems: (itemIds: readonly string[]) => void;
   readonly showAll: () => void;
 }
 
@@ -62,7 +63,17 @@ export function useHiddenItems(): HiddenItemsPreference {
       const retained = store([...ids, itemId]);
       publishNotice({
         key: 'item-visibility',
-        message: `${title || 'Untitled'} hidden for you in this browser. Use Hidden items to show it again.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+        message: `${title || 'Untitled'} hidden.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+        action: {
+          label: 'Undo',
+          onAction: () => {
+            const saved = store(readHiddenItems(scope).filter((id) => id !== itemId));
+            publishNotice({
+              key: 'item-visibility',
+              message: `${title || 'Item'} shown again.${saved ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+            });
+          },
+        },
       });
     },
     show: (itemId: string, title: string) => {
@@ -71,6 +82,19 @@ export function useHiddenItems(): HiddenItemsPreference {
       publishNotice({
         key: 'item-visibility',
         message: `${title || 'Item'} is no longer hidden for you.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+      });
+    },
+    showItems: (itemIds: readonly string[]) => {
+      if (scope === null) return;
+      const selected = new Set(itemIds);
+      const ids = readHiddenItems(scope);
+      const remaining = ids.filter((id) => !selected.has(id));
+      const shown = ids.length - remaining.length;
+      if (shown === 0) return;
+      const retained = store(remaining);
+      publishNotice({
+        key: 'item-visibility',
+        message: `${String(shown)} ${shown === 1 ? 'item' : 'items'} shown again.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
       });
     },
     showAll: () => {

@@ -351,8 +351,14 @@ describe('the navigation rail on a narrow screen', () => {
 
     expect(screen.queryByRole('navigation', { name: /destinations/i })).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
-    expect(within(rail()).getAllByRole('link')).toHaveLength(9);
-    expect(within(rail()).getByRole('button', { name: 'Import' })).toBeVisible();
+    expect(within(rail()).queryByRole('link')).not.toBeInTheDocument();
+    await userEvent.click(within(rail()).getByRole('button', { name: 'Notes' }));
+    expect(
+      screen.getByRole('menu', { name: 'Workspace pages' }).querySelectorAll('a'),
+    ).toHaveLength(9);
+    expect(screen.getByRole('menuitem', { name: 'Notes' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByRole('menuitem', { name: 'Graph' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('menuitem', { name: 'Import' })).toBeVisible();
   });
 
   it('dismisses the tree drawer on the way to a destination, rather than leaving it over the top', async () => {
@@ -364,7 +370,8 @@ describe('the navigation rail on a narrow screen', () => {
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     expect(await screen.findByRole('complementary', { name: /workspace/i })).toBeVisible();
 
-    await user.click(within(rail()).getByRole('link', { name: 'Graph' }));
+    await user.click(within(rail()).getByRole('button', { name: 'Notes' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Graph' }));
 
     expect(await screen.findByRole('heading', { name: 'Graph' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();
@@ -379,7 +386,8 @@ describe('the navigation rail on a narrow screen', () => {
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     expect(await screen.findByRole('complementary', { name: /workspace/i })).toBeVisible();
 
-    await user.click(within(rail()).getByRole('button', { name: 'Import' }));
+    await user.click(within(rail()).getByRole('button', { name: 'Notes' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Import' }));
 
     expect(screen.getByRole('dialog', { name: 'Import' })).toBeInTheDocument();
     expect(screen.queryByRole('complementary', { name: /workspace/i })).not.toBeInTheDocument();

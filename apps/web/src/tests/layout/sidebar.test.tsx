@@ -435,11 +435,11 @@ describe('the workspace tree, as a drawer on a narrow screen', () => {
 
     await user.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     await user.click(await screen.findByRole('button', { name: /test person/i }));
-    expect(screen.getByRole('menu', { name: /account/i })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: /account/i })).toBeInTheDocument();
 
     await user.keyboard('{Escape}');
 
-    expect(screen.queryByRole('menu', { name: /account/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /account/i })).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: /workspace/i })).toBeInTheDocument();
   });
 

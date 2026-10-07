@@ -138,31 +138,37 @@ export function TrashPage(): ReactElement {
         {state.items.map((item) => (
           <li
             key={item.id}
-            className="flex items-center gap-3 rounded-sm px-2 py-2 hover:bg-surface"
+            className="flex flex-col gap-2 rounded-sm px-2 py-2 hover:bg-surface sm:flex-row sm:items-center sm:gap-3"
           >
-            <Icon icon={Trash2} size="sm" className="shrink-0 text-muted" />
-            <Text variant="note" as="span" className="min-w-0 flex-1 truncate">
-              {item.title || 'Untitled'}
-            </Text>
-            <Button
-              variant="secondary"
-              disabled={restoring === item.id}
-              onClick={() => {
-                void restore(item);
-              }}
-            >
-              <Icon icon={RotateCcw} size="sm" />
-              {restoring === item.id ? 'Restoring…' : 'Restore'}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={restoring === item.id}
-              onClick={() => {
-                setPurgeTarget(item);
-              }}
-            >
-              Delete permanently
-            </Button>
+            <div className="flex min-w-0 items-center gap-3">
+              <Icon icon={Trash2} size="sm" className="shrink-0 text-muted" />
+              <Text variant="note" as="span" className="min-w-0 flex-1 break-words sm:truncate">
+                {item.title || 'Untitled'}
+              </Text>
+            </div>
+            <div className="flex min-w-0 gap-2 pl-7 sm:ml-auto sm:pl-0">
+              <Button
+                className="min-w-0 flex-1 justify-center sm:flex-none"
+                variant="secondary"
+                disabled={restoring === item.id}
+                onClick={() => {
+                  void restore(item);
+                }}
+              >
+                <Icon icon={RotateCcw} size="sm" />
+                {restoring === item.id ? 'Restoring…' : 'Restore'}
+              </Button>
+              <Button
+                className="min-w-0 flex-1 justify-center text-center sm:flex-none"
+                variant="primary"
+                disabled={restoring === item.id}
+                onClick={() => {
+                  setPurgeTarget(item);
+                }}
+              >
+                Delete permanently
+              </Button>
+            </div>
           </li>
         ))}
       </ul>

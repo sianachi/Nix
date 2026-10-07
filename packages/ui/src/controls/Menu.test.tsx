@@ -20,6 +20,50 @@ const ACTION_ITEMS: MenuEntry[] = [
 ];
 
 describe('Menu', () => {
+  it('places ordinary panels outside their containing pane', async () => {
+    const user = userEvent.setup();
+    const view = render(
+      <div>
+        <Menu label="Actions" items={ACTION_ITEMS} children={trigger()} />
+      </div>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    expect(screen.getByRole('menu').parentElement).toBe(document.body);
+    expect(view.container).not.toContainElement(screen.getByRole('menu'));
+  });
+
+  it('keeps a menu opened in a native dialog inside that dialog', async () => {
+    const user = userEvent.setup();
+    render(
+      <dialog open aria-label="Item settings">
+        <Menu label="Actions" items={ACTION_ITEMS} children={trigger()} />
+      </dialog>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    expect(screen.getByRole('menu').parentElement).toBe(
+      screen.getByRole('dialog', { name: 'Item settings' }),
+    );
+  });
+
+  it('continues from the trigger when tabbing out of a portaled action menu', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Menu label="Actions" items={ACTION_ITEMS} children={trigger()} />
+        <button>Next control</button>
+      </>,
+    );
+    const button = screen.getByRole('button', { name: 'Actions' });
+    await user.click(button);
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Next control' })).toHaveFocus();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    await user.click(button);
+    await user.tab({ shift: true });
+    expect(button).toHaveFocus();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('starts closed, with a trigger that names the menu it opens', () => {
     render(<Menu label="Workspace actions" items={ACTION_ITEMS} children={trigger()} />);
 
@@ -223,7 +267,7 @@ describe('Menu', () => {
     await user.click(screen.getByRole('button', { name: 'Actions' }));
 
     expect(screen.getByText('Signed in as Ada')).toBeVisible();
-    expect(screen.getAllByRole('menuitem')).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: 'Sign out' })).toHaveLength(1);
   });
 
   it('a `content` render function can close the menu, for its own plain links', async () => {
@@ -243,7 +287,7 @@ describe('Menu', () => {
 
     await user.click(screen.getByRole('link', { name: 'Elsewhere' }));
 
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('Escape closes the menu even from a `content` entry, which has no menuitem of its own', async () => {
@@ -255,7 +299,100 @@ describe('Menu', () => {
 
     await user.keyboard('{Escape}');
 
-    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('focuses and tabs through ordinary content controls before dismissing on exit', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Menu
+          label="Workspaces"
+          items={[
+            {
+              kind: 'content',
+              content: (
+                <>
+                  <a href="/first">First workspace</a>
+                  <a href="/second">Second workspace</a>
+                </>
+              ),
+            },
+          ]}
+          children={trigger()}
+        />
+        <button>Next control</button>
+      </>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    expect(screen.getByRole('button', { name: 'Actions' })).toHaveAttribute(
+      'aria-haspopup',
+      'dialog',
+    );
+    expect(screen.getByRole('link', { name: 'First workspace' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('link', { name: 'Second workspace' })).toHaveFocus();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Next control' })).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opens content onto its last control with ArrowUp and dismisses when tabbing back to the trigger', async () => {
+    const user = userEvent.setup();
+    render(
+      <Menu
+        label="Workspaces"
+        items={[
+          {
+            kind: 'content',
+            content: (
+              <>
+                <a href="/first">First workspace</a>
+                <a href="/second">Second workspace</a>
+              </>
+            ),
+          },
+        ]}
+        children={trigger()}
+      />,
+    );
+    const button = screen.getByRole('button', { name: 'Actions' });
+    button.focus();
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getByRole('link', { name: 'Second workspace' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('link', { name: 'First workspace' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(button).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps settings controls reachable from commands in a mixed panel', async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Menu
+          label="Account"
+          items={[
+            { kind: 'content', content: <input aria-label="Appearance" /> },
+            { kind: 'action', label: 'Settings', onSelect: vi.fn() },
+          ]}
+          children={trigger()}
+        />
+        <button>Next control</button>
+      </>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole('textbox', { name: 'Appearance' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Settings' })).toHaveFocus();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Next control' })).toHaveFocus();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('becomes a full-width bottom sheet below the sm breakpoint', async () => {

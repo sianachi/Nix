@@ -241,7 +241,7 @@ describe('the calendar view', () => {
     await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
 
     const dialog = screen.getByRole('dialog', { name: 'Reschedule Kickoff' });
-    expect(within(dialog).getByLabelText('New date for Kickoff')).toHaveValue('2026-03-17');
+    expect(within(dialog).getByLabelText('New date')).toHaveValue('2026-03-17');
   });
 
   it('offers opening and rescheduling on a secondary click of an entry', async () => {
@@ -265,7 +265,7 @@ describe('the calendar view', () => {
 
     await person.click(screen.getByRole('button', { name: 'Reschedule Kickoff' }));
 
-    const field = screen.getByLabelText('New date for Kickoff');
+    const field = screen.getByLabelText('New date');
     await person.clear(field);
     await person.type(field, '2026-03-20');
     await person.click(screen.getByRole('button', { name: 'Move' }));
@@ -300,7 +300,7 @@ describe('the calendar view', () => {
     const seenByWindow = vi.fn();
     window.addEventListener('keydown', seenByWindow);
     try {
-      fireEvent.keyDown(screen.getByLabelText('New date for Kickoff'), { key: 'Escape' });
+      fireEvent.keyDown(screen.getByLabelText('New date'), { key: 'Escape' });
       expect(seenByWindow).not.toHaveBeenCalled();
     } finally {
       window.removeEventListener('keydown', seenByWindow);
@@ -325,7 +325,7 @@ describe('the calendar view', () => {
 
     // The field opens holding the item's current date, so the incomplete draft has to be made:
     // emptied, the way somebody who cleared the value and pressed Move would leave it.
-    await person.clear(screen.getByLabelText('New date for Kickoff'));
+    await person.clear(screen.getByLabelText('New date'));
     await person.click(screen.getByRole('button', { name: 'Move' }));
 
     expect(setProperties).not.toHaveBeenCalled();
@@ -702,10 +702,7 @@ describe('dropping an unscheduled item onto an hour', () => {
 
     await user().click(screen.getByRole('button', { name: 'Reschedule Loose end' }));
 
-    expect(screen.getByLabelText('New date and time for Loose end')).toHaveAttribute(
-      'type',
-      'datetime-local',
-    );
+    expect(screen.getByLabelText('New date and time')).toHaveAttribute('type', 'datetime-local');
   });
 });
 
@@ -768,7 +765,7 @@ describe('an end-date property on a month-grain view', () => {
 
     await user().click(startDayCard('Reschedule Sprint'));
 
-    const field = screen.getByLabelText('New end date for Sprint');
+    const field = screen.getByLabelText('New end date');
     expect(field).toHaveValue('2026-03-19');
     expect(field).toHaveAttribute('type', 'date');
   });
@@ -779,7 +776,7 @@ describe('an end-date property on a month-grain view', () => {
 
     await person.click(startDayCard('Reschedule Sprint'));
 
-    const field = screen.getByLabelText('New end date for Sprint');
+    const field = screen.getByLabelText('New end date');
     await person.clear(field);
     await person.type(field, '2026-03-21');
     await person.click(screen.getByRole('button', { name: 'Move' }));
@@ -798,7 +795,7 @@ describe('an end-date property on a month-grain view', () => {
 
     await person.click(startDayCard('Reschedule Sprint'));
 
-    const field = screen.getByLabelText('New end date for Sprint');
+    const field = screen.getByLabelText('New end date');
     await person.clear(field);
     await person.type(field, '2026-03-10');
     await person.click(screen.getByRole('button', { name: 'Move' }));
@@ -954,7 +951,7 @@ describe('an end-date property on a week-grain view', () => {
 
     await user().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
 
-    const field = screen.getByLabelText('New end date and time for Standup');
+    const field = screen.getByLabelText('New end date and time');
     expect(field).toHaveValue('2026-03-12T10:00');
     expect(field).toHaveAttribute('type', 'datetime-local');
   });
@@ -965,7 +962,7 @@ describe('an end-date property on a week-grain view', () => {
 
     await person.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
 
-    const field = screen.getByLabelText('New end date and time for Standup');
+    const field = screen.getByLabelText('New end date and time');
     await person.clear(field);
     await person.type(field, '2026-03-12T11:30');
     await person.click(screen.getByRole('button', { name: 'Move' }));
@@ -982,7 +979,7 @@ describe('an end-date property on a week-grain view', () => {
 
     await person.click(screen.getByRole('button', { name: 'Reschedule Standup' }));
 
-    const field = screen.getByLabelText('New end date and time for Standup');
+    const field = screen.getByLabelText('New end date and time');
     await person.clear(field);
     await person.type(field, '2026-03-12T08:00');
     await person.click(screen.getByRole('button', { name: 'Move' }));

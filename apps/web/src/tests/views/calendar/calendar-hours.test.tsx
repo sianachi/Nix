@@ -555,7 +555,7 @@ describe('rescheduling a placed item without dragging', () => {
 
     await person().click(screen.getByRole('button', { name: 'Reschedule Standup' }));
 
-    const field = screen.getByLabelText('New date and time for Standup');
+    const field = screen.getByLabelText('New date and time');
     await person().clear(field);
     await person().type(field, '2026-03-16T10:30');
     await person().click(screen.getByRole('button', { name: 'Move' }));

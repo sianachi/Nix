@@ -255,6 +255,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
             uploadInputRef.current?.click();
           }}
         />
+        <HiddenItemsPanel onOpen={onSelect} />
         <input
           ref={uploadInputRef}
           type="file"
@@ -283,7 +284,6 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           landing spot - see `treeRegionRef`'s own comment on why the delete toast returns focus
           here rather than to the row it deleted, which is gone by the time that matters. */}
       <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
-        <HiddenItemsPanel onOpen={onSelect} />
         <SidebarPins onSelect={onSelect} />
         <TreeBody
           tree={tree}

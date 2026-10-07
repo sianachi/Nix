@@ -1,4 +1,5 @@
 import { fireEvent, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { renderAt, signedIn } from '../../render-with-router';
@@ -8,6 +9,7 @@ import { ApiClientProvider } from '../../../api/api-client-provider';
 import { AuthProvider } from '../../../auth/auth-provider';
 import type { View } from '../../../views/core/container-model';
 import { QueryView } from '../../../views/query/query-view';
+import { hiddenItemsKey, readHiddenItems, writeHiddenItems } from '../../../lib/view-hidden-items';
 
 /**
  * The query view, driven against a stubbed run endpoint: the five states, the container names on
@@ -107,6 +109,21 @@ beforeEach(() => {
 });
 
 describe('the smart list', () => {
+  it('offers hiding through row actions and recovery when every match is hidden', async () => {
+    const user = userEvent.setup();
+    const preference = hiddenItemsKey('test-subject', WORKSPACE);
+    writeHiddenItems(preference, [ROW_TWO]);
+    stubRun(results([row(ROW_ONE, 'Water plants', '2026-08-10')]));
+    renderQueryView();
+    await user.click(await screen.findByRole('button', { name: 'Actions for Water plants' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Hide for me' }));
+    expect(screen.queryByRole('button', { name: 'Water plants' })).not.toBeInTheDocument();
+    expect(screen.getByText('All matches are hidden for you.')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Show these results' }));
+    expect(screen.getByRole('button', { name: 'Water plants' })).toBeInTheDocument();
+    expect(readHiddenItems(preference)).toEqual([ROW_TWO]);
+  });
+
   it('shows each match with the container it lives in and the values it matched on', async () => {
     stubRun(results([row(ROW_ONE, 'Water plants', '2026-08-10')]));
     renderQueryView();

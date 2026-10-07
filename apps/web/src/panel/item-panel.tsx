@@ -150,14 +150,15 @@ function DetailsPane({
   if (!details.loading && properties.length === 0) {
     return (
       <Text variant="note" tone="muted">
-        Nothing carries properties here yet. Add one under Fields and it appears on every item
-        inside this one.
+        No details yet. Add fields to describe the items inside this one.
       </Text>
     );
   }
 
   return (
     <PropertyPanel
+      key={details.item.id}
+      compact
       item={details.item}
       properties={properties}
       loading={details.loading}

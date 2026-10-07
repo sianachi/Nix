@@ -3,6 +3,7 @@ import { Archive, KeyRound, LogOut, Plus, Settings, Trash2 } from 'lucide-react'
 import { expect, fn, userEvent, within } from 'storybook/test';
 
 import { focusRing } from '../primitives/interaction';
+import { Input } from './Input';
 import { Menu, type MenuEntry } from './Menu';
 
 /**
@@ -47,7 +48,7 @@ export const Default: Story = {};
 /** Opened by a click: the panel, the separator, and the destructive item's bolder weight. */
 export const Open: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await expect(canvas.getByRole('menu', { name: 'Workspace actions' })).toBeInTheDocument();
     await expect(canvas.getByRole('menuitem', { name: 'Delete workspace' })).toBeInTheDocument();
@@ -57,7 +58,7 @@ export const Open: Story = {
 /** ArrowDown from the trigger opens the menu onto its first item. */
 export const OpenFromKeyboard: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     canvas.getByRole('button', { name: 'Actions' }).focus();
     await userEvent.keyboard('{ArrowDown}');
     await expect(canvas.getByRole('menuitem', { name: 'New workspace' })).toHaveFocus();
@@ -67,7 +68,7 @@ export const OpenFromKeyboard: Story = {
 /** ArrowUp from the trigger opens onto the last item - the pattern's usual courtesy. */
 export const OpenFromKeyboardArrowUp: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     canvas.getByRole('button', { name: 'Actions' }).focus();
     await userEvent.keyboard('{ArrowUp}');
     await expect(canvas.getByRole('menuitem', { name: 'Delete workspace' })).toHaveFocus();
@@ -77,7 +78,7 @@ export const OpenFromKeyboardArrowUp: Story = {
 /** Arrow keys walk the list; Home and End jump to its ends. */
 export const KeyboardNavigation: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     canvas.getByRole('button', { name: 'Actions' }).focus();
     await userEvent.keyboard('{ArrowDown}');
     await userEvent.keyboard('{ArrowDown}{ArrowDown}');
@@ -92,7 +93,7 @@ export const KeyboardNavigation: Story = {
 /** Escape closes the menu and hands focus straight back to the trigger. */
 export const EscapeReturnsFocus: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     const trigger = canvas.getByRole('button', { name: 'Actions' });
     trigger.focus();
     await userEvent.keyboard('{ArrowDown}');
@@ -111,7 +112,7 @@ export const ClosesOnOutsideClick: Story = {
     </div>
   ),
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await userEvent.click(canvas.getByText('Outside the menu.'));
     await expect(canvas.queryByRole('menu')).not.toBeInTheDocument();
@@ -134,7 +135,7 @@ export const WithExternalLink: Story = {
     ],
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     const external = canvas.getByRole('menuitem', {
       name: 'Password and security (opens in a new tab)',
@@ -166,7 +167,7 @@ export const WithConsumerLinkComponent: Story = {
     ),
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await expect(canvas.getByRole('menuitem', { name: 'Settings' })).toHaveAttribute(
       'data-router-to',
@@ -196,10 +197,66 @@ export const WithContentEntry: Story = {
     ],
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await expect(canvas.getByText('Ada Lovelace')).toBeVisible();
-    await expect(canvas.getAllByRole('menuitem')).toHaveLength(1);
+    await expect(canvas.getByRole('button', { name: 'Sign out' })).toBeVisible();
+  },
+};
+
+export const MixedContentKeyboard: Story = {
+  args: {
+    label: 'Account',
+    items: [
+      {
+        kind: 'content',
+        content: (
+          <div className="p-3">
+            <Input aria-label="Appearance" />
+          </div>
+        ),
+      },
+      { kind: 'action', label: 'Settings', onSelect: fn() },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
+    await expect(canvas.getByRole('button', { name: 'Settings' })).toHaveFocus();
+    await userEvent.tab({ shift: true });
+    await expect(canvas.getByRole('textbox', { name: 'Appearance' })).toHaveFocus();
+    await userEvent.tab();
+    await expect(canvas.getByRole('button', { name: 'Settings' })).toHaveFocus();
+    await expect(canvas.getByRole('dialog', { name: 'Account' })).toBeVisible();
+  },
+};
+
+export const ContentLinksKeyboard: Story = {
+  args: {
+    label: 'Workspaces',
+    items: [
+      {
+        kind: 'content',
+        content: (
+          <div className="flex flex-col gap-2 p-3">
+            <a href="#first" className={focusRing}>
+              First workspace
+            </a>
+            <a href="#second" className={focusRing}>
+              Second workspace
+            </a>
+          </div>
+        ),
+      },
+    ],
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
+    await expect(canvas.getByRole('link', { name: 'First workspace' })).toHaveFocus();
+    await userEvent.tab();
+    await expect(canvas.getByRole('link', { name: 'Second workspace' })).toHaveFocus();
+    await expect(canvas.getByRole('dialog', { name: 'Workspaces' })).toBeInTheDocument();
   },
 };
 
@@ -213,7 +270,7 @@ export const WithDisabledItem: Story = {
     ],
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     canvas.getByRole('button', { name: 'Actions' }).focus();
     await userEvent.keyboard('{ArrowDown}');
     await userEvent.keyboard('{ArrowDown}');
@@ -228,7 +285,7 @@ export const WithDisabledItem: Story = {
  */
 export const MobileBottomSheet: Story = {
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
+    const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await expect(canvas.getByRole('menu', { name: 'Workspace actions' })).toBeVisible();
   },
@@ -239,6 +296,8 @@ export const MobileBottomSheet: Story = {
 export const DarkGround: Story = {
   globals: { ground: 'dark' },
   play: async ({ canvasElement }) => {
-    await userEvent.click(within(canvasElement).getByRole('button', { name: 'Actions' }));
+    await userEvent.click(
+      within(canvasElement.ownerDocument.body).getByRole('button', { name: 'Actions' }),
+    );
   },
 };

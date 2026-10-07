@@ -238,7 +238,7 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
                 // `relative before:*`: the drawn pill is about 22px tall (`text-xs` at its 1.4
                 // line height plus `py-1`), just under WCAG 2.5.8's 24px floor - the same fix,
                 // for the same control, as the calendar's grain switcher.
-                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5',
+                'relative rounded-sm px-2 py-1 text-xs capitalize before:absolute before:inset-x-0 before:-inset-y-0.5 pointer-coarse:min-h-(--control-lg)',
                 focusRing,
                 scale === grain
                   ? 'bg-foreground/7 text-foreground'

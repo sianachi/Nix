@@ -8,6 +8,7 @@ import { PwaControls } from '../pwa/pwa-controls';
 import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
@@ -530,26 +531,10 @@ export function AppShell(): ReactNode {
           `min-h-0` so this row can shrink inside the `h-dvh` column, which is what gives the pane
           row underneath a definite height to scroll against. */}
       <div className="flex min-h-0 flex-1">
-        {!zen && (!narrow || sidebar.visible) ? (
+        {!zen && !narrow ? (
           <NavRail
             onImport={() => {
-              // The import is modal, so there is no reason to leave a narrow-screen drawer open
-              // underneath it. Closing it also means the imported root can be revealed cleanly in
-              // the tree once the report is dismissed.
-              if (narrow && sidebar.visible) {
-                sidebar.toggle();
-              }
               setWorkspaceImportOpen(true);
-            }}
-            onNavigate={() => {
-              // A phone has no room to leave the tree open over the destination it was just asked
-              // to leave for. Focus is left on the rail link that was activated rather than moved
-              // into the pane: unlike a row in the tree, the link stays on screen, becomes the
-              // current destination, and is a reasonable place to be standing. Left alone on a wide
-              // screen, where the tree shares the screen rather than covering it.
-              if (narrow && sidebar.visible) {
-                sidebar.toggle();
-              }
             }}
           />
         ) : null}
@@ -585,6 +570,23 @@ export function AppShell(): ReactNode {
               <ShellSidebar
                 key={workspaceId}
                 narrow={narrow}
+                mobileDestinations={
+                  <NavRail
+                    compact
+                    onImport={() => {
+                      // Remove the drawer's menu before Import records its durable invoker.
+                      flushSync(() => {
+                        sidebar.toggle();
+                      });
+                      sidebarToggleRef.current?.focus();
+                      setWorkspaceImportOpen(true);
+                    }}
+                    onNavigate={() => {
+                      sidebar.toggle();
+                      focusPane(0);
+                    }}
+                  />
+                }
                 sidebar={sidebar}
                 tree={tree}
                 selectedId={selectedId}

@@ -30,7 +30,8 @@ describe('hiding saved notes for yourself', () => {
     });
     expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Meeting notes');
     expect(screen.getByRole('button', { name: 'Show for me' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Hidden items (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Workspace options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Hidden items (1)' }));
     const manager = await screen.findByRole('region', { name: 'Hidden items' });
     await user.click(
       await within(manager).findByRole('button', { name: 'Show Meeting notes again' }),
