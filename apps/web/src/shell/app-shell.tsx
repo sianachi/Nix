@@ -574,12 +574,12 @@ export function AppShell(): ReactNode {
                   <NavRail
                     compact
                     onImport={() => {
-                      // Remove the drawer's menu before Import records its durable invoker.
+                      // Keep one Back entry while the drawer hands off to Import.
+                      sidebarToggleRef.current?.focus();
                       flushSync(() => {
                         sidebar.toggle();
+                        setWorkspaceImportOpen(true);
                       });
-                      sidebarToggleRef.current?.focus();
-                      setWorkspaceImportOpen(true);
                     }}
                     onNavigate={() => {
                       sidebar.toggle();
