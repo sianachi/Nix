@@ -401,6 +401,67 @@ describe('validateSpec list sections', () => {
   });
 });
 
+describe('validateSpec checklist', () => {
+  const done: StructureProperty = {
+    key: 'done',
+    label: 'Done',
+    type: 'checkbox',
+    options: [],
+    required: false,
+  };
+  const complete: StructureProperty = {
+    key: 'completion',
+    label: 'Complete',
+    type: 'completion',
+    options: [],
+    required: false,
+  };
+
+  it('accepts a checklist that falls back to a done checkbox or the task completion', () => {
+    for (const fields of [[done], [complete]]) {
+      const report = validateSpec(
+        'add_view',
+        { views: [{ kind: 'checklist' }] },
+        context({ inheritedFields: fields }),
+      );
+      expect(report.ok).toBe(true);
+    }
+  });
+
+  it('accepts a named checkbox and refuses a named property that is not one', () => {
+    const named = validateSpec(
+      'add_view',
+      { views: [{ kind: 'checklist', doneProperty: 'completion' }] },
+      context({ inheritedFields: [complete, statusProperty] }),
+    );
+    expect(named.ok).toBe(true);
+
+    const wrong = validateSpec(
+      'add_view',
+      { views: [{ kind: 'checklist', doneProperty: 'status' }] },
+      context({ inheritedFields: [statusProperty] }),
+    );
+    expect(wrong.ok).toBe(false);
+    expect(wrong.problems[0]?.message).toContain('ticks a checkbox');
+  });
+
+  it('refuses a checklist with nothing to tick, and doneProperty on any other kind', () => {
+    const nothing = validateSpec(
+      'add_view',
+      { views: [{ kind: 'checklist' }] },
+      context({ inheritedFields: [statusProperty] }),
+    );
+    expect(nothing.ok).toBe(false);
+
+    const elsewhere = validateSpec(
+      'add_view',
+      { views: [{ kind: 'list', doneProperty: 'done' }] },
+      context({ inheritedFields: [done] }),
+    );
+    expect(elsewhere.ok).toBe(false);
+  });
+});
+
 describe('validateSpec create_entries', () => {
   it('accepts entries whose values fit the effective schema', () => {
     const report = validateSpec(

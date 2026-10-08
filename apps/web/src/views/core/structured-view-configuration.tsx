@@ -35,7 +35,7 @@ export function StructuredViewConfiguration({
   view,
   fields,
   onChange,
-  showColumns = !['query', 'interactive_form'].includes(view.kind),
+  showColumns = !['query', 'interactive_form', 'checklist'].includes(view.kind),
   showSort = !['form', 'interactive_form', 'query'].includes(view.kind),
   showFilters,
   showKindFilters = true,
@@ -121,6 +121,10 @@ export function StructuredViewConfiguration({
         </Field>
       ) : null}
 
+      {view.kind === 'checklist' ? (
+        <ChecklistDetailChoice view={view} fields={fields} onChange={onChange} />
+      ) : null}
+
       {view.kind === 'calendar' || view.kind === 'timeline' ? (
         <Field label={view.kind === 'calendar' ? 'Initial calendar view' : 'Initial time scale'}>
           {(control) => (
@@ -176,6 +180,44 @@ export function StructuredViewConfiguration({
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * The one property a checklist shows beside each title. Stored as the view's first column, which
+ * is what a list switched to a checklist already has there; a checklist has room for one, so this
+ * is a single choice rather than the list's ordered column picker.
+ */
+function ChecklistDetailChoice({
+  view,
+  fields,
+  onChange,
+}: {
+  readonly view: View;
+  readonly fields: readonly PropertyDefinition[];
+  readonly onChange: (view: View) => void;
+}): ReactNode {
+  const current = view.columns.find((key) => key !== 'title') ?? '';
+  return (
+    <Field label="Shown beside each line" hint="One property, read-only, after the title.">
+      {(control) => (
+        <Select
+          {...control}
+          value={current}
+          onChange={(event) => {
+            const value = event.target.value;
+            onChange({ ...view, columns: value.length === 0 ? [] : [value] });
+          }}
+        >
+          <option value="">Nothing</option>
+          {fields.map((field) => (
+            <option key={field.key} value={field.key}>
+              {field.label}
+            </option>
+          ))}
+        </Select>
+      )}
+    </Field>
   );
 }
 

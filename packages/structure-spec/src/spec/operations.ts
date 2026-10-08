@@ -42,6 +42,7 @@ export const STRUCTURED_SPEC_RECIPE_IDS = [
   'gallery',
   'habit-tracker',
   'query',
+  'checklist',
 ] as const;
 
 export const structuredRecipeIdSchema = z.enum(STRUCTURED_SPEC_RECIPE_IDS);

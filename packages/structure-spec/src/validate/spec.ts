@@ -221,6 +221,7 @@ function compileViews(
     check(spec.endDate, 'endDate');
     check(spec.cover, 'cover');
     check(spec.measureField, 'measureField');
+    check(spec.doneProperty, 'doneProperty');
     check(spec.sortBy, 'sortBy');
     spec.columns?.forEach((ref, columnIndex) => {
       check(ref, `columns[${String(columnIndex)}]`);

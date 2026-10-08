@@ -1,6 +1,7 @@
 import {
   ChartColumnBig,
   ClipboardList,
+  ListChecks,
   Columns3,
   HardDrive,
   LayoutGrid,
@@ -17,6 +18,7 @@ import type { ReactNode } from 'react';
 
 import { BoardView } from '../board/board-view';
 import { ChartView } from '../chart/chart-view';
+import { ChecklistView } from '../checklist/checklist-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import {
@@ -25,6 +27,7 @@ import {
   canSectionBy,
   isDateShaped,
   TYPE_GROUP_KEY,
+  valueShapeOf,
 } from './property-types';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import {
@@ -88,7 +91,12 @@ export interface ViewRendererProps {
 export interface ViewConfiguration {
   /** The field on the view that names the property. */
   readonly field:
-    'groupBy' | 'dateProperty' | 'coverProperty' | 'endDateProperty' | 'measureProperty';
+    | 'groupBy'
+    | 'dateProperty'
+    | 'coverProperty'
+    | 'endDateProperty'
+    | 'measureProperty'
+    | 'doneProperty';
 
   readonly label: string;
 
@@ -291,7 +299,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         field: 'groupBy',
         label: 'Sections',
         emptyHint:
-          'There is no select or checkbox property yet. Sections can still follow each item\'s kind.',
+          "There is no select or checkbox property yet. Sections can still follow each item's kind.",
         hint: 'Rows are gathered under a heading for each value, with a count, and each heading folds away.',
         emptyChoice: 'None',
         accepts: (property) => canSectionBy(property.type),
@@ -586,6 +594,29 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         fallback: DEFAULT_DRIVE_LAYOUT,
       },
     ],
+  },
+  {
+    // One line per child with a box to tick (plan 3.4). Requirement-free like a list: named
+    // nothing, it ticks a checkbox keyed `done` or the task completion, and with neither it says
+    // so rather than drawing boxes that write nowhere. The one property shown beside each title is
+    // the view's first column, chosen in the editor's own block.
+    kind: 'checklist',
+    label: 'Checklist',
+    icon: ListChecks,
+    render: (props) => <ChecklistView {...props} />,
+    configures: [
+      {
+        field: 'doneProperty',
+        label: 'Ticks',
+        emptyHint:
+          'There is no checkbox property yet. Add one under Properties, or call one "done" to use it automatically.',
+        hint: 'Each box ticks this property. Left on automatic, a checkbox called "done" or the task completion is used.',
+        emptyChoice: 'Automatic',
+        accepts: (property) => valueShapeOf(property.type) === 'checkbox',
+      },
+    ],
+    chooses: [],
+    appliesSavedFilters: true,
   },
 ];
 

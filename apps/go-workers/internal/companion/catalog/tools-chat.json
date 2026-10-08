@@ -296,7 +296,8 @@
                 "timeline",
                 "gallery",
                 "habit-tracker",
-                "query"
+                "query",
+                "checklist"
               ]
             },
             "fields": {
@@ -391,7 +392,8 @@
                       "interactive_form",
                       "query",
                       "chart",
-                      "habit_tracker"
+                      "habit_tracker",
+                      "checklist"
                     ]
                   },
                   "name": {
@@ -639,6 +641,9 @@
                     },
                     "required": ["pages"],
                     "additionalProperties": false
+                  },
+                  "doneProperty": {
+                    "type": "string"
                   },
                   "default": {
                     "type": "boolean"
@@ -773,7 +778,8 @@
                       "interactive_form",
                       "query",
                       "chart",
-                      "habit_tracker"
+                      "habit_tracker",
+                      "checklist"
                     ]
                   },
                   "name": {
@@ -1021,6 +1027,9 @@
                     },
                     "required": ["pages"],
                     "additionalProperties": false
+                  },
+                  "doneProperty": {
+                    "type": "string"
                   },
                   "default": {
                     "type": "boolean"

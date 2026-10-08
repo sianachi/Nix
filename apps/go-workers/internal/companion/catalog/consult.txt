@@ -16,6 +16,7 @@ Section: View kinds
 - Smart list (query). A saved cross-container query, run server-side from stored filters.
 - Chart (chart): needs a select property; optional: measureField (number). Children summarised into bars, counted or totalled by a number property.
 - Habit tracker (habit_tracker). Habit children arranged by local date with recorded progress.
+- Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; columns[0] is shown beside each title.
 
 Section: Recipes
 board: Board - Arrange items in columns defined by a select field.
@@ -27,6 +28,7 @@ interactive-form: Interactive form - Build a multi-page form with branching and 
 query: Smart list - Find matching items across the workspace with reusable rules.
 calendar: Calendar - Place child items on a day, week, or month calendar.
 list: List - Show child items and their fields in an ordered list.
+checklist: Checklist - Tick child items off one line at a time, with progress.
 habit-tracker: Habit tracker - Track daily or weekday habits with a simple weekly check-in grid.
 
 Section: Never
@@ -94,6 +96,7 @@ Valid view settings by kind:
 - query: no kind-specific settings
 - chart: groupBy, measureField
 - habit_tracker: no kind-specific settings
+- checklist: doneProperty
 
 Section: Patterns
 Efficiency patterns

@@ -152,7 +152,12 @@ export function refreshViewProperties(view: View, properties: readonly PropertyD
   const image = properties.find((property) => property.type === 'image');
   return {
     ...view,
-    columns: ['title', ...properties.map((property) => property.key)],
+    // A checklist's columns are the one property shown beside each line, chosen on purpose rather
+    // than refreshed to every field the draft now has.
+    columns:
+      view.kind === 'checklist'
+        ? view.columns
+        : ['title', ...properties.map((property) => property.key)],
     groupBy: view.kind === 'board' ? (select?.key ?? null) : view.groupBy,
     groupOrder: view.kind === 'board' ? [...(select?.options ?? [])] : view.groupOrder,
     dateProperty:

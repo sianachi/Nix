@@ -117,6 +117,7 @@ public static class ViewDefinitionsJson
     private const string CoverPropertyKey = "coverProperty";
     private const string CardSizeKey = "cardSize";
     private const string LayoutKey = "layout";
+    private const string DonePropertyKey = "doneProperty";
     private const string MeasureKey = "measure";
     private const string MeasurePropertyKey = "measureProperty";
     private const string ModeKey = "mode";
@@ -289,6 +290,11 @@ public static class ViewDefinitionsJson
             if (view.Layout is not null)
             {
                 entry[LayoutKey] = view.Layout;
+            }
+
+            if (view.DoneProperty is not null)
+            {
+                entry[DonePropertyKey] = view.DoneProperty;
             }
 
             if (view.SortBy is not null)
@@ -476,7 +482,8 @@ public static class ViewDefinitionsJson
             ReadSorts(view[SortsKey]),
             ReadStrings(view[CollapsedGroupsKey]),
             ReadGroupLimits(view[GroupLimitsKey]),
-            ReadAggregates(view[AggregatesKey])));
+            ReadAggregates(view[AggregatesKey]),
+            ReadString(view[DonePropertyKey])));
     }
 
     /// <summary>
