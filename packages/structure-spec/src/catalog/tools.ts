@@ -262,6 +262,28 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     },
     required: ['itemId', 'markdown'],
   }),
+  replace_section: () => ({
+    description:
+      "Replace one section of a note: the blocks from the heading named heading up to the next heading of the same or higher level. The rest of the note is untouched. If markdown does not start with a heading, the original heading is kept. Refuses when the heading is missing or not unique. Call nix_read_note first. Never replaces a whole note's body.",
+    properties: {
+      itemId: stringProperty(ITEM_ID_DESCRIPTION),
+      heading: stringProperty(
+        'The exact heading text, without # marks (case is ignored); must be unique in the note.',
+      ),
+      markdown: stringProperty('The new Markdown for that section.'),
+    },
+    required: ['itemId', 'heading', 'markdown'],
+  }),
+  replace_passage: () => ({
+    description:
+      'Fix text inside one paragraph, heading, list item text or code block: find must occur exactly once in the note and inside a single block (no list markers). Only that block is rewritten. Call nix_read_note first.',
+    properties: {
+      itemId: stringProperty(ITEM_ID_DESCRIPTION),
+      find: stringProperty('The exact Markdown text to replace, up to 240 characters.'),
+      replace: stringProperty('The Markdown text to put in its place; may be empty.'),
+    },
+    required: ['itemId', 'find', 'replace'],
+  }),
   rename_item: () => ({
     description: 'Rename an item. Never changes anything else about it.',
     properties: {

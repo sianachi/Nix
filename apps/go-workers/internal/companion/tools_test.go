@@ -700,3 +700,60 @@ func TestUnfinishedToolCannotBeReexecutedAfterRestart(t *testing.T) {
 		t.Fatal("unfinished write can be repeated")
 	}
 }
+
+// TestBodyEditArgumentsAreValidated covers lane C's two note-body edits: what they locate travels
+// in query and what replaces it in markdown, a section never takes empty markdown, a passage may
+// (deleting a phrase), and a passage's find text keeps the 240-character query limit.
+func TestBodyEditArgumentsAreValidated(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, raw := range []string{
+		fmt.Sprintf(`{"operation":"replace_section","itemId":%q,"query":"Next steps","markdown":"- Book it"}`, itemID),
+		fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":"teh plan","markdown":"the plan"}`, itemID),
+		fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":" (draft)","markdown":""}`, itemID),
+	} {
+		for _, mode := range []string{"chat", "consult"} {
+			if got := validateToolArguments(json.RawMessage(raw), mode); got != "" {
+				t.Fatalf("%s: valid arguments refused: %s -> %q", mode, raw, got)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{`{"operation":"replace_section","itemId":"","query":"Plan","markdown":"x"}`, "nix_replace_section requires the exact itemId UUID"},
+		{`{"operation":"replace_passage","itemId":"","query":"Plan","markdown":"x"}`, "nix_replace_passage requires the exact itemId UUID"},
+		{fmt.Sprintf(`{"operation":"replace_section","itemId":%q,"query":" ","markdown":"x"}`, itemID), "requires the heading"},
+		{fmt.Sprintf(`{"operation":"replace_section","itemId":%q,"query":"Plan","markdown":"  "}`, itemID), "requires nonempty markdown"},
+		{fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":"","markdown":"x"}`, itemID), "requires the exact text to find"},
+		{fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":%q,"markdown":"x"}`, itemID, strings.Repeat("a", 241)), "limited to 240 characters"},
+	} {
+		if got := validateToolArguments(json.RawMessage(tc.raw), "chat"); !strings.Contains(got, tc.want) {
+			t.Fatalf("%s: got %q, want it to contain %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestBodyEditToolsFlattenOntoQueryAndMarkdown(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		tool string
+		raw  string
+		want flatToolArgs
+	}{
+		{"nix_replace_section", fmt.Sprintf(`{"itemId":%q,"heading":"Plan","markdown":"New"}`, itemID), flatToolArgs{Operation: "replace_section", ItemID: itemID, Query: "Plan", Markdown: "New"}},
+		{"nix_replace_passage", fmt.Sprintf(`{"itemId":%q,"find":"teh","replace":"the"}`, itemID), flatToolArgs{Operation: "replace_passage", ItemID: itemID, Query: "teh", Markdown: "the"}},
+	} {
+		flat, reason := flattenToolCall(tc.tool, json.RawMessage(tc.raw))
+		if reason != "" {
+			t.Fatalf("%s refused: %q", tc.tool, reason)
+		}
+		var got flatToolArgs
+		if err := json.Unmarshal(flat, &got); err != nil || got != tc.want {
+			t.Fatalf("%s flattened to %+v, want %+v", tc.tool, got, tc.want)
+		}
+	}
+	if _, reason := flattenToolCall("nix_replace_passage", json.RawMessage(`{"query":"teh"}`)); !strings.Contains(reason, "find") {
+		t.Fatalf("a flat-shaped parameter was not refused with the typed names: %q", reason)
+	}
+}

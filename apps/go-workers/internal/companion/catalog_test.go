@@ -70,11 +70,11 @@ func TestWorkspaceToolsOffersOneToolPerOperationPerMode(t *testing.T) {
 	chatNames := toolNamesFor("chat")
 	consultNames := toolNamesFor("consult")
 
-	if len(chatNames) != 21 {
-		t.Fatalf("chat mode offers %d tools, want 21", len(chatNames))
+	if len(chatNames) != 23 {
+		t.Fatalf("chat mode offers %d tools, want 23", len(chatNames))
 	}
-	if len(consultNames) != 24 {
-		t.Fatalf("consult mode offers %d tools, want 24", len(consultNames))
+	if len(consultNames) != 26 {
+		t.Fatalf("consult mode offers %d tools, want 26", len(consultNames))
 	}
 	for _, name := range []string{"nix_workspace", "workspace"} {
 		if _, ok := chatNames[name]; ok {

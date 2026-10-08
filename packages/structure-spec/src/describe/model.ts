@@ -32,4 +32,17 @@ export interface PreviewModel {
   warnings: Problem[];
   problems: Problem[];
   neverDoes: string[];
+  /** Present only for an edit inside a note body (`replace_section`, `replace_passage`): the
+   * Markdown the edited blocks render to now and after the edit, so a card can show both side by
+   * side and the owner sees any formatting the round trip would lose before approving. */
+  bodyEdit?: PreviewBodyEdit;
+}
+
+export interface PreviewBodyEdit {
+  /** The edited blocks as they read now, as Markdown. */
+  before: string;
+  /** The same blocks as they will read after the edit, as Markdown. */
+  after: string;
+  blocksRemoved: number;
+  blocksAdded: number;
 }

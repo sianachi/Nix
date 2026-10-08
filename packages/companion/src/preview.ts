@@ -236,6 +236,10 @@ function legacyHeadline(args: PreviewToolArgs): string {
       return `I will create a note named “${args.title}” ${args.parentId ? 'inside the linked destination' : 'at the top level of this workspace'}${args.markdown ? ', with the content shown below' : ', with an empty body'}.`;
     case 'append_note':
       return 'I will add the content below to the end of the linked note, preserving its existing content.';
+    case 'replace_section':
+      return `I will replace the section “${args.query}” in the linked note. The rest of the note stays as it is.`;
+    case 'replace_passage':
+      return 'I will change one passage in the linked note. Every other block stays as it is.';
     case 'rename_item':
       return `I will rename the linked item to “${args.title}”.`;
     case 'move_item':
@@ -374,9 +378,45 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
     case 'edit_form':
     case 'set_recurrence':
       return describeSpecOperation(args.operation, args, context);
+    case 'replace_section':
+    case 'replace_passage':
+      return describeBodyEdit(args, context);
     default:
       return describeLegacyOperation(args, context);
   }
+}
+
+function blockCount(count: number): string {
+  return `${String(count)} block${count === 1 ? '' : 's'}`;
+}
+
+/** A section or passage edit: the legacy headline, plus the before and after text and anything
+ * the replaced blocks carry that Markdown cannot keep, so the owner sees a loss before approving. */
+function describeBodyEdit(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
+  const model = describeLegacyOperation(args, context);
+  const plan = context.bodyEdit;
+  if (plan === undefined) return model;
+  return {
+    ...model,
+    notes: [
+      `Removes ${blockCount(plan.blocksRemoved)} and adds ${blockCount(plan.blocksAdded)}.`,
+      ...model.notes,
+    ],
+    warnings: [
+      ...model.warnings,
+      ...plan.losses.map((loss) => ({
+        path: 'Replaced text',
+        code: loss.kind,
+        message: `${loss.detail} The edit will not keep it.`,
+      })),
+    ],
+    bodyEdit: {
+      before: plan.before,
+      after: plan.after,
+      blocksRemoved: plan.blocksRemoved,
+      blocksAdded: plan.blocksAdded,
+    },
+  };
 }
 
 export function planBlueprintPreview(

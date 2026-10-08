@@ -299,6 +299,8 @@ export const WORKSPACE_OPERATIONS = [
   'read_structure',
   'create_note',
   'append_note',
+  'replace_section',
+  'replace_passage',
   'rename_item',
   'move_item',
   'set_properties',

@@ -28,7 +28,7 @@ func modeRules(mode string) string {
 // workspaceTools(mode) or the embedded catalog the way it once did when add_fields,
 // edit_form and set_recurrence were added without updating this text.
 func chatRules() string {
-	return " You can read an item's structure with nix_read_structure and create structure with " + joinWithAnd(toolNames(structureOperations("chat"))) + "; each one's own parameters describe fields and views in plain terms and Nix builds them. You cannot administer workspaces, replace whole note bodies, publish links, delete permanently, remove or retype fields, or delete views; say so immediately if asked. For designing a whole new system from scratch, suggest the Design tab."
+	return " You can read an item's structure with nix_read_structure and create structure with " + joinWithAnd(toolNames(structureOperations("chat"))) + "; each one's own parameters describe fields and views in plain terms and Nix builds them. To change text already in a note, read it with nix_read_note, then use nix_replace_section to rewrite the blocks under one heading or nix_replace_passage to change a short passage inside one paragraph, list item or code block; use nix_append_note to add. You cannot administer workspaces, replace a whole note body, publish links, delete permanently, remove or retype fields, or delete views; say so immediately if asked. For designing a whole new system from scratch, suggest the Design tab."
 }
 
 // toolNames prefixes every operation name with "nix_", the tool-name form the model actually

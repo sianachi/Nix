@@ -55,6 +55,12 @@ export const workspaceToolSchema = z
     )
       required('title');
     if (args.operation === 'append_note') required('markdown');
+    // Body edits: `query` carries the heading (replace_section) or the passage to find
+    // (replace_passage); `markdown` carries the new section or the replacement text, which may be
+    // empty for a passage (deleting a phrase) but never for a section.
+    if (args.operation === 'replace_section' || args.operation === 'replace_passage')
+      required('query');
+    if (args.operation === 'replace_section') required('markdown');
     if (args.operation === 'search') required('query');
     if (args.operation === 'create_entries') required('parentId');
     if (
