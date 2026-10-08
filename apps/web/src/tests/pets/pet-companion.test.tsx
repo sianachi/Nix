@@ -570,4 +570,54 @@ describe('companion workflow', () => {
     expect(screen.getByRole('complementary', { name: 'Cat companion' })).toHaveClass('hidden');
     expect(screen.getByRole('button', { name: 'Open Cat' })).toHaveClass('hidden');
   });
+  it('applies without asking only while the owner has switched it on for this conversation', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    // Nothing can be applied without workspace tools, so the switch only exists with access on.
+    expect(
+      within(dialog).queryByRole('button', { name: 'Apply without asking' }),
+    ).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));
+    const toggle = within(dialog).getByRole('button', { name: 'Apply without asking' });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(
+      within(dialog).getByText(/Applying changes without asking in this conversation/),
+    ).toBeVisible();
+
+    // Turning it off from the banner hands focus back to the toggle the banner mirrors.
+    await user.click(within(dialog).getByRole('button', { name: 'Turn off' }));
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+
+    // Another mode is another conversation: the switch reads as off there.
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await user.click(within(dialog).getByRole('button', { name: 'Design' }));
+    expect(within(dialog).getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
+
+    // Turning workspace access off takes the switch with it.
+    await user.click(within(dialog).getByRole('button', { name: 'Chat' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Apply without asking' }));
+    expect(within(dialog).getByRole('button', { name: 'Turn off' })).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));
+    expect(
+      within(dialog).queryByRole('button', { name: 'Apply without asking' }),
+    ).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
+  });
 });

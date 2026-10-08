@@ -230,6 +230,24 @@ export function Conversation({
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
   const approvalPending = needsDecisionIds.length > 0;
+  // Lane F: run clean changes without a click, for this conversation only. Plain React state on
+  // purpose - never stored, never sent to the worker - so closing the panel or reloading always
+  // comes back to asking. The stored scope makes a switch to another mode, pet or workspace
+  // read as off without an effect: the choice belonged to the conversation it was made in.
+  // Writes already waiting when the switch goes on stay the owner's to decide: the switch only
+  // covers what arrives after it.
+  const applyScope = `${workspaceId}:${pet.id}:${mode}`;
+  const [applySwitch, setApplySwitch] = useState<{
+    scope: string;
+    on: boolean;
+    exempt: readonly string[];
+  }>({ scope: applyScope, on: false, exempt: [] });
+  const applyWithoutAsking = applySwitch.scope === applyScope && applySwitch.on;
+  const applyExemptToolIds = applyWithoutAsking ? applySwitch.exempt : [];
+  const applyToggle = useRef<HTMLButtonElement>(null);
+  const setApplyWithoutAsking = (on: boolean) => {
+    setApplySwitch({ scope: applyScope, on, exempt: on ? needsDecisionIds : [] });
+  };
   const hasDraft = messages.some((message) => message.id.includes(':draft:'));
   const animation: PetAnimationState = voice.listening
     ? 'listening'
@@ -626,7 +644,12 @@ export function Conversation({
             label="Conversation mode"
             options={CONVERSATION_MODE_OPTIONS}
             value={mode}
-            onChange={onModeChange}
+            onChange={(next) => {
+              // Another mode is another conversation: the switch never carries over, not even
+              // on a round trip back to the mode it was turned on in.
+              setApplyWithoutAsking(false);
+              onModeChange(next);
+            }}
           />
           <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
             {(trigger) => {
@@ -752,6 +775,8 @@ export function Conversation({
                   mode={mode}
                   onChange={setRuntime}
                   onNeedsDecisionChange={reportNeedsDecision}
+                  applyWithoutAsking={applyWithoutAsking}
+                  applyExemptToolIds={applyExemptToolIds}
                 />
               </>
             ) : (
@@ -782,6 +807,8 @@ export function Conversation({
                       mode={mode}
                       onChange={setRuntime}
                       onNeedsDecisionChange={reportNeedsDecision}
+                      applyWithoutAsking={applyWithoutAsking}
+                      applyExemptToolIds={applyExemptToolIds}
                     />
                     {messages
                       .slice(splitAt)
@@ -846,6 +873,26 @@ export function Conversation({
                 </Button>
               </div>
             ) : null}
+            {applyWithoutAsking ? (
+              // Not a live region: the toggle's own pressed state already announces the change,
+              // and a region that appears with its text already in it is read unreliably.
+              <div className="flex items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
+                <Text variant="note">
+                  Applying changes without asking in this conversation until you close it. Moving
+                  to trash still asks.
+                </Text>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setApplyWithoutAsking(false);
+                    // The banner goes with this button, so focus returns to the toggle it mirrors.
+                    applyToggle.current?.focus();
+                  }}
+                >
+                  Turn off
+                </Button>
+              </div>
+            ) : null}
             <label htmlFor="pet-message" className="sr-only">
               Message {pet.name}
             </label>
@@ -892,13 +939,43 @@ export function Conversation({
                   const next = !workspaceAccess;
                   setWorkspaceAccess(next);
                   writeWorkspaceAccess(workspaceId, pet.id, next);
+                  // Nothing can be applied without workspace tools, so the switch goes with it.
+                  if (!next) setApplyWithoutAsking(false);
                 }}
               >
                 Workspace access
               </Button>
               <Text as="span" variant="note" className="sr-only" id="pet-workspace-access-hint">
-                Lets {pet.name} find and read your notes for this message. Changes always ask first.
+                Lets {pet.name} find and read your notes for this message. Changes ask first
+                unless you turn on applying without asking.
               </Text>
+              {workspaceAccess ? (
+                <>
+                  <Button
+                    ref={applyToggle}
+                    variant="ghost"
+                    className={applyWithoutAsking ? 'bg-accent/15 text-accent-text' : ''}
+                    aria-pressed={applyWithoutAsking}
+                    aria-describedby="pet-apply-without-asking-hint"
+                    onClick={() => {
+                      setApplyWithoutAsking(!applyWithoutAsking);
+                    }}
+                  >
+                    Apply without asking
+                  </Button>
+                  <Text
+                    as="span"
+                    variant="note"
+                    className="sr-only"
+                    id="pet-apply-without-asking-hint"
+                  >
+                    Runs {pet.name}'s changes in this conversation once their preview shows no
+                    problems, using your Nix permissions. Moving to trash still asks. Changes with
+                    problems go back to {pet.name} to fix. Turns off when you close this
+                    conversation.
+                  </Text>
+                </>
+              ) : null}
               <Button
                 variant="icon"
                 aria-label={hasSelection ? 'Share selected text' : 'Select text on the page first'}
@@ -1128,7 +1205,7 @@ function PetSettingsPanel({
         }}
         label={`Read without asking. When Workspace access is on, ${pet.name} can search and read your workspace${
           mode === 'consult' ? ', and check designs,' : ''
-        } without asking first. What it reads is sent to ChatGPT. Changes always ask first. Applies on this device.`}
+        } without asking first. What it reads is sent to ChatGPT. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.`}
       />
       {runtime?.reason && runtime.status === 'connected' ? (
         <Text variant="note" tone="muted">

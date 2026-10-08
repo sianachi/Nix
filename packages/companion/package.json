@@ -14,6 +14,10 @@
       "types": "./dist/tool-args.d.ts",
       "default": "./dist/tool-args.js"
     },
+    "./auto-apply": {
+      "types": "./dist/auto-apply.d.ts",
+      "default": "./dist/auto-apply.js"
+    },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",

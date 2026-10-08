@@ -5,6 +5,7 @@ import {
   workspaceToolSchema,
   type WorkspaceToolArgs,
 } from '@nix/companion/tool-args';
+import { canApplyWithoutAsking, hasExternalLink } from '@nix/companion/auto-apply';
 import type { PreviewModel, Problem } from '@nix/structure-spec';
 import { Button, Card, Text, cn, focusRing, inkWashStates } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
@@ -37,6 +38,30 @@ interface BuildOutcome {
 }
 
 const DECLINED_BY_USER = 'Declined by the user. Do not retry this change unless asked.';
+/** Whether the switch may ever cover this write: the operation is allowed and none of the text
+ * it would store links to another host (see `hasExternalLink`). The title is included because
+ * `writeTextItems` lists only bodies, specs and property values. */
+function writeMayRunWithoutAsking(args: WorkspaceToolArgs): boolean {
+  return (
+    canApplyWithoutAsking(args.operation) &&
+    !hasExternalLink([args.title, ...writeTextItems(args).map((item) => item.text)])
+  );
+}
+
+/** Receipts for a write the owner's "Apply without asking" switch ran (lane F). Stored like
+ * every other receipt, so the wording survives closing and reopening the panel, and read back
+ * by `ranWithoutAsking` so no card has to remember it. */
+const APPLYING_WITHOUT_ASKING = 'Applying without asking…';
+const DONE_WITHOUT_ASKING = 'Done without asking';
+const WITHOUT_ASKING_SUFFIX = ' Ran without asking.';
+
+function ranWithoutAsking(submitted: string | undefined): boolean {
+  return (
+    submitted === APPLYING_WITHOUT_ASKING ||
+    submitted === DONE_WITHOUT_ASKING ||
+    (submitted?.endsWith(WITHOUT_ASKING_SUFFIX) ?? false)
+  );
+}
 const DECLINED_FOR_PROBLEMS_PREFIX = 'Declined: the design has problems.';
 
 /** Reads, and checking a design in Design mode, never write. There is nothing here for the
@@ -164,6 +189,8 @@ export function PetWorkTools({
   mode = 'chat',
   onChange,
   onNeedsDecisionChange,
+  applyWithoutAsking = false,
+  applyExemptToolIds = [],
   client,
 }: {
   readonly runtime: PetConnection;
@@ -176,6 +203,14 @@ export function PetWorkTools({
    * without asking, nor one already decided - so the header, avatar and launcher only say
    * "needs approval" when that is true. Called whenever the set changes. */
   readonly onNeedsDecisionChange?: (toolIds: readonly string[]) => void;
+  /** Lane F (docs/plans/pet-tool-use-plan.md): the owner's per-conversation switch to run clean
+   * writes without a click. Only `canApplyWithoutAsking` writes whose preview loaded with no
+   * problems run on their own; a preview that failed, or a write with problems, still waits. */
+  readonly applyWithoutAsking?: boolean;
+  /** Writes that were already waiting on screen when the switch was turned on. The switch only
+   * covers what arrives after it: one tap on a ghost button must not approve a card the owner
+   * was in the middle of reading. */
+  readonly applyExemptToolIds?: readonly string[];
   readonly client: NixClient;
 }): ReactElement {
   const lock = useRef(false);
@@ -191,6 +226,9 @@ export function PetWorkTools({
   // its preview loads. A write with problems is auto-declined (see `hasProblems` below) rather
   // than shown to the owner, so it must never count towards `needsDecision` either.
   const [hasProblems, setHasProblems] = useState<Record<string, boolean>>({});
+  // Whether a pending write's preview failed to load, reported by its card. Such a write can
+  // never run on its own under `applyWithoutAsking`, so it counts towards `needsDecision`.
+  const [previewFailed, setPreviewFailed] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const changed = () => {
@@ -205,6 +243,9 @@ export function PetWorkTools({
   function decisionKey(tool: PetToolCall) {
     return `tool:${workspaceId}:${petId}:${mode}:${tool.id}`;
   }
+  function appliesWithoutAsking(tool: PetToolCall) {
+    return applyWithoutAsking && !applyExemptToolIds.includes(tool.id);
+  }
 
   const needsDecision = (runtime.tools ?? [])
     .filter((tool) => {
@@ -218,7 +259,13 @@ export function PetWorkTools({
       } catch {
         return true;
       }
-      return !(parsed.success && isAutoReadOperation(parsed.data.operation) && readWithoutAsking);
+      if (!parsed.success) return true;
+      if (isAutoReadOperation(parsed.data.operation) && readWithoutAsking) return false;
+      return !(
+        appliesWithoutAsking(tool) &&
+        writeMayRunWithoutAsking(parsed.data) &&
+        !previewFailed[tool.id]
+      );
     })
     .map((tool) => tool.id);
   const needsDecisionKey = needsDecision.join(',');
@@ -242,14 +289,19 @@ export function PetWorkTools({
     fence?: StructureFingerprint,
     refusalResult?: string,
     reportProgress?: (completed: number, total: number) => void,
+    withoutAsking = false,
   ): Promise<boolean> {
     const key = decisionKey(tool);
     if (lock.current || tool.status !== 'pending' || decisions[key] || readActionReceipt(key))
       return false;
     lock.current = true;
-    const submitted = approved
-      ? 'Approval submitted. Waiting for confirmation.'
-      : 'Declined. Waiting for confirmation.';
+    // An auto-run never says the owner approved anything: its receipt names the switch from
+    // the first moment, the way `readStatusText` guards an auto-run read.
+    const submitted = withoutAsking
+      ? APPLYING_WITHOUT_ASKING
+      : approved
+        ? 'Approval submitted. Waiting for confirmation.'
+        : 'Declined. Waiting for confirmation.';
     // A stale poll or reopening the panel must not ask for the same decision again.
     // This receipt only hides repeat prompts; the worker claim still gates execution.
     writeActionReceipt(key, submitted);
@@ -340,7 +392,7 @@ export function PetWorkTools({
         const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
         const build = args.operation === 'build_blueprint' ? buildOutcome(toolResult) : undefined;
         const completed = build?.ledger.filter((entry) => entry.status === 'done').length;
-        const receipt =
+        const outcome =
           build === undefined
             ? args.operation === 'save_as_template'
               ? 'Template saved.'
@@ -348,6 +400,11 @@ export function PetWorkTools({
             : build.complete
               ? `Built ${String(completed)} of ${String(build.ledger.length)}.`
               : `Stopped after ${String(completed)} of ${String(build.ledger.length)}.`;
+        const receipt = !withoutAsking
+          ? outcome
+          : outcome === 'Completed.'
+            ? DONE_WITHOUT_ASKING
+            : outcome + WITHOUT_ASKING_SUFFIX;
         writeActionReceipt(key, receipt);
         setDecisions((old) => ({ ...old, [key]: receipt }));
       } else if (!approved) {
@@ -388,6 +445,7 @@ export function PetWorkTools({
           petName={petName}
           busy={busy}
           readWithoutAsking={readWithoutAsking}
+          applyWithoutAsking={appliesWithoutAsking(tool)}
           progress={progress[tool.id]}
           onBuildProgress={(message) => {
             setProgress((old) => ({ ...old, [tool.id]: message }));
@@ -395,6 +453,11 @@ export function PetWorkTools({
           onProblemsChange={(problems) => {
             setHasProblems((old) =>
               old[tool.id] === problems ? old : { ...old, [tool.id]: problems },
+            );
+          }}
+          onPreviewFailedChange={(failed) => {
+            setPreviewFailed((old) =>
+              old[tool.id] === failed ? old : { ...old, [tool.id]: failed },
             );
           }}
           submitted={decisions[decisionKey(tool)] ?? readActionReceipt(decisionKey(tool))}
@@ -412,6 +475,7 @@ type Resolver = (
   fence?: StructureFingerprint,
   refusalResult?: string,
   reportProgress?: (completed: number, total: number) => void,
+  withoutAsking?: boolean,
 ) => Promise<boolean>;
 
 /** One line: an icon-free status word or two, next to what happened. Used for every read (and
@@ -422,12 +486,15 @@ function ActivityRow({
   status,
   details,
   detailsLabel = 'Result details',
+  detailsExtra,
   actions,
 }: {
   readonly sentence: string;
   readonly status: string;
   readonly details: string | undefined;
   readonly detailsLabel?: string;
+  /** Shown above the text details, inside the same disclosure. */
+  readonly detailsExtra?: ReactElement | undefined;
   readonly actions: ReactElement | undefined;
 }): ReactElement {
   return (
@@ -441,16 +508,22 @@ function ActivityRow({
         </Text>
       </div>
       {actions}
-      {details ? (
+      {details || detailsExtra ? (
         <details>
           <summary className={cn('cursor-default rounded', focusRing, inkWashStates)}>
             <Text as="span" variant="note">
               {detailsLabel}
             </Text>
           </summary>
-          <Text variant="note" className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words">
-            {details}
-          </Text>
+          {detailsExtra}
+          {details ? (
+            <Text
+              variant="note"
+              className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words"
+            >
+              {details}
+            </Text>
+          ) : null}
         </details>
       ) : null}
     </div>
@@ -555,16 +628,20 @@ function writeStatusText(
 ): string {
   if (declinedForProblems)
     return `Sent ${String(problemCount)} problem${problemCount === 1 ? '' : 's'} back to ${petName}`;
+  // The receipt says so when the owner's switch, not a click, let this run: a long turn must
+  // stay readable as "what ran on its own" against "what I approved", also after reopening.
+  const withoutAsking = ranWithoutAsking(submitted);
   switch (tool.status) {
     case 'pending':
       return submitted ?? 'Waiting for your approval';
     case 'claimed':
-      return 'Applying…';
+      return withoutAsking ? APPLYING_WITHOUT_ASKING : 'Applying…';
     case 'completed':
-      return 'Done';
+      return withoutAsking ? (submitted ?? DONE_WITHOUT_ASKING) : 'Done';
     case 'failed':
-      return tool.result === DECLINED_BY_USER
-        ? 'Declined'
+      if (tool.result === DECLINED_BY_USER) return 'Declined';
+      return withoutAsking
+        ? "Didn't finish (ran without asking) - check your workspace before retrying"
         : "Didn't finish - check your workspace before retrying";
     case 'interrupted':
       return 'Stopped';
@@ -582,10 +659,14 @@ function WriteReceiptRow({
   submitted,
   progress,
   cleanup,
+  applied,
 }: {
   readonly tool: PetToolCall;
   readonly headline: string;
   readonly problems: readonly Problem[];
+  /** What a write that ran without asking stored, so the owner can still read it afterwards:
+   * the preview they would have approved and every text it carried. */
+  readonly applied?: ReactElement | undefined;
   readonly petName: string;
   readonly submitted: string | undefined;
   readonly progress: string | undefined;
@@ -601,7 +682,14 @@ function WriteReceiptRow({
           ? problems.map((problem) => problem.message).join('\n')
           : tool.result || undefined
       }
-      detailsLabel={declinedForProblems ? 'Show problems' : 'Result details'}
+      detailsLabel={
+        declinedForProblems
+          ? 'Show problems'
+          : applied
+            ? 'What was applied'
+            : 'Result details'
+      }
+      detailsExtra={applied}
       actions={
         progress || cleanup ? (
           <div className="flex flex-col gap-2">
@@ -853,9 +941,11 @@ function PetWorkToolCard({
   petName,
   busy,
   readWithoutAsking,
+  applyWithoutAsking,
   progress,
   onBuildProgress,
   onProblemsChange,
+  onPreviewFailedChange,
   submitted,
   onResolve,
 }: {
@@ -865,16 +955,23 @@ function PetWorkToolCard({
   readonly petName: string;
   readonly busy: boolean;
   readonly readWithoutAsking: boolean;
+  readonly applyWithoutAsking: boolean;
   readonly progress: string | undefined;
   readonly onBuildProgress: (message: string) => void;
   /** Reports whether this tool's own preview has problems, so the owner-facing `needsDecision`
    * count in `PetWorkTools` never includes a write that is about to be auto-declined. */
   readonly onProblemsChange: (hasProblems: boolean) => void;
+  /** Reports whether this write's preview failed to load, so `needsDecision` still counts it
+   * while `applyWithoutAsking` is on: nothing runs on its own without a clean preview. */
+  readonly onPreviewFailedChange: (failed: boolean) => void;
   readonly submitted?: string;
   readonly onResolve: Resolver;
 }): ReactElement {
   const [state, setState] = useState<ToolPreviewState>({ loading: true });
   const autoDeclineKey = useRef('');
+  // Set only once `onResolve` actually started this write on its own (the S3 pattern
+  // `ReadActivityRow` follows). The receipt, not this ref, carries "without asking" into the UI.
+  const autoApplyKey = useRef('');
   let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
   try {
     parsed = workspaceToolSchema.safeParse(JSON.parse(tool.arguments));
@@ -965,9 +1062,55 @@ function PetWorkToolCard({
   }, [hasProblems, onProblemsChange]);
   useEffect(() => {
     if (!hasProblems || busy || autoDeclineKey.current === tool.id) return;
-    autoDeclineKey.current = tool.id;
-    void onResolve(tool, false, undefined, problemResult);
+    // Only remembered once the decline actually started (security fix S3, as for auto-run
+    // reads): a decline that lost the lock to another tool is retried once `busy` clears.
+    void (async () => {
+      const started = await onResolve(tool, false, undefined, problemResult);
+      if (started) autoDeclineKey.current = tool.id;
+    })();
   }, [hasProblems, busy, tool, problemResult, onResolve]);
+
+  const previewFailed = !isReadOp && currentPreview && !state.loading && Boolean(state.error);
+  useEffect(() => {
+    onPreviewFailedChange(previewFailed);
+  }, [previewFailed, onPreviewFailedChange]);
+
+  // Lane F: with the owner's switch on, a clean write runs exactly as a click on "Approve
+  // request" would - same fence, same build progress, same single-flight lock in `resolve` -
+  // once its preview has loaded with no problems. The gate below mirrors the button's own
+  // `disabled` expression so the switch can never run what the button could not.
+  const canAutoApply =
+    applyWithoutAsking &&
+    !isReadOp &&
+    args !== undefined &&
+    writeMayRunWithoutAsking(args) &&
+    tool.status === 'pending' &&
+    !submitted &&
+    currentPreview &&
+    !state.loading &&
+    model !== undefined &&
+    problems.length === 0 &&
+    !state.error;
+  useEffect(() => {
+    if (!canAutoApply || busy || autoApplyKey.current === tool.id) return;
+    const isBuild = args.operation === 'build_blueprint';
+    if (isBuild) onBuildProgress('Building the draft...');
+    void (async () => {
+      const started = await onResolve(
+        tool,
+        true,
+        state.prepared?.fingerprint,
+        undefined,
+        isBuild
+          ? (completed, total) => {
+              onBuildProgress(`Building ${String(completed)} of ${String(total)}...`);
+            }
+          : undefined,
+        true,
+      );
+      if (started) autoApplyKey.current = tool.id;
+    })();
+  }, [canAutoApply, busy, tool, args, state.prepared, onResolve, onBuildProgress]);
 
   const incompleteBuild =
     args?.operation === 'build_blueprint' && tool.result ? buildOutcome(tool.result) : undefined;
@@ -1038,11 +1181,20 @@ function PetWorkToolCard({
   // A write op collapses to a one-line receipt once it has an outcome (a decision, a claim, a
   // problem it is being sent back for), rather than staying a card. The full card below is only
   // for a write still awaiting a first, real decision.
+  const textItems = args ? writeTextItems(args) : [];
   const isCompactWrite =
     args !== undefined && (tool.status !== 'pending' || Boolean(submitted) || problems.length > 0);
   if (isCompactWrite) {
+    const applied =
+      ranWithoutAsking(submitted) && model ? (
+        <div className="flex flex-col gap-2">
+          <PetStructurePreview model={model} captureSummary={false} />
+          <WriteTextSection items={textItems} />
+        </div>
+      ) : undefined;
     return (
       <WriteReceiptRow
+        applied={applied}
         tool={tool}
         headline={model?.headline ?? (state.loading ? 'Preparing a summary…' : 'This change')}
         problems={problems}
@@ -1054,7 +1206,6 @@ function PetWorkToolCard({
     );
   }
 
-  const textItems = args ? writeTextItems(args) : [];
   return (
     <Card
       title={parsed.success ? 'Approve this change?' : 'Unsupported tool request'}

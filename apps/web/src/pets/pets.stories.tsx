@@ -5,6 +5,7 @@ import { PetAvatar, petAnimationStates, type PetAnimationState } from './pet-ava
 import type { NixClient, PetProfile, Workspace } from '@nix/api-client';
 import { PetSettingsEditor } from './pet-settings-section';
 import { PetWorkTools } from './pet-work-tools';
+import { writeActionReceipt } from './action-receipts';
 import { createNixClient, petConnectionSchema } from '@nix/api-client';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { ApiClientOverrideProvider } from '../api/api-client-provider';
@@ -138,6 +139,69 @@ export const WorkApproval = {
   ),
 };
 export const DarkWorkApproval = { ...WorkApproval, globals: { ground: 'dark' } };
+
+const appliedWorkspaceId = '11111111-1111-4111-8111-111111111111';
+const appliedPetId = '22222222-2222-4222-8222-222222222222';
+/** Two writes the owner's "Apply without asking" switch ran: one that finished, one that did
+ * not. The receipts are what the real card stores (`writeActionReceipt`), so this renders the
+ * same way a reopened panel does. */
+export const AppliedWithoutAsking = {
+  render: (): ReactElement => {
+    writeActionReceipt(
+      `tool:${appliedWorkspaceId}:${appliedPetId}:chat:applied-done`,
+      'Done without asking',
+    );
+    writeActionReceipt(
+      `tool:${appliedWorkspaceId}:${appliedPetId}:chat:applied-failed`,
+      'Applying without asking…',
+    );
+    const note = (title: string) =>
+      JSON.stringify({
+        operation: 'create_note',
+        itemId: '',
+        parentId: '',
+        title,
+        markdown: '# Weekly plan\n\n- Review priorities\n- Draft the release notes',
+        query: '',
+        propertiesJson: '',
+      });
+    return (
+      <MemoryRouter>
+        <PetWorkTools
+          client={previewClient}
+          workspaceId={appliedWorkspaceId}
+          petId={appliedPetId}
+          onChange={() => undefined}
+          applyWithoutAsking
+          runtime={petConnectionSchema.parse({
+            provider: 'chatgpt',
+            status: 'connected',
+            reason: '',
+            canConnect: false,
+            tools: [
+              {
+                id: 'applied-done',
+                arguments: note('Weekly plan'),
+                status: 'completed',
+                result: '{"id":"33333333-3333-4333-8333-333333333333"}',
+                claimId: 'c1',
+              },
+              {
+                id: 'applied-failed',
+                arguments: note('Release notes'),
+                status: 'failed',
+                result: 'The operation failed or its result is uncertain.',
+                claimId: 'c2',
+              },
+            ],
+          })}
+        />
+      </MemoryRouter>
+    );
+  },
+};
+export const DarkAppliedWithoutAsking = { ...AppliedWithoutAsking, globals: { ground: 'dark' } };
+
 
 const structurePreviewModel: PreviewModel = {
   headline: 'I will create a Reading log with a board view.',

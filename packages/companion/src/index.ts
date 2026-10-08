@@ -14,6 +14,7 @@ export {
   type WorkspaceToolOutcome,
 } from './run.js';
 export { READ_ONLY_OPERATIONS, workspaceToolSchema, type WorkspaceToolArgs } from './tool-args.js';
+export { canApplyWithoutAsking, hasExternalLink } from './auto-apply.js';
 export { loadPreviewContext, type PreviewContext, type PreviewDestination } from './context.js';
 export { structureFingerprint, type StructureFingerprint } from './guards.js';
 export { readStructure, type ReadStructureResult } from './structure/read-structure.js';
