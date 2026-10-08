@@ -13,6 +13,7 @@ import {
 import type { FieldRefResolution } from '../spec/refs.js';
 import type { ViewSpec } from '../spec/view.js';
 import { mergeProperties } from '../vocabulary/merge-properties.js';
+import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { compileFields } from '../compile/fields.js';
 import { compileView } from '../compile/views.js';
 import { tryResolveKey } from '../compile/resolve.js';
@@ -214,7 +215,8 @@ function compileViews(
       if (ref !== undefined && resolveRef(ref, scope, `${path}.${suffix}`, problems) === null)
         valid = false;
     };
-    check(spec.groupBy, 'groupBy');
+    // `$type` sections a list by body kind and names no property, so it has nothing to resolve.
+    if (spec.groupBy !== TYPE_GROUP_KEY) check(spec.groupBy, 'groupBy');
     check(spec.date, 'date');
     check(spec.endDate, 'endDate');
     check(spec.cover, 'cover');

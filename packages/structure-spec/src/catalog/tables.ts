@@ -42,8 +42,8 @@ export const VIEW_KIND_RULES = [
     kind: 'list',
     label: 'List',
     requires: null,
-    optional: [],
-    description: 'Rows and columns, one row per child.',
+    optional: [{ field: 'groupBy', shape: 'select, checkbox or $type' }],
+    description: 'Rows and columns, one row per child, optionally in sections.',
   },
   {
     kind: 'board',

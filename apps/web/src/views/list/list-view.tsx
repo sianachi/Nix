@@ -2,6 +2,7 @@ import { useNarrowViewport } from '../../layout/viewport';
 import {
   Button,
   ContextMenu,
+  Icon,
   Text,
   Table,
   Select,
@@ -12,7 +13,10 @@ import {
   type TableColumn,
   type TableSort,
 } from '@nix/ui';
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
+
+import { PartialNotice } from '../../components/states/status-panels';
 
 import { isKnownPropertyType } from '../../properties/property-input';
 import { TITLE_COLUMN_KEY, resolveConfiguredColumns } from '../core/columns';
@@ -35,6 +39,12 @@ import { drawable, useViewChrome } from '../core/view-chrome';
 import { useViewState, type SortDirection } from '../core/view-state';
 import { useVirtualWindow } from '../core/use-virtual-window';
 import { virtualSpacers } from '../core/virtual-window';
+import {
+  describeAxisProblem,
+  groupItems,
+  resolveViewAxis,
+  type AxisGroup,
+} from '../core/view-axis';
 
 const VIRTUALIZATION_THRESHOLD = 100;
 const ESTIMATED_ROW_HEIGHT = 45;
@@ -90,6 +100,13 @@ export function ListView(props: ListViewProps): ReactNode {
   const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
   const itemActions = useItemContextActions(onOpen);
   const rowContextMenu = (item: Item): MenuEntry[] => itemActions(item.id, item.title);
+
+  // Which sections are folded away. Seeded from the view's stored `collapsedGroups` (ADR-0054) and
+  // then held here: folding a section is somebody reading, not somebody rearranging the view for
+  // everyone, so it is not written back to the shared view on every click.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
+    () => new Set(view?.collapsedGroups ?? []),
+  );
 
   // The URL wins, the stored view is the starting point. A view configured to sort by owner is
   // what somebody arriving with no sort in the address should see; the moment they click a header
@@ -153,6 +170,55 @@ export function ListView(props: ListViewProps): ReactNode {
     viewState.setSort(next.columnKey, next.direction);
   };
 
+  // Sections (plan 3.3). A grouping that cannot be resolved does not cost the list its rows: the
+  // list is what every container falls back to, so it draws flat and says why the headings are
+  // missing rather than refusing to draw at all, which is what a board does without its columns.
+  const sectioning = resolveViewAxis(container.schema?.properties ?? [], view?.groupBy, {
+    allowType: true,
+  });
+  const sections =
+    sectioning.kind === 'ready'
+      ? groupItems(sectioning.axis, chrome.items, view?.groupOrder ?? [])
+      : null;
+  const sectionNotice =
+    sectioning.kind === 'missing' || sectioning.kind === 'wrongType' ? (
+      <PartialNotice
+        pending={`This list is shown without sections. ${describeAxisProblem(sectioning, 'sections')}`}
+      />
+    ) : null;
+  const toggleSection = (group: string): void => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(group)) {
+        next.delete(group);
+      } else {
+        next.add(group);
+      }
+      return next;
+    });
+  };
+  const rowsFor = (items: readonly Item[], caption: string, showSort: boolean): ReactNode =>
+    narrow ? (
+      <MobileListRows
+        items={items}
+        columns={columns}
+        sort={sort}
+        onSortChange={onSortChange}
+        rowContextMenu={rowContextMenu}
+        caption={caption}
+        showSort={showSort}
+      />
+    ) : (
+      <ListRows
+        items={items}
+        columns={columns}
+        sort={sort}
+        onSortChange={onSortChange}
+        rowContextMenu={rowContextMenu}
+        caption={caption}
+      />
+    );
+
   return (
     // The table's own horizontal scroller. A `w-full` table is laid out `auto`, so it cannot render
     // narrower than its min-content width - enough property columns and it paints straight past a
@@ -190,23 +256,22 @@ export function ListView(props: ListViewProps): ReactNode {
       }}
     >
       {chrome.notice}
+      {sectionNotice}
 
-      {narrow ? (
-        <MobileListRows
-          items={chrome.items}
-          columns={columns}
-          sort={sort}
-          onSortChange={onSortChange}
-          rowContextMenu={rowContextMenu}
-        />
+      {sections === null ? (
+        rowsFor(chrome.items, ITEMS_CAPTION, true)
       ) : (
-        <ListRows
-          items={chrome.items}
-          columns={columns}
-          sort={sort}
-          onSortChange={onSortChange}
-          rowContextMenu={rowContextMenu}
-        />
+        <>
+          {narrow ? (
+            <MobileSortBar columns={columns} sort={sort} onSortChange={onSortChange} />
+          ) : null}
+          <ListSections
+            sections={sections}
+            collapsed={collapsed}
+            onToggle={toggleSection}
+            renderRows={(section) => rowsFor(section.items, section.label, false)}
+          />
+        </>
       )}
 
       {/* Below the table rather than as a last row. `<Table>` has no footer seam, and a row would
@@ -222,12 +287,79 @@ export function ListView(props: ListViewProps): ReactNode {
   );
 }
 
+/** What an ungrouped list's table is called; a section's table is called after its heading. */
+const ITEMS_CAPTION = 'Items in this one';
+
+interface ListSectionsProps {
+  readonly sections: readonly AxisGroup[];
+  readonly collapsed: ReadonlySet<string>;
+  readonly onToggle: (group: string) => void;
+  readonly renderRows: (section: AxisGroup) => ReactNode;
+}
+
+/**
+ * A grouped list: one heading per section, each with its count and a disclosure that folds it.
+ *
+ * **The heading is a real heading holding a real button.** The heading is what a screen reader's
+ * heading list offers to jump between, and the button inside it is what folds the section - with
+ * `aria-expanded` saying which state it is in and `aria-controls` naming what it hides - the
+ * disclosure pattern rather than a clickable `<h3>`, which a keyboard cannot reach.
+ *
+ * Each section's rows are the list's own table, captioned with the section's name, so row headers,
+ * in-place cells, context menus and windowing past a hundred rows behave exactly as an ungrouped
+ * list's do: the sections reuse the rows rather than drawing a second kind of row.
+ */
+function ListSections(props: ListSectionsProps): ReactNode {
+  const { sections, collapsed, onToggle, renderRows } = props;
+  const baseId = useId();
+
+  return (
+    <div className="flex flex-col gap-4">
+      {sections.map((section, index) => {
+        const open = !collapsed.has(section.group);
+        const bodyId = `${baseId}-section-${String(index)}`;
+        return (
+          <section key={section.group} aria-label={section.label} className="flex flex-col gap-2">
+            <Text as="h3" variant="h6">
+              <button
+                type="button"
+                aria-expanded={open}
+                aria-controls={bodyId}
+                onClick={() => {
+                  onToggle(section.group);
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 text-left pointer-coarse:min-h-(--control-lg)',
+                  focusRing,
+                )}
+              >
+                <Icon icon={open ? ChevronDown : ChevronRight} size="sm" />
+                <span className="min-w-0">{section.label}</span>
+                <Text as="span" variant="caption" tone="muted">
+                  {section.items.length}
+                  <span className="sr-only"> {section.items.length === 1 ? 'item' : 'items'}</span>
+                </Text>
+              </button>
+            </Text>
+            <div id={bodyId} hidden={!open}>
+              {open ? renderRows(section) : null}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 interface ListRowsProps {
   readonly items: readonly Item[];
   readonly columns: readonly TableColumn<Item>[];
   readonly sort: TableSort | undefined;
   readonly onSortChange: (sort: TableSort) => void;
   readonly rowContextMenu?: (item: Item) => MenuEntry[];
+
+  /** The table's accessible name: the list's, or the section's heading when it is grouped. */
+  readonly caption: string;
 }
 
 /** Which row a list row's menu acts on, for the name a screen reader hears. */
@@ -236,11 +368,11 @@ function rowMenuLabel(item: Item): string {
 }
 
 function ListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange, rowContextMenu } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu, caption } = props;
   if (items.length <= VIRTUALIZATION_THRESHOLD) {
     return (
       <Table<Item>
-        caption="Items in this one"
+        caption={caption}
         columns={columns}
         rows={items}
         rowKey={(item) => item.id}
@@ -258,7 +390,7 @@ function ListRows(props: ListRowsProps): ReactNode {
 }
 
 function VirtualListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange, rowContextMenu } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu, caption } = props;
   const rootRef = useRef<HTMLTableElement>(null);
   // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
   const keys = useMemo(() => items.map((item) => item.id), [items]);
@@ -275,7 +407,7 @@ function VirtualListRows(props: ListRowsProps): ReactNode {
   return (
     <Table<Item>
       tableRef={rootRef}
-      caption="Items in this one"
+      caption={caption}
       columns={columns}
       rows={rows}
       rowKey={(item) => item.id}
@@ -424,48 +556,15 @@ function MobileListRows({
   sort,
   onSortChange,
   rowContextMenu,
-}: ListRowsProps): ReactNode {
+  caption,
+  showSort,
+}: ListRowsProps & { readonly showSort: boolean }): ReactNode {
   const [limit, setLimit] = useState(40);
   return (
-    <section aria-label="Items in this one" className="flex flex-col gap-3">
-      <label className="flex flex-wrap items-center gap-2">
-        <Text as="span" variant="caption">
-          Sort by
-        </Text>
-        <Select
-          aria-label="Sort by"
-          value={sort?.columnKey ?? ''}
-          className="w-auto min-w-0 flex-1"
-          onChange={(event) => {
-            onSortChange({
-              columnKey: event.target.value,
-              direction: sort?.direction ?? 'ascending',
-            });
-          }}
-        >
-          <option value="" disabled>
-            Item order
-          </option>
-          {columns.map((column) => (
-            <option key={column.key} value={column.key}>
-              {column.header}
-            </option>
-          ))}
-        </Select>
-        <Button
-          variant="ghost"
-          disabled={!sort}
-          onClick={() => {
-            if (sort)
-              onSortChange({
-                ...sort,
-                direction: sort.direction === 'ascending' ? 'descending' : 'ascending',
-              });
-          }}
-        >
-          {sort?.direction === 'descending' ? 'Descending' : 'Ascending'}
-        </Button>
-      </label>
+    <section aria-label={caption} className="flex flex-col gap-3">
+      {showSort ? (
+        <MobileSortBar columns={columns} sort={sort} onSortChange={onSortChange} />
+      ) : null}
       <ul className="divide-y divide-divider">
         {items.slice(0, limit).map((item) =>
           // A long press is the phone's right-click: the same actions the desktop rows offer, so a
@@ -496,6 +595,59 @@ function MobileListRows({
         </Button>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * The phone's sort control: a select for the key and a button for the direction, because a phone
+ * has no column headers to click. Drawn once above a grouped list rather than once per section -
+ * the sort applies inside every section alike, and five copies of one control would be four
+ * controls too many.
+ */
+function MobileSortBar({
+  columns,
+  sort,
+  onSortChange,
+}: Pick<ListRowsProps, 'columns' | 'sort' | 'onSortChange'>): ReactNode {
+  return (
+    <label className="flex flex-wrap items-center gap-2">
+      <Text as="span" variant="caption">
+        Sort by
+      </Text>
+      <Select
+        aria-label="Sort by"
+        value={sort?.columnKey ?? ''}
+        className="w-auto min-w-0 flex-1"
+        onChange={(event) => {
+          onSortChange({
+            columnKey: event.target.value,
+            direction: sort?.direction ?? 'ascending',
+          });
+        }}
+      >
+        <option value="" disabled>
+          Item order
+        </option>
+        {columns.map((column) => (
+          <option key={column.key} value={column.key}>
+            {column.header}
+          </option>
+        ))}
+      </Select>
+      <Button
+        variant="ghost"
+        disabled={!sort}
+        onClick={() => {
+          if (sort)
+            onSortChange({
+              ...sort,
+              direction: sort.direction === 'ascending' ? 'descending' : 'ascending',
+            });
+        }}
+      >
+        {sort?.direction === 'descending' ? 'Descending' : 'Ascending'}
+      </Button>
+    </label>
   );
 }
 

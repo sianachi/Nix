@@ -134,6 +134,26 @@ export function canGroupBy(type: string): boolean {
 }
 
 /**
+ * Whether a list may draw sections, or a matrix may lay out an axis, by a property of this type: a
+ * single select or anything checkbox-shaped (a checkbox, or a task's completion). Each gives a
+ * small, closed set of groups - the options plus "no value", or yes and no - which is what a
+ * heading per group or a row per group needs. Wider than `canGroupBy` on purpose: a board's
+ * columns stay select-only until the board can draw the other shapes (ADR-0054), while a section
+ * heading or a matrix cell already draws a checkbox's two values honestly. The server's
+ * counterpart is `PropertyTypes.CanSectionBy`; the two must widen together.
+ */
+export function canSectionBy(type: string): boolean {
+  return type === 'select' || valueShapeOf(type) === 'checkbox';
+}
+
+/**
+ * The reserved grouping key that sections a list by each item's body kind (`item.type`) rather
+ * than by a property. Spelled with the `$` every reserved key carries, so no declared property
+ * can collide with it.
+ */
+export const TYPE_GROUP_KEY = '$type';
+
+/**
  * Whether a chart may bucket its bars by a property of this type: single select, because the
  * server folds the buckets and reads one select value per item. The server's counterpart is
  * `PropertyTypes.CanChartBy`; it stays narrower than `canGroupBy` once grouping widens.

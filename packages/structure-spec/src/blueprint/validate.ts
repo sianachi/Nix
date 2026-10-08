@@ -19,7 +19,7 @@ import type {
   StructureProperty,
   StructureView,
 } from '../types.js';
-import { isDateShaped, valueShapeOf } from '../vocabulary/property-types.js';
+import { isDateShaped, TYPE_GROUP_KEY, valueShapeOf } from '../vocabulary/property-types.js';
 import { refuseSchema } from '../validate/schema-rules.js';
 import { refuseViews } from '../validate/view-rules.js';
 import { validateValue } from '../validate/values.js';
@@ -252,7 +252,11 @@ function compileViewForValidation(
   path: string,
   problems: Problem[],
 ): StructureView {
-  const groupBy = resolveRef(view.groupBy, scope, `${path}.groupBy`, problems);
+  // `$type` sections a list by body kind and names no property, so it has nothing to resolve.
+  const groupBy =
+    view.groupBy === TYPE_GROUP_KEY
+      ? TYPE_GROUP_KEY
+      : resolveRef(view.groupBy, scope, `${path}.groupBy`, problems);
   const dateProperty = resolveRef(view.date, scope, `${path}.date`, problems);
   const endDateProperty = resolveRef(view.endDate, scope, `${path}.endDate`, problems);
   const coverProperty = resolveRef(view.cover, scope, `${path}.cover`, problems);

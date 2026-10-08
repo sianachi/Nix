@@ -72,6 +72,11 @@ export function StructuredViewConfiguration({
                     {field.label}
                   </option>
                 ))}
+                {configuration.extraChoices?.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
               </Select>
             )}
           </Field>

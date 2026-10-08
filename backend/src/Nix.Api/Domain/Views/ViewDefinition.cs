@@ -391,7 +391,12 @@ public static class GalleryCardSizes
 /// For a list: the property keys to show, in order. Empty means the effective schema decides,
 /// which is what a view created without configuration should do.
 /// </param>
-/// <param name="GroupBy">For a board: the single-select property whose values become columns.</param>
+/// <param name="GroupBy">
+/// For a board: the single-select property whose values become columns. For a list: the select or
+/// checkbox property, or the reserved <c>$type</c> (each item's body kind), whose values become
+/// sections - optional, and stored as given, because a list with no usable grouping still draws
+/// its rows flat.
+/// </param>
 /// <param name="GroupOrder">
 /// For a board: which of that property's values to show, in which order. Empty means every value
 /// the schema declares.

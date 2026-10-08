@@ -44,7 +44,7 @@ type ViewKind = (typeof VIEW_KINDS)[number];
  * `string` so a missing or misspelled kind fails to compile instead of silently allowing nothing.
  */
 const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
-  list: ['columns'],
+  list: ['columns', 'groupBy'],
   sheet: ['columns'],
   form: ['columns'],
   board: ['groupBy', 'groupOrder'],
@@ -77,7 +77,7 @@ export const viewSpecSchema = z
       .string()
       .min(1)
       .describe(
-        'Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group.',
+        'Board, chart: a select. List: a select, checkbox or $type, drawn as sections.',
       )
       .optional(),
     groupOrder: z.array(z.string().min(1)).optional(),

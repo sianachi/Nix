@@ -19,7 +19,13 @@ import { BoardView } from '../board/board-view';
 import { ChartView } from '../chart/chart-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
-import { canChartBy, canGroupBy, isDateShaped } from './property-types';
+import {
+  canChartBy,
+  canGroupBy,
+  canSectionBy,
+  isDateShaped,
+  TYPE_GROUP_KEY,
+} from './property-types';
 import { CARD_SIZES, DEFAULT_CARD_SIZE, GalleryView, type CardSize } from '../gallery/gallery-view';
 import {
   DEFAULT_DRIVE_LAYOUT,
@@ -120,6 +126,13 @@ export interface ViewConfiguration {
    * one down to values it does not have.
    */
   readonly clears?: Partial<View>;
+
+  /**
+   * Choices offered after the properties that are not properties themselves - a list's sections by
+   * body kind, stored under the reserved `$type` key. Empty or absent for every kind whose
+   * configuration is only ever a property.
+   */
+  readonly extraChoices?: readonly { readonly value: string; readonly label: string }[];
 }
 
 /**
@@ -271,7 +284,21 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     label: 'List',
     icon: LayoutList,
     render: (props) => <ListView {...props} />,
-    configures: [],
+    // Optional, under the board's own field name: a list switched to a board keeps its grouping
+    // when it was a select, and a list with none is the plain list it always was.
+    configures: [
+      {
+        field: 'groupBy',
+        label: 'Sections',
+        emptyHint:
+          'There is no select or checkbox property yet. Sections can still follow each item\'s kind.',
+        hint: 'Rows are gathered under a heading for each value, with a count, and each heading folds away.',
+        emptyChoice: 'None',
+        accepts: (property) => canSectionBy(property.type),
+        clears: { groupOrder: [], collapsedGroups: [] },
+        extraChoices: [{ value: TYPE_GROUP_KEY, label: 'Kind of item' }],
+      },
+    ],
     chooses: [],
     appliesSavedFilters: true,
   },

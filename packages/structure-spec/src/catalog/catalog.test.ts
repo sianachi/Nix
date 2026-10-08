@@ -28,7 +28,7 @@ describe('the capability catalog', () => {
     expect(consult).toContain('Do not use name for a field');
     expect(consult).toContain('do not use properties or entries for blueprint node values');
     expect(consult).toContain('under values, keyed by field key');
-    expect(consult).toContain('list accepts no groupBy');
+    expect(consult).toContain('On a list, groupBy draws sections');
     expect(consult).toContain('- board: groupBy');
   });
 
