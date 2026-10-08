@@ -564,6 +564,9 @@ export function Conversation({
         void reload();
       },
     },
+    ...(layout === 'floating' && onOpenAsPage
+      ? [{ label: 'Open as page', icon: Maximize2, onSelect: onOpenAsPage }]
+      : []),
     { kind: 'separator' },
     {
       label: 'Chat settings',
@@ -612,72 +615,64 @@ export function Conversation({
       aria-label={`Conversation with ${pet.name}`}
       className={dialogClass}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-divider px-4 py-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <div
-            aria-hidden="true"
-            className={`shrink-0 overflow-visible ${smallScreen ? 'size-10' : 'size-14'}`}
-          >
-            <div className="origin-top-left scale-50">
+      <div className="flex shrink-0 flex-col gap-3 border-b border-divider bg-surface px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div aria-hidden="true" className="shrink-0">
               <PetAvatar
                 appearance={pet.appearance}
                 motion={settings.motion}
                 state={animation}
                 label={`${pet.name}: ${animation}`}
+                size="compact"
               />
             </div>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <Text variant="h5" as="h2" title={pet.name} truncate>
+                {pet.name}
+              </Text>
+              <Text role="status" variant="note" tone="muted" truncate>
+                {statusText({
+                  runtimeLoaded: Boolean(runtime),
+                  connected,
+                  errored,
+                  hasDraft,
+                  needsDecision: approvalPending,
+                  running,
+                })}
+              </Text>
+            </div>
           </div>
-          <div
-            className={smallScreen ? 'flex min-w-0 flex-col' : 'flex min-w-0 items-center gap-3'}
-          >
-            <Text variant="h3" as="h2" truncate>
-              {pet.name}
-            </Text>
-            <Text role="status" variant="note" tone="muted" truncate>
-              {statusText({
-                runtimeLoaded: Boolean(runtime),
-                connected,
-                errored,
-                hasDraft,
-                needsDecision: approvalPending,
-                running,
-              })}
-            </Text>
+          <div className="flex shrink-0 items-center gap-2">
+            <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
+              {(trigger) => {
+                menuTrigger.current = trigger.ref;
+                return (
+                  <Button {...trigger} variant="icon" aria-label="More conversation actions">
+                    <Icon icon={MoreHorizontal} size="sm" />
+                  </Button>
+                );
+              }}
+            </Menu>
+            {onClose ? (
+              <Button variant="icon" aria-label="Close" onClick={onClose}>
+                <Icon icon={X} size="sm" />
+              </Button>
+            ) : null}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Segmented
-            label="Conversation mode"
-            options={CONVERSATION_MODE_OPTIONS}
-            value={mode}
-            onChange={(next) => {
-              // Another mode is another conversation: the switch never carries over, not even
-              // on a round trip back to the mode it was turned on in.
-              setApplyWithoutAsking(false);
-              onModeChange(next);
-            }}
-          />
-          <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
-            {(trigger) => {
-              menuTrigger.current = trigger.ref;
-              return (
-                <Button {...trigger} variant="icon" aria-label="More conversation actions">
-                  <Icon icon={MoreHorizontal} size="sm" />
-                </Button>
-              );
-            }}
-          </Menu>
-          {layout === 'floating' && onOpenAsPage ? (
-            <Button variant="icon" aria-label="Open as page" onClick={onOpenAsPage}>
-              <Icon icon={Maximize2} size="sm" />
-            </Button>
-          ) : null}
-          {onClose ? (
-            <Button variant="icon" aria-label="Close" onClick={onClose}>
-              <Icon icon={X} size="sm" />
-            </Button>
-          ) : null}
-        </div>
+        <Segmented
+          label="Conversation mode"
+          options={CONVERSATION_MODE_OPTIONS}
+          value={mode}
+          onChange={(next) => {
+            // Another mode is another conversation: the switch never carries over, not even
+            // on a round trip back to the mode it was turned on in.
+            setApplyWithoutAsking(false);
+            onModeChange(next);
+          }}
+          className="self-start"
+        />
       </div>
       {panel === 'settings' ? (
         <PetSettingsPanel
@@ -884,8 +879,8 @@ export function Conversation({
               // and a region that appears with its text already in it is read unreliably.
               <div className="flex items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
                 <Text variant="note">
-                  Applying changes without asking in this conversation until you close it. Moving
-                  to trash still asks.
+                  Applying changes without asking in this conversation until you close it. Moving to
+                  trash still asks.
                 </Text>
                 <Button
                   variant="secondary"
@@ -952,8 +947,8 @@ export function Conversation({
                 Workspace access
               </Button>
               <Text as="span" variant="note" className="sr-only" id="pet-workspace-access-hint">
-                Lets {pet.name} find and read your notes for this message. Changes ask first
-                unless you turn on applying without asking.
+                Lets {pet.name} find and read your notes for this message. Changes ask first unless
+                you turn on applying without asking.
               </Text>
               {workspaceAccess ? (
                 <>

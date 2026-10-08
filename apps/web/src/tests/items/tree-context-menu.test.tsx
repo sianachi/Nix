@@ -5,10 +5,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ApiClientProvider } from '../../api/api-client-provider';
 import { AuthProvider } from '../../auth/auth-provider';
+import { useSessionStore } from '../../auth/session-store';
+import { browserStorage } from '../../lib/browser-storage';
+import { itemLandmarksKey } from '../../lib/item-landmarks';
 import { WorkspaceSidebar } from '../../items/workspace-sidebar';
 import type { TreeItem, WorkspaceTree } from '../../items/use-workspace-tree';
 import { WorkspaceProvider } from '../../workspaces/workspace-context';
 import { STUB_WORKSPACE } from '../api-stub';
+import { memoryStorage } from '../views/suggest/suggest-fixtures';
+import { signedIn } from '../render-with-router';
 
 /**
  * The sidebar row's secondary-click menu: the row's existing actions, where a desktop user looks
@@ -132,6 +137,42 @@ function rightClick(title: string): boolean {
 }
 
 describe('the sidebar row context menu', () => {
+  it('chooses, retains, and resets a personal icon without changing the item', async () => {
+    const user = userEvent.setup();
+    const move = vi.fn();
+    vi.stubGlobal('localStorage', memoryStorage());
+    signedIn();
+    renderSidebar(treeOf(move));
+    rightClick('First');
+    await user.click(screen.getByRole('menuitem', { name: 'Choose icon…' }));
+    await user.click(screen.getByRole('button', { name: 'Notebook' }));
+    await user.click(screen.getByRole('button', { name: 'Blue' }));
+    await user.click(screen.getByRole('button', { name: 'Save icon' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+    });
+    const key = itemLandmarksKey(
+      useSessionStore.getState().profile?.subject ?? '',
+      STUB_WORKSPACE.id,
+    );
+    expect(JSON.parse(browserStorage()?.getItem(key) ?? '{}')).toEqual({
+      [ROOT_A.id]: { icon: 'notebook', tone: 'accent' },
+    });
+    rightClick('First');
+    await user.click(screen.getByRole('menuitem', { name: 'Choose icon…' }));
+    expect(screen.getByRole('button', { name: 'Notebook' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', { name: 'Blue' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Reset icon' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'First' })).toHaveFocus();
+    });
+    expect(browserStorage()?.getItem(key)).toBeNull();
+    expect(move).not.toHaveBeenCalled();
+  });
+
   it('replaces the browser menu with the row actions', () => {
     renderSidebar(treeOf(vi.fn()));
 

@@ -1,9 +1,13 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { EditorToolbar, type ToolbarSpeech } from '../../editor/toolbar';
-import type { Editor } from '@tiptap/react';
+import { Editor, EditorContent } from '@tiptap/react';
+import { nixEditingExtensions } from '@nix/editor-schema';
+import { MoveBlock } from '../../editor/move-block';
+import { TableControls } from '../../editor/table-controls';
+import { ColumnWidthControls } from '../../editor/column-width';
 
 /**
  * The formatting toolbar.
@@ -130,32 +134,116 @@ describe('what the toolbar offers', () => {
     expect(onReadAloud).toHaveBeenCalledOnce();
   });
 
-  it('covers what a note actually needs', () => {
+  it('keeps common actions visible and makes the remaining tools discoverable', async () => {
+    const user = userEvent.setup();
     renderToolbar();
 
     for (const label of [
-      'Heading 1',
-      'Heading 2',
-      'Heading 3',
-      'Bulleted list',
-      'Numbered list',
-      'Task list',
-      'Quote',
-      'Code block',
+      'Block type',
       'Bold',
       'Italic',
-      'Underline',
-      'Strikethrough',
-      'Inline code',
-      'Highlight',
       'Add link',
-      'Divider',
-      'Image',
-      'Insert table',
+      'Insert',
+      'More tools',
       'Undo',
       'Redo',
     ]) {
-      expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: label === 'Block type' ? /^Block type:/ : label }),
+      ).toBeInTheDocument();
+    }
+    expect(screen.queryByRole('button', { name: 'Heading 1' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Underline' })).not.toBeInTheDocument();
+
+    for (const [trigger, labels] of [
+      [
+        'Block type',
+        [
+          'Text',
+          'Heading 1',
+          'Heading 2',
+          'Heading 3',
+          'Bulleted list',
+          'Numbered list',
+          'Task list',
+          'Quote',
+          'Code block',
+        ],
+      ],
+      [
+        'More tools',
+        [
+          'Underline',
+          'Strikethrough',
+          'Inline code',
+          'Highlight',
+          'Align left',
+          'Align center',
+          'Align right',
+          'Move up',
+          'Move down',
+        ],
+      ],
+      ['Insert', ['Divider', 'Image', 'Insert table']],
+    ] as const) {
+      await user.click(
+        screen.getByRole('button', { name: trigger === 'Block type' ? /^Block type:/ : trigger }),
+      );
+      for (const label of labels) {
+        expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
+      }
+      await user.keyboard('{Escape}');
+    }
+  });
+
+  it('opens a disclosure by keyboard, tabs through toggles and returns focus on Escape', async () => {
+    const user = userEvent.setup();
+    renderToolbar();
+    screen.getByRole('button', { name: 'More tools' }).focus();
+    await user.keyboard('{Enter}');
+    expect(screen.getByRole('dialog', { name: 'More writing tools' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Underline' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Strikethrough' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'More writing tools' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'More tools' })).toHaveFocus();
+  });
+
+  it('formats the saved text selection and returns focus to the real editor after choosing a tool', async () => {
+    const user = userEvent.setup();
+    const editor = new Editor({
+      extensions: [...nixEditingExtensions, MoveBlock, TableControls, ColumnWidthControls],
+      content: '<p>Morning notes</p>',
+    });
+    const view = render(
+      <>
+        <EditorToolbar
+          editor={editor}
+          onInsertImage={() => undefined}
+          onInsertLink={() => undefined}
+          onUndo={() => undefined}
+          onRedo={() => undefined}
+        />
+        <EditorContent editor={editor} />
+      </>,
+    );
+    try {
+      act(() => {
+        editor.commands.setTextSelection({ from: 1, to: 8 });
+      });
+      await user.click(screen.getByRole('button', { name: 'More tools' }));
+      await user.click(screen.getByRole('button', { name: 'Highlight' }));
+      expect(screen.queryByRole('dialog', { name: 'More writing tools' })).not.toBeInTheDocument();
+      expect(editor.state.selection.from).toBe(1);
+      expect(editor.state.selection.to).toBe(8);
+      expect(editor.getHTML()).toContain('<mark');
+      await waitFor(() => {
+        expect(editor.view.dom).toHaveFocus();
+      });
+    } finally {
+      view.unmount();
+      editor.destroy();
     }
   });
 
@@ -182,7 +270,9 @@ describe('running a command', () => {
     const { ran } = renderToolbar();
 
     await user.click(screen.getByRole('button', { name: 'Bold' }));
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Bulleted list' }));
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Quote' }));
 
     expect(ran).toEqual(['toggleBold', 'toggleBulletList', 'toggleBlockquote']);
@@ -192,6 +282,7 @@ describe('running a command', () => {
     const user = userEvent.setup();
     const { ran } = renderToolbar();
 
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     // The button opens the size picker rather than inserting; the size is the pick.
     await user.click(screen.getByRole('button', { name: 'Insert table' }));
     expect(screen.getByRole('button', { name: 'Insert table' })).toHaveAttribute(
@@ -210,6 +301,7 @@ describe('running a command', () => {
     const user = userEvent.setup();
     const { ran } = renderToolbar();
 
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Insert table' }));
     await user.keyboard('{Escape}');
 
@@ -232,6 +324,7 @@ describe('running a command', () => {
     const user = userEvent.setup();
     const { onInsertImage, ran } = renderToolbar();
 
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
 
     expect(onInsertImage).toHaveBeenCalledOnce();
@@ -289,10 +382,12 @@ describe('running a command', () => {
 });
 
 describe('saying what is on', () => {
-  it('marks an active control as pressed', () => {
+  it('marks an active control as pressed and names the selected block', async () => {
     renderToolbar({ active: ['bold', 'heading-2'] });
 
     expect(screen.getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /^Block type:/ })).toHaveTextContent('Heading 2');
+    await userEvent.click(screen.getByRole('button', { name: /^Block type:/ }));
     expect(screen.getByRole('button', { name: 'Heading 2' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -300,9 +395,10 @@ describe('saying what is on', () => {
     expect(screen.getByRole('button', { name: 'Italic' })).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('leaves an insert unpressed rather than pressed-false', () => {
+  it('leaves an insert unpressed rather than pressed-false', async () => {
     renderToolbar();
 
+    await userEvent.click(screen.getByRole('button', { name: 'Insert' }));
     // An insert is an action, not a state. `aria-pressed="false"` would tell a screen reader it is
     // a toggle that happens to be off, which is a different and untrue thing.
     expect(screen.getByRole('button', { name: 'Insert table' })).not.toHaveAttribute(
@@ -322,9 +418,10 @@ describe('the table group', () => {
     expect(screen.queryByRole('group', { name: 'Table' })).not.toBeInTheDocument();
   });
 
-  it('appears inside one, with the row and column operations', () => {
+  it('appears inside one, with the row and column operations', async () => {
     renderToolbar({ inTable: true });
 
+    await userEvent.click(screen.getByRole('button', { name: 'Table' }));
     const group = screen.getByRole('group', { name: 'Table' });
 
     for (const label of ['Add column', 'Add row', 'Delete column', 'Delete row', 'Delete table']) {
@@ -376,30 +473,34 @@ describe('the columns group', () => {
     expect(screen.queryByRole('group', { name: 'Columns' })).not.toBeInTheDocument();
   });
 
-  it('offers the two operations a row needs once one exists', () => {
+  it('offers the two operations a row needs once one exists', async () => {
     // Without them the row is a trap: the slash menu inserts two columns and the handles resize
     // them, and nothing else could add a third, take one away, or get back to ordinary flow.
     renderToolbar({ inColumns: true });
 
+    await userEvent.click(screen.getByRole('button', { name: 'Columns' }));
     const group = screen.getByRole('group', { name: 'Columns' });
     expect(within(group).getByRole('button', { name: 'Add column' })).toBeEnabled();
     expect(within(group).getByRole('button', { name: 'Remove column' })).toBeEnabled();
   });
 
-  it('runs the column commands and not the table’s', () => {
+  it('runs the column commands and not the table’s', async () => {
     // `addColumnAfter` belongs to the table extension. A column button calling it would be the
     // same namespace collision from the other side.
     const { ran } = renderToolbar({ inColumns: true });
 
-    screen.getByRole('button', { name: 'Add column' }).click();
-    screen.getByRole('button', { name: 'Remove column' }).click();
+    await userEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add column' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Columns' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Remove column' }));
 
     expect(ran).toEqual(['addColumnToRow', 'removeColumnFromRow']);
   });
 
-  it('tells people the keys, since a shortcut nobody is told about is not one', () => {
+  it('tells people the keys, since a shortcut nobody is told about is not one', async () => {
     renderToolbar({ inColumns: true });
 
+    await userEvent.click(screen.getByRole('button', { name: 'Columns' }));
     expect(screen.getByRole('button', { name: 'Add column' })).toHaveAttribute(
       'title',
       'Add column (Mod+Alt+Enter)',
@@ -410,6 +511,7 @@ describe('the columns group', () => {
 describe('text alignment', () => {
   it('shows the saved alignment and offers all three choices', async () => {
     const { ran } = renderToolbar({ alignment: 'center' });
+    await userEvent.click(screen.getByRole('button', { name: 'More tools' }));
     expect(screen.getByRole('button', { name: 'Align center' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -427,8 +529,9 @@ describe('text alignment', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Align center' }));
     expect(ran).toContain('setTextAlign("center")');
   });
-  it('disables alignment where the selection has no text blocks', () => {
+  it('disables alignment where the selection has no text blocks', async () => {
     renderToolbar({ alignmentEnabled: false });
+    await userEvent.click(screen.getByRole('button', { name: 'More tools' }));
     expect(screen.getByRole('button', { name: 'Align center' })).toBeDisabled();
   });
 });

@@ -24,6 +24,23 @@ vi.stubGlobal(
 );
 
 describe('the image insertion form', () => {
+  it('reports a refused insertion in the same form and preserves the entered address', async () => {
+    const user = userEvent.setup();
+    render(
+      <ImageDialog
+        onSubmit={() => {
+          throw new Error('This note is read-only.');
+        }}
+      />,
+    );
+    const address = screen.getByRole('textbox', { name: 'Image address' });
+    await user.type(address, 'https://example.test/image.png');
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('This note is read-only.');
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(address).toHaveValue('https://example.test/image.png');
+  });
+
   it('uploads the selected file when the main Insert image action is submitted', async () => {
     const user = userEvent.setup();
     const onUploadImage = vi.fn().mockResolvedValue(undefined);

@@ -176,7 +176,8 @@ describe('closing tabs and panes', () => {
     await screen.findByRole('tab', { name: 'Bravo' });
     const middlePane = screen.getByRole('article', { name: /Pane 2 of 3/ });
 
-    await user.click(within(middlePane).getByRole('button', { name: 'Close pane' }));
+    await user.click(within(middlePane).getByRole('button', { name: 'Item actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Close pane' }));
 
     await waitFor(() => {
       expect(screen.getAllByRole('article')).toHaveLength(2);

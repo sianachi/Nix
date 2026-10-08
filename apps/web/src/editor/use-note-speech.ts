@@ -69,12 +69,12 @@ export function useNoteSpeech(
       return;
     }
     // One microphone for the page: while the pet or another note is dictating, this waits.
-    if (dictation.busy) return;
+    if (dictation.busy || !editor.isEditable) return;
     void startDictation({
       owner,
       client,
       onText: (text) => {
-        if (editor.isDestroyed) return;
+        if (editor.isDestroyed || !editor.isEditable) return;
         // At the end of whatever is selected, collapsed, with a trailing space so the next
         // dictation or keystroke does not run into this one.
         editor.chain().focus().insertContentAt(editor.state.selection.to, `${text} `).run();

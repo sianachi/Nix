@@ -1,5 +1,4 @@
 import { SHEET_CELLS_KEY } from '@nix/sheet';
-import { Text } from '@nix/ui';
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router';
 import { Awareness } from 'y-protocols/awareness';
@@ -10,8 +9,7 @@ import { useSessionStore } from '../../auth/session-store';
 import { documentScope } from '../../editor/body-cache';
 import { startCollabSync, type CollabSync, type SyncState } from '../../editor/collab-sync';
 import { PresenceList } from '../../editor/presence-list';
-import { LOCAL_COPY_STALE, StaleCopyNotice } from '../../editor/stale-copy-notice';
-import { SyncFooter } from '../../editor/sync-footer';
+import { DocumentIssueDialog, LOCAL_COPY_STALE } from '../../editor/document-issue-dialog';
 import { SheetGrid } from './sheet-grid';
 import { useSheet } from './use-sheet';
 
@@ -50,9 +48,11 @@ export interface SheetEditorProps {
  * What a refused update means for a person looking at a grid, for the codes
  * a sheet can actually reach today. Codes with no entry here (schema version
  * mismatches, unreadable payloads) are transport-level and already surface
- * through `SyncFooter`'s own states.
+ * through the document issue dialog's connection state.
  */
 const REFUSAL_COPY: Readonly<Record<string, string>> = {
+  schema_version_mismatch:
+    'This sheet requires a newer version of Nix. Reload to update before making more changes.',
   document_too_many_nodes:
     'This sheet has more cells than can be saved. Recent edits are not saved - remove some cells and they will send.',
   document_too_large:
@@ -73,10 +73,11 @@ export function SheetEditor({
   const profile = useSessionStore((state) => state.profile);
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
+  const [readOnly, setReadOnly] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  // The painted local copy turned out to be another version's; see `StaleCopyNotice`.
+  const [noticeCode, setNoticeCode] = useState<string | null>(null);
+  // A stale local copy must remain read-only until the current version is loaded.
   const [stale, setStale] = useState(false);
-  const [localCopy, setLocalCopy] = useState(false);
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -90,9 +91,6 @@ export function SheetEditor({
     const sync = startCollabSync({
       itemId,
       documentPath,
-      onLocalCopy: () => {
-        setLocalCopy(true);
-      },
       cacheScope: cacheBody
         ? documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'sheet')
         : undefined,
@@ -101,14 +99,18 @@ export function SheetEditor({
       fragmentName: SHEET_CELLS_KEY,
       getAccessToken,
       onState: (state) => {
+        if (state === 'readonly') setReadOnly(true);
+        else if (state === 'live') setReadOnly(false);
         // A fresh connection means whatever was refused before may not apply to what is
-        // about to be resynced - the banner is for the last update, not a standing fact.
+        // about to be resynced - the error is for the last update, not a standing fact.
         if (state === 'live') {
           setRefusal(null);
+          setNoticeCode(null);
         }
         setSyncState(state);
       },
       onNotice: (notice) => {
+        setNoticeCode(notice.code);
         if (notice.code === LOCAL_COPY_STALE) setStale(true);
         const copy = REFUSAL_COPY[notice.code];
         if (copy !== undefined) {
@@ -154,26 +156,23 @@ export function SheetEditor({
         {itemControls}
       </div>
 
-      {refusal === null ? null : (
-        <Text variant="caption" as="p" role="alert" className="shrink-0 bg-background px-8 py-1.5">
-          {refusal}
-        </Text>
-      )}
-
-      {sheet.budget.exceeded ? (
-        <Text variant="caption" as="p" role="alert" className="shrink-0 bg-background px-8 py-1.5">
-          This sheet is too large to finish recalculating. Some cells show #LIMIT! until you remove
-          formulas or ranges.
-        </Text>
-      ) : null}
-
-      {stale ? <StaleCopyNotice noun="sheet" /> : null}
-      {/* A grid has no read-only mode of its own; `inert` stops a stale copy taking edits. */}
-      <div className="flex min-h-0 flex-1 flex-col" inert={stale}>
+      {/* The server's read-only mode and stale copies cannot save cell edits. */}
+      <div className="flex min-h-0 flex-1 flex-col" inert={stale || readOnly}>
         <SheetGrid sheet={sheet} />
       </div>
 
-      <SyncFooter showingLocalCopy={localCopy} state={syncState} />
+      <DocumentIssueDialog
+        noun="sheet"
+        state={syncState}
+        stale={stale}
+        refusal={refusal}
+        reloadRequired={noticeCode === 'schema_version_mismatch'}
+        error={
+          sheet.budget.exceeded
+            ? 'This sheet is too large to finish recalculating. Some cells show #LIMIT! until you remove formulas or ranges.'
+            : null
+        }
+      />
     </div>
   );
 }

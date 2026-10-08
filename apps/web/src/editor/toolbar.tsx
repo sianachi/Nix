@@ -1,5 +1,5 @@
 import { TEXT_ALIGNMENTS } from '@nix/editor-schema';
-import { Button, Dialog, chromeSurface } from '@nix/ui';
+import { Button, Dialog, Popover, Text, chromeSurface } from '@nix/ui';
 import type { ItemInsertKind } from './item-insert-dialog';
 import { TableSizePicker } from './table-size-picker';
 import { Icon } from '@nix/ui';
@@ -11,6 +11,7 @@ import {
   ArrowDown,
   ArrowUp,
   Bold,
+  ChevronDown,
   Code,
   Columns2,
   Columns3,
@@ -139,6 +140,7 @@ export function EditorToolbar({
   const [insertOpen, setInsertOpen] = useState(false);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
   const tableInsertRef = useRef<HTMLDivElement | null>(null);
+  const insertTriggerRef = useRef<HTMLButtonElement | null>(null);
   // **A destroyed editor is a normal thing to be handed, and it used to crash the page.**
   // `useEditor` tears the old editor down and builds a new one whenever its dependencies change,
   // and React's strict mode does that on every mount in development. `destroy()` sets the
@@ -606,137 +608,227 @@ export function EditorToolbar({
     );
   }
 
+  const blockChoices = [...blocks, ...lists];
+  const currentBlock =
+    lists.find((control) => control.active) ??
+    blocks.find((control) => control.active) ??
+    blocks[0];
+
   return (
     <div
       role="toolbar"
       aria-label="Formatting"
       aria-orientation="horizontal"
-      className={`flex w-max flex-nowrap items-center gap-0.5 px-2 py-1.5 sm:w-auto sm:flex-wrap sm:px-8 ${chromeSurface}`}
+      className={`flex w-full flex-wrap items-center gap-1 py-1.5 ${chromeSurface}`}
     >
-      <Group controls={blocks} />
+      <ControlPopover
+        label="Block type"
+        triggerLabel={currentBlock?.label ?? 'Text'}
+        controls={blockChoices}
+      />
       <Separator />
-      <Group controls={lists} />
-      <Separator />
-      <Group controls={marks} />
-      <Separator />
-      <Group controls={alignment} label="Text alignment" />
-      <Separator />
-      <Group controls={inserts} />
-      <div className="relative shrink-0" ref={tableInsertRef}>
-        <ToolbarButton
-          control={{
-            ...tableInsert,
-            run: () => {
-              setTablePickerOpen(!tablePickerOpen);
-            },
-          }}
-          expanded={tablePickerOpen}
-        />
-        {tablePickerOpen ? (
-          <div className="absolute left-0 z-20 max-sm:static">
-            <TableSizePicker
-              onPick={({ rows, cols }) => {
-                setTablePickerOpen(false);
-                insertTable(rows, cols);
-              }}
-              onDismiss={() => {
-                setTablePickerOpen(false);
-                tableInsertRef.current?.querySelector('button')?.focus();
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
-      {onInsertItem !== undefined ? (
-        <div className="relative shrink-0">
+      <Group
+        controls={marks.filter((control) => ['bold', 'italic', 'link'].includes(control.id))}
+        label="Text formatting"
+      />
+      <Popover
+        label="Insert content"
+        open={insertOpen}
+        onOpenChange={(open) => {
+          setInsertOpen(open);
+          if (!open) setTablePickerOpen(false);
+        }}
+        trigger={(trigger) => (
           <Button
             variant="ghost"
-            aria-expanded={insertOpen}
-            onClick={() => {
-              setInsertOpen(!insertOpen);
+            {...trigger}
+            ref={(element) => {
+              trigger.ref.current = element;
+              insertTriggerRef.current = element;
             }}
           >
             Insert
+            <Icon icon={ChevronDown} size="sm" />
           </Button>
-          {insertOpen ? (
-            <div
-              role="group"
-              aria-label="Insert content"
-              className="absolute left-0 z-20 flex w-48 flex-col max-sm:static max-sm:w-max max-sm:flex-row gap-1 rounded-md border border-divider bg-background p-2 shadow-md"
+        )}
+      >
+        <div role="group" aria-label="Insert content" className="flex flex-col gap-1">
+          {inserts.map((control) => (
+            <ControlOption
+              key={control.id}
+              control={control}
+              onSelect={() => {
+                setInsertOpen(false);
+                if (control.id === 'image') insertTriggerRef.current?.focus();
+                control.run();
+              }}
+            />
+          ))}
+          <div ref={tableInsertRef}>
+            <ControlOption
+              control={tableInsert}
+              expanded={tablePickerOpen}
+              onSelect={() => {
+                setTablePickerOpen(!tablePickerOpen);
+              }}
+            />
+            {tablePickerOpen ? (
+              <TableSizePicker
+                onPick={({ rows, cols }) => {
+                  setTablePickerOpen(false);
+                  setInsertOpen(false);
+                  insertTable(rows, cols);
+                }}
+                onDismiss={() => {
+                  setTablePickerOpen(false);
+                  tableInsertRef.current?.querySelector('button')?.focus();
+                }}
+              />
+            ) : null}
+          </div>
+          {onInsertItem !== undefined ? (
+            <>
+              {(['attachment', 'embed', 'subpage'] as const).map((kind) => (
+                <Button
+                  key={kind}
+                  variant="ghost"
+                  className="justify-start"
+                  onClick={() => {
+                    setInsertOpen(false);
+                    insertTriggerRef.current?.focus();
+                    onInsertItem(kind);
+                  }}
+                >
+                  {{ attachment: 'Attachment', embed: 'Embed note', subpage: 'New subpage' }[kind]}
+                </Button>
+              ))}
+            </>
+          ) : null}
+          {onPageBreak !== undefined ? (
+            <Button
+              variant="ghost"
+              className="justify-start"
+              disabled={editor.state.selection.$from.depth > 1}
+              onClick={() => {
+                setInsertOpen(false);
+                onPageBreak();
+              }}
             >
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setInsertOpen(false);
-                  onInsertImage();
-                }}
-              >
-                Image
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setInsertOpen(false);
-                  onInsertItem('attachment');
-                }}
-              >
-                Attachment
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setInsertOpen(false);
-                  onInsertItem('embed');
-                }}
-              >
-                Embed note
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setInsertOpen(false);
-                  onInsertItem('subpage');
-                }}
-              >
-                New subpage
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setInsertOpen(false);
-                  onPageBreak?.();
-                }}
-                disabled={editor.state.selection.$from.depth > 1}
-              >
-                Page break
-              </Button>
-            </div>
+              Page break
+            </Button>
           ) : null}
         </div>
-      ) : null}
+      </Popover>
+      <ControlPopover
+        label="More writing tools"
+        triggerLabel="More tools"
+        sections={[
+          {
+            label: 'Text formatting',
+            controls: marks.filter((control) => !['bold', 'italic', 'link'].includes(control.id)),
+          },
+          { label: 'Text alignment', controls: alignment },
+          { label: 'Move block', controls: move },
+        ]}
+      />
       <Separator />
       <Group controls={history} label="History" />
-      {speechControls.length === 0 ? null : (
-        <>
-          <Separator />
-          <Group controls={speechControls} label="Speech" />
-        </>
-      )}
-
-      {inColumns ? (
-        <>
-          <Separator />
-          <Group controls={columns} label="Columns" />
-        </>
-      ) : null}
-
-      {inTable ? (
-        <>
-          <Separator />
-          <Group controls={table} label="Table" />
-        </>
-      ) : null}
+      {speechControls.length === 0 ? null : <Group controls={speechControls} label="Speech" />}
+      {inColumns ? <ControlPopover label="Columns" controls={columns} /> : null}
+      {inTable ? <ControlPopover label="Table" controls={table} /> : null}
     </div>
+  );
+}
+
+/** Toggle controls keep their pressed state inside a disclosure, with ordinary Tab navigation. */
+function ControlPopover({
+  label,
+  triggerLabel = label,
+  controls,
+  sections,
+}: {
+  readonly label: string;
+  readonly triggerLabel?: string;
+  readonly controls?: readonly Control[];
+  readonly sections?: readonly { readonly label: string; readonly controls: readonly Control[] }[];
+}): ReactNode {
+  const [open, setOpen] = useState(false);
+  const groups = sections ?? [{ label, controls: controls ?? [] }];
+
+  return (
+    <Popover
+      label={label}
+      open={open}
+      onOpenChange={setOpen}
+      trigger={(trigger) => (
+        <Button
+          variant="ghost"
+          aria-label={label === 'Block type' ? `${label}: ${triggerLabel}` : triggerLabel}
+          {...trigger}
+        >
+          {triggerLabel}
+          <Icon icon={ChevronDown} size="sm" />
+        </Button>
+      )}
+    >
+      {groups.map((group) => (
+        <div
+          key={group.label}
+          role="group"
+          aria-label={group.label}
+          className="flex flex-col gap-1"
+        >
+          {sections !== undefined ? (
+            <Text variant="caption" tone="muted">
+              {group.label}
+            </Text>
+          ) : null}
+          {group.controls.map((control) => (
+            <ControlOption
+              key={control.id}
+              control={control}
+              onSelect={() => {
+                // The command restores editor focus. Popover.close returns focus to the trigger,
+                // so reserve that path for Escape and close controlled state on a selection.
+                setOpen(false);
+                control.run();
+              }}
+            />
+          ))}
+        </div>
+      ))}
+    </Popover>
+  );
+}
+
+function ControlOption({
+  control,
+  expanded,
+  onSelect,
+}: {
+  readonly control: Control;
+  readonly expanded?: boolean;
+  readonly onSelect: () => void;
+}): ReactNode {
+  return (
+    <Button
+      variant="ghost"
+      className={[
+        'w-full justify-start',
+        control.active === true ? 'bg-accent/18 text-foreground' : '',
+      ].join(' ')}
+      disabled={control.enabled === false}
+      aria-pressed={control.active}
+      aria-expanded={expanded}
+      aria-keyshortcuts={control.ariaShortcut}
+      title={
+        control.shortcut === undefined ? control.label : `${control.label} (${control.shortcut})`
+      }
+      onClick={onSelect}
+    >
+      <Icon icon={control.icon} size="sm" />
+      {control.label}
+    </Button>
   );
 }
 

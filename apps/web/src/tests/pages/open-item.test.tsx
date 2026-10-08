@@ -89,17 +89,18 @@ describe('an item nobody has configured', () => {
       `/?item=${NOTES.id}`,
     );
 
-    expect(await screen.findByRole('button', { name: 'Export' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Apply template' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save as template' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Item actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Export' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Apply template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Save as template' })).not.toBeInTheDocument();
 
     await act(async () => {
       releaseCatalog();
       await templateCatalogGate;
     });
 
-    expect(await screen.findByRole('button', { name: 'Apply template' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save as template' })).toBeVisible();
+    expect(await screen.findByRole('menuitem', { name: 'Apply template' })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: 'Save as template' })).toBeVisible();
   });
 });
 

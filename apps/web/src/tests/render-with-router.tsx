@@ -3,14 +3,22 @@ import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
 
 import { useSessionStore } from '../auth/session-store';
+import { stubHealthyCollaboration } from './healthy-collaboration';
 
 /**
  * Renders a tree under a MemoryRouter at a given URL.
  *
  * Tests drive the app the way a user does - through the address - so the URL-state convention is
  * exercised rather than mocked.
+ * Collaboration uses a healthy test transport by default so unrelated UI tests do not open real
+ * sockets. Pass collaboration: 'provided' when a test supplies its own transport or failures.
  */
-export function renderAt(ui: ReactElement, url = '/'): RenderResult {
+export function renderAt(
+  ui: ReactElement,
+  url = '/',
+  { collaboration = 'healthy' }: { readonly collaboration?: 'healthy' | 'provided' } = {},
+): RenderResult {
+  if (collaboration === 'healthy') stubHealthyCollaboration();
   // A query naming workspace resources is already a workspace-scoped deep link. Older behavior
   // tests predate routed workspaces and spell that link as `/?item=...`; resolve that shorthand
   // here so those tests exercise the resource route instead of the deliberately lossy legacy

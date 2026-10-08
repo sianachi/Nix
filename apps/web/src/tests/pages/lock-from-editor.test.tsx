@@ -27,7 +27,9 @@ describe('a locked note, from the page', () => {
 
     expect(await screen.findByRole('heading', { name: 'Diary is locked' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Lock/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^History$/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Item actions' }));
+    expect(screen.queryByRole('menuitem', { name: /^History$/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Lock/ })).not.toBeInTheDocument();
   });
 
   it('opens with the right password and offers the lock controls again', async () => {
@@ -40,19 +42,22 @@ describe('a locked note, from the page', () => {
     await waitFor(() => {
       expect(screen.queryByRole('heading', { name: 'Diary is locked' })).not.toBeInTheDocument();
     });
-    expect(await screen.findByRole('button', { name: /^History$/ })).toBeInTheDocument();
-    const settings = screen.getByRole('button', { name: /^Lock settings, open until / });
-    // Focus lands on the control that now stands for the open body, not on nothing.
+    const actions = screen.getByRole('button', { name: 'Item actions' });
+    // Unlock restores focus to the persistent control containing the lock action.
     await waitFor(() => {
-      expect(settings).toHaveFocus();
+      expect(actions).toHaveFocus();
     });
+    await userEvent.click(actions);
+    expect(await screen.findByRole('menuitem', { name: /^History$/ })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: /^Lock settings, open until / })).toBeVisible();
   });
 
   it('offers to lock a note that has no lock', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/?item=${NOTE.id}`);
 
-    expect(await screen.findByRole('button', { name: 'Lock this note' })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Item actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Lock this note' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Diary is locked' })).not.toBeInTheDocument();
   });
 });
@@ -109,6 +114,7 @@ describe('a lock covers what is inside the locked item', () => {
         screen.queryByRole('heading', { name: 'Monday entry is locked' }),
       ).not.toBeInTheDocument();
     });
-    expect(await screen.findByRole('button', { name: /^History$/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Item actions' }));
+    expect(await screen.findByRole('menuitem', { name: /^History$/ })).toBeVisible();
   });
 });

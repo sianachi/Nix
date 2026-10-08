@@ -10,12 +10,11 @@ import { documentScope } from './body-cache';
 import { startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { sceneFingerprint } from './nix-canvas-model';
 import { PresenceList } from './presence-list';
-import { SyncFooter } from './sync-footer';
+import { DocumentIssueDialog, LOCAL_COPY_STALE } from './document-issue-dialog';
 import { Button, Text } from '@nix/ui';
 import { CanvasBrowser } from './canvas-browser';
 import { useNarrowViewport } from '../layout/viewport';
 import { useItemDialog } from '../items/item-dialog-context';
-import { LOCAL_COPY_STALE, StaleCopyNotice } from './stale-copy-notice';
 const NixCanvas = lazy(async () => {
   const module = await import('./nix-canvas');
   return { default: module.NixCanvas };
@@ -61,10 +60,12 @@ function CanvasEditorSession({
   const [spatial, setSpatial] = useState(false);
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
+  const [readOnly, setReadOnly] = useState(false);
   const [elements, setElements] = useState<CanvasElement[]>([]);
-  // The painted local copy turned out to be another version's; see `StaleCopyNotice`.
+  // A stale local copy must remain read-only until the current version is loaded.
   const [stale, setStale] = useState(false);
-  const [localCopy, setLocalCopy] = useState(false);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [noticeCode, setNoticeCode] = useState<string | null>(null);
 
   // One document per item, created exactly once via useState's lazy initializer - unlike
   // useMemo, which is only a performance hint React is free to discard and recompute,
@@ -82,9 +83,6 @@ function CanvasEditorSession({
     const sync = startCollabSync({
       itemId,
       documentPath,
-      onLocalCopy: () => {
-        setLocalCopy(true);
-      },
       cacheScope: cacheBody
         ? documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'canvas')
         : undefined,
@@ -92,9 +90,19 @@ function CanvasEditorSession({
       awareness,
       fragmentName: 'elements',
       getAccessToken,
-      onState: setSyncState,
+      onState: (state) => {
+        if (state === 'readonly') setReadOnly(true);
+        else if (state === 'live') setReadOnly(false);
+        if (state === 'live') {
+          setRefusal(null);
+          setNoticeCode(null);
+        }
+        setSyncState(state);
+      },
       onNotice: (notice) => {
+        setNoticeCode(notice.code);
         if (notice.code === LOCAL_COPY_STALE) setStale(true);
+        else setRefusal(notice.detail || 'The last change to this canvas could not be saved.');
       },
     });
     onSync?.(sync);
@@ -166,7 +174,6 @@ function CanvasEditorSession({
           </Button>
         </div>
       ) : null}
-      {stale ? <StaleCopyNotice noun="canvas" /> : null}
       <div className="min-h-0 flex-1" aria-label="Canvas body">
         {narrow && !spatial ? (
           <CanvasBrowser
@@ -184,7 +191,7 @@ function CanvasEditorSession({
               workspaceId={workspaceId}
               parentItemId={itemId}
               awareness={awareness}
-              readOnly={syncState === 'readonly' || stale}
+              readOnly={readOnly || stale}
               allowFileUploads={documentPath === undefined}
               onChange={(nextElements) => {
                 const binding = bindingRef.current;
@@ -210,7 +217,13 @@ function CanvasEditorSession({
         )}
       </div>
 
-      <SyncFooter showingLocalCopy={localCopy} state={syncState} />
+      <DocumentIssueDialog
+        noun="canvas"
+        state={syncState}
+        stale={stale}
+        refusal={refusal}
+        reloadRequired={noticeCode === 'schema_version_mismatch'}
+      />
     </div>
   );
 }

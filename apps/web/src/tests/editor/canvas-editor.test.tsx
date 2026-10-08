@@ -30,10 +30,6 @@ vi.mock('../../editor/presence-list', () => ({
   PresenceList: () => null,
 }));
 
-vi.mock('../../editor/sync-footer', () => ({
-  SyncFooter: () => null,
-}));
-
 vi.mock('../../editor/nix-canvas', async () => {
   const React = await import('react');
   return {

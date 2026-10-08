@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { PetCompanion } from '../../pets/pet-companion';
 import { PetConnectionPanel } from '../../pets/pet-connection-panel';
 
@@ -45,6 +45,11 @@ const connected = {
   userCode: '',
 };
 
+function OpenedPetPage() {
+  const { search } = useLocation();
+  return <h1>{search === '?pet=design' ? 'Design companion page' : 'Companion page'}</h1>;
+}
+
 describe('companion workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -64,6 +69,26 @@ describe('companion workflow', () => {
     sessionStorage.clear();
     client.execute.mockResolvedValue(connected);
     client.query.mockResolvedValue(connected);
+  });
+
+  it('opens the current Design conversation as a page through the actions menu', async () => {
+    localStorage.setItem('nix.pet.surface', 'both');
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/w/33333333-3333-4333-8333-333333333333']}>
+        <Routes>
+          <Route path="/w/:workspaceId" element={<PetCompanion />} />
+          <Route path="/w/:workspaceId/pet" element={<OpenedPetPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    await user.click(screen.getByRole('button', { name: 'Design' }));
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Open as page' }));
+
+    expect(await screen.findByRole('heading', { name: 'Design companion page' })).toBeVisible();
   });
 
   it('opens upward when a moved companion is near the bottom of the screen', async () => {

@@ -1,3 +1,4 @@
+import { noteColumn } from '../layout/regions';
 import { PaneViewport } from '../layout/pane-viewport';
 import type { DraftState } from './draft-journal';
 import { MobileNoteToolbar, type MobileNoteDetails } from './mobile-note-toolbar';
@@ -62,7 +63,7 @@ import { useKeyboardModeStore } from './keyboard-mode-store';
 import { documentScope } from './body-cache';
 import { FRAGMENT_NAME, startCollabSync, type CollabSync, type SyncState } from './collab-sync';
 import { PresenceList } from './presence-list';
-import { SyncFooter } from './sync-footer';
+import { DocumentIssueDialog, LOCAL_COPY_STALE } from './document-issue-dialog';
 import { usePageGuidePreference } from './page-guide-preference';
 import { PageGuides } from './page-guides-overlay';
 import { calloutClass, headingClass, proseClasses, proseRoot } from './prose';
@@ -82,7 +83,6 @@ import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
 import { PendingReferenceNotice } from './pending-reference-notice';
 import { usePendingDailyTemplate } from './use-pending-daily-template';
-import { LOCAL_COPY_STALE, StaleCopyNotice } from './stale-copy-notice';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -356,6 +356,9 @@ const REFUSAL_COPY: Readonly<Record<string, string>> = {
   // sends immediately afterwards - so the honest thing is to name the delay, not promise a pause.
   rate_limited: 'That last change is taking a moment to save. It has not been lost.',
   read_only: 'You have read access to this note, so your changes are not being saved.',
+  access_revoked: 'Access to this note was revoked. Recent changes cannot be saved.',
+  local_draft_unreadable:
+    'A saved draft could not be recovered. Keep this device’s data until the draft is recovered.',
 };
 
 /**
@@ -406,6 +409,11 @@ function describeEditorWith(element: HTMLElement, id: string, enabled: boolean):
 /** Frames to wait for a closing modal to unmount, about two seconds at 60Hz. */
 const DIALOG_CLOSE_FRAMES = 120;
 
+/** Uploads must recheck the current access mode after their asynchronous work. */
+function viewAcceptsEdits(view: EditorView): boolean {
+  return view.editable;
+}
+
 function focusAfterDialog(editor: Editor): void {
   // A modal makes the editor inert, and Dialog hands focus back to its invoker - the toolbar
   // button - in the cleanup that runs when React unmounts it. Editor focus has to come after that,
@@ -448,6 +456,7 @@ export function NoteEditor({
   const profile = useSessionStore((state) => state.profile);
   const [draftState, setDraftState] = useState<DraftState | undefined>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
+  const [readOnly, setReadOnly] = useState(false);
   // Whether the server's copy of the body has arrived at least once; see `onInitialSync`.
   const [synced, setSynced] = useState(false);
 
@@ -455,9 +464,9 @@ export function NoteEditor({
   // event: the document on screen still shows the edit, and the only honest thing to do is say
   // it did not stick.
   const [refusal, setRefusal] = useState<string | null>(null);
-  // The painted local copy turned out to be another version's; see `StaleCopyNotice`.
+  const [noticeCode, setNoticeCode] = useState<string | null>(null);
+  // A stale local copy must remain read-only until the current version is loaded.
   const [stale, setStale] = useState(false);
-  const [localCopy, setLocalCopy] = useState(false);
   const [dropActive, setDropActive] = useState(false);
   const [uploadingFiles, setUploadingFiles] = useState(0);
   const [uploadingFileIndex, setUploadingFileIndex] = useState(0);
@@ -492,12 +501,23 @@ export function NoteEditor({
       files: readonly File[],
       position: number,
       description?: string,
+      reportError = true,
     ): Promise<boolean> => {
+      if (!view.editable) {
+        if (reportError) setRefusal('This note is read-only. The file cannot be added.');
+        else throw new Error('This note is read-only. The file cannot be added.');
+        return false;
+      }
       if (workspaceId === undefined) {
-        setRefusal('The current workspace is unavailable.');
+        if (reportError) setRefusal('The current workspace is unavailable.');
+        else throw new Error('The current workspace is unavailable.');
         return false;
       }
       if (uploadingFilesRef.current > 0) {
+        if (!reportError)
+          throw new Error(
+            'A file upload is already in progress. Wait for it to finish before adding more.',
+          );
         setRefusal(
           'A file upload is already in progress. Wait for it to finish before adding more.',
         );
@@ -568,6 +588,8 @@ export function NoteEditor({
           if (target === null) {
             throw new Error('The file could not be placed at that location.');
           }
+          if (!viewAcceptsEdits(view))
+            throw new Error('This note is read-only. The file cannot be added.');
           const transaction = view.state.tr.insert(target, node);
           const afterNode = target + node.nodeSize;
           if (transaction.doc.nodeAt(afterNode)?.type.name !== 'paragraph') {
@@ -588,13 +610,14 @@ export function NoteEditor({
           await discardUnattachedFile(client, workspaceId, unattachedItemId);
           unattachedItemId = null;
         }
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && reportError) {
           const message =
             cause instanceof Error ? cause.message : 'The file could not be uploaded.';
           setRefusal(
             activeFileName === null ? message : `Could not add ${activeFileName}: ${message}`,
           );
         }
+        if (!reportError && !controller.signal.aborted) throw cause;
         return false;
       } finally {
         if (dropAbortRef.current === controller) dropAbortRef.current = null;
@@ -706,7 +729,7 @@ export function NoteEditor({
           return true;
         },
         attributes: {
-          class: `${proseRoot} min-h-full outline-none`,
+          class: `${proseRoot} sm:max-w-none min-h-full outline-none`,
           'aria-label': 'Note body',
           role: 'textbox',
           'aria-multiline': 'true',
@@ -733,10 +756,10 @@ export function NoteEditor({
     selector: ({ editor: current }) => vimStatusMode(current.state),
   });
 
-  // A stale copy stops syncing, so typing into it would go nowhere; say so by not accepting it.
+  // The server's read-only mode and stale copies cannot save edits.
   useEffect(() => {
-    if (stale) editor.setEditable(false);
-  }, [editor, stale]);
+    editor.setEditable(!readOnly && !stale);
+  }, [editor, stale, readOnly]);
 
   // A daily note's template goes in once the server's copy is known to be empty.
   usePendingDailyTemplate({
@@ -744,7 +767,7 @@ export function NoteEditor({
     editor,
     fragment,
     synced,
-    writable: syncState !== 'readonly' && !stale,
+    writable: !readOnly && !stale,
   });
 
   // The mention underlines' view of this note. The lookup goes through the client like every
@@ -888,9 +911,6 @@ export function NoteEditor({
     const sync = startCollabSync({
       itemId,
       documentPath,
-      onLocalCopy: () => {
-        setLocalCopy(true);
-      },
       cacheScope: cacheBody ? scope : undefined,
       ...(scope === undefined ? {} : { draftScope: scope, onDraftState: setDraftState }),
       doc,
@@ -898,10 +918,13 @@ export function NoteEditor({
       fragmentName: FRAGMENT_NAME,
       getAccessToken,
       onState: (state) => {
+        if (state === 'readonly') setReadOnly(true);
+        else if (state === 'live') setReadOnly(false);
         // A fresh connection means whatever was refused before may not still apply to what is
-        // about to be resynced - the banner is about the last update, not a standing fact.
+        // about to be resynced - the error is about the last update, not a standing fact.
         if (state === 'live') {
           setRefusal(null);
+          setNoticeCode(null);
         }
         setSyncState(state);
       },
@@ -909,6 +932,7 @@ export function NoteEditor({
         setSynced(true);
       },
       onNotice: (notice) => {
+        setNoticeCode(notice.code);
         if (notice.code === LOCAL_COPY_STALE) setStale(true);
         const copy = REFUSAL_COPY[notice.code];
         if (copy !== undefined) {
@@ -959,45 +983,54 @@ export function NoteEditor({
     };
   }, [awareness, doc]);
 
-  const formatting = (
-    <div className="flex items-center justify-between sm:pr-8">
-      <EditorToolbar
-        compact={narrow}
-        editor={editor}
-        onInsertItem={(kind) => {
-          if (uploadingFilesRef.current > 0) return;
-          insertionRef.current = editor.state.selection.from;
-          setItemRequest(kind);
-        }}
-        onPageBreak={() => {
-          insertPageBreak(editor);
-        }}
-        onInsertImage={() => {
-          insertionRef.current = editor.state.selection.from;
-          setAddressRequest('image');
-        }}
-        onInsertLink={() => {
-          insertionRef.current = editor.state.selection.from;
-          setAddressRequest('link');
-        }}
-        // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
-        // rather than imported by the toolbar, which has no business knowing the document is a
-        // CRDT.
-        onUndo={() => {
-          if (undo(editor.state)) {
-            editor.view.focus();
+  const formatting =
+    readOnly || stale ? null : (
+      <div className={narrow ? 'flex items-center justify-between' : 'shrink-0 px-8'}>
+        <div
+          className={
+            narrow
+              ? 'flex items-center justify-between'
+              : `${noteColumn} flex items-center justify-between gap-2`
           }
-        }}
-        onRedo={() => {
-          if (redo(editor.state)) {
-            editor.view.focus();
-          }
-        }}
-        speech={speech.toolbar}
-      />
-      <PresenceList awareness={awareness} />
-    </div>
-  );
+        >
+          <EditorToolbar
+            compact={narrow}
+            editor={editor}
+            onInsertItem={(kind) => {
+              if (uploadingFilesRef.current > 0) return;
+              insertionRef.current = editor.state.selection.from;
+              setItemRequest(kind);
+            }}
+            onPageBreak={() => {
+              insertPageBreak(editor);
+            }}
+            onInsertImage={() => {
+              insertionRef.current = editor.state.selection.from;
+              setAddressRequest('image');
+            }}
+            onInsertLink={() => {
+              insertionRef.current = editor.state.selection.from;
+              setAddressRequest('link');
+            }}
+            // The Yjs history, so undo reverts your own edits and never a colleague's. Passed in
+            // rather than imported by the toolbar, which has no business knowing the document is a
+            // CRDT.
+            onUndo={() => {
+              if (undo(editor.state)) {
+                editor.view.focus();
+              }
+            }}
+            onRedo={() => {
+              if (redo(editor.state)) {
+                editor.view.focus();
+              }
+            }}
+            speech={speech.toolbar}
+          />
+          <PresenceList awareness={awareness} />
+        </div>
+      </div>
+    );
   return (
     // One resolver per open document. Every reference in the note asks it for its target, and it
     // sends one request for all of them - which is the difference between opening a note with
@@ -1021,7 +1054,6 @@ export function NoteEditor({
               formatting
             )}
 
-            {stale ? <StaleCopyNotice noun="note" /> : null}
             <PendingReferenceNotice itemId={itemId} editor={editor} />
             {speech.status === null ? null : (
               <Text
@@ -1032,33 +1064,6 @@ export function NoteEditor({
                 className="shrink-0 px-8 py-1.5"
               >
                 {speech.status}
-              </Text>
-            )}
-            {speech.error === null ? null : (
-              <div className="flex shrink-0 items-center gap-2 px-8 py-1.5">
-                <Text
-                  variant="caption"
-                  as="p"
-                  tone="accent"
-                  role="alert"
-                  className="min-w-0 flex-1"
-                >
-                  {speech.error}
-                </Text>
-                <Button variant="ghost" onClick={speech.dismissError}>
-                  Dismiss
-                </Button>
-              </div>
-            )}
-            {refusal === null ? null : (
-              <Text
-                variant="caption"
-                as="p"
-                tone="accent"
-                role="alert"
-                className="shrink-0 px-8 py-1.5"
-              >
-                {refusal}
               </Text>
             )}
 
@@ -1091,28 +1096,32 @@ export function NoteEditor({
                   {String(uploadingFiles)})…
                 </Text>
               ) : null}
-              <SlashMenu
-                editor={editor}
-                onInsertItem={(kind) => {
-                  if (uploadingFilesRef.current > 0) return;
-                  insertionRef.current = editor.state.selection.from;
-                  setItemRequest(kind);
-                }}
-                onPageBreak={() => {
-                  insertPageBreak(editor);
-                }}
-                onInsertImage={() => {
-                  insertionRef.current = editor.state.selection.from;
-                  setAddressRequest('image');
-                }}
-                onInlineAi={inlineAi.available ? inlineAi.start : undefined}
-              />
-              <ReferenceMenu
-                editor={editor}
-                workspaceId={workspaceId}
-                itemId={itemId}
-                parentId={parentId}
-              />
+              {readOnly || stale ? null : (
+                <SlashMenu
+                  editor={editor}
+                  onInsertItem={(kind) => {
+                    if (uploadingFilesRef.current > 0) return;
+                    insertionRef.current = editor.state.selection.from;
+                    setItemRequest(kind);
+                  }}
+                  onPageBreak={() => {
+                    insertPageBreak(editor);
+                  }}
+                  onInsertImage={() => {
+                    insertionRef.current = editor.state.selection.from;
+                    setAddressRequest('image');
+                  }}
+                  onInlineAi={inlineAi.available ? inlineAi.start : undefined}
+                />
+              )}
+              {readOnly || stale ? null : (
+                <ReferenceMenu
+                  editor={editor}
+                  workspaceId={workspaceId}
+                  itemId={itemId}
+                  parentId={parentId}
+                />
+              )}
               {/*
             The block handle: hover a block and a grip appears in the margin; dragging it moves
             the block. The component registers the drag-handle plugin itself and portals this
@@ -1133,18 +1142,20 @@ export function NoteEditor({
             positions is a role-less, name-less div, so nothing here reaches the accessibility
             tree - which is the right outcome.
           */}
-              <DragHandle
-                editor={editor}
-                className="flex cursor-grab items-center justify-center rounded-sm p-1 text-muted hover:bg-foreground/7 hover:text-foreground data-[dragging=true]:cursor-grabbing"
-              >
-                <Icon icon={GripVertical} size="sm" />
-              </DragHandle>
+              {readOnly || stale ? null : (
+                <DragHandle
+                  editor={editor}
+                  className="flex cursor-grab items-center justify-center rounded-sm p-1 text-muted hover:bg-foreground/7 hover:text-foreground data-[dragging=true]:cursor-grabbing"
+                >
+                  <Icon icon={GripVertical} size="sm" />
+                </DragHandle>
+              )}
               {/*
             The positioned box the page guides are measured in. `h-full` keeps what
             `EditorContent` had: the editor fills the viewport, so a click below a short note
             still lands in it.
           */}
-              <div ref={setSurface} className="relative h-full">
+              <div ref={setSurface} className={`relative h-full ${noteColumn}`}>
                 <EditorContent
                   editor={editor}
                   className="h-full"
@@ -1176,19 +1187,21 @@ export function NoteEditor({
                 {pageGuides === 'shown' ? <PageGuides editor={editor} host={surface} /> : null}
               </div>
               {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
-              <BubbleMenu
-                editor={editor}
-                onOpenInlineAi={
-                  inlineAi.available
-                    ? () => {
-                        inlineAi.start(null);
-                      }
-                    : undefined
-                }
-              />
-              <InlineAiPanel editor={editor} controller={inlineAi} />
+              {readOnly || stale ? null : (
+                <BubbleMenu
+                  editor={editor}
+                  onOpenInlineAi={
+                    inlineAi.available
+                      ? () => {
+                          inlineAi.start(null);
+                        }
+                      : undefined
+                  }
+                />
+              )}
+              {readOnly || stale ? null : <InlineAiPanel editor={editor} controller={inlineAi} />}
               <MentionBubble editor={editor} />
-              <TableMenu editor={editor} />
+              {readOnly || stale ? null : <TableMenu editor={editor} />}
             </PaneViewport>
 
             {itemRequest !== null && workspaceId !== undefined ? (
@@ -1208,7 +1221,7 @@ export function NoteEditor({
                   );
                 }}
                 onInsert={(id, presentation, label) => {
-                  if (editor.isDestroyed) return false;
+                  if (editor.isDestroyed || !editor.isEditable) return false;
                   const position = insertionRef.current ?? editor.state.selection.from;
                   const content =
                     presentation === 'image'
@@ -1259,6 +1272,8 @@ export function NoteEditor({
                   setAddressRequest(null);
                 }}
                 onSubmit={({ address, description }) => {
+                  if (!editor.isEditable)
+                    throw new Error('This note is read-only. Changes cannot be added.');
                   const request = addressRequest;
                   if (editor.isDestroyed) {
                     return;
@@ -1296,6 +1311,7 @@ export function NoteEditor({
                     [file],
                     insertionRef.current ?? editor.state.selection.from,
                     description,
+                    false,
                   );
                   if (!inserted)
                     throw new Error('The image was not inserted. Retry the upload or cancel.');
@@ -1317,7 +1333,16 @@ export function NoteEditor({
               </Text>
             )}
           </div>
-          <SyncFooter showingLocalCopy={localCopy} state={syncState} draftState={draftState} />
+          <DocumentIssueDialog
+            noun="note"
+            state={syncState}
+            draftState={draftState}
+            stale={stale}
+            refusal={refusal}
+            error={speech.error}
+            paused={addressRequest !== null || itemRequest !== null}
+            reloadRequired={noticeCode === 'schema_version_mismatch'}
+          />
         </div>
       </ReferenceResolutionProvider>
     </NoteSourcesProvider>

@@ -520,6 +520,13 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
       const verdict = classifyClose(event.code);
       onState(verdict.state);
+      if (event.code === CLOSE_SCHEMA_MISMATCH) {
+        onNotice?.({
+          code: 'schema_version_mismatch',
+          detail:
+            'This document requires a newer version of Nix. Reload to update before making more changes.',
+        });
+      }
       if (
         event.code === CLOSE_REVOKED ||
         event.code === CLOSE_NOT_FOUND ||
