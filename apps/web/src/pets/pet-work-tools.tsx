@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { readActionReceipt, writeActionReceipt } from './action-receipts';
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { PetStructurePreview } from './pet-structure-preview';
+import { PetBodyEditPreview } from './pet-body-edit-preview';
 import type { StructureFingerprint } from '@nix/companion';
 import { readReadWithoutAsking, type PetConversationMode } from './device-preferences';
 
@@ -40,13 +41,26 @@ interface BuildOutcome {
 const DECLINED_BY_USER = 'Declined by the user. Do not retry this change unless asked.';
 /** Whether the switch may ever cover this write: the operation is allowed and none of the text
  * it would store links to another host (see `hasExternalLink`). The title is included because
- * `writeTextItems` lists only bodies, specs and property values. */
-function writeMayRunWithoutAsking(args: WorkspaceToolArgs): boolean {
+ * `writeTextItems` lists only bodies, specs and property values. A note body edit also passes the
+ * edited block as it will read afterwards (`model.bodyEdit.after`): the find and replace text can
+ * join with what is already there into a link neither holds alone. */
+function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel): boolean {
   return (
     canApplyWithoutAsking(args.operation) &&
-    !hasExternalLink([args.title, ...writeTextItems(args).map((item) => item.text)])
+    !hasExternalLink([
+      args.title,
+      ...writeTextItems(args).map((item) => item.text),
+      ...(model?.bodyEdit ? [model.bodyEdit.after] : []),
+    ])
   );
 }
+
+/** Note body edits show the whole edited block before and after (`PetBodyEditPreview`), which
+ * already includes every character the request would store. */
+const BODY_EDIT_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
+  'replace_section',
+  'replace_passage',
+]);
 
 /** Receipts for a write the owner's "Apply without asking" switch ran (lane F). Stored like
  * every other receipt, so the wording survives closing and reopening the panel, and read back
@@ -683,11 +697,7 @@ function WriteReceiptRow({
           : tool.result || undefined
       }
       detailsLabel={
-        declinedForProblems
-          ? 'Show problems'
-          : applied
-            ? 'What was applied'
-            : 'Result details'
+        declinedForProblems ? 'Show problems' : applied ? 'What was applied' : 'Result details'
       }
       detailsExtra={applied}
       actions={
@@ -829,7 +839,14 @@ function writeTextItems(args: WorkspaceToolArgs): WriteTextItem[] {
   }
   if (args.markdown.trim()) {
     out.push({
-      label: args.operation === 'append_note' ? 'Added note text' : 'Note body',
+      label:
+        args.operation === 'append_note'
+          ? 'Added note text'
+          : args.operation === 'replace_section'
+            ? 'New section text'
+            : args.operation === 'replace_passage'
+              ? 'Replacement text'
+              : 'Note body',
       text: args.markdown,
     });
   }
@@ -962,7 +979,9 @@ function PetWorkToolCard({
    * count in `PetWorkTools` never includes a write that is about to be auto-declined. */
   readonly onProblemsChange: (hasProblems: boolean) => void;
   /** Reports whether this write's preview failed to load, so `needsDecision` still counts it
-   * while `applyWithoutAsking` is on: nothing runs on its own without a clean preview. */
+   * while `applyWithoutAsking` is on: nothing runs on its own without a clean preview. Also true
+   * once a loaded preview shows a note body edit whose resulting text links to another host,
+   * which only the preview can tell (`writeMayRunWithoutAsking` with the model). */
   readonly onPreviewFailedChange: (failed: boolean) => void;
   readonly submitted?: string;
   readonly onResolve: Resolver;
@@ -1070,7 +1089,12 @@ function PetWorkToolCard({
     })();
   }, [hasProblems, busy, tool, problemResult, onResolve]);
 
-  const previewFailed = !isReadOp && currentPreview && !state.loading && Boolean(state.error);
+  const previewFailed =
+    !isReadOp &&
+    currentPreview &&
+    !state.loading &&
+    (Boolean(state.error) ||
+      (args !== undefined && model !== undefined && !writeMayRunWithoutAsking(args, model)));
   useEffect(() => {
     onPreviewFailedChange(previewFailed);
   }, [previewFailed, onPreviewFailedChange]);
@@ -1083,12 +1107,12 @@ function PetWorkToolCard({
     applyWithoutAsking &&
     !isReadOp &&
     args !== undefined &&
-    writeMayRunWithoutAsking(args) &&
     tool.status === 'pending' &&
     !submitted &&
     currentPreview &&
     !state.loading &&
     model !== undefined &&
+    writeMayRunWithoutAsking(args, model) &&
     problems.length === 0 &&
     !state.error;
   useEffect(() => {
@@ -1181,7 +1205,13 @@ function PetWorkToolCard({
   // A write op collapses to a one-line receipt once it has an outcome (a decision, a claim, a
   // problem it is being sent back for), rather than staying a card. The full card below is only
   // for a write still awaiting a first, real decision.
-  const textItems = args ? writeTextItems(args) : [];
+  // A body edit's comparison already shows the whole new block, so its raw replacement text is
+  // only listed when there is no comparison to show.
+  const textItems = args
+    ? writeTextItems(args).filter(
+        () => !(model?.bodyEdit && BODY_EDIT_OPERATIONS.has(args.operation)),
+      )
+    : [];
   const isCompactWrite =
     args !== undefined && (tool.status !== 'pending' || Boolean(submitted) || problems.length > 0);
   if (isCompactWrite) {
@@ -1189,6 +1219,7 @@ function PetWorkToolCard({
       ranWithoutAsking(submitted) && model ? (
         <div className="flex flex-col gap-2">
           <PetStructurePreview model={model} captureSummary={false} />
+          {model.bodyEdit ? <PetBodyEditPreview edit={model.bodyEdit} /> : null}
           <WriteTextSection items={textItems} />
         </div>
       ) : undefined;
@@ -1221,6 +1252,7 @@ function PetWorkToolCard({
           pending
         />
       ) : null}
+      {model?.bodyEdit ? <PetBodyEditPreview edit={model.bodyEdit} /> : null}
       {!currentPreview || state.loading ? (
         <Text variant="note">Preparing the preview...</Text>
       ) : null}

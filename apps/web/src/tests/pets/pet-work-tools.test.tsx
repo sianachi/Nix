@@ -7,6 +7,10 @@ import { PetWorkTools } from '../../pets/pet-work-tools';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { MemoryRouter } from 'react-router';
 import { useState, type ReactElement } from 'react';
+import * as Y from 'yjs';
+import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
+import { nixSchema } from '@nix/editor-schema';
+import { markdownToDocument } from '@nix/markdown';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn(), invalidate: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
@@ -1204,7 +1208,11 @@ describe('companion work approvals', () => {
     it('runs a clean write on its own with the preview fingerprint and says so on the receipt, also after a remount', async () => {
       const structuredRuntime = withArguments(structuredArguments);
       completeEachCall(structuredRuntime);
-      runWorkspaceToolSpy.mockResolvedValueOnce({ text: 'created', readOnly: false, touchedParents: [] });
+      runWorkspaceToolSpy.mockResolvedValueOnce({
+        text: 'created',
+        readOnly: false,
+        touchedParents: [],
+      });
       const onNeedsDecisionChange = vi.fn();
       const view = render(
         <Live initial={structuredRuntime} onNeedsDecisionChange={onNeedsDecisionChange} />,
@@ -1214,7 +1222,9 @@ describe('companion work approvals', () => {
         expect(client.execute).toHaveBeenCalledTimes(2);
       });
       // Same path as a click: claim first, then execute behind the preview's own fence.
-      expect(client.execute.mock.calls[0]?.[0]).toMatchObject({ body: { operation: 'tool_claim' } });
+      expect(client.execute.mock.calls[0]?.[0]).toMatchObject({
+        body: { operation: 'tool_claim' },
+      });
       expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ fence: '|' });
       expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
         body: { operation: 'tool_result', toolSuccess: true },
@@ -1249,7 +1259,11 @@ describe('companion work approvals', () => {
       const second = { ...first, id: 'tool-2' };
       const twoRuntime = { ...runtime, tools: [first, second] } as typeof runtime;
       completeEachCall(twoRuntime);
-      runWorkspaceToolSpy.mockResolvedValue({ text: 'created', readOnly: false, touchedParents: [] });
+      runWorkspaceToolSpy.mockResolvedValue({
+        text: 'created',
+        readOnly: false,
+        touchedParents: [],
+      });
       render(<Live initial={twoRuntime} onNeedsDecisionChange={vi.fn()} />, {
         wrapper: MemoryRouter,
       });
@@ -1266,8 +1280,14 @@ describe('companion work approvals', () => {
         'tool_result:tool-2',
       ]);
       expect(runWorkspaceToolSpy).toHaveBeenCalledTimes(2);
-      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ toolId: 'tool-1', fence: '|' });
-      expect(runWorkspaceToolSpy.mock.calls[1]?.[4]).toMatchObject({ toolId: 'tool-2', fence: '|' });
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+        toolId: 'tool-1',
+        fence: '|',
+      });
+      expect(runWorkspaceToolSpy.mock.calls[1]?.[4]).toMatchObject({
+        toolId: 'tool-2',
+        fence: '|',
+      });
     });
 
     it('leaves a write that was already waiting when the switch went on to the owner', async () => {
@@ -1364,13 +1384,218 @@ describe('companion work approvals', () => {
         wrapper: MemoryRouter,
       });
       expect(
-        await screen.findByText('The preview could not be loaded. Decline and ask the pet to try again.'),
+        await screen.findByText(
+          'The preview could not be loaded. Decline and ask the pet to try again.',
+        ),
       ).toBeVisible();
       await waitFor(() => {
         expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
       });
       expect(client.execute).not.toHaveBeenCalled();
       expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('note body edits (lane C)', () => {
+    const noteId = '33333333-3333-4333-8333-333333333333';
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    function editRuntime(fields: { operation: string; query: string; markdown: string }) {
+      return {
+        ...runtime,
+        tools: (runtime.tools ?? []).map((tool) => ({
+          ...tool,
+          arguments: JSON.stringify({
+            itemId: noteId,
+            parentId: '',
+            title: '',
+            propertiesJson: '',
+            specJson: '',
+            ...fields,
+          }),
+        })),
+      };
+    }
+    /** Serves `markdown` as the note's whole collab history and the note item itself. */
+    function serveNote(markdown: string) {
+      const parsed = markdownToDocument(markdown);
+      if (!parsed.ok) throw new Error('fixture Markdown is invalid');
+      const doc = new Y.Doc();
+      prosemirrorJSONToYXmlFragment(nixSchema, parsed.doc, doc.getXmlFragment('default'));
+      const update = btoa(
+        Array.from(Y.encodeStateAsUpdate(doc), (byte) => String.fromCharCode(byte)).join(''),
+      );
+      doc.destroy();
+      client.query.mockImplementation((endpoint: { operation: string }) => {
+        if (endpoint.operation === 'companion.body.read')
+          return Promise.resolve({ hasMore: false, updates: [{ seq: '1', update }] });
+        if (endpoint.operation === 'items.get')
+          return Promise.resolve({
+            id: noteId,
+            workspaceId,
+            parentId: null,
+            title: 'Trip',
+            type: 'note',
+          });
+        throw new Error(`Unexpected preview query: ${endpoint.operation}`);
+      });
+    }
+    function claimThenComplete(base: typeof runtime) {
+      client.execute.mockImplementation(
+        (endpoint: { body: { operation: string; requestId: string } }) =>
+          Promise.resolve({
+            ...base,
+            tools: base.tools?.map((tool) => ({
+              ...tool,
+              status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+              claimId: endpoint.body.requestId,
+            })),
+          }),
+      );
+    }
+
+    it('shows the section before and after, then runs behind the preview fingerprint', async () => {
+      serveNote('# Trip\n\n## Budget\n\nTotal is 400.\n\n## Notes\n\nFirst note.');
+      const sectionRuntime = editRuntime({
+        operation: 'replace_section',
+        query: 'Budget',
+        markdown: 'Total is 450.\n\n- Venue',
+      });
+      claimThenComplete(sectionRuntime);
+      runWorkspaceToolSpy.mockResolvedValueOnce({
+        text: '{"replaced":true}',
+        readOnly: false,
+        touchedParents: [],
+      });
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={sectionRuntime}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      expect(
+        await screen.findByText(
+          'I will replace the section “Budget” in the linked note. The rest of the note stays as it is.',
+        ),
+      ).toBeVisible();
+      expect(screen.getByRole('region', { name: 'Text now' })).toHaveTextContent(
+        '## Budget Total is 400.',
+      );
+      expect(screen.getByRole('region', { name: 'Text after this change' })).toHaveTextContent(
+        '## Budget Total is 450. - Venue',
+      );
+      expect(screen.getByText('Removes 1 block and adds 2 blocks.')).toBeVisible();
+      // The comparison already carries the new text; it is not listed a second time.
+      expect(screen.queryByRole('region', { name: /New section text/ })).not.toBeInTheDocument();
+      await approveRequest();
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledTimes(2);
+      });
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+        fence: JSON.stringify(['section', '## Budget\n\nTotal is 400.']),
+      });
+    });
+
+    it('sends a heading it cannot place back to the pet with the headings it found', async () => {
+      serveNote('# Trip\n\n## Budget\n\nTotal is 400.');
+      const missingRuntime = editRuntime({
+        operation: 'replace_section',
+        query: 'Itinerary',
+        markdown: 'Day one.',
+      });
+      claimThenComplete(missingRuntime);
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={missingRuntime}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledTimes(2);
+      });
+      expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
+        body: {
+          operation: 'tool_result',
+          toolSuccess: false,
+          toolResult: expect.stringContaining(
+            'Headings in this note: "Trip", "Budget".',
+          ) as unknown,
+        },
+      });
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    });
+
+    it('runs a clean passage edit without asking when the switch is on', async () => {
+      serveNote('Meet at teh station.');
+      const passageRuntime = editRuntime({
+        operation: 'replace_passage',
+        query: 'teh',
+        markdown: 'the',
+      });
+      claimThenComplete(passageRuntime);
+      runWorkspaceToolSpy.mockResolvedValueOnce({
+        text: '{"replaced":true}',
+        readOnly: false,
+        touchedParents: [],
+      });
+      const onNeedsDecisionChange = vi.fn();
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={passageRuntime}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+          onNeedsDecisionChange={onNeedsDecisionChange}
+          applyWithoutAsking
+        />,
+        { wrapper: MemoryRouter },
+      );
+      await waitFor(() => {
+        expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+      });
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+        fence: JSON.stringify(['passage', 'Meet at teh station.']),
+      });
+      expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+    });
+
+    it('waits for the owner when the edited text would form a link to another host', async () => {
+      serveNote('Fetch http:XX//evil.example/a now.');
+      const passageRuntime = editRuntime({
+        operation: 'replace_passage',
+        query: 'XX',
+        markdown: '',
+      });
+      const onNeedsDecisionChange = vi.fn();
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={passageRuntime}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+          onNeedsDecisionChange={onNeedsDecisionChange}
+          applyWithoutAsking
+        />,
+        { wrapper: MemoryRouter },
+      );
+      expect(
+        await screen.findByRole('region', { name: 'Text after this change' }),
+      ).toHaveTextContent('http://evil.example/a');
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(screen.getByRole('button', { name: 'Approve request' })).toBeEnabled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(client.execute).not.toHaveBeenCalled();
     });
   });
 });
