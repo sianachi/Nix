@@ -9,9 +9,17 @@ Local PDF import also needs `pdftotext` on the worker PATH (provided by Poppler)
 Dockerfile installs `poppler-utils`, but mise does not install it for host development.
 
 Start `scripts/dev-api.sh`, `scripts/dev-collab.sh`, `scripts/dev-worker.sh`, and
-`pnpm --filter @nix/web dev` in separate terminals. Use <http://localhost:5173>.
-The default development user is `dev@nix.localhost`, password `NixDev-Password1!`.
-Overrides and previously initialized volumes can change these defaults.
+`pnpm --filter @nix/web dev` in separate terminals, or all four with `pnpm dev`. Use
+<http://localhost:5173>. The default development user is `dev@nix.localhost`, password
+`NixDev-Password1!`. Overrides and previously initialized volumes can change these defaults.
+
+Stack-up also starts Mailpit on <http://localhost:8325> (loopback only). Zitadel's SMTP points at
+it, so password-reset codes, email verification and passkey registration links for every dev
+account land there instead of at a real mail provider.
+
+The dev worker runs the import, export, index and plugin-events roles. Calendar sync, push
+notifications and speech are opt-in roles with their own prerequisites; `scripts/dev-worker.sh`
+documents the variables, and the speech role runs as a second worker process on :8303.
 
 Zitadel setup writes machine-specific OIDC configuration under `deploy/.zitadel/`.
 API and Collaboration scripts consume `oidc.generated.env`. Rerun stack-up if it is missing;
