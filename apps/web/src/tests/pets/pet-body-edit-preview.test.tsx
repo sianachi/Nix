@@ -11,6 +11,7 @@ describe('PetBodyEditPreview', () => {
           after: '## Budget\n\nTotal is **450**.\n\n- Venue\n- Food',
           blocksRemoved: 1,
           blocksAdded: 2,
+          losesFormatting: false,
         }}
       />,
     );
@@ -30,7 +31,7 @@ describe('PetBodyEditPreview', () => {
   it('says in words when the edit removes the text', () => {
     render(
       <PetBodyEditPreview
-        edit={{ before: 'Second note.', after: '', blocksRemoved: 1, blocksAdded: 0 }}
+        edit={{ before: 'Second note.', after: '', blocksRemoved: 1, blocksAdded: 0, losesFormatting: false }}
       />,
     );
     expect(screen.getByRole('region', { name: 'Text after this change' })).toHaveTextContent(

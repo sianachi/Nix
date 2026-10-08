@@ -44,5 +44,8 @@ export interface PreviewBodyEdit {
   /** The same blocks as they will read after the edit, as Markdown. */
   after: string;
   blocksRemoved: number;
+  /** Whether the replaced blocks carry formatting Markdown cannot keep. Such an edit always waits
+   * for the owner, even when a conversation applies changes without asking. */
+  losesFormatting: boolean;
   blocksAdded: number;
 }

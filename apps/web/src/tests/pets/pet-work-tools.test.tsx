@@ -1415,12 +1415,19 @@ describe('companion work approvals', () => {
         })),
       };
     }
-    /** Serves `markdown` as the note's whole collab history and the note item itself. */
-    function serveNote(markdown: string) {
-      const parsed = markdownToDocument(markdown);
-      if (!parsed.ok) throw new Error('fixture Markdown is invalid');
+    /** Serves `note` (Markdown, or a document when the fixture needs formatting Markdown cannot
+     * spell) as the note's whole collab history and the note item itself. */
+    function serveNote(note: string | Record<string, unknown>) {
+      let content: unknown;
+      if (typeof note === 'string') {
+        const parsed = markdownToDocument(note);
+        if (!parsed.ok) throw new Error('fixture Markdown is invalid');
+        content = parsed.doc;
+      } else {
+        content = note;
+      }
       const doc = new Y.Doc();
-      prosemirrorJSONToYXmlFragment(nixSchema, parsed.doc, doc.getXmlFragment('default'));
+      prosemirrorJSONToYXmlFragment(nixSchema, content, doc.getXmlFragment('default'));
       const update = btoa(
         Array.from(Y.encodeStateAsUpdate(doc), (byte) => String.fromCharCode(byte)).join(''),
       );
@@ -1565,6 +1572,46 @@ describe('companion work approvals', () => {
         fence: JSON.stringify(['passage', 'Meet at teh station.']),
       });
       expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+    });
+
+    it('waits for the owner when the edit would drop formatting Markdown cannot keep', async () => {
+      serveNote({
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            attrs: { textAlign: 'center' },
+            content: [{ type: 'text', text: 'Centred line' }],
+          },
+        ],
+      });
+      const passageRuntime = editRuntime({
+        operation: 'replace_passage',
+        query: 'Centred',
+        markdown: 'Centered',
+      });
+      const onNeedsDecisionChange = vi.fn();
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={passageRuntime}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+          onNeedsDecisionChange={onNeedsDecisionChange}
+          applyWithoutAsking
+        />,
+        { wrapper: MemoryRouter },
+      );
+      expect(
+        await screen.findByRole('region', { name: 'Text after this change' }),
+      ).toHaveTextContent('Centered line');
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(screen.getByRole('button', { name: 'Approve request' })).toBeEnabled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(client.execute).not.toHaveBeenCalled();
     });
 
     it('waits for the owner when the edited text would form a link to another host', async () => {

@@ -415,6 +415,7 @@ function describeBodyEdit(args: PreviewToolArgs, context: PreviewContext): Previ
       after: plan.after,
       blocksRemoved: plan.blocksRemoved,
       blocksAdded: plan.blocksAdded,
+      losesFormatting: plan.losses.length > 0,
     },
   };
 }

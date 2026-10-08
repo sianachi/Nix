@@ -322,6 +322,7 @@ describe('describeToolCall - note body edits', () => {
       after: plan.after,
       blocksRemoved: 1,
       blocksAdded: 2,
+      losesFormatting: true,
     });
     expect(model.notes).toContain('Removes 1 block and adds 2 blocks.');
     expect(model.counts.writes).toBe(1);
