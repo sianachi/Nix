@@ -405,7 +405,7 @@
                   },
                   "groupBy": {
                     "type": "string",
-                    "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                    "description": "Board, chart: a select. List: a select, checkbox or $type, drawn as sections."
                   },
                   "groupOrder": {
                     "type": "array",
@@ -787,7 +787,7 @@
                   },
                   "groupBy": {
                     "type": "string",
-                    "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                    "description": "Board, chart: a select. List: a select, checkbox or $type, drawn as sections."
                   },
                   "groupOrder": {
                     "type": "array",
@@ -1323,7 +1323,7 @@
                       },
                       "groupBy": {
                         "type": "string",
-                        "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                        "description": "Board, chart: a select. List: a select, checkbox or $type, drawn as sections."
                       },
                       "groupOrder": {
                         "type": "array",
@@ -2167,7 +2167,7 @@
                       },
                       "groupBy": {
                         "type": "string",
-                        "description": "Only board and chart views use groupBy, grouping by a single select field. List views show all rows and never group."
+                        "description": "Board, chart: a select. List: a select, checkbox or $type, drawn as sections."
                       },
                       "groupOrder": {
                         "type": "array",

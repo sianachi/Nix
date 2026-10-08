@@ -15,7 +15,10 @@ namespace Nix.Features.Views;
 /// <param name="Columns">
 /// List views: the property keys to show, in order. Empty means the effective schema decides.
 /// </param>
-/// <param name="GroupBy">Board views: the single-select property whose values become columns.</param>
+/// <param name="GroupBy">
+/// Board views: the single-select property whose values become columns. List views: the select or
+/// checkbox property, or <c>$type</c> for each item's body kind, whose values become sections.
+/// </param>
 /// <param name="GroupOrder">
 /// Board views: which of that property's values to show, in which order. Empty means all of them.
 /// Deliberately independent of the property's declared options - a board may show three of six

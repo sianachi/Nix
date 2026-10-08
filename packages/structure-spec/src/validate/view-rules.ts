@@ -9,8 +9,10 @@ import type {
 import {
   canChartBy,
   canGroupBy,
+  canSectionBy,
   isComputedType,
   isDateShaped,
+  TYPE_GROUP_KEY,
   valueShapeOf,
 } from '../vocabulary/property-types.js';
 import { isRealCalendarDay } from './values.js';
@@ -86,6 +88,17 @@ function refuseKindRequirement(
     const property = findByKey(effective, view.groupBy);
     if (property === undefined || !canGroupBy(property.type)) {
       return `'${view.name}': a board needs a property to group by.`;
+    }
+  }
+
+  // A list's sections are optional, so only a grouping it was given is checked: it must be the
+  // reserved body-kind key or a property with a closed set of values (`canSectionBy`). Core's own
+  // list has no requirement and stores any key; this is the same client-only strictness as above,
+  // so a pet hears before the list draws one heading per distinct free-text value.
+  if (view.kind === 'list' && view.groupBy !== null && view.groupBy !== TYPE_GROUP_KEY) {
+    const property = findByKey(effective, view.groupBy);
+    if (property === undefined || !canSectionBy(property.type)) {
+      return `'${view.name}': a list makes sections only from a select, a checkbox or $type.`;
     }
   }
 

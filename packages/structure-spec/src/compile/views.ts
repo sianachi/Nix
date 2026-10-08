@@ -1,4 +1,5 @@
 import type { ViewSpec } from '../spec/view.js';
+import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { findSmartList } from '../vocabulary/smart-lists.js';
 import type { StructureFilter, StructureProperty, StructureView } from '../types.js';
 import { compileForm } from './forms.js';
@@ -79,8 +80,14 @@ export function compileView(
   const id = nextViewId(spec.kind, usedIds);
   usedIds.add(id);
 
+  // `$type` is the one grouping key that is not a property - a list sectioned by body kind - so it
+  // is carried through as written rather than resolved against the schema.
   const groupByKey =
-    spec.groupBy !== undefined ? resolveKey(spec.groupBy, effective, addedKeys) : null;
+    spec.groupBy === undefined
+      ? null
+      : spec.groupBy === TYPE_GROUP_KEY
+        ? TYPE_GROUP_KEY
+        : resolveKey(spec.groupBy, effective, addedKeys);
   const groupBySource =
     groupByKey !== null ? effective.find((property) => property.key === groupByKey) : undefined;
 

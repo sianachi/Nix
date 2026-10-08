@@ -9,6 +9,7 @@
 export {
   canChartBy,
   canGroupBy,
+  canSectionBy,
   foldNeedsProperty,
   isComputedType,
   isDateShaped,
@@ -17,6 +18,7 @@ export {
   propertyTypeWord,
   ROLLUP_AGGREGATES,
   rollupAggregateLabel,
+  TYPE_GROUP_KEY,
   valueShapeOf,
 } from '@nix/structure-spec';
 export type { PropertyValueShape } from '@nix/structure-spec';

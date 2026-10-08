@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import type { PropertyDefinition } from '../../../views/core/container-model';
 import {
   VIEW_KINDS,
   findViewKind,
@@ -14,6 +15,15 @@ import {
  * table exists for: that a kind declared here is complete everywhere the application needs it, and
  * that a kind not declared here is refused rather than approximated.
  */
+
+/** A property definition to ask a configuration's `accepts` about, retyped per assertion. */
+const STATUS: PropertyDefinition = {
+  key: 'status',
+  label: 'Status',
+  type: 'select',
+  options: ['Open', 'Done'],
+  required: false,
+};
 
 /** Every configuration a kind offers, in the order the editor draws them. */
 function configurations(kind: string): readonly ViewConfiguration[] {
@@ -83,9 +93,17 @@ describe('the view-kind registry', () => {
 
   it('describes what each configurable kind needs, and what needs nothing', () => {
     // A list needs nothing: with no columns configured it falls back to the effective schema, and
-    // with no schema at all it still has titles to show. The spreadsheet view needs nothing by the
-    // same argument - its columns resolve exactly as the list's do.
-    expect(findViewKind('list')?.configures).toEqual([]);
+    // with no schema at all it still has titles to show. Its one configuration is optional - the
+    // sections - which is why its empty choice reads "None" rather than asking for a property. The
+    // spreadsheet view needs nothing by the same argument - its columns resolve exactly as the
+    // list's do.
+    expect(onlyConfiguration('list').field).toBe('groupBy');
+    expect(onlyConfiguration('list').emptyChoice).toBe('None');
+    expect(onlyConfiguration('list').extraChoices?.map((choice) => choice.value)).toEqual([
+      '$type',
+    ]);
+    expect(onlyConfiguration('list').accepts({ ...STATUS, type: 'checkbox' })).toBe(true);
+    expect(onlyConfiguration('list').accepts({ ...STATUS, type: 'text' })).toBe(false);
     expect(findViewKind('sheet')?.configures).toEqual([]);
     expect(findViewKind('form')?.configures).toEqual([]);
 

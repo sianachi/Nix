@@ -13,6 +13,7 @@ export type {
 export {
   canChartBy,
   canGroupBy,
+  canSectionBy,
   foldNeedsProperty,
   isComputedType,
   isDateShaped,
@@ -21,6 +22,7 @@ export {
   propertyTypeWord,
   ROLLUP_AGGREGATES,
   rollupAggregateLabel,
+  TYPE_GROUP_KEY,
   valueShapeOf,
 } from './vocabulary/property-types.js';
 export type { PropertyValueShape } from './vocabulary/property-types.js';

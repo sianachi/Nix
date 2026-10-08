@@ -354,6 +354,53 @@ describe('validateSpec add_view', () => {
   });
 });
 
+describe('validateSpec list sections', () => {
+  const owner: StructureProperty = {
+    key: 'owner',
+    label: 'Owner',
+    type: 'text',
+    options: [],
+    required: false,
+  };
+  const done: StructureProperty = {
+    key: 'done',
+    label: 'Done',
+    type: 'checkbox',
+    options: [],
+    required: false,
+  };
+
+  it('accepts a list sectioned by a select, a checkbox or the body kind', () => {
+    for (const groupBy of ['status', 'done', '$type']) {
+      const report = validateSpec(
+        'add_view',
+        { views: [{ kind: 'list', groupBy }] },
+        context({ inheritedFields: [statusProperty, done] }),
+      );
+      expect(report.ok, groupBy).toBe(true);
+    }
+  });
+
+  it('refuses a list sectioned by free text, which would draw a heading per value', () => {
+    const report = validateSpec(
+      'add_view',
+      { views: [{ kind: 'list', groupBy: 'owner' }] },
+      context({ inheritedFields: [owner] }),
+    );
+    expect(report.ok).toBe(false);
+    expect(report.problems[0]?.message).toContain('a list makes sections only from');
+  });
+
+  it('still refuses $type on a board, whose columns must be a select', () => {
+    const report = validateSpec(
+      'add_view',
+      { views: [{ kind: 'board', groupBy: '$type' }] },
+      context({ inheritedFields: [statusProperty] }),
+    );
+    expect(report.ok).toBe(false);
+  });
+});
+
 describe('validateSpec create_entries', () => {
   it('accepts entries whose values fit the effective schema', () => {
     const report = validateSpec(

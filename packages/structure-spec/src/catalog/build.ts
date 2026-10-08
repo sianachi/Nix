@@ -168,13 +168,20 @@ function withAccepts(kind: ViewKindRule): CatalogViewKind {
   };
 }
 
+/**
+ * One view kind as a line of catalog text. A kind with no requirement says nothing about one
+ * rather than "no required field": the chat text has a hard 3000-character ceiling, and the
+ * absence of "needs ..." already says it.
+ */
 function viewKindLine(kind: CatalogViewKind): string {
-  const requirement =
-    kind.requires === null ? 'no required field' : `needs a ${kind.requires.shape} property`;
-  const optional = kind.optional.length
-    ? '; optional: ' + kind.optional.map((field) => `${field.field} (${field.shape})`).join(', ')
-    : '';
-  return `- ${kind.label} (${kind.kind}): ${requirement}${optional}. ${kind.description}`;
+  const clauses = [
+    ...(kind.requires === null ? [] : [`needs a ${kind.requires.shape} property`]),
+    ...(kind.optional.length
+      ? ['optional: ' + kind.optional.map((field) => `${field.field} (${field.shape})`).join(', ')]
+      : []),
+  ];
+  const settings = clauses.length ? `: ${clauses.join('; ')}` : '';
+  return `- ${kind.label} (${kind.kind})${settings}. ${kind.description}`;
 }
 
 /**
@@ -281,7 +288,7 @@ export function renderConsult(catalog: Catalog, patterns: string): string {
       `${String(catalog.limits.sampleEntries)} sample entries, ${String(catalog.limits.plannedWritesPerBuild)} planned writes.`,
   );
   lines.push(
-    'Blueprint JSON uses fields shaped as {"label":"Status","type":"select","options":["Open","Done"]}; label and type are required. Do not use name for a field. Put sample or initial field values on a node under values, keyed by field key, for example {"values":{"status":"Open"}}; do not use properties or entries for blueprint node values. A view is shaped as {"kind":"board","groupBy":"status"}; kind-specific settings must match the view kind. list accepts no groupBy (use board for grouping).',
+    'Blueprint JSON uses fields shaped as {"label":"Status","type":"select","options":["Open","Done"]}; label and type are required. Do not use name for a field. Put sample or initial field values on a node under values, keyed by field key, for example {"values":{"status":"Open"}}; do not use properties or entries for blueprint node values. A view is shaped as {"kind":"board","groupBy":"status"}; kind-specific settings must match the view kind. On a list, groupBy draws sections from a select, a checkbox or $type (body kind).',
   );
   lines.push('Valid view settings by kind:');
   for (const kind of catalog.viewKinds) {
