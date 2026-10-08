@@ -275,7 +275,6 @@ export type {
   PetSettings,
   PetSettingsResponse,
   PetConnection,
-  PetAction,
   PetMessage,
 } from './schemas/pets.js';
 export * as notifications from './resources/notifications.js';

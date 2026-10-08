@@ -75,6 +75,21 @@ export interface RuntimeInput {
   readonly toolSuccess?: boolean;
   readonly historyId?: string;
   readonly mode?: 'chat' | 'consult';
+  /** The owner's own day, `yyyy-MM-dd` in `timeZone`, so the model can resolve relative dates. */
+  readonly today?: string;
+  /** The owner's IANA time zone. */
+  readonly timeZone?: string;
+  /** The workspace's main containers, sent with a conversation's first message only. */
+  readonly workspaceMap?: readonly PetWorkspaceMapEntry[];
+}
+
+/** One container a conversation's first message describes to the model. */
+export interface PetWorkspaceMapEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly type: string;
+  /** Left out when the client does not know the container's views. */
+  readonly viewKinds?: readonly string[];
 }
 
 export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
@@ -93,6 +108,13 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
       mode: input.mode ?? '',
+      today: input.today ?? '',
+      timeZone: input.timeZone ?? '',
+      workspaceMap:
+        input.workspaceMap?.map((entry) => ({
+          ...entry,
+          viewKinds: entry.viewKinds === undefined ? null : [...entry.viewKinds],
+        })) ?? null,
     } satisfies components['schemas']['PetRuntimeRequest'],
     invalidates: [['me', 'pets', 'connection']],
   });

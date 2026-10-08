@@ -105,7 +105,7 @@ func (a *account) applyDeltaLocked(c *conversation, itemID, delta string) {
 		return
 	}
 	if index < 0 {
-		c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: truncateUTF8(delta, min(32000, maxTotalDraftBytes-total)), Actions: []Action{}})
+		c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: truncateUTF8(delta, min(32000, maxTotalDraftBytes-total))})
 		a.bumpLocked(c)
 	} else if remaining := min(32000-len(c.Messages[index].Text), maxTotalDraftBytes-total); remaining > 0 {
 		c.Messages[index].Text += truncateUTF8(delta, remaining)

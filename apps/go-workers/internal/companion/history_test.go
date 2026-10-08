@@ -13,7 +13,7 @@ func TestNewConversationArchivesHistoryPrivately(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := r.WorkspaceID + "-" + r.PetID
-	a.conversations[key].Messages = []Message{{ID: "one", Role: "user", Text: "Weekly plan", Actions: []Action{}}}
+	a.conversations[key].Messages = []Message{{ID: "one", Role: "user", Text: "Weekly plan"}}
 	r.Operation = "reset"
 	result, err := a.handle(context.Background(), r)
 	if err != nil {

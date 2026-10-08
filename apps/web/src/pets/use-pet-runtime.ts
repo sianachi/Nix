@@ -2,6 +2,7 @@ import { isCanceledError, pets, type PetConnection } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../api/api-client-provider';
 import type { PetConversationMode } from './device-preferences';
+import { ownerTurnContext } from './turn-context';
 
 /** The floor on how often the watch loop starts a new request, whether that request is the
  * next iteration of a normal poll or the very first one after a pause. */
@@ -24,6 +25,8 @@ export interface PetSendInput {
   readonly workspaceAccess: boolean;
   readonly itemId?: string;
   readonly sharedText?: string;
+  /** The workspace's main containers, for a conversation's first message only (plan B.2). */
+  readonly workspaceMap?: readonly pets.PetWorkspaceMapEntry[];
 }
 
 /** What kind of request the current `error` describes, so the caller can offer the right
@@ -306,6 +309,8 @@ export function usePetRuntime(
                   text: input.text,
                   model: input.model,
                   workspaceAccess: input.workspaceAccess,
+                  ...ownerTurnContext(),
+                  ...(input.workspaceMap ? { workspaceMap: input.workspaceMap } : {}),
                   ...(input.itemId
                     ? { itemId: input.itemId, sharedText: input.sharedText ?? '' }
                     : {}),

@@ -167,6 +167,65 @@ describe('companion workflow', () => {
     view.unmount();
   });
 
+  it('maps the workspace on the first message with workspace access, and never again', async () => {
+    const container = '55555555-5555-4555-8555-555555555555';
+    const paginate = vi.fn(async function* (endpoint: { query: { parentId?: string } }) {
+      await Promise.resolve();
+      if (endpoint.query.parentId === undefined)
+        yield {
+          id: container,
+          workspaceId: '33333333-3333-4333-8333-333333333333',
+          parentId: null,
+          title: 'Tasks',
+          type: 'note',
+          hasChildren: false,
+        };
+    });
+    Object.assign(client, { paginate, cache: { peek: vi.fn() } });
+    const user = userEvent.setup();
+    const view = render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    await user.click(screen.getByRole('button', { name: 'Workspace access' }));
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'What is due?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    const sends = () =>
+      client.execute.mock.calls
+        .map(([endpoint]) => (endpoint as { body?: Record<string, unknown> }).body)
+        .filter((body) => body?.operation === 'send');
+    await waitFor(() => {
+      expect(sends()).toHaveLength(1);
+    });
+    expect(sends()[0]).toMatchObject({
+      workspaceAccess: true,
+      workspaceMap: [{ id: container, title: 'Tasks', type: 'note', viewKinds: null }],
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+    expect(sends()[0]?.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // Once the conversation has a user message, later turns rely on the thread's history.
+    const withHistory = {
+      ...connected,
+      messages: [{ id: 'first', role: 'user', text: 'What is due?' }],
+    };
+    client.execute.mockResolvedValue(withHistory);
+    client.query.mockResolvedValue(withHistory);
+    await screen.findAllByText('What is due?');
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'And tomorrow?');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => {
+      expect(sends()).toHaveLength(2);
+    });
+    expect(sends()[1]?.workspaceMap).toBeNull();
+    expect(paginate).toHaveBeenCalledOnce();
+    view.unmount();
+    Object.assign(client, { paginate: undefined, cache: undefined });
+  });
+
   it('switches to Design with its own messages and sends mode on every runtime call', async () => {
     // The connection now streams through the watch loop (`client.query`, `pets.watchRuntime`)
     // rather than the old read poll, so the mode-scoped fixture keys off the watch's own
@@ -181,10 +240,9 @@ describe('companion workflow', () => {
                   id: 'design-reply',
                   role: 'assistant',
                   text: 'Design conversation',
-                  actions: [],
                 },
               ]
-            : [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation', actions: [] }],
+            : [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation' }],
       }),
     );
     const user = userEvent.setup();
@@ -277,7 +335,6 @@ describe('companion workflow', () => {
           id: 'visible-reply',
           role: 'assistant',
           text: 'Your reply stays in the reading area.',
-          actions: [],
         },
       ],
     });
@@ -344,7 +401,6 @@ describe('companion workflow', () => {
           id: 'notice',
           role: 'system',
           text: 'Your pet was updated and starts a fresh conversation.',
-          actions: [],
         },
       ],
     });
@@ -361,7 +417,6 @@ describe('companion workflow', () => {
     expect(log.queryByText('You')).not.toBeInTheDocument();
     expect(log.queryByText('Cat')).not.toBeInTheDocument();
     expect(log.queryByRole('button', { name: 'Read aloud' })).not.toBeInTheDocument();
-    expect(log.queryByRole('button', { name: 'Approve change' })).not.toBeInTheDocument();
   });
 
   it('approval state derives only from pending tool calls', async () => {
@@ -375,7 +430,6 @@ describe('companion workflow', () => {
           id: 'message-one',
           role: 'assistant',
           text: 'I can create this note.',
-          actions: [{ kind: 'create_item', itemId: '', title: 'Plan' }],
         },
       ],
       tools: [],
@@ -387,7 +441,6 @@ describe('companion workflow', () => {
           id: 'message-one',
           role: 'assistant',
           text: 'I can create this note.',
-          actions: [{ kind: 'create_item', itemId: '', title: 'Plan' }],
         },
       ],
       tools: [],
@@ -410,7 +463,6 @@ describe('companion workflow', () => {
           id: 'message-one',
           role: 'assistant',
           text: 'I can create this note.',
-          actions: [],
         },
       ],
       tools: [
@@ -437,7 +489,7 @@ describe('companion workflow', () => {
     // to decide, because it never was.
     const autoRunConnection = {
       ...connected,
-      messages: [{ id: 'msg-1', role: 'user', text: 'Find my reading notes', actions: [] }],
+      messages: [{ id: 'msg-1', role: 'user', text: 'Find my reading notes' }],
       tools: [
         {
           id: 'auto-tool-1',
@@ -492,8 +544,8 @@ describe('companion workflow', () => {
       ...connected,
       state: 'success',
       messages: [
-        { id: 'already-1', role: 'user', text: 'Earlier question', actions: [] },
-        { id: 'already-1:assistant', role: 'assistant', text: 'Earlier answer', actions: [] },
+        { id: 'already-1', role: 'user', text: 'Earlier question' },
+        { id: 'already-1:assistant', role: 'assistant', text: 'Earlier answer' },
       ],
     });
     render(

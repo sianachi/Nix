@@ -369,7 +369,7 @@ func TestTurnCompletionLogsTimingsWithoutContent(t *testing.T) {
 	c.timing.toolCount = 2
 	c.timing.pendingMS = 250
 	c.timing.effort = "low"
-	c.Messages = append(c.Messages, Message{ID: "secret", Role: "user", Text: "my private question", Actions: []Action{}})
+	c.Messages = append(c.Messages, Message{ID: "secret", Role: "user", Text: "my private question"})
 	raw, _ := json.Marshal(map[string]any{"threadId": "thread", "turn": map[string]string{"status": "completed"}})
 	a.notify("turn/completed", raw)
 
@@ -405,7 +405,7 @@ func TestRevisionIsMonotonicAcrossReload(t *testing.T) {
 	if err := a.load(key); err != nil {
 		t.Fatal(err)
 	}
-	a.conversations[key].Messages = []Message{{ID: "seed", Role: "user", Text: "hi", Actions: []Action{}}}
+	a.conversations[key].Messages = []Message{{ID: "seed", Role: "user", Text: "hi"}}
 	a.mu.Lock()
 	if err := a.saveLocked(key); err != nil {
 		a.mu.Unlock()

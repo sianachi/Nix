@@ -594,25 +594,21 @@ const phoneConnection = petConnectionSchema.parse({
       id: 'question-1',
       role: 'user',
       text: 'Can you help me make a calm plan for the week?',
-      actions: [],
     },
     {
       id: 'answer-1',
       role: 'assistant',
       text: 'Of course. Start by choosing one thing that would make the week feel easier.\n\nOn Monday, take ten minutes to look at the commitments already in your calendar. Move anything that is not urgent, then choose one small task to finish before lunch. Keep the afternoon open for the work that needs your attention.\n\nOn Tuesday and Wednesday, leave a short break between meetings if you can. A little space makes it easier to recover when something takes longer than expected.\n\nAt the end of the week, notice what helped and carry only that forward. A plan should make room for the week you actually have, not add another standard to meet.',
-      actions: [],
     },
     {
       id: 'question-2',
       role: 'user',
       text: 'I have a busy Monday. What should I protect first?',
-      actions: [],
     },
     {
       id: 'reply',
       role: 'assistant',
       text: 'Protect a real lunch break and one focused block for your most important task. If the day fills up, those two anchors give you a place to begin and a chance to reset.\n\nYou could also leave a little space at the end of the day to write down what needs attention tomorrow. That way you do not have to keep the whole list in your head.',
-      actions: [],
     },
   ],
   verificationUrl: '',
@@ -984,13 +980,11 @@ const streamedTurnConnection = petConnectionSchema.parse({
       id: 'user-1',
       role: 'user',
       text: 'Find my reading notes and set up a tracker.',
-      actions: [],
     },
     {
       id: 'commentary-1',
       role: 'assistant',
       text: 'Let me look at what you already have first.',
-      actions: [],
     },
   ],
   tools: [
@@ -1050,12 +1044,11 @@ const streamingReplyConnection = petConnectionSchema.parse({
   canConnect: false,
   state: 'thinking',
   messages: [
-    { id: 'streaming-user-1', role: 'user', text: 'Draft a weekly plan outline.', actions: [] },
+    { id: 'streaming-user-1', role: 'user', text: 'Draft a weekly plan outline.' },
     {
       id: STREAMING_DRAFT_ID,
       role: 'assistant',
       text: 'Here is a draft outline: Monday - review priorities, Tuesday - ',
-      actions: [],
     },
   ],
 });
@@ -1077,7 +1070,7 @@ const launcherBadgeConnection = petConnectionSchema.parse({
   reason: 'Connected',
   canConnect: false,
   messages: [
-    { id: 'badge-user-1', role: 'user', text: 'Create a note called Weekly plan.', actions: [] },
+    { id: 'badge-user-1', role: 'user', text: 'Create a note called Weekly plan.' },
   ],
   tools: [
     {
@@ -1119,7 +1112,6 @@ const autoDeclinedConnection = petConnectionSchema.parse({
       id: 'user-2',
       role: 'user',
       text: 'Add a Status field with a made-up view kind.',
-      actions: [],
     },
   ],
   tools: [
@@ -1159,8 +1151,8 @@ const completedReceiptConnection = petConnectionSchema.parse({
   canConnect: false,
   state: 'success',
   messages: [
-    { id: 'user-3', role: 'user', text: 'Create a note called Weekly plan.', actions: [] },
-    { id: 'assistant-3', role: 'assistant', text: 'Done - Weekly plan is ready.', actions: [] },
+    { id: 'user-3', role: 'user', text: 'Create a note called Weekly plan.' },
+    { id: 'assistant-3', role: 'assistant', text: 'Done - Weekly plan is ready.' },
   ],
   tools: [
     {

@@ -57,6 +57,7 @@ import { PetConnectionPanel } from './pet-connection-panel';
 import { PetHistory, exportPetMessages } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
+import { buildWorkspaceMap } from './turn-context';
 
 const CONVERSATION_MODE_OPTIONS: readonly { value: PetConversationMode; label: string }[] = [
   { value: 'chat', label: 'Chat' },
@@ -227,6 +228,7 @@ export function Conversation({
   // message was dictated, or "Read aloud" is pressed on the reply. A typed message gets a
   // silent reply even with narration on. Set by dictation, cleared when the message is sent.
   const dictated = useRef(false);
+  const preparing = useRef(false);
   const voice = usePetVoice((text) => {
     setDraft(`${draft}${draft ? ' ' : ''}${text}`.slice(0, 8000));
     dictated.current = true;
@@ -476,12 +478,27 @@ export function Conversation({
   }
 
   async function submit() {
-    if (!draft.trim() || busy || runtime?.status !== 'connected') return;
+    if (!draft.trim() || busy || preparing.current || runtime?.status !== 'connected') return;
+    // Plan B.2: a conversation's first message carries a map of the workspace's main
+    // containers, so the pet can use their ids without listing the tree first. Only with
+    // workspace access on: without it the pet has no tools to use the ids with. `preparing`
+    // keeps a second press from starting another send while the map is read.
+    const firstMessage = !messages.some((message) => message.role === 'user');
+    let workspaceMap: Awaited<ReturnType<typeof buildWorkspaceMap>> = undefined;
+    if (firstMessage && workspaceAccess) {
+      preparing.current = true;
+      try {
+        workspaceMap = await buildWorkspaceMap(client, workspaceId, new AbortController().signal);
+      } finally {
+        preparing.current = false;
+      }
+    }
     const ok = await send({
       text: draft,
       model,
       workspaceAccess,
       ...(shared ? { itemId: shared.itemId, sharedText: shared.sharedText } : {}),
+      ...(workspaceMap?.length ? { workspaceMap } : {}),
     });
     if (ok) {
       narrationPending.current = dictated.current;
