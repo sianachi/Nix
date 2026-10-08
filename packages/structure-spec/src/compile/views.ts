@@ -82,12 +82,16 @@ export function compileView(
 
   // `$type` is the one grouping key that is not a property - a list sectioned by body kind - so it
   // is carried through as written rather than resolved against the schema.
+  //
+  // A matrix's `columnBy` is stored as `groupBy`, the board's own field, so a board switched to a
+  // matrix keeps its columns; its rows are the matrix's own `rowBy`.
+  const groupByRef = spec.kind === 'matrix' ? spec.columnBy : spec.groupBy;
   const groupByKey =
-    spec.groupBy === undefined
+    groupByRef === undefined
       ? null
-      : spec.groupBy === TYPE_GROUP_KEY
+      : groupByRef === TYPE_GROUP_KEY
         ? TYPE_GROUP_KEY
-        : resolveKey(spec.groupBy, effective, addedKeys);
+        : resolveKey(groupByRef, effective, addedKeys);
   const groupBySource =
     groupByKey !== null ? effective.find((property) => property.key === groupByKey) : undefined;
 
@@ -130,5 +134,6 @@ export function compileView(
         : null,
     doneProperty:
       spec.doneProperty !== undefined ? resolveKey(spec.doneProperty, effective, addedKeys) : null,
+    rowBy: spec.rowBy !== undefined ? resolveKey(spec.rowBy, effective, addedKeys) : null,
   };
 }

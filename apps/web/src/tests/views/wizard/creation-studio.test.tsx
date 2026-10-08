@@ -253,6 +253,7 @@ describe('the guided creation studio', () => {
       groupLimits: [],
       aggregates: [],
       doneProperty: null,
+      rowBy: null,
     };
     expect(body.views[0]).toEqual({ ...arranged, ...primary });
     expect(body.views[1]).toEqual({ ...arranged, ...companion });

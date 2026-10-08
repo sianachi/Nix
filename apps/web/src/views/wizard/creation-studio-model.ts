@@ -200,6 +200,11 @@ export function validateDraft(
   if (draft.view.kind === 'board' && draft.view.groupBy === null)
     return 'A board needs a select field for its columns.';
   if (
+    draft.view.kind === 'matrix' &&
+    (draft.view.groupBy === null || (draft.view.rowBy ?? null) === null)
+  )
+    return 'A matrix needs a select or checkbox field for its rows and another for its columns.';
+  if (
     (draft.view.kind === 'calendar' || draft.view.kind === 'timeline') &&
     draft.view.dateProperty === null
   )

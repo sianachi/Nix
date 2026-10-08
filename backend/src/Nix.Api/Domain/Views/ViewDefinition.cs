@@ -138,6 +138,17 @@ public enum ViewKind
     /// property a view names: the view can be configured before its property exists.
     /// </remarks>
     Checklist = 13,
+
+    /// <summary>Cards in a grid of cells, placed by two properties at once.</summary>
+    /// <remarks>
+    /// Columns come from <see cref="ViewDefinition.GroupBy"/>, the board's own field, which is what
+    /// makes switching a view between board and matrix keep its columns; rows come from
+    /// <see cref="ViewDefinition.RowBy"/>. Both must be a select or a checkbox
+    /// (<see cref="Nix.Domain.Properties.PropertyTypes.CanSectionBy"/>). Like a board's column, a
+    /// card's cell is its two property values and never a placement stored against the view, so a
+    /// card dragged to another cell is one write of both properties.
+    /// </remarks>
+    Matrix = 14,
 }
 
 /// <summary>
@@ -253,6 +264,18 @@ public static class ViewKinds
         // Like a list, and by the list's own argument: with nothing configured a checklist still
         // has titles to list, and it falls back to a "done" checkbox or the task completion.
         new ViewKindDescriptor(ViewKind.Checklist, "checklist", Requirement: null),
+
+        // The board's field for its columns, so a board switched to a matrix keeps them, but the
+        // wider section predicate: a matrix cell draws a checkbox's two values honestly. Its rows
+        // are a second property, checked by ViewDefinitionRules and CanRender, because the
+        // requirement mechanism reads one field.
+        new ViewKindDescriptor(
+            ViewKind.Matrix,
+            "matrix",
+            new ViewRequirement(
+                static view => view.GroupBy,
+                static type => Nix.Domain.Properties.PropertyTypes.CanSectionBy(type),
+                "a matrix needs a property for its columns")),
 
         // The board's requirement, reused field for field, which is what makes switching a view
         // between the two lossless. Only the sentence differs, because the two kinds want
@@ -569,7 +592,11 @@ public sealed record ViewDefinition(
     // checkbox (or completion) property its boxes tick. Null means the checklist's own fallback -
     // a property keyed `done`, then the schema's task completion - which is what lets a checklist
     // made with no configuration work on a to-do list as it stands.
-    string? DoneProperty = null)
+    string? DoneProperty = null,
+
+    // Last and defaulted, like every field added since the record was cut. For a matrix: the select
+    // or checkbox property whose values become its rows; its columns are GroupBy, the board's own.
+    string? RowBy = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.
@@ -599,7 +626,11 @@ public sealed record ViewDefinition(
 
         return requirement.Read(this) is { } key
             && schema.Find(key) is { } property
-            && requirement.Accepts(property.Type);
+            && requirement.Accepts(property.Type)
+            && (Kind != ViewKind.Matrix
+                || (RowBy is { } rowKey
+                    && schema.Find(rowKey) is { } rows
+                    && Nix.Domain.Properties.PropertyTypes.CanSectionBy(rows.Type)));
     }
 }
 

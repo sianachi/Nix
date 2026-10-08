@@ -304,11 +304,24 @@ public sealed class TemplateDefinitionValidator
                 }
             }
 
+            // A list's sections and a matrix's axes take the wider section predicate, and a list
+            // may also section by `$type`, which names each item's body kind rather than a property.
+            var sections = view.Kind is ViewKind.List or ViewKind.Matrix;
             if (view.GroupBy is { } groupBy
+                && !(view.Kind == ViewKind.List && string.Equals(groupBy, "$type", StringComparison.Ordinal))
                 && (schema.Find(groupBy) is not { } grouping
-                    || !(view.Kind == ViewKind.Chart ? grouping.Type.CanChartBy() : grouping.Type.CanGroupBy())))
+                    || !(view.Kind == ViewKind.Chart ? grouping.Type.CanChartBy()
+                        : sections ? grouping.Type.CanSectionBy() : grouping.Type.CanGroupBy())))
             {
-                return $"View '{view.Name}' groups by '{groupBy}', which must be a declared single-select property.";
+                return sections
+                    ? $"View '{view.Name}' groups by '{groupBy}', which must be a declared select or checkbox property."
+                    : $"View '{view.Name}' groups by '{groupBy}', which must be a declared single-select property.";
+            }
+
+            if (view.RowBy is { } rowBy
+                && (schema.Find(rowBy) is not { } rows || !rows.Type.CanSectionBy()))
+            {
+                return $"View '{view.Name}' lays out rows by '{rowBy}', which must be a declared select or checkbox property.";
             }
 
             if (view.DateProperty is { } dateProperty

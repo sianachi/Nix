@@ -56,6 +56,7 @@ export function toViewRequest(view: StructureView): ViewRequestContract {
     habitWidgets: view.habitWidgets ?? null,
     layout: view.layout,
     doneProperty: view.doneProperty ?? null,
+    rowBy: view.rowBy ?? null,
   };
 }
 

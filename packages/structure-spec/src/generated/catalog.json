@@ -188,6 +188,12 @@
       "viewKind": "checklist"
     },
     {
+      "id": "matrix",
+      "label": "Matrix",
+      "detail": "Place cards in a grid by two select fields, such as urgency and importance.",
+      "viewKind": "matrix"
+    },
+    {
       "id": "habit-tracker",
       "label": "Habit tracker",
       "detail": "Track daily or weekday habits with a simple weekly check-in grid.",
@@ -341,6 +347,22 @@
         }
       ],
       "description": "A box to tick per child, with progress; columns[0] is shown beside each title."
+    },
+    {
+      "kind": "matrix",
+      "label": "Matrix",
+      "requires": {
+        "field": "columnBy",
+        "shape": "select or checkbox",
+        "accepts": ["select", "checkbox", "completion"]
+      },
+      "optional": [
+        {
+          "field": "rowBy",
+          "shape": "select or checkbox, required"
+        }
+      ],
+      "description": "Cards in a grid of cells, placed by two properties at once."
     }
   ],
   "queryOperators": [

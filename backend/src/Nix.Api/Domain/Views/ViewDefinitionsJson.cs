@@ -118,6 +118,7 @@ public static class ViewDefinitionsJson
     private const string CardSizeKey = "cardSize";
     private const string LayoutKey = "layout";
     private const string DonePropertyKey = "doneProperty";
+    private const string RowByKey = "rowBy";
     private const string MeasureKey = "measure";
     private const string MeasurePropertyKey = "measureProperty";
     private const string ModeKey = "mode";
@@ -295,6 +296,11 @@ public static class ViewDefinitionsJson
             if (view.DoneProperty is not null)
             {
                 entry[DonePropertyKey] = view.DoneProperty;
+            }
+
+            if (view.RowBy is not null)
+            {
+                entry[RowByKey] = view.RowBy;
             }
 
             if (view.SortBy is not null)
@@ -483,7 +489,8 @@ public static class ViewDefinitionsJson
             ReadStrings(view[CollapsedGroupsKey]),
             ReadGroupLimits(view[GroupLimitsKey]),
             ReadAggregates(view[AggregatesKey]),
-            ReadString(view[DonePropertyKey])));
+            ReadString(view[DonePropertyKey]),
+            ReadString(view[RowByKey])));
     }
 
     /// <summary>

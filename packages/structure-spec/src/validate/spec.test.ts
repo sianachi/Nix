@@ -462,6 +462,49 @@ describe('validateSpec checklist', () => {
   });
 });
 
+describe('validateSpec matrix', () => {
+  const urgent: StructureProperty = {
+    key: 'urgent',
+    label: 'Urgent',
+    type: 'checkbox',
+    options: [],
+    required: false,
+  };
+
+  it('accepts two different select or checkbox axes and stores the columns as groupBy', () => {
+    const report = validateSpec(
+      'add_view',
+      { views: [{ kind: 'matrix', rowBy: 'urgent', columnBy: 'status' }] },
+      context({ inheritedFields: [statusProperty, urgent] }),
+    );
+    expect(report.ok).toBe(true);
+  });
+
+  it('refuses a matrix missing an axis, or with one property on both', () => {
+    for (const view of [
+      { kind: 'matrix', columnBy: 'status' },
+      { kind: 'matrix', rowBy: 'urgent' },
+      { kind: 'matrix', rowBy: 'status', columnBy: 'status' },
+    ]) {
+      const report = validateSpec(
+        'add_view',
+        { views: [view] },
+        context({ inheritedFields: [statusProperty, urgent] }),
+      );
+      expect(report.ok, JSON.stringify(view)).toBe(false);
+    }
+  });
+
+  it('refuses groupBy on a matrix, whose columns are spelled columnBy', () => {
+    const report = validateSpec(
+      'add_view',
+      { views: [{ kind: 'matrix', rowBy: 'urgent', groupBy: 'status' }] },
+      context({ inheritedFields: [statusProperty, urgent] }),
+    );
+    expect(report.ok).toBe(false);
+  });
+});
+
 describe('validateSpec create_entries', () => {
   it('accepts entries whose values fit the effective schema', () => {
     const report = validateSpec(

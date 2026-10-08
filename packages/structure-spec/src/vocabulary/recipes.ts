@@ -14,7 +14,8 @@ export type StructuredRecipeId =
   | 'drive'
   | 'habit-tracker'
   | 'finances'
-  | 'checklist';
+  | 'checklist'
+  | 'matrix';
 
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;
@@ -163,6 +164,31 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     properties: [{ key: 'done', label: 'Done', type: 'checkbox', options: [], required: false }],
   },
   {
+    id: 'matrix',
+    label: 'Matrix',
+    detail: 'Place cards in a grid by two select fields, such as urgency and importance.',
+    menu: 'view',
+    viewKind: 'matrix',
+    defaultTitle: 'Untitled matrix',
+    defaultViewName: 'Matrix',
+    properties: [
+      {
+        key: 'urgency',
+        label: 'Urgency',
+        type: 'select',
+        options: ['Urgent', 'Not urgent'],
+        required: false,
+      },
+      {
+        key: 'importance',
+        label: 'Importance',
+        type: 'select',
+        options: ['Important', 'Not important'],
+        required: false,
+      },
+    ],
+  },
+  {
     id: 'drive',
     label: 'Drive',
     detail: 'Files and pages inside this item as a sortable list or a grid, with bulk actions.',
@@ -264,8 +290,13 @@ export function viewForRecipe(
       recipe.viewKind === 'checklist'
         ? []
         : ['title', ...properties.map((property) => property.key)],
-    groupBy: recipe.viewKind === 'board' ? (first?.key ?? null) : null,
-    groupOrder: recipe.viewKind === 'board' ? [...(first?.options ?? [])] : [],
+    // A matrix's columns are the board's field, so both seed it from the first property.
+    groupBy:
+      recipe.viewKind === 'board' || recipe.viewKind === 'matrix' ? (first?.key ?? null) : null,
+    groupOrder:
+      recipe.viewKind === 'board' || recipe.viewKind === 'matrix'
+        ? [...(first?.options ?? [])]
+        : [],
     dateProperty:
       recipe.viewKind === 'calendar' || recipe.viewKind === 'timeline'
         ? (first?.key ?? null)
@@ -282,6 +313,7 @@ export function viewForRecipe(
     companionPlacement: null,
     interactiveForm: recipe.viewKind === 'interactive_form' ? defaultInteractiveForm(first) : null,
     doneProperty: recipe.viewKind === 'checklist' ? (first?.key ?? null) : null,
+    rowBy: recipe.viewKind === 'matrix' ? (second?.key ?? null) : null,
   };
 }
 

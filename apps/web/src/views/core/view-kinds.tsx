@@ -2,6 +2,7 @@ import {
   ChartColumnBig,
   ClipboardList,
   ListChecks,
+  Grid2x2,
   Columns3,
   HardDrive,
   LayoutGrid,
@@ -19,6 +20,7 @@ import type { ReactNode } from 'react';
 import { BoardView } from '../board/board-view';
 import { ChartView } from '../chart/chart-view';
 import { ChecklistView } from '../checklist/checklist-view';
+import { MatrixView } from '../matrix/matrix-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import {
@@ -96,7 +98,8 @@ export interface ViewConfiguration {
     | 'coverProperty'
     | 'endDateProperty'
     | 'measureProperty'
-    | 'doneProperty';
+    | 'doneProperty'
+    | 'rowBy';
 
   readonly label: string;
 
@@ -613,6 +616,35 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
         hint: 'Each box ticks this property. Left on automatic, a checkbox called "done" or the task completion is used.',
         emptyChoice: 'Automatic',
         accepts: (property) => valueShapeOf(property.type) === 'checkbox',
+      },
+    ],
+    chooses: [],
+    appliesSavedFilters: true,
+  },
+  {
+    // Cards in a grid of cells (plan 3.5). Its columns are the board's own `groupBy`, so a board
+    // switched to a matrix keeps them; its rows are `rowBy`. Both take a select or a checkbox.
+    kind: 'matrix',
+    label: 'Matrix',
+    icon: Grid2x2,
+    render: (props) => <MatrixView {...props} />,
+    configures: [
+      {
+        field: 'rowBy',
+        label: 'Rows',
+        emptyHint: 'There is no select or checkbox property yet. Add one under Properties first.',
+        hint: 'Each value of this property becomes a row.',
+        emptyChoice: 'Choose a property',
+        accepts: (property) => canSectionBy(property.type),
+      },
+      {
+        field: 'groupBy',
+        label: 'Columns',
+        emptyHint: 'There is no select or checkbox property yet. Add one under Properties first.',
+        hint: 'Each value of this property becomes a column. Choose a different one from the rows.',
+        emptyChoice: 'Choose a property',
+        accepts: (property) => canSectionBy(property.type),
+        clears: { groupOrder: [] },
       },
     ],
     chooses: [],

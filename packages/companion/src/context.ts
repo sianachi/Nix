@@ -135,6 +135,7 @@ const viewDetailSchema = z.looseObject({
   companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
   interactiveForm: interactiveFormSchema.nullable().default(null),
   doneProperty: z.string().nullable().default(null),
+  rowBy: z.string().nullable().default(null),
 }) satisfies z.ZodType<StructureView>;
 
 /** The fields this item inherits from its ancestors alone, backed out of the effective schema by

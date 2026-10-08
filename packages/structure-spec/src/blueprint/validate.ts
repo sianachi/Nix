@@ -254,9 +254,12 @@ function compileViewForValidation(
 ): StructureView {
   // `$type` sections a list by body kind and names no property, so it has nothing to resolve.
   const groupBy =
-    view.groupBy === TYPE_GROUP_KEY
-      ? TYPE_GROUP_KEY
-      : resolveRef(view.groupBy, scope, `${path}.groupBy`, problems);
+    view.kind === 'matrix'
+      ? resolveRef(view.columnBy, scope, `${path}.columnBy`, problems)
+      : view.groupBy === TYPE_GROUP_KEY
+        ? TYPE_GROUP_KEY
+        : resolveRef(view.groupBy, scope, `${path}.groupBy`, problems);
+  const rowBy = resolveRef(view.rowBy, scope, `${path}.rowBy`, problems);
   const dateProperty = resolveRef(view.date, scope, `${path}.date`, problems);
   const endDateProperty = resolveRef(view.endDate, scope, `${path}.endDate`, problems);
   const coverProperty = resolveRef(view.cover, scope, `${path}.cover`, problems);
@@ -301,6 +304,7 @@ function compileViewForValidation(
     measureProperty,
     interactiveForm,
     doneProperty,
+    rowBy,
   };
 }
 

@@ -102,6 +102,20 @@ function refuseKindRequirement(
     }
   }
 
+  if (view.kind === 'matrix') {
+    const columns = findByKey(effective, view.groupBy);
+    if (columns === undefined || !canSectionBy(columns.type)) {
+      return `'${view.name}': a matrix needs a select or checkbox for its columns.`;
+    }
+    const rows = findByKey(effective, view.rowBy ?? null);
+    if (rows === undefined || !canSectionBy(rows.type)) {
+      return `'${view.name}': a matrix needs a select or checkbox for its rows.`;
+    }
+    if (rows.key === columns.key) {
+      return `'${view.name}': a matrix's rows and columns must be different properties.`;
+    }
+  }
+
   if (view.kind === 'checklist') {
     const reason = refuseChecklist(view, effective);
     if (reason !== null) {

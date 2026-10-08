@@ -2,6 +2,7 @@ import { FORMULA_FUNCTION_NAMES, PROPERTY_FORMULA_HELP, type SheetErrorCode } fr
 
 import {
   canChartBy,
+  canSectionBy,
   canGroupBy,
   isDateShaped,
   PROPERTY_TYPES,
@@ -150,6 +151,9 @@ function requirementAccepts(kind: ViewKindRule): ((type: string) => boolean) | n
   }
   if (kind.requires.field === 'date') {
     return isDateShaped;
+  }
+  if (kind.requires.field === 'columnBy') {
+    return canSectionBy;
   }
   return kind.kind === 'chart' ? canChartBy : canGroupBy;
 }

@@ -59,6 +59,10 @@ namespace Nix.Features.Views;
 /// Checklist views: the checkbox or completion property each line's box ticks. Null means the
 /// checklist's fallback - a property keyed <c>done</c>, then the schema's task completion.
 /// </param>
+/// <param name="RowBy">
+/// Matrix views: the select or checkbox property whose values become rows. Its columns are
+/// <c>groupBy</c>, the board's own field.
+/// </param>
 /// <param name="Filters">
 /// The conditions a view's items must meet, AND-combined. Empty means no conditions - for a query
 /// view, everything the reader can see, newest first. A query view compiles them across the
@@ -97,7 +101,8 @@ internal sealed record ViewResponse(
     IReadOnlyList<ViewAggregateContract> Aggregates,
     IReadOnlyList<HabitWidgetContract>? HabitWidgets = null,
     string? Layout = null,
-    string? DoneProperty = null);
+    string? DoneProperty = null,
+    string? RowBy = null);
 
 /// <summary>One key a view orders by; the first is mirrored into <c>sortBy</c>.</summary>
 /// <param name="Property">The property key, or <c>title</c>.</param>
@@ -250,6 +255,7 @@ internal sealed record SetViewsRequest(
 /// operator grammar. Null and empty both mean no conditions.
 /// </param>
 /// <param name="DoneProperty">Checklist views: the checkbox each line ticks, or null for the default.</param>
+/// <param name="RowBy">Matrix views: the property whose values become rows.</param>
 internal sealed record ViewRequest(
     string Id,
     string Name,
@@ -276,7 +282,8 @@ internal sealed record ViewRequest(
     IReadOnlyList<string>? CollapsedGroups = null,
     IReadOnlyList<ViewGroupLimitContract>? GroupLimits = null,
     IReadOnlyList<ViewAggregateContract>? Aggregates = null,
-    string? DoneProperty = null);
+    string? DoneProperty = null,
+    string? RowBy = null);
 
 /// <summary>A configured embedded habit chart.</summary>
 internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);
