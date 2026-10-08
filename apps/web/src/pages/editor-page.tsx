@@ -4,6 +4,8 @@ import {
   Button,
   Dialog,
   Icon,
+  Menu,
+  type MenuAction,
   PaneDivider,
   Skeleton,
   SkeletonLines,
@@ -43,6 +45,8 @@ import {
   paneClip,
   paneColumn,
   paneScroller,
+  noteColumn,
+  settingsPanelWidth,
 } from '../layout/regions';
 import { useMediaQuery, useNarrowViewport, useOverlayDetails } from '../layout/viewport';
 import { NoteEditor } from '../editor/note-editor';
@@ -657,216 +661,180 @@ export function OpenItem({
     </>
   );
 
-  const itemActions = (
-    <div className="flex shrink-0 flex-col sm:flex-row sm:items-center">
-      <div className="min-w-0 flex-1 overflow-x-auto">
-        <ViewSwitcher
-          views={views}
-          unrenderable={unrenderable}
-          activeViewId={showingDocument ? DOCUMENT_VIEW : activeId}
-          documentLabel="Document"
-          documentHidden={documentHidden}
-          defaultViewId={storedDefault}
-          onSelect={(chosen) => {
-            // Navigation only. What the item opens as is stored for everybody who opens it, so
-            // following a link or glancing at another tab must not change it; it is chosen on
-            // purpose, in the item's settings.
-            selectView(chosen);
-          }}
-        />
-      </div>
-
-      {/* One control rather than two, and the panel it opens configures this item and nothing
-            else. Somebody who wants a board wants it for the item they are looking at, and sending
-            them to a settings page to say so loses their place.
-
-            `pr-8`, not `px-2`: this row and the view switcher beside it are one flex row, sandwiched
-            between the item header and the document body, both `px-8` on both sides - and every
-            other chrome row in this pane (the toolbar, the sync footer, the canvas editor's own
-            right-aligned row) is box-aligned to that same edge, not label-aligned to it. A `pr-6`
-            here once lined a ghost button's *label* up with the header's title, but the button's
-            own transparent border still paints a hover/focus wash at its real box edge - 20.4px
-            from the right rather than 27.2px - so whichever of these two controls happens to be
-            focused or hovered read as 6.8px out of line with the header above it. `pr-8` puts the
-            box where every sibling row's box already is; the label sits a further `px-2` in from
-            there, which is the same relationship the switcher's own tabs have to their nav. */}
-      <div
-        className={
-          narrow
-            ? 'grid grid-cols-2 gap-2'
-            : 'flex w-full shrink-0 flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-1.5 sm:w-auto sm:flex-wrap sm:justify-end sm:overflow-visible sm:pl-2 sm:pr-8'
-        }
-      >
-        {/* The thing you are reading is the thing you can keep. First in the row because it acts
-              on the document rather than on the pane around it, which the two controls beside it
-              both do. */}
-        <BookmarkButton compact itemId={itemId} title={title} />
-        {visibility.enabled ? (
-          <Button
-            variant="ghost"
-            onClick={() => {
+  const actionEntries: MenuAction[] = [
+    ...(visibility.enabled
+      ? [
+          {
+            key: 'visibility',
+            label: visibility.hiddenSet.has(itemId) ? 'Show for me' : 'Hide for me',
+            onSelect: () => {
               if (visibility.hiddenSet.has(itemId)) visibility.show(itemId, title);
               else visibility.hide(itemId, title);
-            }}
-          >
-            {visibility.hiddenSet.has(itemId) ? 'Show for me' : 'Hide for me'}
-          </Button>
-        ) : null}
-        <Button
-          variant="ghost"
-          onClick={() => {
-            setMoveOpen(true);
-          }}
-        >
-          Move item
-        </Button>
-
-        {/* Beside the bookmark for the reason stated above it: both act on the document rather
-              than on the pane around it, and the two controls after them do not. */}
-        <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
-          onClick={() => {
-            setExportOpen(true);
-          }}
-        >
-          <Icon icon={Download} size="sm" />
-          Export
-        </Button>
-
-        {/* Beside Export because they are the same door swinging the other way: what leaves as
-              Markdown can come back as Markdown, under the item being looked at. */}
-        <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
-          onClick={() => {
-            setImportOpen(true);
-          }}
-        >
-          <Icon icon={Upload} size="sm" />
-          Import
-        </Button>
-
-        {canApplyTemplates ? (
-          <Button
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            onClick={() => {
+            },
+          },
+        ]
+      : []),
+    {
+      key: 'move',
+      label: 'Move item',
+      onSelect: () => {
+        setMoveOpen(true);
+      },
+    },
+    {
+      key: 'export',
+      label: 'Export',
+      icon: Download,
+      onSelect: () => {
+        setExportOpen(true);
+      },
+    },
+    {
+      key: 'import',
+      label: 'Import',
+      icon: Upload,
+      onSelect: () => {
+        setImportOpen(true);
+      },
+    },
+    ...(canApplyTemplates
+      ? [
+          {
+            key: 'apply-template',
+            label: 'Apply template',
+            icon: LayoutTemplate,
+            onSelect: () => {
               void navigate(`/templates?target=${encodeURIComponent(itemId)}`);
-            }}
-          >
-            <Icon icon={LayoutTemplate} size="sm" />
-            Apply template
-          </Button>
-        ) : null}
-
-        {canManageTemplates ? (
-          <Button
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            onClick={() => {
+            },
+          },
+        ]
+      : []),
+    ...(canManageTemplates
+      ? [
+          {
+            key: 'save-template',
+            label: 'Save as template',
+            icon: Save,
+            onSelect: () => {
               void navigate(`/templates/new?sourceItem=${encodeURIComponent(itemId)}`);
-            }}
-          >
-            <Icon icon={Save} size="sm" />
-            Save as template
-          </Button>
-        ) : null}
-
-        {/* Before Settings: the document's past is about the document, and Settings is about
-              the item around it. Absent while the body is locked: the history is the body. */}
-        {lock.open ? (
-          <Button
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            aria-expanded={historyOpen}
-            onClick={() => {
+            },
+          },
+        ]
+      : []),
+    ...(lock.open
+      ? [
+          {
+            key: 'history',
+            label: historyOpen ? 'Close history' : 'History',
+            icon: Clock,
+            onSelect: () => {
               setHistoryOpen(!historyOpen);
-            }}
-          >
-            <Icon icon={Clock} size="sm" />
-            History
-          </Button>
-        ) : null}
-
-        {/* Beside History because both are about the body. Offered only once the lock state is
-              known and the body is open: a closed body is unlocked from the body itself, where the
-              prompt stands in for it. */}
-        {lock.open ? (
-          <Button
-            ref={lockButtonRef}
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            aria-haspopup="dialog"
-            // A state word alone reads as a toggle; the label says what the control opens and
-            // when the body closes on its own.
-            aria-label={
+            },
+          },
+          {
+            key: 'lock',
+            label:
               lock.unlockedUntil === null
                 ? `Lock this ${lockNoun}`
-                : `Lock settings, open until ${clockTime(lock.unlockedUntil)}`
-            }
-            onClick={() => {
+                : `Lock settings, open until ${clockTime(lock.unlockedUntil)}`,
+            icon: lock.locked ? LockOpen : Lock,
+            onSelect: () => {
               setLockOpen(true);
-            }}
-          >
-            <Icon icon={lock.locked ? LockOpen : Lock} size="sm" />
-            {lock.unlockedUntil === null ? 'Lock' : `Open until ${clockTime(lock.unlockedUntil)}`}
-          </Button>
-        ) : null}
-        {lock.closingSoon && lock.unlockedUntil !== null ? (
-          <Text variant="note" role="status" className="px-2 text-xs">
-            Locks again at {clockTime(lock.unlockedUntil)}
-          </Text>
-        ) : null}
+            },
+          },
+        ]
+      : []),
+    ...(onClose === undefined
+      ? []
+      : [{ key: 'close-pane', label: 'Close pane', icon: PanelRightClose, onSelect: onClose }]),
+  ];
 
-        {/* Notes and files, where the reader is reading rather than arranging: a board or a canvas
-              needs the chrome Zen removes. The shortcut and the palette work anywhere. */}
-        {lock.open && showingDocument && bodyKind !== 'canvas' && bodyKind !== 'spreadsheet' ? (
-          <Button
-            variant="ghost"
-            className="px-2 py-1 text-xs"
-            // Longer than the visible word so the name says what it does; "Zen" is inside it.
-            aria-label="Enter Zen mode"
-            onClick={toggleZenMode}
-          >
-            <Icon icon={Maximize2} size="sm" />
-            Zen
-          </Button>
-        ) : null}
-
+  const zenAvailable =
+    lock.open && showingDocument && bodyKind !== 'canvas' && bodyKind !== 'spreadsheet';
+  const desktopControls = (
+    <div className="flex shrink-0 items-center gap-1">
+      <BookmarkButton compact itemId={itemId} title={title} />
+      {zenAvailable ? (
         <Button
-          variant="ghost"
-          className="px-2 py-1 text-xs"
-          aria-expanded={panelOpen}
-          onClick={togglePanel}
+          variant="icon"
+          aria-label="Enter Zen mode"
+          title="Enter Zen mode"
+          onClick={toggleZenMode}
         >
-          <Icon icon={Settings2} size="sm" />
-          Settings
+          <Icon icon={Maximize2} size="sm" />
         </Button>
-
-        {/* Text, not a bare X. An unlabelled cross beside a document's own title reads as
-              "delete this note" to everybody who has ever seen one, and the header already has a
-              text-labelled control next to it to match. */}
-        {onClose === undefined ? null : (
-          <Button variant="ghost" className="px-2 py-1 text-xs" onClick={onClose}>
-            <Icon icon={PanelRightClose} size="sm" />
-            Close pane
+      ) : null}
+      <Button
+        variant="icon"
+        aria-label="Settings"
+        title="Item settings"
+        aria-expanded={panelOpen}
+        onClick={togglePanel}
+      >
+        <Icon icon={Settings2} size="sm" />
+      </Button>
+      <Menu label="Item actions" items={actionEntries}>
+        {(trigger) => (
+          <Button
+            {...trigger}
+            ref={(node) => {
+              trigger.ref.current = node;
+              lockButtonRef.current = node;
+            }}
+            variant="icon"
+            aria-label="Item actions"
+            title="Item actions"
+          >
+            <Icon icon={MoreHorizontal} size="sm" />
           </Button>
         )}
-      </div>
+      </Menu>
+    </div>
+  );
+
+  // Phone actions share the same commands, in the writing dock's existing sheet.
+  const itemActions = (
+    <div className="grid grid-cols-2 gap-2">
+      <BookmarkButton compact itemId={itemId} title={title} />
+      {actionEntries.map((entry) => (
+        <Button key={entry.key} variant="ghost" className="justify-start" onClick={entry.onSelect}>
+          {entry.icon === undefined ? null : <Icon icon={entry.icon} size="sm" />}
+          {entry.label}
+        </Button>
+      ))}
+      {zenAvailable ? (
+        <Button variant="ghost" aria-label="Enter Zen mode" onClick={toggleZenMode}>
+          <Icon icon={Maximize2} size="sm" />
+          Zen
+        </Button>
+      ) : null}
+      <Button variant="ghost" aria-expanded={panelOpen} onClick={togglePanel}>
+        <Icon icon={Settings2} size="sm" />
+        Settings
+      </Button>
     </div>
   );
 
   return (
     <>
-      <ItemHeader
-        tree={tree}
-        itemId={itemId}
-        title={title}
-        bodyKind={bodyKind}
-        onNavigate={onOpen}
-        onCommit={onCommit}
-      />
+      <div className="flex min-w-0 shrink-0">
+        <ItemHeader
+          tree={tree}
+          itemId={itemId}
+          title={title}
+          bodyKind={bodyKind}
+          onNavigate={onOpen}
+          onCommit={onCommit}
+          reading={showingDocument && !editorKind}
+          trailing={narrow || zen ? undefined : desktopControls}
+        />
+        {panelOpen && !overlayDetails && !zen ? (
+          <div aria-hidden="true" className={`shrink-0 ${settingsPanelWidth}`} />
+        ) : null}
+        {historyOpen && lock.open && !overlayDetails && !zen ? (
+          <div aria-hidden="true" className={`shrink-0 ${historyPanelWidth}`} />
+        ) : null}
+      </div>
 
       {zen ? null : sectionRowShown ? (
         <nav
@@ -888,16 +856,14 @@ export function OpenItem({
           )}
           {mobileItemControls}
         </nav>
-      ) : narrow ? null : (
-        itemActions
-      )}
-      {narrow && views.length > 0 && !zen ? (
+      ) : null}
+      {views.length > 0 && !zen ? (
         <ViewSwitcher
           views={views}
           unrenderable={unrenderable}
-          activeViewId={showChildren ? '' : activeId}
-          trailing={mobileItemControls}
-          documentLabel="Body"
+          activeViewId={showingDocument ? DOCUMENT_VIEW : showChildren ? '' : activeId}
+          trailing={narrow ? mobileItemControls : undefined}
+          documentLabel={narrow ? 'Body' : 'Document'}
           documentHidden={documentHidden}
           defaultViewId={storedDefault}
           onSelect={(chosen) => {
@@ -925,14 +891,18 @@ export function OpenItem({
         </Dialog>
       ) : null}
 
+      {lock.closingSoon && lock.unlockedUntil !== null && !zen ? (
+        <Text variant="note" role="status" tone="muted" className="px-5 py-1 sm:px-8">
+          Locks again at {clockTime(lock.unlockedUntil)}
+        </Text>
+      ) : null}
+
       {/* A fixed-height strip between the item's own controls and the body, so the body keeps the
           one scroller it always had. Absent for every note that is not a daily note. */}
       {dailyDate === null || zen ? null : <DailyNoteBar date={dailyDate} itemId={itemId} />}
 
       <div className={`flex flex-1 ${paneClip}`}>
-        {/* In Zen a note's text keeps its reading measure but is centred in the window; the
-            editor's own root carries the measure (`proseRoot`) and sits left in a wider pane. */}
-        <div className={zen && !editorKind ? `${paneColumn} [&_.ProseMirror]:mx-auto` : paneColumn}>
+        <div className={paneColumn}>
           {!lock.open ? (
             lock.status === 'loading' ? (
               <SkeletonLines
@@ -1164,6 +1134,8 @@ export function OpenItem({
 }
 
 interface ItemHeaderProps {
+  readonly reading: boolean;
+  readonly trailing: ReactNode;
   readonly tree: ShellContext['tree'];
   readonly itemId: string;
   readonly title: string;
@@ -1181,6 +1153,8 @@ function ItemHeader({
   bodyKind,
   onNavigate,
   onCommit,
+  reading,
+  trailing,
 }: ItemHeaderProps): ReactNode {
   const narrow = useNarrowViewport();
   const zen = useZenActive();
@@ -1204,79 +1178,79 @@ function ItemHeader({
   }, [itemId, title]);
 
   return (
-    <header
-      className={
-        zen
-          ? // The title sits over the text it names: the same measure the prose is held to, centred
-            // in the same inset the body's scroller keeps, so the two share a left edge.
-            'mx-auto w-[calc(100%-2.5rem)] max-w-prose pb-3 pt-2 sm:w-[calc(100%-4rem)] sm:pt-4'
-          : 'px-4 pb-3 pt-2 sm:pt-4 sm:px-8 sm:pr-16'
-      }
-    >
-      {narrow && !zen ? (
-        <div className="flex items-center gap-2">
-          {/* No Back button: browser history here can lead back out to the sign-in redirect.
+    <header className="min-w-0 flex-1 px-5 pb-3 pt-5 sm:px-8 sm:pt-8">
+      <div className={reading ? noteColumn : undefined}>
+        {narrow && !zen ? (
+          <div className="flex items-center gap-2">
+            {/* No Back button: browser history here can lead back out to the sign-in redirect.
               Going up is the parent's own button, which always stays inside the workspace. */}
-          {parent ? (
-            <Button
-              variant="ghost"
-              className="min-w-0"
-              onClick={() => {
-                onNavigate(parent.id);
-              }}
-            >
-              <Text as="span" variant="caption" className="truncate">
-                {parent.title || 'Untitled'}
-              </Text>
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {!narrow && !zen && trail.length > 1 ? (
-        <nav aria-label="Breadcrumb" className="mb-1 hidden flex-wrap items-center text-xs sm:flex">
-          {trail.slice(0, -1).map((ancestor) => (
-            <span key={ancestor.id} className="flex items-center">
-              {/* Navigable, not decorative. A trail that shows where you are and cannot take you
-                  there is a label pretending to be a control, and everybody tries to click it. */}
-              <button
-                type="button"
+            {parent ? (
+              <Button
+                variant="ghost"
+                className="min-w-0"
                 onClick={() => {
-                  onNavigate(ancestor.id);
+                  onNavigate(parent.id);
                 }}
-                className={`text-muted underline-offset-2 hover:text-foreground hover:underline ${focusRing}`}
               >
-                {ancestor.title || 'Untitled'}
-              </button>
-              <span aria-hidden="true" className="px-1 text-muted">
-                /
+                <Text as="span" variant="caption" className="truncate">
+                  {parent.title || 'Untitled'}
+                </Text>
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+        {!narrow && !zen && trail.length > 1 ? (
+          <nav
+            aria-label="Breadcrumb"
+            className="mb-1 hidden flex-wrap items-center text-xs sm:flex"
+          >
+            {trail.slice(0, -1).map((ancestor) => (
+              <span key={ancestor.id} className="flex items-center">
+                {/* Navigable, not decorative. A trail that shows where you are and cannot take you
+                  there is a label pretending to be a control, and everybody tries to click it. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onNavigate(ancestor.id);
+                  }}
+                  className={`text-muted underline-offset-2 hover:text-foreground hover:underline ${focusRing}`}
+                >
+                  {ancestor.title || 'Untitled'}
+                </button>
+                <span aria-hidden="true" className="px-1 text-muted">
+                  /
+                </span>
               </span>
-            </span>
-          ))}
-        </nav>
-      ) : null}
+            ))}
+          </nav>
+        ) : null}
 
-      <input
-        ref={titleRef}
-        aria-label={`${bodyKind === 'canvas' ? 'Canvas' : bodyKind === 'spreadsheet' ? 'Spreadsheet' : 'Note'} title`}
-        value={draft}
-        onChange={(event) => {
-          setDraft(event.target.value);
-          onCommit();
-        }}
-        onBlur={() => {
-          // On blur rather than on every keystroke: a rename is a write to the item row, and one
-          // per character would be a request per character.
-          if (draft !== title) {
-            void tree.rename(itemId, draft);
-          }
-        }}
-        // No `outline-none` beside the ring. In Tailwind v4 that utility sets `--tw-outline-style:
-        // none` on the element, and `focus-visible:outline-2` resolves its style through the same
-        // variable - so the two together left the field that renames an item with no visible focus
-        // at all. `focusRing` replaces the UA outline rather than removing it, which is the whole
-        // point of the primitive.
-        className={`w-full bg-transparent font-heading text-xl sm:uppercase sm:text-2xl ${focusRing}`}
-      />
+        <div className="flex items-start gap-3">
+          <input
+            ref={titleRef}
+            aria-label={`${bodyKind === 'canvas' ? 'Canvas' : bodyKind === 'spreadsheet' ? 'Spreadsheet' : 'Note'} title`}
+            value={draft}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              onCommit();
+            }}
+            onBlur={() => {
+              // On blur rather than on every keystroke: a rename is a write to the item row, and one
+              // per character would be a request per character.
+              if (draft !== title) {
+                void tree.rename(itemId, draft);
+              }
+            }}
+            // No `outline-none` beside the ring. In Tailwind v4 that utility sets `--tw-outline-style:
+            // none` on the element, and `focus-visible:outline-2` resolves its style through the same
+            // variable - so the two together left the field that renames an item with no visible focus
+            // at all. `focusRing` replaces the UA outline rather than removing it, which is the whole
+            // point of the primitive.
+            className={`min-w-0 flex-1 bg-transparent font-heading font-semibold tracking-tight text-2xl ${focusRing}`}
+          />
+          {trailing}
+        </div>
+      </div>
     </header>
   );
 }

@@ -1,10 +1,12 @@
 import { Button, Icon, Menu, Text } from '@nix/ui';
-import { ArrowLeft, ChevronRight, EyeOff, FileText, MoreHorizontal, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { ArrowLeft, ChevronRight, EyeOff, MoreHorizontal, Shapes, X } from 'lucide-react';
+import { useRef, useState, type ReactNode } from 'react';
 import { PaneViewport } from '../layout/pane-viewport';
 import { useHiddenItems } from './use-hidden-items';
 import { HiddenItemsPanel } from './hidden-items-panel';
 import type { WorkspaceTree } from './use-workspace-tree';
+import { useItemLandmarks } from './use-item-landmarks';
+import { ItemLandmarkDialog, ItemLandmarkIcon } from './item-landmark-dialog';
 
 export function MobileWorkspaceBrowser({
   tree,
@@ -22,6 +24,13 @@ export function MobileWorkspaceBrowser({
   readonly destinations: ReactNode;
 }): ReactNode {
   const visibility = useHiddenItems();
+  const landmarks = useItemLandmarks();
+  const iconReturnFocus = useRef<HTMLButtonElement | null>(null);
+  const [iconItem, setIconItem] = useState<{
+    readonly scope: string | null;
+    readonly id: string;
+    readonly title: string;
+  } | null>(null);
   const visible = tree.childrenOf(parentId).filter((item) => !visibility.hiddenSet.has(item.id));
   const parent = parentId === null ? null : tree.find(parentId);
   const loading =
@@ -104,7 +113,7 @@ export function MobileWorkspaceBrowser({
                 onOpen(item.id);
               }}
             >
-              <Icon icon={FileText} size="sm" />
+              <ItemLandmarkIcon landmark={landmarks.landmarks[item.id]} />
               <Text as="span" variant="bodySmall" className="truncate">
                 {item.title || 'Untitled'}
               </Text>
@@ -112,6 +121,22 @@ export function MobileWorkspaceBrowser({
             <Menu
               label={`Actions for ${item.title || 'Untitled'}`}
               items={[
+                ...(landmarks.enabled
+                  ? [
+                      {
+                        kind: 'action' as const,
+                        label: 'Choose icon…',
+                        icon: Shapes,
+                        onSelect: () => {
+                          setIconItem({
+                            scope: landmarks.scope,
+                            id: item.id,
+                            title: item.title || 'Untitled',
+                          });
+                        },
+                      },
+                    ]
+                  : []),
                 {
                   kind: 'action',
                   label: 'Hide for me',
@@ -125,6 +150,14 @@ export function MobileWorkspaceBrowser({
               {(trigger) => (
                 <Button
                   {...trigger}
+                  onClick={() => {
+                    iconReturnFocus.current = trigger.ref.current;
+                    trigger.onClick();
+                  }}
+                  onKeyDown={(event) => {
+                    iconReturnFocus.current = trigger.ref.current;
+                    trigger.onKeyDown(event);
+                  }}
                   variant="ghost"
                   className="min-h-(--control-lg) min-w-(--control-lg) shrink-0 px-2"
                   aria-label={`Actions for ${item.title || 'Untitled'}`}
@@ -156,6 +189,23 @@ export function MobileWorkspaceBrowser({
           </Text>
         ) : null}
       </PaneViewport>
+      {iconItem?.scope !== landmarks.scope ? null : (
+        <ItemLandmarkDialog
+          key={`${landmarks.scope ?? ''}:${iconItem.id}`}
+          title={iconItem.title}
+          landmark={landmarks.landmarks[iconItem.id]}
+          onSave={(landmark) => {
+            landmarks.save(iconItem.id, landmark);
+          }}
+          onClose={() => {
+            setIconItem(null);
+            const invoker = iconReturnFocus.current;
+            requestAnimationFrame(() => {
+              if (invoker?.isConnected === true) invoker.focus();
+            });
+          }}
+        />
+      )}
     </aside>
   );
 }

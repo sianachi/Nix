@@ -40,23 +40,14 @@ const NOTE = item({
 });
 
 describe('the document’s history, from the page', () => {
-  it('opens beside the document from a button in the item header, and closes again', async () => {
+  it('opens beside the document from the item actions menu, and closes again', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/?item=${NOTE.id}`);
 
-    const button = await screen.findByRole('button', { name: /^History$/ });
-    expect(button).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('complementary', { name: 'History' })).not.toBeInTheDocument();
-
-    await userEvent.click(button);
-
-    await waitFor(() => {
-      expect(screen.getByRole('complementary', { name: 'History' })).toBeInTheDocument();
-    });
-    expect(screen.getByRole('button', { name: /^History$/ })).toHaveAttribute(
-      'aria-expanded',
-      'true',
-    );
+    await userEvent.click(await screen.findByRole('button', { name: 'Item actions' }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'History' }));
+    expect(await screen.findByRole('complementary', { name: 'History' })).toBeVisible();
 
     await userEvent.click(screen.getByRole('button', { name: 'Close history' }));
     await waitFor(() => {

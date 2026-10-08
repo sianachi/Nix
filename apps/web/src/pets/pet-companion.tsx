@@ -421,17 +421,19 @@ function Companion({
         }}
         title="Drag to move companion"
       >
-        <PetAvatar
-          appearance={pet.appearance}
-          state={hover ? 'hover' : 'idle'}
-          motion={settings.motion}
-          label={pet.name}
-          size={narrow ? 'compact' : 'regular'}
-        />
+        <span className="flex items-center justify-center rounded-lg bg-surface p-1 shadow-sm">
+          <PetAvatar
+            appearance={pet.appearance}
+            state={hover ? 'hover' : 'idle'}
+            motion={settings.motion}
+            label={pet.name}
+            size={narrow ? 'compact' : 'regular'}
+          />
+        </span>
         {!open && (toolPending || unseenReply) ? (
           <span
             aria-hidden="true"
-            className="absolute right-0 top-0 size-2.5 rounded-full bg-accent-fill"
+            className="absolute right-1 top-1 size-2.5 rounded-full bg-accent-fill ring-2 ring-background"
           />
         ) : null}
       </Button>

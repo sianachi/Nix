@@ -334,9 +334,10 @@ describe('the workspace template library', () => {
     stubCoreApi({ items: [note], templates: readerTemplates, canManageTemplates: false });
     renderAt(<App />, `/?item=${note.id}`);
 
-    expect(await screen.findByRole('button', { name: 'Export' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Apply template' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Save as template' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Item actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Export' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Apply template' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Save as template' })).not.toBeInTheDocument();
   });
 
   it('offers Apply from template capability without granting template management', async () => {
@@ -347,8 +348,9 @@ describe('the workspace template library', () => {
     stubCoreApi({ items: [note], canManageTemplates: false });
     renderAt(<App />, `/?item=${note.id}`);
 
-    expect(await screen.findByRole('button', { name: 'Apply template' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Save as template' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Item actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Apply template' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Save as template' })).not.toBeInTheDocument();
   });
 
   it('does not offer Apply when a manager has no applicable template', async () => {
@@ -363,8 +365,9 @@ describe('the workspace template library', () => {
     stubCoreApi({ items: [note], templates: unavailableTemplates, canManageTemplates: true });
     renderAt(<App />, `/?item=${note.id}`);
 
-    expect(await screen.findByRole('button', { name: 'Save as template' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Apply template' })).not.toBeInTheDocument();
+    await userEvent.click(await screen.findByRole('button', { name: 'Item actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Save as template' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: 'Apply template' })).not.toBeInTheDocument();
   });
 
   it('identifies file-managed templates without offering edits', async () => {

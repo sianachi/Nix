@@ -939,6 +939,15 @@ const emptyChatConnection = petConnectionSchema.parse({
   messages: [],
 });
 
+export const QuietLauncher = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={emptyChatConnection}>
+      <PetCompanion />
+    </DesktopFrame>
+  ),
+};
+export const DarkQuietLauncher = { ...QuietLauncher, globals: { ground: 'dark' } };
+
 export const EmptyChat = {
   render: (): ReactElement => (
     <DesktopFrame connection={emptyChatConnection}>

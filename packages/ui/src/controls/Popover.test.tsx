@@ -46,6 +46,38 @@ describe('Popover', () => {
     expect(screen.getByRole('textbox', { name: 'Status' })).toHaveFocus();
   });
 
+  it('skips disabled controls so a contextual panel can be dismissed by keyboard', async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover label="Columns" trigger={(trigger) => <button {...trigger}>Columns</button>}>
+        <button type="button" disabled>
+          Add column
+        </button>
+        <button type="button">Remove column</button>
+      </Popover>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Columns' }));
+    expect(screen.getByRole('button', { name: 'Remove column' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Columns' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Columns' })).toHaveFocus();
+  });
+
+  it('focuses the panel when every control is disabled', async () => {
+    const user = userEvent.setup();
+    render(
+      <Popover label="Unavailable tools" trigger={(trigger) => <button {...trigger}>Tools</button>}>
+        <button type="button" disabled>
+          Unavailable
+        </button>
+      </Popover>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Tools' }));
+    expect(screen.getByRole('dialog', { name: 'Unavailable tools' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('button', { name: 'Tools' })).toHaveFocus();
+  });
+
   it('closes on Escape and hands focus back to the trigger', async () => {
     const user = userEvent.setup();
     render(<Subject />);

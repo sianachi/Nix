@@ -6,6 +6,7 @@ import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { aView } from '../view-fixture';
 import { stubViewport } from '../stub-viewport';
+import { memoryStorage } from '../views/suggest/suggest-fixtures';
 
 const root = item({
   id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa',
@@ -38,6 +39,25 @@ it('returns focus to the workspace control after importing from the mobile drawe
   await waitFor(() => {
     expect(workspace).toHaveFocus();
   });
+});
+it('chooses and retains a personal landmark from mobile item actions', async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal('localStorage', memoryStorage());
+  stubCoreApi({ items: [root] });
+  renderAt(<App />, `/?item=${root.id}`);
+  await screen.findByRole('textbox', { name: 'Note title' });
+  await user.click(screen.getByRole('button', { name: 'Workspace' }));
+  await user.click(screen.getByRole('button', { name: 'Actions for Project' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Choose icon…' }));
+  const dialog = screen.getByRole('dialog', { name: 'Icon for Project' });
+  await user.click(within(dialog).getByRole('button', { name: 'Briefcase' }));
+  await user.click(within(dialog).getByRole('button', { name: 'Save icon' }));
+  await waitFor(() => {
+    expect(screen.getByRole('button', { name: 'Actions for Project' })).toHaveFocus();
+  });
+  await user.click(screen.getByRole('button', { name: 'Actions for Project' }));
+  await user.click(screen.getByRole('menuitem', { name: 'Choose icon…' }));
+  expect(screen.getByRole('button', { name: 'Briefcase' })).toHaveAttribute('aria-pressed', 'true');
 });
 it('opens list items as pages, and the parent button returns to the parent', async () => {
   stubCoreApi({

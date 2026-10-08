@@ -58,6 +58,7 @@ function editor(selection: { from: number; to: number }): Editor {
   const text = 'Agenda for Monday. Budget and hiring.';
   return {
     isDestroyed: false,
+    isEditable: true,
     state: {
       selection: { ...selection, empty: selection.from === selection.to },
       doc: {
@@ -100,6 +101,19 @@ beforeEach(() => {
 });
 
 describe('speech in a note', () => {
+  it('does not insert a late dictation result after the note becomes read-only', () => {
+    const current = editor({ from: 0, to: 0 });
+    const { result } = renderHook(() => useNoteSpeech(current, client, 'note-1'));
+    result.current.toolbar.onDictate();
+    const started = speech.startDictation.mock.calls[0]?.[0] as { onText: (text: string) => void };
+    Reflect.set(current, 'isEditable', false);
+    started.onText('A late transcript.');
+    expect(inserted).not.toHaveBeenCalled();
+    speech.startDictation.mockClear();
+    result.current.toolbar.onDictate();
+    expect(speech.startDictation).not.toHaveBeenCalled();
+  });
+
   it('puts dictated words after the selection, never over it, with room after them', () => {
     const { result } = renderHook(() =>
       useNoteSpeech(editor({ from: 3, to: 9 }), client, 'note-1'),

@@ -24,12 +24,15 @@ describe('hiding saved notes for yourself', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/?item=${NOTE.id}`);
     expect(await screen.findByRole('textbox', { name: 'Note title' })).toHaveValue('Meeting notes');
-    await user.click(await screen.findByRole('button', { name: 'Hide for me' }));
+    await user.click(screen.getByRole('button', { name: 'Item actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Hide for me' }));
     await waitFor(() => {
       expect(screen.queryByRole('tree', { name: 'Items' })).not.toBeInTheDocument();
     });
     expect(screen.getByRole('textbox', { name: 'Note title' })).toHaveValue('Meeting notes');
-    expect(screen.getByRole('button', { name: 'Show for me' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Item actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Show for me' })).toBeVisible();
+    await user.keyboard('{Escape}');
     await user.click(screen.getByRole('button', { name: 'Workspace options' }));
     await user.click(screen.getByRole('menuitem', { name: 'Hidden items (1)' }));
     const manager = await screen.findByRole('region', { name: 'Hidden items' });
@@ -44,6 +47,7 @@ describe('hiding saved notes for yourself', () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />, `/?item=${NOTE.id}`);
     expect(await screen.findByRole('textbox', { name: 'Note title' })).toHaveValue('Meeting notes');
-    expect(await screen.findByRole('button', { name: 'Show for me' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Item actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Show for me' })).toBeVisible();
   });
 });

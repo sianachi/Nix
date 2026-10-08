@@ -478,6 +478,17 @@ describe('the websocket provider', () => {
     expect(h.tokens).toEqual(['token-0', 'token-1']);
   });
 
+  it('reports the schema upgrade required for a connection that retries cannot repair', async () => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    h.latest().open();
+    ready(h.latest());
+    h.latest().drop(4409);
+    expect(h.states.at(-1)).toBe('degraded');
+    expect(h.notices).toContain('schema_version_mismatch');
+  });
+
   it('reconnects promptly when the app returns to the foreground', async () => {
     const h = harness();
     active = h.sync;

@@ -8,7 +8,6 @@ import {
   Text,
   cn,
   disabledState,
-  fieldLabel,
   focusRing,
   type MenuEntry,
 } from '@nix/ui';
@@ -60,6 +59,9 @@ import { NewItemDialog, type NewItemDialogMode } from './new-item-dialog';
 import { HiddenItemsPanel } from './hidden-items-panel';
 import { siblingMoveTarget } from './sibling-move-target';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
+import { useItemLandmarks } from './use-item-landmarks';
+import { ItemLandmarkDialog, ItemLandmarkIcon } from './item-landmark-dialog';
+import type { ItemLandmarks } from '../lib/item-landmarks';
 
 /** Whether this is an Apple platform, for the one gesture whose modifier differs. */
 const APPLE = isApplePlatform();
@@ -150,6 +152,13 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   const uploadParentRef = useRef<string | null>(null);
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
+  const landmarks = useItemLandmarks();
+  const iconReturnFocus = useRef<HTMLElement | null>(null);
+  const [iconItem, setIconItem] = useState<{
+    readonly scope: string | null;
+    readonly id: string;
+    readonly title: string;
+  } | null>(null);
 
   async function uploadFiles(selected: FileList | null): Promise<void> {
     if (selected === null || selected.length === 0) return;
@@ -227,11 +236,10 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       aria-label="Workspace"
       className={cn('flex w-full flex-col overflow-hidden bg-surface', chromeSurface)}
     >
-      <div className="flex shrink-0 items-center gap-1 px-3 py-2">
-        {/* The published label look, composed onto a span: `<Text>`'s className is layout only,
-            and this was reaching through it for uppercase and tracking - which is the type axis the
-            variant is supposed to own. `fieldLabel` is that same treatment, stated once. */}
-        <span className={cn('truncate', fieldLabel)}>Workspace</span>
+      <div className="flex shrink-0 items-center gap-2 px-4 pt-4 pb-3">
+        <Text as="span" variant="bodySmall" tone="muted" truncate className="min-w-0 flex-1">
+          Workspace
+        </Text>
 
         <CreateMenu
           childDestination={childDestination}
@@ -284,7 +292,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           landing spot - see `treeRegionRef`'s own comment on why the delete toast returns focus
           here rather than to the row it deleted, which is gone by the time that matters. */}
       <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
-        <SidebarPins onSelect={onSelect} />
+        <SidebarPins onSelect={onSelect} selectedId={selectedId} landmarks={landmarks.landmarks} />
         <TreeBody
           tree={tree}
           selectedId={selectedId}
@@ -296,6 +304,19 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
           dragged={dragged}
           setDragged={setDragged}
           onDeleteItem={onDeleteItem}
+          landmarks={landmarks.landmarks}
+          onChooseIcon={
+            landmarks.enabled
+              ? (item, invoker) => {
+                  iconReturnFocus.current = invoker;
+                  setIconItem({
+                    scope: landmarks.scope,
+                    id: item.id,
+                    title: item.title || 'Untitled',
+                  });
+                }
+              : undefined
+          }
         />
       </div>
 
@@ -309,6 +330,23 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
             {tree.error}
           </Text>
         </div>
+      )}
+      {iconItem?.scope !== landmarks.scope ? null : (
+        <ItemLandmarkDialog
+          key={`${workspaceId}:${iconItem.id}`}
+          title={iconItem.title}
+          landmark={landmarks.landmarks[iconItem.id]}
+          onSave={(landmark) => {
+            landmarks.save(iconItem.id, landmark);
+          }}
+          onClose={() => {
+            setIconItem(null);
+            const invoker = iconReturnFocus.current;
+            requestAnimationFrame(() => {
+              if (invoker?.isConnected === true) invoker.focus();
+            });
+          }}
+        />
       )}
     </aside>
   );
@@ -422,6 +460,8 @@ interface TreeBodyProps {
 
   /** Deletes an item and starts its undo window. */
   readonly onDeleteItem: (item: TreeItem) => void;
+  readonly landmarks: ItemLandmarks;
+  readonly onChooseIcon: ((item: TreeItem, invoker: HTMLElement | null) => void) | undefined;
 }
 
 /** A loading tree's rows: ragged, like titles, rather than a ruled table of equal bars. */
@@ -474,7 +514,7 @@ function TreeBody(props: TreeBodyProps): ReactNode {
   }
 
   return (
-    <ul role="tree" aria-label="Items" className="py-1">
+    <ul role="tree" aria-label="Items" className="px-2 pb-3">
       {roots.map((item) => (
         <TreeNode key={item.id} item={item} depth={0} {...props} />
       ))}
@@ -581,6 +621,7 @@ export function dropZoneAt(offsetY: number, height: number): DropZone {
 }
 
 function TreeNode(props: TreeNodeProps): ReactNode {
+  const openButtonRef = useRef<HTMLButtonElement>(null);
   // A selector rather than the whole store, so a row re-renders when its own answer moves and not
   // when somebody keeps an unrelated item three folders away.
   const keptIds = useBookmarksStore((state) => state.keptIds);
@@ -773,6 +814,18 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           ]
         : []),
       bookmarkEntry(item.id),
+      ...(props.onChooseIcon === undefined
+        ? []
+        : [
+            {
+              kind: 'action' as const,
+              label: 'Choose icon…',
+              icon: Shapes,
+              onSelect: () => {
+                props.onChooseIcon?.(item, openButtonRef.current);
+              },
+            },
+          ]),
       copyLinkEntry(workspaceId, item.id, title),
       ...(automateEntry === null ? [] : [automateEntry(item.id)]),
       ...(muteRemindersEntry === null ? [] : [muteRemindersEntry(item.id, title)]),
@@ -847,9 +900,9 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             }}
             onDrop={onDrop}
             className={[
-              'group relative flex items-center gap-1 pr-1',
+              'group relative flex items-center gap-1 rounded-md pr-1',
               indentAt(ROW_INDENT, depth),
-              selected ? 'bg-accent/18' : 'hover:bg-accent/10',
+              selected ? 'bg-accent/14' : 'hover:bg-accent/8',
               dropping && zone === 'inside' ? 'outline-2 -outline-offset-2 outline-accent' : '',
             ].join(' ')}
           >
@@ -896,6 +949,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             )}
 
             <button
+              ref={openButtonRef}
               type="button"
               onClick={(event) => {
                 // The accelerator everybody already has from a browser and an editor. Gated on the
@@ -918,10 +972,12 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a
               // control that only looks like one.
               onKeyDown={onKeyDown}
-              className="flex min-w-0 flex-1 items-center gap-1.5 py-1 text-left text-base focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+              className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
-              <Icon icon={FileText} size="sm" />
-              <span className="truncate">{item.title || 'Untitled'}</span>
+              <ItemLandmarkIcon landmark={props.landmarks[item.id]} />
+              <Text as="span" variant="bodySmall" truncate>
+                {item.title || 'Untitled'}
+              </Text>
               {deleteProtected ? (
                 <>
                   <Icon icon={Shield} size="sm" className="shrink-0 text-muted" />
@@ -1086,7 +1142,15 @@ function TreeNode(props: TreeNodeProps): ReactNode {
   );
 }
 
-function SidebarPins({ onSelect }: { readonly onSelect: (itemId: string) => void }): ReactNode {
+function SidebarPins({
+  onSelect,
+  selectedId,
+  landmarks,
+}: {
+  readonly onSelect: (itemId: string) => void;
+  readonly selectedId: string | null;
+  readonly landmarks: ItemLandmarks;
+}): ReactNode {
   const { workspaceId } = useWorkspace();
   const items = useBookmarksStore((state) => state.items);
   const status = useBookmarksStore((state) => state.status);
@@ -1096,8 +1160,8 @@ function SidebarPins({ onSelect }: { readonly onSelect: (itemId: string) => void
     (item) => item.workspaceId === workspaceId && !visibility.hiddenSet.has(item.itemId),
   );
   return (
-    <section aria-label="Pinned items" className="border-b border-divider px-3 py-2">
-      <Text as="p" variant="caption" tone="muted">
+    <section aria-label="Pinned items" className="mx-2 mb-3 border-b border-divider px-2 pb-3">
+      <Text as="p" variant="note" tone="muted" className="mb-2">
         Pinned items
       </Text>
       {status === 'loading' ? (
@@ -1117,17 +1181,32 @@ function SidebarPins({ onSelect }: { readonly onSelect: (itemId: string) => void
       ) : null}
       <ul>
         {pins.map((item) => (
-          <li key={item.itemId} className="flex min-w-0 items-center gap-2">
+          <li
+            key={item.itemId}
+            className={cn(
+              'group flex min-w-0 items-center gap-2 rounded-md px-2',
+              selectedId === item.itemId ? 'bg-accent/14' : 'hover:bg-accent/8',
+            )}
+          >
             <button
               type="button"
-              className={`min-w-0 flex-1 truncate py-2 text-left ${focusRing}`}
+              aria-current={selectedId === item.itemId ? 'page' : undefined}
+              className={`flex min-w-0 flex-1 items-center gap-2 py-2 text-left ${focusRing}`}
               onClick={() => {
                 onSelect(item.itemId);
               }}
             >
-              {item.title !== null && item.title.length > 0 ? item.title : 'Untitled'}
+              <ItemLandmarkIcon landmark={landmarks[item.itemId]} />
+              <Text as="span" variant="bodySmall" truncate>
+                {item.title !== null && item.title.length > 0 ? item.title : 'Untitled'}
+              </Text>
             </button>
-            <BookmarkButton itemId={item.itemId} title={item.title ?? ''} compact />
+            <BookmarkButton
+              itemId={item.itemId}
+              title={item.title ?? ''}
+              compact
+              className="opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto max-sm:opacity-100 max-sm:pointer-events-auto"
+            />
           </li>
         ))}
       </ul>

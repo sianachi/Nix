@@ -1,6 +1,8 @@
 import { nixEditingExtensions } from '@nix/editor-schema';
 import { EditorContent, useEditor } from '@tiptap/react';
 import type { ReactElement } from 'react';
+import userEvent from '@testing-library/user-event';
+import { within } from '@testing-library/dom';
 import { readingExtensions } from './reading-extensions';
 import { proseRoot } from './prose';
 import { EditorToolbar } from './toolbar';
@@ -37,7 +39,7 @@ function Poem({
     editorProps: { attributes: { class: proseRoot, role: 'textbox', 'aria-label': 'Poem' } },
   });
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-prose space-y-4 font-body text-md">
       {readOnly ? null : (
         <EditorToolbar
           editor={editor}
@@ -56,3 +58,33 @@ function Poem({
 export const WritingPoem = { render: (): ReactElement => <Poem /> };
 export const MobileWritingTools = { render: (): ReactElement => <Poem compact /> };
 export const ReadingPoem = { render: (): ReactElement => <Poem readOnly /> };
+
+export const BlockTypeChoices = {
+  render: (): ReactElement => <Poem />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: /^Block type:/ }));
+  },
+};
+export const MoreWritingTools = {
+  render: (): ReactElement => <Poem />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'More tools' }));
+  },
+};
+export const InsertTablePicker = {
+  render: (): ReactElement => <Poem />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Insert' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Insert table' }));
+  },
+};
+export const NarrowWritingPane = {
+  render: (): ReactElement => (
+    <div className="max-w-sm">
+      <Poem />
+    </div>
+  ),
+};

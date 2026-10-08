@@ -105,7 +105,11 @@ export function EditorAddressDialog({
       return;
     }
 
-    onSubmit({ address: parsed.data, description: image ? description.trim() : '' });
+    try {
+      onSubmit({ address: parsed.data, description: image ? description.trim() : '' });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'The content could not be inserted.');
+    }
   }
 
   async function uploadImage(): Promise<void> {

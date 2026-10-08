@@ -149,9 +149,10 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
   // none - so a keyboard user is where the content is rather than left on the trigger behind it.
   useEffect(() => {
     const panel = panelRef.current;
-    const first = panel?.querySelector<HTMLElement>(
-      'input, select, textarea, button, [href], [tabindex]:not([tabindex="-1"])',
-    );
+    const first = Array.from(
+      panel?.querySelectorAll<HTMLElement>('input, select, textarea, button, [href], [tabindex]') ??
+        [],
+    ).find((element) => !element.matches(':disabled, [aria-disabled="true"], [tabindex="-1"]'));
     (first ?? panel)?.focus();
   }, []);
 

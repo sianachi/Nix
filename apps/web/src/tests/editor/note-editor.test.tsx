@@ -21,6 +21,7 @@ import type * as reactRouter from 'react-router';
  * the real component's real document what is in it.
  */
 let captured: Y.Doc | null = null;
+let syncOptions: Parameters<typeof collabSync.startCollabSync>[0] | null = null;
 
 const NAVIGATOR_PLATFORM: unknown = Reflect.get(navigator, 'platform');
 const MODIFIER: KeyboardEventInit =
@@ -62,8 +63,9 @@ vi.mock('../../editor/collab-sync', async () => {
   const actual = await vi.importActual<typeof collabSync>('../../editor/collab-sync');
   return {
     ...actual,
-    startCollabSync: (options: { doc: Y.Doc }) => {
+    startCollabSync: (options: Parameters<typeof collabSync.startCollabSync>[0]) => {
       captured = options.doc;
+      syncOptions = options;
       return { awareness: null, destroy: () => undefined };
     },
   };
@@ -129,6 +131,7 @@ vi.mock('react-router', async () => {
 
 beforeEach(() => {
   captured = null;
+  syncOptions = null;
   fileHarness.beginUpload.mockClear();
   fileHarness.uploadAndCompleteFile.mockReset();
   fileHarness.deleteItem.mockClear();
@@ -155,6 +158,61 @@ async function open(): Promise<Y.Doc> {
   return doc;
 }
 
+it('reports sync and save failures in one dialog without a footer or warning banners', async () => {
+  await open();
+  const sync = syncOptions;
+  if (!sync) throw new Error('The editor must start document sync');
+  act(() => {
+    sync.onState('degraded');
+    sync.onNotice?.({ code: 'document_too_large', detail: '' });
+  });
+  const dialog = screen.getByRole('dialog', { name: 'Document needs attention' });
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(dialog).toHaveTextContent('size limit');
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  expect(document.querySelector('footer')).toBeNull();
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Dismiss' }));
+  act(() => {
+    sync.onState('connecting');
+  });
+  act(() => {
+    sync.onState('pending');
+  });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+});
+
+it('stops read-only notes accepting edits and explains that pre-connection edits were not saved', async () => {
+  await open();
+  const sync = syncOptions;
+  if (!sync) throw new Error('The editor must start document sync');
+  act(() => {
+    sync.onState('readonly');
+  });
+  expect(screen.getByRole('textbox', { name: 'Note body' })).toHaveAttribute(
+    'contenteditable',
+    'false',
+  );
+  expect(screen.getByRole('dialog')).toHaveTextContent('edits cannot be saved');
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Dismiss' }));
+  expect(screen.queryByRole('toolbar', { name: 'Formatting' })).not.toBeInTheDocument();
+  act(() => {
+    sync.onState('connecting');
+  });
+  expect(screen.getByRole('textbox', { name: 'Note body' })).toHaveAttribute(
+    'contenteditable',
+    'false',
+  );
+  expect(screen.queryByRole('toolbar', { name: 'Formatting' })).not.toBeInTheDocument();
+  act(() => {
+    sync.onState('live');
+  });
+  expect(screen.getByRole('textbox', { name: 'Note body' })).toHaveAttribute(
+    'contenteditable',
+    'true',
+  );
+  expect(screen.getByRole('toolbar', { name: 'Formatting' })).toBeInTheDocument();
+});
+
 vi.stubGlobal(
   'URL',
   Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test-image'), revokeObjectURL: vi.fn() }),
@@ -176,6 +234,7 @@ describe('a note nobody has typed into yet', () => {
     const user = userEvent.setup();
     const doc = await open();
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
 
     await waitFor(() => {
@@ -190,6 +249,7 @@ describe('a note nobody has typed into yet', () => {
     const user = userEvent.setup();
     const doc = await open();
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
 
     await waitFor(() => {
@@ -209,6 +269,7 @@ describe('a note nobody has typed into yet', () => {
       updates += 1;
     });
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
 
     await waitFor(() => {
@@ -222,7 +283,9 @@ describe('a note nobody has typed into yet', () => {
 
     // Give the image a real insertion point. The collaboration fragment starts empty in this
     // harness until the first local transaction; production notes open with a schema-valid block.
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
     await user.click(screen.getByRole('button', { name: 'Image URL' }));
     await user.type(
@@ -248,6 +311,28 @@ describe('a note nobody has typed into yet', () => {
     });
   });
 
+  it('keeps an actionable image upload failure inside the existing form without a second dialog', async () => {
+    const user = userEvent.setup();
+    await open();
+    fileHarness.uploadAndCompleteFile.mockRejectedValue(
+      new Error('Workspace storage quota exceeded.'),
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
+    await user.click(screen.getByRole('button', { name: 'Image' }));
+    await user.upload(
+      screen.getByLabelText('Choose image to upload'),
+      new File(['image'], 'diagram.png', { type: 'image/png' }),
+    );
+    await user.click(screen.getByRole('button', { name: 'Insert image' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Workspace storage quota exceeded.');
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(
+      screen.queryByRole('dialog', { name: 'Document needs attention' }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
   it('uploads a selected image into the shared note and leaves a paragraph to continue writing', async () => {
     const user = userEvent.setup();
     const doc = await open();
@@ -257,7 +342,9 @@ describe('a note nobody has typed into yet', () => {
       itemId: fileItemId,
       current: { previewable: true },
     });
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
     await user.upload(screen.getByLabelText('Choose image to upload'), file);
     await user.type(screen.getByRole('textbox', { name: 'Description' }), 'A diagram');
@@ -295,7 +382,9 @@ describe('a note nobody has typed into yet', () => {
       itemId: fileItemId,
       current: { previewable: false },
     });
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
     await user.upload(
       screen.getByLabelText('Choose image to upload'),
@@ -321,6 +410,7 @@ describe('a note nobody has typed into yet', () => {
       }),
     );
 
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
     await user.upload(screen.getByLabelText('Choose image to upload'), file);
     await user.click(screen.getByRole('button', { name: 'Insert image' }));
@@ -346,6 +436,7 @@ describe('a note nobody has typed into yet', () => {
       current: { previewable: false },
     });
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     fireEvent.drop(screen.getByLabelText('Note body'), {
       clientX: 0,
@@ -373,7 +464,9 @@ describe('a note nobody has typed into yet', () => {
     );
     const doc = await open();
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
+    await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Image' }));
     await user.click(screen.getByRole('button', { name: 'Image URL' }));
     await user.type(
@@ -390,9 +483,11 @@ describe('a note nobody has typed into yet', () => {
     expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
   });
 
-  it('leaves the document untouched and restores the image button when insertion is cancelled', async () => {
+  it('leaves the document untouched and restores the Insert trigger when insertion is cancelled', async () => {
     const user = userEvent.setup();
     const doc = await open();
+    const insertTrigger = screen.getByRole('button', { name: 'Insert' });
+    await user.click(insertTrigger);
     const imageButton = screen.getByRole('button', { name: 'Image' });
     const before = JSON.stringify(doc.getXmlFragment('default').toJSON());
 
@@ -406,7 +501,7 @@ describe('a note nobody has typed into yet', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Insert image' })).not.toBeInTheDocument();
     expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toBe(before);
-    expect(imageButton).toHaveFocus();
+    expect(insertTrigger).toHaveFocus();
   });
 
   it('keeps a selected link anchored while a peer edits and writes the mark to the shared document', async () => {
@@ -520,6 +615,7 @@ describe('collaborative history keys', () => {
     const body = screen.getByLabelText('Note body');
     const undoButton = screen.getByRole('button', { name: 'Undo' });
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     await user.click(undoButton);
 
@@ -549,6 +645,7 @@ describe('collaborative history keys', () => {
     const doc = await open();
     const body = screen.getByLabelText('Note body');
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     await waitFor(() => {
       expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).toContain('heading');
@@ -611,6 +708,7 @@ describe('collaborative history keys', () => {
     const doc = await open();
     const body = screen.getByLabelText('Note body');
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     body.focus();
     fireEvent.keyDown(body, { key: 'z', ...MODIFIER });
@@ -618,6 +716,7 @@ describe('collaborative history keys', () => {
       expect(JSON.stringify(doc.getXmlFragment('default').toJSON())).not.toContain('heading');
     });
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 2' }));
     await waitFor(() => {
       expect(body.querySelector('h2')).not.toBeNull();
@@ -822,6 +921,7 @@ describe('a change that would empty the document', () => {
     const user = userEvent.setup();
     const doc = await open();
 
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     const fragment = doc.getXmlFragment('default');
     await waitFor(() => {
@@ -1002,6 +1102,7 @@ describe('note composition actions', () => {
   it('inserts a page boundary from the menu into the shared document and undoes it', async () => {
     const doc = await open();
     const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /^Block type:/ }));
     await user.click(screen.getByRole('button', { name: 'Heading 1' }));
     await user.click(screen.getByRole('button', { name: 'Insert' }));
     await user.click(screen.getByRole('button', { name: 'Page break' }));
@@ -1019,6 +1120,7 @@ describe('note composition actions', () => {
 it('closes the picker after inserting a section before a heading and leaves a paragraph', async () => {
   const doc = await open();
   const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /^Block type:/ }));
   await user.click(screen.getByRole('button', { name: 'Heading 1' }));
   const id = '00000000-0000-4000-8000-000000000077';
   fileHarness.client.query.mockResolvedValueOnce(
@@ -1068,7 +1170,9 @@ it('keeps collaboration updates connected after StrictMode remounts effects', as
   expect(doc.isDestroyed).toBe(false);
   const update = vi.fn();
   doc.on('update', update);
-  await userEvent.setup().click(screen.getByRole('button', { name: 'Heading 1' }));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /^Block type:/ }));
+  await user.click(screen.getByRole('button', { name: 'Heading 1' }));
   expect(update).toHaveBeenCalled();
   view.unmount();
   await waitFor(() => {
