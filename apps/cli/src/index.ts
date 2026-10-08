@@ -107,6 +107,7 @@ import { seed, stressRun } from './commands/stress.ts';
 import { outputOptions, printError, printResult, ExitCode } from './output.ts';
 import { runWorkspaceMcpServer } from './mcp.ts';
 import { petEval } from './commands/pet-eval.ts';
+import { petEvalChat } from './commands/pet-eval-chat.ts';
 import {
   petCommand,
   petToolRun,
@@ -262,19 +263,44 @@ export function buildProgram(): Command {
   pet
     .command('eval')
     .description('Run a scripted companion evaluation against the connected provider.')
-    .requiredOption('--suite <name>', 'evaluation suite; consult is available')
-    .option('--scenario <id>', 'run one scenario')
+    .requiredOption('--suite <name>', 'evaluation suite: consult or chat')
+    .option('--scenario <id>', 'consult: run one scenario')
+    .option('--case <id>', 'chat: run one case')
+    .option('--runs <count>', 'chat: repeat the suite this many times', '1')
+    .option(
+      '--allow-writes',
+      'chat: run writes the "apply without asking" policy allows, inside the fixture only',
+      false,
+    )
+    .option('--keep', 'chat: leave each fixture in place afterwards', false)
     .action(async (_options: unknown, command: Command) => {
       const flags = globalFlags(command);
       const options: {
         suite: string;
         scenario?: string;
+        case?: string;
+        runs: string;
+        allowWrites: boolean;
+        keep: boolean;
         model?: string;
         apiUrl?: string;
         workspace?: string;
         pet?: string;
       } = command.optsWithGlobals();
-      if (options.suite !== 'consult') throw new Error('Only the consult eval suite is available.');
+      if (options.suite === 'chat') {
+        const runs = Number(options.runs);
+        if (!Number.isInteger(runs) || runs < 1 || runs > 10)
+          throw new Error('--runs must be a whole number from 1 to 10.');
+        await run(() =>
+          petEvalChat(
+            flags.profile,
+            { ...options, suite: 'chat', runs },
+            outputOptions(flags.json),
+          ),
+        );
+        return;
+      }
+      if (options.suite !== 'consult') throw new Error('Choose --suite consult or --suite chat.');
       await run(() =>
         petEval(flags.profile, { ...options, suite: 'consult' }, outputOptions(flags.json)),
       );

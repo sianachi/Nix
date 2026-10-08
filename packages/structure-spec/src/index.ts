@@ -95,4 +95,6 @@ export * from './blueprint/index.js';
 export { consultScenarioSchema, evalExpectationsSchema } from './evals/schema.js';
 export type { ConsultScenario, EvalExpectations, Predicate } from './evals/schema.js';
 export { scoreBlueprint } from './evals/score.js';
+export { chatCaseSchema, chatSuiteSchema, chatAssertionSchema } from './evals/chat-schema.js';
+export type { ChatAssertion, ChatCase } from './evals/chat-schema.js';
 export type { EvalCriterion, EvalScore } from './evals/score.js';
