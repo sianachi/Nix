@@ -40,6 +40,12 @@ export const TOOL_EXAMPLES: Readonly<
   read_structure: { itemId: EXAMPLE_ITEM_ID },
   create_note: { title: 'Plan', markdown: 'Notes go here.' },
   append_note: { itemId: EXAMPLE_ITEM_ID, markdown: 'More notes.' },
+  replace_section: {
+    itemId: EXAMPLE_ITEM_ID,
+    heading: 'Next steps',
+    markdown: '- Book the venue\n- Send invites',
+  },
+  replace_passage: { itemId: EXAMPLE_ITEM_ID, find: 'teh plan', replace: 'the plan' },
   rename_item: { itemId: EXAMPLE_ITEM_ID, title: 'New title' },
   move_item: { itemId: EXAMPLE_ITEM_ID, parentId: '' },
   set_properties: { itemId: EXAMPLE_ITEM_ID, properties: { status: 'Done' } },
@@ -98,8 +104,9 @@ export interface FlatWorkspaceToolArgs {
  * A TS reference implementation of the Go worker's `flattenToolCall` (`apps/go-workers/internal
  * /companion/tools.go`): translates one typed `nix_<operation>` call's native-JSON arguments back
  * into the flat shape `workspaceToolSchema` and `@nix/companion/run.ts` have always parsed.
- * `templateId` maps to `itemId`; `properties` marshals to `propertiesJson`; `spec` and
- * `blueprint` both marshal to `specJson`; every other flat field defaults to `""`. Used only by
+ * `templateId` maps to `itemId`; `heading` and `find` map to `query` and `replace` to `markdown`
+ * (the body edits); `properties` marshals to `propertiesJson`; `spec` and `blueprint` both
+ * marshal to `specJson`; every other flat field defaults to `""`. Used only by
  * `tools.test.ts`'s and `@nix/companion`'s round-trip tests (and by `scripts/build-catalog.ts`,
  * which writes its output next to `TOOL_EXAMPLES` in the generated `tool-examples.json` so the Go
  * worker's own flattening test reads the identical expectation) - never by runtime code, since the
@@ -130,6 +137,13 @@ export function flattenToolExample(
         break;
       case 'templateId':
         flat.itemId = String(value);
+        break;
+      case 'heading':
+      case 'find':
+        flat.query = String(value);
+        break;
+      case 'replace':
+        flat.markdown = String(value);
         break;
       case 'properties':
         flat.propertiesJson = JSON.stringify(value);

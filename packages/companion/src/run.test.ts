@@ -3,7 +3,7 @@ import { createFakePorts } from './testing/fake-ports.js';
 import { runWorkspaceTool } from './run.js';
 import { loadPreviewContext } from './context.js';
 import { readStructure } from './structure/read-structure.js';
-import { workspaceToolSchema } from './tool-args.js';
+import { WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
 
 const workspace = '11111111-1111-4111-8111-111111111111';
 const itemId = '22222222-2222-4222-8222-222222222222';
@@ -994,5 +994,124 @@ describe('workspace-scoped companion tools', () => {
       contentConfirmed: false,
     });
     expect(execute).toHaveBeenCalledOnce();
+  });
+
+  describe.each([
+    ['replace_section', { query: 'Next steps', markdown: '- Book the venue' }],
+    ['replace_passage', { query: 'teh plan', markdown: 'the plan' }],
+  ] as const)('%s', (operation, fields) => {
+    const plan = {
+      before: 'old',
+      after: 'new',
+      blocksRemoved: 1,
+      blocksAdded: 1,
+      losses: [],
+      markdownChanges: {},
+      fingerprint: '["fence"]',
+    };
+    const edit =
+      operation === 'replace_section'
+        ? { kind: 'section', heading: fields.query, markdown: fields.markdown }
+        : { kind: 'passage', find: fields.query, replace: fields.markdown };
+
+    it('previews the edit from the note as it is now', async () => {
+      const { ports, bodies, signal } = setup();
+      bodies.planEdit.mockResolvedValue(plan);
+      const parsed = workspaceToolSchema.parse(JSON.parse(input(operation, { itemId, ...fields })));
+      const context = await loadPreviewContext(ports, workspace, parsed, signal);
+      expect(bodies.planEdit).toHaveBeenCalledWith(itemId, edit, signal);
+      expect(context).toMatchObject({
+        fingerprint: plan.fingerprint,
+        bodyEdit: plan,
+        problems: [],
+      });
+    });
+
+    it('turns a refusal to place the edit into a preview problem', async () => {
+      const { ports, bodies, signal } = setup();
+      bodies.planEdit.mockRejectedValue(new WorkspaceToolRefusal('Not found.'));
+      const parsed = workspaceToolSchema.parse(JSON.parse(input(operation, { itemId, ...fields })));
+      const context = await loadPreviewContext(ports, workspace, parsed, signal);
+      expect(context.bodyEdit).toBeUndefined();
+      expect(context.problems).toEqual([
+        {
+          path: operation === 'replace_section' ? 'heading' : 'find',
+          code: 'body_edit_refused',
+          message: 'Not found.',
+        },
+      ]);
+    });
+
+    it('applies the edit against the approved preview and reports it as a write', async () => {
+      const { ports, bodies, execute, signal } = setup();
+      bodies.applyEdit.mockResolvedValue({
+        id: itemId,
+        replaced: true,
+        blocksRemoved: 1,
+        blocksAdded: 2,
+        markdownChanges: {},
+      });
+      const outcome = await runWorkspaceTool(
+        ports,
+        workspace,
+        input(operation, { itemId, ...fields }),
+        signal,
+        { fence: plan.fingerprint },
+      );
+      expect(bodies.applyEdit).toHaveBeenCalledWith(itemId, edit, plan.fingerprint, signal);
+      expect(JSON.parse(outcome.text)).toMatchObject({ replaced: true, blocksAdded: 2 });
+      expect(outcome).toMatchObject({ readOnly: false, touchedParents: [] });
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('refuses without an approved preview', async () => {
+      const { ports, bodies, signal } = setup();
+      await expect(
+        runWorkspaceTool(ports, workspace, input(operation, { itemId, ...fields }), signal),
+      ).rejects.toThrow('no approved preview');
+      expect(bodies.applyEdit).not.toHaveBeenCalled();
+    });
+
+    it('refuses an item that is not a note', async () => {
+      const { ports, query, bodies, signal } = setup();
+      query.mockResolvedValue({ id: itemId, workspaceId: workspace, parentId: null, type: 'page' });
+      await expect(
+        runWorkspaceTool(ports, workspace, input(operation, { itemId, ...fields }), signal, {
+          fence: plan.fingerprint,
+        }),
+      ).rejects.toThrow('Only a note body can be edited.');
+      expect(bodies.applyEdit).not.toHaveBeenCalled();
+    });
+
+    it('refuses a cross-workspace note before reading its body', async () => {
+      const { ports, query, bodies, signal } = setup();
+      query.mockResolvedValue({ workspaceId: 'another-workspace', type: 'note' });
+      await expect(
+        runWorkspaceTool(ports, workspace, input(operation, { itemId, ...fields }), signal, {
+          fence: plan.fingerprint,
+        }),
+      ).rejects.toThrow('outside this workspace');
+      const parsed = workspaceToolSchema.parse(JSON.parse(input(operation, { itemId, ...fields })));
+      await expect(loadPreviewContext(ports, workspace, parsed, signal)).rejects.toThrow(
+        'outside this workspace',
+      );
+      expect(bodies.planEdit).not.toHaveBeenCalled();
+      expect(bodies.applyEdit).not.toHaveBeenCalled();
+    });
+
+    it('requires the text to find', () => {
+      expect(
+        workspaceToolSchema.safeParse(JSON.parse(input(operation, { itemId, markdown: 'x' })))
+          .success,
+      ).toBe(false);
+    });
+  });
+
+  it('requires new Markdown for a section but lets a passage be deleted', () => {
+    const parse = (operation: string) =>
+      workspaceToolSchema.safeParse(JSON.parse(input(operation, { itemId, query: 'Notes' })))
+        .success;
+    expect(parse('replace_section')).toBe(false);
+    expect(parse('replace_passage')).toBe(true);
   });
 });

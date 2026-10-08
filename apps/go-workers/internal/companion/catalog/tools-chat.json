@@ -117,6 +117,52 @@
     }
   },
   {
+    "name": "nix_replace_section",
+    "description": "Replace one section of a note: the blocks from the heading named heading up to the next heading of the same or higher level. The rest of the note is untouched. If markdown does not start with a heading, the original heading is kept. Refuses when the heading is missing or not unique. Call nix_read_note first. Never replaces a whole note's body.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "heading": {
+          "type": "string",
+          "description": "The exact heading text, without # marks (case is ignored); must be unique in the note."
+        },
+        "markdown": {
+          "type": "string",
+          "description": "The new Markdown for that section."
+        }
+      },
+      "required": ["itemId", "heading", "markdown"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_replace_passage",
+    "description": "Fix text inside one paragraph, heading, list item text or code block: find must occur exactly once in the note and inside a single block (no list markers). Only that block is rewritten. Call nix_read_note first.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "find": {
+          "type": "string",
+          "description": "The exact Markdown text to replace, up to 240 characters."
+        },
+        "replace": {
+          "type": "string",
+          "description": "The Markdown text to put in its place; may be empty."
+        }
+      },
+      "required": ["itemId", "find", "replace"],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "nix_rename_item",
     "description": "Rename an item. Never changes anything else about it.",
     "inputSchema": {

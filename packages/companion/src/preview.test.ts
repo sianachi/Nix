@@ -291,3 +291,66 @@ describe('describeToolCall - spec operations', () => {
     ).toBe(true);
   });
 });
+
+describe('describeToolCall - note body edits', () => {
+  const plan = {
+    before: '## Budget\n\nTotal is 400.',
+    after: '## Budget\n\nTotal is 450.',
+    blocksRemoved: 1,
+    blocksAdded: 2,
+    losses: [{ kind: 'color-dropped', detail: 'A text-colour mark was dropped.' }],
+    markdownChanges: {
+      unresolvedWikiLinks: 0,
+      unresolvedObsidianEmbeds: 0,
+      unresolvedLocalImages: 0,
+      unsupportedImageAddresses: 0,
+      inlineImagesFlattened: 0,
+    },
+    fingerprint: 'f',
+  };
+
+  it('names the section and carries the before and after text', () => {
+    const model = describeToolCall(
+      args({ operation: 'replace_section', query: 'Budget', markdown: 'Total is 450.' }),
+      context({ bodyEdit: plan }),
+    );
+    expect(model.headline).toBe(
+      'I will replace the section “Budget” in the linked note. The rest of the note stays as it is.',
+    );
+    expect(model.bodyEdit).toEqual({
+      before: plan.before,
+      after: plan.after,
+      blocksRemoved: 1,
+      blocksAdded: 2,
+    });
+    expect(model.notes).toContain('Removes 1 block and adds 2 blocks.');
+    expect(model.counts.writes).toBe(1);
+  });
+
+  it('warns about formatting the replaced text loses', () => {
+    const model = describeToolCall(
+      args({ operation: 'replace_passage', query: 'teh', markdown: 'the' }),
+      context({ bodyEdit: plan }),
+    );
+    expect(model.headline).toBe(
+      'I will change one passage in the linked note. Every other block stays as it is.',
+    );
+    expect(model.warnings).toEqual([
+      {
+        path: 'Replaced text',
+        code: 'color-dropped',
+        message: 'A text-colour mark was dropped. The edit will not keep it.',
+      },
+    ]);
+  });
+
+  it('carries no comparison when the edit could not be placed', () => {
+    const problem = { path: 'find', code: 'body_edit_refused', message: 'Not found.' };
+    const model = describeToolCall(
+      args({ operation: 'replace_passage', query: 'teh', markdown: 'the' }),
+      context({ problems: [problem] }),
+    );
+    expect(model.bodyEdit).toBeUndefined();
+    expect(model.problems).toEqual([problem]);
+  });
+});

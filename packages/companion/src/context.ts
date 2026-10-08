@@ -7,7 +7,7 @@ import type {
   ValidationReport,
 } from '@nix/structure-spec';
 import { z } from 'zod';
-import type { CompanionPorts } from './ports.js';
+import type { BodyEdit, BodyEditPlan, CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
 import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
@@ -49,6 +49,19 @@ export interface PreviewContext {
   sampleCount?: number;
   sourceTitle?: string;
   captureFingerprint?: string;
+  /** For a body edit (`replace_section`, `replace_passage`): what it would change. Absent when the
+   * edit cannot be placed, in which case `problems` says why. */
+  bodyEdit?: BodyEditPlan;
+}
+
+/** The body edit a `replace_section` or `replace_passage` call names, from its flat arguments:
+ * `query` is the heading or the text to find, `markdown` the new section or replacement text. */
+export function bodyEditOf(args: WorkspaceToolArgs): BodyEdit | undefined {
+  if (args.operation === 'replace_section')
+    return { kind: 'section', heading: args.query, markdown: args.markdown };
+  if (args.operation === 'replace_passage')
+    return { kind: 'passage', find: args.query, replace: args.markdown };
+  return undefined;
 }
 
 const formConditionSchema = z.object({
@@ -277,6 +290,33 @@ export async function loadPreviewContext(
       preflight,
       problems: [],
     };
+  }
+
+  const edit = bodyEditOf(args);
+  if (edit !== undefined) {
+    const item = await checkItem(ports, workspaceId, args.itemId, signal);
+    const destination = await itemDestination(ports, workspaceId, item.id, signal);
+    const refused = (path: string, message: string): PreviewContext => ({
+      destination,
+      inheritedFields: [],
+      fingerprint: '',
+      problems: [{ path, code: 'body_edit_refused', message }],
+    });
+    if (item.type !== 'note') return refused('itemId', 'Only a note body can be edited.');
+    try {
+      const plan = await ports.bodies.planEdit(item.id, edit, signal);
+      return {
+        destination,
+        inheritedFields: [],
+        fingerprint: plan.fingerprint,
+        problems: [],
+        bodyEdit: plan,
+      };
+    } catch (error) {
+      if (error instanceof WorkspaceToolRefusal)
+        return refused(edit.kind === 'section' ? 'heading' : 'find', error.message);
+      throw error;
+    }
   }
 
   if (args.operation === 'create_structured' || args.operation === 'create_entries') {

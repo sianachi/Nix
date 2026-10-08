@@ -112,6 +112,42 @@
     }
   },
   {
+    "operation": "replace_section",
+    "arguments": {
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "heading": "Next steps",
+      "markdown": "- Book the venue\n- Send invites"
+    },
+    "flat": {
+      "operation": "replace_section",
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "parentId": "",
+      "title": "",
+      "markdown": "- Book the venue\n- Send invites",
+      "query": "Next steps",
+      "propertiesJson": "",
+      "specJson": ""
+    }
+  },
+  {
+    "operation": "replace_passage",
+    "arguments": {
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "find": "teh plan",
+      "replace": "the plan"
+    },
+    "flat": {
+      "operation": "replace_passage",
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "parentId": "",
+      "title": "",
+      "markdown": "the plan",
+      "query": "teh plan",
+      "propertiesJson": "",
+      "specJson": ""
+    }
+  },
+  {
     "operation": "rename_item",
     "arguments": {
       "itemId": "11111111-1111-4111-8111-111111111111",

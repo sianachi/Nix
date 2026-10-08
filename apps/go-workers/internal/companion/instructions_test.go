@@ -43,3 +43,20 @@ func TestConsultRulesNamesEveryConsultOnlyOperation(t *testing.T) {
 		}
 	}
 }
+
+// TestChatRulesDescribeBodyEditsButNeverWholeBodyReplace pins lane C's sentence: the two
+// block-granular edits are named, and the pet still says it cannot replace a whole body.
+func TestChatRulesDescribeBodyEditsButNeverWholeBodyReplace(t *testing.T) {
+	sentence := chatRules()
+	for _, want := range []string{"nix_replace_section", "nix_replace_passage", "cannot administer workspaces, replace a whole note body"} {
+		if !strings.Contains(sentence, want) {
+			t.Errorf("chat rules do not contain %q: %q", want, sentence)
+		}
+	}
+	names := toolNamesFor("chat")
+	for _, tool := range []string{"nix_replace_section", "nix_replace_passage"} {
+		if _, ok := names[tool]; !ok {
+			t.Errorf("%s is named in the chat rules but not offered in chat", tool)
+		}
+	}
+}

@@ -76,7 +76,9 @@ type argMapping struct {
 // exactly (L1.1): which native-JSON arguments each nix_<operation> tool accepts, and which flat
 // field each maps onto. Every "spec"/"blueprint"/"properties" argument marshals to specJson or
 // propertiesJson; templateId maps to itemId, not a separate flat field, matching how run.ts
-// already reads a template id (apply_template's itemId, read_template's itemId).
+// already reads a template id (apply_template's itemId, read_template's itemId). The body edits
+// reuse query for what they locate (a section's heading, a passage's find text) and markdown for
+// what replaces it.
 var toolArgSpecs = map[string]map[string]argMapping{
 	"list_items":         {"parentId": {"parentId", argString}},
 	"search":             {"query": {"query", argString}},
@@ -85,6 +87,8 @@ var toolArgSpecs = map[string]map[string]argMapping{
 	"read_structure":     {"itemId": {"itemId", argString}},
 	"create_note":        {"title": {"title", argString}, "markdown": {"markdown", argString}, "parentId": {"parentId", argString}},
 	"append_note":        {"itemId": {"itemId", argString}, "markdown": {"markdown", argString}},
+	"replace_section":    {"itemId": {"itemId", argString}, "heading": {"query", argString}, "markdown": {"markdown", argString}},
+	"replace_passage":    {"itemId": {"itemId", argString}, "find": {"query", argString}, "replace": {"markdown", argString}},
 	"rename_item":        {"itemId": {"itemId", argString}, "title": {"title", argString}},
 	"move_item":          {"itemId": {"itemId", argString}, "parentId": {"parentId", argString}},
 	"set_properties":     {"itemId": {"itemId", argString}, "properties": {"propertiesJson", argObjectJSON}},
@@ -480,6 +484,9 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 	if decoder.Decode(&p) != nil {
 		return "Tool arguments must be a JSON object with string fields."
 	}
+	if p.Operation == "replace_passage" && len(p.Query) > 240 {
+		return "nix_replace_passage find is limited to 240 characters. Use a shorter passage that occurs once, or nix_replace_section."
+	}
 	if len(p.Title) > 240 || len(p.Markdown) > 16000 || len(p.Query) > 240 || len(p.Properties) > 8000 {
 		return "Tool arguments exceed the supported size limit."
 	}
@@ -529,6 +536,20 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 			if json.Unmarshal([]byte(p.Properties), &object) != nil || object == nil {
 				return "nix_set_properties requires properties (a JSON object)."
 			}
+		}
+	case "replace_section", "replace_passage":
+		if !uuid.MatchString(p.ItemID) {
+			return fmt.Sprintf("nix_%s requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", p.Operation, modelParamForItemID(p.Operation))
+		}
+		if p.Operation == "replace_section" {
+			if strings.TrimSpace(p.Query) == "" {
+				return "nix_replace_section requires the heading of the section to replace."
+			}
+			if strings.TrimSpace(p.Markdown) == "" {
+				return "nix_replace_section requires nonempty markdown; it never empties a section."
+			}
+		} else if p.Query == "" {
+			return "nix_replace_passage requires the exact text to find."
 		}
 	case "create_structured":
 		if strings.TrimSpace(p.Title) == "" {

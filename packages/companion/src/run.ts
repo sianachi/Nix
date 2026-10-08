@@ -17,7 +17,7 @@ import type { CompanionPorts } from './ports.js';
 import { applyTemplate } from './templates/apply.js';
 import { listTemplates } from './templates/list.js';
 import { readTemplate } from './templates/read.js';
-import { loadPreviewContext } from './context.js';
+import { bodyEditOf, loadPreviewContext } from './context.js';
 import { checkItem, type StructureFingerprint } from './guards.js';
 import { readStructure } from './structure/read-structure.js';
 import * as createStructured from './structure/create-structured.js';
@@ -409,6 +409,19 @@ export async function runWorkspaceTool(
               ? await bodies.read(item.id, signal)
               : await bodies.append(item.id, args.markdown, signal);
           break;
+        case 'replace_section':
+        case 'replace_passage': {
+          if (item.type !== 'note')
+            throw new WorkspaceToolRefusal('Only a note body can be edited. No change was made.');
+          const edit = bodyEditOf(args);
+          if (edit === undefined) throw new Error('A body edit is required.');
+          if (!options.fence)
+            throw new WorkspaceToolRefusal(
+              'This edit has no approved preview. Review it again before editing.',
+            );
+          result = await bodies.applyEdit(item.id, edit, options.fence, signal);
+          break;
+        }
         case 'rename_item':
           if (!args.title.trim()) throw new Error('A title is required.');
           result = await client.execute(
