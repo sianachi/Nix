@@ -17,6 +17,11 @@ import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
 import { PetStructurePreview } from './pet-structure-preview';
 import type { PreviewModel } from '@nix/structure-spec';
+import * as Y from 'yjs';
+import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
+import { nixSchema } from '@nix/editor-schema';
+import { markdownToDocument } from '@nix/markdown';
+import { PetBodyEditPreview } from './pet-body-edit-preview';
 
 export default { title: 'Nix/Companions', parameters: { layout: 'padded' } };
 
@@ -201,7 +206,6 @@ export const AppliedWithoutAsking = {
   },
 };
 export const DarkAppliedWithoutAsking = { ...AppliedWithoutAsking, globals: { ground: 'dark' } };
-
 
 const structurePreviewModel: PreviewModel = {
   headline: 'I will create a Reading log with a board view.',
@@ -1237,3 +1241,158 @@ export const HistoryPanel = {
   ),
 };
 export const DarkHistoryPanel = { ...HistoryPanel, globals: { ground: 'dark' } };
+
+const bodyEditNoteId = '33333333-3333-4333-8333-333333333333';
+
+/** A note's whole collab history as one update, served the way the collab endpoint pages it, so
+ * the card computes its before and after text from a real document. */
+function bodyEditClient(markdown: string): NixClient {
+  const parsed = markdownToDocument(markdown);
+  const doc = new Y.Doc();
+  if (parsed.ok)
+    prosemirrorJSONToYXmlFragment(nixSchema, parsed.doc, doc.getXmlFragment('default'));
+  const update = btoa(
+    Array.from(Y.encodeStateAsUpdate(doc), (byte) => String.fromCharCode(byte)).join(''),
+  );
+  doc.destroy();
+  return {
+    query: (endpoint: { operation: string }): Promise<unknown> => {
+      if (endpoint.operation === 'companion.body.read')
+        return Promise.resolve({ hasMore: false, updates: [{ seq: '1', update }] });
+      if (endpoint.operation === 'items.get')
+        return Promise.resolve({
+          id: bodyEditNoteId,
+          workspaceId: '11111111-1111-4111-8111-111111111111',
+          parentId: null,
+          title: 'Trip plan',
+          type: 'note',
+          properties: {},
+        });
+      return Promise.reject(new Error(`Unexpected preview read: ${endpoint.operation}`));
+    },
+    invalidate: () => undefined,
+  } as unknown as NixClient;
+}
+
+const bodyEditNote = [
+  '# Trip plan',
+  '',
+  '## Packing',
+  '',
+  '- Passport',
+  '- Clothes',
+  '  - Socks',
+  '  - Shirts',
+  '',
+  '```sh',
+  'pack --all',
+  '```',
+  '',
+  '## Budget',
+  '',
+  'Total is 400.',
+].join('\n');
+
+function BodyEditCard({
+  operation,
+  query,
+  markdown,
+}: {
+  readonly operation: 'replace_section' | 'replace_passage';
+  readonly query: string;
+  readonly markdown: string;
+}): ReactElement {
+  return (
+    <MemoryRouter>
+      <PetWorkTools
+        client={bodyEditClient(bodyEditNote)}
+        workspaceId="11111111-1111-4111-8111-111111111111"
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={() => undefined}
+        runtime={petConnectionSchema.parse({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: '',
+          canConnect: false,
+          tools: [
+            {
+              id: `preview-${operation}`,
+              arguments: JSON.stringify({
+                operation,
+                itemId: bodyEditNoteId,
+                parentId: '',
+                title: '',
+                markdown,
+                query,
+                propertiesJson: '',
+                specJson: '',
+              }),
+              status: 'pending',
+              result: '',
+              claimId: '',
+            },
+          ],
+        })}
+      />
+    </MemoryRouter>
+  );
+}
+
+/** A section edit: nested list and code block out, a shorter list in, heading kept. */
+export const SectionEditApproval = {
+  render: (): ReactElement => (
+    <BodyEditCard
+      operation="replace_section"
+      query="Packing"
+      markdown={'- Passport\n- Tickets\n- Charger'}
+    />
+  ),
+};
+export const DarkSectionEditApproval = { ...SectionEditApproval, globals: { ground: 'dark' } };
+
+/** A passage edit inside one nested list item. */
+export const PassageEditApproval = {
+  render: (): ReactElement => (
+    <BodyEditCard operation="replace_passage" query="Shirts" markdown="T-shirts" />
+  ),
+};
+export const DarkPassageEditApproval = { ...PassageEditApproval, globals: { ground: 'dark' } };
+
+const passageLossModel: PreviewModel = {
+  headline: 'I will change one passage in the linked note. Every other block stays as it is.',
+  destination: { title: 'Trip plan', path: ['Trip plan'] },
+  counts: { items: 0, fields: 0, views: 0, entries: 0, writes: 1 },
+  tree: [],
+  notes: ['Removes 1 block and adds 1 block.'],
+  warnings: [
+    {
+      path: 'Replaced text',
+      code: 'color-dropped',
+      message:
+        'A text-colour mark was dropped; the text it covered was kept. The edit will not keep it.',
+    },
+  ],
+  problems: [],
+  neverDoes: ['Publish a public link', 'Delete anything permanently', 'Remove or retype a field'],
+  bodyEdit: {
+    before: 'Book the **venue** by Friday, then confirm the caterer.',
+    after: '',
+    blocksRemoved: 1,
+    blocksAdded: 0,
+  },
+};
+
+/** A passage edit that removes a whole paragraph and drops a colour mark: the loss is a
+ * warning in words and the empty side says so, never a colour alone. */
+export const PassageRemovalWithLoss = {
+  render: (): ReactElement => (
+    <div className="flex flex-col gap-2">
+      <PetStructurePreview model={passageLossModel} pending />
+      {passageLossModel.bodyEdit ? <PetBodyEditPreview edit={passageLossModel.bodyEdit} /> : null}
+    </div>
+  ),
+};
+export const DarkPassageRemovalWithLoss = {
+  ...PassageRemovalWithLoss,
+  globals: { ground: 'dark' },
+};
