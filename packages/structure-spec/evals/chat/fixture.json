@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "title": "Chat eval fixture",
+  "summary": "A small life-OS: a task board, a reading log, habits and two notes. Dates use {today+N} tokens the harness substitutes before building.",
+  "root": {
+    "id": "home",
+    "title": "Eval home",
+    "views": [{ "kind": "list" }],
+    "children": [
+      {
+        "id": "tasks",
+        "title": "Tasks",
+        "fields": [
+          { "label": "Status", "type": "select", "options": ["To do", "Doing", "Done"] },
+          { "label": "Due date", "type": "due_date" },
+          { "label": "Completion", "type": "completion" },
+          { "label": "Priority", "type": "priority" }
+        ],
+        "views": [{ "kind": "board", "groupBy": "status" }, { "kind": "list" }],
+        "children": [
+          {
+            "id": "task-rent",
+            "title": "Pay rent",
+            "values": { "status": "To do", "due_date": "{today-2}", "priority": 1 }
+          },
+          {
+            "id": "task-dentist",
+            "title": "Call dentist",
+            "values": { "status": "To do", "due_date": "{today}", "priority": 2 }
+          },
+          {
+            "id": "task-report",
+            "title": "Write report",
+            "values": { "status": "Doing", "due_date": "{today+3}", "priority": 2 }
+          },
+          {
+            "id": "task-groceries",
+            "title": "Buy groceries",
+            "values": { "status": "Done", "due_date": "{today-1}", "completion": true }
+          },
+          {
+            "id": "task-review",
+            "title": "Weekly review",
+            "values": { "status": "To do", "due_date": "{today+4}", "priority": 3 }
+          }
+        ]
+      },
+      {
+        "id": "reading-log",
+        "title": "Reading log",
+        "fields": [
+          { "label": "Status", "type": "select", "options": ["To read", "Reading", "Done"] },
+          { "label": "Rating", "type": "number" },
+          { "label": "Finished", "type": "date" }
+        ],
+        "views": [{ "kind": "sheet" }, { "kind": "board", "groupBy": "status" }],
+        "children": [
+          {
+            "id": "book-hobbit",
+            "title": "The Hobbit",
+            "values": { "status": "Done", "rating": 5, "finished": "{today-20}" }
+          },
+          { "id": "book-dune", "title": "Dune", "values": { "status": "Reading" } }
+        ]
+      },
+      {
+        "id": "habits",
+        "title": "Habits",
+        "views": [{ "kind": "habit_tracker" }],
+        "children": [
+          { "id": "habit-run", "title": "Run", "habit": { "frequency": "daily", "target": 5, "unit": "km" } },
+          { "id": "habit-read", "title": "Read", "habit": { "frequency": "daily", "target": 20, "unit": "minutes" } }
+        ]
+      },
+      {
+        "id": "meeting-note",
+        "title": "Planning meeting",
+        "markdown": "# Planning meeting\n\n## Summary\n\nWe reviewed the quarter and agreed to recieve the vendor proposal before deciding.\n\n## Decisions\n\n- Ship the mobile navigation first.\n- Defer the importer.\n\n## Action items\n\n- Sam drafts the vendor brief.\n"
+      },
+      {
+        "id": "books-note",
+        "title": "Books to read",
+        "markdown": "# Books to read\n\n- Piranesi\n- The Left Hand of Darkness\n- A Memory Called Empire\n"
+      }
+    ]
+  }
+}

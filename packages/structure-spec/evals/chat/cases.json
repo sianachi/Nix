@@ -1,0 +1,80 @@
+[
+  {
+    "id": "read-board",
+    "prompt": "What is on my {node:tasks} board right now? List every task with its status.",
+    "tools": { "require": ["list_items|search|read_item"], "forbid": ["create_note", "create_entries", "set_properties", "append_note"], "max": 6 },
+    "answer": "Pay rent[\\s\\S]*Call dentist|Call dentist[\\s\\S]*Pay rent"
+  },
+  {
+    "id": "overdue",
+    "prompt": "Which of my tasks in {node:tasks} are overdue?",
+    "tools": { "require": ["list_items|search|read_item"], "forbid": ["set_properties", "create_entries"], "max": 8 },
+    "answer": "Pay rent",
+    "answerNot": "Write report"
+  },
+  {
+    "id": "week-ahead",
+    "prompt": "What does my week look like, judging by {node:tasks}?",
+    "tools": { "require": ["list_items|search|read_item"], "max": 8 },
+    "answer": "Write report|Weekly review"
+  },
+  {
+    "id": "complete-task",
+    "prompt": "Mark {node:task-dentist} as done in {node:tasks}.",
+    "tools": { "require": ["set_properties"], "forbid": ["create_entries", "create_note", "trash_item"], "max": 6 },
+    "asserts": [{ "kind": "value", "item": "task-dentist", "key": "completion", "truthy": true }]
+  },
+  {
+    "id": "add-task",
+    "prompt": "Add a task called Renew passport to {node:tasks}, due in 10 days, priority 2.",
+    "tools": { "require": ["create_entries|create_note"], "forbid": ["trash_item", "create_structured"], "max": 6 },
+    "asserts": [{ "kind": "child", "parent": "tasks", "title": "^Renew passport$" }]
+  },
+  {
+    "id": "rate-book",
+    "prompt": "In {node:reading-log}, set the rating of {node:book-dune} to 4.",
+    "tools": { "require": ["set_properties"], "forbid": ["create_entries"], "max": 6 },
+    "asserts": [{ "kind": "value", "item": "book-dune", "key": "rating", "equals": 4 }]
+  },
+  {
+    "id": "append-action-item",
+    "prompt": "In my note {node:meeting-note}, add an action item: Follow up with Sam on Thursday.",
+    "tools": { "require": ["append_note"], "forbid": ["create_note", "trash_item"], "max": 6 },
+    "asserts": [{ "kind": "note", "item": "meeting-note", "contains": "Follow up with Sam" }]
+  },
+  {
+    "id": "fix-typo",
+    "prompt": "Fix the typo in {node:meeting-note}: it says recieve instead of receive.",
+    "tools": { "forbid": ["append_note", "create_note"], "max": 6 },
+    "answer": "cannot|can't|unable|not able|only append|no way"
+  },
+  {
+    "id": "add-field",
+    "prompt": "Add an Effort field to {node:tasks} with the options Small, Medium and Large.",
+    "tools": { "require": ["add_fields|add_view"], "forbid": ["create_structured"], "max": 6 },
+    "asserts": [{ "kind": "field", "item": "tasks", "key": "effort" }]
+  },
+  {
+    "id": "note-to-tracker",
+    "prompt": "Turn my note {node:books-note} into a reading tracker with a Status (To read, Reading, Done) and a Rating from 1 to 5.",
+    "tools": { "require": ["add_view|create_structured"], "max": 8 }
+  },
+  {
+    "id": "recurring-review",
+    "prompt": "Make {node:task-review} in {node:tasks} repeat every Sunday.",
+    "tools": { "require": ["set_recurrence"], "forbid": ["create_entries"], "max": 6 }
+  },
+  {
+    "id": "refuse-permanent-delete",
+    "prompt": "Delete {node:tasks} permanently, I do not want it in the trash either.",
+    "tools": { "max": 3 },
+    "answer": "cannot|can't|trash|permanent|not able",
+    "asserts": [{ "kind": "parent", "item": "tasks", "parent": "home" }]
+  },
+  {
+    "id": "move-stays-asked",
+    "prompt": "Move {node:meeting-note} to the top level of the workspace.",
+    "tools": { "require": ["move_item"], "max": 5 },
+    "asserts": [{ "kind": "parent", "item": "meeting-note", "parent": "home" }]
+  }
+]
