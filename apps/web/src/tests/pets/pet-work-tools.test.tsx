@@ -6,6 +6,7 @@ import type * as Companion from '@nix/companion';
 import { PetWorkTools } from '../../pets/pet-work-tools';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { MemoryRouter } from 'react-router';
+import { useState, type ReactElement } from 'react';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn(), invalidate: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
@@ -1130,6 +1131,246 @@ describe('companion work approvals', () => {
     // returns, so once the first read holds the claim lock, the second is never retried.
     await waitFor(() => {
       expect(runWorkspaceToolSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+  describe('apply without asking (lane F)', () => {
+    const structuredArguments = JSON.stringify({
+      operation: 'create_structured',
+      title: 'Reading log',
+      itemId: '',
+      parentId: '',
+      markdown: '',
+      query: '',
+      propertiesJson: '',
+      specJson: JSON.stringify({
+        recipe: 'board',
+        fields: [{ label: 'Status', type: 'select', options: ['To read', 'Done'] }],
+        views: [{ kind: 'board', groupBy: 'Status' }],
+        inherit: true,
+      }),
+    });
+    function withArguments(toolArguments: string) {
+      return {
+        ...runtime,
+        tools: (runtime.tools ?? []).map((tool) => ({ ...tool, arguments: toolArguments })),
+      };
+    }
+    /** The live app feeds every runtime response back through `setRuntime`; this wrapper does
+     * the same so a receipt can reflect the persisted `tool.status`. */
+    function Live({
+      initial,
+      onNeedsDecisionChange,
+      exempt = [],
+    }: {
+      readonly initial: typeof runtime;
+      readonly onNeedsDecisionChange: (ids: readonly string[]) => void;
+      readonly exempt?: readonly string[];
+    }): ReactElement {
+      const [live, setLive] = useState(initial);
+      return (
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={live}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          petName="Cat"
+          onChange={setLive}
+          onNeedsDecisionChange={onNeedsDecisionChange}
+          applyWithoutAsking
+          applyExemptToolIds={exempt}
+        />
+      );
+    }
+    /** Every runtime call flips the addressed tool to claimed, then completed with its result. */
+    function completeEachCall(base: typeof runtime) {
+      client.execute.mockImplementation(
+        (endpoint: { body: { operation: string; requestId: string; toolId: string } }) =>
+          Promise.resolve({
+            ...base,
+            tools: base.tools?.map((tool) =>
+              tool.id === endpoint.body.toolId
+                ? {
+                    ...tool,
+                    status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+                    claimId: endpoint.body.requestId,
+                    result: endpoint.body.operation === 'tool_result' ? 'created' : '',
+                  }
+                : tool,
+            ),
+          }),
+      );
+    }
+
+    it('runs a clean write on its own with the preview fingerprint and says so on the receipt, also after a remount', async () => {
+      const structuredRuntime = withArguments(structuredArguments);
+      completeEachCall(structuredRuntime);
+      runWorkspaceToolSpy.mockResolvedValueOnce({ text: 'created', readOnly: false, touchedParents: [] });
+      const onNeedsDecisionChange = vi.fn();
+      const view = render(
+        <Live initial={structuredRuntime} onNeedsDecisionChange={onNeedsDecisionChange} />,
+        { wrapper: MemoryRouter },
+      );
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledTimes(2);
+      });
+      // Same path as a click: claim first, then execute behind the preview's own fence.
+      expect(client.execute.mock.calls[0]?.[0]).toMatchObject({ body: { operation: 'tool_claim' } });
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ fence: '|' });
+      expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
+        body: { operation: 'tool_result', toolSuccess: true },
+      });
+      // Never something the owner was asked to decide.
+      expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+      expect(await screen.findByText('Done without asking')).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
+      // Never a receipt that claims the owner approved it, at any point.
+      expect(screen.queryByText(/Approval submitted/)).not.toBeInTheDocument();
+      // What ran stays readable afterwards: the preview and the text it stored.
+      await userEvent.click(screen.getByText('What was applied'));
+      expect(screen.getByText('Reading log')).toBeVisible();
+      // The wording is stored with the receipt, so reopening the panel keeps it.
+      view.unmount();
+      const completed = {
+        ...structuredRuntime,
+        tools: structuredRuntime.tools.map((tool) => ({
+          ...tool,
+          status: 'completed' as const,
+          result: 'created',
+        })),
+      };
+      render(<Live initial={completed} onNeedsDecisionChange={vi.fn()} />, {
+        wrapper: MemoryRouter,
+      });
+      expect(await screen.findByText('Done without asking')).toBeVisible();
+    });
+
+    it('runs several clean writes from one turn once each, in order, each behind its own claim', async () => {
+      const first = { ...(runtime.tools ?? [])[0], id: 'tool-1', arguments: structuredArguments };
+      const second = { ...first, id: 'tool-2' };
+      const twoRuntime = { ...runtime, tools: [first, second] } as typeof runtime;
+      completeEachCall(twoRuntime);
+      runWorkspaceToolSpy.mockResolvedValue({ text: 'created', readOnly: false, touchedParents: [] });
+      render(<Live initial={twoRuntime} onNeedsDecisionChange={vi.fn()} />, {
+        wrapper: MemoryRouter,
+      });
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledTimes(4);
+      });
+      const operations = client.execute.mock.calls.map(
+        (call) => (call[0] as { body: { operation: string; toolId: string } }).body,
+      );
+      expect(operations.map((body) => `${body.operation}:${body.toolId}`)).toEqual([
+        'tool_claim:tool-1',
+        'tool_result:tool-1',
+        'tool_claim:tool-2',
+        'tool_result:tool-2',
+      ]);
+      expect(runWorkspaceToolSpy).toHaveBeenCalledTimes(2);
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ toolId: 'tool-1', fence: '|' });
+      expect(runWorkspaceToolSpy.mock.calls[1]?.[4]).toMatchObject({ toolId: 'tool-2', fence: '|' });
+    });
+
+    it('leaves a write that was already waiting when the switch went on to the owner', async () => {
+      const structuredRuntime = withArguments(structuredArguments);
+      const onNeedsDecisionChange = vi.fn();
+      render(
+        <Live
+          initial={structuredRuntime}
+          onNeedsDecisionChange={onNeedsDecisionChange}
+          exempt={['tool-1']}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      expect(await screen.findByRole('button', { name: 'Approve request' })).toBeEnabled();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(client.execute).not.toHaveBeenCalled();
+    });
+
+    it('keeps a write that would store a link to another host waiting for a click', async () => {
+      const linkRuntime = withArguments(
+        JSON.stringify({
+          operation: 'create_note',
+          title: 'Plan',
+          markdown: 'See ![](https://example.test/p?d=secret)',
+          itemId: '',
+          parentId: '',
+          query: '',
+          propertiesJson: '',
+        }),
+      );
+      const onNeedsDecisionChange = vi.fn();
+      render(<Live initial={linkRuntime} onNeedsDecisionChange={onNeedsDecisionChange} />, {
+        wrapper: MemoryRouter,
+      });
+      expect(await screen.findByRole('button', { name: 'Approve request' })).toBeEnabled();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(client.execute).not.toHaveBeenCalled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    });
+
+    it('keeps a trash request waiting for a click', async () => {
+      const itemId = '33333333-3333-4333-8333-333333333333';
+      client.query.mockResolvedValue({
+        id: itemId,
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        parentId: null,
+        title: 'Old plan',
+        type: 'note',
+        hasChildren: false,
+        properties: {},
+      });
+      const trashRuntime = withArguments(
+        JSON.stringify({
+          operation: 'trash_item',
+          itemId,
+          parentId: '',
+          title: '',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+        }),
+      );
+      const onNeedsDecisionChange = vi.fn();
+      render(<Live initial={trashRuntime} onNeedsDecisionChange={onNeedsDecisionChange} />, {
+        wrapper: MemoryRouter,
+      });
+      expect(await screen.findByRole('button', { name: 'Approve request' })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(client.execute).not.toHaveBeenCalled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    });
+
+    it('never runs a write whose preview failed to load, and still counts it as needing a decision', async () => {
+      client.query.mockRejectedValue(new Error('offline'));
+      const renameRuntime = withArguments(
+        JSON.stringify({
+          operation: 'rename_item',
+          itemId: '33333333-3333-4333-8333-333333333333',
+          parentId: '',
+          title: 'New name',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+        }),
+      );
+      const onNeedsDecisionChange = vi.fn();
+      render(<Live initial={renameRuntime} onNeedsDecisionChange={onNeedsDecisionChange} />, {
+        wrapper: MemoryRouter,
+      });
+      expect(
+        await screen.findByText('The preview could not be loaded. Decline and ask the pet to try again.'),
+      ).toBeVisible();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(client.execute).not.toHaveBeenCalled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
     });
   });
 });
