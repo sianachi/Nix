@@ -223,8 +223,13 @@ export function Conversation({
   const panelHeading = useRef<HTMLDivElement | null>(null);
   const menuTrigger = useRef<{ current: HTMLButtonElement | null } | null>(null);
   const narrationPending = useRef(false);
+  // Owner decision 2026-10-08: a finished reply is read aloud only when it was asked for - the
+  // message was dictated, or "Read aloud" is pressed on the reply. A typed message gets a
+  // silent reply even with narration on. Set by dictation, cleared when the message is sent.
+  const dictated = useRef(false);
   const voice = usePetVoice((text) => {
     setDraft(`${draft}${draft ? ' ' : ''}${text}`.slice(0, 8000));
+    dictated.current = true;
     regenerateRequestId();
   }, client);
   const messages = runtime?.messages ?? [];
@@ -479,7 +484,8 @@ export function Conversation({
       ...(shared ? { itemId: shared.itemId, sharedText: shared.sharedText } : {}),
     });
     if (ok) {
-      narrationPending.current = true;
+      narrationPending.current = dictated.current;
+      dictated.current = false;
       setDraft('');
       setShared(null);
     }
