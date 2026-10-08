@@ -15,12 +15,19 @@ function emptyAsyncIterable<T>(): AsyncIterable<T> {
   };
 }
 
+export interface FakeBodies {
+  read: ReturnType<typeof vi.fn>;
+  append: ReturnType<typeof vi.fn>;
+  planEdit: ReturnType<typeof vi.fn>;
+  applyEdit: ReturnType<typeof vi.fn>;
+}
+
 export interface FakePorts {
   ports: CompanionPorts;
   query: ReturnType<typeof vi.fn>;
   execute: ReturnType<typeof vi.fn>;
   paginate: ReturnType<typeof vi.fn>;
-  bodies: { read: ReturnType<typeof vi.fn>; append: ReturnType<typeof vi.fn> };
+  bodies: FakeBodies;
   signal: AbortSignal;
 }
 
@@ -32,7 +39,12 @@ export function createFakePorts(overrides?: FakePortOverrides): FakePorts {
   const execute = vi.fn().mockResolvedValue(undefined);
   const paginate = vi.fn(() => emptyAsyncIterable());
   const client = { query, execute, paginate } as unknown as NixClient;
-  const bodies: CompanionBodies = { read: vi.fn(), append: vi.fn() };
+  const bodies: CompanionBodies = {
+    read: vi.fn(),
+    append: vi.fn(),
+    planEdit: vi.fn(),
+    applyEdit: vi.fn(),
+  };
   const clock: CompanionClock = {
     today: () => '2026-09-25',
     timeZone: () => 'Europe/London',
@@ -55,7 +67,7 @@ export function createFakePorts(overrides?: FakePortOverrides): FakePorts {
     query,
     execute,
     paginate,
-    bodies: bodies as { read: ReturnType<typeof vi.fn>; append: ReturnType<typeof vi.fn> },
+    bodies: bodies as unknown as FakeBodies,
     signal: new AbortController().signal,
   };
 }
