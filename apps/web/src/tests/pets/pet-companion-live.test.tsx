@@ -66,14 +66,13 @@ describe('companion live wiring', () => {
       ...base,
       state: 'thinking',
       messages: [
-        { id: 'turn-1', role: 'user', text: 'First request', actions: [] },
-        { id: 'turn-1:assistant', role: 'assistant', text: 'First reply', actions: [] },
-        { id: 'turn-2', role: 'user', text: 'Second request', actions: [] },
+        { id: 'turn-1', role: 'user', text: 'First request' },
+        { id: 'turn-1:assistant', role: 'assistant', text: 'First reply' },
+        { id: 'turn-2', role: 'user', text: 'Second request' },
         {
           id: 'turn-2:commentary:aaaa',
           role: 'assistant',
           text: 'Looking into it.',
-          actions: [],
         },
       ],
       tools: [
@@ -118,12 +117,11 @@ describe('companion live wiring', () => {
       ...base,
       state: 'thinking',
       messages: [
-        { id: 'turn-3', role: 'user', text: 'Draft this for me', actions: [] },
+        { id: 'turn-3', role: 'user', text: 'Draft this for me' },
         {
           id: 'turn-3:draft:bbbb',
           role: 'assistant',
           text: 'Here is the start of a reply',
-          actions: [],
         },
       ],
       tools: [],
@@ -143,7 +141,7 @@ describe('companion live wiring', () => {
     client.query.mockResolvedValue({
       ...base,
       state: 'success',
-      messages: [{ id: 'turn-4', role: 'user', text: 'Create a note', actions: [] }],
+      messages: [{ id: 'turn-4', role: 'user', text: 'Create a note' }],
       tools: [
         {
           id: 'tool-4',
@@ -186,7 +184,7 @@ describe('companion live wiring', () => {
     client.query.mockResolvedValue({
       ...base,
       state: 'success',
-      messages: [{ id: 'turn-4', role: 'user', text: 'Create a note', actions: [] }],
+      messages: [{ id: 'turn-4', role: 'user', text: 'Create a note' }],
       tools: [
         {
           id: 'tool-4',
@@ -234,15 +232,15 @@ describe('companion live wiring', () => {
       .mockResolvedValueOnce({
         ...base,
         state: 'thinking',
-        messages: [{ id: 'turn-5', role: 'user', text: 'Plan my week', actions: [] }],
+        messages: [{ id: 'turn-5', role: 'user', text: 'Plan my week' }],
         tools: [],
       })
       .mockResolvedValue({
         ...base,
         state: 'success',
         messages: [
-          { id: 'turn-5', role: 'user', text: 'Plan my week', actions: [] },
-          { id: 'turn-5:assistant', role: 'assistant', text: 'Here is your week.', actions: [] },
+          { id: 'turn-5', role: 'user', text: 'Plan my week' },
+          { id: 'turn-5:assistant', role: 'assistant', text: 'Here is your week.' },
         ],
         tools: [],
       });

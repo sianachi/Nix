@@ -90,9 +90,7 @@ describe('pet eval', () => {
           if (reads === 1)
             return HttpResponse.json(
               connection({
-                messages: [
-                  { id: 'q-1', role: 'assistant', text: 'What is your goal?', actions: [] },
-                ],
+                messages: [{ id: 'q-1', role: 'assistant', text: 'What is your goal?' }],
               }),
             );
           return HttpResponse.json(connection({ tools: [build] }));
@@ -191,7 +189,6 @@ describe('pet eval', () => {
                   id: `q-${String(question)}`,
                   role: 'assistant',
                   text: 'Any other goal?',
-                  actions: [],
                 },
               ],
             }),
@@ -220,7 +217,6 @@ describe('pet eval', () => {
                   id: 'a-1',
                   role: 'assistant',
                   text: 'Use the existing Finances view for accounts and transactions.',
-                  actions: [],
                 },
               ],
             }),

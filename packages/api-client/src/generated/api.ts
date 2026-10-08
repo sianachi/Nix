@@ -3878,11 +3878,6 @@ export interface components {
       /** Format: date-time */
       completedAt: null | string;
     };
-    PetAction: {
-      kind: string;
-      itemId: string;
-      title: string;
-    };
     PetConnectionResponse: {
       provider: string;
       status: string;
@@ -3927,7 +3922,6 @@ export interface components {
       id: string;
       role: string;
       text: string;
-      actions: components['schemas']['PetAction'][];
     };
     PetModel: {
       id: string;
@@ -3971,6 +3965,11 @@ export interface components {
       historyId?: null | string;
       /** @default  */
       mode: string;
+      /** @default  */
+      today: string;
+      /** @default  */
+      timeZone: string;
+      workspaceMap?: null | components['schemas']['PetWorkspaceMapEntry'][];
     };
     PetSettings: {
       enabled: boolean;
@@ -3993,6 +3992,13 @@ export interface components {
       status: string;
       result: string;
       claimId: string;
+    };
+    PetWorkspaceMapEntry: {
+      /** Format: uuid */
+      id: string;
+      title: string;
+      type: string;
+      viewKinds?: null | string[];
     };
     PluginComponentRegistrationRequest: {
       publisherId: string;

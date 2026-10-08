@@ -61,10 +61,12 @@ func TestChatRulesDescribeBodyEditsButNeverWholeBodyReplace(t *testing.T) {
 	}
 }
 
-// TestBaseRulesExplainTurnContextAndNewTools pins the one sentence each for nix_read_calendar
-// and nix_complete_task, in the rules every mode shares.
+// TestBaseRulesExplainTurnContextAndNewTools pins the B.1 and B.2 rule sentences and the one
+// sentence each for nix_read_calendar and nix_complete_task, in the rules every mode shares.
 func TestBaseRulesExplainTurnContextAndNewTools(t *testing.T) {
 	for _, phrase := range []string{
+		"today and timeZone are the owner's; use them for relative dates",
+		"workspaceMap lists the main containers; use its ids directly, and call nix_list_items only to go deeper",
 		"nix_read_calendar",
 		"nix_complete_task",
 	} {

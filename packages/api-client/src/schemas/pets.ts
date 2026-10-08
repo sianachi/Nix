@@ -32,22 +32,12 @@ export const petSettingsResponseSchema = z.object({
   settings: petSettingsSchema,
 });
 
-export const petActionSchema = z
-  .object({
-    kind: z.enum(['rename_item', 'create_item']),
-    itemId: z.string(),
-    title: z.string().min(1).max(240),
-  })
-  .refine(
-    (action) => action.kind === 'create_item' || z.uuid().safeParse(action.itemId).success,
-    'A rename requires a valid item identity.',
-  );
-
+/** One conversation message. A change the pet proposes is a tool call (`tools` below) with its
+ * own approval card, never something a message carries. */
 export const petMessageSchema = z.object({
   id: z.string().min(1).max(80),
   role: z.enum(['user', 'assistant', 'system']),
   text: z.string().max(32000),
-  actions: z.array(petActionSchema).max(5),
 });
 
 export const petConnectionSchema = z.object({
@@ -91,6 +81,5 @@ export type PetProfile = z.infer<typeof petProfileSchema>;
 export type PetSettings = z.infer<typeof petSettingsSchema>;
 export type PetSettingsResponse = z.infer<typeof petSettingsResponseSchema>;
 export type PetConnection = z.infer<typeof petConnectionSchema>;
-export type PetAction = z.infer<typeof petActionSchema>;
 export type PetMessage = z.infer<typeof petMessageSchema>;
 export type PetToolCall = NonNullable<z.infer<typeof petConnectionSchema>['tools']>[number];

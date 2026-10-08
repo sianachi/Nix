@@ -102,12 +102,11 @@ describe('companion on a phone', () => {
       ...connected,
       revision: 1,
       messages: [
-        { id: 'phone-user', role: 'user', text: 'Help me plan a calmer week.', actions: [] },
+        { id: 'phone-user', role: 'user', text: 'Help me plan a calmer week.' },
         {
           id: 'phone-reply',
           role: 'assistant',
           text: 'Choose one priority for each day, leave a break between commitments, and keep a little room for the unexpected.',
-          actions: [],
         },
       ],
     });

@@ -15438,25 +15438,6 @@
           }
         }
       },
-      "PetAction": {
-        "required": [
-          "kind",
-          "itemId",
-          "title"
-        ],
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string"
-          },
-          "itemId": {
-            "type": "string"
-          },
-          "title": {
-            "type": "string"
-          }
-        }
-      },
       "PetConnectionResponse": {
         "required": [
           "provider",
@@ -15614,8 +15595,7 @@
         "required": [
           "id",
           "role",
-          "text",
-          "actions"
+          "text"
         ],
         "type": "object",
         "properties": {
@@ -15627,12 +15607,6 @@
           },
           "text": {
             "type": "string"
-          },
-          "actions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PetAction"
-            }
           }
         }
       },
@@ -15762,6 +15736,23 @@
           "mode": {
             "type": "string",
             "default": ""
+          },
+          "today": {
+            "type": "string",
+            "default": ""
+          },
+          "timeZone": {
+            "type": "string",
+            "default": ""
+          },
+          "workspaceMap": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PetWorkspaceMapEntry"
+            }
           }
         }
       },
@@ -15847,6 +15838,35 @@
           },
           "claimId": {
             "type": "string"
+          }
+        }
+      },
+      "PetWorkspaceMapEntry": {
+        "required": [
+          "id",
+          "title",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "viewKinds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

@@ -51,19 +51,34 @@ type Request struct {
 	// After is the client's last known conversation revision. Only "watch" uses it: the
 	// operation waits for a change past this revision instead of returning immediately.
 	After int64 `json:"after"`
+	// Today (yyyy-MM-dd in the owner's zone) and TimeZone (IANA) come with every send so the
+	// model can resolve "tomorrow" or "this Friday" without guessing. Either may be empty.
+	Today    string `json:"today"`
+	TimeZone string `json:"timeZone"`
+	// WorkspaceMap is the web client's view of the workspace's main containers, sent with a
+	// conversation's first message. It reaches the prompt only on a turn that starts a new
+	// thread; later turns rely on the thread's own history.
+	WorkspaceMap []WorkspaceMapEntry `json:"workspaceMap"`
 }
 
-type Action struct {
-	Kind   string `json:"kind"`
-	ItemID string `json:"itemId"`
-	Title  string `json:"title"`
+// WorkspaceMapEntry is one container the owner can see: its identity, title, body type and the
+// kinds of view it offers. ViewKinds is empty when the client did not know them.
+type WorkspaceMapEntry struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Type      string   `json:"type"`
+	ViewKinds []string `json:"viewKinds,omitempty"`
 }
 
+// maxWorkspaceMapEntries bounds WorkspaceMap; Core enforces the same bound on the way in.
+const maxWorkspaceMapEntries = 40
+
+// Message is one conversation message. Proposed changes no longer ride on a message: every
+// change the pet makes is a typed tool call (tools.go) with its own approval card.
 type Message struct {
-	ID      string   `json:"id"`
-	Role    string   `json:"role"`
-	Text    string   `json:"text"`
-	Actions []Action `json:"actions"`
+	ID   string `json:"id"`
+	Role string `json:"role"`
+	Text string `json:"text"`
 }
 
 type Response struct {
@@ -340,10 +355,39 @@ func validRequest(r Request) bool {
 	case "status", "connect", "disconnect", "models":
 		return true
 	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
-		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && len(r.Text) <= 8000 && len(r.SharedText) <= 16000 && len(r.Instructions) <= 4000 && len(r.Model) <= 160 && len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
+		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && validTurnContext(r) && len(r.Text) <= 8000 && len(r.SharedText) <= 16000 && len(r.Instructions) <= 4000 && len(r.Model) <= 160 && len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
 	}
+}
+
+var timeZoneName = regexp.MustCompile(`^[A-Za-z0-9_+\-/]{1,64}$`)
+
+// validTurnContext bounds the date, zone and workspace map a request may carry. Core validates
+// the same limits first; this is the worker refusing to trust its one caller blindly.
+func validTurnContext(r Request) bool {
+	if r.Today != "" {
+		if _, err := time.Parse(time.DateOnly, r.Today); err != nil {
+			return false
+		}
+	}
+	if r.TimeZone != "" && !timeZoneName.MatchString(r.TimeZone) {
+		return false
+	}
+	if len(r.WorkspaceMap) > maxWorkspaceMapEntries {
+		return false
+	}
+	for _, entry := range r.WorkspaceMap {
+		if !uuid.MatchString(entry.ID) || len(entry.Title) > 240 || len(entry.Type) > 64 || len(entry.ViewKinds) > 12 {
+			return false
+		}
+		for _, kind := range entry.ViewKinds {
+			if len(kind) > 40 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (a *account) handle(ctx context.Context, r Request) (Response, error) {
@@ -661,13 +705,13 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		return errors.New("invalid thread response")
 	}
 	thread = started.Thread.ID
-	prompt, _ := json.Marshal(map[string]any{"message": r.Text, "workspaceId": r.WorkspaceID, "currentItemId": r.ItemID, "currentItemTitle": r.ItemTitle, "sharedText": r.SharedText, "workspaceAccess": r.WorkspaceAccess})
+	prompt, _ := json.Marshal(turnPrompt(r, method == "thread/start"))
 	a.mu.Lock()
 	// A stale, previously used conversation (not a first-ever one, which has no thread
 	// and ToolVersion 0) that is only now catching up to the current tool version had
 	// its thread dropped above; tell the user before replacing their state below.
 	if c.ThreadID != "" && c.ToolVersion != 0 && c.ToolVersion != toolVersion {
-		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":tools", Role: "system", Text: "Your pet was updated and starts a fresh conversation.", Actions: []Action{}})
+		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":tools", Role: "system", Text: "Your pet was updated and starts a fresh conversation."})
 	}
 	c.ThreadID = thread
 	c.ToolVersion = toolVersion
@@ -678,7 +722,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.WorkspaceAccess = r.WorkspaceAccess
 	c.Tools = []ToolCall{}
 	c.timing.start(r.Model, "")
-	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text, Actions: []Action{}})
+	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text})
 	c.Messages = trimMessages(c.Messages, 16)
 	err = a.saveLocked(key)
 	a.mu.Unlock()
@@ -723,6 +767,17 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.TurnID = turn.Turn.ID
 	a.mu.Unlock()
 	return nil
+}
+
+// turnPrompt is the JSON object one user turn sends the model. today and timeZone ride on every
+// turn; workspaceMap only on a turn that starts a new thread, since a resumed thread already holds
+// it in its history and resending it every turn would only spend context.
+func turnPrompt(r Request, newThread bool) map[string]any {
+	prompt := map[string]any{"message": r.Text, "workspaceId": r.WorkspaceID, "currentItemId": r.ItemID, "currentItemTitle": r.ItemTitle, "sharedText": r.SharedText, "workspaceAccess": r.WorkspaceAccess, "today": r.Today, "timeZone": r.TimeZone}
+	if newThread && len(r.WorkspaceMap) > 0 {
+		prompt["workspaceMap"] = r.WorkspaceMap
+	}
+	return prompt
 }
 
 func (a *account) notify(method string, raw json.RawMessage) {
@@ -819,7 +874,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 				}
 			}
 			if !seen {
-				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: text, Actions: []Action{}})
+				c.Messages = append(c.Messages, Message{ID: id, Role: "assistant", Text: text})
 				c.Messages = trimMessages(c.Messages, 40)
 				_ = a.saveLocked(key)
 			}
@@ -831,7 +886,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			// (the model answering a JSON-shaped question, say) is used exactly as written,
 			// never unwrapped.
 			text := p.Item.Text
-			c.Messages = append(c.Messages, Message{ID: c.RequestID + ":assistant", Role: "assistant", Text: truncateUTF8(text, 32000), Actions: []Action{}})
+			c.Messages = append(c.Messages, Message{ID: c.RequestID + ":assistant", Role: "assistant", Text: truncateUTF8(text, 32000)})
 			a.bumpLocked(c)
 		}
 		if method == "turn/completed" {

@@ -36,22 +36,34 @@ public sealed record PetModel(string Id, string Name, bool Default);
 /// <summary>A bounded tool request and its private execution receipt.</summary>
 public sealed record PetToolCall(string Id, string Arguments, string Status, string Result, string ClaimId);
 
-/// <summary>A proposed, never automatically executed workspace change.</summary>
-public sealed record PetAction(string Kind, string ItemId, string Title);
+/// <summary>One private conversation message. Changes the pet proposes are tool calls, never part of a message.</summary>
+public sealed record PetMessage(string Id, string Role, string Text);
 
-/// <summary>One private conversation message.</summary>
-public sealed record PetMessage(string Id, string Role, string Text, IReadOnlyList<PetAction> Actions);
+/// <summary>One container in the map a conversation's first message carries.</summary>
+/// <param name="Id">The container item.</param>
+/// <param name="Title">Its title (240 characters at most).</param>
+/// <param name="Type">Its body type (64 characters at most).</param>
+/// <param name="ViewKinds">The view kinds it offers, when the client knows them (12 at most, 40 characters each).</param>
+public sealed record PetWorkspaceMapEntry(Guid Id, string Title, string Type, IReadOnlyList<string>? ViewKinds = null);
 
 /// <summary>Companion operation. Identity and permissions are always derived by Core.</summary>
+/// <remarks>
+/// <c>Today</c> (yyyy-MM-dd in the owner's zone) and <c>TimeZone</c> (an IANA name) let the model
+/// resolve relative dates; <c>WorkspaceMap</c> (at most 40 containers) is sent with a
+/// conversation's first message only. All three are the client's own view, passed to the model
+/// as context and never used for an authorization decision; every tool the model calls is still
+/// checked against the caller's permissions.
+/// </remarks>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
-    string Mode = "");
+    string Mode = "", string Today = "", string TimeZone = "", IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap = null);
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,
     string ItemId, string ItemTitle, string SharedText, string Model, bool WorkspaceAccess,
-    string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode, long After);
+    string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode, long After,
+    string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap);
 
 /// <summary>One inline writing request from the editor: the person's selection and what to do with it.</summary>
 /// <param name="WorkspaceId">The workspace the item is in.</param>

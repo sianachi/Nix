@@ -311,6 +311,35 @@ describe('usePetRuntime errorKind and retryWatch', () => {
     expect(sendBodies[0]?.requestId).toBe(sendBodies[1]?.requestId);
   });
 
+  it("sends the owner's day and zone with every message, and a workspace map only when given", async () => {
+    client.query.mockResolvedValue(connection());
+    vi.setSystemTime(new Date('2026-10-09T12:00:00Z'));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const map = [{ id: WORKSPACE_ID, title: 'Tasks', type: 'note', viewKinds: ['board'] }];
+    await act(async () => {
+      await result.current.send({
+        text: 'hi',
+        model: '',
+        workspaceAccess: true,
+        workspaceMap: map,
+      });
+    });
+    await act(async () => {
+      await result.current.send({ text: 'and then?', model: '', workspaceAccess: true });
+    });
+    const sendBodies = client.execute.mock.calls
+      .map(([endpoint]) => (endpoint as { body?: Record<string, unknown> }).body)
+      .filter((body) => body?.operation === 'send');
+    expect(sendBodies).toHaveLength(2);
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    for (const body of sendBodies) {
+      expect(body?.timeZone).toBe(zone);
+      expect(body?.today).toMatch(/^2026-10-(08|09|10)$/);
+    }
+    expect(sendBodies[0]?.workspaceMap).toEqual([{ ...map[0], viewKinds: ['board'] }]);
+    expect(sendBodies[1]?.workspaceMap).toBeNull();
+  });
+
   it('ignores a setRuntime call bound to a stale generation once the mode has moved on', async () => {
     client.query.mockResolvedValue(connection());
     const { result, rerender } = renderHook(

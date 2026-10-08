@@ -49,7 +49,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             || request.Model is null || request.Model.Length > 160 || request.ToolId is null || request.ToolId.Length > 200
             || request.ToolResult is null || request.ToolResult.Length > 32000
             || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0)
-            || request.Mode is null || request.Mode is not ("" or "chat" or "consult"))
+            || request.Mode is null || request.Mode is not ("" or "chat" or "consult")
+            || !IsValidTurnContext(request))
         {
             return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Check the message and try again."));
         }
@@ -121,7 +122,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
-            request.Mode, after), PetJsonContext.Default.PetWorkerRequest);
+            request.Mode, after, request.Today, request.TimeZone, request.WorkspaceMap), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
@@ -173,6 +174,41 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             ApiLog.PetWorkerFailed(log, request.Operation, exception.GetType().Name, "pets.unavailable");
             return Result.Failure<PetConnectionResponse>(new("pets.unavailable", "The companion is unreachable. Check the existing worker and try again."));
         }
+    }
+
+    /// <summary>The most containers a conversation's first message may describe.</summary>
+    internal const int MaxWorkspaceMapEntries = 40;
+
+    /// <summary>Bounds the date, zone and workspace map a request carries. The map is accepted on a
+    /// send only: no other operation starts a turn, so on any other it would be dead weight.</summary>
+    private static bool IsValidTurnContext(PetRuntimeRequest request)
+    {
+        if (request.Today is null || request.TimeZone is null)
+        {
+            return false;
+        }
+
+        if (request.Today.Length > 0 && !DateOnly.TryParseExact(request.Today, "yyyy-MM-dd",
+                System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _))
+        {
+            return false;
+        }
+
+        if (request.TimeZone.Length > 64 || request.TimeZone.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '_' or '+' or '-' or '/')))
+        {
+            return false;
+        }
+
+        var map = request.WorkspaceMap;
+        if (map is null)
+        {
+            return true;
+        }
+
+        return request.Operation == "send" && map.Count <= MaxWorkspaceMapEntries
+            && map.All(entry => entry is not null && entry.Id != Guid.Empty
+                && entry.Title is { Length: <= 240 } && entry.Type is { Length: <= 64 }
+                && (entry.ViewKinds is null || entry.ViewKinds.Count <= 12 && entry.ViewKinds.All(kind => kind is { Length: <= 40 })));
     }
 
     /// <summary>Opens the worker's inline stream and hands back the response, headers read and body unread.</summary>

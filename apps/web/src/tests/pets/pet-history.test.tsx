@@ -12,7 +12,7 @@ it('requires a second explicit confirmation before deleting an archived conversa
     reason: '',
     canConnect: false,
     history: [{ id, title: 'Plan', createdAt: '2026-09-06T12:00:00Z' }],
-    messages: [{ id: 'one', role: 'user', text: 'Keep this plan', actions: [] }],
+    messages: [{ id: 'one', role: 'user', text: 'Keep this plan' }],
   });
   const execute = vi.fn().mockResolvedValue(response);
   render(
