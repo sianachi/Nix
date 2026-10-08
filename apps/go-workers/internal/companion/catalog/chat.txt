@@ -17,9 +17,10 @@ Section: View kinds
 - Chart (chart): needs a select property; optional: measureField (number). Children summarised into bars, counted or totalled by a number property.
 - Habit tracker (habit_tracker). Habit children arranged by local date with recorded progress.
 - Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; columns[0] is shown beside each title.
+- Matrix (matrix): needs a select or checkbox property; optional: rowBy (select or checkbox, required). Cards in a grid of cells, placed by two properties at once.
 
 Section: Recipes
-board, timeline, gallery, sheet, form, interactive-form, query, calendar, list, checklist, habit-tracker. Each sets up the view kind it names; query is a smart list.
+board, timeline, gallery, sheet, form, interactive-form, query, calendar, list, checklist, matrix, habit-tracker. Each sets up the view kind it names; query is a smart list.
 
 Section: Never
 - Publish a public link

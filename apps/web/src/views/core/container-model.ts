@@ -281,6 +281,12 @@ export const ViewSchema = z.object({
    * server from before the field answers views without it.
    */
   doneProperty: z.string().nullable().default(null),
+
+  /**
+   * For a matrix: the select or checkbox property whose values become its rows. Its columns are
+   * `groupBy`, the board's own field, so a board switched to a matrix keeps them.
+   */
+  rowBy: z.string().nullable().default(null),
 });
 
 type ParsedView = z.infer<typeof ViewSchema>;
@@ -308,6 +314,7 @@ export type View = Omit<
   | 'groupLimits'
   | 'aggregates'
   | 'doneProperty'
+  | 'rowBy'
 > &
   Partial<
     Pick<
@@ -323,6 +330,7 @@ export type View = Omit<
       | 'groupLimits'
       | 'aggregates'
       | 'doneProperty'
+      | 'rowBy'
     >
   > & {};
 
@@ -344,6 +352,7 @@ export function toViewRequest(view: View): ParsedView {
     groupLimits: [...(view.groupLimits ?? [])],
     aggregates: [...(view.aggregates ?? [])],
     doneProperty: view.doneProperty ?? null,
+    rowBy: view.rowBy ?? null,
   };
 }
 

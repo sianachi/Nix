@@ -131,4 +131,5 @@ export interface StructureView {
   companionPlacement?: 'below' | 'beside' | null;
   interactiveForm?: StructureForm | null;
   doneProperty?: string | null;
+  rowBy?: string | null;
 }

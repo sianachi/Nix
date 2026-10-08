@@ -48,7 +48,8 @@ internal static class ViewMapping
                 : [.. view.Aggregates.Select(aggregate => new ViewAggregateContract(aggregate.Property, aggregate.Function))],
             view.HabitWidgets.IsDefaultOrEmpty ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetContract(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))],
             view.Layout,
-            view.DoneProperty);
+            view.DoneProperty,
+            view.RowBy);
     }
 
     /// <summary>
@@ -134,7 +135,8 @@ internal static class ViewMapping
                     view.Aggregates is null
                         ? []
                         : [.. view.Aggregates.Select(aggregate => new ViewAggregate(aggregate.Property, aggregate.Function))],
-                    view.DoneProperty)));
+                    view.DoneProperty,
+                    view.RowBy)));
         }
 
         views = mapped.ToImmutable();

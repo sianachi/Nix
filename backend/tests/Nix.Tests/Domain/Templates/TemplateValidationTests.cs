@@ -121,6 +121,56 @@ public sealed class TemplateValidationTests
         Assert.Null(reason);
     }
 
+    [Fact]
+    public void A_list_sectioned_by_a_checkbox_or_by_kind_and_a_matrix_pass_strict_validation()
+    {
+        // Lists and matrices take the wider section predicate, and a list's `$type` names each
+        // item's body kind rather than a property, so neither is "undeclared" in the schema.
+        var schema = new PropertySchema
+        {
+            Properties =
+            [
+                new PropertyDefinition("done", "Done", PropertyType.Checkbox, [], Required: false),
+                new PropertyDefinition("status", "Status", PropertyType.Select, ["Open"], Required: false),
+            ],
+            Inherit = true,
+        };
+        var views = new StoredViews(
+            [
+                new ViewDefinition("a", "By done", ViewKind.List, [], "done", [], null, null, false, Filters: []),
+                new ViewDefinition("b", "By kind", ViewKind.List, [], "$type", [], null, null, false, Filters: []),
+                new ViewDefinition("c", "Grid", ViewKind.Matrix, [], "status", [], null, null, false, Filters: [], RowBy: "done"),
+            ],
+            null);
+
+        Assert.Null(new TemplateDefinitionValidator().ValidateViewDependencies(schema, views));
+    }
+
+    [Fact]
+    public void A_board_by_a_checkbox_and_a_matrix_with_free_text_rows_fail_strict_validation()
+    {
+        var schema = new PropertySchema
+        {
+            Properties =
+            [
+                new PropertyDefinition("done", "Done", PropertyType.Checkbox, [], Required: false),
+                new PropertyDefinition("status", "Status", PropertyType.Select, ["Open"], Required: false),
+                new PropertyDefinition("notes", "Notes", PropertyType.Text, [], Required: false),
+            ],
+            Inherit = true,
+        };
+        var validator = new TemplateDefinitionValidator();
+
+        Assert.NotNull(validator.ValidateViewDependencies(
+            schema,
+            new StoredViews([new ViewDefinition("a", "Board", ViewKind.Board, [], "done", [], null, null, false)], null)));
+        Assert.NotNull(validator.ValidateViewDependencies(
+            schema,
+            new StoredViews(
+                [new ViewDefinition("c", "Grid", ViewKind.Matrix, [], "status", [], null, null, false, RowBy: "notes")],
+                null)));
+    }
+
     private static StoredViews CompanionWithDanglingColumn() =>
         new(
             [

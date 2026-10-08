@@ -417,6 +417,21 @@ public static class PropertyTypes
     /// </remarks>
     public static bool CanGroupBy(this PropertyType type) => type is PropertyType.Select;
 
+    /// <summary>
+    /// Whether a list may draw sections, or a matrix may lay out an axis, by this type.
+    /// </summary>
+    /// <param name="type">The type.</param>
+    /// <returns><see langword="true"/> for a single select or anything checkbox-shaped.</returns>
+    /// <remarks>
+    /// Wider than <see cref="CanGroupBy"/> on purpose: a section heading and a matrix cell already
+    /// draw a checkbox's two values, while a board's columns stay select-only until the board can
+    /// draw the other shapes (ADR-0054). Each type here gives a small closed set of groups - the
+    /// options plus "no value", or yes and no. The web's counterpart is <c>canSectionBy</c> in
+    /// <c>packages/structure-spec</c>; the catalog parity test holds the matrix requirement to it.
+    /// </remarks>
+    public static bool CanSectionBy(this PropertyType type) =>
+        type is PropertyType.Select or PropertyType.Checkbox or PropertyType.Completion;
+
     /// <summary>Whether a chart may bucket its bars by this type.</summary>
     /// <param name="type">The type.</param>
     /// <returns><see langword="true"/> for a single select.</returns>

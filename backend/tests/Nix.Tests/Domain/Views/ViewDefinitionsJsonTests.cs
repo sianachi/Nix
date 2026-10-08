@@ -187,6 +187,33 @@ public sealed class ViewDefinitionsJsonTests
     }
 
     [Fact]
+    public void A_matrix_stores_its_rows_beside_the_board_field_its_columns_use()
+    {
+        var matrix = new ViewDefinition(
+            "v1",
+            "Priorities",
+            ViewKind.Matrix,
+            [],
+            "urgency",
+            [],
+            null,
+            null,
+            false,
+            RowBy: "importance");
+
+        var json = ViewDefinitionsJson.Write([matrix])!;
+        var entry = Assert.IsType<JsonObject>(
+            Assert.IsType<JsonArray>(Assert.IsType<JsonObject>(JsonNode.Parse(json))["views"])[0]);
+
+        Assert.Equal("matrix", (string?)entry["kind"]);
+        Assert.Equal("urgency", (string?)entry["groupBy"]);
+        Assert.Equal("importance", (string?)entry["rowBy"]);
+        var read = Assert.Single(ReadViews(json));
+        Assert.Equal("importance", read.RowBy);
+        Assert.Equal("urgency", read.GroupBy);
+    }
+
+    [Fact]
     public void A_timeline_that_names_no_end_date_property_is_read_and_kept()
     {
         // Every item on it is a milestone, which is a shape the view draws rather than a

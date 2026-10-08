@@ -33,6 +33,7 @@ const VIEW_KINDS = [
   'chart',
   'habit_tracker',
   'checklist',
+  'matrix',
 ] as const;
 type ViewKind = (typeof VIEW_KINDS)[number];
 
@@ -57,6 +58,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   interactive_form: ['form'],
   habit_tracker: [],
   checklist: ['columns', 'doneProperty'],
+  matrix: ['columns', 'rowBy', 'columnBy'],
 };
 
 const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;
@@ -94,6 +96,8 @@ export const viewSpecSchema = z
     measureField: z.string().min(1).optional(),
     form: formSpecSchema.optional(),
     doneProperty: z.string().min(1).optional(),
+    rowBy: z.string().min(1).optional(),
+    columnBy: z.string().min(1).optional(),
     default: z.boolean().optional(),
     why: z.string().max(200).optional(),
   })

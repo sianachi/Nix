@@ -12,6 +12,7 @@
 /** How a view kind's one required field, if it has one, must be satisfied. */
 export type ViewKindRequirement =
   | { readonly field: 'groupBy'; readonly shape: 'select' }
+  | { readonly field: 'columnBy'; readonly shape: 'select or checkbox' }
   | { readonly field: 'date'; readonly shape: 'date-shaped' }
   | null;
 
@@ -121,6 +122,13 @@ export const VIEW_KIND_RULES = [
     requires: null,
     optional: [{ field: 'doneProperty', shape: 'checkbox' }],
     description: 'A box to tick per child, with progress; columns[0] is shown beside each title.',
+  },
+  {
+    kind: 'matrix',
+    label: 'Matrix',
+    requires: { field: 'columnBy', shape: 'select or checkbox' },
+    optional: [{ field: 'rowBy', shape: 'select or checkbox, required' }],
+    description: 'Cards in a grid of cells, placed by two properties at once.',
   },
 ] as const satisfies readonly ViewKindRule[];
 

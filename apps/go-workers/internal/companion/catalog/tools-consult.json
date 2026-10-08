@@ -297,7 +297,8 @@
                 "gallery",
                 "habit-tracker",
                 "query",
-                "checklist"
+                "checklist",
+                "matrix"
               ]
             },
             "fields": {
@@ -393,7 +394,8 @@
                       "query",
                       "chart",
                       "habit_tracker",
-                      "checklist"
+                      "checklist",
+                      "matrix"
                     ]
                   },
                   "name": {
@@ -643,6 +645,12 @@
                     "additionalProperties": false
                   },
                   "doneProperty": {
+                    "type": "string"
+                  },
+                  "rowBy": {
+                    "type": "string"
+                  },
+                  "columnBy": {
                     "type": "string"
                   },
                   "default": {
@@ -779,7 +787,8 @@
                       "query",
                       "chart",
                       "habit_tracker",
-                      "checklist"
+                      "checklist",
+                      "matrix"
                     ]
                   },
                   "name": {
@@ -1029,6 +1038,12 @@
                     "additionalProperties": false
                   },
                   "doneProperty": {
+                    "type": "string"
+                  },
+                  "rowBy": {
+                    "type": "string"
+                  },
+                  "columnBy": {
                     "type": "string"
                   },
                   "default": {
@@ -1319,7 +1334,8 @@
                           "query",
                           "chart",
                           "habit_tracker",
-                          "checklist"
+                          "checklist",
+                          "matrix"
                         ]
                       },
                       "name": {
@@ -1403,6 +1419,12 @@
                         "type": "string"
                       },
                       "doneProperty": {
+                        "type": "string"
+                      },
+                      "rowBy": {
+                        "type": "string"
+                      },
+                      "columnBy": {
                         "type": "string"
                       },
                       "default": {
@@ -2167,7 +2189,8 @@
                           "query",
                           "chart",
                           "habit_tracker",
-                          "checklist"
+                          "checklist",
+                          "matrix"
                         ]
                       },
                       "name": {
@@ -2251,6 +2274,12 @@
                         "type": "string"
                       },
                       "doneProperty": {
+                        "type": "string"
+                      },
+                      "rowBy": {
+                        "type": "string"
+                      },
+                      "columnBy": {
                         "type": "string"
                       },
                       "default": {

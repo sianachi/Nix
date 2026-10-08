@@ -68,6 +68,12 @@ public static class ViewDefinitionRules
                 return $"'{view.Name}': {requirement.Missing}.";
             }
 
+            if (view.Kind == ViewKind.Matrix && string.IsNullOrEmpty(view.RowBy))
+            {
+                // The second axis the descriptor's one-field requirement cannot name.
+                return $"'{view.Name}': a matrix needs a property for its rows.";
+            }
+
             if (view.Measure is { } measure && !ChartMeasures.IsValid(measure))
             {
                 return $"'{view.Name}': '{measure}' is not a measure a chart can draw; "

@@ -42,6 +42,8 @@ public sealed class ViewDefinitionTests
     [InlineData(ViewKind.Form, "form")]
     [InlineData(ViewKind.Query, "query")]
     [InlineData(ViewKind.Finance, "finance")]
+    [InlineData(ViewKind.Checklist, "checklist")]
+    [InlineData(ViewKind.Matrix, "matrix")]
     public void A_kind_is_stored_under_the_name_the_contract_publishes(ViewKind kind, string name)
     {
         Assert.Equal(name, ViewKinds.ToText(kind));
@@ -189,6 +191,48 @@ public sealed class ViewDefinitionTests
         var board = new ViewDefinition("v1", "Board", ViewKind.Board, [], null, [], null, null, false);
 
         Assert.False(board.CanRender(SchemaOf(Property("status", PropertyType.Select))));
+    }
+
+    [Fact]
+    public void A_matrix_renders_when_both_axes_are_a_select_or_a_checkbox()
+    {
+        // Columns are the board's own GroupBy and rows the matrix's RowBy; both take the wider
+        // section predicate, so a checkbox axis is two rows rather than an unrenderable view.
+        var matrix = Matrix(columns: "urgency", rows: "important");
+
+        Assert.True(matrix.CanRender(SchemaOf(
+            Property("urgency", PropertyType.Select),
+            Property("important", PropertyType.Checkbox))));
+        Assert.True(matrix.CanRender(SchemaOf(
+            Property("urgency", PropertyType.Completion),
+            Property("important", PropertyType.Select))));
+    }
+
+    [Fact]
+    public void A_matrix_whose_rows_are_gone_or_cannot_be_grouped_cannot_render()
+    {
+        // The descriptor's requirement reads one field, the columns; the rows are checked beside it
+        // so a matrix that lost its second axis is reported rather than drawn as one row.
+        var matrix = Matrix(columns: "urgency", rows: "important");
+
+        Assert.False(matrix.CanRender(SchemaOf(Property("urgency", PropertyType.Select))));
+        Assert.False(matrix.CanRender(SchemaOf(
+            Property("urgency", PropertyType.Select),
+            Property("important", PropertyType.Text))));
+        Assert.False(Matrix(columns: "urgency", rows: null)
+            .CanRender(SchemaOf(Property("urgency", PropertyType.Select))));
+    }
+
+    [Fact]
+    public void A_matrix_without_rows_is_refused_on_write()
+    {
+        Assert.Equal(
+            "'Matrix': a matrix needs a property for its rows.",
+            ViewDefinitionRules.Refuse([Matrix(columns: "urgency", rows: null)], null));
+        Assert.Equal(
+            "'Matrix': a matrix needs a property for its columns.",
+            ViewDefinitionRules.Refuse([Matrix(columns: null, rows: "important")], null));
+        Assert.Null(ViewDefinitionRules.Refuse([Matrix(columns: "urgency", rows: "important")], null));
     }
 
     [Fact]
@@ -358,6 +402,9 @@ public sealed class ViewDefinitionTests
             false,
             Mode: null,
             CoverProperty: coverProperty);
+
+    private static ViewDefinition Matrix(string? columns, string? rows) =>
+        new("v1", "Matrix", ViewKind.Matrix, [], columns, [], null, null, false, RowBy: rows);
 
     private static ViewDefinition Board(string groupBy) =>
         new("v1", "Board", ViewKind.Board, [], groupBy, [], null, null, false);
