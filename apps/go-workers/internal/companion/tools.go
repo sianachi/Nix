@@ -64,6 +64,11 @@ type argKind int
 const (
 	argString     argKind = iota // copied verbatim into a flat string field
 	argObjectJSON                // must be a JSON object; marshaled to a canonical JSON string
+	// argSpecField is one scalar (string or boolean) parameter that becomes a key of a specJson
+	// object under its own name: nix_read_calendar's from/to and nix_complete_task's completed.
+	// The flat shape gains no field; packages/structure-spec's SPEC_FIELD_PARAMETERS is the same
+	// list on the TS side.
+	argSpecField
 )
 
 // argMapping names one typed argument's flat field and kind.
@@ -106,6 +111,8 @@ var toolArgSpecs = map[string]map[string]argMapping{
 	"apply_template":     {"templateId": {"itemId", argString}, "title": {"title", argString}, "parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
 	"build_blueprint":    {"blueprint": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
 	"save_as_template":   {"itemId": {"itemId", argString}, "title": {"title", argString}, "spec": {"specJson", argObjectJSON}},
+	"read_calendar":      {"from": {"specJson", argSpecField}, "to": {"specJson", argSpecField}},
+	"complete_task":      {"itemId": {"itemId", argString}, "completed": {"specJson", argSpecField}},
 }
 
 // flattenToolCall translates one typed nix_<operation> call's native-JSON arguments into the
@@ -129,6 +136,7 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 		return nil, fmt.Sprintf("%s requires a JSON object of arguments.", tool)
 	}
 	flat := flatToolArgs{Operation: operation}
+	specFields := map[string]any{}
 	for key, value := range fields {
 		mapping, known := spec[key]
 		if !known {
@@ -157,7 +165,25 @@ func flattenToolCall(tool string, raw json.RawMessage) (json.RawMessage, string)
 			if err := setFlatString(&flat, mapping.flat, string(canonical)); err != nil {
 				return nil, fmt.Sprintf("%s.%s could not be processed.", tool, key)
 			}
+		case argSpecField:
+			var scalar any
+			if json.Unmarshal(value, &scalar) != nil {
+				return nil, fmt.Sprintf("%s.%s must be a string or a boolean.", tool, key)
+			}
+			switch scalar.(type) {
+			case string, bool:
+				specFields[key] = scalar
+			default:
+				return nil, fmt.Sprintf("%s.%s must be a string or a boolean.", tool, key)
+			}
 		}
+	}
+	if len(specFields) > 0 {
+		canonical, err := json.Marshal(specFields)
+		if err != nil {
+			return nil, fmt.Sprintf("%s arguments could not be processed.", tool)
+		}
+		flat.SpecJSON = string(canonical)
 	}
 	encoded, err := json.Marshal(flat)
 	if err != nil {
@@ -427,7 +453,7 @@ func toolIdentity(raw string) (string, bool) {
 		return "", false
 	}
 	operation, _ := args["operation"].(string)
-	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "list_templates" || operation == "read_template" || operation == "validate_blueprint"
+	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "list_templates" || operation == "read_template" || operation == "validate_blueprint" || operation == "read_calendar"
 	if properties, ok := args["propertiesJson"].(string); ok && properties != "" {
 		var object map[string]any
 		decoder := json.NewDecoder(strings.NewReader(properties))
@@ -618,11 +644,44 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 		if strings.TrimSpace(p.Title) == "" {
 			return "nix_save_as_template requires a title."
 		}
+	case "read_calendar":
+		var window struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		}
+		if json.Unmarshal([]byte(p.Spec), &window) != nil {
+			return "nix_read_calendar requires from and to as yyyy-MM-dd days."
+		}
+		from, fromErr := time.Parse(time.DateOnly, window.From)
+		to, toErr := time.Parse(time.DateOnly, window.To)
+		if fromErr != nil || toErr != nil {
+			return "nix_read_calendar requires from and to as yyyy-MM-dd days."
+		}
+		if to.Before(from) {
+			return "nix_read_calendar requires from on or before to."
+		}
+		if to.Sub(from) > (calendarMaxDays-1)*24*time.Hour {
+			return fmt.Sprintf("nix_read_calendar reads at most %d days at a time. Split the range.", calendarMaxDays)
+		}
+	case "complete_task":
+		if !uuid.MatchString(p.ItemID) {
+			return "nix_complete_task requires the exact itemId UUID. Discover it with nix_list_items or nix_search if it is not already known."
+		}
+		var task struct {
+			Completed *bool `json:"completed"`
+		}
+		if json.Unmarshal([]byte(p.Spec), &task) != nil || task.Completed == nil {
+			return "nix_complete_task requires completed (true or false)."
+		}
 	default:
 		return "Unsupported workspace operation."
 	}
 	return ""
 }
+
+// calendarMaxDays is nix_read_calendar's widest window, both ends included; @nix/companion's
+// CALENDAR_MAX_DAYS (packages/companion/src/read/calendar.ts) is the executor's own copy.
+const calendarMaxDays = 31
 
 // isJSONObject reports whether raw decodes as a JSON object (not an array, scalar or
 // empty string).

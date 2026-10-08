@@ -85,7 +85,14 @@ export const TOOL_EXAMPLES: Readonly<
   apply_template: { templateId: EXAMPLE_ITEM_ID, title: 'New from template' },
   build_blueprint: { blueprint: EXAMPLE_BLUEPRINT, parentId: '' },
   save_as_template: { itemId: EXAMPLE_ITEM_ID, title: 'Reading log template' },
+  read_calendar: { from: '2026-10-05', to: '2026-10-11' },
+  complete_task: { itemId: EXAMPLE_ITEM_ID, completed: true },
 };
+
+/** Typed parameters that are neither a flat field nor a whole JSON object: each one becomes a
+ * key of the flat shape's `specJson` object, under its own name. The Go worker's `argSpecField`
+ * mappings (`toolArgSpecs` in `tools.go`) are the same list. */
+export const SPEC_FIELD_PARAMETERS: ReadonlySet<string> = new Set(['from', 'to', 'completed']);
 
 /** The flat shape `@nix/companion`'s `workspaceToolSchema` parses, and the Go worker's
  * `ToolCall.Arguments` stores - unchanged by this task. */
@@ -106,7 +113,8 @@ export interface FlatWorkspaceToolArgs {
  * into the flat shape `workspaceToolSchema` and `@nix/companion/run.ts` have always parsed.
  * `templateId` maps to `itemId`; `heading` and `find` map to `query` and `replace` to `markdown`
  * (the body edits); `properties` marshals to `propertiesJson`; `spec` and `blueprint` both
- * marshal to `specJson`; every other flat field defaults to `""`. Used only by
+ * marshal to `specJson`; the scalar `SPEC_FIELD_PARAMETERS` gather into one `specJson` object;
+ * every other flat field defaults to `""`. Used only by
  * `tools.test.ts`'s and `@nix/companion`'s round-trip tests (and by `scripts/build-catalog.ts`,
  * which writes its output next to `TOOL_EXAMPLES` in the generated `tool-examples.json` so the Go
  * worker's own flattening test reads the identical expectation) - never by runtime code, since the
@@ -126,7 +134,12 @@ export function flattenToolExample(
     propertiesJson: '',
     specJson: '',
   };
+  const specFields: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
+    if (SPEC_FIELD_PARAMETERS.has(key)) {
+      specFields[key] = value;
+      continue;
+    }
     switch (key) {
       case 'itemId':
       case 'parentId':
@@ -156,5 +169,6 @@ export function flattenToolExample(
         throw new Error(`flattenToolExample: unexpected argument "${key}" for ${operation}`);
     }
   }
+  if (Object.keys(specFields).length > 0) flat.specJson = JSON.stringify(specFields);
   return flat;
 }

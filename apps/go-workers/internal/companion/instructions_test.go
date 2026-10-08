@@ -60,3 +60,16 @@ func TestChatRulesDescribeBodyEditsButNeverWholeBodyReplace(t *testing.T) {
 		}
 	}
 }
+
+// TestBaseRulesExplainTurnContextAndNewTools pins the one sentence each for nix_read_calendar
+// and nix_complete_task, in the rules every mode shares.
+func TestBaseRulesExplainTurnContextAndNewTools(t *testing.T) {
+	for _, phrase := range []string{
+		"nix_read_calendar",
+		"nix_complete_task",
+	} {
+		if !strings.Contains(baseSharedRules, phrase) {
+			t.Errorf("base rules do not say %q", phrase)
+		}
+	}
+}

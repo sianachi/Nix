@@ -340,6 +340,8 @@ export const WORKSPACE_OPERATIONS = [
   'apply_template',
   'build_blueprint',
   'save_as_template',
+  'read_calendar',
+  'complete_task',
 ] as const satisfies readonly string[];
 
 export type WorkspaceOperation = (typeof WORKSPACE_OPERATIONS)[number];
@@ -353,6 +355,7 @@ export const READ_ONLY_OPERATION_NAMES = [
   'read_structure',
   'list_templates',
   'read_template',
+  'read_calendar',
 ] as const satisfies readonly WorkspaceOperation[];
 
 /** Operations only offered in consult (Design mode) conversations. */

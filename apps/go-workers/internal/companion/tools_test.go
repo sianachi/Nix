@@ -516,6 +516,17 @@ func TestToolArgSpecsMatchGeneratedSchemas(t *testing.T) {
 			if propertySchema["type"] == "object" {
 				wantKind = argObjectJSON
 			}
+			// A scalar folded into specJson (argSpecField) is the one other legal mapping for a
+			// non-object parameter, and it must land in specJson; a boolean can be nothing else.
+			if mapping.kind == argSpecField && propertySchema["type"] != "object" {
+				if mapping.flat != "specJson" {
+					t.Fatalf("%s.%s: argSpecField must target specJson, targets %q", name, property, mapping.flat)
+				}
+				wantKind = argSpecField
+			}
+			if propertySchema["type"] == "boolean" && mapping.kind != argSpecField {
+				t.Fatalf("%s.%s: a boolean parameter must map to argSpecField", name, property)
+			}
 			if mapping.kind != wantKind {
 				t.Fatalf("%s.%s: toolArgSpecs maps kind %v, schema type %v implies %v", name, property, mapping.kind, propertySchema["type"], wantKind)
 			}
@@ -581,6 +592,7 @@ func TestToolIdentityReadOnlyOperationsArePinned(t *testing.T) {
 	want := map[string]bool{
 		"list_items": true, "search": true, "read_item": true, "read_note": true,
 		"read_structure": true, "list_templates": true, "read_template": true, "validate_blueprint": true,
+		"read_calendar": true,
 	}
 	for operation := range want {
 		_, readOnly := toolIdentity(fmt.Sprintf(`{"operation":%q}`, operation))
@@ -755,5 +767,68 @@ func TestBodyEditToolsFlattenOntoQueryAndMarkdown(t *testing.T) {
 	}
 	if _, reason := flattenToolCall("nix_replace_passage", json.RawMessage(`{"query":"teh"}`)); !strings.Contains(reason, "find") {
 		t.Fatalf("a flat-shaped parameter was not refused with the typed names: %q", reason)
+	}
+}
+
+// TestScalarParametersFoldIntoSpecJSON covers argSpecField: nix_read_calendar's from/to and
+// nix_complete_task's completed become keys of one specJson object, a wrong scalar type is
+// refused before approval, and the flat shape gains no field.
+func TestScalarParametersFoldIntoSpecJSON(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	flat, reason := flattenToolCall("nix_read_calendar", json.RawMessage(`{"from":"2026-10-05","to":"2026-10-11"}`))
+	if reason != "" {
+		t.Fatal(reason)
+	}
+	var calendar flatToolArgs
+	if err := json.Unmarshal(flat, &calendar); err != nil {
+		t.Fatal(err)
+	}
+	if calendar.Operation != "read_calendar" || !jsonEqual(calendar.SpecJSON, `{"from":"2026-10-05","to":"2026-10-11"}`) || calendar.ItemID != "" {
+		t.Fatalf("calendar flattened wrongly: %+v", calendar)
+	}
+	flat, reason = flattenToolCall("nix_complete_task", json.RawMessage(fmt.Sprintf(`{"itemId":%q,"completed":false}`, itemID)))
+	if reason != "" {
+		t.Fatal(reason)
+	}
+	var task flatToolArgs
+	if err := json.Unmarshal(flat, &task); err != nil {
+		t.Fatal(err)
+	}
+	if task.ItemID != itemID || !jsonEqual(task.SpecJSON, `{"completed":false}`) {
+		t.Fatalf("task flattened wrongly: %+v", task)
+	}
+	for _, bad := range []string{`{"from":1,"to":"2026-10-11"}`, `{"from":["2026-10-05"],"to":"2026-10-11"}`, `{"from":null,"to":"2026-10-11"}`} {
+		if _, reason := flattenToolCall("nix_read_calendar", json.RawMessage(bad)); reason == "" {
+			t.Fatalf("non-scalar or numeric argument accepted: %s", bad)
+		}
+	}
+}
+
+func TestReadCalendarAndCompleteTaskValidation(t *testing.T) {
+	itemID := "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{`{"operation":"read_calendar","specJson":"{\"from\":\"2026-10-01\",\"to\":\"2026-10-31\"}"}`, ""},
+		{`{"operation":"read_calendar","specJson":"{\"from\":\"2026-10-01\",\"to\":\"2026-11-01\"}"}`, "at most 31 days"},
+		{`{"operation":"read_calendar","specJson":"{\"from\":\"2026-10-09\",\"to\":\"2026-10-08\"}"}`, "on or before"},
+		{`{"operation":"read_calendar","specJson":"{\"from\":\"2026-02-30\",\"to\":\"2026-03-01\"}"}`, "yyyy-MM-dd"},
+		{`{"operation":"read_calendar","specJson":""}`, "yyyy-MM-dd"},
+		{fmt.Sprintf(`{"operation":"complete_task","itemId":%q,"specJson":"{\"completed\":true}"}`, itemID), ""},
+		{fmt.Sprintf(`{"operation":"complete_task","itemId":%q,"specJson":"{}"}`, itemID), "requires completed"},
+		{fmt.Sprintf(`{"operation":"complete_task","itemId":%q,"specJson":"{\"completed\":\"yes\"}"}`, itemID), "requires completed"},
+		{`{"operation":"complete_task","itemId":"","specJson":"{\"completed\":true}"}`, "requires the exact itemId UUID"},
+	} {
+		got := validateToolArguments(json.RawMessage(tc.raw), "chat")
+		if tc.want == "" && got != "" {
+			t.Fatalf("%s refused: %q", tc.raw, got)
+		}
+		if tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Fatalf("%s: got %q, want it to contain %q", tc.raw, got, tc.want)
+		}
+	}
+	if _, readOnly := toolIdentity(`{"operation":"complete_task"}`); readOnly {
+		t.Fatal("complete_task is a write and must not be read-only")
 	}
 }

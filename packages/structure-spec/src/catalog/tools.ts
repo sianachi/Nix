@@ -193,6 +193,10 @@ function wrap(properties: JsonObject, required: readonly string[]): JsonObject {
   };
 }
 
+function booleanProperty(description: string): JsonObject {
+  return { type: 'boolean', description };
+}
+
 const ITEM_ID_DESCRIPTION =
   'The exact item UUID. Discover it with nix_list_items or nix_search first if not already known.';
 const PARENT_ID_DESCRIPTION = 'The parent item UUID, or omit/empty to use the workspace root.';
@@ -213,12 +217,14 @@ interface ToolBuild {
  * `templateId`, not `itemId`, because the id they need is a template's, and `set_properties`,
  * `create_structured`, `add_view`, `create_entries`, `add_fields`, `edit_form`, `set_recurrence`,
  * `apply_template` and `save_as_template` take `properties`/`spec`/`blueprint` as a native JSON
- * value, not a JSON-encoded string.
+ * value, not a JSON-encoded string. `read_calendar`'s `from`/`to` and `complete_task`'s
+ * `completed` are plain scalar parameters that the worker gathers into one `specJson` object
+ * (`SPEC_FIELD_PARAMETERS` in `tool-examples.ts`), so the flat shape gains no new field.
  */
 const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   list_items: () => ({
     description:
-      "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; reads may run without a card; changes always ask for approval.",
+      "List an item's direct children (id, title, type, whether it has children) with their property values: dueDate, startDate and completed when the task fields exist, other values under properties. Omit parentId to list the workspace root. Read-only; reads may run without a card; changes always ask for approval.",
     properties: { parentId: stringProperty(PARENT_ID_DESCRIPTION) },
     required: [],
   }),
@@ -418,6 +424,24 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
       spec: jsonSchemaOf(saveSpecSchema),
     },
     required: ['itemId', 'title'],
+  }),
+  read_calendar: () => ({
+    description:
+      "Read every dated item in this workspace's calendars between from and to (inclusive, at most 31 days): title, container, date, end date, and completion for repeating tasks. Read-only.",
+    properties: {
+      from: stringProperty('The first day, yyyy-MM-dd.'),
+      to: stringProperty('The last day, yyyy-MM-dd, at most 30 days after from.'),
+    },
+    required: ['from', 'to'],
+  }),
+  complete_task: () => ({
+    description:
+      'Mark a task done (completed true) or not done (false). A repeating task completes its current occurrence and moves on to the next. Refuses an item with no completion field. Shown for approval before it runs.',
+    properties: {
+      itemId: stringProperty(ITEM_ID_DESCRIPTION),
+      completed: booleanProperty('true to mark it done, false to reopen it.'),
+    },
+    required: ['itemId', 'completed'],
   }),
 };
 

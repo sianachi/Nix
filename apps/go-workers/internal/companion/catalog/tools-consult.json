@@ -1,7 +1,7 @@
 [
   {
     "name": "nix_list_items",
-    "description": "List an item's direct children (id, title, type, whether it has children). Omit parentId to list the workspace root. Read-only; reads may run without a card; changes always ask for approval.",
+    "description": "List an item's direct children (id, title, type, whether it has children) with their property values: dueDate, startDate and completed when the task fields exist, other values under properties. Omit parentId to list the workspace root. Read-only; reads may run without a card; changes always ask for approval.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -2525,6 +2525,44 @@
         }
       },
       "required": ["itemId", "title"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_read_calendar",
+    "description": "Read every dated item in this workspace's calendars between from and to (inclusive, at most 31 days): title, container, date, end date, and completion for repeating tasks. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "The first day, yyyy-MM-dd."
+        },
+        "to": {
+          "type": "string",
+          "description": "The last day, yyyy-MM-dd, at most 30 days after from."
+        }
+      },
+      "required": ["from", "to"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_complete_task",
+    "description": "Mark a task done (completed true) or not done (false). A repeating task completes its current occurrence and moves on to the next. Refuses an item with no completion field. Shown for approval before it runs.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "completed": {
+          "type": "boolean",
+          "description": "true to mark it done, false to reopen it."
+        }
+      },
+      "required": ["itemId", "completed"],
       "additionalProperties": false
     }
   }

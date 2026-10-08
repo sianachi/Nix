@@ -247,6 +247,10 @@ describe('companion work approvals', () => {
       },
       /I will create “Reading log” from the linked template at the top level/,
     ],
+    [
+      { operation: 'read_calendar', specJson: '{"from":"2026-10-05","to":"2026-10-11"}' },
+      /^Reading the calendar from 2026-10-05 to 2026-10-11$/,
+    ],
   ])('describes a template operation in plain language: %o', async (overrides, pattern) => {
     if ('operation' in overrides && overrides.operation === 'apply_template') {
       client.query.mockResolvedValue({
@@ -623,6 +627,144 @@ describe('companion work approvals', () => {
     ]);
     expect(client.invalidate).toHaveBeenCalledWith(['items']);
     unsubscribe();
+  });
+
+  describe('nix_complete_task (plan D.1)', () => {
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const taskId = '33333333-3333-4333-8333-333333333333';
+    const taskRuntime = (completed: boolean) => ({
+      ...runtime,
+      tools: (runtime.tools ?? []).map((tool) => ({
+        ...tool,
+        arguments: JSON.stringify({
+          operation: 'complete_task',
+          itemId: taskId,
+          parentId: '',
+          title: '',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: JSON.stringify({ completed }),
+        }),
+      })),
+    });
+    const completionField = {
+      key: 'completion',
+      label: 'Done',
+      type: 'completion',
+      options: [],
+      required: false,
+      expression: null,
+      aggregate: null,
+      source: null,
+    };
+    function serveTask(fields: unknown[]) {
+      client.query.mockImplementation((endpoint: { operation: string }) =>
+        Promise.resolve(
+          endpoint.operation === 'schema.get'
+            ? { properties: fields, declared: [], inherit: true }
+            : {
+                id: taskId,
+                workspaceId,
+                parentId: null,
+                title: 'Pay rent',
+                type: 'note',
+                properties: { completion: false },
+              },
+        ),
+      );
+    }
+
+    it('shows a readable approval card and runs the approved completion through its fence', async () => {
+      serveTask([completionField]);
+      const pending = taskRuntime(true);
+      client.execute.mockImplementation(
+        (endpoint: { operation: string; body: { operation?: string; requestId?: string } }) =>
+          Promise.resolve(
+            endpoint.operation === 'properties.set'
+              ? { id: taskId }
+              : {
+                  ...pending,
+                  tools: pending.tools.map((tool) => ({
+                    ...tool,
+                    status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+                    claimId: endpoint.body.requestId ?? '',
+                  })),
+                },
+          ),
+      );
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={pending}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      expect(await screen.findByText('I will mark “Pay rent” done.')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Inspect target item' })).toBeInTheDocument();
+      await approveRequest();
+      await waitFor(() => {
+        expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+      });
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+        fence: `task:property:${taskId}:completion:true`,
+      });
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            operation: 'properties.set',
+            body: { properties: { completion: true } },
+          }),
+          expect.anything(),
+        );
+      });
+      await waitFor(() => {
+        expect(client.invalidate).toHaveBeenCalledWith(['workspaces', workspaceId, 'calendar']);
+      });
+    });
+
+    it('sends a task without a completion field back to the pet, naming nix_add_fields', async () => {
+      serveTask([]);
+      const pending = taskRuntime(true);
+      client.execute.mockImplementation(
+        (endpoint: { body: { operation?: string; requestId?: string } }) =>
+          Promise.resolve({
+            ...pending,
+            tools: pending.tools.map((tool) => ({
+              ...tool,
+              status: endpoint.body.operation === 'tool_result' ? 'failed' : 'claimed',
+              claimId: endpoint.body.requestId ?? '',
+            })),
+          }),
+      );
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={taskRuntime(true)}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledWith(
+          expect.objectContaining({
+            body: expect.objectContaining({
+              operation: 'tool_result',
+              toolSuccess: false,
+              toolResult: expect.stringContaining('nix_add_fields') as unknown,
+            }) as unknown,
+          }),
+          expect.anything(),
+        );
+      });
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
+    });
   });
 
   it('invalidates the template catalog after a successful template application', async () => {

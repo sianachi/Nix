@@ -163,6 +163,25 @@ describe('flattenToolExample (TS reference implementation)', () => {
     const structured = flattenToolExample('create_structured', TOOL_EXAMPLES.create_structured);
     expect(JSON.parse(structured.specJson)).toEqual(TOOL_EXAMPLES.create_structured.spec);
   });
+
+  it('gathers the scalar calendar and task parameters into one specJson object', () => {
+    const calendar = flattenToolExample('read_calendar', TOOL_EXAMPLES.read_calendar);
+    expect(JSON.parse(calendar.specJson)).toEqual({ from: '2026-10-05', to: '2026-10-11' });
+    expect(calendar.itemId).toBe('');
+
+    const task = flattenToolExample('complete_task', TOOL_EXAMPLES.complete_task);
+    expect(task.itemId).toBe(TOOL_EXAMPLES.complete_task.itemId);
+    expect(JSON.parse(task.specJson)).toEqual({ completed: true });
+  });
+
+  it('types complete_task.completed as a boolean and requires both calendar bounds', () => {
+    const tools = buildPetTools('chat');
+    const task = tools.find((tool) => tool.name === 'nix_complete_task');
+    const calendar = tools.find((tool) => tool.name === 'nix_read_calendar');
+    const taskProperties = task?.inputSchema.properties as Record<string, { type?: string }>;
+    expect(taskProperties.completed?.type).toBe('boolean');
+    expect(calendar?.inputSchema.required).toEqual(['from', 'to']);
+  });
 });
 
 describe('every tool example is accepted by the same validator run.ts calls', () => {
