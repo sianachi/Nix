@@ -20,6 +20,7 @@ import {
   listWorkspaceInvitations,
   listWorkspaceMembers,
   purgeWorkspace,
+  readWorkspaceGraph,
   removeWorkspaceMember,
   renameWorkspace,
   restoreWorkspace,
@@ -48,6 +49,30 @@ afterAll(() => {
 });
 
 describe('workspace administration commands', () => {
+  it('reads the graph through the authenticated client and preserves partial-result metadata', async () => {
+    const profile = await withProfile();
+    const graph = {
+      workspaceId: WORKSPACE,
+      nodes: [],
+      links: [],
+      nodesTruncated: true,
+      linksTruncated: false,
+      nodeLimit: 2000,
+      linkLimit: 4000,
+    };
+    server.use(
+      http.get(`${API}/api/v1/workspaces/${WORKSPACE}/graph`, ({ request }) => {
+        expect(request.headers.get('authorization')).toBe('Bearer jwt-1');
+        return HttpResponse.json(graph);
+      }),
+    );
+
+    expect(
+      await capture((json) => readWorkspaceGraph('default', WORKSPACE, json, profile.deps)),
+    ).toEqual(graph);
+    await profile.done();
+  });
+
   it('creates and renames shared workspaces through the generated client', async () => {
     const profile = await withProfile();
     const bodies: unknown[] = [];

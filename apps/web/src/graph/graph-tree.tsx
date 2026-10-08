@@ -50,6 +50,7 @@ function describe(node: PositionedNode, references: readonly string[]): string {
 export interface GraphTreeProps {
   readonly nodes: readonly PositionedNode[];
   readonly links: readonly GraphLink[];
+  readonly nodeDescriptions?: ReadonlyMap<string, string>;
 
   /** The nodes that have children, and which of those are folded - a tree's expanded state. */
   readonly parents: ReadonlySet<string>;
@@ -76,6 +77,7 @@ export interface GraphTreeProps {
 export const GraphTree = memo(function GraphTree({
   nodes,
   links,
+  nodeDescriptions,
   parents,
   collapsed,
   onToggleFold,
@@ -189,6 +191,7 @@ export const GraphTree = memo(function GraphTree({
               <Icon icon={FileText} size="sm" className="shrink-0 text-muted" />
               <Text as="span" variant="note">
                 {describe(node, references)}
+                {nodeDescriptions?.has(node.id) ? `, ${nodeDescriptions.get(node.id) ?? ''}` : ''}
               </Text>
             </button>
           </li>

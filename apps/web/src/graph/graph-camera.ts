@@ -26,7 +26,7 @@ export interface Size {
  * thousands of units across, and "fit" has to be able to show all of it even though no named step
  * reaches that far out.
  */
-export const SCALE_MIN = 0.02;
+export const SCALE_MIN = 0.001;
 export const SCALE_MAX = 3;
 
 export function clampScale(scale: number): number {
