@@ -1,17 +1,23 @@
 # Nix
 
-Nix is a self-hosted collaborative document workspace for a small to medium sized team — a
-Microsoft Word alternative for nerds who want their documents to be linkable, programmable and
-structured without giving up rich editing or collaboration. It combines the flexible structure of a
-wiki with the schemas, views and project workflows of a database workspace.
+Nix is a self-hosted life operating system for one person who wants their notes, tasks, habits,
+journal, files, calendar and numbers in one place, on a laptop and on a phone, and who is willing
+to set things up to get them. It combines the flexible structure of a wiki with the schemas, views
+and workflows of a database workspace, and it keeps everything exportable.
 
 There is one kind of item. Every item has a body describing how it renders itself, can contain
 children, can declare a property schema and can offer views over those children. There is no separate
 "folder" type: a spreadsheet can contain kanban boards, a board can contain notes, and any item can
 be reorganised without changing what it is.
 
-This overview describes committed implementation as of 5 September 2026. Runtime, export-fidelity
-and recovery verification remain separate from implementation status. See [documentation](docs/README.md).
+Nix is built for a person, not an organisation. Sharing means "send this page to a friend", not
+access control, and anything whose only user is a team (groups, in-tenant ACLs, track changes,
+Office-parity page setup) is out of scope. The direction is recorded in
+`docs/plans/life-os-direction.md`.
+
+This overview describes committed implementation on `main` as of 8 October 2026. Runtime,
+export-fidelity and recovery verification remain separate from implementation status. See
+[documentation](docs/README.md).
 
 ## See Nix in action
 
@@ -21,8 +27,8 @@ Watch a one-minute walkthrough of the editor, rich blocks and slash commands.
 
 ## Contributing
 
-Nix is being built in the open by people who care about calm, capable tools for collaborative work.
-If you want to help make documents, structured data and team workflows fit together better, we would
+Nix is being built in the open by people who care about calm, capable tools for running a life.
+If you want to help make notes, structured data and daily routines fit together better, we would
 love your contribution.
 
 Start with the product direction in this README, then read the [developer documentation](docs/README.md)
@@ -36,15 +42,16 @@ grounded in observed behaviour and do not hand-edit generated API contracts or c
 
 ## Motivation
 
-- **Documents and project work are split across tools.** Notes, tasks, dates, structured records and
-  links usually live in separate applications. Nix keeps them in one composable item tree.
+- **A life is split across tools.** Notes, tasks, dates, habits, money, files and links usually
+  live in separate applications. Nix keeps them in one composable item tree.
 - **Rigid hierarchies do not match real work.** Nix separates an item's body from its views, so the
-  same children can be seen as a list, board, calendar, gallery, timeline, spreadsheet or form.
+  same children can be seen as a list, board, calendar, timeline, gallery, spreadsheet, chart,
+  habit tracker, finance ledger, drive or form.
 - **Custom workflows are either too limited or too technical.** Cascading property schemas, formulas,
-  rollups, charts, templates and guided view setup let a team shape its workspace without a plugin or
-  waiting for a developer.
-- **Collaboration creates lost edits and unclear ownership.** CRDT-backed documents, an append-only
-  update log, live presence and database-enforced authorization let people work together safely.
+  rollups, charts, templates, automations and a companion that builds structure on request let one
+  person shape their workspace without writing a plugin.
+- **Reminders and sync should be quiet and honest.** Due tasks and habit check-ins arrive as push
+  notifications with quiet hours; external calendars sync both ways with a visible log.
 - **Permission failures are security failures.** Roles and filtering stay in the database, permission
   checks happen during query evaluation, and the web, CLI and MCP use the same authorization path.
 - **Search and automation can quietly tell the wrong story.** Search, links, imports, exports and
@@ -52,26 +59,37 @@ grounded in observed behaviour and do not hand-edit generated API contracts or c
 - **Vendor lock-in makes leaving expensive.** Nix exports documents and subtrees as lossless `.nix`
   archives and as PDF, DOCX and Markdown, with format limitations reported before export.
 - **Self-hosted software is often difficult to operate safely.** Nix bounds hostile and expensive work,
-  keeps derived data rebuildable, and provides CLI/MCP access for scripted administration and checks.
-- **A browser is not always the best place to work.** Nix plans native desktop and mobile clients so
-  the same document workspace can feel at home in a focused desktop editor and on the move.
+  keeps derived data rebuildable, ships CI-built images, and provides CLI/MCP access for scripted
+  administration and checks.
+- **A phone is where life happens.** Nix installs as an app with shortcuts, a share target, offline
+  copies of opened notes and a service worker, so the same workspace works on the move.
 
 ## Current features
 
-### Documents, structure and collaboration
+### Notes, structure and editing
 
-- Durable file uploads and attachments, PDF and supported-image previews, file-backed editor images,
-  embedded live note sections and explicit page breaks.
 - Rich notes with headings, lists, tasks, quotes, code, callouts, tables, images, links, columns,
-  collapsible sections, colour, drag handles and slash commands.
-- A composable item tree with nesting, breadcrumbs, drag-to-reparent, cycle checking, create-in-place,
-  delete with Undo restore, two-pane navigation and responsive phone layouts.
+  collapsible sections, colour, page breaks, embedded live note sections, drag handles and slash
+  commands. Optional Vim (Normal, Visual, Visual Line) and Emacs (kill ring, mark) keyboard modes.
 - Notes, canvases and spreadsheets as body kinds. Canvases use shared Excalidraw scenes; spreadsheets
   provide A1 addressing, references, ranges, formula functions, dependency tracking and cycle checks.
+- Durable file items with immutable versions, replace-in-place, PDF and image previews, file-backed
+  editor images, and built-in viewers for EPUB, CSV, Markdown, Mermaid, media and text.
+- A composable item tree with nesting, breadcrumbs, drag-to-reparent, cycle checking, a six-entry
+  New menu (note, canvas, sheet, upload, structured item, from a template) that asks for a title
+  and a location, delete with Undo restore, bookmarks, hidden items, moving items between
+  workspaces, two-pane navigation and responsive phone layouts.
+- Daily notes with a per-workspace switch, Year/Month folders, a quick capture dialog and a
+  "Today" app shortcut.
 - CRDT editing over an append-only update log, rebuildable snapshots, WebSocket synchronisation,
   authorization handshakes, presence, live cursors and connection status.
+- Version history derived from the collaboration log: revisions, the document as it stood at any
+  revision, restore as a new revision, and named versions that retention never deletes.
+- Password locks that withhold a subtree's titles, children, views and rollups, and item
+  protections (`no_delete`, `no_children`, `managed_by`) for items an integration owns.
 - `[[` and `@` references, backlinks, full-text search, a command palette and an accessible graph
-  view with both a visual graph and a text tree.
+  with pan, zoom, fit, neighbourhood highlight, shape by kind, filters, collapsing, a time view and
+  saved views.
 
 ### Data, views and workflows
 
@@ -79,82 +97,122 @@ grounded in observed behaviour and do not hand-edit generated API contracts or c
   types.
 - Formula properties, child rollups and server-backed charts with bounded evaluation and cycle
   detection.
-- List, board, calendar, gallery, timeline, spreadsheet, Quick Form, Interactive Form and Smart List
-  views, including composed primary and companion views.
+- List, board, calendar, gallery, timeline, spreadsheet, chart, drive, habit tracker, finance,
+  Quick Form, Interactive Form and Smart List views, including composed primary and companion
+  views; filters on every view, several sort keys and column summaries.
 - Guided setup for structured views, with tab-persistent drafts.
 - Task semantics for completion, due dates, start dates, priority, estimates and assignees; recurring
   tasks and calendar entries; Today, Next 7 days, Overdue and Assigned to me workflows.
-- Workspace-wide calendar aggregation, explicit calendar-entry destinations and keyboard navigation
-  in list cells.
+- Habit tracking with check-in and undo, status, streak insights and charts.
+- Finance tracking: accounts, loans, budget lines and actuals, transactions, scheduled postings,
+  cash flow, a dashboard, a close-month checklist and bank CSV import with preview before commit.
+- Reminders as an explicit `reminder` property, due and habit reminders, a notification inbox,
+  Web Push through the installed app, quiet hours, a time zone and per-container muting.
+- Automations owned by the person who wrote them: schedule, date-arrives and property-changed
+  triggers, up to five conditions, and notify, set-property and create-item actions, with a run
+  log, a dry run and automatic disable after repeated failures.
+- Two-way calendar sync with Google Calendar and Microsoft Outlook from a Calendars settings tab:
+  external events in the calendar view, dated Nix items pushed out, last-write-wins with a log,
+  and 15-minute drag and resize on entries.
+- Model-free suggestions with an off switch: duplicate notices, property suggestions, similar
+  items, free-slot and fill-series helpers.
 - User-authored, file-backed and managed templates: capture, edit, browse, apply and create from a
-  validated template tree.
+  validated template tree, with initialization inputs and relative dates.
 - Revocable, opaque Interactive Form links. Sanitized public forms turn responses into ordinary child
   items without exposing the workspace or existing responses.
-- ChatGPT companions with account-scoped character, personality, response-length and instruction
-  settings; device-code connection, model selection, per-workspace conversations, saved history,
-  browser dictation, and optional spoken replies.
+
+### Speech and companion
+
+- Meeting recording, transcription and dictation, plus spoken replies in local voices, through an
+  optional speech worker role that runs whisper.cpp and Piper on your own host (ADR-0059). The
+  browser's own dictation and voices are the fallback when the role is not deployed.
+- A ChatGPT companion connected through the Codex device login, with account-scoped character,
+  personality, response-length and instruction settings, model selection, per-workspace
+  conversations and saved history.
 - Explicitly approved companion workspace tools for searching, reading, creating, appending to,
-  renaming, moving, trashing, restoring and updating items. Reads and writes stay behind Core's
-  permissions, every proposed action is shown in Nix first, and uncertain results are reported for
-  inspection rather than claimed as complete.
+  renaming, moving, trashing, restoring and updating items, and structure tools that create
+  structured containers, add views and fields, edit forms and set recurrence. A Design (consult)
+  mode validates and builds blueprints and saves them as templates. Every plan is previewed in Nix
+  before it runs, reads and writes stay behind Core's permissions, and uncertain results are
+  reported for inspection rather than claimed as complete.
 
 ### Access, portability and operations
 
 - Core-owned browser BFF authentication with OIDC, PKCE, HttpOnly sessions and short-lived Nix tokens;
-  multi-issuer support; workspace-scoped roles, invitations,
-  membership administration, personal workspace provisioning and live revocation.
+  multi-issuer support; workspace-scoped roles, invitations, membership administration, personal
+  workspace provisioning and live revocation. Passwords, passkeys and second factors live at the
+  identity provider.
 - Permission-filtered access backed by Postgres row-level security; roles live in the database, not
   in tokens.
+- Personal access tokens with independent `read`, `write` and `admin` scopes and a required expiry
+  of 1 to 365 days, for `nixctl`, MCP and scripts.
 - Export of documents and subtrees to lossless `.nix`, PDF, DOCX and Markdown, with declared losses.
-- `nixctl` for machine-readable authentication, item CRUD, notes, properties, views, search, query,
-  export, import and stress/read/search/query runs.
+- Editable Markdown, TXT, DOCX and PDF imports, `.nix` archive import, and a one-time Obsidian
+  vault import. PDF OCR is unavailable.
+- `nixctl`, a scriptable CLI with JSON output and 28 command groups: auth, workspaces, items,
+  notes, properties, schema, views, query, search, structure and blueprints, templates, history,
+  recurrence, calendar and calendar sync, finance, habits, notifications, reminders, automations,
+  files, export, import, document import, operations, the companion and stress runs.
 - An MCP server started through `nixctl mcp`, authenticated as the acting principal and limited to
-  that principal's reach.
-- RabbitMQ-backed import, export, indexing and signed WebAssembly plugin execution in a unified Go
-  worker; workers use internal APIs and object capabilities without database credentials.
-- Editable Markdown, TXT, DOCX and PDF imports, plus `.nix` archive import. PDF OCR is unavailable.
-- Docker/Kubernetes manifests, migrations, seed and verification jobs. The Kubernetes backup job
-  dumps the Nix database only; full recovery also requires object storage, identity data and keys.
+  that principal's reach, with 93 tools covering workspaces and members, templates, finance,
+  habits, document import, files, the companion, structure and blueprints, notifications,
+  reminders, item protection, calendar links and automations. Item CRUD and search stay `nixctl`
+  commands.
+- One Go worker binary with roles for import, export, indexing, signed WebAssembly plugin
+  execution, calendar sync, notifications and speech, driven by RabbitMQ; workers use internal
+  APIs and object capabilities without database credentials.
+- Uploads are inspected by the worker before they are published: size and expiry checks, SHA-256,
+  media type from magic bytes, preview and thumbnail generation. Files are not malware-scanned.
+- An installable web app with manifest shortcuts (New note, Today, Search), a share target, a
+  Markdown file handler, an offline page, offline copies of opened document bodies, last-location
+  restore, right-click context menus and a keyboard shortcuts dialog; light and dark themes.
+- Docker Compose production manifests with CI-built multi-architecture images, migrations, seed and
+  verification jobs, a smoke-tested release script and a restic-to-R2 backup helper. Kubernetes
+  manifests are retained. Logical database dumps alone do not restore file-backed documents.
 
 ## Planned features
 
-The remaining roadmap is intentionally short and ordered by priority.
+The roadmap follows `docs/plans/life-os-direction.md`, ordered by priority.
 
-1. **Finish running the week.** Add a checklist view, item dependencies and keyboard-complete
-   timeline editing; decide the default calendar container; and prove tree, Smart List and timeline
-   performance over 10,000 items.
-2. **Make the workspace trustworthy and operable.** Complete specialist security, UX,
-   structure and performance reviews; run real browser and screen-reader checks; verify exports in
-   Word and PDF readers; verify the revised canvas persistence and client behavior; complete trash, version history,
-   bundle and dependency gates; complete backup/restore, observability, security contact and memory
-   budgets.
-3. **Prove import and portability.** Verify `.nix` round trips and DOCX/PDF fidelity, resolve remaining
-   wiki-link gaps, audit hostile-input and streaming bounds, and run the full 10,000-note import
-   stress test. Import handlers exist; their presence does not establish end-to-end fidelity or scale.
+1. **Reviews and dashboards.** A weekly review template over completed tasks, habit streaks,
+   journal entries and sheet numbers; a dashboard view kind composed of chart and rollup tiles;
+   "this day last week / month" from daily notes.
+2. **Capture from anywhere.** Email-to-Nix through the worker, voice memos as file items with
+   queued transcription, and an Inbox container with a triage view behind the existing quick
+   capture and share target.
+3. **Finish calendar sync and automations.** Push recurring Nix items as series, provider webhooks
+   instead of polling, Apple via CalDAV; the `create_from_template` automation action,
+   `property_changed` on create, and quiet hours applied to automation notifications (ADR-0051,
+   ADR-0052).
+4. **Move your life in.** Importers for Notion, Todoist and Apple Notes with the same loss report
+   the Markdown importer produces.
+5. **Phone first.** A bottom navigation for today, inbox, capture, habits and search; offline reads
+   beyond the current body cache.
+6. **Finish running the week.** A checklist view, item dependencies, keyboard-complete timeline
+   editing, grouping by more property types than single-select, and public read-only links.
+7. **Prove it.** Tree, Smart List and timeline performance over 10,000 items; `.nix` round trips
+   and DOCX/PDF fidelity; the 10,000-note import stress; backup/restore rehearsal; the specialist
+   security, UX, structure and performance reviews still owed on merged features.
 
 Each planned area has a measurable stress test. A green test suite is not treated as proof of layout,
 accessibility, query plans, export fidelity or production operations until those things are observed.
 
 ## Long-term goals
 
-After the core document workspace and native clients are mature, Nix may grow toward a broader
-knowledge and collaboration platform. Long-term goals include:
+After the life-OS tracks above are mature, Nix may grow toward:
 
 - A broader extension ecosystem, marketplace, third-party authors, reviews and updates beyond the
   implemented signed-component worker runtime.
-- Public workspaces, share links and richer public publishing.
-- External calendar integrations, OAuth connections and ICS feeds.
-- More expressive access control, including full ACL precedence, deny rules, inheritance breaks and
-  an audit pipeline.
+- Public workspaces and richer public publishing beyond read-only links.
+- ICS feeds and more calendar providers.
+- Obsidian synchronisation, beyond the one-time vault import.
 - Collaboration at 100+ concurrent editors in one document.
 - Pen input on canvas, including pressure, tilt and palm rejection.
-- Obsidian synchronisation.
-- Habit tracking, pomodoro timers, email as a first-class object, real-time voice/video and a theme
-  marketplace.
+- Pomodoro timers, email as a first-class object, live voice and video, and a theme marketplace.
 
 These are deliberately longer-term ambitions rather than promises about the current release. The CLI
-and MCP are API clients, not an extension platform, and native desktop and mobile applications are
-already part of the nearer-term plan above.
+and MCP are API clients, not an extension platform. Native desktop and mobile applications are not
+planned; the installed web app is the client on every device.
 
 ## Stack
 
@@ -162,8 +220,9 @@ already part of the nearer-term plan above.
   Core for envelope CRUD, hand-written SQL for closure/permissions/search.
 - **Frontend:** React 19, TypeScript strict, Tailwind CSS v4, Zod, Zustand,
   axios (only inside `packages/api-client`).
-- **Services:** Collaboration is Node 22/TypeScript. Go 1.26 workers handle asynchronous jobs
-  through RabbitMQ; OpenSearch is a rebuildable derived index. Workers never receive DB credentials.
+- **Services:** Collaboration is Node 22/TypeScript on Fastify. Go 1.26 workers handle asynchronous
+  jobs through RabbitMQ; OpenSearch is a rebuildable derived index. The optional speech role bundles
+  whisper.cpp and Piper. Workers never receive DB credentials.
 - **Auth:** OIDC (Zitadel first, multi-issuer by design). Roles live in the
   database, never in tokens.
 
@@ -171,38 +230,49 @@ already part of the nearer-term plan above.
 
 ```
 apps/
-  web/        React frontend
-  collab/     Collaboration service (CRDT/WebSocket)
-  go-workers/ Unified Go worker (role-configurable, no DB access)
+  web/        React frontend (installable PWA)
+  collab/     Collaboration service (CRDT/WebSocket, history, .nix export)
+  go-workers/ Unified Go worker: import, export, index, plugin-events, calendar, notify, speech
   cli/        nixctl CLI and MCP server
 packages/
-  api-client/     Generated HTTP client, contract types
-  design-tokens/  Colors, fonts, spacing, radii, shadows
-  editor-schema/  Shared document/schema types
-  export/
-  sheet/
-  ui/             Component library (Storybook + axe)
+  api-client/       Generated HTTP client, contract types
+  companion/        Companion workspace-tool executor shared by web and nixctl
+  design-tokens/    Colors, fonts, spacing, radii, shadows
+  docx-export/      DOCX mapper
+  editor-schema/    Shared document/schema types
+  export/           .nix archive manifest, writer and reader
+  markdown/         Markdown import/export mapping
+  pdf-export/       PDF mapper
+  sheet/            Spreadsheet formula engine
+  structure-spec/   Declarative structure vocabulary and blueprints
+  template-catalog/ Managed template presets
+  ui/               Component library (Storybook + axe)
+  view-render/      Shared view rendering for exports
 backend/
   src/
     Nix.Api/            Domain/ -> Abstractions/ -> Persistence/ -> Features/
-    Nix.Application/
-    Nix.Core/
-    Nix.Infrastructure/
-    Nix.Migrator/        Separate deployable — runs migrations
+    Nix.Migrator/       Separate deployable - runs migrations
   tests/
     Nix.Tests/                 Unit, no Docker required
     Nix.Integration.Tests/     Needs Docker + pgvector/pgvector:pg16
   openapi/
-    nix-api.json         Generated contract — the seam between backend and
+    nix-api.json         Generated contract - the seam between backend and
                           frontend; never hand-edit
+deploy/
+  compose.prod.yml, compose/   Production Compose manifest and release scripts
+  docker/                      Image Dockerfiles, including the speech worker
+  k8s/                         Retained Kubernetes manifests
+  speech/                      Speech model manifest
 ```
 
 ## Production deployment
 
 Docker Compose is the default production target until an explicit decision to return to Kubernetes.
-Use the [Compose deployment runbook](deploy/README.md) for immutable builds, migrations, Versity
-storage, rollback and mandatory import/export verification. Kubernetes tooling is retained but is
-not part of the default release workflow.
+Images are built by CI for every `main` commit and published to `ghcr.io/sianachi/nix`, tagged
+with the full commit SHA; a release is `deploy/compose/release.sh <sha>` on the host. Use the
+[Compose deployment runbook](deploy/README.md) for configuration, migrations, Versity storage,
+the optional speech role, rollback and mandatory import/export verification. Kubernetes tooling
+is retained but is not part of the default release workflow.
 
 ## Local development
 
@@ -247,7 +317,9 @@ is optional; the scripts do not automatically source it. For direct Compose over
 `docker compose --env-file .env -f deploy/compose.dev.yml --profile core --profile search up -d`.
 
 Infrastructure ports: Postgres 5433, Versity S3 7070, RabbitMQ 5673 (management 15673),
-Zitadel 8300 and OpenSearch 9201. The current Compose file has no ClamAV service.
+Zitadel 8300, OpenSearch 9201 and Mailpit 8325 (loopback only; it catches every mail Zitadel
+sends, so password reset and passkey flows work without a mail provider). The Compose file has
+no ClamAV service.
 
 The Compose port overrides apply only to containers; the host launch scripts do not source `.env`.
 For a host-port conflict, export the application origins and ports in the shell that launches the
@@ -277,9 +349,16 @@ terminal after stack-up:
 ```sh
 bash scripts/dev-api.sh                     # :5014 by default, BFF and service configuration
 bash scripts/dev-collab.sh                  # :8100 by default
-bash scripts/dev-worker.sh                  # :8301, import/export/index/plugin-events
+bash scripts/dev-worker.sh                  # :8301, roles import,export,index,plugin-events
 pnpm --filter @nix/web dev                  # :5173 by default
 ```
+
+The dev worker runs the four default roles. The `calendar` and `notify` roles are opt-in through
+`NIX_WORKER_ROLES` (calendar needs fake provider origins, notify needs VAPID keys; see the
+comments in `scripts/dev-worker.sh`). The `speech` role runs as its own process beside the
+default one, `NIX_WORKER_ROLES=speech NIX_WORKER_ADDRESS=:8303 bash scripts/dev-worker.sh`, and
+needs `whisper-server`, `piper`, `ffmpeg` and `ffprobe` on PATH plus a ggml model; the web dev
+server proxies `/speech` to it.
 
 Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`
 when using the default seed settings. Generated machine-specific configuration is under
