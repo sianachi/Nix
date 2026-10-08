@@ -10,7 +10,7 @@ import {
 describe('the structured-view recipe registry', () => {
   it('defines every guided action in one registry', () => {
     expect(STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured')).toHaveLength(10);
-    expect(STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'view')).toHaveLength(2);
+    expect(STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'view')).toHaveLength(3);
     expect(STRUCTURED_RECIPES.map((recipe) => recipe.id)).toEqual([
       'board',
       'timeline',
@@ -21,6 +21,7 @@ describe('the structured-view recipe registry', () => {
       'query',
       'calendar',
       'list',
+      'checklist',
       'drive',
       'habit-tracker',
       'finances',
@@ -32,7 +33,13 @@ describe('the structured-view recipe registry', () => {
 
     expect(view.kind).toBe(recipe.viewKind);
     expect(view.name).toBe(recipe.defaultViewName);
-    expect(view.columns).toEqual(['title', ...recipe.properties.map((property) => property.key)]);
+    // A checklist shows one chosen property beside each line, so it starts with none rather than
+    // every property the recipe declares.
+    expect(view.columns).toEqual(
+      recipe.viewKind === 'checklist'
+        ? []
+        : ['title', ...recipe.properties.map((property) => property.key)],
+    );
     expect(view.companionViewId).toBeNull();
     expect(view.companionPlacement).toBeNull();
   });

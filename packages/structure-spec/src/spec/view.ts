@@ -32,6 +32,7 @@ const VIEW_KINDS = [
   'query',
   'chart',
   'habit_tracker',
+  'checklist',
 ] as const;
 type ViewKind = (typeof VIEW_KINDS)[number];
 
@@ -55,6 +56,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   query: ['preset', 'filters'],
   interactive_form: ['form'],
   habit_tracker: [],
+  checklist: ['columns', 'doneProperty'],
 };
 
 const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;
@@ -76,9 +78,7 @@ export const viewSpecSchema = z
     groupBy: z
       .string()
       .min(1)
-      .describe(
-        'Board, chart: a select. List: a select, checkbox or $type, drawn as sections.',
-      )
+      .describe('Board, chart: a select. List: a select, checkbox or $type, drawn as sections.')
       .optional(),
     groupOrder: z.array(z.string().min(1)).optional(),
     date: z.string().min(1).optional(),
@@ -93,6 +93,7 @@ export const viewSpecSchema = z
     measure: z.enum(['count', 'sum']).optional(),
     measureField: z.string().min(1).optional(),
     form: formSpecSchema.optional(),
+    doneProperty: z.string().min(1).optional(),
     default: z.boolean().optional(),
     why: z.string().max(200).optional(),
   })

@@ -261,6 +261,7 @@ function compileViewForValidation(
   const endDateProperty = resolveRef(view.endDate, scope, `${path}.endDate`, problems);
   const coverProperty = resolveRef(view.cover, scope, `${path}.cover`, problems);
   const measureProperty = resolveRef(view.measureField, scope, `${path}.measureField`, problems);
+  const doneProperty = resolveRef(view.doneProperty, scope, `${path}.doneProperty`, problems);
   const sortBy = resolveRef(view.sortBy, scope, `${path}.sortBy`, problems);
   const columns = (view.columns ?? []).map(
     (ref, index) => resolveRef(ref, scope, `${path}.columns[${String(index)}]`, problems) ?? ref,
@@ -299,6 +300,7 @@ function compileViewForValidation(
     measure: view.measure ?? null,
     measureProperty,
     interactiveForm,
+    doneProperty,
   };
 }
 

@@ -65,6 +65,7 @@ const VIEW_KIND_WORDS: Record<string, string> = {
   query: 'list',
   chart: 'chart',
   habit_tracker: 'habit tracker',
+  checklist: 'checklist',
 };
 
 function viewKindWord(kind: string): string {

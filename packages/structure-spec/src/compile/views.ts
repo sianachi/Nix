@@ -98,10 +98,14 @@ export function compileView(
     id,
     name: spec.name ?? id,
     kind: spec.kind,
+    // A checklist's columns name the one property each line shows beside its title, so it takes
+    // none by default rather than every property the schema has.
     columns:
       spec.columns !== undefined
         ? spec.columns.map((ref) => resolveKey(ref, effective, addedKeys))
-        : ['title', ...effective.map((property) => property.key)],
+        : spec.kind === 'checklist'
+          ? []
+          : ['title', ...effective.map((property) => property.key)],
     groupBy: groupByKey,
     groupOrder:
       spec.groupOrder ?? (groupBySource?.options !== undefined ? [...groupBySource.options] : []),
@@ -124,5 +128,7 @@ export function compileView(
       spec.kind === 'interactive_form' && spec.form !== undefined
         ? compileForm(spec.form, effective, addedKeys)
         : null,
+    doneProperty:
+      spec.doneProperty !== undefined ? resolveKey(spec.doneProperty, effective, addedKeys) : null,
   };
 }

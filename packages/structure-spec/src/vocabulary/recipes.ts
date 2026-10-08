@@ -13,7 +13,8 @@ export type StructuredRecipeId =
   | 'list'
   | 'drive'
   | 'habit-tracker'
-  | 'finances';
+  | 'finances'
+  | 'checklist';
 
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;
@@ -152,6 +153,16 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     ],
   },
   {
+    id: 'checklist',
+    label: 'Checklist',
+    detail: 'Tick child items off one line at a time, with progress.',
+    menu: 'view',
+    viewKind: 'checklist',
+    defaultTitle: 'Untitled checklist',
+    defaultViewName: 'Checklist',
+    properties: [{ key: 'done', label: 'Done', type: 'checkbox', options: [], required: false }],
+  },
+  {
     id: 'drive',
     label: 'Drive',
     detail: 'Files and pages inside this item as a sortable list or a grid, with bulk actions.',
@@ -248,7 +259,11 @@ export function viewForRecipe(
     id,
     name: recipe.defaultViewName,
     kind: recipe.viewKind,
-    columns: ['title', ...properties.map((property) => property.key)],
+    // A checklist shows one property beside each title, and starts with none rather than all.
+    columns:
+      recipe.viewKind === 'checklist'
+        ? []
+        : ['title', ...properties.map((property) => property.key)],
     groupBy: recipe.viewKind === 'board' ? (first?.key ?? null) : null,
     groupOrder: recipe.viewKind === 'board' ? [...(first?.options ?? [])] : [],
     dateProperty:
@@ -266,6 +281,7 @@ export function viewForRecipe(
     companionViewId: null,
     companionPlacement: null,
     interactiveForm: recipe.viewKind === 'interactive_form' ? defaultInteractiveForm(first) : null,
+    doneProperty: recipe.viewKind === 'checklist' ? (first?.key ?? null) : null,
   };
 }
 

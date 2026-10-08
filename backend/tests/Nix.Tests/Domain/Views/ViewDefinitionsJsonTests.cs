@@ -158,6 +158,35 @@ public sealed class ViewDefinitionsJsonTests
     }
 
     [Fact]
+    public void A_checklist_stores_the_checkbox_it_ticks_and_reads_it_back()
+    {
+        // The one field a checklist adds. Absent means the checklist's own fallback - a "done"
+        // checkbox, then the task completion - so a view that never named one stores no key.
+        var checklist = new ViewDefinition(
+            "v1",
+            "Shopping",
+            ViewKind.Checklist,
+            ["aisle"],
+            null,
+            [],
+            null,
+            null,
+            false,
+            DoneProperty: "bought");
+
+        var json = ViewDefinitionsJson.Write([checklist])!;
+        var entry = Assert.IsType<JsonObject>(
+            Assert.IsType<JsonArray>(Assert.IsType<JsonObject>(JsonNode.Parse(json))["views"])[0]);
+
+        Assert.Equal("checklist", (string?)entry["kind"]);
+        Assert.Equal("bought", (string?)entry["doneProperty"]);
+        Assert.Equal("bought", Assert.Single(ReadViews(json)).DoneProperty);
+
+        var unnamed = ViewDefinitionsJson.Write([checklist with { DoneProperty = null }])!;
+        Assert.DoesNotContain("doneProperty", unnamed, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void A_timeline_that_names_no_end_date_property_is_read_and_kept()
     {
         // Every item on it is a milestone, which is a shape the view draws rather than a

@@ -55,6 +55,7 @@ export function toViewRequest(view: StructureView): ViewRequestContract {
     measureProperty: view.measureProperty ?? null,
     habitWidgets: view.habitWidgets ?? null,
     layout: view.layout,
+    doneProperty: view.doneProperty ?? null,
   };
 }
 

@@ -16,18 +16,10 @@ Section: View kinds
 - Smart list (query). A saved cross-container query, run server-side from stored filters.
 - Chart (chart): needs a select property; optional: measureField (number). Children summarised into bars, counted or totalled by a number property.
 - Habit tracker (habit_tracker). Habit children arranged by local date with recorded progress.
+- Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; columns[0] is shown beside each title.
 
 Section: Recipes
-board: Board - Arrange items in columns defined by a select field.
-timeline: Timeline - Plan work across start and optional end dates.
-gallery: Gallery - Show child items as visual cards with optional covers.
-sheet: Spreadsheet view - Edit child items in a property-backed grid.
-form: Quick form - Collect authenticated responses in one straightforward page.
-interactive-form: Interactive form - Build a multi-page form with branching and an optional public link.
-query: Smart list - Find matching items across the workspace with reusable rules.
-calendar: Calendar - Place child items on a day, week, or month calendar.
-list: List - Show child items and their fields in an ordered list.
-habit-tracker: Habit tracker - Track daily or weekday habits with a simple weekly check-in grid.
+board, timeline, gallery, sheet, form, interactive-form, query, calendar, list, checklist, habit-tracker. Each sets up the view kind it names; query is a smart list.
 
 Section: Never
 - Publish a public link

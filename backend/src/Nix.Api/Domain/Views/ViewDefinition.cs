@@ -127,6 +127,17 @@ public enum ViewKind
 
     /// <summary>A financial plan, its accounts, transactions, and cash flow.</summary>
     Finance = 12,
+
+    /// <summary>One line per child: a checkbox, the title and one optional property.</summary>
+    /// <remarks>
+    /// Requirement-free, like <see cref="List"/>: with nothing configured it ticks the property
+    /// named <c>done</c>, or the schema's task completion, and with neither it still lists titles
+    /// and says what it would need to tick them. <see cref="ViewDefinition.DoneProperty"/> names
+    /// the checkbox when the default is not the one wanted; whether it names a checkbox is the
+    /// view's report to make, for the reason <see cref="ViewDefinitionRules"/> gives about every
+    /// property a view names: the view can be configured before its property exists.
+    /// </remarks>
+    Checklist = 13,
 }
 
 /// <summary>
@@ -238,6 +249,10 @@ public static class ViewKinds
         // The finance view owns its specialised data in the finance feature's child items and
         // tables. Like a list, its existence does not depend on a property schema.
         new ViewKindDescriptor(ViewKind.Finance, "finance", Requirement: null),
+
+        // Like a list, and by the list's own argument: with nothing configured a checklist still
+        // has titles to list, and it falls back to a "done" checkbox or the task completion.
+        new ViewKindDescriptor(ViewKind.Checklist, "checklist", Requirement: null),
 
         // The board's requirement, reused field for field, which is what makes switching a view
         // between the two lossless. Only the sentence differs, because the two kinds want
@@ -548,7 +563,13 @@ public sealed record ViewDefinition(
     ImmutableArray<ViewSort> Sorts = default,
     ImmutableArray<string> CollapsedGroups = default,
     ImmutableArray<ViewGroupLimit> GroupLimits = default,
-    ImmutableArray<ViewAggregate> Aggregates = default)
+    ImmutableArray<ViewAggregate> Aggregates = default,
+
+    // Last and defaulted, like every field added since the record was cut. For a checklist: the
+    // checkbox (or completion) property its boxes tick. Null means the checklist's own fallback -
+    // a property keyed `done`, then the schema's task completion - which is what lets a checklist
+    // made with no configuration work on a to-do list as it stands.
+    string? DoneProperty = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

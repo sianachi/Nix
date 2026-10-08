@@ -115,6 +115,13 @@ export const VIEW_KIND_RULES = [
     optional: [],
     description: 'Habit children arranged by local date with recorded progress.',
   },
+  {
+    kind: 'checklist',
+    label: 'Checklist',
+    requires: null,
+    optional: [{ field: 'doneProperty', shape: 'checkbox' }],
+    description: 'A box to tick per child, with progress; columns[0] is shown beside each title.',
+  },
 ] as const satisfies readonly ViewKindRule[];
 
 /** The recipe ids the pet may never use: a file drive and personal finances are studio-only. */

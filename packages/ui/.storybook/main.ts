@@ -23,6 +23,7 @@ const config: StorybookConfig = {
     '../../../apps/web/src/views/finance/*.stories.tsx',
     '../../../apps/web/src/views/habit-tracker/*.stories.tsx',
     '../../../apps/web/src/views/list/*.stories.tsx',
+    '../../../apps/web/src/views/checklist/*.stories.tsx',
     '../../../apps/web/src/views/suggest/*.stories.tsx',
     '../../../apps/web/src/properties/*.stories.tsx',
     '../../../apps/web/src/automations/*.stories.tsx',

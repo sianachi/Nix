@@ -102,6 +102,13 @@ function refuseKindRequirement(
     }
   }
 
+  if (view.kind === 'checklist') {
+    const reason = refuseChecklist(view, effective);
+    if (reason !== null) {
+      return reason;
+    }
+  }
+
   if (view.kind === 'chart') {
     const property = findByKey(effective, view.groupBy);
     if (property === undefined || !canChartBy(property.type)) {
@@ -124,6 +131,33 @@ function refuseKindRequirement(
   }
 
   return null;
+}
+
+/**
+ * A checklist needs something to tick: the checkbox it names, or - named nothing - a checkbox keyed
+ * `done` or the schema's task completion, which is the renderer's own fallback order
+ * (`apps/web/src/views/checklist/checklist-view.tsx`). Core's checklist has no requirement and
+ * stores any key; this is the same client-only strictness as the board's, so a pet hears before
+ * the checklist draws titles with no boxes.
+ */
+function refuseChecklist(
+  view: StructureView,
+  effective: readonly StructureProperty[],
+): string | null {
+  const named = view.doneProperty ?? null;
+  if (named !== null) {
+    const property = findByKey(effective, named);
+    return property !== undefined && valueShapeOf(property.type) === 'checkbox'
+      ? null
+      : `'${view.name}': a checklist ticks a checkbox or completion property.`;
+  }
+  const fallback =
+    effective.find(
+      (property) => property.key === 'done' && valueShapeOf(property.type) === 'checkbox',
+    ) ?? effective.find((property) => property.type === 'completion');
+  return fallback === undefined
+    ? `'${view.name}': a checklist needs a checkbox to tick; add a "done" checkbox or name one.`
+    : null;
 }
 
 /**

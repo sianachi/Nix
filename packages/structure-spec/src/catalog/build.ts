@@ -191,6 +191,16 @@ function viewKindLine(kind: CatalogViewKind): string {
  * habits or the blueprint schema.
  */
 export function renderChat(catalog: Catalog): string {
+  return renderShared(catalog, false);
+}
+
+/**
+ * The text both modes open with. Chat names the recipes by id only: each sets up the view kind of
+ * the same name, which the view-kind lines above it already describe, and the chat text's hard
+ * 3000-character ceiling is better spent on the kinds than on a second description of each one.
+ * Consult, with room to spare, keeps every recipe's own sentence.
+ */
+function renderShared(catalog: Catalog, recipeDetail: boolean): string {
   const lines: string[] = [];
   lines.push('Section: Structure operations');
   lines.push(catalog.structureOperations.chat.join(', '));
@@ -205,7 +215,11 @@ export function renderChat(catalog: Catalog): string {
   lines.push('');
   lines.push('Section: Recipes');
   lines.push(
-    catalog.recipes.map((recipe) => `${recipe.id}: ${recipe.label} - ${recipe.detail}`).join('\n'),
+    recipeDetail
+      ? catalog.recipes
+          .map((recipe) => `${recipe.id}: ${recipe.label} - ${recipe.detail}`)
+          .join('\n')
+      : `${catalog.recipes.map((recipe) => recipe.id).join(', ')}. Each sets up the view kind it names; query is a smart list.`,
   );
   lines.push('');
   lines.push('Section: Never');
@@ -221,7 +235,7 @@ export function renderChat(catalog: Catalog): string {
  * and the efficiency patterns, at most 12000 characters.
  */
 export function renderConsult(catalog: Catalog, patterns: string): string {
-  const lines: string[] = [renderChat(catalog), ''];
+  const lines: string[] = [renderShared(catalog, true), ''];
 
   lines.push('Section: Query operators');
   for (const operator of catalog.queryOperators) {

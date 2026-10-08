@@ -274,6 +274,13 @@ export const ViewSchema = z.object({
     )
     .default([]),
   aggregates: z.array(z.object({ property: z.string(), function: z.string() })).default([]),
+
+  /**
+   * For a checklist: the checkbox (or task completion) each line ticks. Null means the checklist's
+   * own fallback - a property keyed `done`, then the schema's completion - and is defaulted so a
+   * server from before the field answers views without it.
+   */
+  doneProperty: z.string().nullable().default(null),
 });
 
 type ParsedView = z.infer<typeof ViewSchema>;
@@ -300,6 +307,7 @@ export type View = Omit<
   | 'collapsedGroups'
   | 'groupLimits'
   | 'aggregates'
+  | 'doneProperty'
 > &
   Partial<
     Pick<
@@ -314,6 +322,7 @@ export type View = Omit<
       | 'collapsedGroups'
       | 'groupLimits'
       | 'aggregates'
+      | 'doneProperty'
     >
   > & {};
 
@@ -334,6 +343,7 @@ export function toViewRequest(view: View): ParsedView {
     collapsedGroups: [...(view.collapsedGroups ?? [])],
     groupLimits: [...(view.groupLimits ?? [])],
     aggregates: [...(view.aggregates ?? [])],
+    doneProperty: view.doneProperty ?? null,
   };
 }
 

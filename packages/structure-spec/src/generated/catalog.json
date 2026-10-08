@@ -182,6 +182,12 @@
       "viewKind": "list"
     },
     {
+      "id": "checklist",
+      "label": "Checklist",
+      "detail": "Tick child items off one line at a time, with progress.",
+      "viewKind": "checklist"
+    },
+    {
       "id": "habit-tracker",
       "label": "Habit tracker",
       "detail": "Track daily or weekday habits with a simple weekly check-in grid.",
@@ -323,6 +329,18 @@
       "requires": null,
       "optional": [],
       "description": "Habit children arranged by local date with recorded progress."
+    },
+    {
+      "kind": "checklist",
+      "label": "Checklist",
+      "requires": null,
+      "optional": [
+        {
+          "field": "doneProperty",
+          "shape": "checkbox"
+        }
+      ],
+      "description": "A box to tick per child, with progress; columns[0] is shown beside each title."
     }
   ],
   "queryOperators": [
