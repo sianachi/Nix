@@ -27,6 +27,7 @@ import {
   listWorkspaceMembers,
   listWorkspaceAssignablePrincipals,
   listWorkspaces,
+  readWorkspaceGraph,
   dailyNoteSettings,
   openDailyNote,
   purgeWorkspace,
@@ -339,6 +340,13 @@ export function buildProgram(): Command {
     .action(async (options: PageCliOptions, command: Command) => {
       const flags = globalFlags(command);
       await run(() => listWorkspaces(flags.profile, options, outputOptions(flags.json)));
+    });
+
+  ws.command('graph <workspaceId>')
+    .description('Read the workspace graph, including its item and link limits.')
+    .action(async (workspaceId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readWorkspaceGraph(flags.profile, workspaceId, outputOptions(flags.json)));
     });
 
   ws.command('daily-settings <workspaceId>')

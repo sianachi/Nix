@@ -1,9 +1,11 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
-import { Button, Input, Text } from '@nix/ui';
+import { Button, Input, Select, Text } from '@nix/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNarrowViewport } from '../layout/viewport';
 import { useHiddenItems } from '../items/use-hidden-items';
 import { GraphView } from './graph-view';
+import { readGraphPresentation, writeGraphPresentation } from './graph-presentation';
+import { GRAPH_REPRESENTATIONS, type GraphRepresentation } from './graph-representations';
 
 interface Connection {
   id: string;
@@ -29,7 +31,11 @@ export function graphConnections(
   return connections;
 }
 
-export function GraphExplorer({
+export function GraphExplorer(props: Parameters<typeof WorkspaceGraphExplorer>[0]): ReactNode {
+  return <WorkspaceGraphExplorer key={props.workspaceId} {...props} />;
+}
+
+function WorkspaceGraphExplorer({
   nodes: allNodes,
   links: allLinks,
   onOpen,
@@ -67,6 +73,13 @@ export function GraphExplorer({
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(50);
   const [reveal, setReveal] = useState<{ id: string; token: number } | null>(null);
+  const [presentation, setPresentation] = useState(() => readGraphPresentation(workspaceId));
+  const focusId = nodes.some((node) => node.id === presentation.focusId)
+    ? presentation.focusId
+    : (nodes.find((node) => node.parentId !== null)?.id ?? nodes[0]?.id ?? null);
+  useEffect(() => {
+    writeGraphPresentation(workspaceId, presentation);
+  }, [workspaceId, presentation]);
   const spatialRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (reveal !== null) {
@@ -114,6 +127,75 @@ export function GraphExplorer({
       </div>
       {mode === 'spatial' || visitedSpatial ? (
         <div ref={spatialRef} hidden={mode !== 'spatial'}>
+          <div className="mb-3 flex flex-wrap items-end gap-3">
+            <label className="flex min-w-0 flex-col gap-1">
+              <Text as="span" variant="caption">
+                Graph layout
+              </Text>
+              <Select
+                value={presentation.representation}
+                onChange={(event) => {
+                  const representation = event.target.value as GraphRepresentation;
+                  setPresentation((current) => ({ ...current, representation }));
+                  setReveal(null);
+                }}
+              >
+                {Object.entries(GRAPH_REPRESENTATIONS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            {presentation.representation === 'focused' ? (
+              <>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <Text as="span" variant="caption">
+                    Focus item
+                  </Text>
+                  <Select
+                    value={focusId ?? ''}
+                    disabled={nodes.length === 0}
+                    onChange={(event) => {
+                      setPresentation((current) => ({ ...current, focusId: event.target.value }));
+                      setReveal(null);
+                    }}
+                  >
+                    {nodes.length === 0 ? (
+                      <option value="">No items</option>
+                    ) : (
+                      nodes.map((node) => (
+                        <option key={node.id} value={node.id}>
+                          {titles.get(node.id)}
+                        </option>
+                      ))
+                    )}
+                  </Select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <Text as="span" variant="caption">
+                    Connection distance
+                  </Text>
+                  <Select
+                    value={presentation.distance}
+                    onChange={(event) => {
+                      setPresentation((current) => ({
+                        ...current,
+                        distance: Number(event.target.value),
+                      }));
+                      setReveal(null);
+                    }}
+                  >
+                    {[1, 2, 3, 4, 5].map((distance) => (
+                      <option key={distance} value={distance}>
+                        {String(distance)} {distance === 1 ? 'step' : 'steps'}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+              </>
+            ) : null}
+          </div>
           <GraphView
             // Remounted per workspace: its arrangement is read once, when it mounts.
             key={workspaceId}
@@ -125,6 +207,9 @@ export function GraphExplorer({
             onOpen={onOpen}
             reveal={reveal}
             partial={partial}
+            representation={presentation.representation}
+            focusId={focusId}
+            distance={presentation.distance}
           />
         </div>
       ) : null}
@@ -170,10 +255,25 @@ export function GraphExplorer({
                   onClick={() => {
                     setChoice('spatial');
                     setVisitedSpatial(true);
+                    if (presentation.representation === 'focused') {
+                      setPresentation((current) => ({ ...current, focusId: node.id }));
+                    }
                     setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
                   }}
                 >
                   Show in graph
+                </Button>
+                <Button
+                  variant="ghost"
+                  aria-label={`Focus graph on ${titles.get(node.id) ?? 'Untitled'}`}
+                  onClick={() => {
+                    setPresentation({ representation: 'focused', focusId: node.id, distance: 1 });
+                    setChoice('spatial');
+                    setVisitedSpatial(true);
+                    setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
+                  }}
+                >
+                  Focus in graph
                 </Button>
                 {related.length === 0 ? (
                   <Text as="p" variant="caption" tone="muted">

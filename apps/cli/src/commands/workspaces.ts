@@ -7,7 +7,12 @@
  */
 
 import { readFile } from 'node:fs/promises';
-import { workspaces, dailyNoteSettingsSchema, type AssignableWorkspaceRole } from '@nix/api-client';
+import {
+  workspaces,
+  workspaceGraph,
+  dailyNoteSettingsSchema,
+  type AssignableWorkspaceRole,
+} from '@nix/api-client';
 import { resolveSession, type SessionDeps } from './shared.ts';
 import { printResult, type OutputOptions } from '../output.ts';
 
@@ -24,6 +29,17 @@ export async function listWorkspaces(
     { workspaces: result.items, count: result.items.length, nextCursor: result.nextCursor },
     output,
   );
+}
+
+/** Reads the graph with Core's visibility rules and truncation flags intact. */
+export async function readWorkspaceGraph(
+  profileName: string | undefined,
+  workspaceId: string,
+  output: OutputOptions,
+  deps: SessionDeps = {},
+): Promise<void> {
+  const session = await resolveSession(profileName, deps);
+  printResult(await session.client.query(workspaceGraph.workspaceGraph(workspaceId)), output);
 }
 
 export async function createWorkspace(

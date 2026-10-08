@@ -22,6 +22,8 @@
 /* Structured-view previews must compile the same utilities as the application. */
 @source '../../../apps/web/src/views';
 @source '../../../apps/web/src/components';
+/* Graph previews need the same SVG fill, stroke and pointer utilities as the application. */
+@source '../../../apps/web/src/graph';
 
 /* The ground: the light technical paper the whole system sits on. */
 body {

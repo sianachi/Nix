@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { labelPlacement } from '../../graph/graph-labels';
+import { labelPlacement, pickLabels } from '../../graph/graph-labels';
 import type { PositionedNode } from '../../graph/graph-layout';
 
 const node: PositionedNode = {
@@ -24,5 +24,15 @@ describe('graph label placement', () => {
 
   it('keeps labels on the left half outward from their node', () => {
     expect(labelPlacement({ ...node, x: 300 }, 500)).toEqual({ x: 316, textAnchor: 'start' });
+  });
+
+  it('checks collisions against the drawing centre when lanes add space beside nodes', () => {
+    const nodes = [
+      { ...node, id: 'first', x: 0 },
+      { ...node, id: 'middle', x: 100 },
+      { ...node, id: 'last', x: 300 },
+    ];
+    expect(pickLabels(nodes).has('middle')).toBe(true);
+    expect(pickLabels(nodes, 50).has('middle')).toBe(false);
   });
 });

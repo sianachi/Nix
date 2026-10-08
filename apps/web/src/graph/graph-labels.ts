@@ -62,14 +62,17 @@ function overlaps(a: Box, b: Box): boolean {
   return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
 }
 
-export function pickLabels(nodes: readonly PositionedNode[]): ReadonlySet<string> {
+export function pickLabels(
+  nodes: readonly PositionedNode[],
+  drawingCentreX?: number,
+): ReadonlySet<string> {
   if (nodes.length === 0) {
     return new Set();
   }
 
   const minX = Math.min(...nodes.map((node) => node.x));
   const maxX = Math.max(...nodes.map((node) => node.x));
-  const centreX = (minX + maxX) / 2;
+  const centreX = drawingCentreX ?? (minX + maxX) / 2;
   const ordered = [...nodes].sort(
     (a, b) =>
       Number(a.depth !== 0) - Number(b.depth !== 0) ||

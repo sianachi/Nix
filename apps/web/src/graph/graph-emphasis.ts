@@ -15,7 +15,7 @@ import { nodeTitle, type PositionedNode } from './graph-layout';
 export type Adjacency = ReadonlyMap<string, ReadonlySet<string>>;
 
 export function buildAdjacency(
-  nodes: readonly PositionedNode[],
+  nodes: readonly Pick<PositionedNode, 'id' | 'parentId'>[],
   links: readonly GraphLink[],
 ): Adjacency {
   const adjacency = new Map<string, Set<string>>(nodes.map((node) => [node.id, new Set<string>()]));

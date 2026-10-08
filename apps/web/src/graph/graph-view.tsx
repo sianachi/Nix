@@ -28,6 +28,7 @@ import {
 } from './graph-camera';
 import { NO_ARRANGEMENT, readArrangement, writeArrangement } from './graph-arrangement';
 import { foldEverything, foldGraph } from './graph-collapse';
+import { adjustDecorations, indexDecorations } from './graph-decorations';
 import {
   buildAdjacency,
   filterIsActive,
@@ -39,7 +40,6 @@ import {
 import { labelPlacement, pickLabels } from './graph-labels';
 import {
   applyOffsets,
-  layoutGraph,
   moveEdges,
   nodeRadius,
   nodeTitle,
@@ -53,6 +53,7 @@ import { creationOrder, graphStats, recencyOf, type Recency } from './graph-time
 import { GraphTree } from './graph-tree';
 import { stepIn, stepOut } from './graph-zoom';
 import { useSprungOffsets } from './use-sprung-offsets';
+import { representationScene, type GraphRepresentation } from './graph-representations';
 import type { GraphLink, GraphNode } from '@nix/api-client';
 
 /**
@@ -119,8 +120,12 @@ const NODE_STROKE = 'stroke-muted';
  * about the drawing.
  */
 const CLICK_SLOP = 4;
+const NO_PARENTS: ReadonlySet<string> = new Set();
 
 export interface GraphViewProps {
+  readonly representation?: GraphRepresentation;
+  readonly focusId?: string | null;
+  readonly distance?: number;
   readonly nodes: readonly GraphNode[];
   readonly links: readonly GraphLink[];
 
@@ -582,6 +587,7 @@ interface EdgeLayerProps {
 
   /** Draw only the references, for a reader who wants the links without the tree under them. */
   readonly hideStructure: boolean;
+  readonly emphasizeStructure: boolean;
 }
 
 /**
@@ -597,6 +603,7 @@ const EdgeLayer = memo(function EdgeLayer({
   referenceEdges,
   settled,
   hideStructure,
+  emphasizeStructure,
 }: EdgeLayerProps): ReactElement {
   return (
     // The edges fade in behind the nodes rather than flying with them: a line whose two ends
@@ -609,7 +616,7 @@ const EdgeLayer = memo(function EdgeLayer({
         <g
           fill="none"
           stroke="currentColor"
-          className={`text-divider transition-opacity motion-reduce:transition-none ${DIMMED}`}
+          className={`${emphasizeStructure ? 'text-muted' : 'text-divider'} transition-opacity motion-reduce:transition-none ${DIMMED}`}
         >
           {parentEdges.map((edge) => (
             <path
@@ -725,7 +732,14 @@ type PaneGesture =
       readonly from: Camera;
     };
 
-export function GraphView({
+export function GraphView(props: GraphViewProps): ReactElement {
+  const representation = props.representation ?? 'radial';
+  const scope =
+    representation === 'focused' ? `${props.focusId ?? ''}:${String(props.distance ?? 1)}` : '';
+  return <GraphDrawing key={`${props.workspaceId ?? ''}:${representation}:${scope}`} {...props} />;
+}
+
+function GraphDrawing({
   nodes,
   links,
   onOpen,
@@ -734,13 +748,22 @@ export function GraphView({
   workspaceId,
   onMove,
   onLink,
+  representation = 'radial',
+  focusId = null,
+  distance = 1,
 }: GraphViewProps): ReactElement {
+  const arrangementId =
+    workspaceId === undefined || representation === 'focused'
+      ? undefined
+      : representation === 'radial'
+        ? workspaceId
+        : `${workspaceId}:${representation}`;
   // What this reader left behind on this device, read once. Pruned against the payload, so an
   // item deleted since does not bring a ghost offset or a fold with nothing under it back.
   const [stored] = useState(() =>
-    workspaceId === undefined
+    arrangementId === undefined
       ? NO_ARRANGEMENT
-      : readArrangement(workspaceId, new Set(nodes.map((node) => node.id))),
+      : readArrangement(arrangementId, new Set(nodes.map((node) => node.id))),
   );
 
   // Folding happens to the payload, before layout: what is left is laid out as a workspace of
@@ -760,7 +783,12 @@ export function GraphView({
   // Profiled cost is not the reason - the reason is that `layout` is the input to everything below,
   // and laying 2,000 nodes out again on an unrelated re-render (a zoom step, a drag, a hover) would
   // redo the whole walk to produce an identical arrangement. It keys on the folded payload alone.
-  const layout = useMemo(() => layoutGraph(folded.nodes, folded.links), [folded]);
+  // Scene identity keeps panning, zooming and hover from recomputing communities or time lanes.
+  const scene = useMemo(
+    () => representationScene(folded.nodes, folded.links, representation, focusId, distance),
+    [folded, representation, focusId, distance],
+  );
+  const layout = scene.layout;
 
   const paneRef = useRef<HTMLDivElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -805,26 +833,39 @@ export function GraphView({
   // dragged node's neighbours, and the labels, and walking 4,000 links again for each would be the
   // same answer at a per-hover price.
   const adjacency = useMemo(
-    () => buildAdjacency(layout.nodes, folded.links),
-    [layout.nodes, folded.links],
+    () => buildAdjacency(layout.nodes, scene.links),
+    [layout.nodes, scene.links],
+  );
+
+  // Flush completed arrangements on a layout switch, even before the debounce elapses.
+  // Temporary offsets from a drag or its neighbour tug are never kept here.
+  const lastArrangement = useRef({ offsets, collapsed, view: chosen });
+  useEffect(() => {
+    if (pull === null) lastArrangement.current = { offsets, collapsed, view: chosen };
+  }, [offsets, collapsed, chosen, pull]);
+  useEffect(
+    () => () => {
+      if (arrangementId !== undefined) writeArrangement(arrangementId, lastArrangement.current);
+    },
+    [arrangementId],
   );
 
   // Kept a moment after the last change rather than on every one: a wheel or a drag changes the
   // camera or an offset many times a second, and each write serialises the whole entry. Nothing is
   // written mid-drag, when the offsets are still on their way somewhere.
   useEffect(() => {
-    if (workspaceId === undefined || pull !== null) {
+    if (arrangementId === undefined || pull !== null) {
       return;
     }
 
     const timer = setTimeout(() => {
-      writeArrangement(workspaceId, { offsets, collapsed, view: chosen });
+      writeArrangement(arrangementId, { offsets, collapsed, view: chosen });
     }, 300);
     return () => {
       clearTimeout(timer);
     };
-  }, [workspaceId, offsets, collapsed, chosen, pull]);
-  const labels = useMemo(() => pickLabels(layout.nodes), [layout.nodes]);
+  }, [arrangementId, offsets, collapsed, chosen, pull]);
+  const labels = useMemo(() => pickLabels(layout.nodes, layout.width / 2), [layout]);
 
   // Where each nudged node is heading: the reader's own nudges, plus - while a node is in the hand
   // - a share of its travel for each neighbour, so the links visibly stretch. The share is dropped
@@ -867,6 +908,17 @@ export function GraphView({
     }
     return { positioned: nudged, edges: moveEdges(layout, moved) };
   }, [layout, shownOffsets]);
+
+  // Membership identity is stable between scene changes; dragging visits only nudged members.
+  const decorationMembers = useMemo(
+    () => indexDecorations(layout.nodes, scene.decorations),
+    [layout.nodes, scene.decorations],
+  );
+  // Preserve unchanged outline identities and skip bounds work in every group-free layout.
+  const decorations = useMemo(
+    () => adjustDecorations(scene.decorations, decorationMembers, shownOffsets),
+    [scene.decorations, decorationMembers, shownOffsets],
+  );
 
   /**
    * Whether the entrance has run.
@@ -1290,6 +1342,8 @@ export function GraphView({
         return;
       }
       drag.moved = true;
+      // Horizontal position is a creation timestamp in this representation.
+      if (representation === 'chronological') return;
 
       // Screen pixels into graph units: one screen pixel is exactly `1 / scale` graph units.
       // Without this division a node would run away from the pointer at 300% and lag it at 25%.
@@ -1302,7 +1356,7 @@ export function GraphView({
         return next;
       });
     },
-    [moveTargetAt, toGraph],
+    [moveTargetAt, toGraph, representation],
   );
 
   const onNodePointerUp = useCallback(
@@ -1319,7 +1373,7 @@ export function GraphView({
       // node goes back to where it was picked up from - if the move is confirmed the workspace is
       // read again and laid out afresh, and if it is declined nothing should have changed.
       const landed =
-        drag?.moved === true
+        drag?.moved === true && representation !== 'chronological'
           ? moveTargetAt(toGraph(event.clientX, event.clientY), drag.id)
           : undefined;
       if (drag !== null && landed !== undefined) {
@@ -1353,7 +1407,7 @@ export function GraphView({
 
       open(node.id);
     },
-    [open, moveTargetAt, toGraph],
+    [open, moveTargetAt, toGraph, representation],
   );
 
   // Presses on the pane itself, as opposed to on a node. Kept by pointer id because a pinch is
@@ -1454,7 +1508,13 @@ export function GraphView({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
+      {scene.description ? (
+        <Text as="p" variant="caption" tone="muted" role="status">
+          {scene.description}
+          {partial ? ' This view covers the loaded portion of the workspace.' : ''}
+        </Text>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="icon"
           aria-label="Zoom out"
@@ -1467,7 +1527,7 @@ export function GraphView({
         {/* Live, because the two buttons either side change this number and a reader who cannot see
             the drawing rescale has no other way to know the press did anything. */}
         <Text as="span" variant="note" tone="muted" aria-live="polite">
-          {`${String(Math.round(camera.scale * 100))}%`}
+          {`${camera.scale < 0.01 ? (camera.scale * 100).toFixed(1) : String(Math.round(camera.scale * 100))}%`}
         </Text>
 
         <Button
@@ -1507,7 +1567,7 @@ export function GraphView({
           Surprise me
         </Button>
 
-        {folded.parents.size > 0 && (
+        {representation !== 'focused' && folded.parents.size > 0 && (
           <>
             <Button
               variant="ghost"
@@ -1581,7 +1641,10 @@ export function GraphView({
               markerHeight={6}
               orient="auto"
             >
-              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-divider" />
+              <path
+                d="M 0 0 L 10 5 L 0 10 z"
+                className={representation === 'hierarchy' ? 'fill-muted' : 'fill-divider'}
+              />
             </marker>
             <marker
               id="graph-arrow-reference"
@@ -1596,11 +1659,50 @@ export function GraphView({
             </marker>
           </defs>
 
+          <g pointerEvents="none">
+            {decorations.map((decoration, index) => (
+              <g key={`${decoration.kind}:${String(index)}`}>
+                <title>{decoration.label}</title>
+                {decoration.kind === 'group' ? (
+                  <rect
+                    x={decoration.x}
+                    y={decoration.y}
+                    width={decoration.width}
+                    height={decoration.height}
+                    rx={12}
+                    className="fill-surface stroke-divider"
+                  />
+                ) : null}
+                {decoration.kind === 'time' ? (
+                  <line
+                    x1={decoration.x}
+                    x2={decoration.x}
+                    y1={decoration.y + 32}
+                    y2={layout.height - 48}
+                    className="stroke-divider"
+                    strokeDasharray="4 6"
+                  />
+                ) : null}
+                <text
+                  x={decoration.x + (decoration.kind === 'group' ? 20 : 0)}
+                  y={decoration.y + (decoration.kind === 'group' ? 28 : 16)}
+                  textAnchor={decoration.anchor ?? 'start'}
+                  className="fill-current text-xs text-muted"
+                >
+                  {decoration.kind === 'time' || decoration.label.length < 29
+                    ? decoration.label
+                    : `${decoration.label.slice(0, 26)}…`}
+                </text>
+              </g>
+            ))}
+          </g>
+
           <EdgeLayer
             parentEdges={drawnEdges.parentEdges}
             referenceEdges={drawnEdges.referenceEdges}
             settled={settled}
             hideStructure={hideStructure}
+            emphasizeStructure={representation === 'hierarchy'}
           />
 
           {activeEdges !== null && (
@@ -1649,6 +1751,7 @@ export function GraphView({
               // render, so the text node stays mounted and the transition has something to animate.
               named={
                 labels.has(node.id) ||
+                (representation === 'focused' && node.id === focusId) ||
                 node.id === openedId ||
                 (activeId !== null && lit?.has(node.id) === true)
               }
@@ -1657,7 +1760,11 @@ export function GraphView({
               recency={recencyOf(node.lastModifiedAt, now)}
               absent={arrived !== null && !arrived.has(node.id)}
               fold={
-                folded.parents.has(node.id) ? (collapsed.has(node.id) ? 'closed' : 'open') : 'none'
+                representation !== 'focused' && folded.parents.has(node.id)
+                  ? collapsed.has(node.id)
+                    ? 'closed'
+                    : 'open'
+                  : 'none'
               }
               hiddenCount={folded.hidden.get(node.id) ?? 0}
               onToggleFold={toggleFold}
@@ -1875,8 +1982,9 @@ export function GraphView({
 
       <GraphTree
         nodes={layout.nodes}
-        links={folded.links}
-        parents={folded.parents}
+        links={scene.links}
+        nodeDescriptions={scene.nodeDescriptions}
+        parents={representation === 'focused' ? NO_PARENTS : folded.parents}
         collapsed={collapsed}
         onToggleFold={toggleFold}
         onOpen={open}

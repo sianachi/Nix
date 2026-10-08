@@ -1,3 +1,5 @@
+using Nix.Domain.Items;
+
 namespace Nix.Persistence.Sql.Statements;
 
 /// <summary>
@@ -99,6 +101,11 @@ public static class GraphSql
     /// the ceiling bounds ancestor probes and output, not that initial sort.
     /// </para>
     /// <para>
+    /// Imported calendar events are omitted before the node ceiling. Their reserved source key
+    /// records import origin; calendar-managed containers and Nix-authored events pushed to a
+    /// provider stay visible. Edges touching an omitted event leave with it.
+    /// </para>
+    /// <para>
     /// The ordering is stable so the same workspace draws the same way twice, and so the ceiling
     /// cuts the same items each time rather than a different subset per request. Nodes enter by
     /// <c>seq</c>, the workspace's own sibling order, so what survives a truncated read is the top
@@ -134,6 +141,7 @@ public static class GraphSql
                   AND item.workspace_id = ANY(@workspace_ids)
                   AND item.lifecycle_state = 'active'
                   AND item.template_id IS NULL
+                  AND item.properties ->> '{{ItemProperties.CalendarSourceKey}}' IS NULL
                   AND NOT EXISTS (
                       SELECT 1
                       FROM closed_lock_descendants AS hidden

@@ -7,6 +7,9 @@ using Nix.Domain.Tenancy;
 using Nix.Features.Graph;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
+using Nix.Persistence.Sql.Statements;
+using Npgsql;
+using NpgsqlTypes;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -59,8 +62,13 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
     private static readonly Guid Member = new("6a4a4000-1111-4111-8111-6a4a40000006");
 
     private readonly NixPostgresFixture _fixture;
+    private readonly ITestOutputHelper _output;
 
-    public WorkspaceGraphAuthorizationTests(NixPostgresFixture fixture) => _fixture = fixture;
+    public WorkspaceGraphAuthorizationTests(NixPostgresFixture fixture, ITestOutputHelper output)
+    {
+        _fixture = fixture;
+        _output = output;
+    }
 
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
@@ -205,6 +213,122 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
 
             var node = Assert.Single(graph.Nodes);
             Assert.NotEqual(ItemId.From(VisibleChild), node.Id);
+        }
+    }
+
+    [Theory]
+    [InlineData("google", true, true)]
+    [InlineData("google", false, false)]
+    [InlineData("microsoft", true, false)]
+    [InlineData("microsoft", false, true)]
+    public async Task Calendar_imports_and_their_edges_are_omitted_but_containers_and_Nix_authored_events_stay(
+        string provider, bool readOnly, bool managed)
+    {
+        await MarkCalendarItemsAsync(provider, readOnly, managed);
+
+        var graph = await ReadGraphAsync(OpenWorkspace);
+
+        Assert.Equal(3, graph.Nodes.Count);
+        Assert.DoesNotContain(graph.Nodes, node => node.Id == ItemId.From(VisibleSource));
+        Assert.Contains(graph.Nodes, node => node.Id == ItemId.From(VisibleRoot));
+        Assert.Contains(graph.Nodes, node => node.Id == ItemId.From(VisibleChild));
+        Assert.Empty(graph.Links);
+    }
+
+    [Fact]
+    public async Task An_imported_calendar_event_does_not_spend_the_node_ceiling()
+    {
+        await MarkCalendarItemsAsync("google", readOnly: false, managed: true);
+        await SetSequenceAsync(VisibleSource, 1);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var graph = await work.Resolve<IWorkspaceGraph>().ReadAsync(
+                OpenWorkspace,
+                [OpenWorkspace],
+                nodeLimit: 1,
+                linkLimit: GetWorkspaceGraphHandler.MaximumLinks,
+                Cancellation);
+
+            var node = Assert.Single(graph.Nodes);
+            Assert.NotEqual(ItemId.From(VisibleSource), node.Id);
+        }
+    }
+
+    [Fact]
+    public async Task A_calendar_heavy_workspace_returns_its_own_notes_without_false_truncation()
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var workspace = Literal(M0SchemaSeed.Alpha.WorkspaceId);
+        var principal = Literal(M0SchemaSeed.Alpha.PrincipalId);
+        var seed = $$"""
+            WITH inserted AS (
+                INSERT INTO item
+                    (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                     created_by, last_modified_by, created_at, last_modified_at)
+                SELECT gen_random_uuid(), {{tenant}}, {{workspace}}, 'note', {{Literal(VisibleRoot)}},
+                       10000 + n, jsonb_build_object('title', 'Event ' || n, 'start', '2026-10-08')
+                       || CASE WHEN n <= 10000 THEN '{"$cal_source":"google"}'::jsonb ELSE '{}'::jsonb END,
+                       'active', {{principal}}, {{principal}}, now(), now()
+                FROM generate_series(1, 11000) AS n
+                RETURNING id
+            )
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT id, id, {{tenant}}, {{workspace}}, 0 FROM inserted
+            UNION ALL
+            SELECT id, {{Literal(VisibleRoot)}}, {{tenant}}, {{workspace}}, 1 FROM inserted;
+            ANALYZE item;
+            ANALYZE item_closure;
+            """;
+        var migrator = await _fixture.OpenMigratorConnectionAsync();
+        await using (migrator.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(migrator, transaction: null, seed);
+        }
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(MemberContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var result = await work.Resolve<NixDispatcher>()
+                .QueryAsync<GetWorkspaceGraph, Result<WorkspaceGraphResults>>(
+                    new GetWorkspaceGraph(OpenWorkspace), Cancellation);
+            Assert.True(result.IsSuccess);
+            Assert.Equal(1004, result.Value.Graph.Nodes.Count);
+            Assert.False(result.Value.NodesTruncated);
+            Assert.Single(result.Value.Graph.Links);
+        }
+
+        var runtime = await _fixture.OpenApplicationConnectionAsync();
+        await using (runtime.ConfigureAwait(false))
+        {
+            var transaction = await runtime.BeginTransactionAsync(Cancellation);
+            await using (transaction.ConfigureAwait(false))
+            {
+                await RawSql.ExecuteAsync(runtime, transaction,
+                    $"SELECT set_config('nix.tenant_id', '{M0SchemaSeed.Alpha.TenantId:D}', true), "
+                    + $"set_config('nix.principal_id', '{Member:D}', true)");
+                var command = new NpgsqlCommand("EXPLAIN (ANALYZE, BUFFERS) " + GraphSql.WorkspaceGraph,
+                    runtime, transaction);
+                await using (command.ConfigureAwait(false))
+                {
+                    command.Parameters.Add(new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = M0SchemaSeed.Alpha.TenantId });
+                    command.Parameters.Add(new NpgsqlParameter("workspace_id", NpgsqlDbType.Uuid) { Value = OpenWorkspace.Value });
+                    command.Parameters.Add(new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = new[] { OpenWorkspace.Value } });
+                    command.Parameters.Add(new NpgsqlParameter("lock_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = Array.Empty<Guid>() });
+                    command.Parameters.Add(new NpgsqlParameter("closed_lock_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = Array.Empty<Guid>() });
+                    command.Parameters.Add(new NpgsqlParameter("node_limit", NpgsqlDbType.Integer) { Value = GetWorkspaceGraphHandler.MaximumNodes + 1 });
+                    command.Parameters.Add(new NpgsqlParameter("link_limit", NpgsqlDbType.Integer) { Value = GetWorkspaceGraphHandler.MaximumLinks + 1 });
+                    var reader = await command.ExecuteReaderAsync(Cancellation);
+                    await using (reader.ConfigureAwait(false))
+                    {
+                        while (await reader.ReadAsync(Cancellation))
+                        {
+                            _output.WriteLine(reader.GetString(0));
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -503,6 +627,36 @@ public sealed class WorkspaceGraphAuthorizationTests : IAsyncLifetime
                 ({{tenant}}, {{Literal(PrivateItem)}}, {{Literal(VisibleChild)}}, 1, 1);
             """;
 
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, sql);
+        }
+    }
+
+    private async Task MarkCalendarItemsAsync(string provider, bool readOnly, bool managed)
+    {
+        var properties = new System.Text.Json.Nodes.JsonObject
+        {
+            [ItemProperties.CalendarSourceKey] = provider,
+            [ItemProperties.CalendarReadOnlyKey] = readOnly,
+        };
+        var sql = $$"""
+            UPDATE item
+               SET properties = properties || '{{properties.ToJsonString()}}'::jsonb,
+                   managed_by = {{(managed ? "'calendar_event'" : "NULL")}},
+                   no_delete = {{(managed ? "true" : "false")}}
+             WHERE id = {{Literal(VisibleSource)}};
+            UPDATE item SET managed_by = 'calendar', no_delete = true
+             WHERE id = {{Literal(VisibleRoot)}};
+            UPDATE item
+               SET properties = properties || '{"start":"2026-10-08T09:00:00Z"}'::jsonb,
+                   managed_by = 'calendar_event', no_delete = true
+             WHERE id = {{Literal(VisibleChild)}};
+            INSERT INTO item_link (tenant_id, source_item_id, target_item_id, occurrences, seq)
+            VALUES ({{Literal(M0SchemaSeed.Alpha.TenantId)}}, {{Literal(VisibleChild)}},
+                    {{Literal(VisibleSource)}}, 1, 1);
+            """;
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
         {
