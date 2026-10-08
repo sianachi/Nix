@@ -2,6 +2,9 @@ export { createCompanionBodies } from './bodies.js';
 export {
   defaultClock,
   defaultIds,
+  type BodyEdit,
+  type BodyEditPlan,
+  type BodyEditResult,
   type CompanionBodies,
   type CompanionClock,
   type CompanionIds,
