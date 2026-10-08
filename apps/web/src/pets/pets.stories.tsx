@@ -1379,6 +1379,7 @@ const passageLossModel: PreviewModel = {
     after: '',
     blocksRemoved: 1,
     blocksAdded: 0,
+    losesFormatting: true,
   },
 };
 

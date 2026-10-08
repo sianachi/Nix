@@ -43,10 +43,12 @@ const DECLINED_BY_USER = 'Declined by the user. Do not retry this change unless 
  * it would store links to another host (see `hasExternalLink`). The title is included because
  * `writeTextItems` lists only bodies, specs and property values. A note body edit also passes the
  * edited block as it will read afterwards (`model.bodyEdit.after`): the find and replace text can
- * join with what is already there into a link neither holds alone. */
+ * join with what is already there into a link neither holds alone. An edit that would drop
+ * formatting Markdown cannot carry always waits, so the owner sees the loss before it happens. */
 function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel): boolean {
   return (
     canApplyWithoutAsking(args.operation) &&
+    model?.bodyEdit?.losesFormatting !== true &&
     !hasExternalLink([
       args.title,
       ...writeTextItems(args).map((item) => item.text),
