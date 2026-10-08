@@ -145,7 +145,7 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
               change({ ...draft, narration: event.currentTarget.checked });
             }}
           />
-          <Text>Read new replies aloud while the companion is open</Text>
+          <Text>Read a reply aloud when you dictated the message to the companion</Text>
         </label>
         <div className="flex flex-col gap-1">
           <label className="flex items-center gap-2">
