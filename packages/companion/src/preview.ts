@@ -29,6 +29,7 @@ import type { BodyEditPlan } from './ports.js';
 export type { PreviewContext } from './context.js';
 import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
 import { planBuild } from './blueprint/plan.js';
+import type { TaskCompletionPlan } from './tasks/complete-task.js';
 
 /** `WorkspaceToolArgs` widened to the operations and `specJson` field added by task A.4. */
 export type PreviewToolArgs = Omit<WorkspaceToolArgs, 'operation'> & {
@@ -257,6 +258,10 @@ function legacyHeadline(args: PreviewToolArgs): string {
       return 'I will read the outline of the linked template.';
     case 'apply_template':
       return `I will create “${args.title}” from the linked template${args.parentId ? ' inside the linked destination' : ' at the top level of this workspace'}.`;
+    case 'read_calendar':
+      return 'I will read what is on this workspace’s calendars for the dates asked.';
+    case 'complete_task':
+      return 'I will change whether the linked task is done.';
     case 'create_structured':
     case 'add_view':
     case 'create_entries':
@@ -270,7 +275,39 @@ function legacyHeadline(args: PreviewToolArgs): string {
   }
 }
 
+/** A `complete_task` card says which task, what it becomes, and - for a repeating task - which
+ * occurrence, so approving it never reads as "tick something". */
+function taskCompletionCopy(plan: TaskCompletionPlan): { headline: string; notes: string[] } {
+  if (plan.kind === 'occurrence')
+    return {
+      headline: `I will mark the ${plan.occurredOn} occurrence of the repeating task “${plan.title}” done.`,
+      notes: ['The task keeps repeating; its next occurrence stays open.'],
+    };
+  const state = plan.completed ? 'done' : 'not done';
+  return {
+    headline: `I will mark “${plan.title}” ${state}.`,
+    notes: plan.unchanged ? [`It is already ${state}, so nothing will change.`] : [],
+  };
+}
+
 function describeLegacyOperation(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
+  if (args.operation === 'complete_task' && context.taskCompletion !== undefined) {
+    const copy = taskCompletionCopy(context.taskCompletion);
+    return {
+      headline: copy.headline,
+      destination: context.destination,
+      counts: {
+        ...emptyCounts(),
+        writes:
+          context.taskCompletion.kind === 'property' && context.taskCompletion.unchanged ? 0 : 1,
+      },
+      tree: [],
+      notes: copy.notes,
+      warnings: [],
+      problems: context.problems,
+      neverDoes: NEVER_DOES.slice(),
+    };
+  }
   const notes = args.operation === 'apply_template' ? applyTemplateNotes(context.preflight) : [];
   const templateProblems =
     args.operation === 'apply_template' ? applyTemplateProblems(context.preflight) : [];

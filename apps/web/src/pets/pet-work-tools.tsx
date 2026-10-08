@@ -168,6 +168,14 @@ function readPhrase(args: WorkspaceToolArgs): ReadPhrase {
         progressive: 'Reading a template',
         past: 'Read a template',
       };
+    case 'read_calendar': {
+      const range = calendarRangeLabel(args.specJson);
+      return {
+        base: `Read the calendar${range}`,
+        progressive: `Reading the calendar${range}`,
+        past: `Read the calendar${range}`,
+      };
+    }
     case 'validate_blueprint':
       return {
         base: 'Check the design',
@@ -180,6 +188,19 @@ function readPhrase(args: WorkspaceToolArgs): ReadPhrase {
         progressive: 'Running a read-only request',
         past: 'Ran a read-only request',
       };
+  }
+}
+
+/** " from 2026-10-05 to 2026-10-11" for a calendar read's sentence, or nothing when its range
+ * cannot be read (the read itself then refuses with the reason). */
+function calendarRangeLabel(specJson: string): string {
+  try {
+    const range = JSON.parse(specJson) as { from?: unknown; to?: unknown };
+    return typeof range.from === 'string' && typeof range.to === 'string'
+      ? ` from ${range.from} to ${range.to}`
+      : '';
+  } catch {
+    return '';
   }
 }
 
@@ -424,6 +445,10 @@ export function PetWorkTools({
             for (const parent of outcome.touchedParents)
               notifyItemChildrenChanged(workspaceId, parent);
             if (args.operation === 'apply_template') client.invalidate(['templates']);
+            // A completed occurrence changes what the calendar draws, and its cache is keyed by
+            // workspace, not by item.
+            if (args.operation === 'complete_task')
+              client.invalidate(['workspaces', workspaceId, 'calendar']);
           }
         } catch (reason) {
           toolResult =

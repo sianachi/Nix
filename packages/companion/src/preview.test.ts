@@ -130,6 +130,69 @@ describe('describeToolCall - legacy operations', () => {
       ).headline,
     ).toBe('I will create “Reading log” from the linked template inside the linked destination.');
   });
+
+  it('complete_task names the task, what it becomes, and a repeating occurrence', () => {
+    const plain = describeToolCall(
+      args({ operation: 'complete_task', specJson: '{"completed":true}' }),
+      context({
+        taskCompletion: {
+          kind: 'property',
+          itemId: 'i1',
+          title: 'Pay rent',
+          key: 'completion',
+          completed: true,
+          unchanged: false,
+        },
+      }),
+    );
+    expect(plain.headline).toBe('I will mark “Pay rent” done.');
+    expect(plain.counts.writes).toBe(1);
+
+    const unchanged = describeToolCall(
+      args({ operation: 'complete_task', specJson: '{"completed":false}' }),
+      context({
+        taskCompletion: {
+          kind: 'property',
+          itemId: 'i1',
+          title: 'Pay rent',
+          key: 'completion',
+          completed: false,
+          unchanged: true,
+        },
+      }),
+    );
+    expect(unchanged.headline).toBe('I will mark “Pay rent” not done.');
+    expect(unchanged.notes).toEqual(['It is already not done, so nothing will change.']);
+    expect(unchanged.counts.writes).toBe(0);
+
+    const repeating = describeToolCall(
+      args({ operation: 'complete_task', specJson: '{"completed":true}' }),
+      context({
+        taskCompletion: {
+          kind: 'occurrence',
+          itemId: 'i1',
+          title: 'Water plants',
+          occurredOn: '2026-10-09',
+        },
+      }),
+    );
+    expect(repeating.headline).toBe(
+      'I will mark the 2026-10-09 occurrence of the repeating task “Water plants” done.',
+    );
+    expect(repeating.notes).toEqual(['The task keeps repeating; its next occurrence stays open.']);
+  });
+
+  it('complete_task with a refusal carries it as the problem the card sends back', () => {
+    const model = describeToolCall(
+      args({ operation: 'complete_task', specJson: '{"completed":true}' }),
+      context({
+        problems: [
+          { path: 'itemId', code: 'task_refused', message: 'Add one with nix_add_fields.' },
+        ],
+      }),
+    );
+    expect(model.problems).toHaveLength(1);
+  });
 });
 
 describe('describeToolCall - new template copy and read_structure', () => {

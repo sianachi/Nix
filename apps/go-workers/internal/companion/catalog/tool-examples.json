@@ -549,5 +549,39 @@
       "propertiesJson": "",
       "specJson": ""
     }
+  },
+  {
+    "operation": "read_calendar",
+    "arguments": {
+      "from": "2026-10-05",
+      "to": "2026-10-11"
+    },
+    "flat": {
+      "operation": "read_calendar",
+      "itemId": "",
+      "parentId": "",
+      "title": "",
+      "markdown": "",
+      "query": "",
+      "propertiesJson": "",
+      "specJson": "{\"from\":\"2026-10-05\",\"to\":\"2026-10-11\"}"
+    }
+  },
+  {
+    "operation": "complete_task",
+    "arguments": {
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "completed": true
+    },
+    "flat": {
+      "operation": "complete_task",
+      "itemId": "11111111-1111-4111-8111-111111111111",
+      "parentId": "",
+      "title": "",
+      "markdown": "",
+      "query": "",
+      "propertiesJson": "",
+      "specJson": "{\"completed\":true}"
+    }
   }
 ]

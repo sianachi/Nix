@@ -1121,3 +1121,491 @@ describe('workspace-scoped companion tools', () => {
     expect(parse('replace_passage')).toBe(true);
   });
 });
+
+describe('reading values, the calendar, and completing tasks', () => {
+  const containerId = '33333333-3333-4333-8333-333333333333';
+  const field = (key: string, type: string) => ({
+    key,
+    label: key,
+    type,
+    options: [],
+    required: false,
+    expression: null,
+    aggregate: null,
+    source: null,
+  });
+  const taskSchema = {
+    properties: [
+      field('title', 'text'),
+      field('due_date', 'due_date'),
+      field('start_date', 'start_date'),
+      field('completion', 'completion'),
+      field('status', 'select'),
+      field('notes', 'long_text'),
+      field('summary', 'text'),
+    ],
+    declared: [],
+    inherit: true,
+  };
+  const child = (id: string, properties: Record<string, unknown>) => ({
+    id,
+    workspaceId: workspace,
+    parentId: containerId,
+    type: 'note',
+    title: `Task ${id.slice(0, 2)}`,
+    hasChildren: false,
+    properties,
+  });
+  function listSetup(children: unknown[]) {
+    const fake = setup();
+    fake.query.mockImplementation((endpoint: { operation: string }) =>
+      Promise.resolve(
+        endpoint.operation === 'schema.get'
+          ? taskSchema
+          : {
+              id: containerId,
+              workspaceId: workspace,
+              parentId: null,
+              title: 'Tasks',
+              type: 'note',
+            },
+      ),
+    );
+    fake.paginate.mockImplementation(async function* () {
+      await Promise.resolve();
+      yield* children;
+    });
+    return fake;
+  }
+
+  it('lists children with trimmed values keyed by the container schema and task fields on top', async () => {
+    const { ports, signal } = listSetup([
+      child('44444444-4444-4444-8444-444444444444', {
+        title: 'Pay rent',
+        due_date: '2026-10-01',
+        completion: true,
+        status: 'Doing',
+        notes: 'A long body that never travels in a list.',
+        summary: 'x'.repeat(500),
+        $due_set_by: 'someone',
+        stale_key: 'from a removed field',
+      }),
+    ]);
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('list_items', { parentId: containerId }),
+      signal,
+    );
+    const result = JSON.parse(outcome.text) as {
+      items: {
+        dueDate: unknown;
+        startDate: unknown;
+        completed: boolean;
+        properties: Record<string, unknown>;
+      }[];
+      truncated: boolean;
+      propertiesOmitted?: boolean;
+    };
+    const [row] = result.items;
+    expect(row).toMatchObject({ dueDate: '2026-10-01', startDate: null, completed: true });
+    expect(row?.properties).toEqual({ status: 'Doing', summary: `${'x'.repeat(199)}…` });
+    expect(row?.properties.summary).toHaveLength(200);
+    expect(result.propertiesOmitted).toBeUndefined();
+    expect(outcome.readOnly).toBe(true);
+  });
+
+  it('drops properties, keeps task fields, and says so when the values would not fit', async () => {
+    const children = Array.from({ length: 50 }, (_, index) =>
+      child(`${String(index).padStart(8, '0')}-4444-4444-8444-444444444444`, {
+        due_date: '2026-10-02',
+        completion: false,
+        summary: 'y'.repeat(400),
+      }),
+    );
+    const { ports, signal } = listSetup(children);
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('list_items', { parentId: containerId }),
+      signal,
+    );
+    const result = JSON.parse(outcome.text) as {
+      items: { dueDate: unknown; completed: boolean; properties?: unknown }[];
+      propertiesOmitted: boolean;
+      hint: string;
+    };
+    expect(outcome.text.length).toBeLessThanOrEqual(16000);
+    expect(result.propertiesOmitted).toBe(true);
+    expect(result.hint).toContain('nix_read_item');
+    expect(result.items).toHaveLength(50);
+    expect(result.items[0]).toMatchObject({ dueDate: '2026-10-02', completed: false });
+    expect(result.items.every((row) => row.properties === undefined)).toBe(true);
+  });
+
+  it('lists the workspace root without reading any schema', async () => {
+    const { ports, query, signal } = listSetup([
+      { ...child('55555555-5555-4555-8555-555555555555', { status: 'x' }), parentId: null },
+    ]);
+    const outcome = await runWorkspaceTool(ports, workspace, input('list_items'), signal);
+    const result = JSON.parse(outcome.text) as { items: Record<string, unknown>[] };
+    expect(result.items[0]).toEqual({
+      id: '55555555-5555-4555-8555-555555555555',
+      title: 'Task 55',
+      type: 'note',
+      hasChildren: false,
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  const calendarResponse = (entries: unknown[], extra: Record<string, unknown> = {}) => ({
+    workspaceId: workspace,
+    from: '2026-09-21',
+    to: '2026-09-27',
+    entries,
+    unplaceable: [],
+    entryLimit: 2000,
+    entriesTruncated: false,
+    seriesTruncated: false,
+    ...extra,
+  });
+  const entry = (overrides: Record<string, unknown>) => ({
+    itemId,
+    title: 'Pay rent',
+    containerId,
+    containerTitle: 'Tasks',
+    dateProperty: 'due_date',
+    value: '2026-09-25',
+    kind: 'date',
+    generated: false,
+    completed: null,
+    endProperty: null,
+    endValue: null,
+    ...overrides,
+  });
+
+  it('reads the workspace calendar for a bounded window as trimmed rows', async () => {
+    const { ports, query, signal } = setup();
+    query.mockResolvedValue(
+      calendarResponse(
+        [
+          entry({}),
+          entry({ value: '2026-09-26', generated: true, completed: false }),
+          entry({
+            value: '2026-09-27T09:00:00+01:00[Europe/London]',
+            endValue: '2026-09-27T10:00:00+01:00[Europe/London]',
+            kind: 'timestamp',
+          }),
+        ],
+        {
+          unplaceable: [
+            {
+              containerId,
+              containerTitle: 'Tasks',
+              reason: 'no_date_property',
+              itemId: null,
+              itemTitle: null,
+            },
+          ],
+        },
+      ),
+    );
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('read_calendar', { specJson: '{"from":"2026-09-21","to":"2026-09-27"}' }),
+      signal,
+    );
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'workspaceCalendar.get',
+        path: `/api/v1/workspaces/${workspace}/calendar?from=2026-09-21&to=2026-09-27`,
+      }),
+      expect.objectContaining({ forceRefresh: true }),
+    );
+    const result = JSON.parse(outcome.text) as { entries: Record<string, unknown>[] };
+    expect(result).toMatchObject({ truncated: false, unplaceable: 1 });
+    expect(result.entries).toEqual([
+      { itemId, title: 'Pay rent', containerTitle: 'Tasks', value: '2026-09-25' },
+      {
+        itemId,
+        title: 'Pay rent',
+        containerTitle: 'Tasks',
+        value: '2026-09-26',
+        completed: false,
+        generated: true,
+      },
+      {
+        itemId,
+        title: 'Pay rent',
+        containerTitle: 'Tasks',
+        value: '2026-09-27T09:00:00+01:00[Europe/London]',
+        endValue: '2026-09-27T10:00:00+01:00[Europe/London]',
+      },
+    ]);
+    expect(outcome.readOnly).toBe(true);
+  });
+
+  it('caps calendar rows and says the window holds more', async () => {
+    const { ports, query, signal } = setup();
+    query.mockResolvedValue(calendarResponse(Array.from({ length: 150 }, () => entry({}))));
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('read_calendar', { specJson: '{"from":"2026-09-21","to":"2026-09-27"}' }),
+      signal,
+    );
+    const result = JSON.parse(outcome.text) as {
+      entries: unknown[];
+      truncated: boolean;
+      hint: string;
+    };
+    expect(result.entries).toHaveLength(100);
+    expect(result.truncated).toBe(true);
+    expect(result.hint).toContain('shorter range');
+  });
+
+  it.each([
+    ['{"from":"2026-09-01","to":"2026-10-02"}', 'at most 31 days'],
+    ['{"from":"2026-09-27","to":"2026-09-21"}', 'on or before'],
+    ['{"from":"2026-02-30","to":"2026-03-02"}', 'yyyy-MM-dd'],
+  ])('refuses the calendar range %s before reading anything', async (specJson, message) => {
+    const { ports, query, signal } = setup();
+    await expect(
+      runWorkspaceTool(ports, workspace, input('read_calendar', { specJson }), signal),
+    ).rejects.toThrow(message);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('accepts a full 31-day calendar window', async () => {
+    const { ports, query, signal } = setup();
+    query.mockResolvedValue(calendarResponse([]));
+    await runWorkspaceTool(
+      ports,
+      workspace,
+      input('read_calendar', { specJson: '{"from":"2026-09-01","to":"2026-10-01"}' }),
+      signal,
+    );
+    expect(query).toHaveBeenCalledOnce();
+  });
+
+  function taskSetup(options: {
+    properties: Record<string, unknown>;
+    schema?: { properties: unknown[]; declared: unknown[]; inherit: boolean };
+    calendar?: unknown;
+  }) {
+    const fake = setup();
+    fake.query.mockImplementation((endpoint: { operation: string }) =>
+      Promise.resolve(
+        endpoint.operation === 'schema.get'
+          ? (options.schema ?? taskSchema)
+          : endpoint.operation === 'workspaceCalendar.get'
+            ? (options.calendar ?? calendarResponse([]))
+            : {
+                id: itemId,
+                workspaceId: workspace,
+                parentId: containerId,
+                title: 'Pay rent',
+                type: 'note',
+                properties: options.properties,
+              },
+      ),
+    );
+    fake.execute.mockImplementation(
+      (endpoint: { operation: string; body: { occurredOn?: string } }) =>
+        Promise.resolve(
+          endpoint.operation === 'recurrence.complete'
+            ? { rule: null, occurredOn: endpoint.body.occurredOn }
+            : { id: itemId },
+        ),
+    );
+    return fake;
+  }
+  const completeArgs = (completed: boolean) =>
+    input('complete_task', { itemId, specJson: JSON.stringify({ completed }) });
+
+  it('completes a plain task through its completion field, fenced by its preview', async () => {
+    const { ports, query, execute, signal } = taskSetup({ properties: { completion: false } });
+    const context = await loadPreviewContext(
+      ports,
+      workspace,
+      workspaceToolSchema.parse(JSON.parse(completeArgs(true))),
+      signal,
+    );
+    expect(context.problems).toEqual([]);
+    expect(context.taskCompletion).toMatchObject({ kind: 'property', key: 'completion' });
+    const outcome = await runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
+      fence: context.fingerprint,
+    });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'properties.set',
+        body: { properties: { completion: true } },
+      }),
+      expect.anything(),
+    );
+    expect(JSON.parse(outcome.text)).toEqual({
+      id: itemId,
+      title: 'Pay rent',
+      completed: true,
+      recurring: false,
+    });
+    expect(outcome.readOnly).toBe(false);
+    // No due date: there is no series to look for, so the calendar is never read.
+    expect(query).not.toHaveBeenCalledWith(
+      expect.objectContaining({ operation: 'workspaceCalendar.get' }),
+      expect.anything(),
+    );
+  });
+
+  it('reopens a plain task and writes nothing when it already matches', async () => {
+    const { ports, execute, signal } = taskSetup({ properties: { completion: true } });
+    const fence = `task:property:${itemId}:completion:false`;
+    await runWorkspaceTool(ports, workspace, completeArgs(false), signal, { fence });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { properties: { completion: false } } }),
+      expect.anything(),
+    );
+
+    const again = taskSetup({ properties: { completion: false } });
+    const outcome = await runWorkspaceTool(
+      again.ports,
+      workspace,
+      completeArgs(false),
+      again.signal,
+      { fence },
+    );
+    expect(again.execute).not.toHaveBeenCalled();
+    expect(JSON.parse(outcome.text)).toMatchObject({ completed: false, unchanged: true });
+  });
+
+  it('completes the earliest open occurrence of a repeating task through recurrence completion', async () => {
+    const { ports, execute, signal } = taskSetup({
+      properties: { due_date: '2026-09-01', completion: false },
+      calendar: calendarResponse([
+        entry({ value: '2026-09-18', generated: true, completed: true }),
+        entry({ value: '2026-09-25', generated: true, completed: false }),
+        entry({ value: '2026-10-02', generated: true, completed: false }),
+        entry({ itemId: containerId, value: '2026-09-20', generated: true, completed: false }),
+      ]),
+    });
+    const context = await loadPreviewContext(
+      ports,
+      workspace,
+      workspaceToolSchema.parse(JSON.parse(completeArgs(true))),
+      signal,
+    );
+    expect(context.fingerprint).toBe(`task:occurrence:${itemId}:2026-09-25`);
+    const outcome = await runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
+      fence: context.fingerprint,
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'recurrence.complete',
+        path: `/api/v1/items/${itemId}/recurrence/completions`,
+        body: { occurredOn: '2026-09-25' },
+      }),
+      expect.anything(),
+    );
+    expect(JSON.parse(outcome.text)).toEqual({
+      id: itemId,
+      title: 'Pay rent',
+      completed: true,
+      recurring: true,
+      occurredOn: '2026-09-25',
+    });
+  });
+
+  it('completes the next upcoming occurrence when nothing is open up to today', async () => {
+    const { ports, execute, signal } = taskSetup({
+      properties: { due_date: '2026-09-01' },
+      calendar: calendarResponse([
+        entry({ value: '2026-09-18', generated: true, completed: true }),
+        entry({ value: '2026-10-02', generated: true, completed: false }),
+      ]),
+    });
+    await runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
+      fence: `task:occurrence:${itemId}:2026-10-02`,
+    });
+    expect(execute).toHaveBeenCalledWith(
+      expect.objectContaining({ body: { occurredOn: '2026-10-02' } }),
+      expect.anything(),
+    );
+  });
+
+  it('refuses to reopen an occurrence of a repeating task', async () => {
+    const { ports, execute, signal } = taskSetup({
+      properties: { due_date: '2026-09-01' },
+      calendar: calendarResponse([entry({ generated: true, completed: true })]),
+    });
+    await expect(
+      runWorkspaceTool(ports, workspace, completeArgs(false), signal, { fence: 'x' }),
+    ).rejects.toThrow('reopening one of its occurrences');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a repeating task whose series cannot be drawn', async () => {
+    const { ports, execute, signal } = taskSetup({
+      properties: { due_date: '2026-09-01' },
+      calendar: calendarResponse([], {
+        unplaceable: [
+          {
+            containerId,
+            containerTitle: 'Tasks',
+            reason: 'calendar_not_by_due_date',
+            itemId,
+            itemTitle: 'Pay rent',
+          },
+        ],
+      }),
+    });
+    await expect(
+      runWorkspaceTool(ports, workspace, completeArgs(true), signal, { fence: 'x' }),
+    ).rejects.toThrow('not placed by due date');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses an item with no completion field and names nix_add_fields, on the card too', async () => {
+    const schema = { properties: [field('status', 'select')], declared: [], inherit: true };
+    const { ports, execute, signal } = taskSetup({ properties: {}, schema });
+    await expect(
+      runWorkspaceTool(ports, workspace, completeArgs(true), signal, { fence: 'x' }),
+    ).rejects.toThrow('nix_add_fields');
+    expect(execute).not.toHaveBeenCalled();
+    const context = await loadPreviewContext(
+      ports,
+      workspace,
+      workspaceToolSchema.parse(JSON.parse(completeArgs(true))),
+      signal,
+    );
+    expect(context.problems[0]?.message).toContain('nix_add_fields');
+    expect(context.taskCompletion).toBeUndefined();
+  });
+
+  it('refuses a completion whose approved plan no longer matches', async () => {
+    const { ports, execute, signal } = taskSetup({ properties: { completion: false } });
+    await expect(
+      runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
+        fence: `task:occurrence:${itemId}:2026-09-25`,
+      }),
+    ).rejects.toThrow('changed since you approved');
+    await expect(runWorkspaceTool(ports, workspace, completeArgs(true), signal)).rejects.toThrow(
+      'changed since you approved',
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects complete_task without a boolean completed flag at the argument boundary', () => {
+    expect(
+      workspaceToolSchema.safeParse(
+        JSON.parse(input('complete_task', { itemId, specJson: '{"completed":"yes"}' })),
+      ).success,
+    ).toBe(false);
+    expect(
+      workspaceToolSchema.safeParse(
+        JSON.parse(input('read_calendar', { specJson: '{"from":"2026-09-01"}' })),
+      ).success,
+    ).toBe(false);
+  });
+});

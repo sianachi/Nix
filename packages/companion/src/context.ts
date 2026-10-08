@@ -13,6 +13,12 @@ import { checkItem, structureFingerprint, type StructureFingerprint } from './gu
 import { WorkspaceToolRefusal } from './tool-args.js';
 import { validateBlueprint } from '@nix/structure-spec';
 import { findSandbox } from './blueprint/sandbox.js';
+import {
+  completedFlag,
+  planTaskCompletion,
+  taskCompletionFingerprint,
+  type TaskCompletionPlan,
+} from './tasks/complete-task.js';
 
 /** How far up the tree the destination path is walked before it is simply truncated: enough for
  * a preview to read as a breadcrumb, never a full-workspace crawl. */
@@ -52,6 +58,8 @@ export interface PreviewContext {
   /** For a body edit (`replace_section`, `replace_passage`): what it would change. Absent when the
    * edit cannot be placed, in which case `problems` says why. */
   bodyEdit?: BodyEditPlan;
+  /** What a `complete_task` write will do, decided from the same reads the executor repeats. */
+  taskCompletion?: TaskCompletionPlan;
 }
 
 /** The body edit a `replace_section` or `replace_passage` call names, from its flat arguments:
@@ -347,6 +355,36 @@ export async function loadPreviewContext(
       fingerprint: structureFingerprint({ declared: parentSchema.properties }, []),
       problems: [],
     };
+  }
+
+  if (args.operation === 'complete_task') {
+    const destination = await itemDestination(ports, workspaceId, args.itemId, signal);
+    try {
+      const plan = await planTaskCompletion(
+        ports,
+        workspaceId,
+        args.itemId,
+        completedFlag(args.specJson),
+        signal,
+      );
+      return {
+        destination,
+        inheritedFields: [],
+        fingerprint: taskCompletionFingerprint(plan),
+        problems: [],
+        taskCompletion: plan,
+      };
+    } catch (reason) {
+      // A refusal (no completion field, a series the pet cannot complete) is the request's own
+      // problem, shown on the card and sent back to the pet, never an unexplained failed preview.
+      if (!(reason instanceof WorkspaceToolRefusal)) throw reason;
+      return {
+        destination,
+        inheritedFields: [],
+        fingerprint: 'task:refused',
+        problems: [{ path: 'itemId', code: 'task_refused', message: reason.message }],
+      };
+    }
   }
 
   // Legacy item operations are workspace-checked here and intentionally receive no structure

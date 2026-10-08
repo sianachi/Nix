@@ -106,7 +106,7 @@ function scriptedRuntime(tools: ReturnType<typeof toolCall>[], answer: string) {
           connection({
             state: pending ? 'thinking' : 'success',
             tools: current(),
-            messages: pending ? [] : [{ id: 'a-1', role: 'assistant', text: answer, actions: [] }],
+            messages: pending ? [] : [{ id: 'a-1', role: 'assistant', text: answer }],
           }),
         );
       }
@@ -147,6 +147,10 @@ describe('pet eval chat', () => {
     );
     server.use(
       http.get(`${CORE}/api/v1/items/${TASKS}`, () => HttpResponse.json(item(TASKS, ROOT, 'Tasks'))),
+      // nix_list_items reads the container's schema to key each row's values.
+      http.get(`${CORE}/api/v1/items/${TASKS}/schema`, () =>
+        HttpResponse.json({ properties: [], declared: [], inherit: true }),
+      ),
       http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, () =>
         HttpResponse.json({ items: [item(DENTIST, TASKS, 'Call dentist')], nextCursor: null }),
       ),

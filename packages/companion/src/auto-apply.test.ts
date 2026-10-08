@@ -23,6 +23,14 @@ describe('canApplyWithoutAsking', () => {
     expect(writes.length).toBeGreaterThan(5);
     for (const operation of writes) expect(canApplyWithoutAsking(operation)).toBe(true);
   });
+
+  it('runs a task completion without asking but never a calendar read through this switch', () => {
+    // Completing a task changes no one's access, so it is not an always-ask write; reading the
+    // calendar is a read and governed by the reads switch.
+    expect(canApplyWithoutAsking('complete_task')).toBe(true);
+    expect(READ_ONLY_OPERATIONS.has('read_calendar')).toBe(true);
+    expect(canApplyWithoutAsking('read_calendar')).toBe(false);
+  });
 });
 
 describe('hasExternalLink', () => {

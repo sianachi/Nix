@@ -35,6 +35,14 @@ import {
 import { planBuild } from './blueprint/plan.js';
 import { executeBuild } from './blueprint/build.js';
 import { saveAsTemplate } from './templates/save.js';
+import { listedItems } from './read/list-items.js';
+import { calendarRange, readCalendar } from './read/calendar.js';
+import {
+  completedFlag,
+  completeTask,
+  planTaskCompletion,
+  taskCompletionFingerprint,
+} from './tasks/complete-task.js';
 
 export { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -121,6 +129,7 @@ export async function runWorkspaceTool(
       'add_fields',
       'edit_form',
       'list_templates',
+      'read_calendar',
     ].includes(args.operation)
   ) {
     await check(args.itemId);
@@ -272,24 +281,43 @@ export async function runWorkspaceTool(
       break;
     }
     case 'list_items': {
-      const rows = [];
+      const children = [];
       let truncated = false;
       for await (const item of client.paginate(
         items.listItems(workspaceId, { parentId: args.parentId || undefined, pageSize: 50 }),
         requestOptions,
       )) {
-        if (rows.length >= 50) {
+        if (children.length >= 50) {
           truncated = true;
           break;
         }
-        rows.push({
-          id: item.id,
-          title: item.title,
-          type: item.type,
-          hasChildren: item.hasChildren,
-        });
+        children.push(item);
       }
-      result = { items: rows, truncated };
+      // Values are keyed by the container's effective schema; the workspace root has none, so
+      // its rows carry identity only.
+      const fields = args.parentId
+        ? (await client.query(structure.effectiveSchema(args.parentId), requestOptions)).properties
+        : [];
+      result = listedItems(children, fields, truncated);
+      break;
+    }
+    case 'read_calendar': {
+      result = await readCalendar(ports, workspaceId, calendarRange(args.specJson), signal);
+      break;
+    }
+    case 'complete_task': {
+      const plan = await planTaskCompletion(
+        ports,
+        workspaceId,
+        args.itemId,
+        completedFlag(args.specJson),
+        signal,
+      );
+      if (options.fence === undefined || taskCompletionFingerprint(plan) !== options.fence)
+        throw new WorkspaceToolRefusal(
+          'The task changed since you approved this. Ask the pet to look again.',
+        );
+      result = await completeTask(ports, plan, signal);
       break;
     }
     case 'search': {

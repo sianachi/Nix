@@ -42,6 +42,7 @@ export const workspaceToolSchema = z
       'create_entries',
       'validate_blueprint',
       'build_blueprint',
+      'read_calendar',
     ];
     if (!NO_ITEM_ID_REQUIRED.includes(args.operation)) required('itemId');
     if (
@@ -116,6 +117,24 @@ export const workspaceToolSchema = z
         message: 'markdown must be empty when specJson is used.',
       });
     }
+    if (args.operation === 'read_calendar') {
+      const range = readSpecObject(args.specJson);
+      if (!range || !isDay(range.from) || !isDay(range.to))
+        context.addIssue({
+          code: 'custom',
+          path: ['specJson'],
+          message: 'read_calendar needs from and to as yyyy-MM-dd days.',
+        });
+    }
+    if (args.operation === 'complete_task') {
+      const task = readSpecObject(args.specJson);
+      if (typeof task?.completed !== 'boolean')
+        context.addIssue({
+          code: 'custom',
+          path: ['specJson'],
+          message: 'complete_task needs completed as true or false.',
+        });
+    }
     if (args.operation === 'set_properties') {
       try {
         z.record(z.string().max(160), z.unknown()).parse(JSON.parse(args.propertiesJson));
@@ -130,6 +149,29 @@ export const workspaceToolSchema = z
   });
 
 export type WorkspaceToolArgs = z.infer<typeof workspaceToolSchema>;
+
+/** The `specJson` object a scalar-parameter tool (`read_calendar`, `complete_task`) carries, or
+ * undefined when it is missing, not JSON, or not an object. */
+function readSpecObject(specJson: string): Record<string, unknown> | undefined {
+  if (!specJson.trim()) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(specJson);
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A real `yyyy-MM-dd` calendar day: the shape, and a date that round-trips (no 2026-02-30). */
+export function isDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !DAY.test(value)) return false;
+  const instant = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(instant.getTime()) && instant.toISOString().slice(0, 10) === value;
+}
 
 /** A local preflight refusal with safe copy, before any mutation is attempted. `message` goes
  * back to the model and may name tools; `ownerMessage`, when given, is the plain sentence the
