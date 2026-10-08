@@ -1,6 +1,6 @@
 # Nix
 
-Nix is a self-hosted life operating system for one person who wants their notes, tasks, habits,
+Nix is a self-hosted life operating system for one person or a group of people who want their notes, tasks, habits,
 journal, files, calendar and numbers in one place, on a laptop and on a phone, and who is willing
 to set things up to get them. It combines the flexible structure of a wiki with the schemas, views
 and workflows of a database workspace, and it keeps everything exportable.
@@ -9,36 +9,6 @@ There is one kind of item. Every item has a body describing how it renders itsel
 children, can declare a property schema and can offer views over those children. There is no separate
 "folder" type: a spreadsheet can contain kanban boards, a board can contain notes, and any item can
 be reorganised without changing what it is.
-
-Nix is built for a person, not an organisation. Sharing means "send this page to a friend", not
-access control, and anything whose only user is a team (groups, in-tenant ACLs, track changes,
-Office-parity page setup) is out of scope. The direction is recorded in
-`docs/plans/life-os-direction.md`.
-
-This overview describes committed implementation on `main` as of 8 October 2026. Runtime,
-export-fidelity and recovery verification remain separate from implementation status. See
-[documentation](docs/README.md).
-
-## See Nix in action
-
-https://github.com/user-attachments/assets/b91aa29d-66a0-4730-9e3f-f8ce5f9f93f9
-
-Watch a one-minute walkthrough of the editor, rich blocks and slash commands.
-
-## Contributing
-
-Nix is being built in the open by people who care about calm, capable tools for running a life.
-If you want to help make notes, structured data and daily routines fit together better, we would
-love your contribution.
-
-Start with the product direction in this README, then read the [developer documentation](docs/README.md)
-and the contributor guides in `docs/agent-guides/`. Set up the local stack with `bash scripts/dev-stack-up.sh`,
-run the services listed in [Usage](#usage), and keep changes focused.
-Before proposing a change, run the checks selected by `./scripts/changed-path-checks.sh --working-tree`.
-
-Useful places to begin are the current roadmap below, test coverage around a feature you use, and
-documentation improvements that make the project easier to understand. Please keep product claims
-grounded in observed behaviour and do not hand-edit generated API contracts or clients.
 
 ## Motivation
 
@@ -170,49 +140,10 @@ grounded in observed behaviour and do not hand-edit generated API contracts or c
   verification jobs, a smoke-tested release script and a restic-to-R2 backup helper. Kubernetes
   manifests are retained. Logical database dumps alone do not restore file-backed documents.
 
-## Planned features
-
-The roadmap follows `docs/plans/life-os-direction.md`, ordered by priority.
-
-1. **Reviews and dashboards.** A weekly review template over completed tasks, habit streaks,
-   journal entries and sheet numbers; a dashboard view kind composed of chart and rollup tiles;
-   "this day last week / month" from daily notes.
-2. **Capture from anywhere.** Email-to-Nix through the worker, voice memos as file items with
-   queued transcription, and an Inbox container with a triage view behind the existing quick
-   capture and share target.
-3. **Finish calendar sync and automations.** Push recurring Nix items as series, provider webhooks
-   instead of polling, Apple via CalDAV; the `create_from_template` automation action,
-   `property_changed` on create, and quiet hours applied to automation notifications (ADR-0051,
-   ADR-0052).
-4. **Move your life in.** Importers for Notion, Todoist and Apple Notes with the same loss report
-   the Markdown importer produces.
-5. **Phone first.** A bottom navigation for today, inbox, capture, habits and search; offline reads
-   beyond the current body cache.
-6. **Finish running the week.** A checklist view, item dependencies, keyboard-complete timeline
-   editing, grouping by more property types than single-select, and public read-only links.
-7. **Prove it.** Tree, Smart List and timeline performance over 10,000 items; `.nix` round trips
-   and DOCX/PDF fidelity; the 10,000-note import stress; backup/restore rehearsal; the specialist
-   security, UX, structure and performance reviews still owed on merged features.
 
 Each planned area has a measurable stress test. A green test suite is not treated as proof of layout,
 accessibility, query plans, export fidelity or production operations until those things are observed.
 
-## Long-term goals
-
-After the life-OS tracks above are mature, Nix may grow toward:
-
-- A broader extension ecosystem, marketplace, third-party authors, reviews and updates beyond the
-  implemented signed-component worker runtime.
-- Public workspaces and richer public publishing beyond read-only links.
-- ICS feeds and more calendar providers.
-- Obsidian synchronisation, beyond the one-time vault import.
-- Collaboration at 100+ concurrent editors in one document.
-- Pen input on canvas, including pressure, tilt and palm rejection.
-- Pomodoro timers, email as a first-class object, live voice and video, and a theme marketplace.
-
-These are deliberately longer-term ambitions rather than promises about the current release. The CLI
-and MCP are API clients, not an extension platform. Native desktop and mobile applications are not
-planned; the installed web app is the client on every device.
 
 ## Stack
 
@@ -375,16 +306,6 @@ The CLI also exposes the same runtime through `nixctl pet <operation>`, using a 
 interactive session token rather than expanding personal-access-token permissions. Pass
 `--workspace-tools` only when you want the companion to propose Nix workspace actions; each action
 still requires approval in the companion panel.
-
-### Debugging (Rider)
-
-Open the repository root containing `Nix.slnx` and `pnpm-workspace.yaml`. Local run
-configurations may be present under `.idea/`, but that directory is ignored and configurations
-can contain machine-specific identity settings. The scripts above are the reproducible setup.
-For breakpoints, attach Rider to the API process started by `scripts/dev-api.sh`, or configure
-an equivalent .NET launch using the environment set by that script. Database and internal-secret
-settings alone are insufficient: BFF, access-token signing, object storage and RabbitMQ settings
-are also required. Never commit generated identity IDs or signing keys.
 
 ## Common commands
 
