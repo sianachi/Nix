@@ -1396,6 +1396,169 @@ describe('companion work approvals', () => {
       expect(await screen.findByText('Done without asking')).toBeVisible();
     });
 
+    it.each([
+      [true, 'waits'],
+      [false, 'runs'],
+    ])(
+      'after a read whose content was under a lock (%s), the next write in the turn %s',
+      async (locked, outcome) => {
+        const itemId = '33333333-3333-4333-8333-333333333333';
+        const read = {
+          ...(runtime.tools ?? [])[0],
+          id: 'read-1',
+          arguments: JSON.stringify({
+            operation: 'read_item',
+            itemId,
+            parentId: '',
+            title: '',
+            markdown: '',
+            query: '',
+            propertiesJson: '',
+          }),
+        };
+        const write = { ...(runtime.tools ?? [])[0], id: 'write-1', arguments: structuredArguments };
+        const turn = { ...runtime, tools: [read, write] } as typeof runtime;
+        completeEachCall(turn);
+        // The real executor reads the item, then its lock state, exactly as in the app.
+        client.query.mockImplementation((endpoint: { operation: string }) =>
+          Promise.resolve(
+            endpoint.operation === 'locks.get'
+              ? {
+                  locked,
+                  unlockedUntil: locked ? '2030-01-01T00:00:00+00:00' : null,
+                  lockItemId: locked ? itemId : null,
+                  selfLocked: locked,
+                }
+              : {
+                  id: itemId,
+                  workspaceId: '11111111-1111-4111-8111-111111111111',
+                  parentId: null,
+                  title: 'Diary',
+                  type: 'note',
+                  properties: {},
+                },
+          ),
+        );
+        const onNeedsDecisionChange = vi.fn();
+        render(<Live initial={turn} onNeedsDecisionChange={onNeedsDecisionChange} />, {
+          wrapper: MemoryRouter,
+        });
+        const claimedTools = () =>
+          client.execute.mock.calls
+            .map((call) => (call[0] as { body?: { operation?: string; toolId?: string } }).body)
+            .filter((body) => body?.operation === 'tool_claim')
+            .map((body) => body?.toolId);
+        await waitFor(() => {
+          expect(claimedTools()).toContain('read-1');
+        });
+        if (outcome === 'waits') {
+          expect(
+            await screen.findByText('This one waits for you: it follows a read of locked content.'),
+          ).toBeVisible();
+          await waitFor(() => {
+            expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['write-1']);
+          });
+          expect(claimedTools()).not.toContain('write-1');
+          expect(screen.getByRole('button', { name: 'Approve request' })).toBeInTheDocument();
+        } else {
+          await waitFor(() => {
+            expect(claimedTools()).toContain('write-1');
+          });
+          expect(
+            screen.queryByText('This one waits for you: it follows a read of locked content.'),
+          ).not.toBeInTheDocument();
+        }
+      },
+    );
+
+    it('never completes an occurrence of a repeating task without asking', async () => {
+      const taskId = '33333333-3333-4333-8333-333333333333';
+      const now = new Date();
+      const today = `${String(now.getFullYear())}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const field = (key: string, type: string) => ({
+        key,
+        label: key,
+        type,
+        options: [],
+        required: false,
+        expression: null,
+        aggregate: null,
+        source: null,
+      });
+      client.query.mockImplementation((endpoint: { operation: string }) =>
+        Promise.resolve(
+          endpoint.operation === 'schema.get'
+            ? {
+                properties: [field('due_date', 'due_date'), field('completion', 'completion')],
+                declared: [],
+                inherit: true,
+              }
+            : endpoint.operation === 'locks.get'
+              ? { locked: false, unlockedUntil: null, lockItemId: null, selfLocked: false }
+              : endpoint.operation === 'workspaceCalendar.get'
+                ? {
+                    workspaceId: '11111111-1111-4111-8111-111111111111',
+                    from: today,
+                    to: today,
+                    entries: [
+                      {
+                        itemId: taskId,
+                        title: 'Water plants',
+                        containerId: taskId,
+                        containerTitle: 'Tasks',
+                        dateProperty: 'due_date',
+                        value: today,
+                        kind: 'date',
+                        generated: true,
+                        completed: false,
+                        endProperty: null,
+                        endValue: null,
+                      },
+                    ],
+                    unplaceable: [],
+                    entryLimit: 2000,
+                    entriesTruncated: false,
+                    seriesTruncated: false,
+                  }
+                : {
+                    id: taskId,
+                    workspaceId: '11111111-1111-4111-8111-111111111111',
+                    parentId: null,
+                    title: 'Water plants',
+                    type: 'note',
+                    properties: { due_date: '2026-01-01' },
+                  },
+        ),
+      );
+      const task = withArguments(
+        JSON.stringify({
+          operation: 'complete_task',
+          itemId: taskId,
+          parentId: '',
+          title: '',
+          markdown: '',
+          query: '',
+          propertiesJson: '',
+          specJson: '{"completed":true}',
+        }),
+      );
+      const onNeedsDecisionChange = vi.fn();
+      render(<Live initial={task} onNeedsDecisionChange={onNeedsDecisionChange} />, {
+        wrapper: MemoryRouter,
+      });
+      expect(
+        await screen.findByText(
+          "This one waits for you: completing a repeating task's occurrence cannot be undone.",
+        ),
+      ).toBeVisible();
+      expect(screen.getByText(/occurrence of the repeating task “Water plants” done/)).toBeVisible();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(client.execute).not.toHaveBeenCalled();
+    });
+
     it('runs several clean writes from one turn once each, in order, each behind its own claim', async () => {
       const first = { ...(runtime.tools ?? [])[0], id: 'tool-1', arguments: structuredArguments };
       const second = { ...first, id: 'tool-2' };
