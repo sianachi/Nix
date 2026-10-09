@@ -7,16 +7,17 @@ import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import type { ContainerViews } from '../core/container-model';
 
 /**
- * The smart lists this browser knows about in each workspace, for the rail's Queries section
+ * The smart lists this browser knows about in each workspace, for the rail's Smart lists section
  * (plan 1.8) - each an item whose default view is a `query`.
  *
  * **Learned, not listed.** Core has no read for "every item whose default view is a query", and
  * this lane adds no endpoint (plan 1.8 is pure web), so the list is what this browser has seen:
  * an item opened whose default view turns out to be a query is remembered, one that has since
- * stopped being one is forgotten, a deleted one is dropped, and one made from the rail's "New
- * query" is remembered as it is opened. The rail says so in its own copy rather than presenting
- * the list as the workspace's complete set. A Core read lands with the query endpoint (plan 1.1),
- * and this store is what it replaces.
+ * stopped being one is forgotten, one deleted here or found missing when opened is dropped, and
+ * one made from the rail's "New smart list" is remembered as it is opened. The menu's first entry
+ * always reads "Smart lists opened in this browser", so the list is never presented as the
+ * workspace's complete set. A Core read lands with the query endpoint (plan 1.1), and this store
+ * is what it replaces.
  *
  * **Pinning is a person's arrangement of their own rail**, so it is browser-local like the page
  * guides and the panel width, not a write to the item that everybody would see.
@@ -78,9 +79,10 @@ export const useKnownSmartListsStore = create<KnownSmartListsStore>((set, get) =
       const existing = current.find((entry) => entry.id === id);
       if (existing?.title === title) return;
       // Newest first among the unpinned, so the rail's list is the recent ones when it is long.
+      // Only unpinned entries are evicted: a pin is a promise the rail keeps.
       const next =
         existing === undefined
-          ? [{ id, title, pinned: false }, ...current].slice(0, MAXIMUM_REMEMBERED)
+          ? keepWithinLimit([{ id, title, pinned: false }, ...current])
           : current.map((entry) => (entry.id === id ? { ...entry, title } : entry));
       update(workspaceId, next);
     },
@@ -98,6 +100,18 @@ export const useKnownSmartListsStore = create<KnownSmartListsStore>((set, get) =
     },
   };
 });
+
+/** Drops the oldest unpinned entries past the limit, never a pinned one. */
+function keepWithinLimit(entries: readonly KnownSmartList[]): readonly KnownSmartList[] {
+  const pinned = entries.filter((entry) => entry.pinned).length;
+  let unpinnedRoom = Math.max(0, MAXIMUM_REMEMBERED - pinned);
+  return entries.filter((entry) => {
+    if (entry.pinned) return true;
+    if (unpinnedRoom === 0) return false;
+    unpinnedRoom -= 1;
+    return true;
+  });
+}
 
 const NONE: readonly KnownSmartList[] = [];
 
@@ -141,4 +155,17 @@ export function useForgetDeletedSmartLists(): void {
       }),
     [],
   );
+}
+
+/** Forgets a smart list that turned out not to exist when it was opened. */
+export function useForgetMissingSmartList(
+  workspaceId: string | null,
+  itemId: string,
+  missing: boolean,
+): void {
+  useEffect(() => {
+    if (missing && workspaceId !== null) {
+      useKnownSmartListsStore.getState().forget(workspaceId, [itemId]);
+    }
+  }, [itemId, missing, workspaceId]);
 }

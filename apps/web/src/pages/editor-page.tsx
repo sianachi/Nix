@@ -94,7 +94,7 @@ import { claimZenSurface, toggleZenMode, useZenActive } from '../lib/zen-mode';
 import { formatTime } from '../lib/date-format';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
-import { useRememberSmartList } from '../views/query/known-smart-lists';
+import { useForgetMissingSmartList, useRememberSmartList } from '../views/query/known-smart-lists';
 import { useOptionalWorkspace } from '../workspaces/workspace-context';
 import { ViewSwitcher } from '../views/core/view-switcher';
 import { useTemplateLibrary } from '../templates/template-library-context';
@@ -425,6 +425,12 @@ interface NotFoundItemProps {
  */
 function NotFoundItem({ tree, pane, onClose }: NotFoundItemProps): ReactNode {
   const reveal = tree.revealOf(pane.itemId);
+  // A smart list that cannot be found is dropped from the rail's list rather than offered again.
+  useForgetMissingSmartList(
+    useOptionalWorkspace()?.workspaceId ?? null,
+    pane.itemId,
+    reveal === 'missing',
+  );
   const waiting = tree.status === 'loading' || reveal === null || reveal === 'revealing';
   const failed = reveal === 'failed' || tree.status === 'error';
 

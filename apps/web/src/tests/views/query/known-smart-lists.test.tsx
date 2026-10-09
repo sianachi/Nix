@@ -53,4 +53,19 @@ describe('the smart lists this browser knows', () => {
 
     expect(result.current.map((entry) => entry.id)).toEqual(['a', 'b']);
   });
+
+  it('evicts only unpinned entries when the list is full', () => {
+    const store = useKnownSmartListsStore.getState();
+    store.remember(WORKSPACE, 'pinned', 'Pinned');
+    useKnownSmartListsStore.getState().setPinned(WORKSPACE, 'pinned', true);
+    for (let index = 0; index < 60; index += 1) {
+      useKnownSmartListsStore.getState().remember(WORKSPACE, `list-${String(index)}`, 'List');
+    }
+
+    const known = useKnownSmartListsStore.getState().known[WORKSPACE] ?? [];
+    expect(known).toHaveLength(50);
+    expect(known.some((entry) => entry.id === 'pinned')).toBe(true);
+    expect(known.some((entry) => entry.id === 'list-59')).toBe(true);
+    expect(known.some((entry) => entry.id === 'list-0')).toBe(false);
+  });
 });

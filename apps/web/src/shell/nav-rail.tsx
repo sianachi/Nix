@@ -102,13 +102,19 @@ interface RailDestination extends RailItemBase {
   readonly to: string;
   /** Nested screens such as the template studio still belong to their parent destination. */
   readonly includesChildren?: boolean;
+
+  /**
+   * A pinned smart list's initial, drawn over its glyph: every pinned list shares one icon, so
+   * the letter is what tells two of them apart before the label is read.
+   */
+  readonly monogram?: string;
 }
 
 interface RailAction extends RailItemBase {
   readonly kind: 'action';
   /**
-   * `import` opens the import dialog; `queries` opens the Queries menu - every smart list this
-   * browser knows, pin and unpin, and "New query" (plan 1.8).
+   * `import` opens the import dialog; `queries` opens the Smart lists menu - the smart lists this
+   * browser has opened, pin and unpin, and "New smart list" (plan 1.8).
    */
   readonly action: 'import' | 'queries';
 }
@@ -138,14 +144,14 @@ const PET_ITEM: RailDestination = {
 };
 
 /**
- * The Queries control: a menu rather than a destination, because smart lists are items and each
+ * The Smart lists control: a menu rather than a destination, because smart lists are items and each
  * already has an address - what the rail adds is a way to reach them from anywhere and to keep the
  * ones somebody uses every day one press away, as pinned entries beside it.
  */
 const QUERIES_ITEM: RailAction = {
   kind: 'action',
   action: 'queries',
-  label: 'Queries',
+  label: 'Smart lists',
   icon: ListFilterPlus,
   group: 'workspace',
 };
@@ -242,7 +248,7 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
           : [item],
       )
     : dailyItems;
-  // Pinned smart lists sit right after the Queries control, as destinations of their own: an item
+  // Pinned smart lists sit right after the Smart lists control, as destinations of their own: an item
   // address rather than a route, so none is ever "current" by pathname, which is right - the item
   // page is Notes, whichever list it was reached from.
   const smartLists = useKnownSmartLists(workspaceId);
@@ -306,25 +312,27 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
     const currentItem = items[currentIndex];
     const currentHref =
       currentItem?.kind === 'destination' ? `${workspaceRoot}${currentItem.to}` : null;
-    // The compact menu is already a menu, so the Queries control's own entries are folded into it
+    // The compact menu is already a menu, so the Smart lists control's own entries are folded into it
     // at the end rather than nested as a second menu inside the first.
     const entries: MenuEntry[] = [
       ...items.flatMap((item): MenuEntry[] =>
-        item.kind === 'destination'
-          ? [
-              {
-                kind: 'link',
-                label: item.label,
-                icon: item.icon,
-                href: `${workspaceRoot}${item.to}`,
-                onSelect: () => {
-                  onNavigate?.();
+        item.kind === 'destination' && item.monogram !== undefined
+          ? []
+          : item.kind === 'destination'
+            ? [
+                {
+                  kind: 'link',
+                  label: item.label,
+                  icon: item.icon,
+                  href: `${workspaceRoot}${item.to}`,
+                  onSelect: () => {
+                    onNavigate?.();
+                  },
                 },
-              },
-            ]
-          : item.action === 'queries'
-            ? []
-            : [{ kind: 'action', label: item.label, icon: item.icon, onSelect: onImport }],
+              ]
+            : item.action === 'queries'
+              ? []
+              : [{ kind: 'action', label: item.label, icon: item.icon, onSelect: onImport }],
       ),
       { kind: 'separator' },
       ...queriesMenuEntries(workspaceId, workspaceRoot, smartLists, onNavigate),
@@ -401,11 +409,26 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
                   to={`${workspaceRoot}${item.to}`}
                   aria-current={current ? 'page' : undefined}
                   onClick={onNavigate}
-                  className={className}
+                  className={
+                    item.monogram === undefined ? className : `group relative ${className}`
+                  }
                   {...sharedProps}
                 >
                   <span className="relative shrink-0">
-                    <Icon icon={item.icon} size="sm" />
+                    {item.monogram === undefined ? (
+                      <Icon icon={item.icon} size="sm" />
+                    ) : (
+                      // The list's initial in place of the shared glyph, so two pinned lists are
+                      // told apart at a glance; the label below is what is announced.
+                      <span
+                        aria-hidden="true"
+                        className="inline-flex size-4 items-center justify-center rounded-sm border border-current"
+                      >
+                        <Text as="span" variant="kicker">
+                          {item.monogram}
+                        </Text>
+                      </span>
+                    )}
                     {item.attention ? (
                       <span
                         aria-hidden="true"
@@ -413,14 +436,25 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
                       />
                     ) : null}
                   </span>
-                  <Text as="span" variant="body" truncate className="sr-only max-lg:not-sr-only">
+                  <Text
+                    as="span"
+                    variant="body"
+                    truncate
+                    className={
+                      item.monogram === undefined
+                        ? 'sr-only max-lg:not-sr-only'
+                        : // A pinned list's name appears beside the rail while it has keyboard
+                          // focus: a letter alone does not say which list it is.
+                          'sr-only group-focus-visible:not-sr-only group-focus-visible:absolute group-focus-visible:left-full group-focus-visible:z-10 group-focus-visible:ml-2 group-focus-visible:whitespace-nowrap group-focus-visible:rounded-md group-focus-visible:border group-focus-visible:border-divider group-focus-visible:bg-surface group-focus-visible:px-2 group-focus-visible:py-1 max-lg:not-sr-only max-lg:static'
+                    }
+                  >
                     {item.label}
                     {item.attention ? <span className="sr-only">, {item.attention}</span> : null}
                   </Text>
                 </Link>
               ) : item.action === 'queries' ? (
                 <Menu
-                  label="Queries"
+                  label="Smart lists"
                   items={queriesMenuEntries(workspaceId, workspaceRoot, smartLists, onNavigate)}
                   renderLink={({ href, ...props }) => <Link to={href} {...props} />}
                 >
@@ -479,7 +513,7 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
   );
 }
 
-/** The rail's items with each pinned smart list placed right after the Queries control. */
+/** The rail's items with each pinned smart list placed right after the Smart lists control. */
 function withPinnedQueries(
   items: readonly RailItem[],
   smartLists: readonly KnownSmartList[],
@@ -492,6 +526,7 @@ function withPinnedQueries(
       label: list.title.length > 0 ? list.title : 'Untitled smart list',
       icon: ListFilter,
       group: 'workspace',
+      monogram: (list.title.trim()[0] ?? '?').toUpperCase(),
     }));
   return items.flatMap((item) =>
     item.kind === 'action' && item.action === 'queries' ? [item, ...pinned] : [item],
@@ -499,9 +534,9 @@ function withPinnedQueries(
 }
 
 /**
- * What the Queries menu offers: every smart list this browser knows, a pin or unpin for each, and
- * "New query". The list is the ones opened here - see `known-smart-lists.ts` for why there is no
- * workspace-wide read behind it yet - and the empty state says exactly that.
+ * What the Smart lists menu offers: the smart lists this browser has opened, a pin or unpin for
+ * each, and "New smart list". The first entry always says the list is the ones opened here - see
+ * `known-smart-lists.ts` for why there is no workspace-wide read behind it yet.
  */
 function queriesMenuEntries(
   workspaceId: string,
@@ -513,19 +548,19 @@ function queriesMenuEntries(
   const named = (list: KnownSmartList): string =>
     list.title.length > 0 ? list.title : 'Untitled smart list';
   return [
-    // A disabled line rather than a heading: a menu with free content becomes a dialog, and this
-    // is a list of commands, so the empty state is said as a command that cannot be chosen.
-    ...(smartLists.length === 0
-      ? [
-          {
-            kind: 'action',
-            key: 'queries-none',
-            label: 'No smart lists opened in this browser yet',
-            disabled: true,
-            onSelect: () => undefined,
-          } as const,
-        ]
-      : []),
+    // Always first, and disabled: the list is the smart lists this browser has opened, never the
+    // workspace's complete set, and this says so before anything else in the menu. A disabled
+    // command rather than a heading, because free content would turn the menu into a dialog.
+    {
+      kind: 'action',
+      key: 'queries-scope',
+      label:
+        smartLists.length === 0
+          ? 'Smart lists opened in this browser: none yet'
+          : 'Smart lists opened in this browser',
+      disabled: true,
+      onSelect: () => undefined,
+    },
     ...smartLists.map((list): MenuEntry => ({
       kind: 'link',
       key: `open-${list.id}`,
@@ -540,7 +575,9 @@ function queriesMenuEntries(
     ...smartLists.map((list): MenuEntry => ({
       kind: 'action',
       key: `pin-${list.id}`,
-      label: list.pinned ? `Unpin ${named(list)}` : `Pin ${named(list)}`,
+      label: list.pinned
+        ? `Unpin ${named(list)} from this browser's rail`
+        : `Pin ${named(list)} to this browser's rail`,
       onSelect: () => {
         setPinned(workspaceId, list.id, !list.pinned);
       },
@@ -549,7 +586,7 @@ function queriesMenuEntries(
     {
       kind: 'link',
       key: 'new-query',
-      label: 'New query',
+      label: 'New smart list',
       icon: ListFilterPlus,
       href: `${workspaceRoot}/new/query`,
       onSelect: () => {
