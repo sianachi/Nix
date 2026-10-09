@@ -350,9 +350,9 @@ describe('habit tracker user flows', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
 
     expect(await screen.findByRole('heading', { name: 'Year at a glance' })).toBeVisible();
-    const grid = screen.getByRole('group', { name: /the last year/ });
+    const grid = screen.getByRole('grid', { name: /the last year/ });
     // 366 days to today: the longest range the habit endpoint serves.
-    expect(grid.querySelectorAll('button')).toHaveLength(366);
+    expect(grid.querySelectorAll('[role="gridcell"][aria-label]')).toHaveLength(366);
   });
 
   it('persists widget changes and restores the prior selection when saving fails', async () => {

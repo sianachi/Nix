@@ -17,8 +17,12 @@ import { aView } from '../../view-fixture';
 
 const query = vi.hoisted(() => vi.fn());
 
+// One client for the whole run, as the provider gives in the app: a new object per render would
+// make every render look like a new client and read the chart again.
+const client = vi.hoisted((): { current: unknown } => ({ current: null }));
+
 vi.mock('../../../api/api-client-provider', () => ({
-  useApiClient: () => ({ query }),
+  useApiClient: () => (client.current ??= { query }),
 }));
 
 function chartOf(over: Record<string, unknown> = {}): Record<string, unknown> {
