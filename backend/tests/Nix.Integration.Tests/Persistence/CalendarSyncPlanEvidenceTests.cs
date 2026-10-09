@@ -147,6 +147,10 @@ public sealed class CalendarSyncPlanEvidenceTests(NixPostgresFixture fixture, IT
                    jsonb_build_object('title', 'Other tenant ' || n), 'active', {{Literal(TestTenants.BetaPrincipal)}}, {{Literal(TestTenants.BetaPrincipal)}}, now(), now()
               FROM generate_series(1, 5000) n;
 
+            -- Refresh the bulk corpus before closure foreign-key checks can reuse a plan
+            -- made for the tiny initial seed. The final analyses still govern plan evidence.
+            ANALYZE item;
+
             -- The closure the item writes would have kept: a self edge for every item above, the
             -- hot container's edge to each of its events, and 50 locks elsewhere in the tenant, so
             -- the push selection's lock probe meets a closure of realistic size.
