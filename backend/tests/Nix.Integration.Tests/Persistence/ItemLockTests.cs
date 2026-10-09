@@ -175,6 +175,23 @@ public sealed class ItemLockTests(NixPostgresFixture fixture) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Removal_cannot_use_a_verifier_read_before_a_password_change_committed()
+    {
+        Assert.True((await LockAsync(Locker, "old-password")).IsSuccess);
+        await using var remover = await BeginAsync(OtherBrowser);
+        var locks = remover.Resolve<IItemLocks>();
+        var verified = await locks.FindVerifierAsync(Item, Cancellation);
+        Assert.NotNull(verified);
+
+        Assert.True((await LockAsync(Locker, "new-password", "old-password")).IsSuccess);
+
+        Assert.False(await locks.RemoveAsync(Item, verified, Cancellation));
+        await remover.CommitAsync(Cancellation);
+        Assert.True((await StateAsync(OtherBrowser)).Locked);
+        Assert.True((await SendAsync<RemoveItemLock, bool>(Locker, new RemoveItemLock(Item, "new-password"))).IsSuccess);
+    }
+
+    [Fact]
     public async Task A_password_outside_the_accepted_length_is_refused()
     {
         var refused = await LockAsync(Locker, "abc");

@@ -355,7 +355,7 @@ public sealed class RemoveItemLockHandler : ICommandHandler<RemoveItemLock, bool
             return Result.Failure<bool>(refused);
         }
 
-        return await _locks.RemoveAsync(command.ItemId, cancellationToken).ConfigureAwait(false)
+        return await _locks.RemoveAsync(command.ItemId, existing, cancellationToken).ConfigureAwait(false)
             ? Result.Success(true)
             : Result.Failure<bool>(LockErrors.NotLocked());
     }

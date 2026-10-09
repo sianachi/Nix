@@ -148,7 +148,7 @@ internal sealed class StubLocks(bool open) : IItemLocks
         string verifier,
         CancellationToken cancellationToken) => throw new NotSupportedException();
 
-    public ValueTask<bool> RemoveAsync(ItemId itemId, CancellationToken cancellationToken) =>
+    public ValueTask<bool> RemoveAsync(ItemId itemId, string expected, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
     public ValueTask<bool> GrantAsync(

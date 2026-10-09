@@ -1,5 +1,6 @@
 using System.Data;
 using System.Net;
+using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
@@ -468,25 +469,54 @@ public sealed class NixUnitOfWorkMiddleware
                 return;
             }
 
-            await _next(context).ConfigureAwait(false);
-
-            if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+            // Inline writing streams a read-only provider response; hold finite responses until commit.
+            var streaming = context.GetEndpoint()?.Metadata.GetOrderedMetadata<IProducesResponseTypeMetadata>()
+                .Any(static metadata => metadata.ContentTypes.Contains("text/event-stream", StringComparer.OrdinalIgnoreCase)) == true;
+            var originalBody = context.Response.Body;
+            using var bufferedBody = streaming ? null : BufferedResponse.Create();
+            if (bufferedBody is not null)
             {
-                await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
-                return;
+                context.Response.Body = bufferedBody;
             }
-
-            if (validated is ValidatedWorkerExecutionToken endingWorker
-                && await workerDispatch.AuthorizeExecutionAsync(
-                    endingWorker.JobId,
-                    endingWorker.ExecutionId,
-                    context.RequestAborted).ConfigureAwait(false) is null)
+            try
             {
-                await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
-                return;
-            }
+                await _next(context).ConfigureAwait(false);
 
-            await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
+                if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
+                {
+                    await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                }
+                else if (validated is ValidatedWorkerExecutionToken endingWorker
+                    && await workerDispatch.AuthorizeExecutionAsync(
+                        endingWorker.JobId,
+                        endingWorker.ExecutionId,
+                        context.RequestAborted).ConfigureAwait(false) is null)
+                {
+                    await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
+                    context.Response.Body = originalBody;
+                    context.Response.Clear();
+                    await WriteProblemAsync(
+                        context,
+                        StatusCodes.Status403Forbidden,
+                        InsufficientScopeCode,
+                        "Worker delegation expired",
+                        "This worker execution no longer owns a live delegation.").ConfigureAwait(false);
+                    return;
+                }
+                else
+                {
+                    await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
+                }
+
+                if (bufferedBody is not null)
+                {
+                    await BufferedResponse.PublishAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                context.Response.Body = originalBody;
+            }
         }
     }
 
@@ -665,9 +695,11 @@ public sealed class NixUnitOfWorkMiddleware
         const string prefix = "Bearer ";
         var header = request.Headers.Authorization.ToString();
 
-        return header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? header[prefix.Length..].Trim()
-            : null;
+        return header.Equals("Bearer", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? header[prefix.Length..].Trim()
+                : null;
     }
 
     private static async Task WriteProblemAsync(

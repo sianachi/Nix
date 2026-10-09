@@ -177,11 +177,13 @@ public sealed class ItemLockStore : IItemLocks
     }
 
     /// <inheritdoc />
-    public async ValueTask<bool> RemoveAsync(ItemId itemId, CancellationToken cancellationToken)
+    public async ValueTask<bool> RemoveAsync(ItemId itemId, string expected, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrEmpty(expected);
+
         var removed = await _sql.ExecuteAsync(
             ItemLockSql.Remove,
-            [TenantParameter(), ItemParameter(itemId)],
+            [TenantParameter(), ItemParameter(itemId), new NpgsqlParameter("expected_hash", NpgsqlDbType.Text) { Value = expected }],
             cancellationToken).ConfigureAwait(false);
 
         return removed > 0;
