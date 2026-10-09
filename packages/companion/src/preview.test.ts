@@ -412,4 +412,59 @@ describe('describeToolCall - note body edits', () => {
     expect(model.bodyEdit).toBeUndefined();
     expect(model.problems).toEqual([problem]);
   });
+
+  it('drops # marks from a section name and shortens long quoted text', () => {
+    const section = describeToolCall(
+      args({ operation: 'replace_section', query: '## Budget', markdown: 'x' }),
+      context({
+        destination: { title: 'Trip plan', path: [] },
+        bodyEdit: {
+          scope: 'section',
+          before: 'a',
+          after: 'b',
+          blocksRemoved: 1,
+          blocksAdded: 1,
+          losses: [],
+          markdownChanges: {
+            unresolvedWikiLinks: 0,
+            unresolvedObsidianEmbeds: 0,
+            unresolvedLocalImages: 0,
+            unsupportedImageAddresses: 0,
+            inlineImagesFlattened: 0,
+          },
+          fingerprint: 'f',
+        },
+      }),
+    );
+    expect(section.headline).toBe(
+      'I will rewrite the section “Budget” in the linked note. The rest of the note stays as it is.',
+    );
+    expect(section.bodyEdit?.subject).toBe('Section “Budget” in Trip plan');
+    const long = 'Book the venue by Friday and then confirm the caterer for Saturday';
+    const passage = describeToolCall(
+      args({ operation: 'replace_passage', query: long, markdown: 'x' }),
+      context({
+        destination: { title: 'Trip plan', path: [] },
+        bodyEdit: {
+          scope: 'paragraph',
+          before: long,
+          after: 'x',
+          blocksRemoved: 1,
+          blocksAdded: 1,
+          losses: [],
+          markdownChanges: {
+            unresolvedWikiLinks: 0,
+            unresolvedObsidianEmbeds: 0,
+            unresolvedLocalImages: 0,
+            unsupportedImageAddresses: 0,
+            inlineImagesFlattened: 0,
+          },
+          fingerprint: 'g',
+        },
+      }),
+    );
+    expect(passage.bodyEdit?.subject).toBe(
+      'Paragraph with “Book the venue by Friday and then confi…” in Trip plan',
+    );
+  });
 });

@@ -38,15 +38,22 @@ export function rangeSegments(text: string, range: TextRange): DiffSegment[] {
 }
 
 /** A line-level comparison of `before` and `after`: lines on the longest common run are
- * unchanged, every other line is changed on its own side. */
+ * unchanged, every other line is changed on its own side. Lines are compared with their
+ * whitespace collapsed, and a blank line is never marked: re-rendered Markdown often shifts
+ * spacing, and marking that would point the owner at nothing. */
 export function lineSegments(
   before: string,
   after: string,
 ): { before: DiffSegment[]; after: DiffSegment[] } {
-  const a = before.split('\n');
-  const b = after.split('\n');
+  const rawA = before.split('\n');
+  const rawB = after.split('\n');
+  const key = (text: string) => text.replace(/\s+/g, ' ').trim();
+  const a = rawA.map(key);
+  const b = rawB.map(key);
   const line = (lines: readonly string[], index: number) =>
     index < lines.length - 1 ? `${lines[index] ?? ''}\n` : (lines[index] ?? '');
+  const marked = (keys: readonly string[], kept: readonly boolean[], index: number) =>
+    !kept[index] && keys[index] !== '';
   const keptA = new Array<boolean>(a.length).fill(false);
   const keptB = new Array<boolean>(b.length).fill(false);
   let head = 0;
@@ -91,7 +98,11 @@ export function lineSegments(
     }
   }
   return {
-    before: merge(a.map((_, index) => ({ text: line(a, index), changed: !keptA[index] }))),
-    after: merge(b.map((_, index) => ({ text: line(b, index), changed: !keptB[index] }))),
+    before: merge(
+      rawA.map((_, index) => ({ text: line(rawA, index), changed: marked(a, keptA, index) })),
+    ),
+    after: merge(
+      rawB.map((_, index) => ({ text: line(rawB, index), changed: marked(b, keptB, index) })),
+    ),
   };
 }

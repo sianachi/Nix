@@ -238,7 +238,7 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'append_note':
       return 'I will add the content below to the end of the linked note, preserving its existing content.';
     case 'replace_section':
-      return `I will rewrite the section “${args.query}” in the linked note. The rest of the note stays as it is.`;
+      return `I will rewrite the section “${sectionName(args.query)}” in the linked note. The rest of the note stays as it is.`;
     case 'replace_passage':
       return 'I will change one passage in the linked note. The rest of the note stays as it is.';
     case 'rename_item':
@@ -403,13 +403,24 @@ const BODY_EDIT_LOSSES: Readonly<Record<string, string>> = {
 };
 const BODY_EDIT_LOSS_FALLBACK = 'Some of its formatting is removed. The words stay.';
 
+/** A section heading as the owner reads it: without the `#` marks the model may have sent. */
+function sectionName(heading: string): string {
+  return quotable(heading.replace(/^\s*#{1,6}\s+/, ''));
+}
+
+/** Quoted note text, cut to about 40 characters so a headline or region name stays readable. */
+function quotable(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 40 ? `${flat.slice(0, 39).trimEnd()}…` : flat;
+}
+
 function capitalized(text: string): string {
   return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
 function bodyEditHeadline(args: PreviewToolArgs, plan: BodyEditPlan): string {
   if (plan.scope === 'section')
-    return `I will rewrite the section “${args.query}” in the linked note. The rest of the note stays as it is.`;
+    return `I will rewrite the section “${sectionName(args.query)}” in the linked note. The rest of the note stays as it is.`;
   const block = plan.after
     ? `The ${plan.scope} it sits in is rewritten`
     : `The ${plan.scope} it sits in is removed`;
@@ -427,8 +438,8 @@ function describeBodyEdit(args: PreviewToolArgs, context: PreviewContext): Previ
   const where = plan.scope === 'section' ? 'This section' : `This ${plan.scope}`;
   const subject =
     plan.scope === 'section'
-      ? `Section “${args.query}” in ${context.destination.title}`
-      : `${capitalized(plan.scope)} with “${args.query}” in ${context.destination.title}`;
+      ? `Section “${sectionName(args.query)}” in ${context.destination.title}`
+      : `${capitalized(plan.scope)} with “${quotable(args.query)}” in ${context.destination.title}`;
   return {
     ...model,
     headline: bodyEditHeadline(args, plan),

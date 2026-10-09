@@ -1530,7 +1530,7 @@ describe('companion work approvals', () => {
       ).toHaveTextContent('## Budget removed: Total is 400.');
       expect(
         screen.getByRole('region', { name: 'Text after this change, Section “Budget” in Trip' }),
-      ).toHaveTextContent('## Budget added: Total is 450. - Venue');
+      ).toHaveTextContent('## Budget added: Total is 450. added: - Venue');
       expect(screen.queryByText(/Removes 1 block/)).not.toBeInTheDocument();
       // The comparison already carries the new text; it is not listed a second time.
       expect(screen.queryByRole('region', { name: /New section text/ })).not.toBeInTheDocument();
@@ -1642,7 +1642,7 @@ describe('companion work approvals', () => {
       ).toHaveTextContent('Centadded: ered line');
       expect(
         screen.getByText(
-          'This one waits for you: approving it removes formatting Markdown can’t keep.',
+          'This one waits for you: approving it removes formatting this edit can’t keep (see below).',
         ),
       ).toBeVisible();
       expect(
@@ -1706,6 +1706,8 @@ describe('companion work approvals', () => {
       render(<LiveTools initial={sectionRuntime} />, { wrapper: MemoryRouter });
       await approveRequest();
       expect(await screen.findByText('Done')).toBeVisible();
+      // The receipt names the edit, never the preview's "I will..." beside "Done".
+      expect(screen.getByText('Edit to the section “Budget” in the linked note')).toBeVisible();
       await userEvent.click(screen.getByText('What was applied'));
       expect(
         screen.getByRole('region', { name: 'Text before, Section “Budget” in Trip' }),
@@ -1714,7 +1716,9 @@ describe('companion work approvals', () => {
         screen.getByRole('region', { name: 'Text after, Section “Budget” in Trip' }),
       ).toHaveTextContent('Total is 450.');
       expect(
-        screen.getByText('You can restore the earlier text from this note’s history.'),
+        screen.getByText(
+          'You can restore the earlier text: open the note and choose History from its menu.',
+        ),
       ).toBeVisible();
       expect(screen.getByRole('link', { name: 'Open the note' })).toHaveAttribute(
         'href',

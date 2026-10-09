@@ -62,7 +62,7 @@ function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel)
 /** Note body edits show the whole edited block before and after (`PetBodyEditPreview`), which
  * already includes every character the request would store. */
 const WAITS_FOR_FORMATTING =
-  'This one waits for you: approving it removes formatting Markdown can’t keep.';
+  'This one waits for you: approving it removes formatting this edit can’t keep (see below).';
 const WAITS_FOR_LINK = 'This one waits for you: it adds a link to another site.';
 
 /** Why a write the owner's switch would otherwise run is waiting anyway, in the owner's words,
@@ -88,8 +88,13 @@ const NOT_RUN = 'Not run - nothing changed';
 /** A settled body edit's one-line receipt, which is never previewed again (see the card's
  * preview effect): what it was, without claiming what the note says now. */
 function settledBodyEditHeadline(args: WorkspaceToolArgs): string {
+  const heading = args.query
+    .replace(/^\s*#{1,6}\s+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const name = heading.length > 40 ? `${heading.slice(0, 39).trimEnd()}…` : heading;
   return args.operation === 'replace_section'
-    ? `Edit to the section “${args.query}” in the linked note`
+    ? `Edit to the section “${name}” in the linked note`
     : 'Edit to one passage in the linked note';
 }
 const BODY_EDIT_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
@@ -1298,7 +1303,9 @@ function PetWorkToolCard({
     const bodyEditDone = isBodyEdit && tool.status === 'completed';
     const restore = bodyEditDone ? (
       <div className="flex flex-wrap items-baseline gap-2">
-        <Text variant="note">You can restore the earlier text from this note’s history.</Text>
+        <Text variant="note">
+          You can restore the earlier text: open the note and choose History from its menu.
+        </Text>
         {itemId ? (
           <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${itemId}`}>
             Open the note
@@ -1329,12 +1336,10 @@ function PetWorkToolCard({
         ownerReason={ownerReason}
         tool={tool}
         headline={
-          model?.headline ??
-          (settledBodyEdit
+          // A settled body edit never borrows the preview's "I will..." beside its outcome.
+          settledBodyEdit
             ? settledBodyEditHeadline(args)
-            : state.loading
-              ? 'Preparing a summary…'
-              : 'This change')
+            : (model?.headline ?? (state.loading ? 'Preparing a summary…' : 'This change'))
         }
         problems={problems}
         petName={petName}

@@ -49,4 +49,10 @@ describe('lineSegments', () => {
       after: [{ text: 'new', changed: true }],
     });
   });
+
+  it('treats lines that differ only in whitespace, and blank lines, as unchanged', () => {
+    const result = lineSegments('- one\n\n- two  \nEnd.', '-  one\n- two\n\n\nEnd!');
+    expect(result.before.filter((s) => s.changed).map((s) => s.text)).toEqual(['End.']);
+    expect(result.after.filter((s) => s.changed).map((s) => s.text)).toEqual(['End!']);
+  });
 });
