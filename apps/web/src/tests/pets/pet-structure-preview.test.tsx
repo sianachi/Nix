@@ -184,4 +184,23 @@ describe('PetStructurePreview', () => {
     ).toBeVisible();
     expect(screen.getByText('every 2 weeks on Monday and Friday')).toBeVisible();
   });
+
+  it('places its children after the notes and before the warnings', () => {
+    render(
+      <PetStructurePreview
+        model={model({
+          notes: ['A note'],
+          warnings: [{ path: 'This section', code: 'x', message: 'A warning' }],
+        })}
+        pending
+      >
+        <p>The comparison</p>
+      </PetStructurePreview>,
+    );
+    const note = screen.getByText('A note');
+    const child = screen.getByText('The comparison');
+    const warning = screen.getByText('This section: A warning');
+    expect(note.compareDocumentPosition(child) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(child.compareDocumentPosition(warning) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });

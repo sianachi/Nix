@@ -1,5 +1,5 @@
 import { Button, Text, cn, focusRing, inkWashStates } from '@nix/ui';
-import { useState, type ReactElement } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import type { PreviewModel, PreviewNode } from '@nix/structure-spec';
 
 function detailTone(detail: string): 'default' | 'muted' | 'accent' {
@@ -21,6 +21,7 @@ export function PetStructurePreview({
   model,
   captureSummary = false,
   pending = false,
+  children,
 }: {
   readonly model: PreviewModel;
   readonly captureSummary?: boolean;
@@ -28,6 +29,9 @@ export function PetStructurePreview({
    * never collapse to "Show N more", every "Why" stays open, and warnings stay expanded (security
    * fix S1). False (the default) is a post-decision receipt, where folding is fine. */
   readonly pending?: boolean;
+  /** Detail of the change itself (a note body edit's before and after text), shown after the
+   * notes and before the warnings, so a warning about it reads after the text it is about. */
+  readonly children?: ReactNode;
 }): ReactElement {
   const countsLine = captureSummary
     ? [
@@ -74,6 +78,7 @@ export function PetStructurePreview({
           ))}
         </ul>
       ) : null}
+      {children}
       {model.warnings.length ? (
         <details open={pending || undefined}>
           <summary className={cn('cursor-default rounded', focusRing, inkWashStates)}>
