@@ -292,4 +292,5 @@ function InsightsStory({ empty = false }: { readonly empty?: boolean }): ReactEl
   );
 }
 export const Insights = { render: (): ReactElement => <InsightsStory /> };
+export const InsightsDark = { ...Insights, globals: { ground: 'dark' } };
 export const NoRecordedAmounts = { render: (): ReactElement => <InsightsStory empty /> };

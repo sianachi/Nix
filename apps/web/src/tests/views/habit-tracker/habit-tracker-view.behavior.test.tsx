@@ -345,6 +345,16 @@ describe('habit tracker user flows', () => {
     });
   });
 
+  it('shows the last year of the habit as a year grid on Insights', async () => {
+    mount(false, aContainer({ children: [habit] }));
+    fireEvent.click(screen.getByRole('button', { name: 'Insights' }));
+
+    expect(await screen.findByRole('heading', { name: 'Year at a glance' })).toBeVisible();
+    const grid = screen.getByRole('group', { name: /the last year/ });
+    // 366 days to today: the longest range the habit endpoint serves.
+    expect(grid.querySelectorAll('button')).toHaveLength(366);
+  });
+
   it('persists widget changes and restores the prior selection when saving fails', async () => {
     const container = aContainer({ children: [habit] });
     const setViews = vi
