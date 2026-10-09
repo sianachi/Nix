@@ -296,13 +296,18 @@ export async function loadPreviewContext(
   if (edit !== undefined) {
     const item = await checkItem(ports, workspaceId, args.itemId, signal);
     const destination = await itemDestination(ports, workspaceId, item.id, signal);
-    const refused = (path: string, message: string): PreviewContext => ({
+    const refused = (path: string, message: string, modelMessage: string): PreviewContext => ({
       destination,
       inheritedFields: [],
       fingerprint: '',
-      problems: [{ path, code: 'body_edit_refused', message }],
+      problems: [{ path, code: 'body_edit_refused', message, modelMessage }],
     });
-    if (item.type !== 'note') return refused('itemId', 'Only a note body can be edited.');
+    if (item.type !== 'note')
+      return refused(
+        'itemId',
+        'Only a note’s text can be edited this way.',
+        'Only a note body can be edited.',
+      );
     try {
       const plan = await ports.bodies.planEdit(item.id, edit, signal);
       return {
@@ -314,7 +319,11 @@ export async function loadPreviewContext(
       };
     } catch (error) {
       if (error instanceof WorkspaceToolRefusal)
-        return refused(edit.kind === 'section' ? 'heading' : 'find', error.message);
+        return refused(
+          edit.kind === 'section' ? 'heading' : 'find',
+          error.ownerMessage ?? error.message,
+          error.message,
+        );
       throw error;
     }
   }

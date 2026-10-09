@@ -293,56 +293,114 @@ describe('describeToolCall - spec operations', () => {
 });
 
 describe('describeToolCall - note body edits', () => {
-  const plan = {
+  const scan = {
+    unresolvedWikiLinks: 0,
+    unresolvedObsidianEmbeds: 0,
+    unresolvedLocalImages: 0,
+    unsupportedImageAddresses: 0,
+    inlineImagesFlattened: 0,
+  };
+  const section = {
+    scope: 'section' as const,
     before: '## Budget\n\nTotal is 400.',
     after: '## Budget\n\nTotal is 450.',
     blocksRemoved: 1,
     blocksAdded: 2,
     losses: [{ kind: 'color-dropped', detail: 'A text-colour mark was dropped.' }],
-    markdownChanges: {
-      unresolvedWikiLinks: 0,
-      unresolvedObsidianEmbeds: 0,
-      unresolvedLocalImages: 0,
-      unsupportedImageAddresses: 0,
-      inlineImagesFlattened: 0,
-    },
+    markdownChanges: scan,
     fingerprint: 'f',
   };
+  const passage = {
+    scope: 'list item' as const,
+    before: 'Meet at teh station.',
+    after: 'Meet at the station.',
+    beforeRange: { start: 9, end: 10 },
+    afterRange: { start: 9, end: 10 },
+    blocksRemoved: 1,
+    blocksAdded: 1,
+    losses: [],
+    markdownChanges: scan,
+    fingerprint: 'g',
+  };
+  const books = context({ destination: { title: 'Trip plan', path: ['Trip plan'] } });
 
-  it('names the section and carries the before and after text', () => {
+  it('names the section, the subject and the before and after text, with no block counts', () => {
     const model = describeToolCall(
       args({ operation: 'replace_section', query: 'Budget', markdown: 'Total is 450.' }),
-      context({ bodyEdit: plan }),
+      { ...books, bodyEdit: section },
     );
     expect(model.headline).toBe(
-      'I will replace the section “Budget” in the linked note. The rest of the note stays as it is.',
+      'I will rewrite the section “Budget” in the linked note. The rest of the note stays as it is.',
     );
     expect(model.bodyEdit).toEqual({
-      before: plan.before,
-      after: plan.after,
+      scope: 'section',
+      subject: 'Section “Budget” in Trip plan',
+      before: section.before,
+      after: section.after,
       blocksRemoved: 1,
       blocksAdded: 2,
       losesFormatting: true,
     });
-    expect(model.notes).toContain('Removes 1 block and adds 2 blocks.');
+    expect(model.notes).toEqual([]);
     expect(model.counts.writes).toBe(1);
   });
 
-  it('warns about formatting the replaced text loses', () => {
+  it('says what a loss does to the section in the future tense', () => {
     const model = describeToolCall(
-      args({ operation: 'replace_passage', query: 'teh', markdown: 'the' }),
-      context({ bodyEdit: plan }),
-    );
-    expect(model.headline).toBe(
-      'I will change one passage in the linked note. Every other block stays as it is.',
+      args({ operation: 'replace_section', query: 'Budget', markdown: 'x' }),
+      { ...books, bodyEdit: section },
     );
     expect(model.warnings).toEqual([
       {
-        path: 'Replaced text',
+        path: 'This section',
         code: 'color-dropped',
-        message: 'A text-colour mark was dropped. The edit will not keep it.',
+        message: 'Its text colour is removed. The words stay.',
       },
     ]);
+  });
+
+  it('names the block a passage sits in and carries the changed ranges', () => {
+    const model = describeToolCall(
+      args({ operation: 'replace_passage', query: 'teh', markdown: 'the' }),
+      { ...books, bodyEdit: { ...passage, losses: [{ kind: 'alignment-dropped', detail: '' }] } },
+    );
+    expect(model.headline).toBe(
+      'I will change one passage in the linked note. The list item it sits in is rewritten; the rest of the note stays as it is.',
+    );
+    expect(model.bodyEdit).toMatchObject({
+      subject: 'List item with “teh” in Trip plan',
+      beforeRange: { start: 9, end: 10 },
+      afterRange: { start: 9, end: 10 },
+      losesFormatting: true,
+    });
+    expect(model.warnings).toEqual([
+      {
+        path: 'This list item',
+        code: 'alignment-dropped',
+        message: 'Its text alignment goes back to the default.',
+      },
+    ]);
+  });
+
+  it('says a passage is removed when nothing replaces it', () => {
+    const model = describeToolCall(
+      args({ operation: 'replace_passage', query: 'Meet at teh station.', markdown: '' }),
+      { ...books, bodyEdit: { ...passage, scope: 'paragraph', after: '', blocksAdded: 0 } },
+    );
+    expect(model.headline).toBe(
+      'I will remove one passage from the linked note. The paragraph it sits in is removed; the rest of the note stays as it is.',
+    );
+  });
+
+  it('uses a plain sentence for a loss it has no wording for', () => {
+    const model = describeToolCall(args({ operation: 'replace_passage', query: 'teh' }), {
+      ...books,
+      bodyEdit: { ...passage, scope: 'heading', losses: [{ kind: 'unknown-block', detail: '' }] },
+    });
+    expect(model.warnings[0]).toMatchObject({
+      path: 'This heading',
+      message: 'Some of its formatting is removed. The words stay.',
+    });
   });
 
   it('carries no comparison when the edit could not be placed', () => {

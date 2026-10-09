@@ -38,7 +38,30 @@ export interface PreviewModel {
   bodyEdit?: PreviewBodyEdit;
 }
 
+/** A run of characters, `start` inclusive and `end` exclusive. */
+export interface PreviewTextRange {
+  start: number;
+  end: number;
+}
+
+/** What a body edit touches: a whole section, or the one block a passage sits in. */
+export type PreviewBodyEditScope =
+  | 'section'
+  | 'paragraph'
+  | 'list item'
+  | 'heading'
+  | 'code block'
+  | 'table cell';
+
 export interface PreviewBodyEdit {
+  scope: PreviewBodyEditScope;
+  /** Names the edited text and the note it is in, e.g. `Section “Packing” in Trip plan`, so two
+   * comparisons on screen never share a name. */
+  subject: string;
+  /** For a passage: the characters of `before` that change and the characters of `after` that
+   * replace them. A section has none; its comparison diffs by line. */
+  beforeRange?: PreviewTextRange;
+  afterRange?: PreviewTextRange;
   /** The edited blocks as they read now, as Markdown. */
   before: string;
   /** The same blocks as they will read after the edit, as Markdown. */

@@ -25,6 +25,7 @@ import {
 } from '@nix/structure-spec';
 import type { Problem } from '@nix/structure-spec';
 import type { PreviewContext } from './context.js';
+import type { BodyEditPlan } from './ports.js';
 export type { PreviewContext } from './context.js';
 import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
 import { planBuild } from './blueprint/plan.js';
@@ -237,9 +238,9 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'append_note':
       return 'I will add the content below to the end of the linked note, preserving its existing content.';
     case 'replace_section':
-      return `I will replace the section “${args.query}” in the linked note. The rest of the note stays as it is.`;
+      return `I will rewrite the section “${args.query}” in the linked note. The rest of the note stays as it is.`;
     case 'replace_passage':
-      return 'I will change one passage in the linked note. Every other block stays as it is.';
+      return 'I will change one passage in the linked note. The rest of the note stays as it is.';
     case 'rename_item':
       return `I will rename the linked item to “${args.title}”.`;
     case 'move_item':
@@ -386,31 +387,64 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
   }
 }
 
-function blockCount(count: number): string {
-  return `${String(count)} block${count === 1 ? '' : 's'}`;
+/** The owner-facing sentence for each formatting loss a body edit causes, in the future tense:
+ * the converter's own detail is a past-tense log line about an export. A comment mark is only a
+ * highlight: Nix keeps no comment threads outside the note, so removing the mark loses nothing
+ * else. */
+const BODY_EDIT_LOSSES: Readonly<Record<string, string>> = {
+  'alignment-dropped': 'Its text alignment goes back to the default.',
+  'color-dropped': 'Its text colour is removed. The words stay.',
+  'highlight-dropped': 'Its highlights are removed. The words stay.',
+  'underline-dropped': 'Its underlines are removed. The words stay.',
+  'comment-dropped': 'Its comment highlights are removed. The words stay.',
+  'task-list-flattened': 'Its checklist becomes a plain bullet list, and ticks are lost.',
+  'columns-flattened': 'Its side-by-side columns become one column.',
+  'table-flattened': 'Its table loses merged cells, column widths and cell formatting.',
+};
+const BODY_EDIT_LOSS_FALLBACK = 'Some of its formatting is removed. The words stay.';
+
+function capitalized(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
 
-/** A section or passage edit: the legacy headline, plus the before and after text and anything
- * the replaced blocks carry that Markdown cannot keep, so the owner sees a loss before approving. */
+function bodyEditHeadline(args: PreviewToolArgs, plan: BodyEditPlan): string {
+  if (plan.scope === 'section')
+    return `I will rewrite the section “${args.query}” in the linked note. The rest of the note stays as it is.`;
+  const block = plan.after
+    ? `The ${plan.scope} it sits in is rewritten`
+    : `The ${plan.scope} it sits in is removed`;
+  return args.markdown
+    ? `I will change one passage in the linked note. ${block}; the rest of the note stays as it is.`
+    : `I will remove one passage from the linked note. ${block}; the rest of the note stays as it is.`;
+}
+
+/** A section or passage edit: what it changes, the before and after text, and anything the
+ * replaced blocks carry that Markdown cannot keep, so the owner sees a loss before approving. */
 function describeBodyEdit(args: PreviewToolArgs, context: PreviewContext): PreviewModel {
   const model = describeLegacyOperation(args, context);
   const plan = context.bodyEdit;
   if (plan === undefined) return model;
+  const where = plan.scope === 'section' ? 'This section' : `This ${plan.scope}`;
+  const subject =
+    plan.scope === 'section'
+      ? `Section “${args.query}” in ${context.destination.title}`
+      : `${capitalized(plan.scope)} with “${args.query}” in ${context.destination.title}`;
   return {
     ...model,
-    notes: [
-      `Removes ${blockCount(plan.blocksRemoved)} and adds ${blockCount(plan.blocksAdded)}.`,
-      ...model.notes,
-    ],
+    headline: bodyEditHeadline(args, plan),
     warnings: [
       ...model.warnings,
       ...plan.losses.map((loss) => ({
-        path: 'Replaced text',
+        path: where,
         code: loss.kind,
-        message: `${loss.detail} The edit will not keep it.`,
+        message: BODY_EDIT_LOSSES[loss.kind] ?? BODY_EDIT_LOSS_FALLBACK,
       })),
     ],
     bodyEdit: {
+      scope: plan.scope,
+      subject,
+      ...(plan.beforeRange ? { beforeRange: plan.beforeRange } : {}),
+      ...(plan.afterRange ? { afterRange: plan.afterRange } : {}),
       before: plan.before,
       after: plan.after,
       blocksRemoved: plan.blocksRemoved,

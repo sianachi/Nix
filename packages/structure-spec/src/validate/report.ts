@@ -11,6 +11,9 @@ export interface Problem {
   path: string;
   code: string;
   message: string;
+  /** What the model is sent instead of `message`, when the two differ: the model's text may
+   * name tools, the owner's never does. */
+  modelMessage?: string;
 }
 
 /**

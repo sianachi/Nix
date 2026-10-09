@@ -1029,7 +1029,9 @@ describe('workspace-scoped companion tools', () => {
 
     it('turns a refusal to place the edit into a preview problem', async () => {
       const { ports, bodies, signal } = setup();
-      bodies.planEdit.mockRejectedValue(new WorkspaceToolRefusal('Not found.'));
+      bodies.planEdit.mockRejectedValue(
+        new WorkspaceToolRefusal('Not found; try nix_read_note.', 'Not found.'),
+      );
       const parsed = workspaceToolSchema.parse(JSON.parse(input(operation, { itemId, ...fields })));
       const context = await loadPreviewContext(ports, workspace, parsed, signal);
       expect(context.bodyEdit).toBeUndefined();
@@ -1038,6 +1040,7 @@ describe('workspace-scoped companion tools', () => {
           path: operation === 'replace_section' ? 'heading' : 'find',
           code: 'body_edit_refused',
           message: 'Not found.',
+          modelMessage: 'Not found; try nix_read_note.',
         },
       ]);
     });
@@ -1079,7 +1082,10 @@ describe('workspace-scoped companion tools', () => {
         runWorkspaceTool(ports, workspace, input(operation, { itemId, ...fields }), signal, {
           fence: plan.fingerprint,
         }),
-      ).rejects.toThrow('Only a note body can be edited.');
+      ).rejects.toMatchObject({
+        message: 'Only a note body can be edited. No change was made.',
+        ownerMessage: 'Only a note’s text can be edited this way, so nothing was edited.',
+      });
       expect(bodies.applyEdit).not.toHaveBeenCalled();
     });
 

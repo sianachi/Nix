@@ -8,6 +8,7 @@ import {
 } from '@nix/markdown';
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import * as Y from 'yjs';
+import type { PreviewTextRange } from '@nix/structure-spec';
 import type { BodyEdit, BodyEditPlan, CompanionBodies } from './ports.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
 
@@ -36,9 +37,50 @@ interface Placement {
   plan: BodyEditPlan;
 }
 
-const UNSAFE =
-  'This note has content the companion cannot edit safely. No change was made; use nix_append_note instead.';
 const MAX_LISTED_HEADINGS = 20;
+
+/** Refuses with the model's text (which may name tools) and the owner's (which never does). */
+function refuse(model: string, owner: string): WorkspaceToolRefusal {
+  return new WorkspaceToolRefusal(model, owner);
+}
+
+function unsafe(): WorkspaceToolRefusal {
+  return refuse(
+    'This note has content the companion cannot edit safely. No change was made; use nix_append_note instead.',
+    'This note has content the pet cannot edit safely, so nothing was edited.',
+  );
+}
+
+/** The kind of block a passage sits in, as the owner would name it. */
+function passageScope(block: Located): BodyEditPlan['scope'] {
+  if (block.json.type === 'heading') return 'heading';
+  if (block.json.type === 'codeBlock') return 'code block';
+  const container = block.parent instanceof Y.XmlElement ? block.parent.nodeName : '';
+  if (container === 'listItem' || container === 'taskItem') return 'list item';
+  if (container === 'tableCell' || container === 'tableHeader') return 'table cell';
+  return 'paragraph';
+}
+
+/** The characters that differ between `before` and `after`, found by trimming what both start
+ * and end with: the edited passage once the Markdown round trip has normalised both sides. */
+function changedRanges(
+  before: string,
+  after: string,
+): { beforeRange: PreviewTextRange; afterRange: PreviewTextRange } {
+  let start = 0;
+  while (start < before.length && start < after.length && before[start] === after[start]) start++;
+  let tail = 0;
+  while (
+    tail < before.length - start &&
+    tail < after.length - start &&
+    before[before.length - 1 - tail] === after[after.length - 1 - tail]
+  )
+    tail++;
+  return {
+    beforeRange: { start, end: before.length - tail },
+    afterRange: { start, end: after.length - tail },
+  };
+}
 
 function render(blocks: readonly NodeJson[]): { markdown: string; losses: MarkdownLoss[] } {
   const result = documentToMarkdown({ type: 'doc', content: blocks });
@@ -64,9 +106,16 @@ function parseBlocks(markdown: string): {
   scan: BodyEditPlan['markdownChanges'];
 } {
   if (markdown.length > 16000)
-    throw new WorkspaceToolRefusal('Provide up to 16,000 characters of Markdown.');
+    throw refuse(
+      'Provide up to 16,000 characters of Markdown.',
+      'The new text is too long, so nothing was edited.',
+    );
   const parsed = markdownToDocument(markdown);
-  if (!parsed.ok) throw new WorkspaceToolRefusal('The proposed Markdown is invalid.');
+  if (!parsed.ok)
+    throw refuse(
+      'The proposed Markdown is invalid.',
+      'The new text could not be read as Markdown, so nothing was edited.',
+    );
   return { blocks: (parsed.doc as NodeJson).content ?? [], scan: parsed.scan };
 }
 
@@ -75,10 +124,9 @@ function parseBlocks(markdown: string): {
  * index into one would not be an index into the other. */
 function pair(parent: Y.XmlFragment | Y.XmlElement, json: readonly NodeJson[]): Y.XmlElement[] {
   const children = parent.toArray();
-  if (children.length !== json.length) throw new WorkspaceToolRefusal(UNSAFE);
+  if (children.length !== json.length) throw unsafe();
   return children.map((child, index) => {
-    if (!(child instanceof Y.XmlElement) || child.nodeName !== json[index]?.type)
-      throw new WorkspaceToolRefusal(UNSAFE);
+    if (!(child instanceof Y.XmlElement) || child.nodeName !== json[index]?.type) throw unsafe();
     return child;
   });
 }
@@ -96,7 +144,7 @@ function textblocks(fragment: Y.XmlFragment): Located[] {
     json.forEach((node, index) => {
       const element = elements[index];
       const type = nixSchema.nodes[node.type];
-      if (type === undefined || element === undefined) throw new WorkspaceToolRefusal(UNSAFE);
+      if (type === undefined || element === undefined) throw unsafe();
       if (type.isTextblock) out.push({ json: node, parent, index });
       else if (!type.isLeaf && !type.inlineContent) walk(element, node.content ?? []);
     });
@@ -116,7 +164,11 @@ function placeSection(
   edit: Extract<BodyEdit, { kind: 'section' }>,
 ): Placement {
   const wanted = normalizeHeading(edit.heading.replace(/^\s*#{1,6}\s+/, ''));
-  if (!wanted) throw new WorkspaceToolRefusal('Name the heading of the section to replace.');
+  if (!wanted)
+    throw refuse(
+      'Name the heading of the section to replace.',
+      'No heading was named, so nothing was edited.',
+    );
   const json = rootJson(fragment).content ?? [];
   pair(fragment, json);
   const headings = json
@@ -128,10 +180,11 @@ function placeSection(
   const matches = headings.filter((entry) => normalizeHeading(textOf(entry.node)) === wanted);
   if (matches.length === 0) {
     const names = headings.slice(0, MAX_LISTED_HEADINGS).map((entry) => `"${textOf(entry.node)}"`);
-    throw new WorkspaceToolRefusal(
+    throw refuse(
       names.length === 0
         ? `No heading "${edit.heading}" was found: this note has no headings. Use nix_replace_passage or nix_append_note instead.`
         : `No heading "${edit.heading}" was found. Headings in this note: ${names.join(', ')}${headings.length > MAX_LISTED_HEADINGS ? ', ...' : ''}.`,
+      `There is no heading “${edit.heading}” in this note, so nothing was edited.`,
     );
   }
   if (matches.length > 1) {
@@ -141,8 +194,9 @@ function placeSection(
         .at(-1);
       return `level ${String(match.level)}${above ? ` under "${textOf(above.node)}"` : ' at the top'}`;
     });
-    throw new WorkspaceToolRefusal(
+    throw refuse(
       `The heading "${edit.heading}" appears ${String(matches.length)} times (${described.join('; ')}). Ask the owner which one, or change text inside it with nix_replace_passage.`,
+      `The heading “${edit.heading}” appears ${String(matches.length)} times in this note, so the pet could not tell which section to change. Nothing was edited.`,
     );
   }
   const match = matches[0] as { node: NodeJson; index: number; level: number };
@@ -153,7 +207,10 @@ function placeSection(
       break;
     }
   if (!edit.markdown.trim())
-    throw new WorkspaceToolRefusal('Provide the new Markdown for the section.');
+    throw refuse(
+      'Provide the new Markdown for the section.',
+      'No new text was given for the section, so nothing was edited.',
+    );
   const parsed = parseBlocks(edit.markdown);
   const keepHeading = parsed.blocks[0]?.type !== 'heading';
   const start = keepHeading ? match.index + 1 : match.index;
@@ -166,6 +223,7 @@ function placeSection(
     removeCount: end - start,
     blocks: parsed.blocks,
     plan: {
+      scope: 'section',
       before,
       after,
       blocksRemoved: end - start,
@@ -181,27 +239,32 @@ function placePassage(
   fragment: Y.XmlFragment,
   edit: Extract<BodyEdit, { kind: 'passage' }>,
 ): Placement {
-  if (!edit.find) throw new WorkspaceToolRefusal('Name the text to replace.');
+  if (!edit.find)
+    throw refuse('Name the text to replace.', 'No text to find was given, so nothing was edited.');
   const rendered = textblocks(fragment).map((block) => ({ block, ...render([block.json]) }));
   const hits = rendered.filter((entry) => entry.markdown.includes(edit.find));
   const total = hits.reduce((sum, entry) => sum + countOccurrences(entry.markdown, edit.find), 0);
   if (total === 0)
-    throw new WorkspaceToolRefusal(
+    throw refuse(
       `"${edit.find}" was not found inside any one paragraph, heading, list item or code block. Copy the text exactly from nix_read_note, without list markers, and keep it inside one block.`,
+      `“${edit.find}” is not in this note as one passage, so nothing was edited.`,
     );
   if (total > 1)
-    throw new WorkspaceToolRefusal(
+    throw refuse(
       `"${edit.find}" appears ${String(total)} times. Include more of the surrounding text so it matches exactly once.`,
+      `“${edit.find}” appears ${String(total)} times in this note, so the pet could not tell which one to change. Nothing was edited.`,
     );
   const [hit] = hits;
-  if (hit === undefined) throw new WorkspaceToolRefusal(UNSAFE);
+  if (hit === undefined) throw unsafe();
   const at = hit.markdown.indexOf(edit.find);
   const next = hit.markdown.slice(0, at) + edit.replace + hit.markdown.slice(at + edit.find.length);
   const parsed = next.trim() ? parseBlocks(next) : { blocks: [], scan: EMPTY_MARKDOWN_IMPORT_SCAN };
+  const after = render(parsed.blocks).markdown;
   const nested = hit.block.parent !== fragment;
   if (nested && (parsed.blocks.length !== 1 || parsed.blocks[0]?.type !== hit.block.json.type))
-    throw new WorkspaceToolRefusal(
+    throw refuse(
       'That replacement would change the shape of the list, table or block the text sits in. Keep it to text inside the block, or rewrite the whole section with nix_replace_section.',
+      'That change would reshape a list or table, so nothing was edited.',
     );
   return {
     parent: hit.block.parent,
@@ -209,8 +272,10 @@ function placePassage(
     removeCount: 1,
     blocks: parsed.blocks,
     plan: {
+      scope: passageScope(hit.block),
+      ...changedRanges(hit.markdown, after),
       before: hit.markdown,
-      after: render(parsed.blocks).markdown,
+      after,
       blocksRemoved: 1,
       blocksAdded: parsed.blocks.length,
       losses: hit.losses,
@@ -356,8 +421,9 @@ export function createCompanionBodies(client: NixClient): CompanionBodies {
       try {
         const placement = place(doc.getXmlFragment('default'), edit);
         if (placement.plan.fingerprint !== approved)
-          throw new WorkspaceToolRefusal(
+          throw refuse(
             'The note changed since you approved this. Read it again before editing.',
+            'The note changed after you approved this, so nothing was edited.',
           );
         const elements = toElements(placement.blocks);
         const before = Y.encodeStateVector(doc);

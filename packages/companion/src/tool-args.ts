@@ -131,8 +131,17 @@ export const workspaceToolSchema = z
 
 export type WorkspaceToolArgs = z.infer<typeof workspaceToolSchema>;
 
-/** A local preflight refusal with safe copy, before any mutation is attempted. */
-export class WorkspaceToolRefusal extends Error {}
+/** A local preflight refusal with safe copy, before any mutation is attempted. `message` goes
+ * back to the model and may name tools; `ownerMessage`, when given, is the plain sentence the
+ * owner reads instead, with no tool names. */
+export class WorkspaceToolRefusal extends Error {
+  constructor(
+    message: string,
+    readonly ownerMessage?: string,
+  ) {
+    super(message);
+  }
+}
 
 /** The operations the executor never writes through. `runWorkspaceTool`'s
  * `WorkspaceToolOutcome.readOnly` is derived from this set. Sourced from @nix/structure-spec's

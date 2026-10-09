@@ -412,12 +412,16 @@ export async function runWorkspaceTool(
         case 'replace_section':
         case 'replace_passage': {
           if (item.type !== 'note')
-            throw new WorkspaceToolRefusal('Only a note body can be edited. No change was made.');
+            throw new WorkspaceToolRefusal(
+              'Only a note body can be edited. No change was made.',
+              'Only a note’s text can be edited this way, so nothing was edited.',
+            );
           const edit = bodyEditOf(args);
           if (edit === undefined) throw new Error('A body edit is required.');
           if (!options.fence)
             throw new WorkspaceToolRefusal(
               'This edit has no approved preview. Review it again before editing.',
+              'This edit had no approved preview, so nothing was edited.',
             );
           result = await bodies.applyEdit(item.id, edit, options.fence, signal);
           break;
