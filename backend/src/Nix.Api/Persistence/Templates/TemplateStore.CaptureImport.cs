@@ -458,9 +458,12 @@ public sealed partial class TemplateStore
                 Type = item.ItemType,
                 ParentId = item.ParentSourceId is { } parent ? targetIds[parent] : null,
                 Seq = item.Seq,
-                // An imported file may name any principal as a value's setter; template content
-                // carries none (the applier is attributed at application time).
-                Properties = ItemProperties.StripSetBy(ItemProperties.WithTitle(item.Properties, item.Title)),
+                // An imported file may name any principal as a value's setter, or carry any other
+                // $ key; template content keeps only habit and finance content, and the applier is
+                // attributed at application time.
+                Properties = ReservedPropertyContent.Strip(
+                    ItemProperties.WithTitle(item.Properties, item.Title),
+                    ReservedPropertyContent.ContentPrefixes),
                 Schema = item.Schema,
                 Views = item.Views,
                 Recurrence = item.Recurrence,

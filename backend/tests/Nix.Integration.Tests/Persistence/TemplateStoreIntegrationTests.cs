@@ -4024,6 +4024,93 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         false,
         true);
 
+    [Fact]
+    public async Task Template_import_keeps_habit_content_and_drops_every_other_reserved_key()
+    {
+        // Security review F2: template content may carry habit and finance groups, and nothing
+        // else from the $ space - not a structural query field, not a calendar mirror key.
+        var root = Items()[0] with
+        {
+            Properties = """{"title":"Template root","answer":"a","$type":"task","$cal_source":"google","$custom":1,"$habit_unit":"times"}""",
+        };
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var begun = await work.Resolve<TemplateStore>().BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), "reserved-key-import", Descriptor(), [root], Cancellation);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+
+            var staged = await work.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(item => item.TemplateId == begun.Value.TemplateId && item.ParentId == null, Cancellation);
+            var bag = Assert.IsType<JsonObject>(JsonNode.Parse(staged.Properties!));
+            Assert.False(bag.ContainsKey("$type"));
+            Assert.False(bag.ContainsKey("$cal_source"));
+            Assert.False(bag.ContainsKey("$custom"));
+            Assert.Equal("times", (string?)bag["$habit_unit"]);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_drops_reserved_keys_outside_habit_and_finance_content()
+    {
+        var sourceId = await AddOrdinaryItemAsync("Reserved source");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(
+            TestTenants.AlphaContext, IsolationLevel.RepeatableRead, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            // Written past the generic writer, as a legacy bag would be.
+            await work.DbContext.Items.Where(item => item.Id == sourceId)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.Properties,
+                    "{\"title\":\"Reserved source\",\"$type\":\"task\",\"$cal_link\":\"x\",\"$habit_unit\":\"times\"}"), Cancellation);
+
+            var begun = await work.Resolve<TemplateStore>().BeginCaptureAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), sourceId, "Reserved capture", null,
+                false, false, "reserved-capture", Cancellation);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+
+            var captured = await work.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+                .SingleAsync(item => item.TemplateId == begun.Value.TemplateId && item.ParentId == null, Cancellation);
+            var bag = Assert.IsType<JsonObject>(JsonNode.Parse(captured.Properties!));
+            Assert.False(bag.ContainsKey("$type"));
+            Assert.False(bag.ContainsKey("$cal_link"));
+            Assert.Equal("times", (string?)bag["$habit_unit"]);
+        }
+    }
+
+    [Fact]
+    public async Task A_template_whose_habit_settings_are_malformed_is_refused_at_application()
+    {
+        // The allowlisted group is checked by the habit validator when it is applied, not trusted
+        // because the template carried it.
+        var root = Items()[0] with
+        {
+            Properties = """{"title":"Template root","answer":"a","$habit_frequency":"daily"}""",
+        };
+        TemplateId templateId;
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var store = work.Resolve<TemplateStore>();
+            var begun = await store.BeginImportAsync(
+                WorkspaceId.From(TestTenants.AlphaWorkspace), "malformed-habit-import", Descriptor(), [root], Cancellation);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+            var finalized = await store.FinalizeOperationAsync(begun.Value.OperationId!.Value, [], Cancellation);
+            Assert.True(finalized.IsSuccess, finalized.IsFailure ? finalized.Error.ToString() : null);
+            templateId = finalized.Value;
+            await work.CommitAsync(Cancellation);
+        }
+
+        var apply = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (apply.ConfigureAwait(false))
+        {
+            var refused = await apply.Resolve<TemplateStore>().BeginApplicationAsync(
+                templateId, TemplateApplicationMode.Create, null, null, "Malformed habit", "apply-malformed-habit", Cancellation);
+
+            Assert.True(refused.IsFailure);
+            Assert.Equal("templates.invalid", refused.Error.Code);
+        }
+    }
+
     private static IReadOnlyList<TemplateImportItem> Items() =>
     [
         new TemplateImportItem(

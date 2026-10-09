@@ -39,8 +39,10 @@ public sealed partial class TemplateStore
             // Capture keeps authored root values so initialization can explicitly keep, reset, or
             // replace them at application time. Sensitive task fields are reset by the evaluator.
             // Who set a scheduled value is never template content: it is re-attributed to
-            // whoever applies the template (CloneRegularItem).
-            Properties = ItemProperties.StripSetBy(source.Properties),
+            // whoever applies the template (CloneRegularItem). Of the reserved $ space only habit
+            // and finance content is captured; set-by stamps, calendar sync keys and any other $
+            // key are dropped (ReservedPropertyContent).
+            Properties = ReservedPropertyContent.Strip(source.Properties, ReservedPropertyContent.ContentPrefixes),
             Schema = isRoot && rootSchema is not null ? rootSchema : source.Schema,
             Views = source.Views,
             Recurrence = source.Recurrence,
@@ -70,10 +72,13 @@ public sealed partial class TemplateStore
             Seq = source.Seq,
             // A copied set-by value would route the new item's reminders to whoever it named in
             // the template; the applying principal is the one who set every value copied here.
+            // A template stored before $ content was sanitised on capture is sanitised here too.
             Properties = ItemProperties.RestampCopiedSetBy(
-                initialized is null
-                    ? ItemProperties.WithTitle(source.Properties, title)
-                    : ItemProperties.WithTitle(initialized.Properties, initialized.Title),
+                ReservedPropertyContent.Strip(
+                    initialized is null
+                        ? ItemProperties.WithTitle(source.Properties, title)
+                        : ItemProperties.WithTitle(initialized.Properties, initialized.Title),
+                    ReservedPropertyContent.ContentPrefixes),
                 Context.PrincipalId.ToString()),
             Schema = source.Schema,
             Views = source.Views,

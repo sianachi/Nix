@@ -63,6 +63,38 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
     }
 
     [Fact]
+    public async Task An_import_keeps_habit_content_and_drops_every_other_reserved_key()
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "reserved.nix", 8, itemCount: 1);
+        var note = new ImportEnvelopePlan("note", null, 0, "Imported note", "note",
+            """{"$type":"task","$cal_link":"x","$custom":1,"$habit_unit":"times"}""",
+            null, null, "active", false, null);
+        var stage = Assert.IsType<DocumentImportStageRecord>(await imports.StageAsync(new StageDocumentImport(
+            DocumentImportId.From(operation.Id), new string('b', 64), digest, [note]), Cancellation));
+
+        var staged = await work.DbContext.Items.IgnoreQueryFilters().AsNoTracking()
+            .SingleAsync(item => item.Id == ItemId.From(stage.RootItemId), Cancellation);
+        var bag = Assert.IsType<System.Text.Json.Nodes.JsonObject>(System.Text.Json.Nodes.JsonNode.Parse(staged.Properties!));
+        Assert.False(bag.ContainsKey("$type"));
+        Assert.False(bag.ContainsKey("$cal_link"));
+        Assert.False(bag.ContainsKey("$custom"));
+        Assert.Equal("times", (string?)bag["$habit_unit"]);
+    }
+
+    [Fact]
+    public async Task An_import_with_malformed_habit_settings_is_refused()
+    {
+        await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "habit.nix", 8, itemCount: 1);
+        var note = new ImportEnvelopePlan("note", null, 0, "Broken habit", "note",
+            """{"$habit_frequency":"daily"}""", null, null, "active", false, null);
+
+        Assert.Null(await imports.StageAsync(new StageDocumentImport(
+            DocumentImportId.From(operation.Id), new string('b', 64), digest, [note]), Cancellation));
+    }
+
+    [Fact]
     public async Task A_planned_bag_naming_a_member_twice_is_refused_rather_than_failing_the_request()
     {
         // JsonNode.Parse accepts a duplicate member name and JsonObject throws on first use, so a
