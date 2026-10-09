@@ -15,6 +15,7 @@ const config: StorybookConfig = {
     '../src/**/*.stories.@(ts|tsx)',
     '../../../apps/web/src/pets/*.stories.tsx',
     '../../../apps/web/src/shell/notifications/*.stories.tsx',
+    '../../../apps/web/src/shell/nav-rail.stories.tsx',
     '../../../apps/web/src/editor/*.stories.tsx',
     '../../../apps/web/src/items/*.stories.tsx',
     '../../../apps/web/src/graph/*.stories.tsx',

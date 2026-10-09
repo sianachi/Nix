@@ -49,6 +49,7 @@ describe('the navigation rail', () => {
       'Graph',
       'Bookmarks',
       'Templates',
+      'Queries',
       'Automations',
       'Trash',
       'Import',
@@ -129,6 +130,7 @@ describe('the navigation rail', () => {
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const bookmarks = within(rail()).getByRole('link', { name: 'Bookmarks' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    const queries = within(rail()).getByRole('button', { name: 'Queries' });
     const automations = within(rail()).getByRole('link', { name: 'Automations' });
     const trash = within(rail()).getByRole('link', { name: 'Trash' });
     const importControl = within(rail()).getByRole('button', { name: 'Import' });
@@ -140,6 +142,7 @@ describe('the navigation rail', () => {
     expect(graph).toHaveAttribute('tabindex', '-1');
     expect(bookmarks).toHaveAttribute('tabindex', '-1');
     expect(templates).toHaveAttribute('tabindex', '-1');
+    expect(queries).toHaveAttribute('tabindex', '-1');
     expect(automations).toHaveAttribute('tabindex', '-1');
     expect(trash).toHaveAttribute('tabindex', '-1');
     expect(importControl).toHaveAttribute('tabindex', '-1');
@@ -166,6 +169,7 @@ describe('the navigation rail', () => {
     const calendar = within(rail()).getByRole('link', { name: 'Calendar' });
     const graph = within(rail()).getByRole('link', { name: 'Graph' });
     const templates = within(rail()).getByRole('link', { name: 'Templates' });
+    const queries = within(rail()).getByRole('button', { name: 'Queries' });
     const automations = within(rail()).getByRole('link', { name: 'Automations' });
     const trash = within(rail()).getByRole('link', { name: 'Trash' });
     const importControl = within(rail()).getByRole('button', { name: 'Import' });
@@ -193,6 +197,10 @@ describe('the navigation rail', () => {
     expect(graph).toHaveFocus();
 
     templates.focus();
+    await user.keyboard('{ArrowDown}');
+    expect(queries).toHaveFocus();
+
+    // The Queries menu's trigger is one of the rail's stops, not a trap: the arrows pass it by.
     await user.keyboard('{ArrowDown}');
     expect(automations).toHaveFocus();
 
@@ -353,9 +361,14 @@ describe('the navigation rail on a narrow screen', () => {
     await userEvent.click(await screen.findByRole('button', { name: /show the workspace tree/i }));
     expect(within(rail()).queryByRole('link')).not.toBeInTheDocument();
     await userEvent.click(within(rail()).getByRole('button', { name: 'Notes' }));
+    // Nine destinations and "New query", which the Queries section folds into this one menu.
     expect(
       screen.getByRole('menu', { name: 'Workspace pages' }).querySelectorAll('a'),
-    ).toHaveLength(9);
+    ).toHaveLength(10);
+    expect(screen.getByRole('menuitem', { name: 'New query' })).toHaveAttribute(
+      'href',
+      '/w/00000000-0000-4000-8000-000000000001/new/query',
+    );
     expect(screen.getByRole('menuitem', { name: 'Notes' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('menuitem', { name: 'Graph' })).not.toHaveAttribute('aria-current');
     expect(screen.getByRole('menuitem', { name: 'Import' })).toBeVisible();

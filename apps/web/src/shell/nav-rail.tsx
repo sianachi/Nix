@@ -6,6 +6,8 @@ import {
   ChevronDown,
   FolderInput,
   LayoutTemplate,
+  ListFilter,
+  ListFilterPlus,
   Network,
   NotebookText,
   PawPrint,
@@ -16,6 +18,13 @@ import {
 } from 'lucide-react';
 import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
+
+import {
+  useForgetDeletedSmartLists,
+  useKnownSmartLists,
+  useKnownSmartListsStore,
+  type KnownSmartList,
+} from '../views/query/known-smart-lists';
 
 import { petAttentionText } from '../pets/pet-attention';
 import { usePetNavEntry } from '../pets/use-pet-nav-entry';
@@ -97,7 +106,11 @@ interface RailDestination extends RailItemBase {
 
 interface RailAction extends RailItemBase {
   readonly kind: 'action';
-  readonly action: 'import';
+  /**
+   * `import` opens the import dialog; `queries` opens the Queries menu - every smart list this
+   * browser knows, pin and unpin, and "New query" (plan 1.8).
+   */
+  readonly action: 'import' | 'queries';
 }
 
 type RailItem = RailDestination | RailAction;
@@ -121,6 +134,19 @@ const PET_ITEM: RailDestination = {
   to: '/pet',
   label: 'Pet',
   icon: PawPrint,
+  group: 'workspace',
+};
+
+/**
+ * The Queries control: a menu rather than a destination, because smart lists are items and each
+ * already has an address - what the rail adds is a way to reach them from anywhere and to keep the
+ * ones somebody uses every day one press away, as pinned entries beside it.
+ */
+const QUERIES_ITEM: RailAction = {
+  kind: 'action',
+  action: 'queries',
+  label: 'Queries',
+  icon: ListFilterPlus,
   group: 'workspace',
 };
 
@@ -156,6 +182,7 @@ const ITEMS: readonly RailItem[] = [
     group: 'workspace',
     includesChildren: true,
   },
+  QUERIES_ITEM,
   // `Zap` rather than `Workflow`, for the reason the graph note gives: an automation is a rule that
   // fires, not a flowchart.
   {
@@ -199,7 +226,7 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
   // The pet page is offered only while this device's preference and a switched-on companion call
   // for it, so it is added to the list rather than declared in it. It sits after Bookmarks, the
   // last of the whole-workspace views, ahead of Templates and the tools.
-  const items: readonly RailItem[] = petEntry
+  const petItems: readonly RailItem[] = petEntry
     ? dailyItems.flatMap((item) =>
         item.kind === 'destination' && item.to === '/bookmarks'
           ? [
@@ -215,6 +242,12 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
           : [item],
       )
     : dailyItems;
+  // Pinned smart lists sit right after the Queries control, as destinations of their own: an item
+  // address rather than a route, so none is ever "current" by pathname, which is right - the item
+  // page is Notes, whichever list it was reached from.
+  const smartLists = useKnownSmartLists(workspaceId);
+  useForgetDeletedSmartLists();
+  const items: readonly RailItem[] = withPinnedQueries(petItems, smartLists);
 
   // Which control is the rail's single tab stop. Null until somebody has actually put focus in here,
   // so the entry point is the current destination by default - derived from the URL rather than
@@ -273,19 +306,29 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
     const currentItem = items[currentIndex];
     const currentHref =
       currentItem?.kind === 'destination' ? `${workspaceRoot}${currentItem.to}` : null;
-    const entries: MenuEntry[] = items.map((item) =>
-      item.kind === 'destination'
-        ? {
-            kind: 'link',
-            label: item.label,
-            icon: item.icon,
-            href: `${workspaceRoot}${item.to}`,
-            onSelect: () => {
-              onNavigate?.();
-            },
-          }
-        : { kind: 'action', label: item.label, icon: item.icon, onSelect: onImport },
-    );
+    // The compact menu is already a menu, so the Queries control's own entries are folded into it
+    // at the end rather than nested as a second menu inside the first.
+    const entries: MenuEntry[] = [
+      ...items.flatMap((item): MenuEntry[] =>
+        item.kind === 'destination'
+          ? [
+              {
+                kind: 'link',
+                label: item.label,
+                icon: item.icon,
+                href: `${workspaceRoot}${item.to}`,
+                onSelect: () => {
+                  onNavigate?.();
+                },
+              },
+            ]
+          : item.action === 'queries'
+            ? []
+            : [{ kind: 'action', label: item.label, icon: item.icon, onSelect: onImport }],
+      ),
+      { kind: 'separator' },
+      ...queriesMenuEntries(workspaceId, workspaceRoot, smartLists, onNavigate),
+    ];
     return (
       <nav aria-label="Destinations">
         <Menu
@@ -375,6 +418,43 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
                     {item.attention ? <span className="sr-only">, {item.attention}</span> : null}
                   </Text>
                 </Link>
+              ) : item.action === 'queries' ? (
+                <Menu
+                  label="Queries"
+                  items={queriesMenuEntries(workspaceId, workspaceRoot, smartLists, onNavigate)}
+                  renderLink={({ href, ...props }) => <Link to={href} {...props} />}
+                >
+                  {(trigger) => (
+                    <button
+                      {...trigger}
+                      ref={(node) => {
+                        controlRefs.current[index] = node;
+                        trigger.ref.current = node;
+                      }}
+                      className={className}
+                      {...sharedProps}
+                      onKeyDown={(event) => {
+                        // The rail's arrows move between its controls; every other key - Enter,
+                        // Space - is the menu trigger's own.
+                        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                          onKeyDown(event, index);
+                        } else {
+                          trigger.onKeyDown(event);
+                        }
+                      }}
+                    >
+                      <Icon icon={item.icon} size="sm" className="shrink-0" />
+                      <Text
+                        as="span"
+                        variant="body"
+                        truncate
+                        className="sr-only max-lg:not-sr-only"
+                      >
+                        {item.label}
+                      </Text>
+                    </button>
+                  )}
+                </Menu>
               ) : (
                 <button
                   ref={(node) => {
@@ -397,4 +477,84 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
       </ul>
     </nav>
   );
+}
+
+/** The rail's items with each pinned smart list placed right after the Queries control. */
+function withPinnedQueries(
+  items: readonly RailItem[],
+  smartLists: readonly KnownSmartList[],
+): readonly RailItem[] {
+  const pinned: RailDestination[] = smartLists
+    .filter((list) => list.pinned)
+    .map((list) => ({
+      kind: 'destination',
+      to: `?item=${encodeURIComponent(list.id)}`,
+      label: list.title.length > 0 ? list.title : 'Untitled smart list',
+      icon: ListFilter,
+      group: 'workspace',
+    }));
+  return items.flatMap((item) =>
+    item.kind === 'action' && item.action === 'queries' ? [item, ...pinned] : [item],
+  );
+}
+
+/**
+ * What the Queries menu offers: every smart list this browser knows, a pin or unpin for each, and
+ * "New query". The list is the ones opened here - see `known-smart-lists.ts` for why there is no
+ * workspace-wide read behind it yet - and the empty state says exactly that.
+ */
+function queriesMenuEntries(
+  workspaceId: string,
+  workspaceRoot: string,
+  smartLists: readonly KnownSmartList[],
+  onNavigate: (() => void) | undefined,
+): MenuEntry[] {
+  const { setPinned } = useKnownSmartListsStore.getState();
+  const named = (list: KnownSmartList): string =>
+    list.title.length > 0 ? list.title : 'Untitled smart list';
+  return [
+    // A disabled line rather than a heading: a menu with free content becomes a dialog, and this
+    // is a list of commands, so the empty state is said as a command that cannot be chosen.
+    ...(smartLists.length === 0
+      ? [
+          {
+            kind: 'action',
+            key: 'queries-none',
+            label: 'No smart lists opened in this browser yet',
+            disabled: true,
+            onSelect: () => undefined,
+          } as const,
+        ]
+      : []),
+    ...smartLists.map((list): MenuEntry => ({
+      kind: 'link',
+      key: `open-${list.id}`,
+      label: named(list),
+      icon: ListFilter,
+      href: `${workspaceRoot}?item=${encodeURIComponent(list.id)}`,
+      onSelect: () => {
+        onNavigate?.();
+      },
+    })),
+    ...(smartLists.length === 0 ? [] : [{ kind: 'separator' } as const]),
+    ...smartLists.map((list): MenuEntry => ({
+      kind: 'action',
+      key: `pin-${list.id}`,
+      label: list.pinned ? `Unpin ${named(list)}` : `Pin ${named(list)}`,
+      onSelect: () => {
+        setPinned(workspaceId, list.id, !list.pinned);
+      },
+    })),
+    { kind: 'separator' },
+    {
+      kind: 'link',
+      key: 'new-query',
+      label: 'New query',
+      icon: ListFilterPlus,
+      href: `${workspaceRoot}/new/query`,
+      onSelect: () => {
+        onNavigate?.();
+      },
+    },
+  ];
 }
