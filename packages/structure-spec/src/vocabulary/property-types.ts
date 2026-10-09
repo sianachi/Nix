@@ -164,6 +164,15 @@ export function canChartBy(type: string): boolean {
 }
 
 /**
+ * Whether a chart may split its buckets into series by a property of this type: the choice types,
+ * whose values are one of a few per item. The server's counterpart is `PropertyTypes.CanSplitBy`;
+ * the two must widen together.
+ */
+export function canSplitBy(type: string): boolean {
+  return type === 'select' || type === 'checkbox' || type === 'completion' || type === 'assignee';
+}
+
+/**
  * Whether a property's values are computed on read rather than written.
  *
  * The server's counterpart is `PropertyTypes.IsComputed` (PropertyType.cs), and the two must widen

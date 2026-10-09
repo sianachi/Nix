@@ -131,6 +131,7 @@ export interface StructureChartOptions {
   to: string | null;
   cumulative: boolean | null;
   rollingAverage: boolean | null;
+  stacked: boolean | null;
 }
 
 /**

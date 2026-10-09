@@ -110,6 +110,7 @@ export function compileChartOptions(
     to: null,
     cumulative: null,
     rollingAverage: null,
+    stacked: null,
   };
 }
 

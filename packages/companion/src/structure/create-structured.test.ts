@@ -32,6 +32,7 @@ describe('toViewRequest', () => {
         to: null,
         cumulative: null,
         rollingAverage: null,
+        stacked: null,
       },
     };
 
