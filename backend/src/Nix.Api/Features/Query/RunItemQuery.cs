@@ -24,7 +24,7 @@ namespace Nix.Features.Query;
 /// query. Sending rules is the ad-hoc workspace query's job (<c>RunWorkspaceQuery</c>),
 /// which runs the same rules through the same evaluator and statement but over one workspace the
 /// caller names; it projects nothing the caller could not read item by item, which is the
-/// argument ADR-0039 made for keeping rules server-side and the queries plan (1.1) revisited.
+/// argument ADR-0060 records for accepting rules from any reader.
 /// </remarks>
 public sealed record RunItemQuery(ItemId ItemId, string ViewId, string Today)
     : IQuery<Result<ItemQueryResults>>;
@@ -53,6 +53,7 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
     private readonly IItemQuery _query;
     private readonly INixSessionContextAccessor _session;
     private readonly IItemLocks _locks;
+    private readonly IPrincipalPreferencesStore _preferences;
 
     /// <summary>Initializes a new instance of the <see cref="RunItemQueryHandler"/> class.</summary>
     /// <param name="tree">Item storage, for the smart list itself.</param>
@@ -63,12 +64,14 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
     /// client - see <see cref="QueryOperators.Me"/> for why that would defeat the check.
     /// </param>
     /// <param name="locks">Withholds the views of a locked item until it is opened.</param>
+    /// <param name="preferences">The caller's zone, for <c>$created</c> and <c>$modified</c> days.</param>
     public RunItemQueryHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         IItemQuery query,
         INixSessionContextAccessor session,
-        IItemLocks locks)
+        IItemLocks locks,
+        IPrincipalPreferencesStore preferences)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -81,6 +84,7 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
         _query = query;
         _session = session;
         _locks = locks;
+        _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
     }
 
     /// <summary>Runs the query.</summary>
@@ -95,8 +99,7 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
 
         if (!QueryEvaluation.TryParseToday(query.Today, out var today))
         {
-            return Result.Failure<ItemQueryResults>(
-                QueryErrors.InvalidToday($"'{query.Today}' is not a day; send today as yyyy-MM-dd."));
+            return Result.Failure<ItemQueryResults>(QueryErrors.InvalidToday(QueryEvaluation.TodayRefusal(query.Today)));
         }
 
         // Loud rather than guessed: there is no anonymous path to this query (every route under
@@ -177,11 +180,20 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
         var spec = new QuerySpec(resolvedRules, QueryEvaluation.ResolveOrder(resolvedRules, null, fallback), today)
         {
             ExcludedItemId = query.ItemId,
+            Zone = await QueryEvaluation.ZoneAsync(resolvedRules, _preferences, caller, cancellationToken).ConfigureAwait(false),
         };
 
-        var results = await _query
-            .RunAsync(spec, workspaces, MaximumResults, cancellationToken)
-            .ConfigureAwait(false);
+        QueryResults results;
+        try
+        {
+            results = await _query
+                .RunAsync(spec, workspaces, MaximumResults, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ItemQueryFailedException failure)
+        {
+            return Result.Failure<ItemQueryResults>(QueryErrors.From(failure));
+        }
 
         return Result.Success(new ItemQueryResults(results, view.Id, ToIso(today), MaximumResults));
     }

@@ -244,3 +244,54 @@ internal sealed class RecordingQuery : IItemQuery
         return ValueTask.FromResult(QueryAggregateResults.Empty);
     }
 }
+
+/// <summary>Answers one fixed preferences row - a zone - or none at all.</summary>
+internal sealed class StubPreferences(string? timeZone = null) : IPrincipalPreferencesStore
+{
+    internal int Reads { get; private set; }
+
+    public ValueTask<Nix.Domain.Notifications.PrincipalPreferences?> FindAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
+        CancellationToken cancellationToken)
+    {
+        Reads++;
+        return ValueTask.FromResult(timeZone is null
+            ? null
+            : new Nix.Domain.Notifications.PrincipalPreferences
+            {
+                TenantId = tenantId,
+                PrincipalId = principalId,
+                TimeZone = timeZone,
+                DueReminderTime = new TimeOnly(9, 0),
+                DueReminders = true,
+                HabitReminders = true,
+                MutedContainerIds = [],
+                Revision = 1,
+            });
+    }
+
+    public Task<bool> SaveAsync(
+        Nix.Domain.Notifications.PrincipalPreferences preferences,
+        long expectedRevision,
+        CancellationToken cancellationToken) => throw new NotSupportedException();
+}
+
+/// <summary>A query port that throws the failure the reader raises for a refused statement.</summary>
+internal sealed class FailingQuery(bool timedOut) : IItemQuery
+{
+    public ValueTask<QueryResults> RunAsync(
+        QuerySpec spec,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        int limit,
+        CancellationToken cancellationToken) =>
+        throw new ItemQueryFailedException(timedOut, timedOut ? "57014" : "22P02", new InvalidOperationException("stub"));
+
+    public ValueTask<QueryAggregateResults> AggregateAsync(
+        QuerySpec spec,
+        QueryAggregate aggregate,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        int maximumGroups,
+        CancellationToken cancellationToken) =>
+        throw new ItemQueryFailedException(timedOut, timedOut ? "57014" : "22P02", new InvalidOperationException("stub"));
+}

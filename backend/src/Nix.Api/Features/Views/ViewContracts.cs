@@ -146,8 +146,8 @@ internal sealed record ViewAggregateContract(string Property, string Function);
 /// <c>same-day-last-week</c>, <c>same-day-last-month</c>; a day count from 1 to 365 for
 /// <c>within-next</c>/<c>within-last</c>; a literal for <c>contains</c>/<c>not-contains</c>,
 /// matched as a case-insensitive substring of text or as one multi-select option exactly; a
-/// finite number for <c>greater-than</c>/<c>less-than</c>, compared with stored numbers and with
-/// text that reads as one; empty for <c>is-empty</c>/<c>is-not-empty</c> (absent, null, empty
+/// finite number for <c>greater-than</c>/<c>less-than</c>, compared with stored JSON numbers
+/// only (a query view; a container view's browser evaluation also reads numeric text); empty for <c>is-empty</c>/<c>is-not-empty</c> (absent, null, empty
 /// text and an empty list are all empty). Tokens are resolved at read time from the caller's own
 /// today, so a saved query stays a rule rather than a date. Absent on a group.
 /// </param>

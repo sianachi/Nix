@@ -19,9 +19,11 @@ namespace Nix.Integration.Tests.Persistence;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The corpus is the shape a dashboard reads: 100 containers of 99 items, every item with a
-/// status, a number that is sometimes a word, a due date and a done flag, so a query neither
-/// matches everything nor nothing, and a scope selects a real subtree through the closure.
+/// The corpus is the shape a dashboard reads, three levels deep: 10 roots of 10 containers of 99
+/// items, every item with a status, a number that is sometimes a word, a due date and a done flag,
+/// so a query neither matches everything nor nothing and a scope selects a real subtree through
+/// the closure. An eleventh root is trashed with its whole subtree, so the hidden-ancestor
+/// anti-join has real rows to remove.
 /// </para>
 /// <para>
 /// No index is added for these statements. The bag predicates (<c>ILIKE</c>, the guarded number,
@@ -34,12 +36,13 @@ namespace Nix.Integration.Tests.Persistence;
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class WorkspaceQueryPlanEvidenceTests : IAsyncLifetime
 {
-    private const int Containers = 100;
+    private const int Roots = 10;
+    private const int ContainersPerRoot = 10;
     private const int ChildrenPerContainer = 99;
 
     private static readonly DateOnly Today = new(2026, 8, 15);
 
-    /// <summary>The fiftieth container, the scope and the <c>$inside</c> ancestor below.</summary>
+    /// <summary>The fiftieth container (under root 5), the scope and the <c>$inside</c> ancestor below.</summary>
     private static readonly Guid Scope = new("9d9d9000-0000-4000-8000-000000000050");
 
     private readonly NixPostgresFixture _fixture;
@@ -126,8 +129,11 @@ public sealed class WorkspaceQueryPlanEvidenceTests : IAsyncLifetime
         _output.WriteLine("Grouped sum of points over the open items, 10,000 items, runtime role ({0} ms round trip):", stopwatch.ElapsedMilliseconds);
         _output.WriteLine(plan);
 
-        // The match is materialised once and both folds read the materialised rows.
+        // The match is materialised once and both folds read the materialised rows; the hidden-
+        // ancestor probe is one hashed pass over the closure rather than a probe per row (data
+        // review S1: 883k to 16k buffers on 60k items).
         Assert.Contains("CTE matched", plan, StringComparison.Ordinal);
+        Assert.Contains("Hash Anti Join", plan, StringComparison.Ordinal);
         Assert.True(Count(plan, "CTE Scan on matched") >= 2, "Expected both folds to read the materialised match.");
     }
 
@@ -203,16 +209,27 @@ public sealed class WorkspaceQueryPlanEvidenceTests : IAsyncLifetime
         var workspace = $"'{M0SchemaSeed.Alpha.WorkspaceId.ToString("D", CultureInfo.InvariantCulture)}'::uuid";
         var principal = $"'{M0SchemaSeed.Alpha.PrincipalId.ToString("D", CultureInfo.InvariantCulture)}'::uuid";
 
-        // Containers have deterministic ids (…000001 to …000100) so the scope can name one; their
-        // children are random. Every tenth child stores its points as a word.
+        // Roots (9d9d9001-…) and containers (9d9d9000-…000001 to …000100) have deterministic ids
+        // so the scope can name one; their children are random. Every tenth child stores its
+        // points as a word. Root 11 is trashed: everything beneath it is hidden by its ancestor.
         var sql = $$"""
             INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
                  purge_after, created_by, last_modified_by, created_at, last_modified_at)
+            SELECT ('9d9d9001-0000-4000-8000-' || lpad(r::text, 12, '0'))::uuid, {{tenant}}, {{workspace}},
+                   'note', NULL, 90000 + r, jsonb_build_object('title', 'Root ' || r),
+                   CASE WHEN r = {{Roots + 1}} THEN 'deleted' ELSE 'active' END,
+                   NULL, {{principal}}, {{principal}}, now(), now()
+            FROM generate_series(1, {{Roots + 1}}) AS r;
+
+            INSERT INTO item
+                (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
+                 purge_after, created_by, last_modified_by, created_at, last_modified_at)
             SELECT ('9d9d9000-0000-4000-8000-' || lpad(c::text, 12, '0'))::uuid, {{tenant}}, {{workspace}},
-                   'note', NULL, 100000 + c, jsonb_build_object('title', 'Container ' || c),
+                   'note', ('9d9d9001-0000-4000-8000-' || lpad((1 + (c - 1) / {{ContainersPerRoot}})::text, 12, '0'))::uuid,
+                   100000 + c, jsonb_build_object('title', 'Container ' || c),
                    'active', NULL, {{principal}}, {{principal}}, now(), now()
-            FROM generate_series(1, {{Containers}}) AS c;
+            FROM generate_series(1, {{(Roots + 1) * ContainersPerRoot}}) AS c;
 
             INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state,
@@ -229,14 +246,21 @@ public sealed class WorkspaceQueryPlanEvidenceTests : IAsyncLifetime
                    'active', NULL, {{principal}}, {{principal}},
                    TIMESTAMPTZ '2026-06-01T00:00:00Z' + make_interval(hours => n),
                    TIMESTAMPTZ '2026-06-01T00:00:00Z' + make_interval(hours => n)
-            FROM generate_series(1, {{Containers}}) AS c, generate_series(1, {{ChildrenPerContainer}}) AS n;
+            FROM generate_series(1, {{(Roots + 1) * ContainersPerRoot}}) AS c,
+                 generate_series(1, {{ChildrenPerContainer}}) AS n;
 
             INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
-            SELECT id, id, tenant_id, workspace_id, 0 FROM item WHERE seq >= 100000 AND tenant_id = {{tenant}};
+            SELECT id, id, tenant_id, workspace_id, 0 FROM item WHERE seq >= 90000 AND tenant_id = {{tenant}};
 
             INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
             SELECT id, parent_id, tenant_id, workspace_id, 1 FROM item
-             WHERE seq >= 200000 AND tenant_id = {{tenant}};
+             WHERE seq >= 100000 AND tenant_id = {{tenant}};
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT child.id, container.parent_id, child.tenant_id, child.workspace_id, 2
+            FROM item AS child
+            JOIN item AS container ON container.id = child.parent_id
+            WHERE child.seq >= 200000 AND child.tenant_id = {{tenant}};
 
             ANALYZE item;
             ANALYZE item_closure;

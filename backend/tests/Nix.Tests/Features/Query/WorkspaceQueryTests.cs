@@ -43,7 +43,12 @@ public sealed class WorkspaceQueryTests
         string? today = "2026-08-15") =>
         new(workspace ?? Workspace, parent, descendants, preset, filters, sort, descending, groupBy, groupOrder, today);
 
-    private static WorkspaceQueryHandler Handler(RecordingQuery query, bool open = true, NixSessionContext? session = null) =>
+    private static WorkspaceQueryHandler Handler(
+        IItemQuery query,
+        bool open = true,
+        NixSessionContext? session = null,
+        StubPreferences? preferences = null,
+        QueryConcurrencyLimiter? limiter = null) =>
         new(
             StubTree.With(
                 [ItemIn(Folder, Workspace), ItemIn(HiddenFolder, Hidden), ItemIn(OtherWorkspaceFolder, OtherReadable)],
@@ -53,9 +58,11 @@ public sealed class WorkspaceQueryTests
             new StubPermissions([Workspace, OtherReadable]),
             query,
             new StubSession(session ?? NixSessionContext.ForTenant(Tenant, Caller)),
-            new StubLocks(open));
+            new StubLocks(open),
+            preferences ?? new StubPreferences(),
+            limiter ?? new QueryConcurrencyLimiter());
 
-    private static async Task<Result<WorkspaceQueryResults>> Run(RecordingQuery query, WorkspaceQueryInput input, int? limit = null, bool open = true) =>
+    private static async Task<Result<WorkspaceQueryResults>> Run(IItemQuery query, WorkspaceQueryInput input, int? limit = null, bool open = true) =>
         await Handler(query, open).HandleAsync(new RunWorkspaceQuery(input, limit), Cancellation);
 
     [Fact]
@@ -314,6 +321,72 @@ public sealed class WorkspaceQueryTests
         Assert.Equal([new FilterRule("due_date", "on", "today")], QueryPresets.All["today"]);
         Assert.Equal([new FilterRule("due_date", "within-next", "7")], QueryPresets.All["next-seven-days"]);
         Assert.Equal([new FilterRule("assignee", "equals", "me")], QueryPresets.All["assigned-to-me"]);
+    }
+
+    [Theory]
+    [InlineData("1899-12-31")]
+    [InlineData("9001-01-01")]
+    [InlineData("9999-12-31")]
+    [InlineData("0001-01-01")]
+    public async Task A_today_outside_1900_to_9000_is_refused_before_any_token_or_window_resolves(string today)
+    {
+        // Unbounded, 9999-12-31 plus a seven-day window and 0001-01-01 minus a week both threw.
+        var query = new RecordingQuery();
+
+        var window = await Run(query, Input([new FilterRule("due", "within-next", "7")], today: today));
+        var token = await Run(query, Input([new FilterRule("$created", "on", "same-day-last-week")], today: today));
+
+        Assert.Equal("query.invalid_today", window.Error.Code);
+        Assert.Equal("query.invalid_today", token.Error.Code);
+        Assert.Equal(0, query.Calls);
+    }
+
+    [Theory]
+    [InlineData(true, "query.timed_out")]
+    [InlineData(false, "query.could_not_run")]
+    public async Task A_statement_the_database_refuses_answers_a_stable_code(bool timedOut, string code)
+    {
+        var rows = await Handler(new FailingQuery(timedOut)).HandleAsync(new RunWorkspaceQuery(Input(), null), Cancellation);
+        var folded = await Handler(new FailingQuery(timedOut)).HandleAsync(new AggregateWorkspaceQuery(Input(), "count", null), Cancellation);
+
+        Assert.Equal(code, rows.Error.Code);
+        Assert.Equal(code, folded.Error.Code);
+    }
+
+    [Fact]
+    public async Task The_callers_zone_is_read_only_when_a_rule_needs_it_and_unknown_zones_fall_back_to_utc()
+    {
+        var plain = new StubPreferences("Pacific/Auckland");
+        var query = new RecordingQuery();
+        await Handler(query, preferences: plain).HandleAsync(new RunWorkspaceQuery(Input([new FilterRule("status", "equals", "Doing")]), null), Cancellation);
+        Assert.Equal(0, plain.Reads);
+        Assert.Equal(NodaTime.DateTimeZone.Utc, query.LastSpec!.Zone);
+
+        await Handler(query, preferences: plain).HandleAsync(new RunWorkspaceQuery(Input([new FilterRule("$created", "on", "today")]), null), Cancellation);
+        Assert.Equal(1, plain.Reads);
+        Assert.Equal("Pacific/Auckland", query.LastSpec!.Zone.Id);
+
+        await Handler(query, preferences: new StubPreferences("Mars/Olympus")).HandleAsync(new RunWorkspaceQuery(Input([new FilterRule("$created", "on", "today")]), null), Cancellation);
+        Assert.Equal(NodaTime.DateTimeZone.Utc, query.LastSpec!.Zone);
+    }
+
+    [Fact]
+    public async Task One_principal_may_have_at_most_four_queries_in_flight()
+    {
+        var limiter = new QueryConcurrencyLimiter();
+        var held = Enumerable.Range(0, QueryConcurrencyLimiter.MaximumInFlight).Select(_ => limiter.TryEnter(Caller)).ToList();
+        Assert.All(held, Assert.NotNull);
+
+        var query = new RecordingQuery();
+        var refused = await Handler(query, limiter: limiter).HandleAsync(new RunWorkspaceQuery(Input(), null), Cancellation);
+        Assert.Equal("query.too_many_in_flight", refused.Error.Code);
+        Assert.Equal(0, query.Calls);
+
+        // Another principal is not held back by this one, and a released slot is free again.
+        Assert.NotNull(limiter.TryEnter(PrincipalId.From(Guid.NewGuid())));
+        held[0]!.Dispose();
+        var admitted = await Handler(query, limiter: limiter).HandleAsync(new RunWorkspaceQuery(Input(), null), Cancellation);
+        Assert.True(admitted.IsSuccess);
     }
 
     private static Item ItemIn(ItemId id, WorkspaceId workspace) => new()

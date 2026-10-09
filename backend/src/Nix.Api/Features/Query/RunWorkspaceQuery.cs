@@ -122,6 +122,8 @@ public sealed class WorkspaceQueryHandler :
     private readonly IItemQuery _query;
     private readonly INixSessionContextAccessor _session;
     private readonly IItemLocks _locks;
+    private readonly IPrincipalPreferencesStore _preferences;
+    private readonly QueryConcurrencyLimiter _concurrency;
 
     /// <summary>Initializes a new instance of the <see cref="WorkspaceQueryHandler"/> class.</summary>
     /// <param name="tree">Item storage, for the workspace and the scope container.</param>
@@ -129,12 +131,16 @@ public sealed class WorkspaceQueryHandler :
     /// <param name="query">Runs the compiled query.</param>
     /// <param name="session">The acting principal, resolving <c>me</c>; never the client.</param>
     /// <param name="locks">Refuses a scope container under a lock the caller has not opened.</param>
+    /// <param name="preferences">The caller's zone, for <c>$created</c> and <c>$modified</c> days.</param>
+    /// <param name="concurrency">Bounds how many ad-hoc queries one principal runs at once.</param>
     public WorkspaceQueryHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         IItemQuery query,
         INixSessionContextAccessor session,
-        IItemLocks locks)
+        IItemLocks locks,
+        IPrincipalPreferencesStore preferences,
+        QueryConcurrencyLimiter concurrency)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
@@ -147,6 +153,8 @@ public sealed class WorkspaceQueryHandler :
         _query = query;
         _session = session;
         _locks = locks;
+        _preferences = preferences ?? throw new ArgumentNullException(nameof(preferences));
+        _concurrency = concurrency ?? throw new ArgumentNullException(nameof(concurrency));
     }
 
     /// <summary>Runs the query.</summary>
@@ -169,9 +177,23 @@ public sealed class WorkspaceQueryHandler :
         // a working answer and a truncation flag, not a 400 telling it to ask more politely.
         var limit = Math.Clamp(query.Limit ?? DefaultLimit, 1, MaximumResults);
 
-        var results = await _query
-            .RunAsync(prepared.Value.Spec, [query.Input.WorkspaceId], limit, cancellationToken)
-            .ConfigureAwait(false);
+        using var lease = _concurrency.TryEnter(prepared.Value.Caller);
+        if (lease is null)
+        {
+            return Result.Failure<WorkspaceQueryResults>(TooMany());
+        }
+
+        QueryResults results;
+        try
+        {
+            results = await _query
+                .RunAsync(prepared.Value.Spec, [query.Input.WorkspaceId], limit, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ItemQueryFailedException failure)
+        {
+            return Result.Failure<WorkspaceQueryResults>(QueryErrors.From(failure));
+        }
 
         return Result.Success(new WorkspaceQueryResults(
             results,
@@ -202,14 +224,29 @@ public sealed class WorkspaceQueryHandler :
         }
 
         var property = string.IsNullOrEmpty(query.Property) ? null : query.Property;
-        var results = await _query
-            .AggregateAsync(
-                prepared.Value.Spec,
-                new QueryAggregate(query.Function, property),
-                [query.Input.WorkspaceId],
-                MaximumGroups,
-                cancellationToken)
-            .ConfigureAwait(false);
+
+        using var lease = _concurrency.TryEnter(prepared.Value.Caller);
+        if (lease is null)
+        {
+            return Result.Failure<WorkspaceAggregateResults>(TooMany());
+        }
+
+        QueryAggregateResults results;
+        try
+        {
+            results = await _query
+                .AggregateAsync(
+                    prepared.Value.Spec,
+                    new QueryAggregate(query.Function, property),
+                    [query.Input.WorkspaceId],
+                    MaximumGroups,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ItemQueryFailedException failure)
+        {
+            return Result.Failure<WorkspaceAggregateResults>(QueryErrors.From(failure));
+        }
 
         return Result.Success(new WorkspaceAggregateResults(
             results,
@@ -222,6 +259,10 @@ public sealed class WorkspaceQueryHandler :
     /// <summary>
     /// The sentence refusing an aggregate's function and property, or null.
     /// </summary>
+    private static NixError TooMany() =>
+        QueryErrors.TooManyInFlight(
+            $"At most {QueryConcurrencyLimiter.MaximumInFlight} queries may run at once for one person; wait for one to finish.");
+
     private static string? RefuseAggregate(string function, string? property)
     {
         if (!QueryAggregateFunctions.All.Contains(function))
@@ -284,8 +325,7 @@ public sealed class WorkspaceQueryHandler :
         {
             if (!QueryEvaluation.TryParseToday(sentToday, out today))
             {
-                return Result.Failure<Prepared>(
-                    QueryErrors.InvalidToday($"'{sentToday}' is not a day; send today as yyyy-MM-dd."));
+                return Result.Failure<Prepared>(QueryErrors.InvalidToday(QueryEvaluation.TodayRefusal(sentToday)));
             }
 
             todayText = today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -376,9 +416,10 @@ public sealed class WorkspaceQueryHandler :
         {
             Scope = scope,
             Grouping = grouping,
+            Zone = await QueryEvaluation.ZoneAsync(resolved, _preferences, caller, cancellationToken).ConfigureAwait(false),
         };
 
-        return Result.Success(new Prepared(spec, todayText));
+        return Result.Success(new Prepared(spec, todayText, caller.PrincipalId));
     }
 
     /// <summary>The sentence refusing a sort or group key, or null.</summary>
@@ -403,5 +444,5 @@ public sealed class WorkspaceQueryHandler :
         Result.Failure<Prepared>(QueryErrors.InvalidRequest(reason));
 
     /// <summary>A checked request, ready to run.</summary>
-    private sealed record Prepared(QuerySpec Spec, string? Today);
+    private sealed record Prepared(QuerySpec Spec, string? Today, Nix.Domain.Identity.PrincipalId Caller);
 }

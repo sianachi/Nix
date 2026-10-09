@@ -50,7 +50,7 @@ public sealed class RunItemQueryTests
             new StubPermissions([Readable]),
             query,
             new StubSession(SessionFor(Caller)),
-            new StubLocks(open: true));
+            new StubLocks(open: true), new StubPreferences());
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -156,7 +156,7 @@ public sealed class RunItemQueryTests
             new StubPermissions([Readable]),
             query,
             new StubSession(SessionFor(Caller)),
-            new StubLocks(open: false));
+            new StubLocks(open: false), new StubPreferences());
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -176,7 +176,7 @@ public sealed class RunItemQueryTests
             new StubPermissions([Readable, AlsoReadable]),
             query,
             new StubSession(SessionFor(Caller)),
-            new StubLocks(open: true));
+            new StubLocks(open: true), new StubPreferences());
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation);
 
@@ -249,7 +249,7 @@ public sealed class RunItemQueryTests
             new StubPermissions([Readable]),
             query,
             new StubSession(SessionFor(Caller)),
-            new StubLocks(open: true));
+            new StubLocks(open: true), new StubPreferences());
 
         var result = await handler.HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
@@ -271,7 +271,7 @@ public sealed class RunItemQueryTests
             new StubPermissions([Readable]),
             query,
             new StubSession(SessionFor(Caller)),
-            new StubLocks(open: true));
+            new StubLocks(open: true), new StubPreferences());
 
         await handler.HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
@@ -293,7 +293,7 @@ public sealed class RunItemQueryTests
                 new StubPermissions([Readable]),
                 firstCallerQuery,
                 new StubSession(SessionFor(Caller)),
-                new StubLocks(open: true))
+                new StubLocks(open: true), new StubPreferences())
             .HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
         var secondCallerQuery = new RecordingQuery();
@@ -302,7 +302,7 @@ public sealed class RunItemQueryTests
                 new StubPermissions([Readable]),
                 secondCallerQuery,
                 new StubSession(SessionFor(OtherCaller)),
-                new StubLocks(open: true))
+                new StubLocks(open: true), new StubPreferences())
             .HandleAsync(new RunItemQuery(SmartList, "mine", "2026-08-15"), Cancellation);
 
         var firstValue = Assert.Single(firstCallerQuery.LastRules).Value;
@@ -325,7 +325,7 @@ public sealed class RunItemQueryTests
             new StubPermissions([Readable]),
             query,
             new StubSession(null),
-            new StubLocks(open: true));
+            new StubLocks(open: true), new StubPreferences());
 
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => handler.HandleAsync(new RunItemQuery(SmartList, "overdue", "2026-08-15"), Cancellation).AsTask());
@@ -366,7 +366,7 @@ public sealed class RunItemQueryTests
                 ])]);
 
     private static RunItemQueryHandler Handler(IItemQuery query, Item? item) =>
-        new(new StubTree(item), new StubPermissions([Readable]), query, new StubSession(SessionFor(Caller)), new StubLocks(open: true));
+        new(new StubTree(item), new StubPermissions([Readable]), query, new StubSession(SessionFor(Caller)), new StubLocks(open: true), new StubPreferences());
 
     private static NixSessionContext SessionFor(PrincipalId principal) => NixSessionContext.ForTenant(Tenant, principal);
 

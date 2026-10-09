@@ -24,24 +24,6 @@ public sealed class BulkItemVisibilityStatementTests
         { nameof(SearchSql.ItemsLinkingTo), SearchSql.ItemsLinkingTo, 1, OwnAncestors },
         { nameof(BookmarkSql.ListShelf), BookmarkSql.ListShelf, 1, OwnAncestors },
         { nameof(BookmarkSql.Keep), BookmarkSql.Keep, 1, OwnAncestors },
-        {
-            nameof(QuerySql),
-            QuerySql.Compile(new QuerySpec([], QueryOrder.Recency, new DateOnly(2026, 8, 22))).Sql,
-            1,
-            OwnAncestors
-        },
-        {
-            nameof(QuerySql.CompileAggregate),
-            QuerySql.CompileAggregate(
-                new QuerySpec([], QueryOrder.Recency, new DateOnly(2026, 8, 22))
-                {
-                    Grouping = new QueryGrouping("status", []),
-                },
-                new Nix.Domain.Query.QueryAggregate("sum", "points")).Sql,
-            1,
-            OwnAncestors
-        },
-
         // Two predicates: one for the containers the dated children hang from, one for the daily
         // notes arm (alias note), which reaches its rows through the daily root rather than a
         // container. Every fragment is counted, so dropping either arm's predicate fails here.
@@ -102,6 +84,33 @@ public sealed class BulkItemVisibilityStatementTests
             System.Text.RegularExpressions.Regex.Count(
                 sql,
                 @"stored_ancestor.lifecycle_state IS DISTINCT FROM 'active'\)\s*OFFSET 0"));
+    }
+
+    [Fact]
+    public void The_query_statements_reject_a_non_visible_proper_ancestor_through_a_plain_anti_join()
+    {
+        // The query's probe is the unfenced correlated anti-join (data review S1), which the
+        // planner can hash for a workspace-wide read; the rows and aggregate statements share it.
+        var spec = new QuerySpec([], QueryOrder.Recency, new DateOnly(2026, 8, 22))
+        {
+            Grouping = new QueryGrouping("status", []),
+        };
+
+        foreach (var sql in new[]
+                 {
+                     QuerySql.Compile(spec).Sql,
+                     QuerySql.CompileAggregate(spec, new Nix.Domain.Query.QueryAggregate("sum", "points")).Sql,
+                 })
+        {
+            Assert.Equal(1, Count(sql, "FROM item_closure AS visibility_edge"));
+            Assert.Equal(1, Count(sql, "JOIN item AS visibility_ancestor"));
+            Assert.Equal(1, Count(sql, "visibility_ancestor.tenant_id = @tenant_id"));
+            Assert.Equal(1, Count(sql, "visibility_edge.tenant_id = @tenant_id"));
+            Assert.Equal(1, Count(sql, "visibility_edge.depth > 0"));
+            Assert.Equal(1, Count(sql, "visibility_ancestor.template_id IS NOT NULL"));
+            Assert.Equal(1, Count(sql, "visibility_ancestor.lifecycle_state <> 'active'"));
+            Assert.Equal(0, Count(sql, "OFFSET 0"));
+        }
     }
 
     [Fact]

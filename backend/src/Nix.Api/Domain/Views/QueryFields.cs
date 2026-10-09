@@ -9,10 +9,12 @@ namespace Nix.Domain.Views;
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>The prefix is reserved.</b> Property keys may not start with <c>$</c>
-/// (<c>PropertySchemaRules</c> and <c>PropertyValidator</c> refuse one), so a <c>$</c> name in a
-/// rule can only mean a field from this closed set. A <c>$</c> name outside it is refused rather
-/// than read as a property nobody can have.
+/// <b>The prefix is reserved.</b> A schema declaration (<c>PropertySchemaRules</c>), a generic
+/// create (<c>CreateItem</c>) and a generic property write (<c>SetItemProperties</c>) refuse a
+/// client <c>$</c> key; the template draft edit, capture and document import paths are handled
+/// separately (<c>ReservedPropertyKeys</c>). A <c>$</c> name in a rule can therefore only mean a
+/// field from this closed set, and one outside it is refused rather than read as a property.
+/// ADR-0060 records the ad-hoc query surface these fields belong to.
 /// </para>
 /// <para>
 /// <b>Only a query compiles them.</b> A container view evaluates its rules in the browser over
@@ -32,12 +34,18 @@ public static class QueryFields
     /// The item sits somewhere beneath the named ancestor, read through the closure table. The
     /// value is the ancestor's id.
     /// </summary>
+    /// <remarks>
+    /// A rule matches rows, so an ancestor the caller cannot see - missing, in another workspace,
+    /// or locked - simply matches nothing, the same answer as an empty folder, and says nothing
+    /// about it; a scope, by contrast, names the container the whole request is about, so it
+    /// answers the item read's own 404 or 423 for it.
+    /// </remarks>
     public const string Inside = "$inside";
 
-    /// <summary>The day the item was created, as a UTC calendar day.</summary>
+    /// <summary>The day the item was created, in the caller's zone.</summary>
     public const string Created = "$created";
 
-    /// <summary>The day the item was last modified, as a UTC calendar day.</summary>
+    /// <summary>The day the item was last modified, in the caller's zone.</summary>
     public const string Modified = "$modified";
 
     /// <summary>

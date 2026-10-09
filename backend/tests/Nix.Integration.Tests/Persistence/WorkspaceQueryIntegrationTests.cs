@@ -110,10 +110,11 @@ public sealed class WorkspaceQueryIntegrationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Numeric_comparisons_read_numbers_and_number_text_and_skip_words_without_failing()
+    public async Task Numeric_comparisons_read_json_numbers_only_and_skip_text_without_failing()
     {
-        // TaskA stores 5, TaskB the text "7", TaskC the word "lots", Loose 2.5.
-        Assert.Equal(Set(TaskA, TaskB), await Ids(Rule("points", "greater-than", "3")));
+        // TaskA stores 5, TaskB the text "7", TaskC the word "lots", Loose 2.5. Text is not a
+        // number, however it looks - the rollups' rule.
+        Assert.Equal(Set(TaskA), await Ids(Rule("points", "greater-than", "3")));
         Assert.Equal(Set(Loose), await Ids(Rule("points", "less-than", "3")));
         Assert.Empty(await Ids(Rule("points", "greater-than", "1e300")));
     }
@@ -176,8 +177,9 @@ public sealed class WorkspaceQueryIntegrationTests : IAsyncLifetime
             new FilterRule("points", "greater-than", "6"),
         ]);
 
-        Assert.Equal(Set(TaskA, TaskB, TaskC), await Ids([group]));
+        Assert.Equal(Set(TaskA, TaskC), await Ids([group]));
         Assert.Equal(Set(TaskA, TaskC), await Ids([group, Rule("$done", "not-equals", "true")]));
+        Assert.Equal(Set(TaskA, TaskB, TaskC), await Ids([FilterRule.Group([new FilterRule("status", "equals", "Doing"), new FilterRule("status", "equals", "Todo")])]));
     }
 
     [Fact]
@@ -266,29 +268,69 @@ public sealed class WorkspaceQueryIntegrationTests : IAsyncLifetime
         var folded = result.Value.Results;
         Assert.Equal(
             [
-                new QueryAggregateGroup("Todo", 7m, 1, 0),
+                new QueryAggregateGroup("Todo", null, 1, 1),
                 new QueryAggregateGroup("Doing", 5m, 2, 1),
                 new QueryAggregateGroup(null, 2.5m, 4, 0),
             ],
             folded.Groups);
-        Assert.Equal(14.5m, folded.Total);
+        Assert.Equal(7.5m, folded.Total);
         Assert.Equal(7, folded.Count);
-        Assert.Equal(1, folded.Skipped);
+        Assert.Equal(2, folded.Skipped);
         Assert.Equal(3, folded.GroupCount);
         Assert.False(folded.Truncated);
     }
 
     [Theory]
-    [InlineData("avg", "4.833333")]
+    [InlineData("avg", "3.75")]
     [InlineData("min", "2.5")]
-    [InlineData("max", "7")]
+    [InlineData("max", "5")]
     public async Task Ungrouped_folds_cover_every_readable_number(string function, string expected)
     {
         var result = await Aggregate(Input([]), function, "points");
 
         Assert.Equal(decimal.Parse(expected, CultureInfo.InvariantCulture), result.Value.Results.Total);
         Assert.Empty(result.Value.Results.Groups);
-        Assert.Equal(1, result.Value.Results.Skipped);
+        Assert.Equal(2, result.Value.Results.Skipped);
+    }
+
+    [Fact]
+    public async Task Strings_that_postgres_would_refuse_to_cast_are_skipped_and_never_fail_the_statement()
+    {
+        // Data review B1: "5" with an ideographic space, and "1e5 ", once passed a text pattern
+        // that the numeric cast then refused with 22P02, failing every query over the key.
+        await ExecuteAsMigratorAsync(
+            $$"""
+             UPDATE item SET properties = properties || '{"points": "5\u3000"}'::jsonb WHERE id = {{Literal(Work)}};
+             UPDATE item SET properties = properties || '{"points": "1e5 "}'::jsonb WHERE id = {{Literal(Sub)}};
+             """);
+
+        Assert.Equal(Set(TaskA), await Ids(Rule("points", "greater-than", "3")));
+
+        var folded = await Aggregate(Input([]), "sum", "points");
+        Assert.True(folded.IsSuccess, folded.IsFailure ? folded.Error.Message : null);
+        Assert.Equal(7.5m, folded.Value.Results.Total);
+        Assert.Equal(4, folded.Value.Results.Skipped);
+    }
+
+    [Fact]
+    public async Task A_value_past_the_per_value_bound_is_skipped_and_the_total_stays_readable()
+    {
+        // The total's own 1e28 cap needs more rows than a test corpus holds; the shape test pins
+        // that it is in the statement. Here: two values at the per-value cap still total exactly,
+        // and one past it is left out and counted rather than overflowing the reader.
+        await ExecuteAsMigratorAsync(
+            $$"""
+             UPDATE item SET properties = properties || '{"points": 999999999999999}'::jsonb WHERE id IN ({{Literal(Work)}}, {{Literal(Sub)}});
+             UPDATE item SET properties = properties || '{"points": 1e16}'::jsonb WHERE id = {{Literal(TaskB)}};
+             """);
+
+        var folded = await Aggregate(Input([]), "sum", "points");
+
+        Assert.True(folded.IsSuccess, folded.IsFailure ? folded.Error.Message : null);
+        Assert.Equal(1999999999999998m + 7.5m, folded.Value.Results.Total);
+
+        // 1e16 is past the per-value bound: left out, and counted.
+        Assert.Equal(2, folded.Value.Results.Skipped);
     }
 
     [Fact]
@@ -453,6 +495,15 @@ public sealed class WorkspaceQueryIntegrationTests : IAsyncLifetime
              WHERE id = {{Literal(Seed)}};
             """;
 
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, sql);
+        }
+    }
+
+    private async Task ExecuteAsMigratorAsync(string sql)
+    {
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
         {

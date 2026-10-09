@@ -66,8 +66,85 @@ public sealed class ItemQueryReader : IItemQuery
             + "behalf of a specific principal in a specific tenant; there is no anonymous path."))
         .TenantId;
 
+    /// <summary>
+    /// The longest one query statement may run. A query is a read a person or an assistant waits
+    /// on, and one that has not answered by now will not be read when it does.
+    /// </summary>
+    public const string StatementTimeout = "5s";
+
+    /// <summary>The savepoint each query runs inside, so a failed statement leaves the request usable.</summary>
+    private const string Savepoint = "nix_item_query";
+
     /// <inheritdoc />
-    public async ValueTask<QueryResults> RunAsync(
+    public ValueTask<QueryResults> RunAsync(
+        QuerySpec spec,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        int limit,
+        CancellationToken cancellationToken) =>
+        GuardedAsync(() => RunCoreAsync(spec, readableWorkspaces, limit, cancellationToken), cancellationToken);
+
+    /// <inheritdoc />
+    public ValueTask<QueryAggregateResults> AggregateAsync(
+        QuerySpec spec,
+        QueryAggregate aggregate,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        int maximumGroups,
+        CancellationToken cancellationToken) =>
+        GuardedAsync(() => AggregateCoreAsync(spec, aggregate, readableWorkspaces, maximumGroups, cancellationToken), cancellationToken);
+
+    /// <summary>
+    /// Runs one query inside a savepoint with its own statement timeout, and turns any database
+    /// refusal into an <see cref="ItemQueryFailedException"/> the handlers map to a stable code.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>The timeout is <c>set_config(..., is_local)</c> - <c>SET LOCAL</c> - inside a savepoint</b>,
+    /// so it is undone on failure by the rollback to the savepoint, and on success set back to
+    /// what the request had, so no later statement in the request inherits it.
+    /// </para>
+    /// <para>
+    /// <b>No database error reaches the caller as a 500.</b> A statement that fails here has failed
+    /// on data or time, never on the caller's grammar (which the handler checked); the savepoint
+    /// keeps the request's transaction usable, and the caller gets a code it can show. A
+    /// cancellation the client asked for stays a cancellation.
+    /// </para>
+    /// </remarks>
+    private async ValueTask<T> GuardedAsync<T>(Func<ValueTask<T>> run, CancellationToken cancellationToken)
+    {
+        await _sql.ExecuteAsync($"SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
+        var previous = await _sql.ScalarOrDefaultAsync<string>(
+            "SELECT current_setting('statement_timeout')",
+            cancellationToken: cancellationToken).ConfigureAwait(false) ?? "0";
+        await SetTimeoutAsync(StatementTimeout, cancellationToken).ConfigureAwait(false);
+
+        T result;
+        try
+        {
+            result = await run().ConfigureAwait(false);
+        }
+        catch (PostgresException failure) when (!cancellationToken.IsCancellationRequested)
+        {
+            await _sql.ExecuteAsync($"ROLLBACK TO SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            throw new ItemQueryFailedException(
+                timedOut: failure.SqlState == PostgresErrorCodes.QueryCanceled,
+                failure.SqlState,
+                failure);
+        }
+
+        await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
+        await SetTimeoutAsync(previous, cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary><c>SET LOCAL statement_timeout</c>, parameterised.</summary>
+    private async ValueTask SetTimeoutAsync(string value, CancellationToken cancellationToken) =>
+        await _sql.ExecuteAsync(
+            "SELECT set_config('statement_timeout', @timeout, true)",
+            [new NpgsqlParameter("timeout", NpgsqlDbType.Text) { Value = value }],
+            cancellationToken).ConfigureAwait(false);
+
+    private async ValueTask<QueryResults> RunCoreAsync(
         QuerySpec spec,
         IReadOnlyList<WorkspaceId> readableWorkspaces,
         int limit,
@@ -131,8 +208,7 @@ public sealed class ItemQueryReader : IItemQuery
         return new QueryResults(items, truncated) { Groups = groups };
     }
 
-    /// <inheritdoc />
-    public async ValueTask<QueryAggregateResults> AggregateAsync(
+    private async ValueTask<QueryAggregateResults> AggregateCoreAsync(
         QuerySpec spec,
         QueryAggregate aggregate,
         IReadOnlyList<WorkspaceId> readableWorkspaces,
