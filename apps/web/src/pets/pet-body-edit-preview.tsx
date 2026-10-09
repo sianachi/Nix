@@ -18,7 +18,8 @@ const COPY = {
 
 /** One side of the comparison: a label in words, and the full text in a focusable plain-text
  * scroll region whose changed runs are marked as removed or added in text as well as style. The
- * region scrolls to its first change when it appears, so a long section opens on the edit. */
+ * region scrolls to just above its first change when it appears, so a long section opens on the
+ * edit with a little context. */
 function TextSide({
   label,
   name,
@@ -34,7 +35,11 @@ function TextSide({
   useEffect(() => {
     const region = box.current;
     const first = region?.querySelector('[data-change]');
-    if (region && first instanceof HTMLElement) region.scrollTop = first.offsetTop;
+    if (!region || !(first instanceof HTMLElement)) return;
+    // Two lines of context above the first change, so it does not open flush against the top.
+    const lineHeight = Number.parseFloat(getComputedStyle(first).lineHeight);
+    const context = 2 * (Number.isFinite(lineHeight) ? lineHeight : 20);
+    region.scrollTop = Math.max(0, first.offsetTop - context);
   }, []);
   return (
     <div className="flex min-w-0 flex-col gap-1">

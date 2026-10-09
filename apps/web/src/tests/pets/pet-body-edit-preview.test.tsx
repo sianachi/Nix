@@ -34,7 +34,7 @@ describe('PetBodyEditPreview', () => {
     });
     // Plain text, never rendered Markdown: the model chose the new side.
     expect(now).toHaveTextContent('## Budget removed: Total is **400**.');
-    expect(after).toHaveTextContent('## Budget added: Total is **450**. - Venue - Food');
+    expect(after).toHaveTextContent('## Budget added: Total is **450**. added: - Venue - Food');
     expect(within(now).queryByRole('heading')).not.toBeInTheDocument();
     expect(screen.getByText('Text now')).toBeVisible();
     expect(screen.queryByText(/lines\)/)).not.toBeInTheDocument();
@@ -49,8 +49,10 @@ describe('PetBodyEditPreview', () => {
     const removed = container.querySelectorAll('del');
     const added = container.querySelectorAll('ins');
     expect(Array.from(removed, (node) => node.textContent)).toEqual(['removed: Total is **400**.']);
+    // The blank line between the paragraph and the list is never marked.
     expect(Array.from(added, (node) => node.textContent)).toEqual([
-      'added: Total is **450**.\n\n- Venue\n- Food',
+      'added: Total is **450**.\n',
+      'added: - Venue\n- Food',
     ]);
   });
 
@@ -73,7 +75,8 @@ describe('PetBodyEditPreview', () => {
     });
     try {
       render(<PetBodyEditPreview edit={section} />);
-      expect(screen.getByRole('region', { name: /^Text now/ }).scrollTop).toBe(120);
+      // Two lines of context (jsdom has no line height, so 20px each) above the change.
+      expect(screen.getByRole('region', { name: /^Text now/ }).scrollTop).toBe(80);
     } finally {
       if (offsetTop) Object.defineProperty(HTMLElement.prototype, 'offsetTop', offsetTop);
     }
