@@ -13,7 +13,8 @@ using NpgsqlTypes;
 namespace Nix.Persistence.Query;
 
 /// <summary>
-/// Runs a saved query in one statement, filtered by what the caller may see while it runs.
+/// Runs a query - saved or ad hoc, rows or an aggregate - in one statement, filtered by what the
+/// caller may see while it runs.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -67,15 +68,12 @@ public sealed class ItemQueryReader : IItemQuery
 
     /// <inheritdoc />
     public async ValueTask<QueryResults> RunAsync(
-        ItemId queryItemId,
-        ImmutableArray<FilterRule> rules,
-        QueryOrder order,
-        DateOnly today,
+        QuerySpec spec,
         IReadOnlyList<WorkspaceId> readableWorkspaces,
         int limit,
         CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(order);
+        ArgumentNullException.ThrowIfNull(spec);
         ArgumentNullException.ThrowIfNull(readableWorkspaces);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
 
@@ -86,20 +84,8 @@ public sealed class ItemQueryReader : IItemQuery
             return QueryResults.Empty;
         }
 
-        var identifiers = new Guid[readableWorkspaces.Count];
-        for (var index = 0; index < readableWorkspaces.Count; index++)
-        {
-            identifiers[index] = readableWorkspaces[index].Value;
-        }
-
-        var compiled = QuerySql.Compile(rules, order, today);
-
-        var parameters = new List<NpgsqlParameter>(compiled.Parameters.Count + 6);
-        parameters.AddRange(compiled.Parameters);
-        parameters.Add(new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = Tenant.Value });
-        parameters.Add(new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers });
-        parameters.Add(new NpgsqlParameter("query_item_id", NpgsqlDbType.Uuid) { Value = queryItemId.Value });
-        parameters.Add(await LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken).ConfigureAwait(false));
+        var compiled = QuerySql.Compile(spec);
+        var parameters = await FixedParametersAsync(compiled, spec, readableWorkspaces, cancellationToken).ConfigureAwait(false);
 
         // One more than the ceiling: the extra row is the truncation flag, and is never returned.
         parameters.Add(new NpgsqlParameter("limit", NpgsqlDbType.Integer) { Value = limit + 1 });
@@ -111,6 +97,7 @@ public sealed class ItemQueryReader : IItemQuery
             cancellationToken);
 
         var items = new List<QueryResultItem>();
+        var groups = new List<QueryGroup>();
         var truncated = false;
 
         await foreach (var row in rows.WithCancellation(cancellationToken).ConfigureAwait(false))
@@ -128,10 +115,97 @@ public sealed class ItemQueryReader : IItemQuery
                 row.ContainerTitle,
                 row.Title,
                 row.Type,
-                row.Properties));
+                row.Properties)
+            {
+                Group = row.GroupKey,
+            });
+
+            // Rows arrive grouped, so a new group is always a change from the previous row's.
+            if (spec.Grouping is not null
+                && (groups.Count == 0 || !string.Equals(groups[^1].Key, row.GroupKey, StringComparison.Ordinal)))
+            {
+                groups.Add(new QueryGroup(row.GroupKey, row.GroupRows));
+            }
         }
 
-        return new QueryResults(items, truncated);
+        return new QueryResults(items, truncated) { Groups = groups };
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<QueryAggregateResults> AggregateAsync(
+        QuerySpec spec,
+        QueryAggregate aggregate,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        int maximumGroups,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(spec);
+        ArgumentNullException.ThrowIfNull(aggregate);
+        ArgumentNullException.ThrowIfNull(readableWorkspaces);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumGroups);
+
+        if (readableWorkspaces.Count == 0)
+        {
+            return QueryAggregateResults.Empty;
+        }
+
+        var compiled = QuerySql.CompileAggregate(spec, aggregate);
+        var parameters = await FixedParametersAsync(compiled, spec, readableWorkspaces, cancellationToken).ConfigureAwait(false);
+        parameters.Add(new NpgsqlParameter("group_limit", NpgsqlDbType.Integer) { Value = maximumGroups });
+
+        var rows = _sql.QueryAsync<AggregateRow, AggregateRowMapper>(
+            compiled.Sql,
+            default,
+            [.. parameters],
+            cancellationToken);
+
+        var groups = new List<QueryAggregateGroup>();
+        AggregateRow? totals = null;
+
+        await foreach (var row in rows.WithCancellation(cancellationToken).ConfigureAwait(false))
+        {
+            totals ??= row;
+            if (spec.Grouping is not null && row.GroupRows is { } groupRows)
+            {
+                groups.Add(new QueryAggregateGroup(row.GroupKey, row.GroupValue, groupRows, row.GroupSkipped ?? 0));
+            }
+        }
+
+        return totals is { } total
+            ? new QueryAggregateResults(groups, total.Value, total.Rows, total.Skipped, total.GroupCount)
+            : QueryAggregateResults.Empty;
+    }
+
+    /// <summary>The parameters every compiled query binds besides its own rule parameters.</summary>
+    private async ValueTask<List<NpgsqlParameter>> FixedParametersAsync(
+        CompiledQuery compiled,
+        QuerySpec spec,
+        IReadOnlyList<WorkspaceId> readableWorkspaces,
+        CancellationToken cancellationToken)
+    {
+        var identifiers = new Guid[readableWorkspaces.Count];
+        for (var index = 0; index < readableWorkspaces.Count; index++)
+        {
+            identifiers[index] = readableWorkspaces[index].Value;
+        }
+
+        var parameters = new List<NpgsqlParameter>(compiled.Parameters.Count + 7);
+        parameters.AddRange(compiled.Parameters);
+        parameters.Add(new NpgsqlParameter("tenant_id", NpgsqlDbType.Uuid) { Value = Tenant.Value });
+        parameters.Add(new NpgsqlParameter("workspace_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = identifiers });
+
+        if (spec.ExcludedItemId is { } excluded)
+        {
+            parameters.Add(new NpgsqlParameter("query_item_id", NpgsqlDbType.Uuid) { Value = excluded.Value });
+        }
+
+        if (spec.Scope is { } scope)
+        {
+            parameters.Add(new NpgsqlParameter("scope_parent_id", NpgsqlDbType.Uuid) { Value = scope.ParentId.Value });
+        }
+
+        parameters.Add(await LockFilterParameters.ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken).ConfigureAwait(false));
+        return parameters;
     }
 
     /// <summary>One row of the compiled statement.</summary>
@@ -143,7 +217,9 @@ public sealed class ItemQueryReader : IItemQuery
         string? ContainerTitle,
         string? Title,
         string Type,
-        string? Properties);
+        string? Properties,
+        string? GroupKey,
+        long GroupRows);
 
     /// <summary>Reads the statement's columns, left to right for sequential access.</summary>
     private readonly struct QueryRowMapper : INixRowMapper<QueryRow>
@@ -161,7 +237,43 @@ public sealed class ItemQueryReader : IItemQuery
             var type = reader.GetString(5);
             var properties = reader.IsDBNull(6) ? null : reader.GetString(6);
 
-            return new QueryRow(id, workspaceId, parentId, containerTitle, title, type, properties);
+            // Column 7 is last_modified_at, which orders the recency read and is not carried.
+            var groupKey = reader.IsDBNull(8) ? null : reader.GetString(8);
+            var groupRows = reader.GetInt64(9);
+
+            return new QueryRow(id, workspaceId, parentId, containerTitle, title, type, properties, groupKey, groupRows);
+        }
+    }
+
+    /// <summary>One row of the aggregate statement: the totals, and one group or none.</summary>
+    private readonly record struct AggregateRow(
+        long Rows,
+        decimal? Value,
+        long Skipped,
+        long GroupCount,
+        string? GroupKey,
+        long? GroupRows,
+        decimal? GroupValue,
+        long? GroupSkipped);
+
+    /// <summary>Reads the aggregate statement's columns, left to right.</summary>
+    private readonly struct AggregateRowMapper : INixRowMapper<AggregateRow>
+    {
+        /// <inheritdoc />
+        public AggregateRow Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+
+            var rows = reader.GetInt64(0);
+            decimal? value = reader.IsDBNull(1) ? null : reader.GetDecimal(1);
+            var skipped = reader.GetInt64(2);
+            var groupCount = reader.GetInt64(3);
+            var groupKey = reader.IsDBNull(4) ? null : reader.GetString(4);
+            long? groupRows = reader.IsDBNull(5) ? null : reader.GetInt64(5);
+            decimal? groupValue = reader.IsDBNull(6) ? null : reader.GetDecimal(6);
+            long? groupSkipped = reader.IsDBNull(7) ? null : reader.GetInt64(7);
+
+            return new AggregateRow(rows, value, skipped, groupCount, groupKey, groupRows, groupValue, groupSkipped);
         }
     }
 }

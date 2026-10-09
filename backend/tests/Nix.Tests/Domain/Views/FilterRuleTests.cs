@@ -151,11 +151,61 @@ public sealed class FilterRuleTests
     }
 
     [Fact]
-    public void A_query_compiles_only_the_operators_it_had_before_container_views_widened_the_set()
+    public void A_query_compiles_every_operator_the_grammar_defines()
     {
-        Assert.Equal(
-            ["equals", "not-equals", "on", "before", "on-or-after", "within-next"],
-            QueryOperators.CompiledByQuery);
-        Assert.All(QueryOperators.CompiledByQuery, op => Assert.Contains(op, QueryOperators.All));
+        Assert.Equal(QueryOperators.All, QueryOperators.CompiledByQuery);
+        Assert.Contains(QueryOperators.WithinLast, QueryOperators.All);
     }
+
+    [Theory]
+    [InlineData("today", "2026-08-13")]
+    [InlineData("start-of-week", "2026-08-10")]
+    [InlineData("start-of-month", "2026-08-01")]
+    [InlineData("same-day-last-week", "2026-08-06")]
+    [InlineData("same-day-last-month", "2026-07-13")]
+    [InlineData("2026-01-02", "2026-01-02")]
+    public void Day_tokens_resolve_from_the_callers_today(string token, string expected)
+    {
+        // 2026-08-13 is a Thursday; weeks start on Monday, as the calendar draws them.
+        var today = new DateOnly(2026, 8, 13);
+
+        Assert.Equal(DateOnly.Parse(expected, System.Globalization.CultureInfo.InvariantCulture), QueryOperators.ResolveDay(token, today));
+        Assert.Null(QueryOperators.Refuse(new FilterRule("due", QueryOperators.Before, token)));
+    }
+
+    [Fact]
+    public void Start_of_week_on_a_monday_is_that_monday_and_on_a_sunday_the_monday_before()
+    {
+        Assert.Equal(new DateOnly(2026, 8, 10), QueryOperators.ResolveDay(QueryOperators.StartOfWeek, new DateOnly(2026, 8, 10)));
+        Assert.Equal(new DateOnly(2026, 8, 10), QueryOperators.ResolveDay(QueryOperators.StartOfWeek, new DateOnly(2026, 8, 16)));
+    }
+
+    [Fact]
+    public void Same_day_last_month_clamps_to_the_shorter_month()
+    {
+        Assert.Equal(new DateOnly(2026, 2, 28), QueryOperators.ResolveDay(QueryOperators.SameDayLastMonth, new DateOnly(2026, 3, 31)));
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("366")]
+    [InlineData("-1")]
+    [InlineData("week")]
+    public void Within_last_reads_the_same_day_count_within_next_does(string value) =>
+        Assert.NotNull(QueryOperators.Refuse(new FilterRule("due", QueryOperators.WithinLast, value)));
+
+    [Theory]
+    [InlineData("$type", "equals", "task", true)]
+    [InlineData("$type", "contains", "task", false)]
+    [InlineData("$inside", "equals", "7b7b7000-1111-4111-8111-7b7b70000001", true)]
+    [InlineData("$inside", "equals", "not-an-id", false)]
+    [InlineData("$created", "within-last", "7", true)]
+    [InlineData("$modified", "on", "start-of-week", true)]
+    [InlineData("$created", "equals", "2026-01-01", false)]
+    [InlineData("$done", "equals", "true", true)]
+    [InlineData("$done", "equals", "yes", false)]
+    [InlineData("$tag", "equals", "urgent", false)]
+    [InlineData("$anything", "equals", "x", false)]
+    public void Structural_fields_take_only_their_own_operators_and_values(string field, string @operator, string value, bool storable) =>
+        Assert.Equal(storable, QueryOperators.Refuse(new FilterRule(field, @operator, value)) is null);
 }

@@ -27,6 +27,12 @@ namespace Nix.Integration.Tests.Persistence;
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class ItemQueryPlanEvidenceTests : IAsyncLifetime
 {
+    /// <summary>
+    /// The saved-query exclusion, present so the measured statement is the smart list's own; the
+    /// test binds <c>@query_item_id</c> itself, so the id only selects the predicate.
+    /// </summary>
+    private static readonly Nix.Domain.Items.ItemId SmartListPlaceholder = Nix.Domain.Items.ItemId.From(Guid.Empty);
+
     private const int CorpusSize = 3200;
 
     private readonly NixPostgresFixture _fixture;
@@ -51,12 +57,16 @@ public sealed class ItemQueryPlanEvidenceTests : IAsyncLifetime
     public async Task The_overdue_query_over_three_thousand_items_runs_and_its_plan_is_recorded()
     {
         var compiled = QuerySql.Compile(
-            [
+            new QuerySpec(
+                [
                 new FilterRule("due", "before", "today"),
                 new FilterRule("done", "not-equals", "true"),
             ],
-            new QueryOrder("due", IsDay: true, Descending: false),
-            new DateOnly(2026, 8, 15));
+                new QueryOrder("due", IsDay: true, Descending: false),
+                new DateOnly(2026, 8, 15))
+            {
+                ExcludedItemId = SmartListPlaceholder,
+            });
 
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))

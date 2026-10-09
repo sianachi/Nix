@@ -100,8 +100,10 @@ public sealed class ViewArrangementTests
     }
 
     [Fact]
-    public void A_container_view_may_use_the_wider_operators_and_a_query_view_may_not_yet()
+    public void Every_operator_is_storable_on_both_a_container_view_and_a_query_view()
     {
+        // Since the queries plan (1.2) the statement compiles every operator, so the set a query
+        // view may store is the set a container view may.
         var rule = new FilterRule("title", QueryOperators.Contains, "plan");
 
         Assert.Null(ViewDefinitionRules.Refuse([List() with { Filters = [rule] }], null));
@@ -110,7 +112,45 @@ public sealed class ViewArrangementTests
         {
             Filters = [rule],
         };
-        Assert.NotNull(ViewDefinitionRules.Refuse([query], null));
+        Assert.Null(ViewDefinitionRules.Refuse([query], null));
+    }
+
+    [Fact]
+    public void A_structural_field_is_storable_on_a_query_view_only()
+    {
+        var rule = new FilterRule(QueryFields.Type, QueryOperators.EqualTo, "task");
+        var query = new ViewDefinition("q", "Tasks", ViewKind.Query, [], null, [], null, null, false)
+        {
+            Filters = [rule],
+        };
+
+        Assert.Null(ViewDefinitionRules.Refuse([query], null));
+        Assert.Contains("only a query", ViewDefinitionRules.Refuse([List() with { Filters = [rule] }], null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void An_any_of_group_is_storable_and_its_rules_count_toward_the_ceiling()
+    {
+        var group = FilterRule.Group(
+        [
+            new FilterRule("status", QueryOperators.EqualTo, "Doing"),
+            new FilterRule("status", QueryOperators.EqualTo, "Blocked"),
+        ]);
+        var plain = Enumerable.Range(0, 6).Select(index => new FilterRule($"k{index}", QueryOperators.IsNotEmpty, string.Empty));
+
+        Assert.Null(ViewDefinitionRules.Refuse([List() with { Filters = [group, .. plain] }], null));
+
+        var over = Enumerable.Range(0, 7).Select(index => new FilterRule($"k{index}", QueryOperators.IsNotEmpty, string.Empty));
+        Assert.Contains("at most 8", ViewDefinitionRules.Refuse([List() with { Filters = [group, .. over] }], null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Groups_do_not_nest()
+    {
+        var inner = FilterRule.Group([new FilterRule("status", QueryOperators.EqualTo, "Doing")]);
+        var outer = FilterRule.Group([inner]);
+
+        Assert.Contains("do not nest", ViewDefinitionRules.Refuse([List() with { Filters = [outer] }], null), StringComparison.Ordinal);
     }
 
     [Fact]

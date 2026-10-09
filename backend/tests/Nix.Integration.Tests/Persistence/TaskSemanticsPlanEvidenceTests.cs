@@ -33,6 +33,12 @@ namespace Nix.Integration.Tests.Persistence;
 [Collection(PostgresCollectionDefinition.Name)]
 public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
 {
+    /// <summary>
+    /// The saved-query exclusion, present so the measured statement is the smart list's own; the
+    /// test binds <c>@query_item_id</c> itself, so the id only selects the predicate.
+    /// </summary>
+    private static readonly Nix.Domain.Items.ItemId SmartListPlaceholder = Nix.Domain.Items.ItemId.From(Guid.Empty);
+
     private const int AlphaChildren = 49_950;
     private const int Containers = 50;
     private const int BetaItems = 5_000;
@@ -63,12 +69,16 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
     public async Task The_overdue_query_is_served_by_ix_item_due_day_with_no_seq_scan_and_no_sort()
     {
         var compiled = QuerySql.Compile(
-            [
+            new QuerySpec(
+                [
                 new FilterRule("due_date", "before", "today"),
                 new FilterRule("completion", "not-equals", "true"),
             ],
-            new QueryOrder("due_date", IsDay: true, Descending: false),
-            QueryDay);
+                new QueryOrder("due_date", IsDay: true, Descending: false),
+                QueryDay)
+            {
+                ExcludedItemId = SmartListPlaceholder,
+            });
 
         var plan = await ExplainAsRuntimeRoleAsync(compiled.Sql, compiled.Parameters);
         _output.WriteLine("Overdue, {0} readable rows, runtime role:", AlphaChildren + Containers);
@@ -100,9 +110,13 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
     public async Task The_next_seven_days_query_carries_both_day_bounds_in_the_index_condition()
     {
         var compiled = QuerySql.Compile(
-            [new FilterRule("due_date", "within-next", "7")],
-            new QueryOrder("due_date", IsDay: true, Descending: false),
-            QueryDay);
+            new QuerySpec(
+                [new FilterRule("due_date", "within-next", "7")],
+                new QueryOrder("due_date", IsDay: true, Descending: false),
+                QueryDay)
+            {
+                ExcludedItemId = SmartListPlaceholder,
+            });
 
         var plan = await ExplainAsRuntimeRoleAsync(compiled.Sql, compiled.Parameters);
         _output.WriteLine("Next 7 days, runtime role:");
@@ -135,9 +149,13 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
     public async Task With_every_container_locked_the_saved_query_reads_the_closed_subtrees_once()
     {
         var compiled = QuerySql.Compile(
-            [new FilterRule("due_date", "within-next", "7")],
-            new QueryOrder("due_date", IsDay: true, Descending: false),
-            QueryDay);
+            new QuerySpec(
+                [new FilterRule("due_date", "within-next", "7")],
+                new QueryOrder("due_date", IsDay: true, Descending: false),
+                QueryDay)
+            {
+                ExcludedItemId = SmartListPlaceholder,
+            });
         var closed = new List<Guid>(await ContainerIdsAsync());
         for (var index = 0; index < 2000; index++)
         {

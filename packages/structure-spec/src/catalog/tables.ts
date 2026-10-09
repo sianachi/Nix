@@ -150,14 +150,28 @@ export interface QueryOperatorRule {
   readonly grammar: string;
 }
 
-/** The six operators a query view's filters may use, and the value each one reads. */
+/** The day tokens a day operator accepts, spelled once for the grammar sentences below. */
+const DAY_GRAMMAR =
+  '"today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date';
+
+/** The operators a query view's filters may use, and the value each one reads. */
 export const QUERY_OPERATORS = [
   { op: 'equals', grammar: 'a literal value, or "me" for the calling principal' },
   { op: 'not-equals', grammar: 'a literal value, or "me" for the calling principal' },
-  { op: 'on', grammar: '"today" or a yyyy-MM-dd date' },
-  { op: 'before', grammar: '"today" or a yyyy-MM-dd date' },
-  { op: 'on-or-after', grammar: '"today" or a yyyy-MM-dd date' },
+  { op: 'on', grammar: DAY_GRAMMAR },
+  { op: 'before', grammar: DAY_GRAMMAR },
+  { op: 'on-or-after', grammar: DAY_GRAMMAR },
   { op: 'within-next', grammar: 'a whole number of days' },
+  { op: 'within-last', grammar: 'a whole number of days' },
+  { op: 'contains', grammar: 'text to find, ignoring case; or one multi-select option exactly' },
+  {
+    op: 'not-contains',
+    grammar: 'text to find, ignoring case; or one multi-select option exactly',
+  },
+  { op: 'greater-than', grammar: 'a number' },
+  { op: 'less-than', grammar: 'a number' },
+  { op: 'is-empty', grammar: 'no value (empty string)' },
+  { op: 'is-not-empty', grammar: 'no value (empty string)' },
 ] as const satisfies readonly QueryOperatorRule[];
 
 export interface FormRules {

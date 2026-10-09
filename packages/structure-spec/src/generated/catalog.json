@@ -389,19 +389,47 @@
     },
     {
       "op": "on",
-      "grammar": "\"today\" or a yyyy-MM-dd date"
+      "grammar": "\"today\", \"start-of-week\", \"start-of-month\", \"same-day-last-week\", \"same-day-last-month\" or a yyyy-MM-dd date"
     },
     {
       "op": "before",
-      "grammar": "\"today\" or a yyyy-MM-dd date"
+      "grammar": "\"today\", \"start-of-week\", \"start-of-month\", \"same-day-last-week\", \"same-day-last-month\" or a yyyy-MM-dd date"
     },
     {
       "op": "on-or-after",
-      "grammar": "\"today\" or a yyyy-MM-dd date"
+      "grammar": "\"today\", \"start-of-week\", \"start-of-month\", \"same-day-last-week\", \"same-day-last-month\" or a yyyy-MM-dd date"
     },
     {
       "op": "within-next",
       "grammar": "a whole number of days"
+    },
+    {
+      "op": "within-last",
+      "grammar": "a whole number of days"
+    },
+    {
+      "op": "contains",
+      "grammar": "text to find, ignoring case; or one multi-select option exactly"
+    },
+    {
+      "op": "not-contains",
+      "grammar": "text to find, ignoring case; or one multi-select option exactly"
+    },
+    {
+      "op": "greater-than",
+      "grammar": "a number"
+    },
+    {
+      "op": "less-than",
+      "grammar": "a number"
+    },
+    {
+      "op": "is-empty",
+      "grammar": "no value (empty string)"
+    },
+    {
+      "op": "is-not-empty",
+      "grammar": "no value (empty string)"
     }
   ],
   "formRules": {

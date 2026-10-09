@@ -16,8 +16,13 @@ public sealed class QueryStatementTests
 {
     private static readonly DateOnly Today = new(2026, 8, 15);
 
-    private static CompiledQuery Compile(params FilterRule[] rules) =>
-        QuerySql.Compile([.. rules], QueryOrder.Recency, Today);
+    private static readonly Nix.Domain.Items.ItemId SmartList =
+        Nix.Domain.Items.ItemId.From(new Guid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"));
+
+    private static CompiledQuery Compile(params FilterRule[] rules) => Compile(QueryOrder.Recency, rules);
+
+    private static CompiledQuery Compile(QueryOrder order, params FilterRule[] rules) =>
+        QuerySql.Compile(new QuerySpec([.. rules], order, Today) { ExcludedItemId = SmartList });
 
     [Fact]
     public void The_statement_filters_by_the_workspaces_the_caller_may_read()
@@ -79,10 +84,9 @@ public sealed class QueryStatementTests
     {
         // The ascending index key IS the order the starters want; ordering through the bag would
         // put a sort node back on top of an index-served scan.
-        var compiled = QuerySql.Compile(
-            [new FilterRule("due_date", "within-next", "7")],
+        var compiled = Compile(
             new QueryOrder("due_date", IsDay: true, Descending: false),
-            Today);
+            new FilterRule("due_date", "within-next", "7"));
 
         Assert.Contains("ORDER BY item.due_day ASC NULLS LAST", compiled.Sql, StringComparison.Ordinal);
         Assert.Contains("item.due_day BETWEEN", compiled.Sql, StringComparison.Ordinal);
@@ -160,17 +164,17 @@ public sealed class QueryStatementTests
     {
         Assert.Contains(
             "ORDER BY item.last_modified_at DESC, item.id",
-            QuerySql.Compile([], QueryOrder.Recency, Today).Sql,
+            Compile(QueryOrder.Recency).Sql,
             StringComparison.Ordinal);
 
         Assert.Contains(
             "ORDER BY left(item.properties ->> @order_key, 10) ASC NULLS LAST, item.id",
-            QuerySql.Compile([], new QueryOrder("due", IsDay: true, Descending: false), Today).Sql,
+            Compile(new QueryOrder("due", IsDay: true, Descending: false)).Sql,
             StringComparison.Ordinal);
 
         Assert.Contains(
             "ORDER BY item.properties ->> @order_key DESC NULLS LAST, item.id",
-            QuerySql.Compile([], new QueryOrder("status", IsDay: false, Descending: true), Today).Sql,
+            Compile(new QueryOrder("status", IsDay: false, Descending: true)).Sql,
             StringComparison.Ordinal);
     }
 
@@ -180,7 +184,7 @@ public sealed class QueryStatementTests
         // The handler re-validates before compiling, so an unknown operator reaching here throws
         // rather than being guessed at.
         Assert.Throws<InvalidOperationException>(() =>
-            Compile(new FilterRule("due", "contains", "x")));
+            Compile(new FilterRule("due", "sometime-around", "x")));
     }
 
     [Fact]
@@ -214,15 +218,22 @@ public sealed class QueryStatementTests
             new FilterRule("k", "before", "today"),
             new FilterRule("k", "on-or-after", "today"),
             new FilterRule("k", "within-next", "7"),
-            // The new token, exercised on both an equality operator (its real grammar) and a day
-            // operator (meaningless, refused upstream by QueryOperators.Refuse - but this compiler
-            // never re-checks that, so it must stay just as inert here as any other string).
-            new FilterRule("k", "equals", QueryOperators.Me),
-            new FilterRule("k", "before", QueryOperators.Me));
+            new FilterRule("k", "within-last", "7"),
+            new FilterRule("k", "contains", "v"),
+            new FilterRule("k", "not-contains", "v"),
+            new FilterRule("k", "greater-than", "3"),
+            new FilterRule("k", "less-than", "3"),
+            new FilterRule("k", "is-empty", string.Empty),
+            new FilterRule("k", "is-not-empty", string.Empty),
+            // The "me" token on an equality operator, its real grammar: just as inert here as any
+            // other string, because the handler resolves it before the compiler ever sees it.
+            new FilterRule("k", "equals", QueryOperators.Me));
 
         for (var round = 0; round < 200; round++)
         {
-            var key = Hostile(1 + random.Next(24));
+            // Prefixed so a key never starts with the reserved "$", which selects a structural
+            // field by exact name rather than travelling as a parameter (QueryFields).
+            var key = "k" + Hostile(random.Next(24));
             var value = Hostile(1 + random.Next(48));
 
             var compiled = Compile(
@@ -232,8 +243,14 @@ public sealed class QueryStatementTests
                 new FilterRule(key, "before", "today"),
                 new FilterRule(key, "on-or-after", "today"),
                 new FilterRule(key, "within-next", "7"),
-                new FilterRule(key, "equals", QueryOperators.Me),
-                new FilterRule(key, "before", QueryOperators.Me));
+                new FilterRule(key, "within-last", "7"),
+                new FilterRule(key, "contains", value),
+                new FilterRule(key, "not-contains", value),
+                new FilterRule(key, "greater-than", "3"),
+                new FilterRule(key, "less-than", "3"),
+                new FilterRule(key, "is-empty", string.Empty),
+                new FilterRule(key, "is-not-empty", string.Empty),
+                new FilterRule(key, "equals", QueryOperators.Me));
 
             Assert.Equal(tame.Sql, compiled.Sql);
             Assert.Equal(key, compiled.Parameters[0].Value);
@@ -241,8 +258,9 @@ public sealed class QueryStatementTests
         }
 
         // The token's own literal text is never embedded as SQL either - only ever a parameter
-        // value, exactly like the hostile strings above.
-        Assert.DoesNotContain(QueryOperators.Me, tame.Sql, StringComparison.Ordinal);
+        // value, exactly like the hostile strings above. Matched as a quoted literal, since the two
+        // letters occur inside fixed words such as "numeric".
+        Assert.DoesNotContain($"'{QueryOperators.Me}'", tame.Sql, StringComparison.Ordinal);
 #pragma warning restore CA5394
     }
 

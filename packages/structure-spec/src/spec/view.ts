@@ -9,9 +9,26 @@ export const queryOperatorSchema = z.enum([
   'before',
   'on-or-after',
   'within-next',
+  'within-last',
+  'contains',
+  'not-contains',
+  'greater-than',
+  'less-than',
+  'is-empty',
+  'is-not-empty',
 ]);
 export type QueryOperator = z.infer<typeof queryOperatorSchema>;
 
+/**
+ * One condition. `field` is a field reference, or one of the structural fields `$type`,
+ * `$inside`, `$created`, `$modified`, `$done` a query view may test - passed through unresolved,
+ * since they are facts about the item rather than properties.
+ *
+ * Plain conditions only: a stored view may also hold one level of "any of" groups (Core's
+ * `QueryRules`, `StructureFilterGroup` here), but the group shape would push the pet's largest
+ * tool schemas past the Codex 4800-byte budget (`catalog/tools.test.ts`), so the pet proposes
+ * ANDed conditions and a person adds groups in the editor.
+ */
 const viewFilterSpecSchema = z
   .object({
     field: z.string().min(1),

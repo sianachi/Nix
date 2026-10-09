@@ -351,6 +351,18 @@ public sealed class TemplateDefinitionValidator
 
             foreach (var filter in view.Filters)
             {
+                // A template's views are checked against its own schema, and neither an "any of"
+                // group nor a structural query field is a property that schema can declare.
+                if (filter.IsGroup)
+                {
+                    return $"View '{view.Name}' uses an \"any of\" filter group, which a template cannot store.";
+                }
+
+                if (QueryFields.IsReserved(filter.Property))
+                {
+                    return $"View '{view.Name}' filters by '{filter.Property}', a query field a template cannot store.";
+                }
+
                 var isTitle = string.Equals(filter.Property, "title", StringComparison.Ordinal);
                 var property = schema.Find(filter.Property);
                 if (property is null && !isTitle)

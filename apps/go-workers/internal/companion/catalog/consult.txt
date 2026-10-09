@@ -44,10 +44,17 @@ Section: Never
 Section: Query operators
 - equals: a literal value, or "me" for the calling principal
 - not-equals: a literal value, or "me" for the calling principal
-- on: "today" or a yyyy-MM-dd date
-- before: "today" or a yyyy-MM-dd date
-- on-or-after: "today" or a yyyy-MM-dd date
+- on: "today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date
+- before: "today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date
+- on-or-after: "today", "start-of-week", "start-of-month", "same-day-last-week", "same-day-last-month" or a yyyy-MM-dd date
 - within-next: a whole number of days
+- within-last: a whole number of days
+- contains: text to find, ignoring case; or one multi-select option exactly
+- not-contains: text to find, ignoring case; or one multi-select option exactly
+- greater-than: a number
+- less-than: a number
+- is-empty: no value (empty string)
+- is-not-empty: no value (empty string)
 
 Section: Smart lists
 today: Today - Everything due today, wherever it lives.
