@@ -1,10 +1,18 @@
-# --- Documentation stays out of version control (commit only on explicit request, via git add -f) ---
+# --- Markdown stays out of version control (commit only on explicit request, via git add -f) ---
 *.md
 # No trailing slash: these must also match the symlinks that parallel-lane
 # worktrees use to reach the (untracked) standards and docs in the main
 # checkout. A trailing slash matches directories only, leaving the symlink
 # itself showing as untracked in every lane.
 docs
+# Native documentation is the repository's reviewable source; Markdown stays local.
+!/docs/
+/docs/*
+!/docs/nix/
+/docs/nix/*
+!/docs/nix/nix-architecture.nix
+!/docs/nix/nix-reference.nix
+!/docs/nix/catalog.json
 Design language for Nix review/
 
 # Per-checkout list of paths scripts/new-goal-worktree.sh links into a lane.

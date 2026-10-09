@@ -10,8 +10,9 @@ files, and do not invent tenant context or permissions.
 Use streaming with bounded archive/XML/JSON inputs. RabbitMQ delivers at-least-once job notifications; Core owns durable jobs, leases and the outbox.
 Job handling is lease-based,
 cancel-aware and idempotent: crashes must recover without duplicate durable
-mutations. Index writes are idempotent derived upserts/deletes and remain fully
-rebuildable. `/healthz` is liveness; `/readyz` proves each role's dependencies.
+mutations. The current roles are import, export, plugin-events, calendar and notify;
+the speech and OpenSearch index roles are retired. Derived search and link state
+remain rebuildable. `/healthz` is liveness; `/readyz` proves each role's dependencies.
 
 Run `gofmt`, `go vet ./...`, `go test ./...`, `go test -race ./...`, and build the
 unified executable for worker changes.

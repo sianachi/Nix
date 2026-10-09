@@ -2,7 +2,8 @@
 
 Status, 5 September 2026: this helper is included in the repository. This document does
 not establish that a backup schedule is installed or a remote backup/restore has succeeded.
-See [repository recovery scope](../../docs/operations.md).
+Read repository recovery scope with
+`go -C apps/go-workers run ./cmd/nix-docs read docs/operations.md` from the repository root.
 
 Production (the Compose host) uses `deploy/compose/backup.sh`, `offsite.sh` and `nightly.sh`
 instead; see [production.md](production.md) for the full guide. `backup-r2.py` remains the

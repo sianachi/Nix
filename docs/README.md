@@ -1,50 +1,50 @@
-# Documentation
+# Nix documentation
 
-Reviewed against `main` on 8 October 2026. Implementation statements are source-backed; this
-documentation refresh did not rerun application, device, security or disaster-recovery tests.
+Detailed documentation is native Nix content. Import the archives into a workspace to read and edit
+notes, follow internal links and view their Mermaid architecture diagrams.
 
-- [Product, features and quick start](../README.md)
-- [Product direction: Nix as a life-OS](plans/life-os-direction.md)
-- [Local setup and sign-in](dev-signing-in.md)
-- [Operations and recovery](operations.md) and the [production release runbook](../deploy/README.md)
-- [Contributor routing](../AGENTS.md) and [validation](agent-guides/workflow-and-validation.md)
-- [Personal workspaces and identity](adr/0045-personal-workspaces-and-opt-in-jit.md)
-- [Current worker architecture](adr/0048-rabbitmq-and-unified-go-workers.md)
-- [Earlier worker decision](adr/0046-go-workers-and-opensearch.md), superseded for topology
-- [File and import decision](adr/0047-lightweight-file-bodies-and-document-import.md)
-- Later decisions, 0049 to 0059, under `adr/`: GitHub-triggered deploys (proposed, not
-  implemented), companion structure tools, scheduler and automations, two-way calendar sync, the
-  installed app shell, container view arrangement, locks, model-free suggestions, item
-  protections and the speech role. Each ADR's Status section states what is built and which
-  approvals are still owed; several are implemented ahead of their recorded acceptance.
-- [Mobile view work and recorded validation](plans/mobile-view-quality.md)
+- [Architecture handbook](nix/nix-architecture.nix): 38 service, workflow and operational pages,
+  including every declared production Compose service and all five Go roles. Browse All guides, the Service
+  catalog, By area, Workflows and Operations.
+- [Repository reference](nix/nix-reference.nix): 59 original documents as readable native notes with
+  exact original-source child notes. Browse by category, decisions and their recorded status, plans,
+  and runbooks. Each record has an Original source view. ADR status and historical dates remain unchanged.
+- [Catalog and verification](nix/catalog.json): IDs, hashes, retained-file reasons and import/export proof.
 
-`HANDOFF.md`, `todo.md`, `worklist.md` and old session logs are historical records. Their old
-checkboxes, test counts and continuation instructions are not current task state. The imported
-design-review documents are historical references, not current architecture or setup instructions.
-Use README, accepted ADRs, current code and the actual worktree together.
+The current architecture is inspected against `main` at `e037eb02` on 9 October 2026. The reference
+archive preserves the earlier snapshot and original ADR statuses. Speech, OpenSearch indexing and
+the bundled logging stack appear only as retired design records; current search uses PostgreSQL.
+The Go worker still implements native, Markdown, DOCX and PDF export.
 
-Most Markdown under `docs/` is ignored by git (`.gitignore` lists `*.md` and `docs`); only the
-files force-added by the owner are tracked. Check `git ls-files docs` before assuming a document
-is published.
+```sh
+nixctl import docs/nix/nix-architecture.nix --workspace <workspace-id>
+nixctl import docs/nix/nix-reference.nix --workspace <workspace-id>
+```
 
-## Known deviations from accepted design
+For the offline TUI, plain reading and source recovery:
 
-- Uploads are inspected before publication by the Go worker's `fileinspect` handler (import role):
-  byte cap, expiry and size checks, SHA-256, media type from magic bytes, declared-type
-  consistency, previews and thumbnails. Code comments still call this the "temporary opaque
-  publish path", an upload stays in `pending_upload` with no separate inspecting state, and files
-  are not malware-scanned. Whether this satisfies ADR-0047 and ADR-0048 is an owner decision that
-  has not been recorded.
-- ADR-0053, ADR-0058 and ADR-0059 are implemented on `main` while their status lines still read
-  Proposed; their [SEC] approvals are not recorded.
-- ADR-0051 is partial: the `create_from_template` action is refused by Core, `property_changed`
-  fires on update only, and quiet hours and muting do not apply to automations.
-- ADR-0052 is partial: recurring Nix items are not pushed as series and providers are polled
-  rather than subscribed.
-- ADR-0054 is partial: grouping is single-select only.
+```sh
+go -C apps/go-workers run ./cmd/nix-docs
+go -C apps/go-workers run ./cmd/nix-docs list
+go -C apps/go-workers run ./cmd/nix-docs read core-api
+go -C apps/go-workers run ./cmd/nix-docs read docs/adr/0048-rabbitmq-and-unified-go-workers.md
+go -C apps/go-workers run ./cmd/nix-docs source docs/plans/life-os-direction.md
+go -C apps/go-workers run ./cmd/nix-docs check
+```
 
-## Release scope
+The default command opens the Go TUI with a page tree, document pane, full-text search, keyboard
+navigation and internal links. Its key hints show the controls. Mermaid diagrams appear as source
+in the terminal and render in Nix. No sign-in is needed for offline reading.
 
-Deployment and runtime verification remain separate from source availability. Existing validation
-records retain their original scope; they are not new verification results.
+The source command emits exact UTF-8 bytes, including original line endings. Original Markdown paths
+in comments identify native reference notes; they no longer imply a loose Markdown file exists.
+
+[AGENTS.md](../AGENTS.md), its five focused [contributor guides](agent-guides/), the root bootstrap
+[README](../README.md) and offline [release](../deploy/README.md)/[backup](../deploy/backup/production.md)
+procedures remain plaintext because tools and recovery must work before Nix is available.
+Third-party dependency docs, local runtime/plugin caches and imported design-review source material
+are outside this migration. The native reference also preserves the original essential files.
+
+The architecture describes inspected source, including implemented-versus-proposed differences.
+Import/export evidence is local. Production deployment, optional provider/device services and disaster
+recovery are separate verification scopes.

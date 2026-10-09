@@ -14,7 +14,7 @@ HTTPS capabilities through the public origin. Never send bearer tokens to object
 
 Versity v1.7.0 owns `nix-versity-data`. MinIO and the old Node Media service are retired.
 Do not delete their retained rollback volumes or restart them as part of a normal release.
-Postgres, RabbitMQ, OpenSearch, data-protection keys and Caddy also use named persistent volumes.
+Postgres, RabbitMQ, data-protection keys, companion state and Caddy also use named persistent volumes.
 Never use `docker compose down -v`, `volume prune`, or `--remove-orphans` during deployment.
 
 The last verified deployment uses `/home/nvidia/nix-release-14e0a39d/deploy/compose.host.yml`
@@ -88,37 +88,40 @@ expired or unrecognised. No production profile is checked in. The default smoke 
 `deploy/compose/nixctl.sh`; `NIXCTL_BIN` can select an installed executable. It must act through
 Core, never query application tables directly.
 
-### Optional speech role
+### Current roles and retired services
 
-The speech worker (ADR-0059: meeting transcription, spoken voices and dictation) is behind the
-`speech` Compose profile and is off by default. To deploy it, fill the models volume once with
-`deploy/compose/speech-models.sh` (verify later with `--check`; it downloads only what
-`deploy/speech/models.sha256` lists and checks every digest), set `NIX_RABBITMQ_SPEECH_PASSWORD`
-and `COMPOSE_PROFILES=speech` in the secrets file, and release as usual. The default image,
-`speech-worker-l4t`, is built for an NVIDIA Jetson on JetPack 6 and needs the NVIDIA container
-runtime; a host without a GPU sets `NIX_SPEECH_IMAGE=speech-worker`, `NIX_SPEECH_RUNTIME=runc`,
-`NIX_SPEECH_WHISPER_GPU=false` and a small model, as the env example shows. `deploy.sh` refuses
-the release before stopping anything when the profile is on and the broker password is missing,
-and starts the speech worker only after the release is verified, so a speech worker that does not
-come up is reported rather than failing a verified release.
+The current manifest has five Go roles: import, export, plugin-events, calendar and notify.
+The import instance also hosts the optional companion HTTP runtime. Native, Markdown, DOCX
+and PDF export remain implemented in Go; only the unused TypeScript converters were removed.
+Core searches PostgreSQL directly; OpenSearch and its indexing role are retired.
+
+Speech, browser recording, transcription APIs, dictation and voice UI are retired. There is no
+speech profile, model installer, GPU requirement or speech image in the current release. The
+`20261009200000_RetireSpeechJobs` migration cancels queued/running transcription jobs and marks
+pending transcription commands processed without dropping recordings, file versions or
+historical transcript rows. Its Down method does not resume cancelled work.
+
+`deploy.sh` stops old `nix-speech-worker`, `nix-indexer`, `nix-opensearch`, `grafana`, `alloy`,
+`loki` and `docker-socket-proxy` containers by Compose project/service labels after preflight.
+It preserves their volumes. Do not restart them or remove their retained data during a normal
+release. Current diagnostics use application/Docker logs, CLI operation state and Collab metrics;
+there is no central Grafana/Loki/Alloy stack or replacement alert backend in this manifest.
 
 ## Build and release
 
 Release images are built by CI, not on the host. On every push to `main` (and on manual
-dispatch) the CI images workflow (`.github/workflows/ci-images.yml`) publishes `api`, `migrator`,
-`collab`, `worker`, `web`, `release-tools` and `speech-worker` for linux/amd64 and linux/arm64,
-plus `speech-worker-l4t` for arm64 only, to `ghcr.io/sianachi/nix/<image>:<full commit SHA>`.
+dispatch) the CI images workflow (`.github/workflows/ci-images.yml`) publishes six images:
+`api`, `migrator`, `collab`, `worker`, `web` and `release-tools`, for linux/amd64 and linux/arm64,
+to `ghcr.io/sianachi/nix/<image>:<full commit SHA>`. Speech variants are no longer built.
 Every `main` SHA ends up with every image, but not every image is rebuilt: a `plan` job diffs
 the push range against each image's source paths and retags the previous SHA's manifest for
 images whose inputs did not change. Everything is rebuilt on manual dispatch, on a first or
 force push, when `.dockerignore` or the workflow itself changes, or when the previous image is
 missing. The packages are public, so the host needs no registry login. Wait for that workflow
-to succeed for the commit before deploying it. The `speech-worker-l4t` job can fail or be skipped
-without failing the workflow; `release.sh` resolves every image the Compose manifest needs,
-profiles included, and refuses the release up front if any is unpublished, so a speech-profile
-host cannot deploy a commit without that image. The host still needs the matching checkout for
-the Compose manifest and release scripts, but no `pnpm install`; the smoke tools come from the
-`release-tools` image.
+to succeed for the commit before deploying it. `release.sh` resolves every application image
+the current Compose manifest needs and refuses the release up front if any is unpublished.
+The host needs the matching checkout for its manifest/scripts but no `pnpm install`; smoke
+tools come from the `release-tools` image.
 
 A release is one command, `deploy/compose/release.sh <full-40-char-sha>`, run on the host from a
 checkout of that SHA. Secrets and release details stay apart: the secrets file is never edited
@@ -284,7 +287,9 @@ application writers, brings up infrastructure and the bucket, runs Core/template
 migrations, then starts compatible services before the frontend. RabbitMQ mounts its configuration
 from the release checkout, so each release recreates it; writers are stopped first so that restart
 cannot interrupt a delivery (queues are durable and messages persistent). The drift preview names
-that restart and refuses only a recreate of Postgres, Versity or OpenSearch. Expect a maintenance window. It deliberately
+that restart and refuses only a recreate of Postgres or Versity. Before current writer stop,
+it stops retained containers for retired services without deleting their volumes. Expect a
+maintenance window. It deliberately
 does not seed users, delete volumes, force an automatic schema rollback or restart unrelated stacks.
 Any failure exits nonzero. Migration failures leave writers stopped for inspection. Once startup
 has begun, a later failure may leave some services running; inspect state before resuming.
@@ -356,8 +361,9 @@ Compose recreates any service whose effective configuration differs from its run
 including configuration once supplied by an old checkout or override. Before the first `up`, the
 release runs `deploy/compose/drift.sh`, which warns when the running project's
 `com.docker.compose.project.config_files` label names other files, lists the services Compose
-will recreate or create, and exits 3 if `postgres`, `nix-versitygw` or `nix-opensearch` would be
-recreated. Nothing has changed at that point. Compare the effective configuration with the running
+will recreate or create, and exits 3 if `postgres` or `nix-versitygw` would be recreated. It also lists retained
+services absent from the current manifest; `deploy.sh` stops the explicitly retired services
+without deleting their volumes. Nothing has changed at that point. Compare the effective configuration with the running
 containers; set `NIX_ALLOW_INFRA_RECREATE=1` only once the restart is understood and backed up.
 Run the preview on its own with the release's Compose command:
 

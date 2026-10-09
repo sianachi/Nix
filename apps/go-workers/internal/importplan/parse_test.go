@@ -118,10 +118,17 @@ func TestNixImportPreservesTreeEnvelopesAndBodies(t *testing.T) {
 	root := "11111111-1111-4111-8111-111111111111"
 	child := "22222222-2222-4222-8222-222222222222"
 	workspace := "33333333-3333-4333-8333-333333333333"
+	definitions := []any{map[string]any{
+		"key": "area", "label": "Area", "type": "select", "options": []string{"Core", "Workers"}, "required": false,
+	}}
+	views := map[string]any{"default": "catalog", "views": []any{
+		map[string]any{"id": "catalog", "name": "Catalog", "kind": "list", "columns": []string{"title", "area"}, "sortBy": "title"},
+		map[string]any{"id": "areas", "name": "By area", "kind": "board", "groupBy": "area", "groupOrder": []string{"Core", "Workers"}},
+	}}
 	manifest := map[string]any{
 		"format": "nix-archive", "formatVersion": 1, "schemaVersion": 3,
 		"exportedAt": "2026-09-01T12:00:00Z", "root": root, "rootEffectiveSchema": map[string]any{
-			"properties": []any{}, "declared": []any{}, "inherit": true,
+			"properties": definitions, "declared": definitions, "inherit": true,
 		}, "includesDeleted": true,
 		"items": []any{
 			map[string]any{"id": root, "parentId": nil, "seq": "1024", "title": "Root", "type": "note"},
@@ -141,8 +148,13 @@ func TestNixImportPreservesTreeEnvelopesAndBodies(t *testing.T) {
 		}
 	}
 	manifestBytes, _ := json.Marshal(manifest)
-	rootBytes, _ := json.Marshal(bundle(root, nil, "Root", "active"))
-	childBytes, _ := json.Marshal(bundle(child, &root, "Child", "deleted"))
+	rootBundle := bundle(root, nil, "Root", "active")
+	rootBundle["views"] = views
+	childBundle := bundle(child, &root, "Child", "deleted")
+	childProperties := map[string]any{"title": "Child", "area": "Core", "source_path": "backend/src/Nix.Api/Program.cs"}
+	childBundle["properties"] = childProperties
+	rootBytes, _ := json.Marshal(rootBundle)
+	childBytes, _ := json.Marshal(childBundle)
 	source := zipSource(t, "workspace.nix", "nix", []zipFixture{
 		{"manifest.json", manifestBytes},
 		{"items/" + root + ".json", rootBytes},
@@ -162,6 +174,23 @@ func TestNixImportPreservesTreeEnvelopesAndBodies(t *testing.T) {
 	}
 	if !strings.Contains(string(plan.Items[0].Schema), `"inherit":false`) {
 		t.Fatalf("root schema = %s", plan.Items[0].Schema)
+	}
+	var importedSchema struct {
+		Properties []struct {
+			Key     string   `json:"key"`
+			Type    string   `json:"type"`
+			Options []string `json:"options"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(plan.Items[0].Schema, &importedSchema); err != nil || len(importedSchema.Properties) != 1 ||
+		importedSchema.Properties[0].Key != "area" || importedSchema.Properties[0].Type != "select" ||
+		len(importedSchema.Properties[0].Options) != 2 || importedSchema.Properties[0].Options[0] != "Core" || importedSchema.Properties[0].Options[1] != "Workers" {
+		t.Fatalf("root effective schema was not redeclared: %s", plan.Items[0].Schema)
+	}
+	expectedViews, _ := json.Marshal(views)
+	expectedProperties, _ := json.Marshal(childProperties)
+	if string(plan.Items[0].Views) != string(expectedViews) || string(plan.Items[1].Properties) != string(expectedProperties) {
+		t.Fatalf("authored views or child properties changed: views=%s properties=%s", plan.Items[0].Views, plan.Items[1].Properties)
 	}
 }
 
