@@ -94,6 +94,8 @@ import { claimZenSurface, toggleZenMode, useZenActive } from '../lib/zen-mode';
 import { formatTime } from '../lib/date-format';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
+import { useRememberSmartList } from '../views/query/known-smart-lists';
+import { useOptionalWorkspace } from '../workspaces/workspace-context';
 import { ViewSwitcher } from '../views/core/view-switcher';
 import { useTemplateLibrary } from '../templates/template-library-context';
 
@@ -511,6 +513,9 @@ export function OpenItem({
   );
 
   const container = useContainer(itemId, createChild);
+  // An item whose default view is a query is a smart list, which the rail's Queries section lists.
+  const workspace = useOptionalWorkspace();
+  useRememberSmartList(workspace?.workspaceId ?? null, itemId, title, container.views);
   const { viewId, selectView } = useViewState();
   // Remembered the way the tree's own collapse is, and for the same reason: somebody who closed it
   // wanted the width back, and finding it open again would make the control feel like it had not
