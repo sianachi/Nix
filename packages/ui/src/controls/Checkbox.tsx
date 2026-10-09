@@ -91,6 +91,9 @@ export function Checkbox(props: CheckboxProps): ReactNode {
         label === undefined && className,
       )}
     >
+      {/* The input fills the whole hit area, so a tap anywhere on it toggles the box even with no
+          label around it; it draws nothing itself. The visible box is the span after it, which
+          mirrors the input's state through `peer-*` rather than a class kept in sync by hand. */}
       <input
         id={inputId}
         type="checkbox"
@@ -100,18 +103,24 @@ export function Checkbox(props: CheckboxProps): ReactNode {
           assignRef(ref, node);
         }}
         className={cn(
-          'peer size-4 shrink-0 cursor-default appearance-none rounded-sm border border-divider bg-background',
-          'checked:border-accent-fill checked:bg-accent-fill',
-          'indeterminate:border-accent-fill indeterminate:bg-accent-fill',
-          'transition-colors',
+          'peer absolute inset-0 m-0 size-full cursor-default appearance-none rounded-sm',
           focusRing,
           disabledState,
         )}
         {...rest}
       />
-      {/* Decorative: the mark the box draws once checked or indeterminate, not a second control.
-          `peer-checked`/`peer-indeterminate` mirror the input's own state rather than a class this
-          component would otherwise have to keep in sync by hand. */}
+      {/* The box. Its unchecked edge is the muted role, not the divider: a control's boundary has
+          to clear 3:1 against the ground (WCAG 1.4.11), which the divider does not. */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none size-4 shrink-0 rounded-sm border border-muted bg-background transition-colors',
+          'peer-checked:border-accent-fill peer-checked:bg-accent-fill',
+          'peer-indeterminate:border-accent-fill peer-indeterminate:bg-accent-fill',
+          'peer-disabled:opacity-45',
+        )}
+      />
+      {/* Decorative: the mark the box draws once checked or indeterminate, not a second control. */}
       <Icon
         icon={Check}
         size="sm"
