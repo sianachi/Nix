@@ -4,12 +4,12 @@ import {
   itemChart as coreItemChart,
   type ItemChart,
 } from '@nix/api-client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
 
 /**
- * One chart view's buckets, refreshed on demand.
+ * One chart view's buckets, refreshed on demand and whenever its configuration changes.
  *
  * Uses the configured API client so authentication, cancellation, caching, error mapping, and
  * response parsing stay on the same path as the other server-owned views.
@@ -18,7 +18,14 @@ import { useApiClient } from '../../api/api-client-provider';
  * configuration, exactly as it is for a smart list, and the buckets are computed over every child
  * rather than over the page the container happens to have loaded - which is what a chart tallied in
  * the browser could not honestly claim.
+ *
+ * **A saved change redraws.** The caller passes a fingerprint of the view's stored configuration;
+ * when it changes - somebody saved a new type, period or split - the chart is read again past the
+ * cache, so the drawing never stays on the configuration it was opened with.
  */
+
+/** Why a failed read failed, and whether trying again could help. */
+export type ChartFailure = 'configuration' | 'locked' | 'missing' | 'unavailable';
 
 /**
  * Why a failed read failed, in words a reader can act on.
@@ -26,26 +33,41 @@ import { useApiClient } from '../../api/api-client-provider';
  * Keyed on the problem's `code` rather than on the status alone: a bodyless 404 is this build
  * asking a server that does not offer the endpoint, not a refusal.
  */
-function refusal(reason: unknown): string {
+function refusal(reason: unknown): { readonly kind: ChartFailure; readonly message: string } {
   const code = isNixApiError(reason) ? reason.code : null;
 
   if (code === 'items.not_found') {
-    return 'This item could not be found.';
+    return { kind: 'missing', message: 'This item could not be found.' };
+  }
+
+  if (code === 'items.locked') {
+    return { kind: 'locked', message: 'This item is locked. Unlock it to see its chart.' };
   }
 
   if (code === 'chart.view_not_found') {
-    return 'This item has no chart view to draw. Configure one under Views.';
+    return {
+      kind: 'configuration',
+      message: 'This item has no chart view to draw. Add one in the settings for this view.',
+    };
   }
 
   if (code === 'chart.not_configured') {
-    return 'This chart is not finished: it needs a property to group by, and a property to total if it totals one. Edit it under Views.';
+    return {
+      kind: 'configuration',
+      message:
+        'This chart is not finished: it needs a property to group by, and a property to total if it totals one. Finish it in the settings for this view.',
+    };
   }
 
   if (isNixApiError(reason) && reason.status === 404) {
-    return 'This version of the application asked for a chart the server does not offer. The server may be running an older build.';
+    return {
+      kind: 'unavailable',
+      message:
+        'This version of the application asked for a chart the server does not offer. The server may be running an older build.',
+    };
   }
 
-  return 'The chart could not be loaded.';
+  return { kind: 'unavailable', message: 'The chart could not be loaded.' };
 }
 
 export type ChartStatus = 'loading' | 'ready' | 'error';
@@ -56,36 +78,55 @@ export interface ChartState {
   /** The payload, or null while loading and after a failure. Never a half-built stand-in. */
   readonly chart: ItemChart | null;
   readonly error: string | null;
+  /** What kind of failure, so the view offers a retry only where one could help. */
+  readonly failure: ChartFailure | null;
   readonly reload: () => Promise<void>;
 }
 
-export function useChart(itemId: string, viewId: string): ChartState {
+export function useChart(itemId: string, viewId: string, fingerprint = ''): ChartState {
   const client = useApiClient();
 
   const [status, setStatus] = useState<ChartStatus>('loading');
   const [chart, setChart] = useState<ItemChart | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ChartFailure | null>(null);
+  const loadedFingerprint = useRef<string | null>(null);
 
-  const load = useCallback(async (): Promise<void> => {
-    setStatus('loading');
-    setError(null);
+  const load = useCallback(
+    async (forceRefresh = true): Promise<void> => {
+      setStatus('loading');
+      setError(null);
+      setFailure(null);
 
-    try {
-      const loaded = await client.query(coreItemChart.itemChart(itemId, viewId));
-      setChart(loaded);
-      setStatus('ready');
-    } catch (reason) {
-      if (isCanceledError(reason)) return;
-      setError(isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.');
-      setStatus('error');
-    }
-  }, [client, itemId, viewId]);
+      try {
+        const loaded = await client.query(coreItemChart.itemChart(itemId, viewId), {
+          forceRefresh,
+        });
+        setChart(loaded);
+        setStatus('ready');
+      } catch (reason) {
+        if (isCanceledError(reason)) return;
+        const why = isNixApiError(reason)
+          ? refusal(reason)
+          : { kind: 'unavailable' as const, message: 'Core could not be reached.' };
+        setError(why.message);
+        setFailure(why.kind);
+        setStatus('error');
+      }
+    },
+    [client, itemId, viewId],
+  );
 
   useEffect(() => {
+    // The first read may come from the cache; a read after the configuration changed must not.
+    const changed = loadedFingerprint.current !== null && loadedFingerprint.current !== fingerprint;
+    loadedFingerprint.current = fingerprint;
     queueMicrotask(() => {
-      void load();
+      void load(changed);
     });
-  }, [load]);
+  }, [load, fingerprint]);
 
-  return { status, chart, error, reload: load };
+  const reload = useCallback(() => load(true), [load]);
+
+  return { status, chart, error, failure, reload };
 }

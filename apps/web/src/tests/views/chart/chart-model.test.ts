@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   bucketLabel,
+  chartLabels,
   chartKindOf,
   cumulative,
   plottedSeries,
@@ -40,9 +41,9 @@ describe('the chart model', () => {
     expect(rest).toEqual([]);
     expect(only?.label).toBe('Items');
     expect(only?.values.slice(0, 3)).toEqual([1, 2, 0]);
-    expect(plottedSeries(aTimeChart(), { cumulative: true })[0]?.values.slice(0, 3)).toEqual([
-      1, 3, 3,
-    ]);
+    expect(
+      plottedSeries(aTimeChart(), undefined, { cumulative: true })[0]?.values.slice(0, 3),
+    ).toEqual([1, 3, 3]);
   });
 
   it('plots each series from its cells, the unset one named as unset', () => {
@@ -55,11 +56,26 @@ describe('the chart model', () => {
     ]);
   });
 
-  it('tells twelve series apart by tone or pattern, and Other from all of them', () => {
-    const styles = Array.from({ length: 12 }, (_, index) => seriesStyle(index, false));
-    const signatures = new Set(styles.map((style) => `${style.fill}|${style.dash ?? ''}`));
+  it('tells six series apart by colour role, dash and hatch, and Other from all of them', () => {
+    const styles = Array.from({ length: 6 }, (_, index) => seriesStyle(index, false));
+    const other = seriesStyle(0, true);
 
-    expect(signatures.size).toBe(12);
-    expect(styles.map((style) => style.fill)).not.toContain(seriesStyle(0, true).fill);
+    expect(new Set(styles.map((style) => style.fill)).size).toBe(6);
+    expect(new Set(styles.map((style) => style.dash ?? 'solid')).size).toBe(6);
+    expect(new Set(styles.map((style) => style.hatch)).size).toBe(6);
+    expect(styles.map((style) => style.fill)).not.toContain(other.fill);
+    expect(styles.map((style) => style.hatch)).not.toContain(other.hatch);
+  });
+
+  it('names a checkbox value in words and an unknown key as itself', () => {
+    const labels = chartLabels([
+      { key: 'done', label: 'Done', type: 'checkbox', options: [], required: false },
+    ] as never);
+
+    expect(labels.property('done')).toBe('Done');
+    expect(labels.property('mystery')).toBe('mystery');
+    expect(labels.value('done', 'true')).toBe('Checked');
+    expect(labels.value('done', 'false')).toBe('Not checked');
+    expect(labels.value('done', null)).toMatch(/unset/i);
   });
 });

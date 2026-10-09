@@ -23,6 +23,7 @@ export const EMPTY_CHART_OPTIONS: ChartOptions = {
   to: null,
   cumulative: null,
   rollingAverage: null,
+  stacked: null,
 };
 
 /** The types that draw one series only, so a split would be computed and never shown. */
@@ -34,10 +35,16 @@ export function groupsByDate(view: View, fields: readonly PropertyDefinition[]):
   return grouping !== undefined && isDateShaped(grouping.type);
 }
 
-/** The chart types a view may offer given what it groups by. */
-export function offeredChartKinds(dated: boolean): ChartKind[] {
+/**
+ * The chart types a view may offer given what it groups by and the period it counts in.
+ *
+ * No pie of days: a slice per day of a year is a pie nobody can read, and the shares of a run of
+ * days are not a question anybody asks of one.
+ */
+export function offeredChartKinds(dated: boolean, period: string | null = null): ChartKind[] {
   return (['bar', 'column', 'pie', 'line', 'area', 'year'] as const).filter(
-    (kind) => dated || !TIME_AXIS_KINDS.has(kind),
+    (kind) =>
+      (dated || !TIME_AXIS_KINDS.has(kind)) && !(kind === 'pie' && dated && period === 'day'),
   );
 }
 
@@ -77,8 +84,15 @@ export function normalizeChartView(view: View, fields: readonly PropertyDefiniti
     };
   }
 
+  if (kind === 'pie' && next.period === 'day') {
+    next = { ...next, kind: null };
+    kind = null;
+  }
   if (kind !== null && UNSPLIT_KINDS.has(kind)) {
     next = { ...next, splitBy: null };
+  }
+  if ((kind !== 'column' && kind !== 'area') || next.splitBy === null) {
+    next = { ...next, stacked: null };
   }
   if (kind !== 'line' && kind !== 'area') {
     next = { ...next, cumulative: null, rollingAverage: null };

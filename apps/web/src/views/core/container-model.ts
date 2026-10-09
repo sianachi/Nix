@@ -185,6 +185,7 @@ export const ChartOptionsSchema = z.object({
   to: z.string().nullable().default(null),
   cumulative: z.boolean().nullable().default(null),
   rollingAverage: z.boolean().nullable().default(null),
+  stacked: z.boolean().nullable().default(null),
 });
 
 export type ChartOptions = z.infer<typeof ChartOptionsSchema>;

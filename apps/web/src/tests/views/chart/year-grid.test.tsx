@@ -1,15 +1,12 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { YearGrid, yearGridLevel, type YearGridCell } from '../../../views/chart/year-grid';
-
-function nth(list: readonly HTMLElement[], index: number): HTMLElement {
-  const element = list[index];
-  if (element === undefined) {
-    throw new Error(`No element ${String(index)}.`);
-  }
-  return element;
-}
+import {
+  YearGrid,
+  yearGridLevel,
+  yearGridMove,
+  type YearGridCell,
+} from '../../../views/chart/year-grid';
 
 function days(count: number, start = '2026-01-05'): YearGridCell[] {
   const first = Date.parse(`${start}T00:00:00Z`);
@@ -18,6 +15,14 @@ function days(count: number, start = '2026-01-05'): YearGridCell[] {
     const value = index % 4;
     return { date, value, label: `${date}: ${String(value)} times` };
   });
+}
+
+function nth(list: readonly HTMLElement[], index: number): HTMLElement {
+  const element = list[index];
+  if (element === undefined) {
+    throw new Error(`No element ${String(index)}.`);
+  }
+  return element;
 }
 
 describe('the year grid', () => {
@@ -32,50 +37,70 @@ describe('the year grid', () => {
     expect(yearGridLevel(5, 0)).toBe(0);
   });
 
-  it('names every day by its sentence and says the scale in numbers', () => {
+  it('is a grid of seven weekday rows when there is nothing to choose', () => {
     render(<YearGrid cells={days(14)} label="Runs" unit="times" />);
 
-    const grid = screen.getByRole('group', { name: 'Runs' });
-    expect(within(grid).getAllByRole('button')).toHaveLength(14);
-    expect(within(grid).getByRole('button', { name: '2026-01-06: 1 times' })).toBeVisible();
+    const grid = screen.getByRole('grid', { name: 'Runs' });
+    const rows = within(grid).getAllByRole('row');
+    expect(rows).toHaveLength(7);
+    expect(within(nth(rows, 0)).getByRole('rowheader', { name: 'Monday' })).toBeInTheDocument();
+    expect(within(grid).getByRole('gridcell', { name: '2026-01-06: 1 times' })).toBeVisible();
+    // Nothing in a grid to read is a button that does nothing.
+    expect(within(grid).queryAllByRole('button')).toHaveLength(0);
     expect(screen.getByText(/Four steps up to 3 times/)).toBeVisible();
   });
 
-  it('reads out the focused day and moves by day and by week with the arrow keys', () => {
+  it('keeps one tab stop, reads out the focused day, and moves by day and by week', () => {
     render(<YearGrid cells={days(30)} label="Runs" unit="times" />);
 
-    const grid = screen.getByRole('group', { name: 'Runs' });
-    const buttons = within(grid).getAllByRole('button');
+    const cells = within(screen.getByRole('grid', { name: 'Runs' }))
+      .getAllByRole('gridcell')
+      .filter((cell) => cell.getAttribute('aria-label') !== null);
+    const byDate = (date: string) =>
+      nth(
+        cells.filter((cell) => cell.getAttribute('aria-label')?.startsWith(date) === true),
+        0,
+      );
 
-    // One tab stop: the latest day, until somebody moves.
-    expect(buttons.filter((button) => button.tabIndex === 0)).toHaveLength(1);
-    expect(buttons.at(-1)?.tabIndex).toBe(0);
+    expect(cells.filter((cell) => cell.tabIndex === 0)).toHaveLength(1);
+    expect(byDate('2026-02-03').tabIndex).toBe(0);
 
-    fireEvent.focus(nth(buttons, 0));
+    fireEvent.focus(byDate('2026-01-05'));
     expect(screen.getByText('2026-01-05: 0 times')).toBeVisible();
 
-    fireEvent.keyDown(nth(buttons, 0), { key: 'ArrowRight' });
-    expect(buttons[7]).toHaveFocus();
+    fireEvent.keyDown(byDate('2026-01-05'), { key: 'ArrowRight' });
+    expect(byDate('2026-01-12')).toHaveFocus();
     expect(screen.getByText('2026-01-12: 3 times')).toBeVisible();
 
-    fireEvent.keyDown(nth(buttons, 7), { key: 'ArrowDown' });
-    expect(buttons[8]).toHaveFocus();
+    fireEvent.keyDown(byDate('2026-01-12'), { key: 'ArrowDown' });
+    expect(byDate('2026-01-13')).toHaveFocus();
+  });
 
-    fireEvent.keyDown(nth(buttons, 8), { key: 'End' });
-    expect(buttons.at(-1)).toHaveFocus();
+  it('moves left and right by week, stays put at an edge, and Home and End follow the row', () => {
+    // 30 days from a Monday: indexes 0-29, offset 0.
+    expect(yearGridMove('ArrowLeft', 3, 30, 0, false)).toBeNull();
+    expect(yearGridMove('ArrowRight', 27, 30, 0, false)).toBeNull();
+    expect(yearGridMove('ArrowRight', 3, 30, 0, false)).toBe(10);
+    expect(yearGridMove('ArrowUp', 7, 30, 0, false)).toBe(6);
+    expect(yearGridMove('Home', 24, 30, 0, false)).toBe(3);
+    expect(yearGridMove('End', 3, 30, 0, false)).toBe(24);
+    expect(yearGridMove('Home', 24, 30, 0, true)).toBe(0);
+    expect(yearGridMove('End', 3, 30, 0, true)).toBe(29);
+    // Starting on a Wednesday: Monday's row begins at the first Monday, index 5.
+    expect(yearGridMove('Home', 12, 30, 2, false)).toBe(5);
   });
 
   it('starts its first column on the right weekday', () => {
-    // 2026-01-07 is a Wednesday: two empty cells above it, Monday and Tuesday.
-    const { container } = render(
-      <YearGrid cells={days(3, '2026-01-07')} label="Runs" unit="times" />,
-    );
+    // 2026-01-07 is a Wednesday: Monday and Tuesday of that week are empty cells.
+    render(<YearGrid cells={days(3, '2026-01-07')} label="Runs" unit="times" />);
 
-    const grid = container.querySelector('[role="group"]');
-    expect(grid?.querySelectorAll('span[aria-hidden="true"]')).toHaveLength(2);
+    const rows = within(screen.getByRole('grid', { name: 'Runs' })).getAllByRole('row');
+    const monday = within(nth(rows, 0)).getAllByRole('gridcell');
+    expect(monday[0]).not.toHaveAttribute('aria-label');
+    expect(within(nth(rows, 2)).getByRole('gridcell', { name: /2026-01-07/ })).toBeVisible();
   });
 
-  it('reports a chosen day', () => {
+  it('makes each day a button only when a day can be chosen', () => {
     const onSelect = vi.fn();
     render(
       <YearGrid
@@ -87,6 +112,7 @@ describe('the year grid', () => {
       />,
     );
 
+    expect(screen.queryByRole('grid')).toBeNull();
     expect(screen.getByRole('button', { name: '2026-01-06: 1 times' })).toHaveAttribute(
       'aria-pressed',
       'true',

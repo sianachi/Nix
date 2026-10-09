@@ -1,13 +1,14 @@
 import type { ChartBucket, ChartSeries, ItemChart } from '@nix/api-client';
 
-import { UNSET_LABEL } from '../core/container-model';
+import { formatCalendarDay } from '../../lib/date-format';
+import { UNSET_LABEL, type PropertyDefinition } from '../core/container-model';
 
 /**
  * The pure arithmetic and vocabulary behind every chart type: what a bucket measures, what a period
- * is called, the derived lines, and how a series is told apart from its neighbours.
+ * or a value is called, the derived lines, and how a series is told apart from its neighbours.
  *
  * Nothing here draws. Each renderer reads it, so a column chart and the table under it can never
- * disagree about a figure.
+ * disagree about a figure or a name.
  */
 
 /** Every chart type this build draws. Core's `ChartKinds` is the authority on the words. */
@@ -41,6 +42,9 @@ export const CHART_PERIOD_LABELS: Record<ChartPeriod, string> = {
 /** The most periods a time axis draws (Core's `ChartOptions.MaximumPeriods`): one year grid of days. */
 export const MAXIMUM_CHART_PERIODS = 371;
 
+/** The most series drawn by name (Core's `ChartFolding.MaximumSeries`); the rest share Other. */
+export const MAXIMUM_SERIES = 6;
+
 /** How many periods the trailing average spans. */
 export const AVERAGE_SPAN = 7;
 
@@ -52,6 +56,44 @@ export function chartKindOf(value: string | null | undefined): ChartKind {
 export function isChartPeriod(value: string | null | undefined): value is ChartPeriod {
   return (CHART_PERIODS as readonly string[]).includes(value ?? '');
 }
+
+/** "1 item", "3 items". */
+export function countOf(count: number, noun: string, plural = `${noun}s`): string {
+  return `${String(count)} ${count === 1 ? noun : plural}`;
+}
+
+/**
+ * What a property and its stored values are called, from the container's own definitions.
+ *
+ * The chart endpoint speaks in property keys and raw stored values, which are what Core can group
+ * by; a person reads labels. A key no definition names is shown as itself rather than hidden.
+ */
+export interface ChartLabels {
+  /** A property's label, or the key itself when no definition names it. */
+  readonly property: (key: string | null) => string;
+  /** A stored value as a person reads it: a checkbox's "Checked", an absent value's "Unset". */
+  readonly value: (key: string | null, value: string | null) => string;
+}
+
+export function chartLabels(fields: readonly PropertyDefinition[]): ChartLabels {
+  const byKey = new Map(fields.map((field) => [field.key, field]));
+  return {
+    property: (key) => (key === null ? '' : (byKey.get(key)?.label ?? key)),
+    value: (key, value) => {
+      if (value === null) {
+        return UNSET_LABEL;
+      }
+      const type = key === null ? undefined : byKey.get(key)?.type;
+      if (type === 'checkbox' || type === 'completion') {
+        return value === 'true' ? 'Checked' : value === 'false' ? 'Not checked' : value;
+      }
+      return value;
+    },
+  };
+}
+
+/** Labels that know no definitions: keys and values as stored. */
+export const RAW_LABELS: ChartLabels = chartLabels([]);
 
 /**
  * What a bucket or cell is as large as.
@@ -75,13 +117,24 @@ export function formatMeasure(value: number | null): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
 }
 
-/** A period's start date as the person reads it, or a category's value. */
-export function bucketLabel(value: string | null, period: string | null): string {
+/** A stored day as a person reads it - "6 Oct 2025" in their locale - or the text itself. */
+export function formatDay(day: string | null): string {
+  return day === null ? '' : (formatCalendarDay(day) ?? day);
+}
+
+/** A period's start date as the person reads it, long or short. */
+export function bucketLabel(
+  value: string | null,
+  period: string | null,
+  labels: ChartLabels = RAW_LABELS,
+  groupBy: string | null = null,
+  short = false,
+): string {
   if (value === null) {
     return UNSET_LABEL;
   }
   if (!isChartPeriod(period)) {
-    return value;
+    return labels.value(groupBy, value);
   }
 
   const date = new Date(`${value}T00:00:00Z`);
@@ -89,40 +142,38 @@ export function bucketLabel(value: string | null, period: string | null): string
     return value;
   }
 
+  const options = (parts: Intl.DateTimeFormatOptions) =>
+    date.toLocaleDateString(undefined, { ...parts, timeZone: 'UTC' });
+
   switch (period) {
     case 'day':
-      return date.toLocaleDateString(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        timeZone: 'UTC',
-      });
+      return short
+        ? options({ day: 'numeric', month: 'short' })
+        : options({ day: 'numeric', month: 'short', year: 'numeric' });
     case 'week':
-      return `Week of ${date.toLocaleDateString(undefined, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        timeZone: 'UTC',
-      })}`;
+      return short
+        ? options({ day: 'numeric', month: 'short' })
+        : `Week of ${options({ day: 'numeric', month: 'short', year: 'numeric' })}`;
     case 'month':
-      return date.toLocaleDateString(undefined, {
-        month: 'short',
-        year: 'numeric',
-        timeZone: 'UTC',
-      });
+      return short ? options({ month: 'short' }) : options({ month: 'short', year: 'numeric' });
     case 'quarter':
-      return `Q${String(Math.floor(date.getUTCMonth() / 3) + 1)} ${String(date.getUTCFullYear())}`;
+      return `Q${String(Math.floor(date.getUTCMonth() / 3) + 1)}${short ? '' : ` ${String(date.getUTCFullYear())}`}`;
     case 'year':
       return String(date.getUTCFullYear());
   }
 }
 
 /** What a series is called in a legend and a table header. */
-export function seriesLabel(series: ChartSeries, otherValues: number): string {
+export function seriesLabel(
+  series: ChartSeries,
+  otherValues: number,
+  labels: ChartLabels = RAW_LABELS,
+  splitBy: string | null = null,
+): string {
   if (series.other) {
-    return `Other (${String(otherValues)} ${otherValues === 1 ? 'value' : 'values'})`;
+    return `Other (${countOf(otherValues, 'value')})`;
   }
-  return series.value ?? UNSET_LABEL;
+  return labels.value(splitBy, series.value);
 }
 
 /** The running total of a run of values. */
@@ -166,6 +217,7 @@ export interface PlottedSeries {
  */
 export function plottedSeries(
   chart: ItemChart,
+  labels: ChartLabels = RAW_LABELS,
   options: { readonly cumulative?: boolean } = {},
 ): PlottedSeries[] {
   const totals = chart.measure === 'sum';
@@ -176,7 +228,7 @@ export function plottedSeries(
     return [
       {
         key: 'all',
-        label: totals ? (chart.measureProperty ?? 'Total') : 'Items',
+        label: totals ? labels.property(chart.measureProperty) || 'Total' : 'Items',
         values: transform(chart.buckets.map((bucket) => measureOf(bucket, totals))),
         style: seriesStyle(0, false),
       },
@@ -185,7 +237,7 @@ export function plottedSeries(
 
   return chart.series.map((series, index) => ({
     key: series.other ? ' other' : (series.value ?? ' unset'),
-    label: seriesLabel(series, chart.otherSeries),
+    label: seriesLabel(series, chart.otherSeries, labels, chart.splitBy),
     values: transform(
       chart.buckets.map((bucket) => {
         const cell = bucket.cells[index];
@@ -196,100 +248,95 @@ export function plottedSeries(
   }));
 }
 
-/** The largest single value, and the largest stack, across a chart's series. */
-export function extent(
-  series: readonly PlottedSeries[],
-  buckets: number,
-): {
-  readonly largest: number;
-  readonly largestStack: number;
-} {
-  let largest = 0;
-  let largestStack = 0;
-  for (let index = 0; index < buckets; index += 1) {
-    let stack = 0;
-    for (const entry of series) {
-      const value = entry.values[index] ?? 0;
-      largest = Math.max(largest, value);
-      stack += Math.max(0, value);
-    }
-    largestStack = Math.max(largestStack, stack);
-  }
-  return { largest, largestStack };
-}
-
 /**
  * How one series is told apart from the others.
  *
- * **There is no categorical palette in the design tokens, on purpose** - the system has one accent
- * and its ramps, and a chart is not a reason to invent twelve hues. So series are separated by
- * three things at once, none of which carries the meaning alone:
+ * **Six series roles from the design tokens, and no more series than that.** The token sheet
+ * carries `--color-series-1` to `-6`: muted hues (steel, ochre, teal, plum, moss, graphite), each at
+ * least 3:1 against the ground and the surface on both themes, and at least 1.2:1 apart from one
+ * another in lightness, which `theme.test.ts` computes and asserts. Core and this renderer both cap
+ * a split at six named series; everything past them is one "Other" series in the muted tone.
  *
- * 1. **Tone**: steps of the accent, secondary accent and neutral ramps, ordered so neighbouring
- *    series alternate between ramps and between light and dark steps. The first series uses the
- *    accent fill token, which flips with the theme; the rest are mid-ramp steps chosen because they
- *    sit away from both the light and the dark background.
- * 2. **Pattern**: lines cycle through solid, dashed and dotted strokes, so two series of similar
- *    tone still read apart, and in print and for colour-blind readers.
- * 3. **Labels**: every series is named in the legend and in the table, which carries every figure
- *    as text. The drawing is decoration over the table, never the only place a value lives.
- *
- * "Other" is always the neutral muted tone, so the folded remainder never looks like a value.
+ * **Never by colour alone.** Each series also has its own pattern - a fill hatch for columns, areas
+ * and slices, a dash for lines - and every series is named in the legend and in the table, which
+ * carries every figure as text. The drawing is decoration over the table, never the only place a
+ * value lives.
  */
 export interface SeriesStyle {
-  /** Classes for a filled mark: a column segment, an area, a pie slice, a legend swatch. */
+  /** Classes for a filled mark's colour: a column segment, an area, a slice, a legend swatch. */
   readonly fill: string;
   /** Classes for a stroked mark: a line. */
   readonly stroke: string;
   /** The SVG dash pattern for a line, or undefined for a solid one. */
   readonly dash: string | undefined;
+  /** Which hatch a fill carries over its colour; `none` for a solid fill. */
+  readonly hatch: SeriesHatch;
 }
 
-const SERIES_TONES: readonly { readonly fill: string; readonly stroke: string }[] = [
-  { fill: 'fill-accent-fill bg-accent-fill', stroke: 'stroke-accent-fill' },
-  { fill: 'fill-accent-2-400 bg-accent-2-400', stroke: 'stroke-accent-2-400' },
-  { fill: 'fill-neutral-600 bg-neutral-600', stroke: 'stroke-neutral-600' },
-  { fill: 'fill-accent-400 bg-accent-400', stroke: 'stroke-accent-400' },
-  { fill: 'fill-accent-2-600 bg-accent-2-600', stroke: 'stroke-accent-2-600' },
-  { fill: 'fill-neutral-400 bg-neutral-400', stroke: 'stroke-neutral-400' },
-  { fill: 'fill-accent-600 bg-accent-600', stroke: 'stroke-accent-600' },
-  { fill: 'fill-accent-2-300 bg-accent-2-300', stroke: 'stroke-accent-2-300' },
-  { fill: 'fill-neutral-500 bg-neutral-500', stroke: 'stroke-neutral-500' },
-  { fill: 'fill-accent-300 bg-accent-300', stroke: 'stroke-accent-300' },
-  { fill: 'fill-accent-2-700 bg-accent-2-700', stroke: 'stroke-accent-2-700' },
-  { fill: 'fill-neutral-700 bg-neutral-700', stroke: 'stroke-neutral-700' },
+export type SeriesHatch =
+  'none' | 'diagonal' | 'dots' | 'cross' | 'horizontal' | 'vertical' | 'back';
+
+const SERIES_ROLES: readonly { readonly fill: string; readonly stroke: string }[] = [
+  { fill: 'fill-series-1 bg-series-1', stroke: 'stroke-series-1' },
+  { fill: 'fill-series-2 bg-series-2', stroke: 'stroke-series-2' },
+  { fill: 'fill-series-3 bg-series-3', stroke: 'stroke-series-3' },
+  { fill: 'fill-series-4 bg-series-4', stroke: 'stroke-series-4' },
+  { fill: 'fill-series-5 bg-series-5', stroke: 'stroke-series-5' },
+  { fill: 'fill-series-6 bg-series-6', stroke: 'stroke-series-6' },
 ];
 
-/** Solid, dashed, dotted: cycled so neighbouring lines differ in pattern as well as tone. */
-const SERIES_DASHES: readonly (string | undefined)[] = [undefined, '6 3', '2 3'];
+const SERIES_DASHES: readonly (string | undefined)[] = [
+  undefined,
+  '8 4',
+  '2 4',
+  '8 3 2 3',
+  '4 4',
+  '12 4',
+];
+
+const SERIES_HATCHES: readonly SeriesHatch[] = [
+  'none',
+  'diagonal',
+  'dots',
+  'cross',
+  'horizontal',
+  'vertical',
+];
 
 const OTHER_STYLE: SeriesStyle = {
-  fill: 'fill-muted/40 bg-muted/40',
+  fill: 'fill-muted bg-muted',
   stroke: 'stroke-muted',
   dash: '1 4',
+  hatch: 'back',
 };
 
 export function seriesStyle(index: number, other: boolean): SeriesStyle {
   if (other) {
     return OTHER_STYLE;
   }
-  const tone = SERIES_TONES[index % SERIES_TONES.length] ?? SERIES_TONES[0];
+  const position = index % SERIES_ROLES.length;
+  const role = SERIES_ROLES[position] ?? { fill: '', stroke: '' };
   return {
-    fill: tone?.fill ?? '',
-    stroke: tone?.stroke ?? '',
-    dash: SERIES_DASHES[index % SERIES_DASHES.length],
+    fill: role.fill,
+    stroke: role.stroke,
+    dash: SERIES_DASHES[position],
+    hatch: SERIES_HATCHES[position] ?? 'none',
   };
 }
 
-/** A short caption for what a chart counts, said once above the drawing and in the table. */
-export function chartCaption(chart: ItemChart): string {
+/** What a chart shows, said once above the drawing: measure, grouping, split and window. */
+export function chartCaption(chart: ItemChart, labels: ChartLabels = RAW_LABELS): string {
   const totals = chart.measure === 'sum';
-  const what = totals ? `Total of ${chart.measureProperty ?? ''}` : 'How many items';
+  const what = totals ? `Total of ${labels.property(chart.measureProperty)}` : 'How many items';
   const by = isChartPeriod(chart.period)
-    ? `per ${chart.period} of ${chart.groupBy}`
-    : `by ${chart.groupBy}`;
-  const split = chart.splitBy === null ? '' : `, split by ${chart.splitBy}`;
-  return `${what} ${by}${split}`;
+    ? `per ${chart.period} of ${labels.property(chart.groupBy)}`
+    : `by ${labels.property(chart.groupBy)}`;
+  const split = chart.splitBy === null ? '' : `, split by ${labels.property(chart.splitBy)}`;
+  const window =
+    chart.from !== null && chart.to !== null
+      ? `, ${formatDay(chart.from)} to ${formatDay(chart.to)}`
+      : '';
+  return `${what} ${by}${split}${window}`;
 }
 
 /** A bucket's key for React, stable across reloads. */
