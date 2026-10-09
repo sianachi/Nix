@@ -7,6 +7,7 @@ import {
   defaultIds,
   executeBuild,
   hasExternalLink,
+  loadPreviewContext,
   planBuild,
   readStructure,
   READ_ONLY_OPERATIONS,
@@ -202,13 +203,18 @@ function operationOf(tool: PetToolCall): string {
 }
 
 /** Why a write may not run on its own, or undefined when it may. Mirrors the web card: the
- * lane F policy, the external-link rule, and the harness's own fixture boundary. */
-async function declineReason(
+ * lane F policy, the external-link rule, the hold after a read of locked content (the worker's
+ * conversation-level `lockedRead`), the hold on completing an occurrence of a repeating task, and
+ * the harness's own fixture boundary. */
+export async function declineReason(
   session: Session,
   fixture: ChatFixture,
   tool: PetToolCall,
   allowWrites: boolean,
   cache: Map<string, boolean>,
+  lockedRead = false,
+  ports?: CompanionPorts,
+  workspaceId?: string,
 ): Promise<string | undefined> {
   let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
   try {
@@ -221,6 +227,19 @@ async function declineReason(
   if (READ_ONLY_OPERATIONS.has(args.operation) || args.operation === 'validate_blueprint') return undefined;
   if (!allowWrites) return 'writes are not allowed in this run';
   if (!canApplyWithoutAsking(args.operation)) return `${args.operation} always asks`;
+  if (lockedRead) return 'earlier in this conversation it read locked content';
+  if (args.operation === 'complete_task') {
+    // The same preview the card reads: an occurrence of a repeating task cannot be reopened, so it
+    // never runs unattended. Without a preview there is no way to tell, so it does not run either.
+    if (ports === undefined || workspaceId === undefined) return 'the task may repeat and there is no preview';
+    try {
+      const context = await loadPreviewContext(ports, workspaceId, args, AbortSignal.timeout(30_000));
+      if (context.taskCompletion?.kind === 'occurrence')
+        return "completing a repeating task's occurrence cannot be undone";
+    } catch {
+      return 'the task preview could not be loaded';
+    }
+  }
   if (hasExternalLink([args.title, args.markdown, args.specJson, args.propertiesJson]))
     return 'the text links to another host';
   const targets = [args.itemId, args.parentId].filter((id) => id.trim());
@@ -374,7 +393,16 @@ export async function runChatCase(
           break;
         }
         const at = Date.now();
-        const reason = await declineReason(session, fixture, tool, options.allowWrites ?? false, ancestry);
+        const reason = await declineReason(
+          session,
+          fixture,
+          tool,
+          options.allowWrites ?? false,
+          ancestry,
+          connection.lockedRead,
+          ports,
+          options.workspace,
+        );
         if (reason !== undefined) {
           await declineTool(session, options.workspace, options.pet, tool, reason);
           tools.push({ operation, decision: 'declined', reason, success: false, ms: Date.now() - at });

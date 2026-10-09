@@ -3,7 +3,9 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { chatCaseSchema } from '@nix/structure-spec';
 import { openSession } from '../session.ts';
+import type { CompanionPorts } from '@nix/companion';
 import {
+  declineReason,
   runChatSuite,
   substituteDates,
   type ChatEvalRuntime,
@@ -151,6 +153,12 @@ describe('pet eval chat', () => {
       http.get(`${CORE}/api/v1/items/${TASKS}/schema`, () =>
         HttpResponse.json({ properties: [], declared: [], inherit: true }),
       ),
+      // The preview walks the destination's ancestors up to the fixture root.
+      http.get(`${CORE}/api/v1/items/${ROOT}`, () => HttpResponse.json(item(ROOT, null, 'Home'))),
+      // ...and the container's lock state, to report whether the read returned locked content.
+      http.get(`${CORE}/api/v1/items/${TASKS}/lock`, () =>
+        HttpResponse.json({ locked: false, unlockedUntil: null, lockItemId: null, selfLocked: false }),
+      ),
       http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, () =>
         HttpResponse.json({ items: [item(DENTIST, TASKS, 'Call dentist')], nextCursor: null }),
       ),
@@ -208,6 +216,105 @@ describe('pet eval chat', () => {
       'attempted forbidden trash_item',
       'task-dentist.completion is false, expected truthy',
     ]);
+  });
+
+  describe('the same holds as the web card', () => {
+    const session = () =>
+      openSession({ profile: { apiUrl: CORE, token: 'pat' }, bearerToken: 'session' });
+    const field = (key: string, type: string) => ({
+      key,
+      label: key,
+      type,
+      options: [],
+      required: false,
+      expression: null,
+      aggregate: null,
+      source: null,
+    });
+    /** Ports whose Core answers the reads a complete_task preview makes. */
+    function taskPorts(repeating: boolean): CompanionPorts {
+      const today = '2026-10-08';
+      const query = vi.fn((endpoint: { operation: string }) =>
+        Promise.resolve(
+          endpoint.operation === 'schema.get'
+            ? { properties: [field('due_date', 'due_date'), field('completion', 'completion')], declared: [], inherit: true }
+            : endpoint.operation === 'locks.get'
+              ? { locked: false, unlockedUntil: null, lockItemId: null, selfLocked: false }
+              : endpoint.operation === 'workspaceCalendar.get'
+                ? {
+                    workspaceId: WORKSPACE,
+                    from: today,
+                    to: today,
+                    entries: repeating
+                      ? [
+                          {
+                            itemId: DENTIST,
+                            title: 'Call dentist',
+                            containerId: TASKS,
+                            containerTitle: 'Tasks',
+                            dateProperty: 'due_date',
+                            value: today,
+                            kind: 'date',
+                            generated: true,
+                            completed: false,
+                            endProperty: null,
+                            endValue: null,
+                          },
+                        ]
+                      : [],
+                    unplaceable: [],
+                    entryLimit: 2000,
+                    entriesTruncated: false,
+                    seriesTruncated: false,
+                  }
+                : endpoint.operation === 'items.get'
+                  ? item(DENTIST, null, 'Call dentist', { due_date: '2026-09-01', completion: false })
+                  : undefined,
+        ),
+      );
+      const core = { query, execute: vi.fn(), paginate: vi.fn() };
+      return {
+        core,
+        collab: core,
+        bodies: { read: vi.fn(), append: vi.fn() },
+        clock: { today: () => today, timeZone: () => 'UTC', now: () => new Date(`${today}T09:00:00Z`) },
+        ids: { uuid: () => '00000001-0000-4000-8000-000000000000' },
+      } as unknown as CompanionPorts;
+    }
+    function inFixture() {
+      server.use(
+        http.get(`${CORE}/api/v1/items/${DENTIST}`, () => HttpResponse.json(item(DENTIST, TASKS, 'Call dentist'))),
+        http.get(`${CORE}/api/v1/items/${TASKS}`, () => HttpResponse.json(item(TASKS, ROOT, 'Tasks'))),
+      );
+    }
+    const pending = (tool: ReturnType<typeof toolCall>) => ({ ...tool, status: 'pending' as const });
+    const completeTask = pending(
+      toolCall('t-1', { operation: 'complete_task', itemId: DENTIST, specJson: '{"completed":true}' }),
+    );
+
+    it('declines every write once the conversation has read locked content', async () => {
+      inFixture();
+      const write = pending(
+        toolCall('t-1', { operation: 'set_properties', itemId: DENTIST, propertiesJson: '{"completion":true}' }),
+      );
+      expect(await declineReason(session(), fixture, write, true, new Map(), true)).toBe(
+        'earlier in this conversation it read locked content',
+      );
+      expect(await declineReason(session(), fixture, write, true, new Map(), false)).toBeUndefined();
+    });
+
+    it('declines completing an occurrence of a repeating task, and any completion without a preview', async () => {
+      inFixture();
+      expect(
+        await declineReason(session(), fixture, completeTask, true, new Map(), false, taskPorts(true), WORKSPACE),
+      ).toBe("completing a repeating task's occurrence cannot be undone");
+      expect(await declineReason(session(), fixture, completeTask, true, new Map(), false)).toBe(
+        'the task may repeat and there is no preview',
+      );
+      expect(
+        await declineReason(session(), fixture, completeTask, true, new Map(), false, taskPorts(false), WORKSPACE),
+      ).toBeUndefined();
+    });
   });
 
   it('stops at the tool budget and reports it', async () => {
