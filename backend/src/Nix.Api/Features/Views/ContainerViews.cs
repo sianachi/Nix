@@ -133,18 +133,24 @@ public sealed class SetContainerViewsHandler
     private readonly IPermissionResolver _permissions;
     private readonly INixSessionContextAccessor _session;
     private readonly TimeProvider _clock;
+    private readonly ISchemaResolver _schemas;
 
     /// <summary>Initializes a new instance of the <see cref="SetContainerViewsHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
     /// <param name="permissions">Decides what the caller may change.</param>
     /// <param name="session">The tenant and principal this request runs as.</param>
     /// <param name="clock">The clock.</param>
+    /// <param name="schemas">Resolves the schema a chart's split is checked against.</param>
     public SetContainerViewsHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         INixSessionContextAccessor session,
-        TimeProvider clock)
+        TimeProvider clock,
+        ISchemaResolver schemas)
     {
+        ArgumentNullException.ThrowIfNull(schemas);
+        _schemas = schemas;
+
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(session);
@@ -190,6 +196,11 @@ public sealed class SetContainerViewsHandler
         if (ViewDefinitionRules.Refuse(views, defaultView) is { } reason)
         {
             return Result.Failure<ImmutableArray<ViewDefinition>>(PropertyErrors.InvalidViews(reason));
+        }
+
+        if (await RefuseAgainstSchemaAsync(itemId, views, cancellationToken).ConfigureAwait(false) is { } fit)
+        {
+            return Result.Failure<ImmutableArray<ViewDefinition>>(PropertyErrors.InvalidViews(fit));
         }
 
         // An absent flag keeps what is stored. Asking for it outright is the one case that rewrites
@@ -244,6 +255,40 @@ public sealed class SetContainerViewsHandler
     /// size a constant rather than a function of what somebody managed to store.
     /// </remarks>
     internal const int MaximumFilters = ViewDefinitionRules.MaximumFilters;
+
+    /// <summary>
+    /// The first configured property that exists in the container's schema but cannot serve, or null.
+    /// </summary>
+    /// <remarks>
+    /// Only a chart's split is checked, and only when the property exists: a property declared
+    /// later is still allowed, by the argument the remarks on <see cref="Validate"/> make. A split by
+    /// a property with a value per child is refused because it is a legend nobody can read and a
+    /// read that groups by every child.
+    /// </remarks>
+    private async ValueTask<string?> RefuseAgainstSchemaAsync(
+        ItemId itemId,
+        ImmutableArray<ViewDefinition> views,
+        CancellationToken cancellationToken)
+    {
+        if (views.IsDefaultOrEmpty || !views.Any(view => view.Chart?.SplitBy is not null))
+        {
+            return null;
+        }
+
+        var schema = await _schemas.ResolveForItemAsync(itemId, cancellationToken).ConfigureAwait(false);
+        foreach (var view in views)
+        {
+            if (view.Chart?.SplitBy is { } split
+                && schema.Find(split) is { } property
+                && !property.Type.CanSplitBy())
+            {
+                return $"'{view.Name}': a chart splits into series by a single choice, a checkbox or a "
+                    + $"person, and '{property.Label}' has a value per item";
+            }
+        }
+
+        return null;
+    }
 
     /// <summary>Validates a complete stored-view replacement without writing it.</summary>
     public static NixError? Validate(

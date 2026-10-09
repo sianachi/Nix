@@ -34,7 +34,7 @@ internal sealed record ChartCellResponse(long Children, decimal? Total);
 /// The splitting property's value, or <see langword="null"/> for the children with none - and for
 /// the "Other" series, which <paramref name="Other"/> tells apart.
 /// </param>
-/// <param name="Other">Whether this series stands for every value past the twelfth.</param>
+/// <param name="Other">Whether this series stands for every value past the sixth.</param>
 /// <param name="Children">How many drawn children carry it.</param>
 /// <param name="Total">Their measured total, or <see langword="null"/>.</param>
 internal sealed record ChartSeriesResponse(string? Value, bool Other, long Children, decimal? Total);
@@ -64,11 +64,18 @@ internal sealed record ChartSeriesResponse(string? Value, bool Other, long Child
 /// <param name="From">The first day a time axis covers, or <see langword="null"/>.</param>
 /// <param name="To">The last day a time axis covers, or <see langword="null"/>.</param>
 /// <param name="Series">The series, largest first and any "Other" last; empty when not split.</param>
-/// <param name="OtherSeries">How many series values were folded into the "Other" series.</param>
+/// <param name="OtherSeries">How many series values were folded into the "Other" series (past the sixth).</param>
 /// <param name="Unplaced">
 /// Children a time axis could not place because the grouping property holds no date for them.
 /// Counted rather than dropped, so a chart never quietly shrinks; always zero for categories.
 /// </param>
+/// <param name="OutsideWindow">
+/// Dated children outside the time axis's window - before it, or after its end - counted so a chart
+/// whose items all fall elsewhere says so rather than looking empty. Always zero for categories.
+/// </param>
+/// <param name="Stacked">Whether split series are stacked, as the view stores it.</param>
+/// <param name="Cumulative">Whether lines draw running totals, as the view stores it.</param>
+/// <param name="RollingAverage">Whether lines add a trailing seven-period average, as the view stores it.</param>
 /// <param name="Truncated">
 /// Whether more buckets exist than were returned. Carried rather than left for a client to infer
 /// from a count, because inferring it is exactly the sort of arithmetic a client gets wrong once
@@ -104,4 +111,8 @@ internal sealed record ChartResponse(
     DateOnly? To,
     IReadOnlyList<ChartSeriesResponse> Series,
     long OtherSeries,
-    long Unplaced);
+    long Unplaced,
+    long OutsideWindow,
+    bool Stacked,
+    bool Cumulative,
+    bool RollingAverage);

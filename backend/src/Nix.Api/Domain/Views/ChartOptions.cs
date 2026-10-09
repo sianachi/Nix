@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Nix.Domain.Time;
 
 namespace Nix.Domain.Views;
 
@@ -58,7 +59,7 @@ public static class ChartKinds
 /// stored before this field existed draws, so absent keeps meaning it.
 /// </param>
 /// <param name="Period">
-/// One of <see cref="ChartPeriods.All"/> when the grouping property is a date and the chart has a
+/// One of <see cref="DatePeriods.All"/> when the grouping property is a date and the chart has a
 /// time axis; <see langword="null"/> for a chart of categories.
 /// </param>
 /// <param name="SplitBy">
@@ -75,6 +76,10 @@ public static class ChartKinds
 /// <param name="To">A fixed window's last day, snapped forward to the end of its period.</param>
 /// <param name="Cumulative">Line and area: draw the running total rather than each period's value.</param>
 /// <param name="RollingAverage">Line and area: add the trailing seven-period average.</param>
+/// <param name="Stacked">
+/// Column and area split into series: stack the series rather than standing them side by side
+/// (columns) or overlaying them (areas). Stored so a chart opens the way it was left.
+/// </param>
 /// <remarks>
 /// <para>
 /// <b>One nested record rather than eight more flat fields on the view.</b> The view record is flat
@@ -97,7 +102,8 @@ public sealed record ChartOptions(
     DateOnly? From = null,
     DateOnly? To = null,
     bool Cumulative = false,
-    bool RollingAverage = false)
+    bool RollingAverage = false,
+    bool Stacked = false)
 {
     /// <summary>The most periods a time axis draws: 53 weeks of days, exactly one year grid.</summary>
     /// <remarks>
@@ -122,12 +128,12 @@ public sealed record ChartOptions(
             return $"'{kind}' is not a chart type; use one of {string.Join(", ", ChartKinds.All)}";
         }
 
-        ChartPeriod? period = null;
+        DatePeriod? period = null;
         if (Period is { } text)
         {
-            if (!ChartPeriods.TryParse(text, out var parsed))
+            if (!DatePeriods.TryParse(text, out var parsed))
             {
-                return $"'{text}' is not a period; use one of {string.Join(", ", ChartPeriods.All)}";
+                return $"'{text}' is not a period; use one of {string.Join(", ", DatePeriods.All)}";
             }
 
             period = parsed;
@@ -138,7 +144,7 @@ public sealed record ChartOptions(
             return $"a {Kind} chart runs along dates, so it needs a date to group by and a period";
         }
 
-        if (Kind == ChartKinds.Year && period != ChartPeriod.Day)
+        if (Kind == ChartKinds.Year && period != DatePeriod.Day)
         {
             return "a year grid counts by day; set its period to day";
         }
@@ -168,8 +174,8 @@ public sealed record ChartOptions(
             }
         }
 
-        if ((From is { } from && !ChartPeriods.IsInRange(from))
-            || (To is { } to && !ChartPeriods.IsInRange(to)))
+        if ((From is { } from && !DatePeriods.IsInRange(from))
+            || (To is { } to && !DatePeriods.IsInRange(to)))
         {
             return "a window's dates must fall between the years 2 and 9998";
         }

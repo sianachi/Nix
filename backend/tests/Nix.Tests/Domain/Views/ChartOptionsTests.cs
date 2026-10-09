@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json.Nodes;
+using Nix.Domain.Time;
 using Nix.Domain.Views;
 
 namespace Nix.Tests.Domain.Views;
@@ -29,18 +30,19 @@ public sealed class ChartOptionsTests
     {
         var options = new ChartOptions(
             ChartKinds.Line,
-            ChartPeriods.Week,
+            DatePeriods.Week,
             "project",
             From: new DateOnly(2026, 1, 1),
             To: new DateOnly(2026, 6, 30),
             Cumulative: true,
-            RollingAverage: true);
+            RollingAverage: true,
+            Stacked: true);
 
         var read = ViewDefinitionsJson.Read(ViewDefinitionsJson.Write([Chart(options)])).Views.Single();
 
         Assert.Equal(options, read.Chart);
 
-        var rolling = new ChartOptions(ChartKinds.Area, ChartPeriods.Month, LastPeriods: 12);
+        var rolling = new ChartOptions(ChartKinds.Area, DatePeriods.Month, LastPeriods: 12);
         Assert.Equal(
             rolling,
             ViewDefinitionsJson.Read(ViewDefinitionsJson.Write([Chart(rolling)])).Views.Single().Chart);
@@ -104,8 +106,8 @@ public sealed class ChartOptionsTests
             new ChartOptions(Period: "day", From: new DateOnly(2026, 2, 1), To: new DateOnly(2026, 1, 1)).Refuse(),
             StringComparison.Ordinal);
 
-        Assert.Null(new ChartOptions(ChartKinds.Year, ChartPeriods.Day).Refuse());
-        Assert.Null(new ChartOptions(ChartKinds.Column, ChartPeriods.Month, "status", LastPeriods: 12).Refuse());
+        Assert.Null(new ChartOptions(ChartKinds.Year, DatePeriods.Day).Refuse());
+        Assert.Null(new ChartOptions(ChartKinds.Column, DatePeriods.Month, "status", LastPeriods: 12).Refuse());
         Assert.Null(new ChartOptions(ChartKinds.Pie, SplitBy: "done").Refuse());
     }
 

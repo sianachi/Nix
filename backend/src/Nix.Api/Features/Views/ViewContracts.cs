@@ -323,8 +323,9 @@ internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId,
 /// for a chart of categories.
 /// </param>
 /// <param name="SplitBy">
-/// A property with few values (a single choice or a yes/no) whose values split each bucket into series. At most 12 series are
-/// drawn; the rest are folded into one "Other" series and the response says so.
+/// A property with few values (a single choice, a yes/no or a person) whose values split each bucket
+/// into series; any other type is refused on write. At most 6 series are drawn by name; the rest are
+/// folded into one "Other" series and the response says how many.
 /// </param>
 /// <param name="LastPeriods">
 /// A rolling window of the most recent 1 to 371 periods, the current one included. Needs a period;
@@ -336,6 +337,7 @@ internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId,
 /// <param name="RollingAverage">
 /// Line and area: add the trailing seven-period average. Computed by the renderer.
 /// </param>
+/// <param name="Stacked">Column and area split into series: stack them. Drawn by the renderer.</param>
 internal sealed record ChartOptionsContract(
     string? Kind = null,
     string? Period = null,
@@ -344,4 +346,5 @@ internal sealed record ChartOptionsContract(
     DateOnly? From = null,
     DateOnly? To = null,
     bool? Cumulative = null,
-    bool? RollingAverage = null);
+    bool? RollingAverage = null,
+    bool? Stacked = null);

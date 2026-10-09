@@ -150,13 +150,26 @@ public sealed class RollupStatementTests
     }
 
     [Fact]
-    public void The_day_read_keeps_undated_children_and_reads_latest_first()
+    public void The_day_read_keeps_undated_and_outside_children_and_reads_latest_first()
     {
         var sql = RollupSql.BucketChildrenByDay;
 
-        Assert.Contains("placed.day IS NULL", sql, StringComparison.Ordinal);
-        Assert.Contains("ORDER BY placed.day DESC NULLS FIRST", sql, StringComparison.Ordinal);
+        // A real date or nothing: "2026-13-01" is undated whatever the window.
+        Assert.Contains("pg_input_is_valid(prefix.day, 'date')", sql, StringComparison.Ordinal);
+        Assert.Contains("AS outside", sql, StringComparison.Ordinal);
+        Assert.Contains("ORDER BY 1 DESC NULLS FIRST", sql, StringComparison.Ordinal);
         Assert.Contains("count(*) OVER () AS cells", sql, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(nameof(RollupSql.BucketChildrenByPropertyAndSeries))]
+    [InlineData(nameof(RollupSql.BucketChildrenByDay))]
+    public void The_cell_reads_fold_every_series_past_the_cap_into_one(string name)
+    {
+        var sql = CellStatement(name);
+
+        Assert.Contains("series_rank > @series_limit", sql, StringComparison.Ordinal);
+        Assert.Contains("(SELECT count(*) FROM series_ranked) AS series_count", sql, StringComparison.Ordinal);
     }
 
     private static string CellStatement(string name) => name switch

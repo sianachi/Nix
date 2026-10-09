@@ -1,5 +1,6 @@
 using System.Globalization;
 using Nix.Abstractions;
+using Nix.Domain.Time;
 using Nix.Domain.Views;
 using Nix.Features.Charts;
 
@@ -24,7 +25,7 @@ public sealed class ChartFoldingTests
             DistinctBuckets: null,
             CellsCut: false);
 
-        var chart = ChartFolding.Days(read, ChartPeriod.Month, null, null, split: false);
+        var chart = ChartFolding.Days(read, DatePeriod.Month, null, null, split: false);
 
         Assert.Equal(["2026-01-01", "2026-02-01", "2026-03-01"], chart.Buckets.Select(bucket => bucket.Value));
         Assert.Equal([4L, 0L, 2L], chart.Buckets.Select(bucket => bucket.Children));
@@ -49,7 +50,7 @@ public sealed class ChartFoldingTests
             null,
             false);
 
-        var chart = ChartFolding.Days(read, ChartPeriod.Week, null, null, split: false);
+        var chart = ChartFolding.Days(read, DatePeriod.Week, null, null, split: false);
 
         Assert.Equal(["2026-10-05", "2026-10-12"], chart.Buckets.Select(bucket => bucket.Value));
         Assert.Equal([6L, 1L], chart.Buckets.Select(bucket => bucket.Children));
@@ -62,7 +63,7 @@ public sealed class ChartFoldingTests
 
         var chart = ChartFolding.Days(
             read,
-            ChartPeriod.Month,
+            DatePeriod.Month,
             new DateOnly(2026, 4, 15),
             new DateOnly(2026, 7, 1),
             split: false);
@@ -87,7 +88,7 @@ public sealed class ChartFoldingTests
             null,
             false);
 
-        var chart = ChartFolding.Days(read, ChartPeriod.Year, null, null, split: false);
+        var chart = ChartFolding.Days(read, DatePeriod.Year, null, null, split: false);
 
         Assert.Equal(6, chart.Unplaced);
         Assert.Equal(2, chart.Children);
@@ -108,7 +109,7 @@ public sealed class ChartFoldingTests
             null,
             CellsCut: true);
 
-        var chart = ChartFolding.Days(read, ChartPeriod.Month, new DateOnly(2025, 1, 1), null, split: false);
+        var chart = ChartFolding.Days(read, DatePeriod.Month, new DateOnly(2025, 1, 1), null, split: false);
 
         Assert.True(chart.Truncated);
         Assert.Equal(["2026-02-01", "2026-03-01"], chart.Buckets.Select(bucket => bucket.Value));
@@ -126,7 +127,7 @@ public sealed class ChartFoldingTests
             null,
             false);
 
-        var chart = ChartFolding.Days(read, ChartPeriod.Day, null, null, split: false);
+        var chart = ChartFolding.Days(read, DatePeriod.Day, null, null, split: false);
 
         Assert.True(chart.Truncated);
         Assert.Equal(ChartOptions.MaximumPeriods, chart.Buckets.Count);
@@ -135,47 +136,117 @@ public sealed class ChartFoldingTests
     }
 
     [Fact]
-    public void Series_past_the_twelfth_are_folded_into_one_reported_Other()
+    public void Series_past_the_sixth_are_folded_into_one_reported_Other()
     {
         var cells = new List<ChildCell>();
-        for (var index = 0; index < 15; index++)
+        for (var index = 0; index < 9; index++)
         {
-            // Series s00 is the largest, s14 the smallest, so the cap keeps s00 to s11.
+            // Series s00 is the largest, s08 the smallest, so the cap keeps s00 to s05.
             cells.Add(new ChildCell("2026-01-05", $"s{index:00}", 20 - index, index));
         }
 
         ChildCells read = new(cells, cells.Sum(cell => cell.Children), null, false);
 
-        var chart = ChartFolding.Days(read, ChartPeriod.Week, null, null, split: true);
+        var chart = ChartFolding.Days(read, DatePeriod.Week, null, null, split: true);
 
-        Assert.Equal(13, chart.Series.Count);
+        Assert.Equal(7, chart.Series.Count);
         Assert.Equal(
-            Enumerable.Range(0, 12).Select(index => $"s{index:00}"),
-            chart.Series.Take(12).Select(series => series.Value));
+            Enumerable.Range(0, 6).Select(index => $"s{index:00}"),
+            chart.Series.Take(6).Select(series => series.Value));
         var other = chart.Series[^1];
         Assert.True(other.Other);
         Assert.Null(other.Value);
-        Assert.Equal(8 + 7 + 6, other.Children);
-        Assert.Equal(12m + 13m + 14m, other.Total);
+        Assert.Equal(14 + 13 + 12, other.Children);
+        Assert.Equal(6m + 7m + 8m, other.Total);
         Assert.Equal(3, chart.OtherSeries);
 
         var bucket = Assert.Single(chart.Buckets);
-        Assert.Equal(13, bucket.Cells.Count);
+        Assert.Equal(7, bucket.Cells.Count);
         Assert.Equal(bucket.Children, bucket.Cells.Sum(cell => cell.Children));
     }
 
     [Fact]
-    public void Twelve_series_fit_without_an_Other()
+    public void Cells_the_read_already_folded_join_Other_and_its_count_comes_from_the_read()
     {
-        var cells = Enumerable.Range(0, 12)
+        ChildCells read = new(
+            [
+                new ChildCell("2026-01-05", "Ada", 5, null),
+                new ChildCell("2026-01-05", null, 9, null, Other: true),
+                new ChildCell("2026-01-12", null, 4, null, Other: true),
+            ],
+            18,
+            null,
+            false,
+            SeriesValues: 41);
+
+        var chart = ChartFolding.Days(read, DatePeriod.Week, null, null, split: true);
+
+        Assert.Equal(2, chart.Series.Count);
+        Assert.Equal("Ada", chart.Series[0].Value);
+        Assert.True(chart.Series[1].Other);
+        Assert.Equal(13, chart.Series[1].Children);
+        Assert.Equal(40, chart.OtherSeries);
+        Assert.Equal([9L, 4L], chart.Buckets.Select(bucket => bucket.Cells[1].Children));
+    }
+
+    [Fact]
+    public void Six_series_fit_without_an_Other()
+    {
+        var cells = Enumerable.Range(0, 6)
             .Select(index => new ChildCell("2026-01-05", index.ToString(CultureInfo.InvariantCulture), 1, null))
             .ToList();
 
-        var chart = ChartFolding.Days(new ChildCells(cells, 12, null, false), ChartPeriod.Week, null, null, split: true);
+        var chart = ChartFolding.Days(new ChildCells(cells, 6, null, false), DatePeriod.Week, null, null, split: true);
 
-        Assert.Equal(12, chart.Series.Count);
+        Assert.Equal(6, chart.Series.Count);
         Assert.DoesNotContain(chart.Series, series => series.Other);
         Assert.Equal(0, chart.OtherSeries);
+    }
+
+    [Fact]
+    public void A_cut_read_is_reported_even_when_only_undated_rows_came_back()
+    {
+        ChildCells read = new([new ChildCell(null, null, 10_000, null)], 20_000, null, CellsCut: true);
+
+        var chart = ChartFolding.Days(read, DatePeriod.Month, null, null, split: false);
+
+        Assert.True(chart.Truncated);
+        Assert.Empty(chart.Buckets);
+    }
+
+    [Fact]
+    public void A_window_with_nothing_in_it_draws_no_axis_but_names_its_days_and_what_fell_outside()
+    {
+        ChildCells read = new([], 0, null, false, OutsideWindow: 14);
+
+        var chart = ChartFolding.Days(
+            read,
+            DatePeriod.Month,
+            new DateOnly(2026, 1, 15),
+            new DateOnly(2026, 3, 2),
+            split: false);
+
+        Assert.Empty(chart.Buckets);
+        Assert.Equal(new DateOnly(2026, 1, 1), chart.From);
+        Assert.Equal(new DateOnly(2026, 3, 31), chart.To);
+        Assert.Equal(14, chart.OutsideWindow);
+    }
+
+    [Fact]
+    public void With_no_stored_end_the_axis_stops_at_the_latest_data_before_today()
+    {
+        ChildCells read = new([new ChildCell("2026-03-10", null, 2, null)], 2, null, false, OutsideWindow: 1);
+
+        var chart = ChartFolding.Days(
+            read,
+            DatePeriod.Month,
+            null,
+            new DateOnly(2026, 10, 9),
+            split: false,
+            endAtData: true);
+
+        Assert.Equal(["2026-03-01"], chart.Buckets.Select(bucket => bucket.Value));
+        Assert.Equal(1, chart.OutsideWindow);
     }
 
     [Fact]

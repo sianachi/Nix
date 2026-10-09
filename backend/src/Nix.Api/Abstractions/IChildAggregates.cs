@@ -58,7 +58,11 @@ public sealed record ChildBuckets(
 /// The measured property's total across them, or <see langword="null"/> when no measure was asked for
 /// or none of them carried a number.
 /// </param>
-public sealed record ChildCell(string? Bucket, string? Series, long Children, decimal? Total);
+/// <param name="Other">
+/// Whether this cell holds every series past the cap, folded together; its <paramref name="Series"/>
+/// is then <see langword="null"/> and means nothing.
+/// </param>
+public sealed record ChildCell(string? Bucket, string? Series, long Children, decimal? Total, bool Other = false);
 
 /// <summary>A cell read's rows, and enough to say honestly what it left out.</summary>
 /// <param name="Cells">The cells, in the order the read defines.</param>
@@ -71,11 +75,20 @@ public sealed record ChildCell(string? Bucket, string? Series, long Children, de
 /// Whether the cell ceiling stopped the read before every cell it would otherwise have returned, so
 /// the last bucket (or, for a day read, the earliest day) may be incomplete.
 /// </param>
+/// <param name="OutsideWindow">
+/// For a day read: dated children that fall outside the window, counted rather than returned. They
+/// are not part of <paramref name="Children"/>.
+/// </param>
+/// <param name="SeriesValues">
+/// How many distinct series values exist, including those folded into the Other cells.
+/// </param>
 public sealed record ChildCells(
     IReadOnlyList<ChildCell> Cells,
     long Children,
     long? DistinctBuckets,
-    bool CellsCut);
+    bool CellsCut,
+    long OutsideWindow = 0,
+    long SeriesValues = 0);
 
 /// <summary>
 /// Folds an item's children: what a rollup property reduces, and what a chart groups.
@@ -149,6 +162,7 @@ public interface IChildAggregates
     /// <param name="groupKey">The property whose values become buckets.</param>
     /// <param name="splitKey">The property whose values become series.</param>
     /// <param name="measureKey">The numeric property to total, or <see langword="null"/> to count only.</param>
+    /// <param name="seriesLimit">The most series to return by name; the rest are folded into Other cells.</param>
     /// <param name="bucketLimit">The most buckets to return, largest first, each with all its cells.</param>
     /// <param name="cellLimit">The most cells to return in all.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
@@ -159,6 +173,7 @@ public interface IChildAggregates
         string groupKey,
         string splitKey,
         string? measureKey,
+        int seriesLimit,
         int bucketLimit,
         int cellLimit,
         CancellationToken cancellationToken);
@@ -174,11 +189,13 @@ public interface IChildAggregates
     /// <param name="measureKey">The numeric property to total, or <see langword="null"/> to count only.</param>
     /// <param name="firstDay">The earliest day to count, or <see langword="null"/> for no lower bound.</param>
     /// <param name="lastDay">The latest day to count, or <see langword="null"/> for no upper bound.</param>
+    /// <param name="seriesLimit">The most series to return by name; the rest are folded into Other cells.</param>
     /// <param name="cellLimit">The most cells to return.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>
     /// The cells, undated first and then latest day first, and the totals that say what did not fit.
-    /// Undated children - no value, or one not shaped like a date - are counted whatever the window.
+    /// Undated children - no value, or one that is not a real date - are counted whatever the
+    /// window; dated children outside it are counted in <see cref="ChildCells.OutsideWindow"/>.
     /// </returns>
     public ValueTask<ChildCells> BucketByDayAsync(
         WorkspaceId workspaceId,
@@ -188,6 +205,7 @@ public interface IChildAggregates
         string? measureKey,
         DateOnly? firstDay,
         DateOnly? lastDay,
+        int seriesLimit,
         int cellLimit,
         CancellationToken cancellationToken);
 }

@@ -49,6 +49,14 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
     private static readonly Guid AlphaRoot = new("70110000-1111-4111-8111-701100000001");
 
     /// <summary>
+    /// One container far larger than the rest, under a root of its own so the page of ordinary
+    /// containers above is unchanged: the case a chart over years of daily entries is.
+    /// </summary>
+    private static readonly Guid BigRoot = new("70110000-1111-4111-8111-701100000003");
+    private static readonly Guid BigContainer = new("70110000-1111-4111-8111-701100000004");
+    private const int BigChildren = 60_000;
+
+    /// <summary>
     /// A container in the other tenant, with children of its own carrying the folded property.
     /// </summary>
     /// <remarks>
@@ -215,6 +223,7 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                     Text("group_key", "status"),
                     Text("split_key", "title"),
                     Text("measure_key", "estimate"),
+                    Int("series_limit", 6),
                     Int("bucket_limit", 100),
                     Int("cell_limit", 10_000),
                 ]
@@ -228,6 +237,7 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                     Text("measure_key", "estimate"),
                     Text("from_day", "2026-01-01"),
                     Text("to_day", "2026-12-31"),
+                    Int("series_limit", 6),
                     Int("cell_limit", 10_000),
                 ]);
 
@@ -238,8 +248,61 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
             AlphaChildren);
         _output.WriteLine(plan);
 
-        Assert.Contains("Index Scan using \"IX_item_tenant_id_parent_id\"", plan, StringComparison.Ordinal);
-        Assert.DoesNotContain("Seq Scan on item c", plan, StringComparison.Ordinal);
+        AssertReachedThroughParentIndex(plan);
+    }
+
+    [Theory]
+    [InlineData(nameof(RollupSql.BucketChildrenByPropertyAndSeries), "category", "note", null, null)]
+    [InlineData(nameof(RollupSql.BucketChildrenByDay), "date", "note", null, null)]
+    [InlineData(nameof(RollupSql.BucketChildrenByDay), "date", "category", "2025-10-13", "2026-10-11")]
+    public async Task The_chart_cell_reads_stay_on_the_parent_index_for_a_large_container(
+        string name,
+        string groupKey,
+        string splitKey,
+        string? from,
+        string? to)
+    {
+        var bySeries = name == nameof(RollupSql.BucketChildrenByPropertyAndSeries);
+        NpgsqlParameter[] common =
+        [
+            Uuid("tenant_id", M0SchemaSeed.Alpha.TenantId),
+            Uuid("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
+            Uuid("parent_id", BigContainer),
+            Text("group_key", groupKey),
+            Text("split_key", splitKey),
+            Text("measure_key", "amount"),
+            Int("series_limit", 6),
+            Int("cell_limit", 10_000),
+        ];
+
+        var plan = await ExplainAsRuntimeRoleAsync(
+            bySeries ? RollupSql.BucketChildrenByPropertyAndSeries : RollupSql.BucketChildrenByDay,
+            bySeries
+                ? [.. common, Int("bucket_limit", 100)]
+                : [.. common, NullableText("from_day", from), NullableText("to_day", to)]);
+
+        _output.WriteLine(
+            "{0} by {1} split by {2}, window {3} to {4}, one container of {5} children, runtime role:",
+            name,
+            groupKey,
+            splitKey,
+            from ?? "open",
+            to ?? "open",
+            BigChildren);
+        _output.WriteLine(plan);
+
+        AssertReachedThroughParentIndex(plan);
+    }
+
+    /// <summary>
+    /// The container's children are reached through the parent index - as an index scan or a
+    /// bitmap heap scan over it, whichever the planner picks for the size - and the item table is
+    /// never scanned whole.
+    /// </summary>
+    private static void AssertReachedThroughParentIndex(string plan)
+    {
+        Assert.Contains("IX_item_tenant_id_parent_id", plan, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"Seq Scan on item\s", plan);
         Assert.DoesNotContain("Parallel Seq Scan", plan, StringComparison.Ordinal);
         Assert.Contains("nix.tenant_id", plan, StringComparison.Ordinal);
     }
@@ -387,6 +450,9 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
     private static NpgsqlParameter Text(string name, string value) =>
         new(name, NpgsqlDbType.Text) { Value = value };
 
+    private static NpgsqlParameter NullableText(string name, string? value) =>
+        new(name, NpgsqlDbType.Text) { Value = value is null ? DBNull.Value : value };
+
     private static NpgsqlParameter Int(string name, int value) =>
         new(name, NpgsqlDbType.Integer) { Value = value };
 
@@ -474,6 +540,34 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                    'active', NULL, {{betaPrincipal}}, {{betaPrincipal}}, now(), now()
             FROM generate_series(1, {{BetaItems}}) AS n;
 
+            -- The large container: a date on every child across five years, a category with six
+            -- values, and a free-text note with a value per child - the high-cardinality split.
+            INSERT INTO item
+                (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                 lifecycle_state, purge_after, created_by, last_modified_by, created_at,
+                 last_modified_at)
+            VALUES
+                ({{Literal(BigRoot)}}, {{alphaTenant}}, {{alphaWorkspace}}, 'note', NULL, 299998,
+                 '{"title":"Large corpus root"}'::jsonb, 'active', NULL, {{alphaPrincipal}},
+                 {{alphaPrincipal}}, now(), now()),
+                ({{Literal(BigContainer)}}, {{alphaTenant}}, {{alphaWorkspace}}, 'note',
+                 {{Literal(BigRoot)}}, 299999, '{"title":"Large container"}'::jsonb, 'active', NULL,
+                 {{alphaPrincipal}}, {{alphaPrincipal}}, now(), now());
+
+            INSERT INTO item
+                (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                 lifecycle_state, purge_after, created_by, last_modified_by, created_at, last_modified_at)
+            SELECT gen_random_uuid(), {{alphaTenant}}, {{alphaWorkspace}}, 'note',
+                   {{Literal(BigContainer)}}, 500000 + n,
+                   jsonb_build_object(
+                       'title', 'Entry ' || n,
+                       'date', to_char(date '2021-10-01' + (n % 1826), 'YYYY-MM-DD'),
+                       'category', (ARRAY['Food','Rent','Travel','Fun','Health','Other'])[1 + (n % 6)],
+                       'note', 'free text ' || n,
+                       'amount', (n % 50)),
+                   'active', NULL, {{alphaPrincipal}}, {{alphaPrincipal}}, now(), now()
+            FROM generate_series(1, {{BigChildren}}) AS n;
+
             -- Refresh the item statistics before closure foreign-key probes use the new corpus.
             -- Respawn leaves the previous fixture's planner statistics behind.
             ANALYZE item;
@@ -507,7 +601,18 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
             SELECT child.id, {{Literal(AlphaRoot)}}, child.tenant_id, child.workspace_id, 2
             FROM item AS child
             WHERE child.tenant_id = {{alphaTenant}}
-              AND child.seq >= 300001;
+              AND child.seq BETWEEN 300001 AND 399999;
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT id, {{Literal(BigRoot)}}, tenant_id, workspace_id, 1
+            FROM item
+            WHERE id = {{Literal(BigContainer)}};
+
+            INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+            SELECT child.id, {{Literal(BigRoot)}}, child.tenant_id, child.workspace_id, 2
+            FROM item AS child
+            WHERE child.tenant_id = {{alphaTenant}}
+              AND child.seq >= 500001;
 
             ANALYZE item;
             ANALYZE item_closure;
@@ -528,7 +633,7 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
 
             // Bulk fixture setup can exceed the default 30 seconds on shared CI runners.
             // Keep the measured runtime queries on their normal timeout.
-            await RawSql.ExecuteAsync(connection, transaction: null, sql, commandTimeoutSeconds: 120);
+            await RawSql.ExecuteAsync(connection, transaction: null, sql, commandTimeoutSeconds: 600);
         }
     }
 
