@@ -87,11 +87,12 @@ public interface IItemLocks
         string verifier,
         CancellationToken cancellationToken);
 
-    /// <summary>Removes a lock and every grant past it.</summary>
+    /// <summary>Removes a lock and every grant past it only while its verified password still holds.</summary>
     /// <param name="itemId">The item.</param>
+    /// <param name="expected">The verifier the password was checked against.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns><see langword="false"/> when the item was not locked.</returns>
-    public ValueTask<bool> RemoveAsync(ItemId itemId, CancellationToken cancellationToken);
+    /// <returns><see langword="false"/> when the lock was removed or its password changed.</returns>
+    public ValueTask<bool> RemoveAsync(ItemId itemId, string expected, CancellationToken cancellationToken);
 
     /// <summary>
     /// Issues or extends the current credential's grant past a lock, provided the lock still

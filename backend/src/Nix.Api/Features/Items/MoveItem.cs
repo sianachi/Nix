@@ -122,6 +122,20 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
             return await TransferAsync(command, item, destinationWorkspace, cancellationToken).ConfigureAwait(false);
         }
 
+        if (_financeGuard is not null)
+        {
+            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, newParentId, true, cancellationToken).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<Item>(blocked.Value);
+            }
+            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.WorkspaceId != workspaceId)
+            {
+                return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
+            }
+        }
+
         if (newParentId != item.ParentId && item.ManagedBy == ItemManagers.CalendarEvent)
         {
             // Leaving the linked container is how an event is deleted upstream, so it is a
@@ -178,48 +192,6 @@ public sealed class MoveItemHandler : ICommandHandler<MoveItem, Item>
         {
             return Result.Failure<Item>(
                 ItemErrors.Locked($"Item {currentParent} is locked. Unlock it before moving anything out of it."));
-        }
-
-        if (_financeGuard is not null)
-        {
-            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, newParentId, true, cancellationToken).ConfigureAwait(false);
-            if (blocked is not null)
-            {
-                return Result.Failure<Item>(blocked.Value);
-            }
-            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
-            if (item is null || item.WorkspaceId != workspaceId)
-            {
-                return Result.Failure<Item>(ItemErrors.NotFound($"No item {itemId} is visible."));
-            }
-            if (newParentId is { } lockedParentId)
-            {
-                var lockedParent = await _tree.FindAsync(lockedParentId, cancellationToken).ConfigureAwait(false);
-                if (lockedParent is null || lockedParent.WorkspaceId != item.WorkspaceId)
-                {
-                    return Result.Failure<Item>(ItemErrors.ParentNotFound($"No parent {lockedParentId} is visible in this workspace."));
-                }
-                if (lockedParent.LifecycleState != ItemLifecycleState.Active)
-                {
-                    return Result.Failure<Item>(ItemErrors.LifecycleConflict("An item cannot be moved into a deleted parent."));
-                }
-                if (lockedParent.NoChildren && newParentId != item.ParentId)
-                {
-                    return Result.Failure<Item>(ItemErrors.ChildrenProtected("The destination does not accept new children."));
-                }
-                if (lockedParentId == itemId || await _tree.WouldCreateCycleAsync(itemId, lockedParentId, cancellationToken).ConfigureAwait(false))
-                {
-                    return Result.Failure<Item>(ItemErrors.WouldCreateCycle($"Item {itemId} cannot be moved into itself or into one of its descendants."));
-                }
-            }
-            if (afterId is { } lockedAnchorId)
-            {
-                var lockedAnchor = await _tree.FindAsync(lockedAnchorId, cancellationToken).ConfigureAwait(false);
-                if (lockedAnchor is null || lockedAnchor.WorkspaceId != item.WorkspaceId || lockedAnchor.ParentId != newParentId || lockedAnchorId == itemId)
-                {
-                    return Result.Failure<Item>(ItemErrors.SiblingNotInDestination($"Item {lockedAnchorId} is not a child of the destination, so it cannot order the move."));
-                }
-            }
         }
 
         if (afterId is { } anchor)

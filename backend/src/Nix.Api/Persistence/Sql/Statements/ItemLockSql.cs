@@ -325,7 +325,7 @@ public static class ItemLockSql
     /// <summary>Removes a lock; its grants go with it by cascade.</summary>
     public const string Remove = """
         DELETE FROM item_lock
-        WHERE tenant_id = @tenant_id AND item_id = @item_id
+        WHERE tenant_id = @tenant_id AND item_id = @item_id AND password_hash = @expected_hash
         """;
 
     /// <summary>

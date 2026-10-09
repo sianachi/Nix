@@ -71,7 +71,7 @@ public sealed class WorkerExecutionMiddleware
             PrincipalId.From(authorization.ActorId)));
 
         var originalBody = context.Response.Body;
-        var bufferedBody = CreateResponseBuffer();
+        var bufferedBody = BufferedResponse.Create();
         await using (bufferedBody.ConfigureAwait(false))
         {
             context.Response.Body = bufferedBody;
@@ -86,7 +86,7 @@ public sealed class WorkerExecutionMiddleware
                     if (context.Response.StatusCode >= StatusCodes.Status400BadRequest)
                     {
                         await transaction.RollbackAsync(context.RequestAborted).ConfigureAwait(false);
-                        await PublishBufferedResponseAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
+                        await BufferedResponse.PublishAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
                         return;
                     }
 
@@ -105,46 +105,13 @@ public sealed class WorkerExecutionMiddleware
                     await transaction.CommitAsync(context.RequestAborted).ConfigureAwait(false);
                 }
 
-                await PublishBufferedResponseAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
+                await BufferedResponse.PublishAsync(context, bufferedBody, originalBody).ConfigureAwait(false);
             }
             finally
             {
                 context.Response.Body = originalBody;
             }
         }
-    }
-
-    private static FileStream CreateResponseBuffer()
-    {
-        var options = new FileStreamOptions
-        {
-            Access = FileAccess.ReadWrite,
-            BufferSize = 64 * 1024,
-            Mode = FileMode.CreateNew,
-            Options = FileOptions.Asynchronous | FileOptions.DeleteOnClose | FileOptions.SequentialScan,
-            Share = FileShare.None,
-        };
-        if (!OperatingSystem.IsWindows())
-        {
-            options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        }
-        return new FileStream(
-            Path.Combine(Path.GetTempPath(), $"nix-worker-response-{Guid.NewGuid():N}.tmp"),
-            options);
-    }
-
-    private static async Task PublishBufferedResponseAsync(
-        HttpContext context,
-        FileStream bufferedBody,
-        Stream originalBody)
-    {
-        context.Response.Body = originalBody;
-        bufferedBody.Position = 0;
-        if (context.Response.StatusCode is not (StatusCodes.Status204NoContent or StatusCodes.Status304NotModified))
-        {
-            context.Response.ContentLength = bufferedBody.Length;
-        }
-        await bufferedBody.CopyToAsync(originalBody, context.RequestAborted).ConfigureAwait(false);
     }
 
     private static async Task RefuseAsync(HttpContext context)

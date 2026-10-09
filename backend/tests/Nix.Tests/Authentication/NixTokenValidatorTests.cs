@@ -15,6 +15,22 @@ namespace Nix.Tests.Authentication;
 
 public sealed class NixTokenValidatorTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("garbage")]
+    [InlineData("a.a.a")]
+    [InlineData("eyJhbGciOiJSUzI1NiJ9.bm90LWpzb24.a")]
+    [InlineData("eyJhbGciOiJSUzI1NiJ9.eyJpc3MiOjQyfQ.a")]
+    public async Task Malformed_tokens_are_refused_without_throwing(string token)
+    {
+        using var selfIssued = new SelfIssuedTokenService(new ConfigurationBuilder().Build(), TimeProvider.System);
+        var validator = new NixTokenValidator(
+            new RegistrationDirectory(new Dictionary<string, IdentityProviderRegistration>()), selfIssued);
+
+        Assert.Null(await validator.ValidateAsync(token, TestContext.Current.CancellationToken));
+    }
+
     [Fact]
     public async Task Core_issuer_returns_a_core_token_with_only_principal_and_pat_identity()
     {

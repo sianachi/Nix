@@ -129,6 +129,22 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
             return Result.Success(itemId);
         }
 
+        if (_financeGuard is not null)
+        {
+            var workspaceId = item.WorkspaceId;
+            var blocked = await _financeGuard.CheckAsync(workspaceId, itemId, null, true, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<ItemId>(blocked.Value);
+            }
+            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.WorkspaceId != workspaceId || item.LifecycleState != ItemLifecycleState.Active
+                || !await _permissions.CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<ItemId>(ItemErrors.NotFound($"No item {itemId} is visible."));
+            }
+        }
+
         if (item.NoDelete && !(command.CalendarWrite && item.ManagedBy is not null))
         {
             return Result.Failure<ItemId>(ItemErrors.DeleteProtected(item.ManagedBy is null
@@ -146,20 +162,6 @@ public sealed class DeleteItemHandler : ICommandHandler<DeleteItem, ItemId>
         {
             return Result.Failure<ItemId>(ItemErrors.DeleteProtected(
                 "An item inside this one is protected from deletion."));
-        }
-
-        if (_financeGuard is not null)
-        {
-            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, itemId, null, true, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
-            if (blocked is not null)
-            {
-                return Result.Failure<ItemId>(blocked.Value);
-            }
-            item = await _tree.FindAsync(itemId, cancellationToken).ConfigureAwait(false);
-            if (item is null || item.LifecycleState != ItemLifecycleState.Active)
-            {
-                return Result.Failure<ItemId>(ItemErrors.NotFound($"No item {itemId} is visible."));
-            }
         }
 
         await _tree

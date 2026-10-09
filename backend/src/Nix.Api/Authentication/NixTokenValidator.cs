@@ -150,15 +150,25 @@ public sealed class NixTokenValidator
     /// </returns>
     public async ValueTask<ValidatedToken?> ValidateAsync(string token, CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(token);
-
-        if (!_handler.CanReadToken(token))
+        if (string.IsNullOrWhiteSpace(token) || !_handler.CanReadToken(token))
         {
             return null;
         }
 
         // Unvalidated, and used only to choose an issuer to validate against. See the note above.
-        var unverified = _handler.ReadJwtToken(token);
+        JwtSecurityToken unverified;
+        try
+        {
+            unverified = _handler.ReadJwtToken(token);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        catch (SecurityTokenException)
+        {
+            return null;
+        }
         var issuer = unverified.Issuer;
         var audiences = unverified.Audiences
             .Where(static audience => !string.IsNullOrWhiteSpace(audience))

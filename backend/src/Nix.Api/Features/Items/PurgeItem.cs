@@ -32,32 +32,41 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
             return Result.Failure<ItemId>(ItemErrors.LifecycleConflict("Only an item in Trash can be permanently deleted."));
         }
 
+        if (_financeGuard is not null)
+        {
+            var workspaceId = item.WorkspaceId;
+            var blocked = await _financeGuard.CheckAsync(workspaceId, item.Id, null, true, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
+            if (blocked is not null)
+            {
+                return Result.Failure<ItemId>(blocked.Value);
+            }
+            item = await _tree.FindStoredAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
+            if (item is null || item.WorkspaceId != workspaceId || item.LifecycleState != ItemLifecycleState.Deleted
+                || !await _permissions.CanWriteWorkspaceAsync(item.WorkspaceId, cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<ItemId>(ItemErrors.NotFound($"No deleted item {command.ItemId} is visible."));
+            }
+        }
         // Purging moves the item's children up to its parent, out from under its lock and any lock
         // above it. Whoever does that must have those locks open, the rule a move follows.
         if (!await _locks.MayReadBodyAsync(item.Id, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<ItemId>(ItemErrors.Locked($"Item {item.Id} is locked. Unlock it before deleting it permanently."));
         }
-        if (_financeGuard is not null)
-        {
-            var blocked = await _financeGuard.CheckAsync(item.WorkspaceId, item.Id, null, true, cancellationToken, allowOpenTransaction: true).ConfigureAwait(false);
-            if (blocked is not null)
-            {
-                return Result.Failure<ItemId>(blocked.Value);
-            }
-            item = await _tree.FindStoredAsync(command.ItemId, cancellationToken).ConfigureAwait(false);
-            if (item is null || item.LifecycleState != ItemLifecycleState.Deleted)
-            {
-                return Result.Failure<ItemId>(ItemErrors.NotFound($"No deleted item {command.ItemId} is visible."));
-            }
-        }
         var context = _session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
         var now = _clock.GetUtcNow();
-        var children = await _tree.ListChildrenAsync(item.WorkspaceId, item.Id, true, null, ListItemsHandler.MaximumPageSize, cancellationToken).ConfigureAwait(false);
-        foreach (var child in children)
+        while (true)
         {
-            var seq = await _tree.NextSiblingSequenceAsync(item.WorkspaceId, item.ParentId, cancellationToken).ConfigureAwait(false);
-            await _tree.ReparentAsync(child.Id, item.ParentId, seq, context.PrincipalId, now, cancellationToken).ConfigureAwait(false);
+            var children = await _tree.ListChildrenAsync(item.WorkspaceId, item.Id, true, null, ListItemsHandler.MaximumPageSize, cancellationToken).ConfigureAwait(false);
+            if (children.Count == 0)
+            {
+                break;
+            }
+            foreach (var child in children)
+            {
+                var seq = await _tree.NextSiblingSequenceAsync(item.WorkspaceId, item.ParentId, cancellationToken).ConfigureAwait(false);
+                await _tree.ReparentAsync(child.Id, item.ParentId, seq, context.PrincipalId, now, cancellationToken).ConfigureAwait(false);
+            }
         }
         await _tree.SetLifecycleAsync(item.Id, ItemLifecycleState.Purged, context.PrincipalId, now, cancellationToken).ConfigureAwait(false);
         return Result.Success(item.Id);
