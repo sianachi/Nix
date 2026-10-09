@@ -118,6 +118,22 @@ export interface StructureFilterGroup {
 export type StructureFilterEntry = StructureFilter | StructureFilterGroup;
 
 /**
+ * A chart view's type, time axis, series and window, as Core's `ChartOptionsContract`. Every field
+ * is present and nullable, the shape the web's parsed view carries: null draws what a chart with
+ * nothing configured draws.
+ */
+export interface StructureChartOptions {
+  kind: string | null;
+  period: string | null;
+  splitBy: string | null;
+  lastPeriods: number | null;
+  from: string | null;
+  to: string | null;
+  cumulative: boolean | null;
+  rollingAverage: boolean | null;
+}
+
+/**
  * A view, as `apps/web/src/views/core/container-model.ts`'s `View`.
  *
  * The trailing group of fields is optional there for the same reason it is here: a view built by
@@ -143,6 +159,7 @@ export interface StructureView {
   habitWidgets?: StructureHabitWidget[];
   measure?: string | null;
   measureProperty?: string | null;
+  chart?: StructureChartOptions | null;
   companionViewId?: string | null;
   companionPlacement?: 'below' | 'beside' | null;
   interactiveForm?: StructureForm | null;

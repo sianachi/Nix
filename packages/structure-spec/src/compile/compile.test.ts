@@ -4,7 +4,7 @@ import type { ViewSpec } from '../spec/view.js';
 import type { StructureProperty } from '../types.js';
 import { compileAddView, compileCreateStructured, compileEntries } from './operations.js';
 import { isWriteStep, STEP_KINDS, type Step } from './steps.js';
-import { compileView } from './views.js';
+import { compileChartOptions, compileView } from './views.js';
 
 const STATUS: StructureProperty = {
   key: 'status',
@@ -276,5 +276,30 @@ describe('STEP_KINDS and isWriteStep', () => {
     expect(STEP_KINDS).toContain('ensureSandbox');
     expect(STEP_KINDS).toContain('captureTemplate');
     expect(STEP_KINDS).toContain('applyTemplate');
+  });
+});
+
+describe('compileChartOptions', () => {
+  it('puts a chart grouped by a date on a monthly time axis unless told otherwise', () => {
+    expect(compileChartOptions({ kind: 'chart' }, 'date', null)).toMatchObject({
+      kind: null,
+      period: 'month',
+      splitBy: null,
+    });
+    expect(
+      compileChartOptions({ kind: 'chart', period: 'week' }, 'timestamp', 'status'),
+    ).toMatchObject({
+      kind: null,
+      period: 'week',
+      splitBy: 'status',
+    });
+  });
+
+  it('counts a year grid by day and leaves a plain chart of categories with no options', () => {
+    expect(
+      compileChartOptions({ kind: 'chart', chartKind: 'year', period: 'month' }, 'date', null),
+    ).toMatchObject({ kind: 'year', period: 'day', splitBy: null });
+    expect(compileChartOptions({ kind: 'chart' }, 'select', null)).toBeNull();
+    expect(compileChartOptions({ kind: 'board' }, 'date', null)).toBeNull();
   });
 });

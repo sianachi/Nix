@@ -68,7 +68,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   sheet: ['columns'],
   form: ['columns'],
   board: ['groupBy', 'groupOrder'],
-  chart: ['groupBy', 'groupOrder', 'measure', 'measureField'],
+  chart: ['groupBy', 'groupOrder', 'measure', 'measureField', 'chartKind', 'period', 'splitBy'],
   calendar: ['date', 'endDate', 'mode'],
   timeline: ['date', 'endDate', 'mode'],
   gallery: ['cover', 'cardSize'],
@@ -99,7 +99,7 @@ export const viewSpecSchema = z
     groupBy: z
       .string()
       .min(1)
-      .describe('Board, chart: a select. List: a select, checkbox or $type, drawn as sections.')
+      .describe('Board: select. Chart: select or date. List: select, checkbox or $type.')
       .optional(),
     groupOrder: z.array(z.string().min(1)).optional(),
     date: z.string().min(1).optional(),
@@ -113,6 +113,11 @@ export const viewSpecSchema = z
     filters: z.array(viewFilterSpecSchema).max(8).optional(),
     measure: z.enum(['count', 'sum']).optional(),
     measureField: z.string().min(1).optional(),
+    // Chart only; descriptions left off on purpose, because every byte here is in the pet's tool
+    // schema budget and the catalog's chart description already says what they mean.
+    chartKind: z.enum(['bar', 'column', 'pie', 'line', 'area', 'year']).optional(),
+    period: z.enum(['day', 'week', 'month', 'quarter', 'year']).optional(),
+    splitBy: z.string().min(1).optional(),
     form: formSpecSchema.optional(),
     doneProperty: z.string().min(1).optional(),
     rowBy: z.string().min(1).optional(),

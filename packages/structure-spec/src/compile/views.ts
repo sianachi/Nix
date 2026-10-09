@@ -2,11 +2,13 @@ import type { ViewSpec } from '../spec/view.js';
 import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { findSmartList } from '../vocabulary/smart-lists.js';
 import type {
+  StructureChartOptions,
   StructureFilter,
   StructureFilterEntry,
   StructureProperty,
   StructureView,
 } from '../types.js';
+import { isDateShaped } from '../vocabulary/property-types.js';
 import { compileForm } from './forms.js';
 import { resolveKey } from './resolve.js';
 
@@ -72,6 +74,43 @@ function compileFilters(
 /** Whether a filter field names a structural query field rather than a property. */
 export function isStructuralField(field: string): boolean {
   return field.startsWith('$');
+}
+
+/**
+ * A chart view's options, or null when the spec asks for nothing beyond a bar chart of categories.
+ *
+ * A chart grouped by a date-shaped property is put on a time axis even when the spec names no
+ * period - month, the grain a person most often means by "over time" - because a chart bucketing
+ * raw dates would draw one bar per distinct day. Line, area and the year grid are the time-axis
+ * types; the year grid always counts by day, which is what Core insists on too.
+ */
+export function compileChartOptions(
+  spec: Pick<ViewSpec, 'kind' | 'chartKind' | 'period'>,
+  groupByType: string | undefined,
+  splitBy: string | null,
+): StructureChartOptions | null {
+  if (spec.kind !== 'chart') {
+    return null;
+  }
+
+  const dated = groupByType !== undefined && isDateShaped(groupByType);
+  const period = spec.chartKind === 'year' ? 'day' : (spec.period ?? (dated ? 'month' : null));
+  const kind = spec.chartKind ?? null;
+
+  if (kind === null && period === null && splitBy === null) {
+    return null;
+  }
+
+  return {
+    kind,
+    period,
+    splitBy,
+    lastPeriods: null,
+    from: null,
+    to: null,
+    cumulative: null,
+    rollingAverage: null,
+  };
 }
 
 /**
@@ -142,6 +181,11 @@ export function compileView(
     measure: spec.kind === 'chart' ? (spec.measure ?? 'count') : null,
     measureProperty:
       spec.measureField !== undefined ? resolveKey(spec.measureField, effective, addedKeys) : null,
+    chart: compileChartOptions(
+      spec,
+      groupBySource?.type,
+      spec.splitBy !== undefined ? resolveKey(spec.splitBy, effective, addedKeys) : null,
+    ),
     companionViewId: null,
     companionPlacement: null,
     interactiveForm:

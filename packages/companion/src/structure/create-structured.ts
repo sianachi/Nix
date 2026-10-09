@@ -53,6 +53,7 @@ export function toViewRequest(view: StructureView): ViewRequestContract {
     interactiveForm: view.interactiveForm ?? null,
     measure: view.measure ?? null,
     measureProperty: view.measureProperty ?? null,
+    chart: view.chart ?? null,
     habitWidgets: view.habitWidgets ?? null,
     layout: view.layout,
     doneProperty: view.doneProperty ?? null,

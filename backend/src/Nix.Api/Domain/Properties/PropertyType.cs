@@ -434,14 +434,16 @@ public static class PropertyTypes
 
     /// <summary>Whether a chart may bucket its bars by this type.</summary>
     /// <param name="type">The type.</param>
-    /// <returns><see langword="true"/> for a single select.</returns>
+    /// <returns><see langword="true"/> for a single select or a date-shaped type.</returns>
     /// <remarks>
     /// Kept apart from <see cref="CanGroupBy"/> so the two can widen apart: a chart's buckets are
-    /// folded on the server (<c>RunItemChart</c>), which reads one select value per item. A
-    /// multi-select would count an item in several bars and an assignee bar would be labelled by
-    /// an identifier.
+    /// folded on the server (<c>RunItemChart</c>), which reads one value per item. A multi-select
+    /// would count an item in several bars and an assignee bar would be labelled by an identifier.
+    /// A date is the time axis (plan 2.2): the chart folds each item's day into a period, which a
+    /// board has no use for.
     /// </remarks>
-    public static bool CanChartBy(this PropertyType type) => type is PropertyType.Select;
+    public static bool CanChartBy(this PropertyType type) =>
+        type is PropertyType.Select || type.CanPlaceOnCalendar();
 
     /// <summary>Whether a calendar may place items by this type.</summary>
     /// <param name="type">The type.</param>

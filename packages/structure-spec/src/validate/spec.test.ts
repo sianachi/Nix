@@ -146,6 +146,55 @@ describe('validateSpec create_structured', () => {
     expect(report.problems.some((problem) => problem.path === 'views[0]')).toBe(true);
   });
 
+  it('accepts a chart along a date, split by a select, drawn as a line', () => {
+    const report = validateSpec(
+      'create_structured',
+      {
+        recipe: 'sheet',
+        fields: [
+          { label: 'Spent on', type: 'date' },
+          { label: 'Category', type: 'select', options: ['Food', 'Rent'] },
+        ],
+        views: [{ kind: 'chart', groupBy: 'spent_on', chartKind: 'line', splitBy: 'category' }],
+      },
+      context(),
+    );
+    expect(report.problems).toEqual([]);
+  });
+
+  it('refuses a line chart over categories, a split by free text, and a year grid by month', () => {
+    const fields = [
+      { label: 'Status', type: 'select', options: ['Open', 'Done'] },
+      { label: 'Notes', type: 'text' },
+      { label: 'Done on', type: 'date' },
+    ];
+    for (const view of [
+      { kind: 'chart', groupBy: 'status', chartKind: 'line' },
+      { kind: 'chart', groupBy: 'status', splitBy: 'notes' },
+      { kind: 'chart', groupBy: 'status', period: 'week' },
+    ]) {
+      const report = validateSpec(
+        'create_structured',
+        { recipe: 'sheet', fields, views: [view] },
+        context(),
+      );
+      expect(report.ok, JSON.stringify(view)).toBe(false);
+    }
+  });
+
+  it('refuses chart options on a view that is not a chart', () => {
+    const report = validateSpec(
+      'create_structured',
+      {
+        recipe: 'board',
+        fields: [{ label: 'Status', type: 'select', options: ['Open', 'Done'] }],
+        views: [{ kind: 'board', groupBy: 'status', chartKind: 'pie' }],
+      },
+      context(),
+    );
+    expect(report.ok).toBe(false);
+  });
+
   it('reports an unknown form field at its page and block indices', () => {
     const report = validateSpec(
       'create_structured',
