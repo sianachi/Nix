@@ -151,6 +151,8 @@ export type {
   CalendarEntry,
   EffectiveSchema,
   ChartBucket,
+  ChartCell,
+  ChartSeries,
   ItemChart,
   ItemQueryResults,
   AggregateGroup,

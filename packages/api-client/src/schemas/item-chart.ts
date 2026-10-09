@@ -9,6 +9,12 @@
 import { z } from 'zod';
 import type { components } from '../generated/api.js';
 
+/** One series' share of one bucket. */
+export const chartCellSchema = z.object({
+  children: z.int(),
+  total: z.number().nullable(),
+});
+
 export const chartBucketSchema = z.object({
   /**
    * The grouping property's value, or null for the children that have none.
@@ -21,6 +27,23 @@ export const chartBucketSchema = z.object({
   children: z.int(),
 
   /** The measured property's total, or null when the chart counts rather than totals. */
+  total: z.number().nullable(),
+
+  /**
+   * One cell per series, aligned with the chart's `series`; empty when the chart is not split.
+   * Defaulted so a server from before series answers without it and costs nothing.
+   */
+  cells: z.array(chartCellSchema).default([]),
+});
+
+/** One series of a split chart. */
+export const chartSeriesSchema = z.object({
+  /** The splitting property's value; null for the children with none, and for "Other". */
+  value: z.string().nullable(),
+
+  /** Whether this series stands for every value past the twelfth, folded together. */
+  other: z.boolean(),
+  children: z.int(),
   total: z.number().nullable(),
 });
 
@@ -48,9 +71,42 @@ export const itemChartSchema = z.object({
    * client gets wrong once and then draws confidently forever.
    */
   truncated: z.boolean(),
+
+  /**
+   * The type the view draws: `bar`, `column`, `pie`, `line`, `area` or `year`. An open string, like
+   * `measure`; the renderer draws a type it does not know as bars. Defaulted so a server from before
+   * chart types answers without it.
+   */
+  chartKind: z.string().default('bar'),
+
+  /**
+   * The time axis's period (`day`, `week`, `month`, `quarter`, `year`), or null for a chart of
+   * categories. On a time axis every bucket's `value` is its period's start date, `yyyy-MM-dd`,
+   * earliest first, empty periods included as zeros.
+   */
+  period: z.string().nullable().default(null),
+  splitBy: z.string().nullable().default(null),
+
+  /** The first and last day a time axis covers. */
+  from: z.iso.date().nullable().default(null),
+  to: z.iso.date().nullable().default(null),
+
+  /** The series, largest first and any "Other" last; empty when not split. */
+  series: z.array(chartSeriesSchema).default([]),
+
+  /** How many series values were folded into "Other". */
+  otherSeries: z.int().default(0),
+
+  /**
+   * Children a time axis could not place because they have no date. Counted rather than dropped,
+   * so the chart can say so instead of quietly shrinking.
+   */
+  unplaced: z.int().default(0),
 });
 
 export type ChartBucket = z.infer<typeof chartBucketSchema>;
+export type ChartCell = z.infer<typeof chartCellSchema>;
+export type ChartSeries = z.infer<typeof chartSeriesSchema>;
 export type ItemChart = z.infer<typeof itemChartSchema>;
 
 /**

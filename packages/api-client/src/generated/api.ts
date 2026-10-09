@@ -2960,6 +2960,26 @@ export interface components {
       children: number | string;
       /** Format: double */
       total: null | number | string;
+      cells: components['schemas']['ChartCellResponse'][];
+    };
+    ChartCellResponse: {
+      /** Format: int64 */
+      children: number | string;
+      /** Format: double */
+      total: null | number | string;
+    };
+    ChartOptionsContract: {
+      kind?: null | string;
+      period?: null | string;
+      splitBy?: null | string;
+      /** Format: int32 */
+      lastPeriods?: null | number | string;
+      /** Format: date */
+      from?: null | string;
+      /** Format: date */
+      to?: null | string;
+      cumulative?: null | boolean;
+      rollingAverage?: null | boolean;
     };
     ChartResponse: {
       /** Format: uuid */
@@ -2974,6 +2994,26 @@ export interface components {
       /** Format: int64 */
       distinctValues: number | string;
       truncated: boolean;
+      chartKind: string;
+      period: null | string;
+      splitBy: null | string;
+      /** Format: date */
+      from: null | string;
+      /** Format: date */
+      to: null | string;
+      series: components['schemas']['ChartSeriesResponse'][];
+      /** Format: int64 */
+      otherSeries: number | string;
+      /** Format: int64 */
+      unplaced: number | string;
+    };
+    ChartSeriesResponse: {
+      value: null | string;
+      other: boolean;
+      /** Format: int64 */
+      children: number | string;
+      /** Format: double */
+      total: null | number | string;
     };
     CommitTemplateImportRequest: {
       expectedDigest: string;
@@ -4839,6 +4879,7 @@ export interface components {
       aggregates?: null | components['schemas']['ViewAggregateContract'][];
       doneProperty?: null | string;
       rowBy?: null | string;
+      chart?: null | components['schemas']['ChartOptionsContract'];
     };
     ViewResponse: {
       id: string;
@@ -4868,6 +4909,7 @@ export interface components {
       layout?: null | string;
       doneProperty?: null | string;
       rowBy?: null | string;
+      chart?: null | components['schemas']['ChartOptionsContract'];
     };
     ViewSortContract: {
       property: string;

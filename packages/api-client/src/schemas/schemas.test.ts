@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  itemChartSchema,
   accessTokenSchema,
   createdAccessTokenSchema,
   cursorPageSchema,
@@ -280,5 +281,61 @@ describe('the access token schemas', () => {
       expiresInSeconds: 600,
     });
     expect(parsed.success).toBe(true);
+  });
+});
+
+describe('the item chart schema', () => {
+  const base = {
+    itemId: '0f8fad5b-d9cb-469f-a165-70867728950e',
+    viewId: 'chart',
+    groupBy: 'status',
+    measure: 'count',
+    measureProperty: null,
+    buckets: [{ value: 'Open', children: 2, total: null }],
+    children: 2,
+    distinctValues: 1,
+    truncated: false,
+  };
+
+  it('reads a response from a server that predates chart types as a bar chart of one series', () => {
+    const chart = itemChartSchema.parse(base);
+
+    expect(chart.chartKind).toBe('bar');
+    expect(chart.period).toBeNull();
+    expect(chart.series).toEqual([]);
+    expect(chart.buckets[0]?.cells).toEqual([]);
+    expect(chart.unplaced).toBe(0);
+  });
+
+  it('reads a split time axis with its series and window', () => {
+    const chart = itemChartSchema.parse({
+      ...base,
+      chartKind: 'line',
+      period: 'week',
+      splitBy: 'project',
+      from: '2026-10-05',
+      to: '2026-10-11',
+      buckets: [
+        {
+          value: '2026-10-05',
+          children: 3,
+          total: null,
+          cells: [
+            { children: 2, total: null },
+            { children: 1, total: null },
+          ],
+        },
+      ],
+      series: [
+        { value: 'Home', other: false, children: 2, total: null },
+        { value: null, other: true, children: 1, total: null },
+      ],
+      otherSeries: 4,
+      unplaced: 1,
+    });
+
+    expect(chart.series[1]?.other).toBe(true);
+    expect(chart.buckets[0]?.cells).toHaveLength(2);
+    expect(chart.otherSeries).toBe(4);
   });
 });
