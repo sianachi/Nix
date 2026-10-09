@@ -64,6 +64,7 @@ describe('chart options', () => {
           to: null,
           cumulative: true,
           rollingAverage: null,
+          stacked: null,
         },
       }),
       fields,
@@ -137,6 +138,7 @@ describe('chart options', () => {
       to: null,
       cumulative: true,
       rollingAverage: true,
+      stacked: null,
     });
   });
 });

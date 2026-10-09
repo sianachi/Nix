@@ -10,6 +10,7 @@ export {
   canChartBy,
   canGroupBy,
   canSectionBy,
+  canSplitBy,
   foldNeedsProperty,
   isComputedType,
   isDateShaped,

@@ -1,7 +1,12 @@
-import { cn, Text } from '@nix/ui';
-import type { ReactNode } from 'react';
+import { Text } from '@nix/ui';
+import { useId, type ReactNode } from 'react';
 
-import { formatMeasure, type PlottedSeries, type SeriesStyle } from './chart-model';
+import {
+  formatMeasure,
+  type PlottedSeries,
+  type SeriesHatch,
+  type SeriesStyle,
+} from './chart-model';
 
 /**
  * The drawn chart types: columns, lines and areas, and a pie.
@@ -24,39 +29,118 @@ import { formatMeasure, type PlottedSeries, type SeriesStyle } from './chart-mod
 const WIDTH = 600;
 const HEIGHT = 200;
 
-/** One label per bucket on the horizontal axis, of which the frame shows the first, middle and last. */
-export interface AxisLabels {
-  readonly labels: readonly string[];
+/** Below this many units of width a column's background separator would swallow the column. */
+const SEPARATOR_MINIMUM = 4;
+
+function positive(value: number | null | undefined): number {
+  return value === null || value === undefined || value < 0 ? 0 : value;
+}
+
+/** A scale maximum a reader can tick: whole numbers for counts, rounded up to an even step. */
+function niceMaximum(value: number, whole: boolean): number {
+  if (value <= 0) {
+    return whole ? 2 : 1;
+  }
+  if (!whole) {
+    return value;
+  }
+  const rounded = Math.ceil(value);
+  return rounded % 2 === 0 ? rounded : rounded + 1;
+}
+
+/** The pattern a series' fill is painted with: its colour, and a hatch in the ground's colour. */
+function hatchPath(hatch: SeriesHatch): string | null {
+  switch (hatch) {
+    case 'none':
+      return null;
+    case 'diagonal':
+      return 'M0,8 L8,0';
+    case 'back':
+      return 'M0,0 L8,8';
+    case 'cross':
+      return 'M0,8 L8,0 M0,0 L8,8';
+    case 'horizontal':
+      return 'M0,4 L8,4';
+    case 'vertical':
+      return 'M4,0 L4,8';
+    case 'dots':
+      return 'M3,3 L3.01,3';
+  }
+}
+
+/** One `<pattern>` per style, so fills are told apart by hatch as well as by tone. */
+function SeriesPatterns({
+  prefix,
+  styles,
+}: {
+  readonly prefix: string;
+  readonly styles: readonly SeriesStyle[];
+}): ReactNode {
+  return (
+    <defs>
+      {styles.map((style, index) => {
+        const path = hatchPath(style.hatch);
+        return (
+          <pattern
+            key={index}
+            id={`${prefix}-${String(index)}`}
+            patternUnits="userSpaceOnUse"
+            width="8"
+            height="8"
+          >
+            <rect width="8" height="8" className={style.fill} />
+            {path === null ? null : (
+              <path
+                d={path}
+                className="stroke-background"
+                strokeWidth={style.hatch === 'dots' ? 3 : 1.5}
+                strokeLinecap="round"
+              />
+            )}
+          </pattern>
+        );
+      })}
+    </defs>
+  );
+}
+
+function patternFill(prefix: string, index: number): string {
+  return `url(#${prefix}-${String(index)})`;
 }
 
 function Frame({
   maximum,
+  whole,
   labels,
+  shortLabels,
   children,
 }: {
   readonly maximum: number;
+  readonly whole: boolean;
   readonly labels: readonly string[];
+  readonly shortLabels: readonly string[];
   readonly children: ReactNode;
 }): ReactNode {
   const ticks =
     labels.length === 0 ? [] : [0, Math.floor((labels.length - 1) / 2), labels.length - 1];
-  const shown = [...new Set(ticks)].map((index) => labels[index] ?? '');
+  const shown = [...new Set(ticks)];
 
   return (
     <div className="flex gap-2" aria-hidden="true">
-      <div className="flex h-48 w-12 shrink-0 flex-col justify-between text-right">
+      <div className="flex h-48 w-10 shrink-0 flex-col justify-between text-right">
         {[maximum, maximum / 2, 0].map((value, index) => (
           <Text key={index} variant="caption" tone="muted">
-            {formatMeasure(Number(value.toFixed(2)))}
+            {formatMeasure(whole ? Math.round(value) : Number(value.toFixed(2)))}
           </Text>
         ))}
       </div>
       <div className="min-w-0 flex-1">
         {children}
         <div className="mt-1 flex justify-between gap-2">
-          {shown.map((label, index) => (
+          {shown.map((index) => (
             <Text key={index} variant="caption" tone="muted" className="truncate">
-              {label}
+              <span className="hidden sm:inline">{labels[index] ?? ''}</span>
+              <span className="sm:hidden">{shortLabels[index] ?? labels[index] ?? ''}</span>
             </Text>
           ))}
         </div>
@@ -84,40 +168,54 @@ function Gridlines(): ReactNode {
   );
 }
 
-function positive(value: number | null | undefined): number {
-  return value === null || value === undefined || value < 0 ? 0 : value;
+export interface AxisProps {
+  /** One label per bucket, of which the frame shows the first, middle and last. */
+  readonly labels: readonly string[];
+  /** The same labels shortened for a phone. */
+  readonly shortLabels: readonly string[];
+  /** Whether the values are counts, so the scale ticks whole numbers. */
+  readonly whole: boolean;
 }
 
-export interface ColumnChartProps {
+export interface ColumnChartProps extends AxisProps {
   readonly series: readonly PlottedSeries[];
-  readonly labels: readonly string[];
   /** Stack the series in one column per bucket, or stand them side by side. */
   readonly stacked: boolean;
 }
 
 /** Vertical columns, one per bucket; stacked or side by side when the chart is split. */
-export function ColumnChart({ series, labels, stacked }: ColumnChartProps): ReactNode {
+export function ColumnChart({
+  series,
+  labels,
+  shortLabels,
+  whole,
+  stacked,
+}: ColumnChartProps): ReactNode {
+  const prefix = useId().replaceAll(':', '');
   const count = labels.length;
-  let maximum = 0;
+  let largest = 0;
   for (let index = 0; index < count; index += 1) {
     const values = series.map((entry) => positive(entry.values[index]));
-    maximum = Math.max(
-      maximum,
+    largest = Math.max(
+      largest,
       stacked ? values.reduce((a, b) => a + b, 0) : Math.max(0, ...values),
     );
   }
-  const scale = maximum === 0 ? 1 : maximum;
+  const maximum = niceMaximum(largest, whole);
   const band = WIDTH / Math.max(1, count);
   const inner = band * 0.8;
-  const height = (value: number) => (value / scale) * HEIGHT;
+  const sub = stacked ? inner : inner / Math.max(1, series.length);
+  const separated = sub >= SEPARATOR_MINIMUM;
+  const height = (value: number) => (value / maximum) * HEIGHT;
 
   return (
-    <Frame maximum={maximum} labels={labels}>
+    <Frame maximum={maximum} whole={whole} labels={labels} shortLabels={shortLabels}>
       <svg
         viewBox={`0 0 ${String(WIDTH)} ${String(HEIGHT)}`}
         preserveAspectRatio="none"
         className="h-48 w-full overflow-visible"
       >
+        <SeriesPatterns prefix={prefix} styles={series.map((entry) => entry.style)} />
         <Gridlines />
         {labels.map((label, index) => {
           const left = index * band + (band - inner) / 2;
@@ -127,7 +225,6 @@ export function ColumnChart({ series, labels, stacked }: ColumnChartProps): Reac
               {series.map((entry, position) => {
                 const value = positive(entry.values[index]);
                 const tall = height(value);
-                const sub = inner / Math.max(1, series.length);
                 const x = stacked ? left : left + position * sub;
                 const y = stacked ? base - tall : HEIGHT - tall;
                 if (stacked) {
@@ -138,10 +235,11 @@ export function ColumnChart({ series, labels, stacked }: ColumnChartProps): Reac
                     key={entry.key}
                     x={x}
                     y={y}
-                    width={stacked ? inner : sub}
+                    width={sub}
                     height={tall}
-                    className={cn(entry.style.fill, 'stroke-background')}
-                    strokeWidth="1"
+                    fill={patternFill(prefix, position)}
+                    className={separated ? 'stroke-background' : undefined}
+                    strokeWidth={separated ? 1 : 0}
                     vectorEffect="non-scaling-stroke"
                   >
                     <title>{`${label}, ${entry.label}: ${formatMeasure(entry.values[index] ?? 0)}`}</title>
@@ -156,45 +254,55 @@ export function ColumnChart({ series, labels, stacked }: ColumnChartProps): Reac
   );
 }
 
-export interface LineChartProps {
+export interface LineChartProps extends AxisProps {
   readonly series: readonly PlottedSeries[];
-  readonly labels: readonly string[];
-  /** Fill under each line; stacked when there is more than one series. */
+  /** Fill under each line. */
   readonly area: boolean;
-  /** Trailing averages to draw dashed over each series, aligned with `series`. */
+  /** For areas split into series: stack them rather than overlaying them. */
+  readonly stacked: boolean;
+  /** Trailing averages to draw dotted over each series, aligned with `series`. Never stacked. */
   readonly averages?: readonly (readonly (number | null)[])[] | undefined;
 }
 
-/** One line per series along an ordered axis; areas stack when the chart is split. */
-export function LineChart({ series, labels, area, averages }: LineChartProps): ReactNode {
+/** One line per series along an ordered axis; areas stack when asked to. */
+export function LineChart({
+  series,
+  labels,
+  shortLabels,
+  whole,
+  area,
+  stacked,
+  averages,
+}: LineChartProps): ReactNode {
+  const prefix = useId().replaceAll(':', '');
   const count = labels.length;
-  const stacked = area && series.length > 1;
+  const stacking = area && stacked && series.length > 1;
 
   // For stacked areas each series sits on the ones before it; otherwise every line starts at zero.
   const bases: number[][] = [];
   const tops: number[][] = [];
   series.forEach((entry, position) => {
-    const below = stacked && position > 0 ? (tops[position - 1] ?? []) : [];
+    const below = stacking && position > 0 ? (tops[position - 1] ?? []) : [];
     const base = Array.from({ length: count }, (_, index) => below[index] ?? 0);
     bases.push(base);
     tops.push(
       base.map(
         (floor, index) =>
-          floor + (stacked ? positive(entry.values[index]) : (entry.values[index] ?? 0)),
+          floor + (stacking ? positive(entry.values[index]) : (entry.values[index] ?? 0)),
       ),
     );
   });
 
-  let maximum = 0;
+  let largest = 0;
   for (const row of tops) {
-    for (const value of row) maximum = Math.max(maximum, value);
+    for (const value of row) largest = Math.max(largest, value);
   }
   for (const row of averages ?? []) {
-    for (const value of row) maximum = Math.max(maximum, value ?? 0);
+    for (const value of row) largest = Math.max(largest, value ?? 0);
   }
-  const scale = maximum === 0 ? 1 : maximum;
+  const maximum = niceMaximum(largest, whole);
   const x = (index: number) => (count < 2 ? WIDTH / 2 : (index / (count - 1)) * WIDTH);
-  const y = (value: number) => HEIGHT - (Math.max(0, value) / scale) * HEIGHT;
+  const y = (value: number) => HEIGHT - (Math.max(0, value) / maximum) * HEIGHT;
   const line = (values: readonly (number | null)[]) => {
     let path = '';
     let connected = false;
@@ -210,12 +318,13 @@ export function LineChart({ series, labels, area, averages }: LineChartProps): R
   };
 
   return (
-    <Frame maximum={maximum} labels={labels}>
+    <Frame maximum={maximum} whole={whole} labels={labels} shortLabels={shortLabels}>
       <svg
         viewBox={`0 0 ${String(WIDTH)} ${String(HEIGHT)}`}
         preserveAspectRatio="none"
         className="h-48 w-full overflow-visible"
       >
+        <SeriesPatterns prefix={prefix} styles={series.map((entry) => entry.style)} />
         <Gridlines />
         {area
           ? series.map((entry, position) => {
@@ -229,7 +338,8 @@ export function LineChart({ series, labels, area, averages }: LineChartProps): R
                 <polygon
                   key={`area-${entry.key}`}
                   points={[...upper, ...lower].join(' ')}
-                  className={cn(entry.style.fill, 'opacity-60')}
+                  fill={patternFill(prefix, position)}
+                  className={stacking ? undefined : 'opacity-50'}
                 />
               );
             })
@@ -252,8 +362,8 @@ export function LineChart({ series, labels, area, averages }: LineChartProps): R
               key={`average-${entry.key}`}
               d={line(values)}
               fill="none"
-              className={cn(entry.style.stroke, 'opacity-80')}
-              strokeDasharray="1 3"
+              className={entry.style.stroke}
+              strokeDasharray="0 6"
               strokeWidth="3"
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
@@ -293,15 +403,17 @@ export interface PieSlice {
 
 /** Shares of the whole. Slices run clockwise from twelve o'clock in the order given. */
 export function PieChart({ slices }: { readonly slices: readonly PieSlice[] }): ReactNode {
+  const prefix = useId().replaceAll(':', '');
   const total = slices.reduce((sum, slice) => sum + positive(slice.value), 0);
   let angle = -Math.PI / 2;
 
   return (
     <svg viewBox="-1.05 -1.05 2.1 2.1" className="mx-auto size-48 max-w-full" aria-hidden="true">
+      <SeriesPatterns prefix={prefix} styles={slices.map((slice) => slice.style)} />
       {total === 0 ? (
         <circle cx="0" cy="0" r="1" className="fill-divider" />
       ) : (
-        slices.map((slice) => {
+        slices.map((slice, index) => {
           const share = positive(slice.value) / total;
           if (share === 0) {
             return null;
@@ -311,7 +423,7 @@ export function PieChart({ slices }: { readonly slices: readonly PieSlice[] }): 
           const title = `${slice.label}: ${formatMeasure(slice.value)} (${String(Math.round(share * 100))}%)`;
           if (share >= 0.9999) {
             return (
-              <circle key={slice.key} cx="0" cy="0" r="1" className={slice.style.fill}>
+              <circle key={slice.key} cx="0" cy="0" r="1" fill={patternFill(prefix, index)}>
                 <title>{title}</title>
               </circle>
             );
@@ -322,7 +434,8 @@ export function PieChart({ slices }: { readonly slices: readonly PieSlice[] }): 
             <path
               key={slice.key}
               d={d}
-              className={cn(slice.style.fill, 'stroke-background')}
+              fill={patternFill(prefix, index)}
+              className="stroke-background"
               strokeWidth="1"
               vectorEffect="non-scaling-stroke"
             >
@@ -335,41 +448,57 @@ export function PieChart({ slices }: { readonly slices: readonly PieSlice[] }): 
   );
 }
 
+/** One legend entry: a name and how its series is drawn. */
+export interface LegendEntry {
+  readonly key: string;
+  readonly label: string;
+  readonly style: SeriesStyle;
+  /** Draw the sample as a dotted line in the muted tone, for the trailing average. */
+  readonly dotted?: boolean;
+}
+
 /** Which tone and pattern is which series. Text, so the legend is never only a colour. */
 export function ChartLegend({
   entries,
   lines,
 }: {
-  readonly entries: readonly {
-    readonly key: string;
-    readonly label: string;
-    readonly style: SeriesStyle;
-  }[];
-  /** Draw each sample as a line in its dash pattern rather than a filled swatch. */
+  readonly entries: readonly LegendEntry[];
+  /** Draw each sample as a line in its dash pattern rather than a filled, hatched swatch. */
   readonly lines: boolean;
 }): ReactNode {
+  const prefix = useId().replaceAll(':', '');
   return (
-    <ul className="flex flex-wrap gap-x-4 gap-y-1" aria-label="Legend">
-      {entries.map((entry) => (
+    <ul className="flex flex-wrap gap-x-4 gap-y-1">
+      {entries.map((entry, index) => (
         <li key={entry.key} className="flex items-center gap-2">
-          {lines ? (
-            <svg viewBox="0 0 24 6" className="h-2 w-6 shrink-0" aria-hidden="true">
+          <svg
+            viewBox={lines ? '0 0 24 8' : '0 0 12 12'}
+            className={lines ? 'h-2 w-6 shrink-0' : 'size-3 shrink-0'}
+            aria-hidden="true"
+          >
+            {lines || entry.dotted === true ? (
               <line
-                x1="0"
-                x2="24"
-                y1="3"
-                y2="3"
-                className={entry.style.stroke}
-                strokeDasharray={entry.style.dash}
-                strokeWidth="2"
+                x1="2"
+                x2="22"
+                y1="4"
+                y2="4"
+                className={entry.dotted === true ? 'stroke-muted' : entry.style.stroke}
+                strokeDasharray={entry.dotted === true ? '0 6' : entry.style.dash}
+                strokeWidth={entry.dotted === true ? 3 : 2}
+                strokeLinecap="round"
               />
-            </svg>
-          ) : (
-            <span
-              className={cn('size-3 shrink-0 rounded-sm', entry.style.fill)}
-              aria-hidden="true"
-            />
-          )}
+            ) : (
+              <>
+                <SeriesPatterns prefix={`${prefix}-${String(index)}`} styles={[entry.style]} />
+                <rect
+                  width="12"
+                  height="12"
+                  rx="2"
+                  fill={patternFill(`${prefix}-${String(index)}`, 0)}
+                />
+              </>
+            )}
+          </svg>
           <Text as="span" variant="caption">
             {entry.label}
           </Text>

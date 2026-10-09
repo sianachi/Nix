@@ -1,9 +1,18 @@
-import { itemChartSchema, type ItemChart } from '@nix/api-client';
+import {
+  createNixClient,
+  itemChartSchema,
+  NixApiError,
+  type ItemChart,
+  type NixClient,
+  type QueryEndpoint,
+} from '@nix/api-client';
 import { useState, type ReactElement } from 'react';
 
+import { ApiClientOverrideProvider } from '../../api/api-client-provider';
 import type { PropertyDefinition, View } from '../core/container-model';
+import type { ContainerData } from '../core/use-container';
 import { StructuredViewConfiguration } from '../core/structured-view-configuration';
-import { ChartBody } from './chart-view';
+import { ChartBody, ChartView } from './chart-view';
 
 /**
  * Every chart type, on both grounds and at phone width.
@@ -56,9 +65,15 @@ const timeChart = (kind: string) =>
     unplaced: 2,
   });
 
-const splitChart = (kind: string) => {
+const PALETTE_OWNERS = ['Ada', 'Grace', 'Linus', 'Margaret', 'Alan', 'Barbara'];
+
+const splitChart = (
+  kind: string,
+  owners: readonly string[] = OWNERS,
+  over: Record<string, unknown> = {},
+) => {
   const buckets = months(MONTH_VALUES).map((bucket, index) => {
-    const cells = OWNERS.map((_, owner) => ({
+    const cells = owners.map((_, owner) => ({
       children: Math.max(0, Math.round(bucket.children / 3) + ((index + owner) % 3) - 1),
       total: null,
     }));
@@ -72,14 +87,15 @@ const splitChart = (kind: string) => {
     from: '2026-01-01',
     to: '2026-12-31',
     buckets,
-    series: OWNERS.map((value, owner) => ({
-      value,
-      other: false,
+    series: owners.map((value, owner) => ({
+      value: value === 'Other' ? null : value,
+      other: value === 'Other',
       children: buckets.reduce((sum, bucket) => sum + (bucket.cells[owner]?.children ?? 0), 0),
       total: null,
     })),
     children: buckets.reduce((sum, bucket) => sum + bucket.children, 0),
     distinctValues: 12,
+    ...over,
   });
 };
 
@@ -141,7 +157,7 @@ export const ColumnsDark = { ...Columns, ...dark };
 export const StackedColumns = {
   render: (): ReactElement => (
     <Stage>
-      <ChartBody chart={splitChart('column')} />
+      <ChartBody chart={{ ...splitChart('column'), stacked: true }} />
     </Stage>
   ),
 };
@@ -159,7 +175,7 @@ export const PieDark = { ...Pie, ...dark };
 export const LineWithDerivedLines = {
   render: (): ReactElement => (
     <Stage>
-      <ChartBody chart={timeChart('line')} cumulative={false} rollingAverage />
+      <ChartBody chart={{ ...timeChart('line'), rollingAverage: true }} />
     </Stage>
   ),
 };
@@ -168,7 +184,7 @@ export const LineWithDerivedLinesDark = { ...LineWithDerivedLines, ...dark };
 export const RunningTotal = {
   render: (): ReactElement => (
     <Stage>
-      <ChartBody chart={timeChart('line')} cumulative />
+      <ChartBody chart={{ ...timeChart('line'), cumulative: true }} />
     </Stage>
   ),
 };
@@ -185,7 +201,7 @@ export const MultiLineDark = { ...MultiLine, ...dark };
 export const StackedArea = {
   render: (): ReactElement => (
     <Stage>
-      <ChartBody chart={splitChart('area')} />
+      <ChartBody chart={{ ...splitChart('area'), stacked: true }} />
     </Stage>
   ),
 };
@@ -248,6 +264,7 @@ function EditorStory(): ReactElement {
       to: null,
       cumulative: null,
       rollingAverage: true,
+      stacked: null,
     },
   });
   return (
@@ -266,3 +283,141 @@ function EditorStory(): ReactElement {
 
 export const Options = { render: (): ReactElement => <EditorStory /> };
 export const OptionsDark = { ...Options, ...dark };
+
+const FULL_PALETTE = [...PALETTE_OWNERS, 'Other'];
+
+export const SixSeriesAndOther = {
+  render: (): ReactElement => (
+    <Stage>
+      <ChartBody chart={splitChart('column', FULL_PALETTE, { otherSeries: 9 })} />
+    </Stage>
+  ),
+};
+export const SixSeriesAndOtherDark = { ...SixSeriesAndOther, ...dark };
+
+export const SixLines = {
+  render: (): ReactElement => (
+    <Stage>
+      <ChartBody chart={splitChart('line', FULL_PALETTE, { otherSeries: 9 })} />
+    </Stage>
+  ),
+};
+export const SixLinesDark = { ...SixLines, ...dark };
+
+const crowdedPie = chart({
+  chartKind: 'pie',
+  groupBy: 'Category',
+  buckets: ['Food', 'Rent', 'Travel', 'Fun', 'Health', 'Books', 'Gifts', 'Tools', 'Garden'].map(
+    (value, index) => ({ value, children: 20 - index * 2, total: null }),
+  ),
+  children: 108,
+  distinctValues: 9,
+});
+
+export const PiePastTheCap = {
+  render: (): ReactElement => (
+    <Stage>
+      <ChartBody chart={crowdedPie} />
+    </Stage>
+  ),
+};
+export const PiePastTheCapDark = { ...PiePastTheCap, ...dark };
+
+const partial = chart({
+  ...timeChart('column'),
+  truncated: true,
+  distinctValues: 40,
+  unplaced: 3,
+  outsideWindow: 5,
+});
+
+export const PartialNotices = {
+  render: (): ReactElement => (
+    <Stage>
+      <ChartBody chart={partial} />
+    </Stage>
+  ),
+};
+export const PartialNoticesDark = { ...PartialNotices, ...dark };
+
+const emptyWindow = chart({
+  groupBy: 'Done on',
+  chartKind: 'line',
+  period: 'month',
+  from: '2025-10-01',
+  to: '2026-10-31',
+  buckets: [],
+  children: 0,
+  distinctValues: 0,
+  outsideWindow: 14,
+});
+
+export const WindowWithNothingInIt = {
+  render: (): ReactElement => (
+    <Stage>
+      <ChartBody chart={emptyWindow} />
+    </Stage>
+  ),
+};
+export const WindowWithNothingInItDark = { ...WindowWithNothingInIt, ...dark };
+
+/** A client whose chart read never settles, or refuses, so the view's own states show. */
+function clientFor(outcome: 'loading' | 'error'): NixClient {
+  return {
+    ...createNixClient({
+      baseUrl: 'http://nix.invalid',
+      tokens: {
+        getAccessToken: () => Promise.resolve(null),
+        refreshAccessToken: () => Promise.resolve(null),
+      },
+    }),
+    query<T>(endpoint: QueryEndpoint<T>): Promise<T> {
+      void endpoint;
+      return outcome === 'loading'
+        ? new Promise<T>(() => undefined)
+        : Promise.reject(NixApiError.fromStatus(503));
+    },
+  };
+}
+
+const storyContainer: Pick<ContainerData, 'itemId' | 'schema'> = {
+  itemId: '11111111-1111-4111-8111-111111111111',
+  schema: null,
+};
+
+function ViewStory({ outcome }: { readonly outcome: 'loading' | 'error' }): ReactElement {
+  return (
+    <ApiClientOverrideProvider client={clientFor(outcome)}>
+      <Stage>
+        <ChartView
+          container={storyContainer as ContainerData}
+          view={{ ...STORY_VIEW }}
+          onOpen={() => undefined}
+        />
+      </Stage>
+    </ApiClientOverrideProvider>
+  );
+}
+
+const STORY_VIEW: View = {
+  id: 'chart',
+  name: 'Chart',
+  kind: 'chart',
+  columns: [],
+  groupBy: 'status',
+  groupOrder: [],
+  dateProperty: null,
+  sortBy: null,
+  sortDescending: false,
+  mode: null,
+  coverProperty: null,
+  endDateProperty: null,
+  cardSize: null,
+  layout: null,
+  filters: [],
+};
+
+export const Loading = { render: (): ReactElement => <ViewStory outcome="loading" /> };
+export const LoadingDark = { ...Loading, ...dark };
+export const Failed = { render: (): ReactElement => <ViewStory outcome="error" /> };
+export const FailedDark = { ...Failed, ...dark };

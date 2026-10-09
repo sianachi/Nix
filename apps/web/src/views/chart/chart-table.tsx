@@ -1,4 +1,4 @@
-import { cn, Text } from '@nix/ui';
+import { Table, Text, cn, focusRing, type TableColumn } from '@nix/ui';
 import type { ReactNode } from 'react';
 
 import { formatMeasure } from './chart-model';
@@ -10,15 +10,17 @@ export interface ChartTableColumn {
   readonly values: readonly (number | null)[];
 }
 
+export interface ChartTableRow {
+  readonly key: string;
+  readonly label: string;
+  readonly muted?: boolean;
+}
+
 export interface ChartTableProps {
   readonly caption: string;
   /** What the first column is: the grouping property, or the period. */
   readonly rowHeader: string;
-  readonly rows: readonly {
-    readonly key: string;
-    readonly label: string;
-    readonly muted?: boolean;
-  }[];
+  readonly rows: readonly ChartTableRow[];
   readonly columns: readonly ChartTableColumn[];
 }
 
@@ -31,53 +33,50 @@ export interface ChartTableProps {
  * hidden for the same reason - a person checking one value should not have to estimate it from a
  * line's height.
  *
- * Scrolls sideways inside itself when a chart has many series, so a phone never scrolls the page.
+ * The design system's `Table`, with the figures in end-aligned columns. It scrolls sideways inside
+ * a focusable region when a chart has many series, so a phone never scrolls the page and a keyboard
+ * can still reach the columns past the edge.
  */
 export function ChartTable({ caption, rowHeader, rows, columns }: ChartTableProps): ReactNode {
+  const indexed = rows.map((row, index) => ({ ...row, index }));
+  const tableColumns: TableColumn<(typeof indexed)[number]>[] = [
+    {
+      key: ' row',
+      header: rowHeader,
+      rowHeader: true,
+      cell: (row) => (
+        <Text as="span" variant="bodySmall" tone={row.muted === true ? 'muted' : 'default'}>
+          {row.label}
+        </Text>
+      ),
+    },
+    ...columns.map((column): TableColumn<(typeof indexed)[number]> => ({
+      key: column.key,
+      header: column.label,
+      align: 'end',
+      cell: (row) => (
+        <Text as="span" variant="bodySmall" className="whitespace-nowrap">
+          {formatMeasure(column.values[row.index] ?? null)}
+        </Text>
+      ),
+    })),
+  ];
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse">
-        <caption className="sr-only">{caption}</caption>
-        <thead>
-          <tr>
-            <th scope="col" className="p-1 text-left font-normal">
-              <Text variant="note" tone="muted" as="span">
-                {rowHeader}
-              </Text>
-            </th>
-            {columns.map((column) => (
-              <th key={column.key} scope="col" className="p-1 text-right font-normal">
-                <Text variant="note" tone="muted" as="span" className="whitespace-nowrap">
-                  {column.label}
-                </Text>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, index) => (
-            <tr key={row.key} className="border-b border-divider">
-              <th scope="row" className="p-1 text-left font-normal">
-                <Text
-                  as="span"
-                  variant="bodySmall"
-                  tone={row.muted === true ? 'muted' : 'default'}
-                  className="whitespace-nowrap"
-                >
-                  {row.label}
-                </Text>
-              </th>
-              {columns.map((column) => (
-                <td key={column.key} className={cn('whitespace-nowrap p-1 text-right')}>
-                  <Text as="span" variant="bodySmall">
-                    {formatMeasure(column.values[index] ?? null)}
-                  </Text>
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div
+      role="region"
+      aria-label={caption}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
+      tabIndex={0}
+      className={cn('overflow-x-auto rounded-sm', focusRing)}
+    >
+      <Table
+        caption={caption}
+        columns={tableColumns}
+        rows={indexed}
+        rowKey={(row) => row.key}
+        emptyMessage="There are no figures to show."
+      />
     </div>
   );
 }

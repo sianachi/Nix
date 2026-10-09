@@ -190,7 +190,47 @@ describe('the chart view', () => {
     );
     renderChart();
 
-    expect(await screen.findByText(/the other 5 are drawn together as Other/)).toBeVisible();
+    expect(await screen.findByText(/the other 5 share one series, Other/)).toBeVisible();
     expect(screen.getByRole('columnheader', { name: 'Other (5 values)' })).toBeVisible();
+  });
+
+  it('reads the chart again past the cache when its saved configuration changes', async () => {
+    const container = aContainer({ itemId: '11111111-1111-4111-8111-111111111111' });
+    const before = aView({ id: 'v1', kind: 'chart', groupBy: 'status' });
+    const { rerender } = render(<ChartView container={container} view={before} onOpen={vi.fn()} />);
+    await screen.findByRole('row', { name: /todo/i });
+
+    answer(chartOf({ chartKind: 'pie' }));
+    rerender(
+      <ChartView
+        container={container}
+        view={{
+          ...before,
+          chart: {
+            kind: 'pie',
+            period: null,
+            splitBy: null,
+            lastPeriods: null,
+            from: null,
+            to: null,
+            cumulative: null,
+            rollingAverage: null,
+            stacked: null,
+          },
+        }}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('columnheader', { name: 'Share (%)' })).toBeVisible();
+    expect(query).toHaveBeenLastCalledWith(expect.anything(), { forceRefresh: true });
+  });
+
+  it('points an unfinished chart at its settings instead of offering a retry', async () => {
+    answer({ code: 'chart.not_configured' }, false, 422);
+    renderChart();
+
+    expect(await screen.findByText(/Finish it in the settings for this view/)).toBeVisible();
+    expect(screen.queryByRole('button', { name: /try again/i })).toBeNull();
   });
 });
