@@ -228,14 +228,13 @@ export function YearGrid({ cells, label, unit, onSelect, selected }: YearGridPro
 
   const rows = WEEKDAYS.map((weekday, row) => (
     <div key={weekday} role={interactive ? undefined : 'row'} className="flex items-center gap-1">
-      <span
-        role={interactive ? undefined : 'rowheader'}
-        aria-label={interactive ? undefined : weekday}
-        className="w-4 shrink-0"
-      >
-        <Text as="span" variant="caption" tone="muted" aria-hidden="true">
-          {row % 2 === 0 ? weekday.slice(0, 1) : ''}
-        </Text>
+      <span role={interactive ? undefined : 'rowheader'} className="w-4 shrink-0">
+        {interactive ? null : <span className="sr-only">{weekday}</span>}
+        <span aria-hidden="true">
+          <Text as="span" variant="caption" tone="muted">
+            {row % 2 === 0 ? weekday.slice(0, 1) : ''}
+          </Text>
+        </span>
       </span>
       {Array.from({ length: columns }, (_, column) => day(column * 7 + row - offset))}
     </div>
