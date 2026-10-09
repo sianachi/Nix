@@ -1,11 +1,11 @@
 using System.Collections.Immutable;
 using System.Globalization;
 
-namespace Nix.Domain.Views;
+namespace Nix.Domain.Time;
 
-/// <summary>The calendar spans a time axis can count by.</summary>
-/// <remarks>Stored and published as text (<see cref="ChartPeriods"/>), never as the ordinal.</remarks>
-public enum ChartPeriod
+/// <summary>The calendar spans a time axis or a grouping can count by.</summary>
+/// <remarks>Stored and published as text (<see cref="DatePeriods"/>), never as the ordinal.</remarks>
+public enum DatePeriod
 {
     /// <summary>One calendar day.</summary>
     Day = 0,
@@ -24,16 +24,44 @@ public enum ChartPeriod
 }
 
 /// <summary>A run of whole periods, named by the first and last period's start dates.</summary>
-/// <param name="First">The start of the earliest period.</param>
-/// <param name="Last">The start of the latest period.</param>
-/// <param name="Period">What each step is.</param>
-public readonly record struct PeriodRange(DateOnly First, DateOnly Last, ChartPeriod Period)
+/// <remarks>
+/// The ends are snapped to the start of the period they fall in when the range is made, so a range
+/// can never claim to start mid-week and then be enumerated as though it did not. A range whose
+/// last period is before its first is refused rather than read as empty: no caller here means it.
+/// </remarks>
+public readonly record struct PeriodRange
 {
+    /// <summary>Initializes a new instance of the <see cref="PeriodRange"/> struct.</summary>
+    /// <param name="first">Any day in the earliest period.</param>
+    /// <param name="last">Any day in the latest period, on or after <paramref name="first"/>'s period.</param>
+    /// <param name="period">What each step is.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The last period is before the first.</exception>
+    public PeriodRange(DateOnly first, DateOnly last, DatePeriod period)
+    {
+        First = DatePeriods.Start(first, period);
+        Last = DatePeriods.Start(last, period);
+        Period = period;
+
+        if (Last < First)
+        {
+            throw new ArgumentOutOfRangeException(nameof(last), last, "A range must end on or after its first period.");
+        }
+    }
+
+    /// <summary>The start of the earliest period.</summary>
+    public DateOnly First { get; }
+
+    /// <summary>The start of the latest period.</summary>
+    public DateOnly Last { get; }
+
+    /// <summary>What each step is.</summary>
+    public DatePeriod Period { get; }
+
     /// <summary>The last day the range covers: the end of its latest period.</summary>
-    public DateOnly End => ChartPeriods.End(Last, Period);
+    public DateOnly End => DatePeriods.End(Last, Period);
 
     /// <summary>How many periods the range holds, both ends included.</summary>
-    public int Count => ChartPeriods.Between(First, Last, Period) + 1;
+    public int Count => DatePeriods.Between(First, Last, Period) + 1;
 }
 
 /// <summary>
@@ -45,6 +73,8 @@ public readonly record struct PeriodRange(DateOnly First, DateOnly Last, ChartPe
 /// <b>One place, because two copies of "which week is this" disagree at the edges.</b> A chart's
 /// time axis uses it today and the query engine's period grouping is meant to use the same
 /// functions, so a chart and a grouped list over the same items put every item in the same week.
+/// Its starts agree with Postgres's <c>date_trunc</c> for week, month, quarter and year, which an
+/// integration test holds it to, so a statement that truncates in SQL lands on the same keys.
 /// A period is named by its start date, so the bucket key is a plain <c>yyyy-MM-dd</c> that sorts
 /// chronologically as text.
 /// </para>
@@ -59,21 +89,21 @@ public readonly record struct PeriodRange(DateOnly First, DateOnly Last, ChartPe
 /// entry to the next day for everybody east of Greenwich.
 /// </para>
 /// </remarks>
-public static class ChartPeriods
+public static class DatePeriods
 {
-    /// <summary>Stored text for <see cref="ChartPeriod.Day"/>.</summary>
+    /// <summary>Stored text for <see cref="DatePeriod.Day"/>.</summary>
     public const string Day = "day";
 
-    /// <summary>Stored text for <see cref="ChartPeriod.Week"/>.</summary>
+    /// <summary>Stored text for <see cref="DatePeriod.Week"/>.</summary>
     public const string Week = "week";
 
-    /// <summary>Stored text for <see cref="ChartPeriod.Month"/>.</summary>
+    /// <summary>Stored text for <see cref="DatePeriod.Month"/>.</summary>
     public const string Month = "month";
 
-    /// <summary>Stored text for <see cref="ChartPeriod.Quarter"/>.</summary>
+    /// <summary>Stored text for <see cref="DatePeriod.Quarter"/>.</summary>
     public const string Quarter = "quarter";
 
-    /// <summary>Stored text for <see cref="ChartPeriod.Year"/>.</summary>
+    /// <summary>Stored text for <see cref="DatePeriod.Year"/>.</summary>
     public const string Year = "year";
 
     /// <summary>Every period, in the order an editor offers them.</summary>
@@ -93,24 +123,24 @@ public static class ChartPeriods
     /// <param name="text">The stored text.</param>
     /// <param name="period">The period, when recognised.</param>
     /// <returns><see langword="true"/> when the text names a period.</returns>
-    public static bool TryParse(string? text, out ChartPeriod period)
+    public static bool TryParse(string? text, out DatePeriod period)
     {
         switch (text)
         {
             case Day:
-                period = ChartPeriod.Day;
+                period = DatePeriod.Day;
                 return true;
             case Week:
-                period = ChartPeriod.Week;
+                period = DatePeriod.Week;
                 return true;
             case Month:
-                period = ChartPeriod.Month;
+                period = DatePeriod.Month;
                 return true;
             case Quarter:
-                period = ChartPeriod.Quarter;
+                period = DatePeriod.Quarter;
                 return true;
             case Year:
-                period = ChartPeriod.Year;
+                period = DatePeriod.Year;
                 return true;
             default:
                 period = default;
@@ -121,13 +151,13 @@ public static class ChartPeriods
     /// <summary>Writes a period for storage.</summary>
     /// <param name="period">The period.</param>
     /// <returns>Its stored text.</returns>
-    public static string ToText(ChartPeriod period) => period switch
+    public static string ToText(DatePeriod period) => period switch
     {
-        ChartPeriod.Day => Day,
-        ChartPeriod.Week => Week,
-        ChartPeriod.Month => Month,
-        ChartPeriod.Quarter => Quarter,
-        ChartPeriod.Year => Year,
+        DatePeriod.Day => Day,
+        DatePeriod.Week => Week,
+        DatePeriod.Month => Month,
+        DatePeriod.Quarter => Quarter,
+        DatePeriod.Year => Year,
         _ => throw new ArgumentOutOfRangeException(nameof(period), period, "Unknown period."),
     };
 
@@ -162,15 +192,15 @@ public static class ChartPeriods
     /// <param name="date">Any date in the supported range.</param>
     /// <param name="period">The period.</param>
     /// <returns>The period's start: the day itself, its Monday, or the first of its month, quarter or year.</returns>
-    public static DateOnly Start(DateOnly date, ChartPeriod period) => period switch
+    public static DateOnly Start(DateOnly date, DatePeriod period) => period switch
     {
-        ChartPeriod.Day => date,
+        DatePeriod.Day => date,
 
         // DayOfWeek counts from Sunday; shifting by six and wrapping makes Monday zero.
-        ChartPeriod.Week => date.AddDays(-(((int)date.DayOfWeek + 6) % 7)),
-        ChartPeriod.Month => new DateOnly(date.Year, date.Month, 1),
-        ChartPeriod.Quarter => new DateOnly(date.Year, (((date.Month - 1) / 3) * 3) + 1, 1),
-        ChartPeriod.Year => new DateOnly(date.Year, 1, 1),
+        DatePeriod.Week => date.AddDays(-(((int)date.DayOfWeek + 6) % 7)),
+        DatePeriod.Month => new DateOnly(date.Year, date.Month, 1),
+        DatePeriod.Quarter => new DateOnly(date.Year, (((date.Month - 1) / 3) * 3) + 1, 1),
+        DatePeriod.Year => new DateOnly(date.Year, 1, 1),
         _ => throw new ArgumentOutOfRangeException(nameof(period), period, "Unknown period."),
     };
 
@@ -179,13 +209,13 @@ public static class ChartPeriods
     /// <param name="period">The period.</param>
     /// <param name="count">How many periods to step; negative steps back.</param>
     /// <returns>The start of the period <paramref name="count"/> steps away.</returns>
-    public static DateOnly Add(DateOnly start, ChartPeriod period, int count) => period switch
+    public static DateOnly Add(DateOnly start, DatePeriod period, int count) => period switch
     {
-        ChartPeriod.Day => start.AddDays(count),
-        ChartPeriod.Week => start.AddDays(7 * count),
-        ChartPeriod.Month => start.AddMonths(count),
-        ChartPeriod.Quarter => start.AddMonths(3 * count),
-        ChartPeriod.Year => start.AddYears(count),
+        DatePeriod.Day => start.AddDays(count),
+        DatePeriod.Week => start.AddDays(7 * count),
+        DatePeriod.Month => start.AddMonths(count),
+        DatePeriod.Quarter => start.AddMonths(3 * count),
+        DatePeriod.Year => start.AddYears(count),
         _ => throw new ArgumentOutOfRangeException(nameof(period), period, "Unknown period."),
     };
 
@@ -193,7 +223,7 @@ public static class ChartPeriods
     /// <param name="start">A period start.</param>
     /// <param name="period">The period.</param>
     /// <returns>The day before the next period starts.</returns>
-    public static DateOnly End(DateOnly start, ChartPeriod period) =>
+    public static DateOnly End(DateOnly start, DatePeriod period) =>
         Add(start, period, 1).AddDays(-1);
 
     /// <summary>How many whole periods lie from one period start to a later one.</summary>
@@ -201,17 +231,17 @@ public static class ChartPeriods
     /// <param name="last">The later period start.</param>
     /// <param name="period">The period.</param>
     /// <returns>Zero when they are the same period; negative when <paramref name="last"/> is earlier.</returns>
-    public static int Between(DateOnly first, DateOnly last, ChartPeriod period)
+    public static int Between(DateOnly first, DateOnly last, DatePeriod period)
     {
         var months = ((last.Year - first.Year) * 12) + (last.Month - first.Month);
 
         return period switch
         {
-            ChartPeriod.Day => last.DayNumber - first.DayNumber,
-            ChartPeriod.Week => (last.DayNumber - first.DayNumber) / 7,
-            ChartPeriod.Month => months,
-            ChartPeriod.Quarter => months / 3,
-            ChartPeriod.Year => last.Year - first.Year,
+            DatePeriod.Day => last.DayNumber - first.DayNumber,
+            DatePeriod.Week => (last.DayNumber - first.DayNumber) / 7,
+            DatePeriod.Month => months,
+            DatePeriod.Quarter => months / 3,
+            DatePeriod.Year => last.Year - first.Year,
             _ => throw new ArgumentOutOfRangeException(nameof(period), period, "Unknown period."),
         };
     }
@@ -224,15 +254,15 @@ public static class ChartPeriods
     /// The range snapped outwards to whole periods: a month window asked for from the 15th still
     /// counts the whole of that month, so its first bucket is never a half-month drawn as a month.
     /// </returns>
-    public static PeriodRange Spanning(DateOnly from, DateOnly to, ChartPeriod period) =>
-        new(Start(from, period), Start(to, period), period);
+    public static PeriodRange Spanning(DateOnly from, DateOnly to, DatePeriod period) =>
+        new(from, to, period);
 
     /// <summary>The last <paramref name="count"/> periods, ending with the one <paramref name="today"/> is in.</summary>
     /// <param name="today">The reader's current date.</param>
     /// <param name="period">The period.</param>
     /// <param name="count">How many periods, at least one.</param>
     /// <returns>The range, current period included.</returns>
-    public static PeriodRange Last(DateOnly today, ChartPeriod period, int count)
+    public static PeriodRange Last(DateOnly today, DatePeriod period, int count)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(count, 1);
 
@@ -252,8 +282,24 @@ public static class ChartPeriods
 
         return range.Count <= maximum
             ? range
-            : range with { First = Add(range.Last, range.Period, -(maximum - 1)) };
+            : new PeriodRange(Add(range.Last, range.Period, -(maximum - 1)), range.Last, range.Period);
     }
+
+    /// <summary>The ISO 8601 week number of a date: 1 to 53, weeks starting on Monday.</summary>
+    /// <param name="date">The date.</param>
+    /// <returns>The week of its ISO week-year.</returns>
+    /// <remarks>
+    /// Read with <see cref="IsoWeekYear"/>, never with <see cref="DateOnly.Year"/>: 29 December 2025
+    /// is in week 1 of 2026, and pairing it with 2025 names a week a year early.
+    /// </remarks>
+    public static int IsoWeek(DateOnly date) =>
+        System.Globalization.ISOWeek.GetWeekOfYear(date.ToDateTime(TimeOnly.MinValue));
+
+    /// <summary>The ISO 8601 week-year a date's week belongs to.</summary>
+    /// <param name="date">The date.</param>
+    /// <returns>The year that owns its week, which differs from the calendar year near New Year.</returns>
+    public static int IsoWeekYear(DateOnly date) =>
+        System.Globalization.ISOWeek.GetYear(date.ToDateTime(TimeOnly.MinValue));
 
     /// <summary>Every period start in a range, earliest first.</summary>
     /// <param name="range">The range.</param>

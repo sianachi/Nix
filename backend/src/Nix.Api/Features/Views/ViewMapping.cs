@@ -179,7 +179,8 @@ internal static class ViewMapping
                 chart.From,
                 chart.To,
                 chart.Cumulative,
-                chart.RollingAverage);
+                chart.RollingAverage,
+                chart.Stacked);
 
     /// <summary>Reads requested chart options; an all-default object stores as none.</summary>
     private static ChartOptions? ToDomain(ChartOptionsContract? chart)
@@ -197,7 +198,8 @@ internal static class ViewMapping
             chart.From,
             chart.To,
             chart.Cumulative ?? false,
-            chart.RollingAverage ?? false);
+            chart.RollingAverage ?? false,
+            chart.Stacked ?? false);
 
         return options.IsEmpty ? null : options;
     }

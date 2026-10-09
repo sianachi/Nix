@@ -244,6 +244,7 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                 "status",
                 "title",
                 measureKey: "estimate",
+                seriesLimit: 6,
                 bucketLimit: 10,
                 cellLimit: 100,
                 Cancellation);
@@ -255,6 +256,7 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                 measureKey: null,
                 firstDay: null,
                 lastDay: null,
+                seriesLimit: 6,
                 cellLimit: 100,
                 Cancellation);
 
@@ -281,18 +283,18 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
             var workspace = WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId);
 
             var hiddenSeries = await aggregates.BucketBySeriesAsync(
-                workspace, ItemId.From(HiddenContainer), "status", "title", null, 10, 100, Cancellation);
+                workspace, ItemId.From(HiddenContainer), "status", "title", null, 6, 10, 100, Cancellation);
             var hiddenDays = await aggregates.BucketByDayAsync(
-                workspace, ItemId.From(HiddenContainer), "status", null, null, null, null, 100, Cancellation);
+                workspace, ItemId.From(HiddenContainer), "status", null, null, null, null, 6, 100, Cancellation);
 
             Assert.Empty(hiddenSeries.Cells);
             Assert.Empty(hiddenDays.Cells);
 
             // The visible container answers both, so the emptiness above is a refusal.
             var visibleSeries = await aggregates.BucketBySeriesAsync(
-                workspace, ItemId.From(VisibleContainer), "status", "title", null, 10, 100, Cancellation);
+                workspace, ItemId.From(VisibleContainer), "status", "title", null, 6, 10, 100, Cancellation);
             var visibleDays = await aggregates.BucketByDayAsync(
-                workspace, ItemId.From(VisibleContainer), "status", null, null, null, null, 100, Cancellation);
+                workspace, ItemId.From(VisibleContainer), "status", null, null, null, null, 6, 100, Cancellation);
 
             Assert.Equal(1, visibleSeries.Children);
             Assert.Equal(1, visibleDays.Children);
@@ -313,6 +315,9 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
         await AddChildAsync(
             new Guid("201100f0-1111-4111-8111-201100f00011"),
             "{\"title\":\"c\",\"done\":\"soon\"}");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00015"),
+            "{\"title\":\"g\",\"done\":\"2026-13-01\"}");
         await AddChildAsync(
             new Guid("201100f0-1111-4111-8111-201100f00012"),
             "{\"title\":\"d\",\"done\":\"2025-12-31\"}");
@@ -336,6 +341,7 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                 measureKey: "estimate",
                 firstDay: new DateOnly(2026, 1, 1),
                 lastDay: new DateOnly(2026, 12, 31),
+                seriesLimit: 6,
                 cellLimit: 100,
                 Cancellation);
 
@@ -346,8 +352,9 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                 read.Cells,
                 undated =>
                 {
+                    // "soon" and "2026-13-01": neither is a real date, so neither has a day.
                     Assert.Null(undated.Bucket);
-                    Assert.Equal(1, undated.Children);
+                    Assert.Equal(2, undated.Children);
                 },
                 ada =>
                 {
@@ -364,8 +371,10 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                     Assert.Equal(2m, nobody.Total);
                 });
 
-            // The deleted and template-owned children, and the one outside the window, are nowhere.
-            Assert.Equal(3, read.Children);
+            // The deleted and template-owned children are nowhere; the one outside the window is
+            // counted as outside rather than as a child of any day.
+            Assert.Equal(4, read.Children);
+            Assert.Equal(1, read.OutsideWindow);
         }
     }
 
@@ -388,6 +397,7 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                 "status",
                 "owner",
                 measureKey: null,
+                seriesLimit: 6,
                 bucketLimit: 1,
                 cellLimit: 100,
                 Cancellation);
@@ -401,6 +411,85 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
                 read.Cells,
                 ada => Assert.Equal("Ada", ada.Series),
                 nobody => Assert.Null(nobody.Series));
+        }
+    }
+
+    [Fact]
+    public async Task A_split_by_a_value_per_child_returns_at_most_the_cap_plus_one_series_per_day()
+    {
+        await AddChildrenAsync(VisibleContainer, 40, "jsonb_build_object('title', 'n' || n, 'done', '2026-03-0' || (1 + n % 3), 'note', 'free text ' || n)");
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var aggregates = work.Resolve<IChildAggregates>();
+            var days = await aggregates.BucketByDayAsync(
+                WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId),
+                ItemId.From(VisibleContainer),
+                "done",
+                splitKey: "note",
+                measureKey: null,
+                firstDay: null,
+                lastDay: null,
+                seriesLimit: 6,
+                cellLimit: 1000,
+                Cancellation);
+
+            var dated = days.Cells.Where(cell => cell.Bucket is not null).ToList();
+            Assert.All(
+                dated.GroupBy(cell => cell.Bucket),
+                day => Assert.True(day.Count() <= 7, $"{day.Key} has {day.Count()} cells"));
+            Assert.Equal(6, dated.Where(cell => !cell.Other).Select(cell => cell.Series).Distinct().Count());
+            Assert.Equal(40, dated.Sum(cell => cell.Children));
+            Assert.Equal(40, days.SeriesValues);
+
+            var categories = await aggregates.BucketBySeriesAsync(
+                WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId),
+                ItemId.From(VisibleContainer),
+                "done",
+                "note",
+                measureKey: null,
+                seriesLimit: 6,
+                bucketLimit: 10,
+                cellLimit: 1000,
+                Cancellation);
+
+            Assert.All(
+                categories.Cells.GroupBy(cell => cell.Bucket),
+                bucket => Assert.True(bucket.Count() <= 7));
+            Assert.Equal(41, categories.Children);
+        }
+    }
+
+    private async Task AddChildrenAsync(Guid parent, int count, string properties)
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var workspace = Literal(M0SchemaSeed.Alpha.WorkspaceId);
+        var principal = Literal(M0SchemaSeed.Alpha.PrincipalId);
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  INSERT INTO item
+                      (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                       lifecycle_state, purge_after, created_by, last_modified_by, created_at,
+                       last_modified_at)
+                  SELECT gen_random_uuid(), {{tenant}}, {{workspace}}, 'note', {{Literal(parent)}},
+                         800000 + n, {{properties}}, 'active', NULL, {{principal}}, {{principal}},
+                         now(), now()
+                  FROM generate_series(1, {{count}}) AS n;
+
+                  INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  SELECT id, id, tenant_id, workspace_id, 0 FROM item WHERE seq BETWEEN 800001 AND {{800000 + count}};
+
+                  INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  SELECT id, {{Literal(parent)}}, tenant_id, workspace_id, 1
+                  FROM item WHERE seq BETWEEN 800001 AND {{800000 + count}};
+                  """);
         }
     }
 

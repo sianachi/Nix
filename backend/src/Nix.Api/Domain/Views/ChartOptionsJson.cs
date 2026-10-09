@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
+using Nix.Domain.Time;
 
 namespace Nix.Domain.Views;
 
@@ -32,6 +33,7 @@ internal static class ChartOptionsJson
     private const string ToKey = "to";
     private const string CumulativeKey = "cumulative";
     private const string RollingAverageKey = "rollingAverage";
+    private const string StackedKey = "stacked";
     private const string DateFormat = "yyyy-MM-dd";
 
     /// <summary>Writes the options, or nothing when there is nothing to say.</summary>
@@ -86,6 +88,11 @@ internal static class ChartOptionsJson
             entry[RollingAverageKey] = true;
         }
 
+        if (options.Stacked)
+        {
+            entry[StackedKey] = true;
+        }
+
         return entry;
     }
 
@@ -100,7 +107,7 @@ internal static class ChartOptionsJson
         }
 
         var kind = ReadString(stored[KindKey]) is { } text && ChartKinds.IsValid(text) ? text : null;
-        var period = ReadString(stored[PeriodKey]) is { } span && ChartPeriods.TryParse(span, out _)
+        var period = ReadString(stored[PeriodKey]) is { } span && DatePeriods.TryParse(span, out _)
             ? span
             : null;
 
@@ -125,7 +132,8 @@ internal static class ChartOptionsJson
             period is null || last is not null ? null : ReadDate(stored[FromKey]),
             period is null || last is not null ? null : ReadDate(stored[ToKey]),
             ReadFlag(stored[CumulativeKey]),
-            ReadFlag(stored[RollingAverageKey]));
+            ReadFlag(stored[RollingAverageKey]),
+            ReadFlag(stored[StackedKey]));
 
         // A window whose ends crossed is one no writer here produces; dropping it draws every period
         // rather than none.
@@ -138,7 +146,7 @@ internal static class ChartOptionsJson
     }
 
     private static DateOnly? ReadDate(JsonNode? node) =>
-        ReadString(node) is { Length: 10 } text && ChartPeriods.TryReadDate(text, out var date)
+        ReadString(node) is { Length: 10 } text && DatePeriods.TryReadDate(text, out var date)
             ? date
             : null;
 

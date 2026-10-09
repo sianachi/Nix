@@ -3,9 +3,11 @@ using Microsoft.AspNetCore.Mvc;
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Domain.Time;
 using Nix.Domain.Views;
 using Nix.Features.Items;
 using Nix.Messaging;
+using NodaTime;
 
 namespace Nix.Features.Charts;
 
@@ -51,6 +53,8 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
     private readonly IChildAggregates _aggregates;
     private readonly IItemLocks _locks;
     private readonly TimeProvider _clock;
+    private readonly IPrincipalPreferencesStore _preferences;
+    private readonly INixSessionContextAccessor _session;
 
     /// <summary>Initializes a new instance of the <see cref="RunItemChartHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
@@ -58,13 +62,22 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
     /// <param name="aggregates">Buckets the children.</param>
     /// <param name="locks">Withholds a locked container's children until it is opened.</param>
     /// <param name="clock">Says which period is the current one, for a rolling window.</param>
+    /// <param name="preferences">The reader's time zone, which decides which day is today.</param>
+    /// <param name="session">Who is reading.</param>
     public RunItemChartHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         IChildAggregates aggregates,
         IItemLocks locks,
-        TimeProvider clock)
+        TimeProvider clock,
+        IPrincipalPreferencesStore preferences,
+        INixSessionContextAccessor session)
     {
+        ArgumentNullException.ThrowIfNull(preferences);
+        ArgumentNullException.ThrowIfNull(session);
+        _preferences = preferences;
+        _session = session;
+
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(aggregates);
@@ -154,17 +167,18 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
 
         FoldedChart folded;
         string? period = null;
-        if (ChartPeriods.TryParse(options.Period, out var axis))
+        if (DatePeriods.TryParse(options.Period, out var axis))
         {
             // A year grid is a grid of days whatever else was stored; the write path insists on it,
             // and this holds the line for any other writer.
             if (kind == ChartKinds.Year)
             {
-                axis = ChartPeriod.Day;
+                axis = DatePeriod.Day;
             }
 
-            period = ChartPeriods.ToText(axis);
-            var (first, last) = Window(options, axis, kind);
+            period = DatePeriods.ToText(axis);
+            var today = await TodayAsync(cancellationToken).ConfigureAwait(false);
+            var (first, last, endAtData) = Window(options, axis, kind, today);
 
             var cells = await _aggregates
                 .BucketByDayAsync(
@@ -173,13 +187,14 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
                     chart.GroupBy,
                     splitBy,
                     measureProperty,
-                    first is { } from ? ChartPeriods.Start(from, axis) : null,
-                    last is { } to ? ChartPeriods.End(ChartPeriods.Start(to, axis), axis) : null,
+                    first is { } from ? DatePeriods.Start(from, axis) : null,
+                    last is { } to ? DatePeriods.End(DatePeriods.Start(to, axis), axis) : null,
+                    ChartFolding.MaximumSeries,
                     MaximumCells,
                     cancellationToken)
                 .ConfigureAwait(false);
 
-            folded = ChartFolding.Days(cells, axis, first, last, splitBy is not null);
+            folded = ChartFolding.Days(cells, axis, first, last, splitBy is not null, endAtData);
         }
         else
         {
@@ -199,6 +214,7 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
                         chart.GroupBy,
                         splitBy,
                         measureProperty,
+                        ChartFolding.MaximumSeries,
                         MaximumBuckets,
                         MaximumCells,
                         cancellationToken)
@@ -237,39 +253,66 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
             folded.DistinctValues,
             folded.Unplaced,
             folded.OtherSeries,
-            folded.Truncated));
+            folded.Truncated,
+            folded.OutsideWindow,
+            options.Stacked,
+            options.Cumulative,
+            options.RollingAverage));
     }
 
-    /// <summary>The days a time axis's window runs between, either end open.</summary>
+    /// <summary>Today in the reader's own time zone, or in UTC when they have not set one.</summary>
     /// <remarks>
-    /// "Today" is the server's UTC date. A chart has no reader's zone to ask - it is one stored view
-    /// drawn the same for everybody who opens it - and the cost is that for a few hours either side
-    /// of midnight a rolling window's current period may be the reader's yesterday or tomorrow.
+    /// The current period is the reader's: a week chart opened on Monday morning in Tokyo shows
+    /// Monday's week, not the Sunday it still is in UTC. One primary-key read of the reader's
+    /// preferences; an unknown zone falls back to UTC rather than failing the chart.
     /// </remarks>
-    private (DateOnly? First, DateOnly? Last) Window(ChartOptions options, ChartPeriod axis, string kind)
+    private async ValueTask<DateOnly> TodayAsync(CancellationToken cancellationToken)
     {
-        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+        var now = _clock.GetUtcNow();
+        var zone = DateTimeZone.Utc;
+        if (_session.Current is { } context
+            && await _preferences.FindAsync(context.TenantId, context.PrincipalId, cancellationToken).ConfigureAwait(false) is { } stored
+            && DateTimeZoneProviders.Tzdb.GetZoneOrNull(stored.TimeZone) is { } preferred)
+        {
+            zone = preferred;
+        }
 
+        return Instant.FromDateTimeOffset(now).InZone(zone).Date.ToDateOnly();
+    }
+
+    /// <summary>The days a time axis's window runs between.</summary>
+    /// <returns>
+    /// The first and last day, either open, and whether the last day is only a ceiling. With no
+    /// stored end the axis ends today - or at the latest period with data, when that is earlier -
+    /// so one entry dated 2099 by mistake is counted outside the window rather than stretching the
+    /// axis across seventy years of empty periods.
+    /// </returns>
+    private static (DateOnly? First, DateOnly? Last, bool EndAtData) Window(
+        ChartOptions options,
+        DatePeriod axis,
+        string kind,
+        DateOnly today)
+    {
         if (options.LastPeriods is { } count)
         {
-            var range = ChartPeriods.Last(today, axis, Math.Clamp(count, 1, ChartOptions.MaximumPeriods));
-            return (range.First, range.Last);
+            var range = DatePeriods.Last(today, axis, Math.Clamp(count, 1, ChartOptions.MaximumPeriods));
+            return (range.First, range.Last, false);
         }
 
-        if (options.From is not null || options.To is not null)
+        if (options.To is { } to)
         {
-            return (options.From, options.To);
+            return (options.From, to, false);
         }
 
-        if (kind == ChartKinds.Year)
+        if (kind == ChartKinds.Year && options.From is null)
         {
             // Fifty-three whole weeks ending with this one: the shape of every contribution grid,
             // and exactly MaximumPeriods days.
-            var monday = ChartPeriods.Start(today, ChartPeriod.Week);
-            return (monday.AddDays(-52 * 7), monday.AddDays(6));
+            var monday = DatePeriods.Start(today, DatePeriod.Week);
+            return (monday.AddDays(-52 * 7), monday.AddDays(6), false);
         }
 
-        return (null, null);
+        return (options.From, today, true);
     }
 }
 
@@ -337,7 +380,11 @@ internal static class RunItemChartEndpoint
                             new ChartSeriesResponse(series.Value, series.Other, series.Children, series.Total)),
                     ],
                     chart.OtherSeries,
-                    chart.Unplaced)),
+                    chart.Unplaced,
+                    chart.OutsideWindow,
+                    chart.Stacked,
+                    chart.Cumulative,
+                    chart.RollingAverage)),
             error => TypedResults.Problem(ChartEndpoints.Problem(httpContext, error)));
     }
 }

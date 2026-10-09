@@ -197,6 +197,7 @@ public sealed class ItemRollupsTests
             string groupKey,
             string splitKey,
             string? measureKey,
+            int seriesLimit,
             int bucketLimit,
             int cellLimit,
             CancellationToken cancellationToken) =>
@@ -210,6 +211,7 @@ public sealed class ItemRollupsTests
             string? measureKey,
             DateOnly? firstDay,
             DateOnly? lastDay,
+            int seriesLimit,
             int cellLimit,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(new ChildCells([], 0, null, CellsCut: false));

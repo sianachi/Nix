@@ -445,6 +445,18 @@ public static class PropertyTypes
     public static bool CanChartBy(this PropertyType type) =>
         type is PropertyType.Select || type.CanPlaceOnCalendar();
 
+    /// <summary>Whether a chart may split its buckets into series by this type.</summary>
+    /// <param name="type">The type.</param>
+    /// <returns><see langword="true"/> for the choice types: one of a few values per item.</returns>
+    /// <remarks>
+    /// A split makes a series per distinct value, and a free-text or numeric property has a value
+    /// per item - a legend nobody can read and a read that groups by every child. A single choice,
+    /// a yes/no and a person each take one of a small set of values.
+    /// </remarks>
+    public static bool CanSplitBy(this PropertyType type) =>
+        type is PropertyType.Select or PropertyType.Checkbox or PropertyType.Completion
+            or PropertyType.Assignee;
+
     /// <summary>Whether a calendar may place items by this type.</summary>
     /// <param name="type">The type.</param>
     /// <returns><see langword="true"/> for the date-shaped types.</returns>

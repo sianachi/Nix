@@ -11819,6 +11819,12 @@
               "null",
               "boolean"
             ]
+          },
+          "stacked": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -11840,7 +11846,11 @@
           "to",
           "series",
           "otherSeries",
-          "unplaced"
+          "unplaced",
+          "outsideWindow",
+          "stacked",
+          "cumulative",
+          "rollingAverage"
         ],
         "type": "object",
         "properties": {
@@ -11938,6 +11948,23 @@
               "string"
             ],
             "format": "int64"
+          },
+          "outsideWindow": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "stacked": {
+            "type": "boolean"
+          },
+          "cumulative": {
+            "type": "boolean"
+          },
+          "rollingAverage": {
+            "type": "boolean"
           }
         }
       },
