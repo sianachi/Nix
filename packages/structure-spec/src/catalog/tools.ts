@@ -199,7 +199,7 @@ function booleanProperty(description: string): JsonObject {
 
 const ITEM_ID_DESCRIPTION =
   'The exact item UUID. Discover it with nix_list_items or nix_search first if not already known.';
-const PARENT_ID_DESCRIPTION = 'The parent item UUID, or omit/empty to use the workspace root.';
+const PARENT_ID_DESCRIPTION = 'Parent UUID; omit/empty for root.';
 const TEMPLATE_ID_DESCRIPTION = 'The template item UUID.';
 
 interface ToolBuild {

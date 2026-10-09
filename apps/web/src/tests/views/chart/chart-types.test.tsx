@@ -128,7 +128,13 @@ describe('every chart type', () => {
       .getAllByRole('gridcell')
       .filter((cell) => cell.getAttribute('aria-label') !== null);
     expect(days).toHaveLength(371);
-    expect(within(grid).getByRole('gridcell', { name: /6 Oct 2025: 1 item$/ })).toBeVisible();
+    const firstDay = new Date('2025-10-06T00:00:00Z').toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+    expect(within(grid).getByRole('gridcell', { name: `${firstDay}: 1 item` })).toBeVisible();
     expect(screen.getByText('Every day as a table')).toBeVisible();
   });
 
