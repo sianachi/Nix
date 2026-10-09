@@ -9,6 +9,7 @@ import type {
 } from '../types.js';
 import {
   canChartBy,
+  canSplitBy,
   canGroupBy,
   canSectionBy,
   isComputedType,
@@ -247,9 +248,10 @@ const MAXIMUM_CHART_PERIODS = 371;
 /**
  * Ports `ChartOptions.Refuse` (`backend/src/Nix.Api/Domain/Views/ChartOptions.cs`) - type and
  * period vocabulary, the time-axis types needing a period, the year grid counting by day, and the
- * window's shape - and adds two client-only checks Core cannot make without a schema: a period
- * needs the chart to group by a date, and a split must be a select or a checkbox, because a series
- * per distinct free-text value is a legend nobody can read.
+ * window's shape - and adds two schema checks: a period needs the chart to group by a date
+ * (client-only), and a split must be a choice type (`canSplitBy`, which Core also refuses on write
+ * when the property exists), because a series per distinct free-text value is a legend nobody can
+ * read.
  */
 function refuseChartOptions(
   view: StructureView,
@@ -301,8 +303,8 @@ function refuseChartOptions(
   const splitBy = chart.splitBy ?? null;
   if (view.kind === 'chart' && splitBy !== null) {
     const split = findByKey(effective, splitBy);
-    if (split === undefined || (split.type !== 'select' && split.type !== 'checkbox')) {
-      return `'${view.name}': a chart splits into series by a select or checkbox property.`;
+    if (split === undefined || !canSplitBy(split.type)) {
+      return `'${view.name}': a chart splits into series by a select, checkbox or person property.`;
     }
   }
 
