@@ -167,6 +167,28 @@ const ViewFilterGroupSchema = z.object({
   any: z.array(ViewFilterConditionSchema),
 });
 
+/**
+ * A chart view's type, time axis, series and window (Core's `ChartOptionsContract`).
+ *
+ * Open strings for `kind` and `period`, matching `measure`: Core polices the closed sets on write,
+ * and a token a newer build admits must cost an older one that choice - the chart draws bars, or a
+ * chart of categories - rather than the parse of the whole view set. Every field is optional and
+ * nullable because a write sends only what was chosen.
+ */
+export const ChartOptionsSchema = z.object({
+  kind: z.string().nullable().default(null),
+  period: z.string().nullable().default(null),
+  splitBy: z.string().nullable().default(null),
+  // int32, which the generated contract admits as number or string.
+  lastPeriods: z.union([z.number(), z.string()]).transform(Number).nullable().default(null),
+  from: z.string().nullable().default(null),
+  to: z.string().nullable().default(null),
+  cumulative: z.boolean().nullable().default(null),
+  rollingAverage: z.boolean().nullable().default(null),
+});
+
+export type ChartOptions = z.infer<typeof ChartOptionsSchema>;
+
 export const ViewSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -301,6 +323,8 @@ export const ViewSchema = z.object({
    * `groupBy`, the board's own field, so a board switched to a matrix keeps them.
    */
   rowBy: z.string().nullable().default(null),
+  /** For a chart: its type, time axis, series and window. Null draws a bar chart of categories. */
+  chart: ChartOptionsSchema.nullable().default(null),
 });
 
 type ParsedView = z.infer<typeof ViewSchema>;
@@ -329,6 +353,7 @@ export type View = Omit<
   | 'aggregates'
   | 'doneProperty'
   | 'rowBy'
+  | 'chart'
 > &
   Partial<
     Pick<
@@ -345,6 +370,7 @@ export type View = Omit<
       | 'aggregates'
       | 'doneProperty'
       | 'rowBy'
+      | 'chart'
     >
   > & {};
 
@@ -367,6 +393,7 @@ export function toViewRequest(view: View): ParsedView {
     aggregates: [...(view.aggregates ?? [])],
     doneProperty: view.doneProperty ?? null,
     rowBy: view.rowBy ?? null,
+    chart: view.chart ?? null,
   };
 }
 

@@ -2,6 +2,7 @@ import { Button, Field, Icon, Select, Text, focusRing } from '@nix/ui';
 import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
+import { ChartOptionsEditor } from '../chart/chart-options-editor';
 import { InteractiveFormEditor } from '../form/interactive-form-editor';
 import { resolveDoneProperty } from '../checklist/checklist-view';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
@@ -63,11 +64,12 @@ export function StructuredViewConfiguration({
                 value={view[configuration.field] ?? ''}
                 onChange={(event) => {
                   const value = event.target.value;
-                  onChange({
+                  const next: View = {
                     ...view,
                     ...configuration.clears,
                     [configuration.field]: value.length === 0 ? null : value,
-                  });
+                  };
+                  onChange(configuration.normalize?.(next, fields) ?? next);
                 }}
               >
                 <option value="">{configuration.emptyChoice}</option>
@@ -106,6 +108,10 @@ export function StructuredViewConfiguration({
           )}
         </Field>
       ))}
+
+      {view.kind === 'chart' ? (
+        <ChartOptionsEditor view={view} fields={fields} onChange={onChange} />
+      ) : null}
 
       {view.kind === 'board' ? (
         <Field label="Column order" hint="One select option per line.">
