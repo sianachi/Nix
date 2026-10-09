@@ -78,6 +78,11 @@ public sealed class AccessTokenScopePolicyTests
         ["GetItemPermissions"] = Requirement.Read,
         ["RunItemQuery"] = Requirement.Read,
 
+        // Reads sent as POSTs because rules do not fit a URL; they change nothing, so a write-only
+        // ingest token must not be able to use them to read the workspace out.
+        ["RunWorkspaceQuery"] = Requirement.Read,
+        ["AggregateWorkspaceQuery"] = Requirement.Read,
+
         // A summary of children the caller can already list. Nothing about a chart discloses more
         // than the listing beside it, so it is a read like the listing.
         ["RunItemChart"] = Requirement.Read,
@@ -344,6 +349,26 @@ public sealed class AccessTokenScopePolicyTests
     [InlineData("PUT", "/api/v1/search/mentions")]
     [InlineData("DELETE", "/api/v1/search/mentions")]
     public void Only_the_exact_mentions_post_is_relaxed_to_a_read(string method, string path) =>
+        Assert.Equal(Requirement.Write, Classify(method, path));
+
+    [Theory]
+    [InlineData("/api/v1/workspaces/11111111-1111-4111-8111-111111111111/query")]
+    [InlineData("/api/v1/workspaces/11111111-1111-4111-8111-111111111111/query/")]
+    [InlineData("/api/v1/workspaces/11111111-1111-4111-8111-111111111111/query/aggregate")]
+    [InlineData("/API/V1/WORKSPACES/11111111-1111-4111-8111-111111111111/QUERY")]
+    public void The_ad_hoc_query_is_a_read_even_though_it_is_a_post(string path)
+    {
+        Assert.Equal(Requirement.Read, Classify("POST", path));
+        Assert.False(Satisfies([AccessTokenScopes.Write], Classify("POST", path)));
+    }
+
+    [Theory]
+    [InlineData("POST", "/api/v1/workspaces//query")]
+    [InlineData("POST", "/api/v1/workspaces/11111111-1111-4111-8111-111111111111/extra/query")]
+    [InlineData("POST", "/api/v1/workspaces/11111111-1111-4111-8111-111111111111/query/aggregate/extra")]
+    [InlineData("POST", "/api/v1/workspaces/11111111-1111-4111-8111-111111111111/items/query")]
+    [InlineData("PUT", "/api/v1/workspaces/11111111-1111-4111-8111-111111111111/query")]
+    public void Only_the_exact_query_posts_are_relaxed_to_a_read(string method, string path) =>
         Assert.Equal(Requirement.Write, Classify(method, path));
 
     [Fact]

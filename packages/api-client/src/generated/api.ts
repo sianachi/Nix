@@ -2160,6 +2160,46 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/workspaces/{workspaceId}/query': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Run an ad-hoc query over one workspace
+     * @description Runs the rule shape a query view stores, without a saved view, over one workspace the caller may read: every active item that satisfies 'filters' (ANDed, with one level of 'any' groups, at most eight with the preset's), optionally beneath 'scope.parentId' (its whole subtree unless 'descendants' is false). Rules may test properties or the structural fields $type, $inside, $created, $modified and $done. Rows the caller may not read are excluded while the query runs, so the limit (100 by default, at most 500) is spent only on rows that are returned; 'truncated' says when more matched. With 'groupBy', rows arrive group by group - in 'groupBy.order', then by text, with 'no value' last - and 'groups' lists each group with its full count, so a cut list has whole groups first. Rows are otherwise ordered by 'sort', else by the first date rule's property soonest first, else most recently modified first, always tie-broken by id. 'today' (yyyy-MM-dd, the caller's own day) is required when a rule uses a day token or a window. A workspace the caller cannot read answers 'workspaces.not_found'; a scope container it cannot read answers 'items.not_found', as the item read does, and a locked one 'items.locked'. A read sent as a POST because rules do not fit a URL: it changes nothing, a read-scoped token may call it, and it has its own per-address rate limit ('queries'), separate from writes.
+     */
+    post: operations['RunWorkspaceQuery'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/query/aggregate': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Fold an ad-hoc query over one workspace
+     * @description Matches exactly what POST /workspaces/{workspaceId}/query would - same rules, scope, permission, lifecycle and lock filters - and folds the matches instead of returning them: 'count' rows, or 'sum', 'avg', 'min' or 'max' of a numeric property. A stored number, or text that reads as one, is folded; any other value is left out and counted in 'skipped', never treated as zero. With 'groupBy' the fold is also given per group, at most 100 groups in the same order a grouped query uses, with 'truncated' and 'groupCount' saying when more exist; 'total', 'count' and 'skipped' always cover every matched row. Same refusals, token scope and rate limit as the query.
+     */
+    post: operations['AggregateWorkspaceQuery'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/chart': {
     parameters: {
       query?: never;
@@ -2497,6 +2537,16 @@ export interface components {
       endpoint: string;
       p256dh: string;
       auth: string;
+    };
+    AggregateGroupResponse: {
+      key: null | string;
+      label: null | string;
+      /** Format: double */
+      value: null | number | string;
+      /** Format: int64 */
+      count: number | string;
+      /** Format: int64 */
+      skipped: number | string;
     };
     AppendViewSetupRequest: {
       properties: components['schemas']['PropertyDefinitionRequest'][];
@@ -3248,9 +3298,10 @@ export interface components {
       thumbnail?: null | components['schemas']['FileThumbnailRecord'];
     };
     FilterRuleContract: {
-      property: string;
-      operator: string;
-      value: string;
+      property: null | string;
+      operator: null | string;
+      value: null | string;
+      any?: null | components['schemas']['FilterRuleContract'][];
     };
     FinanceAccountRequest: {
       name: string;
@@ -4154,6 +4205,20 @@ export interface components {
       /** Format: date-time */
       lastSuccessAt: null | string;
     };
+    QueryAggregateContract: {
+      function: null | string;
+      property: null | string;
+    };
+    QueryGroupByContract: {
+      property: null | string;
+      order: null | string[];
+    };
+    QueryGroupResponse: {
+      key: null | string;
+      label: null | string;
+      /** Format: int64 */
+      count: number | string;
+    };
     QueryResultResponse: {
       /** Format: uuid */
       id: string;
@@ -4175,6 +4240,15 @@ export interface components {
       /** Format: int32 */
       limit: number | string;
       truncated: boolean;
+    };
+    QueryScopeContract: {
+      /** Format: uuid */
+      parentId: null | string;
+      descendants: null | boolean;
+    };
+    QuerySortContract: {
+      property: null | string;
+      descending: null | boolean;
     };
     RecoverWorkspaceRequest: {
       /** Format: uuid */
@@ -4811,6 +4885,32 @@ export interface components {
       /** Format: double */
       variance: number | string;
     };
+    WorkspaceAggregateRequest: {
+      scope: null | components['schemas']['QueryScopeContract'];
+      preset: null | string;
+      filters: null | components['schemas']['FilterRuleContract'][];
+      groupBy: null | components['schemas']['QueryGroupByContract'];
+      aggregate: null | components['schemas']['QueryAggregateContract'];
+      today: null | string;
+    };
+    WorkspaceAggregateResponse: {
+      /** Format: uuid */
+      workspaceId: string;
+      today: null | string;
+      function: string;
+      property: null | string;
+      groupBy: null | string;
+      groups: components['schemas']['AggregateGroupResponse'][];
+      /** Format: double */
+      total: null | number | string;
+      /** Format: int64 */
+      count: number | string;
+      /** Format: int64 */
+      skipped: number | string;
+      /** Format: int64 */
+      groupCount: number | string;
+      truncated: boolean;
+    };
     WorkspaceCalendarLinkResponse: {
       /** Format: uuid */
       containerItemId: string;
@@ -4888,6 +4988,40 @@ export interface components {
       principalId: string;
       displayName: string;
       kind: string;
+    };
+    WorkspaceQueryRequest: {
+      scope: null | components['schemas']['QueryScopeContract'];
+      preset: null | string;
+      filters: null | components['schemas']['FilterRuleContract'][];
+      sort: null | components['schemas']['QuerySortContract'];
+      groupBy: null | components['schemas']['QueryGroupByContract'];
+      /** Format: int32 */
+      limit: null | number | string;
+      today: null | string;
+    };
+    WorkspaceQueryResponse: {
+      /** Format: uuid */
+      workspaceId: string;
+      today: null | string;
+      results: components['schemas']['WorkspaceQueryRowResponse'][];
+      /** Format: int32 */
+      limit: number | string;
+      truncated: boolean;
+      groupBy: null | string;
+      groups: components['schemas']['QueryGroupResponse'][];
+    };
+    WorkspaceQueryRowResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      containerId: null | string;
+      containerTitle: null | string;
+      title: null | string;
+      type: string;
+      properties: components['schemas']['JsonObject'];
+      group: null | string;
     };
     WorkspaceResponse: {
       /** Format: uuid */
@@ -11157,6 +11291,148 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['QueryResultsResponse'];
+        };
+      };
+    };
+  };
+  RunWorkspaceQuery: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['WorkspaceQueryRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceQueryResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Payload Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Locked */
+      423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AggregateWorkspaceQuery: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['WorkspaceAggregateRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceAggregateResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Payload Too Large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Locked */
+      423: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
     };

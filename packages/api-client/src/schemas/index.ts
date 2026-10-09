@@ -130,6 +130,18 @@ export {
   type QueryResultRow,
 } from './item-query.js';
 export {
+  aggregateGroupSchema,
+  queryGroupSchema,
+  workspaceAggregateSchema,
+  workspaceQueryResultsSchema,
+  workspaceQueryRowSchema,
+  type AggregateGroup,
+  type QueryGroup,
+  type WorkspaceAggregate,
+  type WorkspaceQueryResults,
+  type WorkspaceQueryRow,
+} from './workspace-query.js';
+export {
   emptyTemplateInitialization,
   templateApplicationRequestSchema,
   templateApplicationResultSchema,

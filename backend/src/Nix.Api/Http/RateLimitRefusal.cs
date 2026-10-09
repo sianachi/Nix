@@ -45,6 +45,14 @@ public static class RateLimitRefusal
     /// </summary>
     public const string SuggestionsPolicyName = "suggestions";
 
+    /// <summary>
+    /// Name of the limiter on the ad-hoc workspace query and aggregate: reads sent as POSTs because
+    /// rules do not fit a URL, kept apart from <see cref="WritesPolicyName"/> so a dashboard
+    /// refreshing its tiles never spends a person's saves, and bounded because each one scans a
+    /// workspace.
+    /// </summary>
+    public const string QueriesPolicyName = "queries";
+
     /// <summary>Writes the 429 problem-details refusal with a <c>Retry-After</c> header, and logs it.</summary>
     /// <param name="context">The request being refused.</param>
     /// <param name="logger">Where the refusal is recorded.</param>

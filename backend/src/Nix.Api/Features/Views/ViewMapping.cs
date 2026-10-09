@@ -28,9 +28,7 @@ internal static class ViewMapping
             view.CoverProperty,
             view.EndDateProperty,
             view.CardSize,
-            view.Filters.IsDefaultOrEmpty
-                ? []
-                : [.. view.Filters.Select(rule => new FilterRuleContract(rule.Property, rule.Operator, rule.Value))],
+            FilterRuleContracts.ToContract(view.Filters),
             view.CompanionViewId,
             view.CompanionPlacement,
             ToContract(view.InteractiveForm),
@@ -115,9 +113,7 @@ internal static class ViewMapping
                     view.CoverProperty,
                     view.EndDateProperty,
                     view.CardSize,
-                    view.Filters is null
-                        ? []
-                        : [.. view.Filters.Select(rule => new FilterRule(rule.Property, rule.Operator, rule.Value))],
+                    FilterRuleContracts.ToDomain(view.Filters),
                     view.CompanionViewId,
                     view.CompanionPlacement,
                     ToDomain(view.InteractiveForm),
@@ -162,10 +158,9 @@ internal static class ViewMapping
             return "every summary needs a property key and a function";
         }
 
-        if (view.Filters is not null
-            && view.Filters.Any(rule => rule?.Property is null || rule.Operator is null || rule.Value is null))
+        if (FilterRuleContracts.RefuseShape(view.Filters) is { } filterShape)
         {
-            return "every filter needs a property, an operator and a value, empty when the operator takes none";
+            return filterShape;
         }
 
         return null;

@@ -95,6 +95,38 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
         Assert.True(Size(4 * Nix.Features.Search.FindMentionsHandler.MaximumExclusions) > declared.MaxRequestBodyBytes);
     }
 
+    [Theory]
+    [InlineData("/api/v1/workspaces/{workspaceId:guid}/query")]
+    [InlineData("/api/v1/workspaces/{workspaceId:guid}/query/aggregate")]
+    public void The_ad_hoc_query_declares_a_body_bound_its_largest_legitimate_request_fits_under(string route)
+    {
+        var endpoint = Assert.Single(MutatingEndpoints(), e => e.RoutePattern.RawText == route);
+        var declared = endpoint.Metadata.GetMetadata<RequestBodyLimitMetadata>();
+        Assert.NotNull(declared);
+
+        // The worst a well-behaved client can send: the most rules at the longest value, every
+        // character escaped by the web serialiser, and the longest group order.
+        var value = new string('<', Nix.Domain.Views.QueryOperators.MaximumValueLength);
+        var largest = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new
+            {
+                filters = Enumerable.Range(0, Nix.Domain.Views.QueryRules.MaximumRules)
+                    .Select(_ => new { property = new string('k', 128), @operator = "contains", value })
+                    .ToArray(),
+                groupBy = new
+                {
+                    property = new string('k', 128),
+                    order = Enumerable.Range(0, Nix.Features.Query.WorkspaceQueryHandler.MaximumGroupOrder)
+                        .Select(_ => new string('<', Nix.Domain.Views.QueryOperators.MaximumPropertyLength))
+                        .ToArray(),
+                },
+                today = "2026-08-15",
+            },
+            WebJson).Length;
+
+        Assert.True(largest <= declared.MaxRequestBodyBytes);
+    }
+
     [Fact]
     public void No_read_endpoint_declares_a_raised_body_bound()
     {
@@ -128,6 +160,11 @@ public sealed class EndpointHardeningTests(ContractHostFactory factory)
         // A read sent as a POST: its own window, so lookups while typing never spend the writes
         // window a person's saves draw on.
         "/api/v1/search/mentions" => RateLimitRefusal.SuggestionsPolicyName,
+
+        // The ad-hoc query and its aggregate: reads sent as POSTs, on their own window, so a
+        // dashboard's tiles or an assistant's lookups never spend a person's saves.
+        "/api/v1/workspaces/{workspaceId:guid}/query"
+            or "/api/v1/workspaces/{workspaceId:guid}/query/aggregate" => RateLimitRefusal.QueriesPolicyName,
         _ => RateLimitRefusal.WritesPolicyName,
     };
 

@@ -130,8 +130,10 @@ export {
   templatePreflightRequestSchema,
   templatePreflightSchema,
   templateSummarySchema,
+  workspaceAggregateSchema,
   workspaceCalendarSchema,
   workspaceGraphSchema,
+  workspaceQueryResultsSchema,
   completeOccurrenceResultSchema,
   recurrenceFreqSchema,
   recurrenceRuleSchema,
@@ -151,6 +153,11 @@ export type {
   ChartBucket,
   ItemChart,
   ItemQueryResults,
+  AggregateGroup,
+  QueryGroup,
+  WorkspaceAggregate,
+  WorkspaceQueryResults,
+  WorkspaceQueryRow,
   PropertyDefinition,
   QueryResultRow,
   SearchHit,
@@ -345,6 +352,15 @@ export {
 export * as canvasLibrary from './resources/canvas-library.js';
 export * as itemChart from './resources/item-chart.js';
 export * as itemQuery from './resources/item-query.js';
+export * as workspaceQuery from './resources/workspace-query.js';
+export type {
+  QueryAggregateFunction,
+  QueryFilterRule,
+  QueryPreset,
+  WorkspaceAggregateQuery,
+  WorkspaceQuery,
+  WorkspaceQueryMatch,
+} from './resources/workspace-query.js';
 export * as workspaceCalendar from './resources/workspace-calendar.js';
 export * as workspaceGraph from './resources/workspace-graph.js';
 export * as templates from './resources/templates.js';
