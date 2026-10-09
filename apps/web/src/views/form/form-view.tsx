@@ -298,7 +298,7 @@ function EntryForm({
   return (
     <form
       aria-label={view.name}
-      className="flex max-w-xl flex-col gap-4"
+      className="flex min-w-0 w-full max-w-xl flex-col gap-4"
       // The form owns its validation - the per-field sentences below - and the design language
       // never shows browser default bubbles. Without this the controls' own `required` attributes
       // would block submission before the handler could say anything.

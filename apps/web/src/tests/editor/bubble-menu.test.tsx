@@ -74,19 +74,84 @@ function select(editor: Editor, from: number, to: number): void {
 }
 
 describe('the selection bubble menu', () => {
+  it.each([
+    ['Bold', 'strong'],
+    ['Italic', 'em'],
+    ['Underline', 'u'],
+    ['Strikethrough', 's'],
+    ['Inline code', 'code'],
+  ])('toggles %s on selected text without moving the selection', async (label, tag) => {
+    const editor = await editorWith('some words');
+    select(editor, 1, 5);
+    const button = await screen.findByRole('button', { name: label });
+    fireEvent.mouseDown(button);
+    fireEvent.click(button);
+
+    expect(editor.getHTML()).toContain(`<${tag}>some</${tag}>`);
+    expect(button).toHaveAttribute('aria-pressed', 'true');
+    expect(editor.state.selection.from).toBe(1);
+    expect(editor.state.selection.to).toBe(5);
+
+    fireEvent.click(button);
+    expect(editor.getHTML()).not.toContain(`<${tag}>`);
+  });
+
+  it('keeps touch formatting inside the viewport on a device with a fine primary pointer', async () => {
+    const pointer = Object.assign(new EventTarget(), {
+      matches: true,
+      media: '(any-pointer: coarse)',
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+    }) satisfies MediaQueryList;
+    const fine = Object.assign(new EventTarget(), pointer, { matches: false });
+    vi.stubGlobal('matchMedia', (query: string) =>
+      query === '(any-pointer: coarse)' ? pointer : fine,
+    );
+    const viewport = Object.assign(new EventTarget(), {
+      width: 280,
+      height: 240,
+      offsetLeft: 10,
+      offsetTop: 20,
+      pageLeft: 10,
+      pageTop: 20,
+      scale: 1,
+      onresize: null,
+      onscroll: null,
+      onscrollend: null,
+    }) satisfies VisualViewport;
+    vi.stubGlobal('visualViewport', viewport);
+    const editor = await editorWith('some words');
+    vi.spyOn(editor.view, 'coordsAtPos').mockReturnValue({
+      left: 275,
+      right: 280,
+      top: 25,
+      bottom: 250,
+    });
+    select(editor, 1, 5);
+
+    const menu = await screen.findByRole('toolbar', { name: 'Selection formatting' });
+    expect(menu).toHaveStyle({ left: '18px', maxWidth: '264px', maxHeight: '72px', top: '172px' });
+    viewport.height = 180;
+    act(() => {
+      viewport.dispatchEvent(new Event('resize'));
+    });
+    await waitFor(() => {
+      expect(menu).toHaveStyle({ top: '112px' });
+    });
+  });
+
   it('stays hidden while the selection is a caret', async () => {
     await editorWith('some words');
 
-    expect(
-      screen.queryByRole('toolbar', { name: 'Text colour and highlight' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('toolbar', { name: 'Selection formatting' })).not.toBeInTheDocument();
   });
 
   it('appears over selected text with both axes, each choice naming the one it sets', async () => {
     const editor = await editorWith('some words');
     select(editor, 1, 5);
 
-    const toolbar = await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
+    const toolbar = await screen.findByRole('toolbar', { name: 'Selection formatting' });
     expect(toolbar).toBeInTheDocument();
 
     // Grouped, and each button still reachable by a name of its own: a group label is announced
@@ -267,17 +332,19 @@ describe('the selection bubble menu', () => {
     const user = userEvent.setup();
     const editor = await editorWith('some words');
     select(editor, 1, 5);
-    await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
+    await screen.findByRole('toolbar', { name: 'Selection formatting' });
 
     // The menu sits after the editable region in the DOM, so Tab from the text reaches it.
     act(() => {
-      editor.view.dom.focus();
+      editor.view.focus();
     });
     await user.tab();
 
-    expect(screen.getByRole('button', { name: 'Default colour' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveFocus();
 
-    await user.keyboard('{ArrowRight}{Enter}');
+    await user.keyboard(
+      '{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{Enter}',
+    );
 
     expect(editor.getHTML()).toContain('data-text-color="accent"');
   });
@@ -286,17 +353,22 @@ describe('the selection bubble menu', () => {
     const user = userEvent.setup();
     const editor = await editorWith('some words');
     select(editor, 1, 5);
-    await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
+    await screen.findByRole('toolbar', { name: 'Selection formatting' });
 
     act(() => {
-      editor.view.dom.focus();
+      editor.view.focus();
     });
     await user.tab();
 
     // One stop for the whole toolbar: every other button is out of the Tab order, in the second
     // group as much as the first. A group that kept its own tab stop would be a second widget.
-    expect(screen.getByRole('button', { name: 'Default colour' })).toHaveAttribute('tabindex', '0');
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveAttribute('tabindex', '0');
     for (const name of [
+      'Italic',
+      'Underline',
+      'Strikethrough',
+      'Inline code',
+      'Default colour',
       'Accent colour',
       'Muted colour',
       'No highlight',
@@ -307,6 +379,8 @@ describe('the selection bubble menu', () => {
     }
 
     await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('button', { name: 'Italic' })).toHaveFocus();
+    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}{ArrowRight}');
     expect(screen.getByRole('button', { name: 'Accent colour' })).toHaveFocus();
 
     // Straight through the group boundary rather than stopping at it.
@@ -322,13 +396,13 @@ describe('the selection bubble menu', () => {
 
     // And the arrows wrap around them.
     await user.keyboard('{ArrowRight}');
-    expect(screen.getByRole('button', { name: 'Default colour' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveFocus();
 
     await user.keyboard('{ArrowLeft}');
     expect(screen.getByRole('button', { name: 'Muted highlight' })).toHaveFocus();
 
     await user.keyboard('{Home}');
-    expect(screen.getByRole('button', { name: 'Default colour' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Bold' })).toHaveFocus();
   });
 
   it('keeps the selection when a button is pressed with the pointer', async () => {
@@ -349,33 +423,31 @@ describe('the selection bubble menu', () => {
     const user = userEvent.setup();
     const editor = await editorWith('some words');
     select(editor, 1, 5);
-    await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
+    await screen.findByRole('toolbar', { name: 'Selection formatting' });
 
     act(() => {
-      editor.view.dom.focus();
+      editor.view.focus();
     });
     await user.tab();
 
     // Focus arriving in the menu is not focus leaving the editing surface; closing here would
     // shut the menu on the keyboard user in the act of reaching it.
-    expect(screen.getByRole('toolbar', { name: 'Text colour and highlight' })).toBeInTheDocument();
+    expect(screen.getByRole('toolbar', { name: 'Selection formatting' })).toBeInTheDocument();
   });
 
   it('closes on Escape and puts the caret back in the text', async () => {
     const user = userEvent.setup();
     const editor = await editorWith('some words');
     select(editor, 1, 5);
-    await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
+    await screen.findByRole('toolbar', { name: 'Selection formatting' });
 
     act(() => {
-      editor.view.dom.focus();
+      editor.view.focus();
     });
     await user.tab();
     await user.keyboard('{Escape}');
 
-    expect(
-      screen.queryByRole('toolbar', { name: 'Text colour and highlight' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('toolbar', { name: 'Selection formatting' })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(editor.view.dom).toHaveFocus();
     });
@@ -403,19 +475,17 @@ describe('the selection bubble menu', () => {
     const editor = await editorWith('some words');
     select(editor, 1, 5);
 
-    await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
-    expect(screen.getByText('Text colour and highlight options available')).toBeInTheDocument();
+    await screen.findByRole('toolbar', { name: 'Selection formatting' });
+    expect(screen.getByText('Selection formatting options available')).toBeInTheDocument();
   });
 
   it('closes when the selection collapses back to a caret', async () => {
     const editor = await editorWith('some words');
     select(editor, 1, 5);
-    await screen.findByRole('toolbar', { name: 'Text colour and highlight' });
+    await screen.findByRole('toolbar', { name: 'Selection formatting' });
 
     select(editor, 3, 3);
 
-    expect(
-      screen.queryByRole('toolbar', { name: 'Text colour and highlight' }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('toolbar', { name: 'Selection formatting' })).not.toBeInTheDocument();
   });
 });

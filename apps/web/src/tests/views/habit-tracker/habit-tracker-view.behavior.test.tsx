@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router';
 import type { HabitTracker } from '@nix/api-client';
 import type { ContainerData } from '../../../views/core/use-container';
 import { aContainer } from '../../container-fixture';
@@ -41,9 +42,13 @@ vi.mock('../../../views/habit-tracker/use-habits', () => ({
     setStatus,
   }),
 }));
-vi.mock('../../../api/api-client-provider', () => ({ useApiClient: () => ({ execute }) }));
+vi.mock('../../../api/api-client-provider', () => ({
+  useApiClient: () => ({ execute }),
+  useOptionalApiClient: () => null,
+}));
 vi.mock('../../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: 'workspace-1' }),
+  useOptionalWorkspace: () => null,
 }));
 vi.mock('../../../views/habit-tracker/habit-chart-widgets', () => ({
   HabitChartWidgets: ({ onChange }: { onChange: (widgets: readonly unknown[]) => void }) => (
@@ -90,11 +95,13 @@ const habit = {
 };
 const mount = (empty = false, suppliedContainer?: ContainerData) =>
   render(
-    <HabitTrackerView
-      container={suppliedContainer ?? aContainer({ children: empty ? [] : [habit] })}
-      view={view}
-      onOpen={vi.fn()}
-    />,
+    <MemoryRouter>
+      <HabitTrackerView
+        container={suppliedContainer ?? aContainer({ children: empty ? [] : [habit] })}
+        view={view}
+        onOpen={vi.fn()}
+      />
+    </MemoryRouter>,
   );
 
 function openWeekDay(day: string): void {
@@ -132,6 +139,14 @@ describe('habit tracker user flows', () => {
     execute.mockResolvedValue({ id: 'created-habit' });
   });
   afterEach(() => vi.useRealTimers());
+
+  it('opens the schedule editor from the habit context menu', () => {
+    mount();
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Open Read' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit schedule' }));
+    expect(screen.getByRole('textbox', { name: 'Habit name' })).toHaveValue('Read');
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeInTheDocument();
+  });
 
   it('creates from the empty state and retries refused settings on the same item', async () => {
     saveHabit.mockResolvedValueOnce('Choose a different setting.');

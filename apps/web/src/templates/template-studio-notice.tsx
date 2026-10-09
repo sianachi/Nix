@@ -23,12 +23,12 @@ export function StudioNotice({
     <div
       role={attention ? 'alert' : undefined}
       aria-live={attention ? 'assertive' : undefined}
-      className="flex min-h-0 flex-1 items-center justify-center p-6"
+      className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-5"
     >
-      <Blueprint className="flex max-w-lg flex-col items-start gap-3 p-6">
+      <Blueprint className="flex min-w-0 max-w-lg flex-col items-start gap-3 p-3 sm:p-5">
         <Icon icon={LayoutTemplate} size="md" />
         <h1 ref={headingRef} tabIndex={attention ? -1 : undefined}>
-          <Text variant="h2" as="span">
+          <Text variant="h3" as="span">
             {title}
           </Text>
         </h1>

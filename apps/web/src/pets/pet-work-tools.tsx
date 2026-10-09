@@ -587,7 +587,10 @@ export function PetWorkTools({
   if (tools.length === 0) return <></>;
 
   return (
-    <section aria-label={`${petName}'s activity`} className="flex flex-col gap-3">
+    <section
+      aria-label={`${petName}'s activity`}
+      className="flex min-w-0 flex-col gap-3 wrap-anywhere"
+    >
       {tools.map((tool) => (
         <PetWorkToolCard
           key={tool.id}
@@ -653,7 +656,7 @@ function ActivityRow({
   readonly actions: ReactElement | undefined;
 }): ReactElement {
   return (
-    <div className="flex flex-col gap-1 border-b border-divider py-2 last:border-b-0">
+    <div className="flex min-w-0 flex-col gap-1 border-b border-divider py-2 last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Text variant="bodySmall">{sentence}</Text>
         {/* UX fix U16: this word already sits beside its own sentence, which the row re-renders
@@ -674,7 +677,7 @@ function ActivityRow({
           {details ? (
             <Text
               variant="note"
-              className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words"
+              className="max-h-60 overflow-y-auto overscroll-contain whitespace-pre-wrap wrap-anywhere"
             >
               {details}
             </Text>
@@ -1029,7 +1032,7 @@ function WriteTextSection({
     return `${item.label} ${String(position)} of ${String(total)}`;
   });
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <Text variant="note" tone="muted">
         Text this change will write
       </Text>
@@ -1037,7 +1040,7 @@ function WriteTextSection({
         const lineCount = item.text.split('\n').length;
         const name = names[index] ?? item.label;
         return (
-          <div key={`${item.label}:${String(index)}`} className="flex flex-col gap-1">
+          <div key={`${item.label}:${String(index)}`} className="flex min-w-0 flex-col gap-1">
             <Text variant="note" tone="muted">
               {name} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
             </Text>
@@ -1047,7 +1050,7 @@ function WriteTextSection({
               // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
               tabIndex={0}
               className={cn(
-                'max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-sm border border-divider p-2',
+                'min-w-0 max-h-60 overflow-y-auto overscroll-contain whitespace-pre-wrap wrap-anywhere rounded-sm border border-divider p-2',
                 focusRing,
               )}
             >

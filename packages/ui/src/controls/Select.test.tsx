@@ -45,7 +45,7 @@ describe('Select', () => {
     expect(screen.getByRole('combobox').className).toContain('h-(--control-md)');
   });
 
-  it('grows to the 44px touch step on a coarse pointer, in step with Input', () => {
+  it('uses the touch height and readable type when any pointer is coarse', () => {
     render(
       <Select aria-label="Type">
         <option value="text">Text</option>
@@ -54,7 +54,9 @@ describe('Select', () => {
 
     const className = screen.getByRole('combobox').className;
     expect(className).toContain('h-(--control-md)');
-    expect(className).toContain('pointer-coarse:h-(--control-lg)');
+    expect(className).toContain('any-pointer-coarse:h-(--control-lg)');
+    expect(className).toContain('any-pointer-coarse:text-lg');
+    expect(className).toContain('min-w-0');
   });
 
   it('takes a layout class without losing its own', () => {

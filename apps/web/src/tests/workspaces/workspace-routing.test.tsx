@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../../app';
 import { item, STUB_WORKSPACE, stubCoreApi, type StubWorkspace } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
+import { setZenMode } from '../../lib/zen-mode';
 
 const SHARED_ID = '00000000-0000-4000-8000-000000000002';
 const INACCESSIBLE_ID = '00000000-0000-4000-8000-000000000099';
@@ -48,6 +49,7 @@ function memoryStorage(initial: Readonly<Record<string, string>> = {}): Storage 
 }
 
 beforeEach(() => {
+  setZenMode(false);
   signedIn();
   vi.stubGlobal('localStorage', memoryStorage());
 });
@@ -117,6 +119,18 @@ describe('workspace-scoped routing', () => {
     expect(await screen.findByRole('heading', { name: 'Archived workspaces' })).toBeVisible();
     expect(screen.getByText(ARCHIVED.name)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Restore workspace' })).toBeVisible();
+  });
+
+  it('keeps archived workspace actions available in Zen and offers an exit', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ workspaces: [ARCHIVED] });
+    renderAt(<App />, '/workspaces/archived');
+
+    await user.click(await screen.findByRole('button', { name: 'Enter Zen' }));
+    expect(screen.queryByRole('link', { name: 'Back to workspaces' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restore workspace' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Exit Zen' }));
+    expect(screen.getByRole('link', { name: 'Back to workspaces' })).toBeVisible();
   });
 
   it('requires an archived workspace before offering permanent deletion', async () => {

@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import userEvent, { type UserEvent } from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
@@ -666,4 +666,32 @@ describe('the touch targets on the track', () => {
       'before:-inset-x-0.5',
     );
   });
+});
+
+describe('timeline item context menus', () => {
+  it.each([
+    { entry: ROLLOUT, name: /^Rollout,/ },
+    { entry: LAUNCH, name: /^Launch,/ },
+    { entry: IDEA, name: /^Idea,/ },
+  ])('offers rescheduling from the context menu for $entry.title', async ({ entry, name }) => {
+    stubViewport(true);
+    render({ children: [entry] });
+    fireEvent.contextMenu(screen.getByRole('button', { name }), { clientX: 40, clientY: 60 });
+    const menu = screen.getByRole('menu', { name: `${entry.title} actions` });
+    await person().click(within(menu).getByRole('menuitem', { name: 'Reschedule…' }));
+    expect(screen.getByRole('region', { name: `Reschedule ${entry.title}` })).toHaveFocus();
+  });
+
+  it.each([280, 320, 768])(
+    'keeps item actions reachable in the schedule at width %i',
+    async (width) => {
+      stubViewport(width);
+      render({ children: [ROLLOUT] });
+      const target = screen.getByRole('button', { name: width === 768 ? /^Rollout,/ : 'Rollout' });
+      fireEvent.contextMenu(target, { clientX: 20, clientY: 50 });
+      const menu = screen.getByRole('menu', { name: 'Rollout actions' });
+      await person().click(within(menu).getByRole('menuitem', { name: 'Open' }));
+      expect(screen.queryByRole('menu', { name: 'Rollout actions' })).not.toBeInTheDocument();
+    },
+  );
 });

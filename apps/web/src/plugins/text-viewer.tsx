@@ -123,14 +123,20 @@ export function TextViewer({
   const lines = shown.split('\n');
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {truncated ? (
-        <Text variant="note" tone="muted" as="p" role="status" className="px-8 py-2">
+        <Text variant="note" tone="muted" as="p" role="status" className="px-2 py-2 sm:px-8">
           Showing the first {TEXT_VIEWER_LIMIT.toLocaleString()} characters of {fileName}. Download
           the file for the rest.
         </Text>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-auto py-4">
+      <div
+        role="region"
+        aria-label={`${fileName} source`}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to scroll wider source listings.
+        tabIndex={0}
+        className="min-h-0 min-w-0 flex-1 overflow-auto py-4"
+      >
         {/* text-primitive-exempt: a source listing is monospace by nature and takes its
             size from the code step; a wrapping primitive would wrap it in a paragraph. */}
         <pre
@@ -141,11 +147,11 @@ export function TextViewer({
             <span key={index} className="contents">
               <span
                 aria-hidden="true"
-                className="sticky left-0 bg-background pr-4 pl-8 text-right text-muted select-none"
+                className="sticky left-0 bg-background pr-2 pl-2 sm:pr-4 sm:pl-8 text-right text-muted select-none"
               >
                 {index + 1}
               </span>
-              <span className="pr-8 whitespace-pre">{line}</span>
+              <span className="pr-2 whitespace-pre sm:pr-8">{line}</span>
             </span>
           ))}
         </pre>

@@ -1,4 +1,4 @@
-import { Button, Field, Input, Select, Text, Textarea } from '@nix/ui';
+import { Button, Checkbox, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { Icon } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -73,10 +73,10 @@ export function InteractiveFormEditor({
   return (
     <section
       aria-label="Interactive form designer"
-      className="flex flex-col gap-3 border-l-2 border-accent pl-3"
+      className="@container flex min-w-0 flex-col gap-3 border-l-2 border-accent pl-2 sm:pl-3"
     >
       <div>
-        <Text variant="h4" as="h3">
+        <Text variant="h4" as="h3" className="wrap-anywhere">
           Form flow
         </Text>
         <Text variant="note" tone="muted">
@@ -95,9 +95,12 @@ export function InteractiveFormEditor({
       {previewing ? <InteractiveFormRespondentPreview form={form} schema={schema} /> : null}
 
       {form.pages.map((page, pageIndex) => (
-        <div key={page.id} className="flex flex-col gap-2 border border-divider p-3">
+        <div key={page.id} className="flex min-w-0 flex-col gap-2 border border-divider p-3">
           <div className="flex flex-wrap items-end gap-2">
-            <Field label={`Page ${String(pageIndex + 1)} title`} className="flex-1">
+            <Field
+              label={`Page ${String(pageIndex + 1)} title`}
+              className="min-w-full @md:min-w-0 @md:flex-1"
+            >
               {(control) => (
                 <Input
                   {...control}
@@ -254,7 +257,7 @@ export function InteractiveFormEditor({
         <Icon icon={Plus} size="sm" /> Add page
       </Button>
 
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2">
         <Field label="Response title">
           {(control) => (
             <Select
@@ -317,19 +320,29 @@ export function InteractiveFormRespondentPreview({
   const [answers, setAnswers] = useState<Record<string, PropertyValue>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [complete, setComplete] = useState(false);
+  const previewRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    previewRef.current?.focus();
+  }, [pageIndex, complete]);
+
   const pages = form.pages.filter((page) => formPartVisible(page.visibleWhen, answers));
   const page = pages[Math.min(pageIndex, Math.max(0, pages.length - 1))];
 
   if (complete) {
     return (
       <aside
+        ref={previewRef}
+        tabIndex={-1}
         aria-label="Form preview"
-        className="flex flex-col gap-3 border border-divider bg-background p-4"
+        className="flex min-w-0 flex-col gap-3 border border-divider bg-background p-3"
       >
-        <Text variant="h3" as="h3">
+        <Text variant="h3" as="h3" className="wrap-anywhere">
           {form.confirmationTitle}
         </Text>
-        <Text tone="muted">{form.confirmationMessage}</Text>
+        <Text tone="muted" className="wrap-anywhere">
+          {form.confirmationMessage}
+        </Text>
         <Button
           variant="secondary"
           className="self-start"
@@ -347,7 +360,9 @@ export function InteractiveFormRespondentPreview({
   if (page === undefined) {
     return (
       <aside aria-label="Form preview" className="border border-divider bg-background p-4">
-        <Text tone="muted">No page is currently visible.</Text>
+        <Text tone="muted" className="wrap-anywhere">
+          No page is currently visible.
+        </Text>
       </aside>
     );
   }
@@ -363,35 +378,46 @@ export function InteractiveFormRespondentPreview({
         .map((block) => [block.id, 'This answer is required.']),
     );
     setErrors(missing);
-    if (Object.keys(missing).length > 0) return;
+    if (Object.keys(missing).length > 0) {
+      requestAnimationFrame(() =>
+        previewRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
+      );
+      return;
+    }
     if (last) setComplete(true);
     else setPageIndex((current) => current + 1);
   }
 
   return (
     <aside
+      ref={previewRef}
+      tabIndex={-1}
       aria-label="Form preview"
-      className="flex flex-col gap-4 border border-divider bg-background p-4"
+      className="flex min-w-0 flex-col gap-4 border border-divider bg-background p-3"
     >
       <header className="flex flex-col gap-1 border-b border-divider pb-3">
         <Text variant="caption" tone="muted">
           Page {String(pageIndex + 1)} of {String(pages.length)}
         </Text>
-        <Text variant="h3" as="h3">
+        <Text variant="h3" as="h3" className="wrap-anywhere">
           {page.title}
         </Text>
-        {page.description === null ? null : <Text tone="muted">{page.description}</Text>}
+        {page.description === null ? null : (
+          <Text tone="muted" className="wrap-anywhere">
+            {page.description}
+          </Text>
+        )}
       </header>
       {blocks.map((block) => {
         if (block.kind === 'heading')
           return (
-            <Text key={block.id} variant="h4" as="h4">
+            <Text key={block.id} variant="h4" as="h4" className="wrap-anywhere">
               {block.text}
             </Text>
           );
         if (block.kind === 'paragraph')
           return (
-            <Text key={block.id} tone="muted">
+            <Text key={block.id} tone="muted" className="wrap-anywhere">
               {block.text}
             </Text>
           );
@@ -414,12 +440,15 @@ export function InteractiveFormRespondentPreview({
               error={errors[block.id] ?? null}
               onCommit={(value) => {
                 setAnswers((current) => ({ ...current, [block.id]: value }));
+                setErrors((current) =>
+                  Object.fromEntries(Object.entries(current).filter(([id]) => id !== block.id)),
+                );
               }}
             />
           </div>
         );
       })}
-      <div className="flex gap-2">
+      <div className="flex min-w-0 flex-wrap gap-2">
         {pageIndex === 0 ? null : (
           <Button
             variant="secondary"
@@ -474,14 +503,14 @@ function PageConditions({
 }): ReactNode {
   if (earlier.length === 0) return null;
   return (
-    <div className="flex flex-col gap-2 border-t border-divider p-3">
+    <div className="flex min-w-0 flex-col gap-2 border-t border-divider p-3">
       <Text variant="note" tone="muted">
         Show this page only when all conditions match
       </Text>
       {conditions.map((condition, index) => (
         <div
           key={`${condition.fieldBlockId}-${String(index)}`}
-          className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]"
+          className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
         >
           <Select
             aria-label="Page condition field"
@@ -638,10 +667,20 @@ function PublishingControls({
     }
   }
 
+  async function copyLink(): Promise<void> {
+    if (url === null) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setOutcome('Public form link copied.');
+    } catch {
+      setOutcome('The link could not be copied. Select and copy it from the field.');
+    }
+  }
+
   return (
-    <section className="flex flex-col gap-2 border-t border-divider p-3">
+    <section className="flex min-w-0 flex-col gap-2 border-t border-divider p-3">
       <div>
-        <Text variant="h4" as="h3">
+        <Text variant="h4" as="h3" className="wrap-anywhere">
           Publish
         </Text>
         <Text variant="note" tone="muted">
@@ -680,12 +719,12 @@ function PublishingControls({
         </Button>
       </div>
       {url === null ? null : (
-        <div className="flex gap-2">
-          <Input aria-label="Public form URL" readOnly value={url} />
+        <div className="flex min-w-0 flex-wrap gap-2">
+          <Input aria-label="Public form URL" className="min-w-0 flex-1" readOnly value={url} />
           <Button
             variant="secondary"
             onClick={() => {
-              void navigator.clipboard.writeText(url);
+              void copyLink();
             }}
           >
             Copy
@@ -727,13 +766,13 @@ function BlockEditor({
   const identityEligible =
     schema.find((property) => property.key === block.propertyKey)?.type === 'text';
   return (
-    <div className="flex flex-col gap-2 bg-surface p-3">
+    <div className="flex min-w-0 flex-col gap-2 bg-surface p-3">
       <div className="flex flex-wrap items-end gap-2">
         <Field
           label={
             block.kind === 'field' ? 'Question' : block.kind === 'heading' ? 'Heading' : 'Text'
           }
-          className="min-w-full sm:min-w-0 sm:flex-1"
+          className="min-w-full @md:min-w-0 @md:flex-1"
         >
           {(control) =>
             block.kind === 'paragraph' ? (
@@ -782,7 +821,7 @@ function BlockEditor({
       </div>
       {block.kind !== 'field' ? null : (
         <>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2">
             <Field label="Stores in">
               {(control) => (
                 <Select
@@ -841,25 +880,22 @@ function BlockEditor({
               />
             )}
           </Field>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={block.required}
-              onChange={(event) => {
-                onChange({ ...block, required: event.target.checked });
-              }}
-            />
-            Required
-          </label>
+          <Checkbox
+            label="Required"
+            checked={block.required}
+            onChange={(event) => {
+              onChange({ ...block, required: event.target.checked });
+            }}
+          />
           {earlier.length === 0 ? null : (
-            <div className="flex flex-col gap-2 border-t border-divider p-3">
+            <div className="flex min-w-0 flex-col gap-2 border-t border-divider p-3">
               <Text variant="note" tone="muted">
                 Show only when all of these are true
               </Text>
               {block.visibleWhen.map((condition, conditionIndex) => (
                 <div
                   key={`${condition.fieldBlockId}-${String(conditionIndex)}`}
-                  className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]"
+                  className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
                 >
                   <Field label="Field">
                     {(control) => (

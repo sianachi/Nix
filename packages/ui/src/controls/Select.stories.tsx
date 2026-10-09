@@ -1,5 +1,7 @@
 import { type Meta, type StoryObj } from '@storybook/react-vite';
+import { expect, userEvent, within } from 'storybook/test';
 
+import { Button } from './Button';
 import { Field } from './Field';
 import { Select } from './Select';
 
@@ -32,6 +34,31 @@ type Story = StoryObj<typeof meta>;
 
 /** The ordinary case. Stands the same height as an `<Input>` beside it. */
 export const Default: Story = {};
+
+export const NarrowLayout: Story = {
+  args: {
+    children: <option>A long property name on a small screen</option>,
+  },
+  render: (args) => (
+    <div className="flex w-64 max-w-full items-start gap-2">
+      <Select {...args} />
+      <Button>Save</Button>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const select = within(canvasElement).getByRole('combobox');
+    const button = within(canvasElement).getByRole('button', { name: 'Save' });
+    await userEvent.tab();
+    await expect(select).toHaveFocus();
+    await expect(select.getBoundingClientRect().right).toBeLessThanOrEqual(
+      button.getBoundingClientRect().left,
+    );
+    const typeStep = matchMedia('(any-pointer: coarse)').matches ? '--text-lg' : '--text-md';
+    await expect(getComputedStyle(select).fontSize).toBe(
+      getComputedStyle(document.documentElement).getPropertyValue(typeStep).trim(),
+    );
+  },
+};
 
 /** Nothing chosen yet, with the empty option saying so rather than showing the first value. */
 export const Unchosen: Story = {

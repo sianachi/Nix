@@ -126,7 +126,7 @@ export default function QueryByExamplePanel(props: QueryByExamplePanelProps): Re
       ref={panelRef}
       tabIndex={-1}
       aria-label="Filters suggested from examples"
-      className={cn('flex flex-col gap-3 bg-surface p-3', focusRing)}
+      className={cn('flex min-w-0 flex-col gap-3 bg-surface p-3', focusRing)}
     >
       {inferred.rules.length === 0 ? (
         <SuggestionHint>

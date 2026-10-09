@@ -1,7 +1,19 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import type { BudgetCell, BudgetLine, Finance, QueryEndpoint } from '@nix/api-client';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type {
+  BudgetCell,
+  BudgetLine,
+  Finance,
+  FinanceTransaction,
+  QueryEndpoint,
+} from '@nix/api-client';
 import type * as UseFinanceModule from '../../../views/finance/use-finance';
+
+const queried = vi.hoisted((): { transactions: FinanceTransaction[] } => ({ transactions: [] }));
+
+beforeEach(() => {
+  queried.transactions = [];
+});
 
 vi.mock('../../../views/finance/use-finance', async () => {
   const actual = await vi.importActual<typeof UseFinanceModule>(
@@ -13,7 +25,11 @@ vi.mock('../../../views/finance/use-finance', async () => {
       void endpoint;
       return {
         status: 'ready',
-        data: { transactions: [], total: 0, truncated: false },
+        data: {
+          transactions: queried.transactions,
+          total: queried.transactions.length,
+          truncated: false,
+        },
         error: null,
       };
     },
@@ -69,6 +85,19 @@ const state = {
   setTransaction: vi.fn(),
 } as unknown as FinanceViewState;
 
+const transaction: FinanceTransaction = {
+  id: 'c6666666-6666-4666-8666-666666666666',
+  description: 'Corner shop',
+  date: '2026-09-05',
+  amount: -12.4,
+  accountId,
+  lineId: line.id,
+  source: 'manual',
+  postedFor: null,
+  importKey: null,
+  cleared: false,
+};
+
 function mount(onClose: () => void = () => undefined) {
   return render(
     <BudgetActualDialog
@@ -81,6 +110,52 @@ function mount(onClose: () => void = () => undefined) {
     />,
   );
 }
+
+it('keeps the existing deletion confirmation when the row context menu requests deletion', () => {
+  queried.transactions = [transaction];
+  const deleteTransaction = vi.fn<FinanceViewState['deleteTransaction']>();
+  render(
+    <BudgetActualDialog
+      state={{ ...state, deleteTransaction }}
+      finance={finance}
+      line={line}
+      month="2026-09"
+      cell={cell}
+      onClose={() => undefined}
+    />,
+  );
+
+  fireEvent.contextMenu(screen.getByRole('row', { name: /Corner shop/ }), {
+    clientX: 40,
+    clientY: 60,
+  });
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Delete transaction' }));
+
+  expect(screen.getByRole('button', { name: 'Yes, delete Corner shop' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Keep Corner shop' })).toHaveFocus();
+  expect(deleteTransaction).not.toHaveBeenCalled();
+});
+
+it('disables deletion through the row context menu for a closed month', () => {
+  queried.transactions = [transaction];
+  render(
+    <BudgetActualDialog
+      state={state}
+      finance={{ ...finance, closedMonths: ['2026-09'] }}
+      line={line}
+      month="2026-09"
+      cell={cell}
+      onClose={() => undefined}
+    />,
+  );
+
+  fireEvent.contextMenu(screen.getByRole('row', { name: /Corner shop/ }), {
+    clientX: 40,
+    clientY: 60,
+  });
+
+  expect(screen.getByRole('menuitem', { name: 'Delete transaction' })).toBeDisabled();
+});
 
 describe('a stray tap outside the sheet, while a new total is mid-edit', () => {
   it('keeps the retyped total instead of silently discarding it', () => {

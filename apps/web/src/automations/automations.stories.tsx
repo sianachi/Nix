@@ -1,3 +1,4 @@
+import { within } from '@testing-library/dom';
 import type { AutomationRuleResponse, AutomationRunResponse } from '@nix/api-client';
 import { Field, Input } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
@@ -228,3 +229,45 @@ export const RunLogEmpty = {
     </MemoryRouter>
   ),
 };
+
+export const PhoneSchedule = {
+  ...NewSchedule,
+  parameters: { viewport: { defaultViewport: 'mobile1' } },
+};
+export const PhoneList = { ...List, parameters: { viewport: { defaultViewport: 'mobile1' } } };
+export const DarkPhoneSchedule = { ...PhoneSchedule, globals: { ground: 'dark' } };
+export const DarkPhoneList = { ...PhoneList, globals: { ground: 'dark' } };
+
+function checkNarrowAutomation({ canvasElement }: { readonly canvasElement: HTMLElement }): void {
+  const region = within(canvasElement).getByRole('region', { name: 'Narrow automation' });
+  if (region.scrollWidth > region.clientWidth) {
+    throw new Error('Automation fields and rule controls must fit within a narrow pane.');
+  }
+}
+
+export const TinySchedule = {
+  render: (): ReactElement => (
+    <section aria-label="Narrow automation" className="w-64 max-w-full">
+      <Editor start={emptyDraft(null)} />
+    </section>
+  ),
+  play: checkNarrowAutomation,
+};
+export const TinyLongRule = {
+  render: (): ReactElement => (
+    <MemoryRouter>
+      <section aria-label="Narrow automation" className="w-64 max-w-full">
+        <AutomationList
+          rules={rules.map((rule) => ({ ...rule, name: 'ReviewTheWeek'.repeat(12) }))}
+          hrefFor={(rule) => `/automations?rule=${rule.id}`}
+          onToggle={noop}
+          pending={new Set()}
+          toggleErrors={{}}
+        />
+      </section>
+    </MemoryRouter>
+  ),
+  play: checkNarrowAutomation,
+};
+export const DarkTinySchedule = { ...TinySchedule, globals: { ground: 'dark' } };
+export const DarkTinyLongRule = { ...TinyLongRule, globals: { ground: 'dark' } };

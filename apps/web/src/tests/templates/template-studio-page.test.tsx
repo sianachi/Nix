@@ -93,7 +93,8 @@ describe('the template studio', () => {
     await screen.findByRole('heading', { name: 'Save as template' });
     const preview = await screen.findByLabelText('Template preview');
     expect(preview.previousElementSibling).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
-    expect(preview).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'lg:flex-none');
+    expect(preview).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', '@4xl/studio:flex-none');
+    expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
   /**

@@ -31,11 +31,16 @@ export function MobileNoteToolbar({
   useEffect(() => {
     if (!editor || visibility !== 'while-writing') return;
     const writing = (): void => {
-      if (editor.isFocused) setHidden(true);
+      if (editor.isFocused && editor.state.selection.empty) setHidden(true);
+    };
+    const selection = (): void => {
+      if (!editor.state.selection.empty) setHidden(false);
     };
     editor.on('update', writing);
+    editor.on('selectionUpdate', selection);
     return () => {
       editor.off('update', writing);
+      editor.off('selectionUpdate', selection);
     };
   }, [editor, visibility]);
   useEffect(() => {
@@ -52,10 +57,16 @@ export function MobileNoteToolbar({
           '--keyboard-inset',
           `${String(Math.max(0, parent.getBoundingClientRect().bottom - bottom))}px`,
         );
+        document.documentElement.style.setProperty(
+          '--mobile-note-toolbar-clearance',
+          `${String(Math.max(0, window.innerHeight - dock.getBoundingClientRect().top))}px`,
+        );
+        window.dispatchEvent(new Event('nix-mobile-note-toolbar-resized'));
       });
     };
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     if (dockRef.current?.parentElement) observer?.observe(dockRef.current.parentElement);
+    if (dockRef.current) observer?.observe(dockRef.current);
     measure();
     viewport?.addEventListener('resize', measure);
     viewport?.addEventListener('scroll', measure);
@@ -66,6 +77,8 @@ export function MobileNoteToolbar({
       viewport?.removeEventListener('resize', measure);
       viewport?.removeEventListener('scroll', measure);
       window.removeEventListener('resize', measure);
+      document.documentElement.style.removeProperty('--mobile-note-toolbar-clearance');
+      window.dispatchEvent(new Event('nix-mobile-note-toolbar-resized'));
     };
   }, []);
   const collapsed = visibility === 'while-writing' && hidden;
@@ -79,6 +92,9 @@ export function MobileNoteToolbar({
       {collapsed ? (
         <Button
           variant="ghost"
+          onMouseDown={(event) => {
+            event.preventDefault();
+          }}
           onClick={() => {
             setHidden(false);
           }}
@@ -90,7 +106,18 @@ export function MobileNoteToolbar({
           <div className="flex items-center gap-1">
             <div
               className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
+              role="group"
               aria-label="Formatting actions"
+              onMouseDownCapture={(event) => {
+                // Portal dialogs need their own focus; dock buttons keep the text selection.
+                if (
+                  event.target instanceof Element &&
+                  event.target.closest('button') !== null &&
+                  event.currentTarget.contains(event.target)
+                ) {
+                  event.preventDefault();
+                }
+              }}
             >
               {formatting}
             </div>

@@ -34,8 +34,8 @@ export function Select({ children, className, ...rest }: SelectProps): ReactNode
       {...rest}
       className={cn(
         blueprintFrame,
-        'w-full border-divider bg-background px-3',
-        'h-(--control-md) pointer-coarse:h-(--control-lg) font-body text-md text-foreground',
+        'w-full min-w-0 border-divider bg-background px-3',
+        'h-(--control-md) any-pointer-coarse:h-(--control-lg) font-body text-md any-pointer-coarse:text-lg text-foreground',
         fieldFocus,
         disabledState,
         'aria-invalid:border-foreground',

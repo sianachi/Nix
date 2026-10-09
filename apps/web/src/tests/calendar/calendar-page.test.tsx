@@ -237,6 +237,10 @@ describe('what the calendar admits to', () => {
 
     expect(await screen.findByText(/nothing scheduled/i)).toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    expect(await screen.findByRole('region', { name: /April 2026/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Today' })).toBeInTheDocument();
   });
 
   /**

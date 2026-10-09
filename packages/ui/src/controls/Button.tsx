@@ -61,9 +61,8 @@ import {
  *
  * On a coarse pointer the box grows to `--control-lg`, the 44px step the scale
  * already reserves for a touch target, and stays at `--control-md` under a
- * fine one - a mouse and a trackpad get the compact row, a finger gets the
- * hit area it needs. `pointer-coarse:` is Tailwind's `@media(pointer:coarse)`
- * variant, the same one the workspace sidebar already reaches for.
+ * fine-only device. `any-pointer-coarse:` also keeps the touch target when a
+ * tablet has a mouse attached.
  */
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'icon';
@@ -80,7 +79,7 @@ const buttonVariants = cva(
   cn(
     blueprintFrame,
     'inline-flex cursor-default items-center justify-center gap-2 select-none',
-    'h-(--control-md) pointer-coarse:h-(--control-lg) pointer-coarse:min-w-(--control-lg) font-heading text-md font-semibold no-underline',
+    'h-(--control-md) any-pointer-coarse:h-(--control-lg) any-pointer-coarse:min-w-(--control-lg) font-heading text-md font-semibold no-underline',
     'transition-colors',
     focusRing,
     disabledState,
@@ -95,7 +94,7 @@ const buttonVariants = cva(
         secondary: cn(`border-divider text-foreground ${boxPadding}`, inkWashStates),
         ghost: cn('text-accent-text border-transparent px-1', accentWashStates),
         icon: cn(
-          'border-divider text-foreground w-(--control-md) pointer-coarse:w-(--control-lg) p-0',
+          'border-divider text-foreground w-(--control-md) any-pointer-coarse:w-(--control-lg) p-0',
           inkWashStates,
         ),
       },

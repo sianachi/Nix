@@ -9,7 +9,7 @@ import type { FloatingMenuAnchor } from '../primitives/placement';
  * Shared by `<Menu>`, `<ContextMenu>` and `<Popover>`, which all float a panel off a trigger or a
  * point and all owe the same three things: open below and flip above when there is no room, stay
  * 8px inside the *visual* viewport (which shrinks under an on-screen keyboard), and step aside on a
- * phone, where the panel is a bottom sheet laid out entirely in CSS.
+ * phone, where the panel becomes a bottom sheet above the on-screen keyboard.
  *
  * `anchor` is read on every placement rather than captured, so a caller may pass a fresh closure
  * each render without re-binding the listeners. `remeasure` re-runs placement when the panel's
@@ -32,46 +32,71 @@ export function useAnchoredPanel(
     const margin = 8;
 
     const place = (): void => {
+      const scrollTop = panel.scrollTop;
       const desktop =
         typeof matchMedia === 'function' ? matchMedia('(min-width: 640px)').matches : true;
+      const viewport = readViewportBounds();
+      panel.style.removeProperty('width');
+      panel.style.removeProperty('min-width');
+      panel.style.removeProperty('max-width');
+      panel.style.removeProperty('max-height');
       if (!desktop) {
-        // Below `sm`, the panel is a bottom sheet laid out entirely in CSS; an inline position
-        // here would only have to be cleared again above.
-        panel.style.removeProperty('top');
-        panel.style.removeProperty('left');
-        panel.style.removeProperty('transform');
-        panel.style.removeProperty('max-height');
+        const maxHeight = Math.max(0, viewport.height * 0.7);
+        panel.style.setProperty('width', `${String(viewport.width)}px`);
+        panel.style.setProperty('min-width', '0');
+        panel.style.setProperty('max-width', `${String(viewport.width)}px`);
+        panel.style.setProperty('max-height', `${String(maxHeight)}px`);
+        panel.style.setProperty('left', `${String(viewport.left)}px`);
+        panel.style.setProperty(
+          'top',
+          `${String(viewport.top + viewport.height - panel.getBoundingClientRect().height)}px`,
+        );
+        panel.style.setProperty('bottom', 'auto');
+        panel.style.setProperty('transform', 'none');
+        panel.scrollTop = scrollTop;
         return;
       }
 
       const anchorRect = latest.current();
       if (anchorRect === null) return;
+      panel.style.removeProperty('bottom');
+      const maxWidth = Math.max(0, viewport.width - margin * 2);
+      const minWidth = Number.parseFloat(getComputedStyle(panel).minWidth) || 0;
+      panel.style.setProperty('min-width', `${String(Math.min(minWidth, maxWidth))}px`);
+      panel.style.setProperty('max-width', `${String(maxWidth)}px`);
       const panelRect = panel.getBoundingClientRect();
 
       // `minHeight` set to the panel's own measured height (plus the same margin) flips it
       // whenever there is not enough room below for the panel as rendered.
-      const placement = placeFloatingMenu(anchorRect, panelRect.width, readViewportBounds(), {
+      const placement = placeFloatingMenu(anchorRect, panelRect.width, viewport, {
         minHeight: panelRect.height + margin,
       });
 
       // A panel taller than either side of its anchor is capped to the side chosen, and its own
       // overflow-y-auto makes the rest reachable by scrolling.
-      panel.style.setProperty('max-height', `${String(placement.maxHeight)}px`);
+      panel.style.setProperty('max-height', `${String(Math.max(0, placement.maxHeight - 4))}px`);
       panel.style.setProperty('left', `${String(placement.left)}px`);
       panel.style.setProperty(
         'top',
         `${String(placement.above ? placement.top - 4 : placement.top + 4)}px`,
       );
       panel.style.setProperty('transform', placement.above ? 'translateY(-100%)' : 'none');
+      panel.scrollTop = scrollTop;
+    };
+    const onScroll = (event: Event): void => {
+      if (event.target instanceof Node && panel.contains(event.target)) return;
+      place();
     };
 
     place();
     const viewport = window.visualViewport;
     window.addEventListener('resize', place);
+    document.addEventListener('scroll', onScroll, true);
     viewport?.addEventListener('resize', place);
     viewport?.addEventListener('scroll', place);
     return () => {
       window.removeEventListener('resize', place);
+      document.removeEventListener('scroll', onScroll, true);
       viewport?.removeEventListener('resize', place);
       viewport?.removeEventListener('scroll', place);
     };

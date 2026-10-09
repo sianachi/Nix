@@ -87,7 +87,7 @@ export function ChartOptionsEditor({ view, fields, onChange }: ChartOptionsEdito
     Number.isInteger(countValue) && countValue >= 1 && countValue <= MAXIMUM_CHART_PERIODS;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <Field
         label="Chart type"
         hint={

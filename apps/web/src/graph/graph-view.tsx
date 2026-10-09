@@ -1,4 +1,4 @@
-import { Button, Checkbox, Icon, Input, Select, Text } from '@nix/ui';
+import { Button, Checkbox, ContextMenu, Icon, Input, Select, Text } from '@nix/ui';
 import { Maximize, Minus, Pause, Play, Plus, Scan, Shuffle } from 'lucide-react';
 import {
   memo,
@@ -398,6 +398,7 @@ const NodeMark = memo(function NodeMark({
 }: NodeMarkProps): ReactElement {
   return (
     <g
+      data-graph-node={node.id}
       className={`group cursor-default transition-transform duration-500 ease-out motion-reduce:transition-none ${RING_DELAY[Math.min(node.depth, RING_DELAY.length - 1)] ?? ''} ${absent ? 'pointer-events-none' : ''}`}
       transform={home}
       onPointerEnter={() => {
@@ -457,6 +458,7 @@ const NodeMark = memo(function NodeMark({
             It captures the pointer so the drag keeps reporting here wherever it goes. */}
         {linkable && (
           <g
+            data-context-menu-ignore
             className={`cursor-crosshair transition-opacity motion-reduce:transition-none ${
               linking || selected
                 ? ''
@@ -494,6 +496,7 @@ const NodeMark = memo(function NodeMark({
             press keeps the tap from starting a drag of the node. */}
         {fold !== 'none' && (
           <g
+            data-context-menu-ignore
             className={`cursor-pointer transition-opacity motion-reduce:transition-none ${
               fold === 'closed' || selected
                 ? ''
@@ -548,6 +551,7 @@ const NodeMark = memo(function NodeMark({
           className="overflow-visible"
         >
           <button
+            data-context-menu-ignore
             type="button"
             tabIndex={-1}
             onPointerDown={(event) => {
@@ -791,6 +795,7 @@ function GraphDrawing({
   const layout = scene.layout;
 
   const paneRef = useRef<HTMLDivElement | null>(null);
+  const contextNodeId = useRef<string | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [pane, setPane] = useState<Size>(PANE_FALLBACK);
 
@@ -1306,7 +1311,7 @@ function GraphDrawing({
 
   const onNodePointerDown = useCallback(
     (event: PointerEvent<SVGGElement>, node: PositionedNode): void => {
-      // Only the primary button starts a drag; a right-click is the browser's business.
+      // Only the primary button starts a drag; a right-click opens the node's context menu.
       if (event.button !== 0) {
         return;
       }
@@ -1400,7 +1405,10 @@ function GraphDrawing({
       // A mouse opens on the first tap, as it always has. A coarse pointer never hovered, so the
       // first tap only selects - naming the node and offering an "Open" button - and it takes a
       // second tap on the same node, or that button, to actually leave the graph.
-      if (isPointerCoarse() && live.current.selectedId !== node.id) {
+      if (
+        (event.pointerType === 'touch' || isPointerCoarse()) &&
+        live.current.selectedId !== node.id
+      ) {
         setSelectedId(node.id);
         return;
       }
@@ -1507,7 +1515,7 @@ function GraphDrawing({
   const nudged = offsets.size > 0;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3 break-words">
       {scene.description ? (
         <Text as="p" variant="caption" tone="muted" role="status">
           {scene.description}
@@ -1607,23 +1615,85 @@ function GraphDrawing({
       {/* A fixed window onto the drawing. The camera, not a scroller, decides what it shows: the
           drawing can be many times the pane in both directions, and scrollbars are a poor way to
           move around something that size. */}
-      <div ref={paneRef} className="h-[70vh] overflow-hidden rounded-md border border-divider">
-        <svg
-          ref={svgRef}
-          aria-hidden={true}
-          focusable="false"
-          width="100%"
-          height="100%"
-          viewBox={viewBoxOf(camera, pane)}
-          // Present only while something is picked out; every un-lit mark dims on it (see DIMMED).
-          data-dimming={lit === null ? undefined : ''}
-          className="group/graph cursor-grab touch-none active:cursor-grabbing"
-          onPointerDown={onPanePointerDown}
-          onPointerMove={onPanePointerMove}
-          onPointerUp={onPanePointerEnd}
-          onPointerCancel={onPanePointerEnd}
-        >
-          {/* Two heads rather than one, because a marker cannot inherit the colour of the path that
+      <ContextMenu
+        label="Graph item actions"
+        items={() => {
+          const node = nodes.find((candidate) => candidate.id === contextNodeId.current);
+          if (node === undefined) return [];
+          const drag = dragRef.current;
+          dragRef.current = null;
+          setPull(null);
+          setDropTargetId(null);
+          if (drag?.moved) {
+            setOffsets((current) => {
+              const next = new Map(current);
+              if (drag.from.dx === 0 && drag.from.dy === 0) next.delete(drag.id);
+              else next.set(drag.id, drag.from);
+              return next;
+            });
+          }
+          return [
+            {
+              label: `Open ${nodeTitle(node)}`,
+              onSelect: () => {
+                open(node.id);
+              },
+            },
+            {
+              label: 'Center in graph',
+              onSelect: () => {
+                showNode(node.id);
+              },
+            },
+            ...(representation !== 'focused' && folded.parents.has(node.id)
+              ? [
+                  {
+                    label: collapsed.has(node.id) ? 'Unfold branch' : 'Fold branch',
+                    onSelect: () => {
+                      toggleFold(node.id);
+                    },
+                  },
+                ]
+              : []),
+          ];
+        }}
+      >
+        {(target) => (
+          <div
+            {...target}
+            ref={paneRef}
+            className="h-[60dvh] min-w-0 overflow-hidden rounded-md border border-divider"
+            onPointerDownCapture={(event) => {
+              contextNodeId.current =
+                event.target instanceof Element
+                  ? (event.target.closest('[data-graph-node]')?.getAttribute('data-graph-node') ??
+                    null)
+                  : null;
+            }}
+            onContextMenuCapture={(event) => {
+              contextNodeId.current =
+                event.target instanceof Element
+                  ? (event.target.closest('[data-graph-node]')?.getAttribute('data-graph-node') ??
+                    null)
+                  : null;
+            }}
+          >
+            <svg
+              ref={svgRef}
+              aria-hidden={true}
+              focusable="false"
+              width="100%"
+              height="100%"
+              viewBox={viewBoxOf(camera, pane)}
+              // Present only while something is picked out; every un-lit mark dims on it (see DIMMED).
+              data-dimming={lit === null ? undefined : ''}
+              className="group/graph cursor-grab touch-none active:cursor-grabbing"
+              onPointerDown={onPanePointerDown}
+              onPointerMove={onPanePointerMove}
+              onPointerUp={onPanePointerEnd}
+              onPointerCancel={onPanePointerEnd}
+            >
+              {/* Two heads rather than one, because a marker cannot inherit the colour of the path that
               references it: `context-stroke` would do it, but support is uneven enough that a
               containment head would be the wrong colour on some browsers and right on others.
 
@@ -1631,168 +1701,170 @@ function GraphDrawing({
               makes one definition serve both a straight spoke and a bowed arc. The paths already
               stop short of the disc they point at (see graph-layout.ts), so the head lands in clear
               space rather than under the node. */}
-          <defs>
-            <marker
-              id="graph-arrow-containment"
-              viewBox="0 0 10 10"
-              refX={9}
-              refY={5}
-              markerWidth={6}
-              markerHeight={6}
-              orient="auto"
-            >
-              <path
-                d="M 0 0 L 10 5 L 0 10 z"
-                className={representation === 'hierarchy' ? 'fill-muted' : 'fill-divider'}
-              />
-            </marker>
-            <marker
-              id="graph-arrow-reference"
-              viewBox="0 0 10 10"
-              refX={9}
-              refY={5}
-              markerWidth={6}
-              markerHeight={6}
-              orient="auto"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" className="fill-accent-text" />
-            </marker>
-          </defs>
-
-          <g pointerEvents="none">
-            {decorations.map((decoration, index) => (
-              <g key={`${decoration.kind}:${String(index)}`}>
-                <title>{decoration.label}</title>
-                {decoration.kind === 'group' ? (
-                  <rect
-                    x={decoration.x}
-                    y={decoration.y}
-                    width={decoration.width}
-                    height={decoration.height}
-                    rx={12}
-                    className="fill-surface stroke-divider"
-                  />
-                ) : null}
-                {decoration.kind === 'time' ? (
-                  <line
-                    x1={decoration.x}
-                    x2={decoration.x}
-                    y1={decoration.y + 32}
-                    y2={layout.height - 48}
-                    className="stroke-divider"
-                    strokeDasharray="4 6"
-                  />
-                ) : null}
-                <text
-                  x={decoration.x + (decoration.kind === 'group' ? 20 : 0)}
-                  y={decoration.y + (decoration.kind === 'group' ? 28 : 16)}
-                  textAnchor={decoration.anchor ?? 'start'}
-                  className="fill-current text-xs text-muted"
+              <defs>
+                <marker
+                  id="graph-arrow-containment"
+                  viewBox="0 0 10 10"
+                  refX={9}
+                  refY={5}
+                  markerWidth={6}
+                  markerHeight={6}
+                  orient="auto"
                 >
-                  {decoration.kind === 'time' || decoration.label.length < 29
-                    ? decoration.label
-                    : `${decoration.label.slice(0, 26)}…`}
-                </text>
+                  <path
+                    d="M 0 0 L 10 5 L 0 10 z"
+                    className={representation === 'hierarchy' ? 'fill-muted' : 'fill-divider'}
+                  />
+                </marker>
+                <marker
+                  id="graph-arrow-reference"
+                  viewBox="0 0 10 10"
+                  refX={9}
+                  refY={5}
+                  markerWidth={6}
+                  markerHeight={6}
+                  orient="auto"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" className="fill-accent-text" />
+                </marker>
+              </defs>
+
+              <g pointerEvents="none">
+                {decorations.map((decoration, index) => (
+                  <g key={`${decoration.kind}:${String(index)}`}>
+                    <title>{decoration.label}</title>
+                    {decoration.kind === 'group' ? (
+                      <rect
+                        x={decoration.x}
+                        y={decoration.y}
+                        width={decoration.width}
+                        height={decoration.height}
+                        rx={12}
+                        className="fill-surface stroke-divider"
+                      />
+                    ) : null}
+                    {decoration.kind === 'time' ? (
+                      <line
+                        x1={decoration.x}
+                        x2={decoration.x}
+                        y1={decoration.y + 32}
+                        y2={layout.height - 48}
+                        className="stroke-divider"
+                        strokeDasharray="4 6"
+                      />
+                    ) : null}
+                    <text
+                      x={decoration.x + (decoration.kind === 'group' ? 20 : 0)}
+                      y={decoration.y + (decoration.kind === 'group' ? 28 : 16)}
+                      textAnchor={decoration.anchor ?? 'start'}
+                      className="fill-current text-xs text-muted"
+                    >
+                      {decoration.kind === 'time' || decoration.label.length < 29
+                        ? decoration.label
+                        : `${decoration.label.slice(0, 26)}…`}
+                    </text>
+                  </g>
+                ))}
               </g>
-            ))}
-          </g>
 
-          <EdgeLayer
-            parentEdges={drawnEdges.parentEdges}
-            referenceEdges={drawnEdges.referenceEdges}
-            settled={settled}
-            hideStructure={hideStructure}
-            emphasizeStructure={representation === 'hierarchy'}
-          />
+              <EdgeLayer
+                parentEdges={drawnEdges.parentEdges}
+                referenceEdges={drawnEdges.referenceEdges}
+                settled={settled}
+                hideStructure={hideStructure}
+                emphasizeStructure={representation === 'hierarchy'}
+              />
 
-          {activeEdges !== null && (
-            <HighlightLayer
-              // During a replay, an edge to a node that has not arrived yet is not drawn here
-              // either.
-              parentEdges={
-                arrived === null
-                  ? activeEdges.parentEdges
-                  : activeEdges.parentEdges.filter(
-                      (edge) => arrived.has(edge.parentId) && arrived.has(edge.childId),
-                    )
-              }
-              referenceEdges={
-                arrived === null
-                  ? activeEdges.referenceEdges
-                  : activeEdges.referenceEdges.filter(
-                      (edge) => arrived.has(edge.sourceId) && arrived.has(edge.targetId),
-                    )
-              }
-              pulses={!prefersReducedMotion()}
-            />
-          )}
+              {activeEdges !== null && (
+                <HighlightLayer
+                  // During a replay, an edge to a node that has not arrived yet is not drawn here
+                  // either.
+                  parentEdges={
+                    arrived === null
+                      ? activeEdges.parentEdges
+                      : activeEdges.parentEdges.filter(
+                          (edge) => arrived.has(edge.parentId) && arrived.has(edge.childId),
+                        )
+                  }
+                  referenceEdges={
+                    arrived === null
+                      ? activeEdges.referenceEdges
+                      : activeEdges.referenceEdges.filter(
+                          (edge) => arrived.has(edge.sourceId) && arrived.has(edge.targetId),
+                        )
+                  }
+                  pulses={!prefersReducedMotion()}
+                />
+              )}
 
-          {/* The link being drawn, from its source to the pointer. Dashed, because it is a
+              {/* The link being drawn, from its source to the pointer. Dashed, because it is a
               request and not yet a reference. */}
-          {linking !== null && linkSource !== undefined && (
-            <path
-              d={`M ${String(linkSource.x)} ${String(linkSource.y)} L ${String(linking.x)} ${String(linking.y)}`}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeDasharray="4 3"
-              className="pointer-events-none text-accent-text"
-            />
-          )}
+              {linking !== null && linkSource !== undefined && (
+                <path
+                  d={`M ${String(linkSource.x)} ${String(linkSource.y)} L ${String(linking.x)} ${String(linking.y)}`}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeDasharray="4 3"
+                  className="pointer-events-none text-accent-text"
+                />
+              )}
 
-          {positioned.map((node) => (
-            <NodeMark
-              key={node.id}
-              node={node}
-              centreX={layout.width / 2}
-              // Named without being asked: the labels the layout had room for, the node just
-              // opened, and - while one node is being pointed at - it and everything it touches.
-              // Everything else waits to be hovered. A class swap rather than a conditional
-              // render, so the text node stays mounted and the transition has something to animate.
-              named={
-                labels.has(node.id) ||
-                (representation === 'focused' && node.id === focusId) ||
-                node.id === openedId ||
-                (activeId !== null && lit?.has(node.id) === true)
-              }
-              selected={node.id === selectedId}
-              lit={lit?.has(node.id) === true}
-              recency={recencyOf(node.lastModifiedAt, now)}
-              absent={arrived !== null && !arrived.has(node.id)}
-              fold={
-                representation !== 'focused' && folded.parents.has(node.id)
-                  ? collapsed.has(node.id)
-                    ? 'closed'
-                    : 'open'
-                  : 'none'
-              }
-              hiddenCount={folded.hidden.get(node.id) ?? 0}
-              onToggleFold={toggleFold}
-              dropTarget={node.id === dropTargetId}
-              // A fold stands in for a whole branch, so it cannot hold a reference of its own.
-              linkable={onLink !== undefined && !collapsed.has(node.id)}
-              linking={linking?.sourceId === node.id}
-              onLinkPointerDown={onLinkPointerDown}
-              onLinkPointerMove={onLinkPointerMove}
-              onLinkPointerUp={onLinkPointerUp}
-              onHover={setHoveredId}
-              // Before the first frame every node sits at the middle; afterwards it sits where the
-              // layout put it, and the transition between the two is the explosion.
-              // `motion-reduce` drops the movement for anybody who has asked their system for less
-              // of it - they get the final arrangement immediately.
-              home={
-                settled
-                  ? undefined
-                  : `translate(${String(layout.width / 2 - node.x)} ${String(layout.height / 2 - node.y)}) scale(0.4)`
-              }
-              onPointerDown={onNodePointerDown}
-              onPointerMove={onNodePointerMove}
-              onPointerUp={onNodePointerUp}
-              onOpen={open}
-            />
-          ))}
-        </svg>
-      </div>
+              {positioned.map((node) => (
+                <NodeMark
+                  key={node.id}
+                  node={node}
+                  centreX={layout.width / 2}
+                  // Named without being asked: the labels the layout had room for, the node just
+                  // opened, and - while one node is being pointed at - it and everything it touches.
+                  // Everything else waits to be hovered. A class swap rather than a conditional
+                  // render, so the text node stays mounted and the transition has something to animate.
+                  named={
+                    labels.has(node.id) ||
+                    (representation === 'focused' && node.id === focusId) ||
+                    node.id === openedId ||
+                    (activeId !== null && lit?.has(node.id) === true)
+                  }
+                  selected={node.id === selectedId}
+                  lit={lit?.has(node.id) === true}
+                  recency={recencyOf(node.lastModifiedAt, now)}
+                  absent={arrived !== null && !arrived.has(node.id)}
+                  fold={
+                    representation !== 'focused' && folded.parents.has(node.id)
+                      ? collapsed.has(node.id)
+                        ? 'closed'
+                        : 'open'
+                      : 'none'
+                  }
+                  hiddenCount={folded.hidden.get(node.id) ?? 0}
+                  onToggleFold={toggleFold}
+                  dropTarget={node.id === dropTargetId}
+                  // A fold stands in for a whole branch, so it cannot hold a reference of its own.
+                  linkable={onLink !== undefined && !collapsed.has(node.id)}
+                  linking={linking?.sourceId === node.id}
+                  onLinkPointerDown={onLinkPointerDown}
+                  onLinkPointerMove={onLinkPointerMove}
+                  onLinkPointerUp={onLinkPointerUp}
+                  onHover={setHoveredId}
+                  // Before the first frame every node sits at the middle; afterwards it sits where the
+                  // layout put it, and the transition between the two is the explosion.
+                  // `motion-reduce` drops the movement for anybody who has asked their system for less
+                  // of it - they get the final arrangement immediately.
+                  home={
+                    settled
+                      ? undefined
+                      : `translate(${String(layout.width / 2 - node.x)} ${String(layout.height / 2 - node.y)}) scale(0.4)`
+                  }
+                  onPointerDown={onNodePointerDown}
+                  onPointerMove={onNodePointerMove}
+                  onPointerUp={onNodePointerUp}
+                  onOpen={open}
+                />
+              ))}
+            </svg>
+          </div>
+        )}
+      </ContextMenu>
 
       <div className="flex flex-wrap items-center gap-3">
         <Input
@@ -1884,19 +1956,21 @@ function GraphDrawing({
           to want is to see it. */}
       <div className="flex flex-wrap items-center gap-3">
         {stats.mostConnected !== null && (
-          <span className="flex items-center gap-1">
+          <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
             <Text as="span" variant="caption" tone="muted">
               Most connected:
             </Text>
             <Button
               variant="ghost"
+              className="min-w-0 max-w-full"
+              title={stats.mostConnected.title}
               onClick={() => {
                 if (stats.mostConnected !== null) {
                   showNode(stats.mostConnected.id);
                 }
               }}
             >
-              {`${stats.mostConnected.title} (${String(stats.mostConnected.degree)})`}
+              <span className="truncate">{`${stats.mostConnected.title} (${String(stats.mostConnected.degree)})`}</span>
             </Button>
           </span>
         )}
@@ -1935,7 +2009,7 @@ function GraphDrawing({
               onChange={(event) => {
                 setLapse(Number(event.target.value));
               }}
-              className="w-48"
+              className="w-48 max-w-full"
             />
             <Button
               variant="ghost"

@@ -493,7 +493,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
     // gap-3, matching the board's, the gallery's and the timeline's own root wrapper: all four are
     // the same shape - an optional error, a header row, then the view's content - and this was the
     // one drawn one step further apart than the rest for no stated reason.
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       {container.writeError === null ? null : (
         // Alongside the calendar rather than instead of it: the write was refused and the item has
         // already been put back where it was, so the grid is correct and only the reason is missing.
@@ -503,7 +503,7 @@ export function CalendarView(props: CalendarViewProps): ReactNode {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Text variant="h4" as="h2">
+        <Text variant="h6" as="h2" className="min-w-0 break-words">
           {mode === 'month'
             ? monthLabel(month)
             : mode === 'week'

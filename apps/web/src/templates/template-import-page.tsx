@@ -8,6 +8,7 @@ import { isCanceledError, isNixApiError, NixErrorKind } from '@nix/api-client';
 
 import { useApiClient } from '../api/api-client-provider';
 import { browserSessionStorage } from '../lib/browser-storage';
+import { useZenActive } from '../lib/zen-mode';
 import { useTemplateLibrary } from './template-library-context';
 import {
   beginAndPreviewTemplate,
@@ -94,6 +95,7 @@ function forgetDraft(workspaceId: string): void {
 }
 
 export function TemplateImportPage(): ReactNode {
+  const zen = useZenActive();
   const client = useApiClient();
   const navigate = useNavigate();
   const { workspaceId } = useWorkspace();
@@ -340,7 +342,7 @@ export function TemplateImportPage(): ReactNode {
 
   if (templateStatus === 'loading') {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-5">
         <Text tone="muted">Checking template access…</Text>
       </div>
     );
@@ -348,10 +350,10 @@ export function TemplateImportPage(): ReactNode {
 
   if (templateStatus === 'error') {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-        <Blueprint className="flex max-w-lg flex-col items-start gap-3 p-6">
+      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-5">
+        <Blueprint className="flex min-w-0 max-w-lg flex-col items-start gap-3 p-3 sm:p-5">
           <Icon icon={ShieldCheck} size="md" />
-          <Text variant="h2" as="h1">
+          <Text variant="h3" as="h1">
             Template library unavailable
           </Text>
           <Text tone="muted">
@@ -376,10 +378,10 @@ export function TemplateImportPage(): ReactNode {
 
   if (!templateCapabilities.canManage) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-        <Blueprint className="flex max-w-lg flex-col items-start gap-3 p-6">
+      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-y-auto p-3 sm:p-5">
+        <Blueprint className="flex min-w-0 max-w-lg flex-col items-start gap-3 p-3 sm:p-5">
           <Icon icon={ShieldCheck} size="md" />
-          <Text variant="h2" as="h1">
+          <Text variant="h3" as="h1">
             Template import unavailable
           </Text>
           <Text tone="muted">
@@ -394,8 +396,10 @@ export function TemplateImportPage(): ReactNode {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b border-divider px-4 py-3">
+    <div className="@container/import flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      <header
+        className={`flex min-w-0 shrink-0 items-center gap-2 border-b border-divider px-3 py-2 ${zen ? 'pr-16' : ''}`}
+      >
         <Button
           variant="icon"
           aria-label="Cancel template import"
@@ -406,7 +410,7 @@ export function TemplateImportPage(): ReactNode {
           <Icon icon={ArrowLeft} size="sm" />
         </Button>
         <div className="min-w-0 flex-1">
-          <Text variant="h3" as="h1">
+          <Text variant="h4" as="h1">
             Import template
           </Text>
           <Text variant="caption" tone="muted">
@@ -415,12 +419,15 @@ export function TemplateImportPage(): ReactNode {
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto grid max-w-5xl gap-6 lg:grid-cols-2">
-          <section className="flex flex-col gap-4">
+      <section
+        aria-label="Template import"
+        className="min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-5"
+      >
+        <div className="mx-auto grid min-w-0 max-w-5xl gap-4 @4xl/import:grid-cols-2">
+          <section className="flex min-w-0 flex-col gap-4">
             <div>
               <Text variant="kicker">Template file</Text>
-              <Text variant="h2" as="h2">
+              <Text variant="h3" as="h2">
                 Choose a .nix file
               </Text>
               <Text variant="bodySmall" tone="muted">
@@ -428,9 +435,9 @@ export function TemplateImportPage(): ReactNode {
                 import.
               </Text>
             </div>
-            <Blueprint className="flex flex-col items-start gap-4 p-5">
+            <Blueprint className="flex min-w-0 flex-col items-start gap-4 p-3">
               <Icon icon={FileUp} size="md" />
-              <label className="flex flex-col gap-2">
+              <label className="flex min-w-0 max-w-full flex-col gap-2">
                 <Text variant="bodySmall" as="span">
                   Template file
                 </Text>
@@ -439,7 +446,7 @@ export function TemplateImportPage(): ReactNode {
                   accept=".nix,application/x-nix-template,application/zip"
                   onChange={choose}
                   disabled={working}
-                  className={`max-w-full text-sm ${focusRing}`}
+                  className={`min-w-0 max-w-full text-lg ${focusRing}`}
                 />
               </label>
               {file === null ? null : (
@@ -495,10 +502,10 @@ export function TemplateImportPage(): ReactNode {
             )}
           </section>
 
-          <section aria-label="Import preview" className="flex flex-col gap-4">
+          <section aria-label="Import preview" className="flex min-w-0 flex-col gap-4">
             <div>
               <Text variant="kicker">Preview</Text>
-              <Text variant="h2" as="h2">
+              <Text variant="h3" as="h2">
                 What will be added
               </Text>
             </div>
@@ -550,7 +557,7 @@ export function TemplateImportPage(): ReactNode {
             )}
           </section>
         </div>
-      </main>
+      </section>
 
       <Dialog
         open={discarding}

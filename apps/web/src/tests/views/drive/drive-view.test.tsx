@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 import type * as apiClient from '@nix/api-client';
 import type { NixClient } from '@nix/api-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { aContainer } from '../../container-fixture';
+import { renderAt as render } from '../../render-with-router';
 import { aView } from '../../view-fixture';
 import type { Item } from '../../../views/core/container-model';
 import type { ContainerData } from '../../../views/core/use-container';
@@ -112,6 +113,7 @@ const { moveMock, reloadMock, fetchFileContentMock, beginUploadMock, uploadAndCo
 
 vi.mock('../../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: WORKSPACE }),
+  useOptionalWorkspace: () => null,
 }));
 
 vi.mock('../../../items/use-workspace-tree', () => ({
@@ -146,6 +148,7 @@ let client: NixClient;
 
 vi.mock('../../../api/api-client-provider', () => ({
   useApiClient: () => client,
+  useOptionalApiClient: () => null,
 }));
 
 vi.mock('@nix/api-client', async () => {
@@ -180,6 +183,7 @@ function fakeClient(): NixClient {
 function driveOf(options: {
   readonly items: readonly Item[];
   readonly onOpen?: (id: string) => void;
+  readonly layout?: string;
 }) {
   const container: ContainerData = aContainer({
     itemId: null, // a workspace root: no "Parent" destination to resolve
@@ -190,7 +194,7 @@ function driveOf(options: {
   return (
     <DriveView
       container={container}
-      view={aView({ kind: 'drive' })}
+      view={aView({ kind: 'drive', layout: options.layout ?? 'list' })}
       onOpen={options.onOpen ?? (() => undefined)}
     />
   );
@@ -219,6 +223,57 @@ afterEach(() => {
 });
 
 describe('the drive view', () => {
+  it.each(['list', 'grid'])('offers item actions from the %s entry context menu', (layout) => {
+    const onOpen = vi.fn();
+    render(driveOf({ items: [NOTE, FOLDER], onOpen, layout }));
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: NOTE.title }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    const menu = screen.getByRole('menu', { name: `${NOTE.title} actions` });
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'Select' }));
+    expect(screen.getByRole('checkbox', { name: `Select ${NOTE.title}` })).toBeChecked();
+
+    fireEvent.keyDown(screen.getByRole('button', { name: NOTE.title }), {
+      key: 'F10',
+      shiftKey: true,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open' }));
+    expect(onOpen).toHaveBeenCalledWith(NOTE.id);
+  });
+
+  it('moves the context-menu item instead of a previous selection', async () => {
+    render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
+    fireEvent.click(screen.getByRole('checkbox', { name: `Select ${FILE_A.title}` }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: NOTE.title }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Move to…' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Move to…' });
+    fireEvent.click(within(dialog).getByRole('radio', { name: FOLDER.title }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Move 1 item' }));
+    await vi.waitFor(() => {
+      expect(moveMock).toHaveBeenCalledOnce();
+    });
+    expect(moveMock).toHaveBeenCalledWith(NOTE.id, FOLDER.id, null);
+  });
+
+  it('downloads a file from its context menu without selecting other files', async () => {
+    render(driveOf({ items: [FILE_A, FILE_B] }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: FILE_A.title }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Download' }));
+    await vi.waitFor(() => {
+      expect(fetchFileContentMock).toHaveBeenCalledOnce();
+    });
+    expect(fetchFileContentMock).toHaveBeenCalledWith(client, FILE_A.id);
+  });
+
   it('draws a row for every child, naming its kind and icon by its body kind', async () => {
     render(driveOf({ items: [NOTE, FOLDER, FILE_A] }));
 

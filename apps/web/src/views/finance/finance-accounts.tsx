@@ -1,4 +1,4 @@
-import { Button, Field, Input, Table, Tag, Text, type TableColumn } from '@nix/ui';
+import { Button, Field, Input, Table, Tag, Text, cn, focusRing, type TableColumn } from '@nix/ui';
 import {
   finance as financeApi,
   type Finance,
@@ -30,7 +30,7 @@ export function FinanceAccounts({
   const query = useFinanceQuery<Accounts>(endpoint, state.generation);
   const names = new Map(finance.accounts.map((account) => [account.id, account.name]));
   return (
-    <div className="flex flex-col gap-6">
+    <div className="@container flex min-w-0 flex-col gap-6">
       <SectionHeading
         id="finance-accounts-title"
         title="Accounts"
@@ -61,11 +61,11 @@ export function FinanceAccounts({
               and any loan.
             </Text>
           ) : (
-            <ul className="grid gap-3 md:grid-cols-2">
+            <ul className="grid min-w-0 gap-3 @3xl:grid-cols-2">
               {query.data.accounts.map((summary) => (
                 <li
                   key={summary.account.id}
-                  className="flex flex-col gap-2 rounded-lg bg-surface-raised p-3"
+                  className="@container flex min-w-0 flex-col gap-2 rounded-lg bg-surface-raised p-3"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -90,7 +90,7 @@ export function FinanceAccounts({
                     </Button>
                   </div>
                   {summary.card !== null ? (
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <dl className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-2 @xs:grid-cols-2">
                       <Fact
                         label={`Spent in ${formatMonth(month)}`}
                         value={<Money amount={summary.card.spend} currency={currency} />}
@@ -109,7 +109,7 @@ export function FinanceAccounts({
                           summary.card.utilisation === null ? (
                             <Tag tone="muted">Set a limit</Tag>
                           ) : (
-                            <span className="flex items-center gap-2">
+                            <span className="flex flex-wrap items-center gap-2">
                               {formatPercent(summary.card.utilisation)}
                               {summary.card.utilisation > 0.3 ? (
                                 <Tag tone="accent">Over 30%</Tag>
@@ -120,7 +120,7 @@ export function FinanceAccounts({
                       />
                     </dl>
                   ) : summary.loan !== null ? (
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <dl className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-2 @xs:grid-cols-2">
                       <Fact
                         label="Still owed"
                         value={
@@ -157,7 +157,7 @@ export function FinanceAccounts({
                       />
                     </dl>
                   ) : (
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1">
+                    <dl className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-2 @xs:grid-cols-2">
                       <Fact
                         label="Recorded balance"
                         value={<Money amount={summary.recordedBalance ?? 0} currency={currency} />}
@@ -169,7 +169,7 @@ export function FinanceAccounts({
                         }
                       />
                       {summary.account.target !== null && summary.savingsProgress !== null ? (
-                        <div className="col-span-2 flex flex-col gap-1">
+                        <div className="flex min-w-0 flex-col gap-1 @xs:col-span-2">
                           <Fact
                             label="Towards target"
                             value={`${formatPercent(summary.savingsProgress)} of ${String(summary.account.target)}`}
@@ -208,11 +208,11 @@ export function FinanceAccounts({
 
 function Fact({ label, value }: { readonly label: string; readonly value: ReactNode }): ReactNode {
   return (
-    <div className="flex flex-col">
+    <div className="flex min-w-0 flex-col">
       <Text as="dt" variant="caption" tone="muted">
         {label}
       </Text>
-      <Text as="dd" variant="bodySmall">
+      <Text as="dd" variant="bodySmall" className="break-words">
         {value}
       </Text>
     </div>
@@ -305,12 +305,19 @@ function LoanWhatIf({
     },
   ];
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={`finance-loan-${loan.id}`}>
+    <section
+      className="@container flex min-w-0 flex-col gap-3"
+      aria-labelledby={`finance-loan-${loan.id}`}
+    >
       <Text as="h4" variant="h5" id={`finance-loan-${loan.id}`}>
         {loan.name}: what an overpayment buys
       </Text>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <Field label="Overpay each month" hint="Try a figure; apply it when it is right.">
+      <div className="flex min-w-0 flex-col gap-3 @lg:flex-row @lg:items-end">
+        <Field
+          label="Overpay each month"
+          hint="Try a figure; apply it when it is right."
+          className="min-w-0 flex-1"
+        >
           {(control) => (
             <Input
               {...control}
@@ -322,7 +329,7 @@ function LoanWhatIf({
             />
           )}
         </Field>
-        <div className="flex gap-2 pb-2">
+        <div className="flex flex-wrap gap-2 pb-2">
           <Button variant="secondary" onClick={tryIt}>
             Try it
           </Button>
@@ -347,7 +354,7 @@ function LoanWhatIf({
         )
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid min-w-0 gap-3 @lg:grid-cols-3">
             <Tile
               label="Cleared"
               value={
@@ -399,13 +406,21 @@ function LoanWhatIf({
             {showSchedule ? 'Hide the repayment schedule' : 'Show the repayment schedule'}
           </Button>
           {showSchedule ? (
-            <Table<LoanSchedule['months'][number]>
-              caption={`Repayment schedule for ${loan.name}`}
-              columns={columns}
-              rows={schedule.months}
-              rowKey={(row) => String(row.number)}
-              emptyMessage="The loan has nothing left to pay."
-            />
+            <div
+              role="region"
+              aria-label={`Repayment schedule for ${loan.name}`}
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach horizontally clipped repayment columns.
+              tabIndex={0}
+              className={cn('min-w-0 overflow-x-auto', focusRing)}
+            >
+              <Table<LoanSchedule['months'][number]>
+                caption={`Repayment schedule for ${loan.name}`}
+                columns={columns}
+                rows={schedule.months}
+                rowKey={(row) => String(row.number)}
+                emptyMessage="The loan has nothing left to pay."
+              />
+            </div>
           ) : null}
         </>
       )}

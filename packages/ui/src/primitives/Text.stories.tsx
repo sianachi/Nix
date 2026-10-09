@@ -1,5 +1,5 @@
 import { type Meta, type StoryObj } from '@storybook/react-vite';
-import { expect } from 'storybook/test';
+import { expect, within } from 'storybook/test';
 
 import { Text, type TextVariant } from './Text';
 
@@ -73,6 +73,31 @@ export const ProseScale: Story = {
       ))}
     </div>
   ),
+};
+
+export const NarrowLongTokens: Story = {
+  render: () => (
+    <section aria-label="Long reference values" className="flex w-64 max-w-full gap-2">
+      <Text className="flex-1">ReferenceValueWithNoWhitespaceThatMustFit</Text>
+      <Text variant="note" className="flex-1">
+        https://example.test/averylongreferencevaluethatmustfititsscreencolumn
+      </Text>
+    </section>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const value = canvas.getByText('ReferenceValueWithNoWhitespaceThatMustFit');
+    const reference = canvas.getByText(
+      'https://example.test/averylongreferencevaluethatmustfititsscreencolumn',
+    );
+    const group = canvas.getByRole('region', { name: 'Long reference values' });
+    await expect(group.scrollWidth).toBeLessThanOrEqual(group.clientWidth);
+    await expect(value.scrollWidth).toBeLessThanOrEqual(value.clientWidth);
+    await expect(reference.scrollWidth).toBeLessThanOrEqual(reference.clientWidth);
+    await expect(value.getBoundingClientRect().right).toBeLessThanOrEqual(
+      reference.getBoundingClientRect().left,
+    );
+  },
 };
 
 // ── Individual variants ───────────────────────────────────────────────────

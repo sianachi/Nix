@@ -28,26 +28,25 @@ export function SettingsPage(): ReactElement {
 
   return (
     <div className={`${paneScroller} flex flex-col`}>
-      <header className="border-b border-divider px-5 pb-5 pt-6 sm:px-8 sm:pt-8">
-        <Text variant="kicker">Account</Text>
-        <Text variant="h2" as="h1" className="mt-1">
+      <header className="border-b border-divider px-3 py-3 sm:px-6 sm:py-4">
+        <Text variant="h3" as="h1">
           Settings
         </Text>
-        <Text variant="note" tone="muted" className="mt-2 max-w-2xl">
+        <Text variant="note" tone="muted" className="mt-1 hidden max-w-2xl sm:block">
           Manage the place you work, how the editor behaves, and the credentials connected to your
           account.
         </Text>
       </header>
 
-      <div className="px-5 sm:px-8">
+      <div className="min-w-0">
         <Tabs
           label="Settings sections"
           items={settingsTabs}
           activeId={activeTab}
           onActivate={(id) => {
-            setActiveTab(id as SettingsTab);
+            const selected = settingsTabs.find((tab) => tab.id === id);
+            if (selected !== undefined) setActiveTab(selected.id);
           }}
-          className="-mx-5 sm:-mx-8"
         />
       </div>
 
@@ -55,7 +54,7 @@ export function SettingsPage(): ReactElement {
         id={`settings-panel-${activeTab}`}
         role="tabpanel"
         aria-label={settingsTabs.find((tab) => tab.id === activeTab)?.label}
-        className="flex min-w-0 flex-col gap-6 p-5 sm:p-8"
+        className="flex min-w-0 flex-col gap-6 break-words p-3 sm:p-6"
       >
         {activeTab === 'workspace' ? <WorkspaceManagementSection /> : null}
         {activeTab === 'editor' ? <EditorPreferencesSection /> : null}

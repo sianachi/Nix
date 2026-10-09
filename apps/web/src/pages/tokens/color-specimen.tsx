@@ -23,9 +23,9 @@ function SwatchRow({
   return (
     <div className="flex flex-col gap-2">
       <Text variant="kicker">{title}</Text>
-      <ul className="grid grid-cols-3 gap-3 sm:grid-cols-6 lg:grid-cols-9">
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-6 xl:grid-cols-9">
         {swatches.map((swatch) => (
-          <li key={swatch.token} className="flex flex-col gap-1">
+          <li key={swatch.token} className="flex min-w-0 flex-col gap-1">
             <span
               aria-hidden="true"
               className={cn('block h-12 w-full border border-divider', swatch.className)}

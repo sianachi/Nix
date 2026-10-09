@@ -14,6 +14,8 @@ describe('Textarea', () => {
     // The frame is the point of the control: a hand-styled copy is what it replaces.
     expect(field.className).toContain('rounded-md');
     expect(field.className).toContain('border-divider');
+    expect(field.className).toContain('any-pointer-coarse:text-lg');
+    expect(field.className).toContain('min-w-0');
   });
 
   it('shows three rows unless told otherwise', () => {

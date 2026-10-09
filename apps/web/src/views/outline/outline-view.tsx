@@ -1,4 +1,4 @@
-import { Button, Icon, Input, Text, cn, focusRing } from '@nix/ui';
+import { Button, ContextMenu, Icon, Input, Text, cn, focusRing } from '@nix/ui';
 import {
   ArrowDown,
   ArrowUp,
@@ -17,6 +17,7 @@ import { sortItems, type Item, type View } from '../core/container-model';
 import type { ContainerData } from '../core/use-container';
 import { onItemChildrenChanged } from '../../lib/item-children-changed';
 import { ContainerNotices, resolveLoadState } from '../core/view-chrome';
+import { useItemContextActions } from '../core/use-item-context-actions';
 import {
   describeOutlineRefusal,
   isLockedRead,
@@ -84,6 +85,7 @@ interface RowNote {
 export function OutlineTree(props: OutlineTreeProps): ReactNode {
   const { container, view, onOpen, source } = props;
   const rootId = container.itemId;
+  const itemActions = useItemContextActions(onOpen);
 
   const [nested, setNested] = useState<ReadonlyMap<string, readonly Item[]>>(() => new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
@@ -141,8 +143,14 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
   if (loadState !== null) return loadState;
 
   const roots = sortItems(container.children, null, false);
+  // A root reload can arrive before cached children after an outdent.
+  const rootIds = new Set(roots.map((item) => item.id));
   const childrenOf = (parentId: string | null): readonly Item[] =>
-    parentId === rootId ? roots : parentId === null ? [] : (nested.get(parentId) ?? []);
+    parentId === rootId
+      ? roots
+      : parentId === null
+        ? []
+        : (nested.get(parentId) ?? []).filter((item) => !rootIds.has(item.id));
 
   const rows: OutlineRow[] = [];
   const walk = (parentId: string | null, level: number): void => {
@@ -459,7 +467,7 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
     );
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-col gap-3">
       <ContainerNotices container={container} subject="this outline" />
 
       <OutlineToolbar
@@ -525,87 +533,147 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
           aria-label={view.name}
           aria-describedby={captionId}
           aria-busy={busy}
-          className="flex flex-col"
+          className="flex min-w-0 flex-col"
         >
           {draft !== null && draft.afterId === null ? draftField : null}
           {rows.map((row, position) => {
             const id = row.item.id;
             const isOpen = expanded.has(id);
+            const indentation = `min(${String((row.level - 1) * 1.5)}rem, 25%)`;
             // The top level of a truncated container is a sample, so its size is not claimed.
             const sizeKnown = !(row.level === 1 && container.truncated);
             return (
-              <div key={id} role="none" className="flex flex-col">
-                <div
-                  ref={(element) => {
-                    if (element === null) rowRefs.current.delete(id);
-                    else rowRefs.current.set(id, element);
-                  }}
-                  role="treeitem"
-                  aria-level={row.level}
-                  aria-setsize={sizeKnown ? row.siblings.length : -1}
-                  aria-posinset={row.index + 1}
-                  aria-selected={id === activeId}
-                  {...(row.item.hasChildren ? { 'aria-expanded': isOpen } : {})}
-                  tabIndex={id === activeId ? 0 : -1}
-                  onFocus={() => {
-                    setFocusedId(id);
-                  }}
-                  onKeyDown={(event) => {
-                    onRowKeyDown(event, row);
-                  }}
-                  onDoubleClick={() => {
-                    onOpen(id);
-                  }}
-                  className={cn(
-                    'flex min-h-(--control-sm) flex-wrap items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
-                    id === activeId ? 'bg-foreground/7' : '',
-                    focusRing,
-                  )}
-                  style={{ paddingInlineStart: `${String((row.level - 1) * 1.5)}rem` }} // design-token-exempt: indentation grows with the tree's depth, which is data rather than a design value
+              <div key={id} role="none" className="flex min-w-0 flex-col">
+                <ContextMenu
+                  label={`${titleOf(row.item)} actions`}
+                  items={() =>
+                    itemActions(id, row.item.title, [
+                      {
+                        kind: 'action',
+                        label: 'Add item below',
+                        icon: Plus,
+                        disabled: busy,
+                        onSelect: () => {
+                          setDraft({ parentId: row.parentId, afterId: id, level: row.level });
+                        },
+                      },
+                      {
+                        kind: 'action',
+                        label: 'Indent',
+                        icon: IndentIncrease,
+                        disabled: busy,
+                        onSelect: () => {
+                          void indent(row);
+                        },
+                      },
+                      {
+                        kind: 'action',
+                        label: 'Outdent',
+                        icon: IndentDecrease,
+                        disabled: busy,
+                        onSelect: () => {
+                          void outdent(row);
+                        },
+                      },
+                      {
+                        kind: 'action',
+                        label: 'Move up',
+                        icon: ArrowUp,
+                        disabled: busy || row.index === 0,
+                        onSelect: () => {
+                          void reorder(row, -1);
+                        },
+                      },
+                      {
+                        kind: 'action',
+                        label: 'Move down',
+                        icon: ArrowDown,
+                        disabled: busy || row.index === row.siblings.length - 1,
+                        onSelect: () => {
+                          void reorder(row, 1);
+                        },
+                      },
+                    ])
+                  }
                 >
-                  {/* The disclosure is a pointer convenience over what Right and Left already do,
-                      so it is not a second tab stop inside the row. */}
-                  <span
-                    aria-hidden="true"
-                    onClick={() => {
-                      if (!row.item.hasChildren) return;
-                      if (isOpen) close(row.item);
-                      else void open(row.item);
-                    }}
-                    className="inline-flex size-(--control-sm) shrink-0 items-center justify-center text-muted pointer-coarse:size-(--control-lg)"
-                  >
-                    {row.item.hasChildren ? (
-                      <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" />
-                    ) : null}
-                  </span>
-                  <Text as="span" variant="body" className="min-w-0 flex-1">
-                    {titleOf(row.item)}
-                  </Text>
-                  {locked.has(id) ? (
-                    <>
-                      <Icon icon={Lock} size="sm" className="text-muted" />
-                      <span className="sr-only">, locked</span>
-                    </>
-                  ) : null}
-                  {loading.has(id) ? (
-                    <Text as="span" variant="caption" tone="muted">
-                      Loading
-                    </Text>
-                  ) : null}
-                  {/* Inside the row it is about, so the tree owns only rows and the new-item
-                      group, and a screen reader hears the note as part of the row. */}
-                  {note !== null && note.itemId === id ? (
-                    <Text
-                      as="span"
-                      variant="caption"
-                      tone="accent"
-                      role="alert"
-                      className="basis-full"
+                  {(contextTarget) => (
+                    <div
+                      {...contextTarget}
+                      ref={(element) => {
+                        if (element === null) rowRefs.current.delete(id);
+                        else rowRefs.current.set(id, element);
+                      }}
+                      role="treeitem"
+                      aria-level={row.level}
+                      aria-setsize={sizeKnown ? row.siblings.length : -1}
+                      aria-posinset={row.index + 1}
+                      aria-selected={id === activeId}
+                      {...(row.item.hasChildren ? { 'aria-expanded': isOpen } : {})}
+                      tabIndex={id === activeId ? 0 : -1}
+                      onFocus={() => {
+                        setFocusedId(id);
+                      }}
+                      onClick={() => {
+                        setFocusedId(id);
+                      }}
+                      onKeyDown={(event) => {
+                        onRowKeyDown(event, row);
+                      }}
+                      onDoubleClick={() => {
+                        onOpen(id);
+                      }}
+                      className={cn(
+                        'flex min-h-(--control-sm) min-w-0 flex-wrap items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
+                        id === activeId ? 'bg-foreground/7' : '',
+                        focusRing,
+                      )}
+                      style={{ paddingInlineStart: indentation }} // design-token-exempt: tree-depth indentation is capped relative to available width so deep titles remain readable
                     >
-                      {note.text}
-                    </Text>
-                  ) : null}
-                </div>
+                      {/* The disclosure is a pointer convenience over what Right and Left already do,
+                      so it is not a second tab stop inside the row. */}
+                      <span
+                        aria-hidden="true"
+                        onClick={() => {
+                          if (!row.item.hasChildren) return;
+                          if (isOpen) close(row.item);
+                          else void open(row.item);
+                        }}
+                        className="inline-flex size-(--control-sm) shrink-0 items-center justify-center text-muted pointer-coarse:size-(--control-lg)"
+                      >
+                        {row.item.hasChildren ? (
+                          <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" />
+                        ) : null}
+                      </span>
+                      <Text as="span" variant="body" className="min-w-0 flex-1">
+                        {titleOf(row.item)}
+                      </Text>
+                      {locked.has(id) ? (
+                        <>
+                          <Icon icon={Lock} size="sm" className="text-muted" />
+                          <span className="sr-only">, locked</span>
+                        </>
+                      ) : null}
+                      {loading.has(id) ? (
+                        <Text as="span" variant="caption" tone="muted">
+                          Loading
+                        </Text>
+                      ) : null}
+                      {/* Inside the row it is about, so the tree owns only rows and the new-item
+                      group, and a screen reader hears the note as part of the row. */}
+                      {note !== null && note.itemId === id ? (
+                        <Text
+                          as="span"
+                          variant="caption"
+                          tone="accent"
+                          role="alert"
+                          className="basis-full"
+                        >
+                          {note.text}
+                        </Text>
+                      ) : null}
+                    </div>
+                  )}
+                </ContextMenu>
                 {position === draftAnchor ? draftField : null}
               </div>
             );
@@ -719,7 +787,7 @@ function DraftField({
           });
         }}
         className="flex flex-col gap-1 py-1"
-        style={{ paddingInlineStart: `${String((level - 1) * 1.5 + 2)}rem` }} // design-token-exempt: indentation grows with the tree's depth, which is data rather than a design value
+        style={{ paddingInlineStart: `min(${String((level - 1) * 1.5 + 2)}rem, 25%)` }} // design-token-exempt: tree-depth indentation is capped relative to available width so the new-item field remains reachable
       >
         <Input
           ref={fieldRef}

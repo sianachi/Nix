@@ -24,17 +24,15 @@ import { usePetSurface } from './use-pet-surface';
 import { PetWorkTools } from './pet-work-tools';
 import { Conversation } from './pet-conversation';
 
-/** How much of the viewport's bottom edge the mobile navigation currently occupies, read from
- * the shell's own measurement (`app-shell.tsx` publishes `--mobile-nav-height`) rather than
- * guessed at here. Zero whenever the nav is not rendered - a wide screen, or the software
- * keyboard covering it - because the shell removes the property then. Used to keep a dragged or
- * clamped launcher position clear of the nav, the same clearance `narrowOffset` below gives the
- * launcher's own default position. */
-function mobileNavClearance(): number {
-  const parsed = Number.parseFloat(
-    document.documentElement.style.getPropertyValue('--mobile-nav-height'),
+/** The shell and note dock publish their bottom clearance so every launcher position stays
+ * above whichever control reaches further into the viewport. */
+function mobileBottomClearance(): number {
+  return Math.max(
+    ...['--mobile-nav-height', '--mobile-note-toolbar-clearance'].map((property) => {
+      const parsed = Number.parseFloat(document.documentElement.style.getPropertyValue(property));
+      return Number.isFinite(parsed) ? parsed : 0;
+    }),
   );
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 /** Where the pet page lives, for the launcher and the panel's "Open as page" to link to. */
@@ -219,7 +217,7 @@ function Companion({
         x: Math.min(Math.max(8, saved.x), Math.max(8, window.innerWidth - rect.width - 8)),
         y: Math.min(
           Math.max(8, saved.y),
-          Math.max(8, window.innerHeight - rect.height - 8 - mobileNavClearance()),
+          Math.max(8, window.innerHeight - rect.height - 8 - mobileBottomClearance()),
         ),
       };
       setPosition((current) => {
@@ -239,11 +237,13 @@ function Companion({
     // so the shell announces every change to it rather than leaving this to notice only on the
     // next resize.
     window.addEventListener('nix-mobile-nav-resized', recompute);
+    window.addEventListener('nix-mobile-note-toolbar-resized', recompute);
     return () => {
       window.removeEventListener('resize', recompute);
       window.removeEventListener('orientationchange', recompute);
       window.removeEventListener('nix-pet-device-changed', recompute);
       window.removeEventListener('nix-mobile-nav-resized', recompute);
+      window.removeEventListener('nix-mobile-note-toolbar-resized', recompute);
     };
   }, [keyboardVisible]);
   // The launcher is clamped to the viewport at its own small size, so the panel, which is far
@@ -265,7 +265,7 @@ function Companion({
         { width: size.width, height: size.height },
         { width: window.innerWidth, height: window.innerHeight },
         8,
-        mobileNavClearance(),
+        mobileBottomClearance(),
       );
       setPanelPosition((current) =>
         current !== null && current.left === next.left && current.top === next.top ? current : next,
@@ -289,7 +289,8 @@ function Companion({
   // bottom navigation this offset clears renders across the whole drawer-nav range
   // (`useDrawerNavigation`, below 1024px), a tablet included, not only below the phone breakpoint
   // (`useNarrowViewport`, 640px) that `narrow` itself tracks.
-  const narrowOffset = 'bottom-[var(--mobile-nav-height,calc(3.5rem+env(safe-area-inset-bottom)))]'; // design-token-exempt: no token for the mobile nav's rendered height.
+  const narrowOffset =
+    'bottom-[max(var(--mobile-nav-height,calc(3.5rem+env(safe-area-inset-bottom))),var(--mobile-note-toolbar-clearance,0%))]'; // design-token-exempt: navigation and writing toolbar clearance are measured at runtime.
   return (
     <aside
       ref={aside}
@@ -407,7 +408,7 @@ function Companion({
           );
           const y = Math.min(
             Math.max(8, event.clientY - active.offsetY),
-            Math.max(8, window.innerHeight - rect.height - 8 - mobileNavClearance()),
+            Math.max(8, window.innerHeight - rect.height - 8 - mobileBottomClearance()),
           );
           const next = { x, y };
           setPosition(next);

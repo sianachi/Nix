@@ -64,7 +64,7 @@ export function PetConnectionPanel({
   return (
     <section
       aria-label="ChatGPT connection"
-      className="flex flex-col gap-3 border border-divider p-3"
+      className="flex min-w-0 flex-col gap-3 border border-divider p-3 wrap-anywhere"
     >
       {!compact ? (
         <Text variant="h3" as="h3">

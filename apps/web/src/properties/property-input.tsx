@@ -120,12 +120,12 @@ export function isKnownPropertyType(type: string): boolean {
  * The select inside a table cell: no frame, because the cell has a rule under it already and a
  * box inside a box reads as a double rule rather than as a control. Kept as a local, hand-inlined
  * class string rather than the `<Select>` primitive because a table row is denser than a form and
- * the primitive has no compact variant; `pointer-coarse:h-(--control-lg)` still gives phone rows
+ * the primitive has no compact variant; `any-pointer-coarse:h-(--control-lg)` gives touch rows
  * an even height and a 44px touch target, matching what the primitive gives the panel density.
  */
 const cellSelectClasses = cn(
-  'w-full border border-transparent bg-transparent px-2 py-1 font-body text-base text-foreground',
-  'pointer-coarse:h-(--control-lg)',
+  'min-w-0 w-full border border-transparent bg-transparent px-2 py-1 font-body text-base text-foreground',
+  'any-pointer-coarse:h-(--control-lg) any-pointer-coarse:text-lg',
   focusRing,
   disabledState,
 );

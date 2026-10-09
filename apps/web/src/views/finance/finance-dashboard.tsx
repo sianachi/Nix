@@ -1,4 +1,4 @@
-import { Button, Tag, Text } from '@nix/ui';
+import { Button, Tag, Text, cn, focusRing } from '@nix/ui';
 import {
   finance as financeApi,
   type Finance,
@@ -56,7 +56,10 @@ export function FinanceDashboard({
   const bufferFraction =
     dashboard.emergencyTarget > 0 ? dashboard.position.netPosition / dashboard.emergencyTarget : 0;
   return (
-    <div className="@container flex flex-col gap-6" aria-labelledby="finance-dashboard-title">
+    <div
+      className="@container flex min-w-0 flex-col gap-6"
+      aria-labelledby="finance-dashboard-title"
+    >
       <Text as="h3" variant="h3" id="finance-dashboard-title" className="sr-only">
         Dashboard for {formatMonth(month, 'long')}
       </Text>
@@ -79,7 +82,7 @@ export function FinanceDashboard({
           }}
           className="rounded-lg border border-divider p-4"
         >
-          <summary className="cursor-pointer text-base font-semibold">
+          <summary className="cursor-pointer text-base font-semibold any-pointer-coarse:min-h-(--control-lg)">
             Compare with {formatMonth(previousMonth, 'long')}
           </summary>
           <Text variant="bodySmall" tone="muted" className="mt-3">
@@ -95,8 +98,14 @@ export function FinanceDashboard({
               <LoadingPanel label="previous month" />
             ) : null
           ) : (
-            <div className="mt-3 overflow-x-auto">
-              <table className="w-full border-collapse text-left">
+            <div
+              role="region"
+              aria-label="Monthly finance comparison"
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach horizontally clipped comparison columns.
+              tabIndex={0}
+              className={cn('mt-3 min-w-0 overflow-x-auto', focusRing)}
+            >
+              <table className="w-full min-w-max border-collapse text-left">
                 <caption className="sr-only">
                   Recorded income, outgoings and money left compared with last month
                 </caption>
@@ -144,7 +153,10 @@ export function FinanceDashboard({
       )}
 
       <div className="grid gap-6 @3xl:grid-cols-2">
-        <section className="flex flex-col gap-3" aria-labelledby="finance-watch-title">
+        <section
+          className="@container flex min-w-0 flex-col gap-3"
+          aria-labelledby="finance-watch-title"
+        >
           <Text as="h4" variant="h5" id="finance-watch-title">
             Spending to review
           </Text>
@@ -157,12 +169,12 @@ export function FinanceDashboard({
               {dashboard.watch.map((item) => (
                 <li
                   key={item.lineId ?? 'unassigned'}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-surface-raised p-3"
+                  className="flex min-w-0 flex-col items-start justify-between gap-3 rounded-lg bg-surface-raised p-3 @sm:flex-row @sm:items-center"
                 >
                   <div className="min-w-0">
                     <Button
                       variant="ghost"
-                      className="max-w-full justify-start px-0 text-left"
+                      className="h-auto min-h-(--control-md) max-w-full justify-start break-words px-0 text-left"
                       onClick={() => {
                         if (onHistory === undefined) onSection('budget');
                         else
@@ -201,7 +213,10 @@ export function FinanceDashboard({
           </Button>
         </section>
 
-        <section className="flex flex-col gap-3" aria-labelledby="finance-upcoming-title">
+        <section
+          className="@container flex min-w-0 flex-col gap-3"
+          aria-labelledby="finance-upcoming-title"
+        >
           <Text as="h4" variant="h5" id="finance-upcoming-title">
             Due in the next two weeks
           </Text>
@@ -214,7 +229,7 @@ export function FinanceDashboard({
               {dashboard.upcoming.map((item) => (
                 <li
                   key={`${item.kind}:${item.lineId ?? item.accountId ?? ''}:${item.due}`}
-                  className="flex items-center justify-between gap-3 rounded-lg bg-surface-raised p-3"
+                  className="flex min-w-0 flex-col items-start justify-between gap-3 rounded-lg bg-surface-raised p-3 @sm:flex-row @sm:items-center"
                 >
                   <div className="min-w-0">
                     <Text as="p" variant="bodySmall" className="truncate font-medium">
@@ -271,8 +286,8 @@ export function FinanceDashboard({
               <ul className="flex flex-col gap-2">
                 {dashboard.cards.map((card) => (
                   <li key={card.accountId} className="rounded-lg bg-surface-raised p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <Text as="p" variant="bodySmall" className="font-medium">
+                    <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+                      <Text as="p" variant="bodySmall" className="min-w-0 break-words font-medium">
                         {card.name}
                       </Text>
                       {card.closing < 0 ? (

@@ -6,6 +6,7 @@ import { items, type PetConnection, type PetProfile, type PetSettings } from '@n
 import {
   Button,
   Checkbox,
+  ContextMenu,
   Icon,
   Menu,
   Segmented,
@@ -28,6 +29,7 @@ import {
 import { Link, useLocation, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useNarrowViewport } from '../layout/viewport';
+import { useZenActive } from '../lib/zen-mode';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
 import { type UsePetRuntimeResult } from './use-pet-runtime';
 import {
@@ -155,6 +157,11 @@ export function Conversation({
 }: ConversationProps): ReactElement {
   const fullscreen = layout === 'fullscreen';
   const smallScreen = useNarrowViewport();
+  const zen = useZenActive();
+  // Touch keyboards use Enter for a newline and open only after a deliberate tap.
+  const touchLikeComposer =
+    smallScreen ||
+    (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches);
   const client = useApiClient();
   const location = useLocation();
   const [search] = useSearchParams();
@@ -388,8 +395,9 @@ export function Conversation({
     const measure = (): void => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const height = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+        const height = viewport?.height ?? window.innerHeight;
         node.style.setProperty('--phone-dialog-height', `${String(height)}px`);
+        node.style.setProperty('--phone-dialog-top', `${String(viewport?.offsetTop ?? 0)}px`);
       });
     };
     measure();
@@ -405,11 +413,9 @@ export function Conversation({
   }, [fullscreen]);
 
   useEffect(() => {
-    // On a phone the dialog itself takes focus first (its name is announced, and Tab starts
-    // from a known place); on a wide screen the composer keeps taking it directly, as before.
     if (fullscreen) dialog.current?.focus();
-    else input.current?.focus();
-  }, [fullscreen]);
+    else if (!touchLikeComposer) input.current?.focus();
+  }, [fullscreen, touchLikeComposer]);
 
   useEffect(() => {
     const changed = () => {
@@ -567,19 +573,12 @@ export function Conversation({
         ? ['Summarize this page', 'Find my notes about...', 'Add a status field to this list']
         : ['Find my notes about...'];
 
-  // Must-fix 18: Enter inserts a newline (the Send button is what sends) once the screen is
-  // narrow or the pointer itself is coarse - a touch keyboard's Enter key is not a reliable
-  // "submit" gesture the way a physical keyboard's is.
-  const touchLikeComposer =
-    smallScreen ||
-    (typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches);
-
   const dialogClass =
     layout === 'fullscreen'
-      ? 'fixed inset-0 z-40 flex h-[var(--phone-dialog-height,100dvh)] w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground outline-none'
+      ? '@container fixed inset-x-0 top-[var(--phone-dialog-top,0)] z-40 flex h-[var(--phone-dialog-height,100dvh)] min-w-0 w-full flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] text-foreground outline-none'
       : layout === 'page'
-        ? 'flex h-full min-h-0 w-full flex-col overflow-hidden bg-background text-foreground outline-none'
-        : 'flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg outline-none';
+        ? '@container flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden bg-background text-foreground outline-none'
+        : '@container flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 min-w-0 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg outline-none';
 
   const needsWorkspaceAccessForChip = Boolean(shared) && !workspaceAccess;
 
@@ -592,65 +591,78 @@ export function Conversation({
       aria-label={`Conversation with ${pet.name}`}
       className={dialogClass}
     >
-      <div className="flex shrink-0 flex-col gap-3 border-b border-divider bg-surface px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div aria-hidden="true" className="shrink-0">
-              <PetAvatar
-                appearance={pet.appearance}
-                motion={settings.motion}
-                state={animation}
-                label={`${pet.name}: ${animation}`}
-                size="compact"
+      <ContextMenu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
+        {(target) => (
+          <div
+            {...target}
+            className={`flex shrink-0 select-none flex-col gap-2 border-b border-divider bg-surface p-3 @sm:px-4 ${layout === 'page' && zen ? 'pr-16 @sm:pr-16' : ''}`}
+          >
+            <div className="flex min-w-0 items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-3">
+                <div aria-hidden="true" className="hidden shrink-0 @md:block">
+                  <PetAvatar
+                    appearance={pet.appearance}
+                    motion={settings.motion}
+                    state={animation}
+                    label={`${pet.name}: ${animation}`}
+                    size="compact"
+                  />
+                </div>
+                <div className="flex min-w-0 flex-col gap-0.5">
+                  <Text variant="h5" as="h2" title={pet.name} truncate>
+                    {pet.name}
+                  </Text>
+                  <Text role="status" variant="note" tone="muted" truncate>
+                    {statusText({
+                      runtimeLoaded: Boolean(runtime),
+                      connected,
+                      errored,
+                      hasDraft,
+                      needsDecision: approvalPending,
+                      running,
+                    })}
+                  </Text>
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
+                  {(trigger) => {
+                    menuTrigger.current = trigger.ref;
+                    return (
+                      <Button {...trigger} variant="icon" aria-label="More conversation actions">
+                        <Icon icon={MoreHorizontal} size="sm" />
+                      </Button>
+                    );
+                  }}
+                </Menu>
+                {onClose ? (
+                  <Button
+                    data-context-menu-ignore
+                    variant="icon"
+                    aria-label="Close"
+                    onClick={onClose}
+                  >
+                    <Icon icon={X} size="sm" />
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+            <div data-context-menu-ignore className="self-start">
+              <Segmented
+                label="Conversation mode"
+                options={CONVERSATION_MODE_OPTIONS}
+                value={mode}
+                onChange={(next) => {
+                  // Another mode is another conversation: the switch never carries over, not even
+                  // on a round trip back to the mode it was turned on in.
+                  setApplyWithoutAsking(false);
+                  onModeChange(next);
+                }}
               />
             </div>
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <Text variant="h5" as="h2" title={pet.name} truncate>
-                {pet.name}
-              </Text>
-              <Text role="status" variant="note" tone="muted" truncate>
-                {statusText({
-                  runtimeLoaded: Boolean(runtime),
-                  connected,
-                  errored,
-                  hasDraft,
-                  needsDecision: approvalPending,
-                  running,
-                })}
-              </Text>
-            </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Menu label="Conversation actions" items={menuItems} renderLink={renderMenuLink}>
-              {(trigger) => {
-                menuTrigger.current = trigger.ref;
-                return (
-                  <Button {...trigger} variant="icon" aria-label="More conversation actions">
-                    <Icon icon={MoreHorizontal} size="sm" />
-                  </Button>
-                );
-              }}
-            </Menu>
-            {onClose ? (
-              <Button variant="icon" aria-label="Close" onClick={onClose}>
-                <Icon icon={X} size="sm" />
-              </Button>
-            ) : null}
-          </div>
-        </div>
-        <Segmented
-          label="Conversation mode"
-          options={CONVERSATION_MODE_OPTIONS}
-          value={mode}
-          onChange={(next) => {
-            // Another mode is another conversation: the switch never carries over, not even
-            // on a round trip back to the mode it was turned on in.
-            setApplyWithoutAsking(false);
-            onModeChange(next);
-          }}
-          className="self-start"
-        />
-      </div>
+        )}
+      </ContextMenu>
       {panel === 'settings' ? (
         <PetSettingsPanel
           pet={pet}
@@ -673,8 +685,8 @@ export function Conversation({
           onBack={goBackFromPanel}
         />
       ) : panel === 'history' ? (
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-4">
-          <div className="flex items-center gap-2 self-start">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain p-3 @sm:p-4">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" onClick={goBackFromPanel}>
               <Icon icon={ArrowLeft} size="sm" />
               Back
@@ -805,7 +817,7 @@ export function Conversation({
             ) : null}
           </PetChatViewport>
           {error ? (
-            <div className="flex items-center justify-between gap-2 border-t border-divider px-4 py-2">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-divider px-3 py-2 @sm:px-4">
               <Text role="alert">{errorKind === 'load' ? loadErrorMessage : error}</Text>
               {error && retryLabel() ? (
                 <Button variant="ghost" onClick={retryError}>
@@ -814,9 +826,9 @@ export function Conversation({
               ) : null}
             </div>
           ) : null}
-          <div className="flex shrink-0 flex-col gap-2 border-t border-divider p-3">
+          <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
             {shared ? (
-              <div className="flex items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
+              <div className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
                 <Text variant="note" className="truncate">
                   {shared.label}
                 </Text>
@@ -832,7 +844,7 @@ export function Conversation({
               </div>
             ) : null}
             {needsWorkspaceAccessForChip ? (
-              <div className="flex items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
                 <Text variant="note">{pet.name} needs workspace access for this.</Text>
                 <Button
                   variant="secondary"
@@ -848,10 +860,10 @@ export function Conversation({
             {applyWithoutAsking ? (
               // Not a live region: the toggle's own pressed state already announces the change,
               // and a region that appears with its text already in it is read unreliably.
-              <div className="flex items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
                 <Text variant="note">
-                  Applying changes without asking in this conversation until you close it. Moving to
-                  trash still asks.
+                  Applying changes without asking in this conversation until you close it. Moves,
+                  trash, template saves and external links still ask.
                 </Text>
                 <Button
                   variant="secondary"
@@ -868,7 +880,7 @@ export function Conversation({
             <label htmlFor="pet-message" className="sr-only">
               Message {pet.name}
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex min-w-0 items-end gap-2">
               <Textarea
                 id="pet-message"
                 ref={input}
@@ -878,7 +890,7 @@ export function Conversation({
                 placeholder={`Message ${pet.name}`}
                 enterKeyHint={touchLikeComposer ? undefined : 'send'}
                 resize="none"
-                className="max-h-48"
+                className="min-w-0 max-h-32 flex-1 @sm:max-h-48"
                 onChange={(event) => {
                   setDraft(event.currentTarget.value);
                   regenerateRequestId();
@@ -886,12 +898,18 @@ export function Conversation({
                 onKeyDown={onComposerKeyDown}
               />
               {running ? (
-                <Button variant="icon" aria-label="Stop response" onClick={() => void interrupt()}>
+                <Button
+                  variant="icon"
+                  className="shrink-0"
+                  aria-label="Stop response"
+                  onClick={() => void interrupt()}
+                >
                   <Icon icon={Square} size="sm" />
                 </Button>
               ) : (
                 <Button
                   variant="icon"
+                  className="shrink-0"
                   aria-label="Send"
                   disabled={busy || !draft.trim() || runtime.status !== 'connected'}
                   onClick={() => void submit()}
@@ -900,10 +918,10 @@ export function Conversation({
                 </Button>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain">
               <Button
                 variant="ghost"
-                className={workspaceAccess ? 'bg-accent/15 text-accent-text' : ''}
+                className={`shrink-0 ${workspaceAccess ? 'bg-accent/15 text-accent-text' : ''}`}
                 aria-pressed={workspaceAccess}
                 aria-describedby="pet-workspace-access-hint"
                 disabled={running}
@@ -926,7 +944,7 @@ export function Conversation({
                   <Button
                     ref={applyToggle}
                     variant="ghost"
-                    className={applyWithoutAsking ? 'bg-accent/15 text-accent-text' : ''}
+                    className={`shrink-0 ${applyWithoutAsking ? 'bg-accent/15 text-accent-text' : ''}`}
                     aria-pressed={applyWithoutAsking}
                     aria-describedby="pet-apply-without-asking-hint"
                     onClick={() => {
@@ -942,14 +960,15 @@ export function Conversation({
                     id="pet-apply-without-asking-hint"
                   >
                     Runs {pet.name}'s changes in this conversation once their preview shows no
-                    problems, using your Nix permissions. Moving to trash still asks. Changes with
-                    problems go back to {pet.name} to fix. Turns off when you close this
-                    conversation.
+                    problems, using your Nix permissions. Trash, moves, template saves and external
+                    links still ask. Changes with problems go back to {pet.name} to fix. Turns off
+                    when you close this conversation.
                   </Text>
                 </>
               ) : null}
               <Button
                 variant="icon"
+                className="shrink-0"
                 aria-label={hasSelection ? 'Share selected text' : 'Select text on the page first'}
                 disabled={!currentItem || !hasSelection}
                 onMouseDown={(event) => {
@@ -1010,12 +1029,18 @@ function PetMessageRow({
       // viewport's live region while streaming, not only the text itself; otherwise the label
       // alone would still be announced token turn by token as the row keeps re-rendering.
       aria-live={isDraft ? 'off' : undefined}
-      className={`flex shrink-0 flex-col gap-1 ${fromUser ? 'items-end' : 'items-start'}`}
+      className={`flex min-w-0 shrink-0 flex-col gap-1 ${fromUser ? 'items-end' : 'items-start'}`}
     >
       <Text as="span" variant="note" className="sr-only">
         {fromUser ? 'You said' : `${petName} said`}
       </Text>
-      <div className={fromUser ? 'max-w-[85%] rounded-lg bg-surface px-3 py-2' : 'max-w-[85%]'}>
+      <div
+        className={
+          fromUser
+            ? 'min-w-0 max-w-[90%] rounded-lg bg-surface px-3 py-2 @sm:max-w-[85%]'
+            : 'min-w-0 w-full'
+        }
+      >
         <PetMessageText
           text={message.text}
           workspaceId={workspaceId}
@@ -1105,8 +1130,8 @@ function PetSettingsPanel({
   readonly onBack: () => void;
 }): ReactElement {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-      <div className="flex items-center gap-2 self-start">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 @sm:p-4">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="ghost" onClick={onBack}>
           <Icon icon={ArrowLeft} size="sm" />
           Back

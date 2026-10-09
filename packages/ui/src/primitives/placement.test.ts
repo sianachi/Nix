@@ -88,4 +88,46 @@ describe('placeFloatingMenu', () => {
     expect(placement.above).toBe(false);
     expect(placement.top).toBe(320);
   });
+
+  it('keeps the preferred side when both sides are cramped and it has more room', () => {
+    const placement = placeFloatingMenu(anchorAt(30, 60), 280, {
+      left: 0,
+      top: 0,
+      width: 280,
+      height: 180,
+    });
+    expect(placement.above).toBe(false);
+    expect(placement.maxHeight).toBeGreaterThan(0);
+    expect(placement.top + placement.maxHeight).toBe(172);
+  });
+
+  it.each([-300, 1500])('contains a menu whose anchor scrolled offscreen at %i', (top) => {
+    const placement = placeFloatingMenu(anchorAt(40, top), 280, {
+      left: 20,
+      top: 40,
+      width: 280,
+      height: 180,
+    });
+    expect(placement.top).toBeGreaterThanOrEqual(48);
+    expect(placement.top).toBeLessThanOrEqual(212);
+    expect(placement.maxHeight).toBeLessThanOrEqual(164);
+    expect(placement.maxHeight).toBeGreaterThan(0);
+  });
+
+  it('keeps forced-below touch tools visible beside the keyboard', () => {
+    const placement = placeFloatingMenu(
+      anchorAt(200, 280),
+      280,
+      {
+        left: 0,
+        top: 0,
+        width: 280,
+        height: 300,
+      },
+      { forceBelow: true },
+    );
+    expect(placement.above).toBe(false);
+    expect(placement.maxHeight).toBe(120);
+    expect(placement.top + placement.maxHeight).toBe(292);
+  });
 });

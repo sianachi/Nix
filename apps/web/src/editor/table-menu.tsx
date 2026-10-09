@@ -1,4 +1,4 @@
-import { Icon, Text, chromeSurface } from '@nix/ui';
+import { Icon, Text, chromeSurface, placeFloatingMenu, readViewportBounds } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
   BetweenHorizontalEnd,
@@ -59,14 +59,17 @@ interface ControlGroup {
 }
 
 /** The menu's own height plus the gap it keeps from the table; below this it flips inside. */
-const MENU_CLEARANCE = 48;
+const MENU_CLEARANCE = 80;
 const MENU_GAP = 6;
+const MENU_WIDTH_ESTIMATE = 900;
 
 interface Placement {
   readonly left: number;
   readonly top: number;
   /** Pinned to the top of the viewport, because the table's top edge has scrolled off it. */
   readonly pinned: boolean;
+  readonly maxWidth: number;
+  readonly maxHeight: number;
 }
 
 /** What the menu offers here, grouped the way the row is read. */
@@ -228,16 +231,31 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
         return;
       }
       const rect = dom.getBoundingClientRect();
+      const viewport = readViewportBounds();
       // Scrolled entirely off the viewport: nothing to float over.
-      if (rect.bottom < MENU_CLEARANCE || rect.top > window.innerHeight) {
+      if (
+        rect.bottom < viewport.top + MENU_CLEARANCE ||
+        rect.top > viewport.top + viewport.height
+      ) {
         setPlacement(null);
         return;
       }
-      const pinned = rect.top - MENU_GAP < MENU_CLEARANCE;
+      const placed = placeFloatingMenu(
+        {
+          left: rect.left,
+          top: rect.top - MENU_GAP,
+          bottom: Math.max(viewport.top + MENU_GAP, rect.top + MENU_GAP),
+        },
+        MENU_WIDTH_ESTIMATE,
+        viewport,
+        { preferAbove: true, minHeight: MENU_CLEARANCE },
+      );
       setPlacement({
-        left: rect.left,
-        top: pinned ? MENU_GAP : rect.top - MENU_GAP,
-        pinned,
+        left: placed.left,
+        top: placed.top,
+        pinned: !placed.above,
+        maxWidth: placed.maxWidth,
+        maxHeight: placed.maxHeight,
       });
     }
 
@@ -266,6 +284,9 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
     editor.on('focus', read);
     window.addEventListener('scroll', schedule, { capture: true, passive: true });
     window.addEventListener('resize', schedule);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', schedule);
+    viewport?.addEventListener('scroll', schedule);
 
     return () => {
       if (frame !== null) {
@@ -276,6 +297,8 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
       editor.off('focus', read);
       window.removeEventListener('scroll', schedule, { capture: true });
       window.removeEventListener('resize', schedule);
+      viewport?.removeEventListener('resize', schedule);
+      viewport?.removeEventListener('scroll', schedule);
     };
   }, [editor]);
 
@@ -292,6 +315,7 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
   const row = groups.flatMap((group) => group.controls);
   const coordinates = cellCoordinates(context);
   const tabStop = focusIndex < row.length ? focusIndex : 0;
+  const { left, top, maxWidth, maxHeight } = placement;
 
   function rove(from: number, step: number): void {
     const next = (((from + step) % row.length) + row.length) % row.length;
@@ -305,9 +329,9 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
       role="toolbar"
       aria-label="Table tools"
       aria-orientation="horizontal"
-      style={{ left: placement.left, top: placement.top }} // design-token-exempt: the table's position is a runtime measurement, not a scale step.
+      style={{ left, top, maxWidth, maxHeight }} // design-token-exempt: position and size are measured against the visible viewport.
       className={[
-        'fixed z-20 flex max-w-full flex-wrap items-center gap-2 rounded-md border border-divider bg-surface p-1 shadow-md',
+        'fixed z-20 flex items-center gap-2 overflow-x-auto overscroll-x-contain rounded-md border border-divider bg-surface p-1 shadow-md',
         chromeSurface,
         placement.pinned ? '' : '-translate-y-full',
       ].join(' ')}
@@ -339,12 +363,22 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
       }}
     >
       {coordinates !== null ? (
-        <Text variant="caption" tone="muted" as="span" className="px-1.5 whitespace-nowrap">
+        <Text
+          variant="caption"
+          tone="muted"
+          as="span"
+          className="shrink-0 px-1.5 whitespace-nowrap"
+        >
           Row {String(coordinates.row)}, column {String(coordinates.column)}
         </Text>
       ) : null}
       {groups.map((group) => (
-        <div key={group.label} role="group" aria-label={group.label} className="flex gap-0.5">
+        <div
+          key={group.label}
+          role="group"
+          aria-label={group.label}
+          className="flex shrink-0 gap-0.5"
+        >
           {group.controls.map((control) => {
             const index = row.indexOf(control);
             return (
@@ -365,7 +399,7 @@ export function TableMenu({ editor }: { readonly editor: Editor }): ReactNode {
                   }
                 }}
                 className={[
-                  'flex size-7 items-center justify-center rounded-sm',
+                  'flex size-11 items-center justify-center rounded-sm',
                   'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
                   !control.enabled
                     ? 'cursor-not-allowed text-muted opacity-40'

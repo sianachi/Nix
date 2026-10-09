@@ -150,14 +150,14 @@ export function SheetEditor({
   }, [awareness, doc]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-end gap-1 px-8 py-1.5">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1 px-3 py-1.5 sm:px-8">
         <PresenceList awareness={awareness} />
         {itemControls}
       </div>
 
       {/* The server's read-only mode and stale copies cannot save cell edits. */}
-      <div className="flex min-h-0 flex-1 flex-col" inert={stale || readOnly}>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col" inert={stale || readOnly}>
         <SheetGrid sheet={sheet} />
       </div>
 

@@ -1,9 +1,10 @@
-import { Button, Checkbox, cn, Field, focusRing, Input, Select, Text } from '@nix/ui';
+import { Button, Checkbox, ContextMenu, cn, Field, focusRing, Input, Select, Text } from '@nix/ui';
 import { items } from '@nix/api-client';
 import { Check, CheckCircle2, Circle, CircleAlert, Clock3 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ContainerData } from '../core/use-container';
 import type { View } from '../core/container-model';
+import { useItemContextActions } from '../core/use-item-context-actions';
 import {
   EmptyPanel,
   ErrorPanel,
@@ -195,7 +196,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
       <header className="flex flex-col gap-4 border-b border-divider pb-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <Text as="h2" variant="h2" id="habit-tracker-title">
+            <Text as="h2" variant="h4" id="habit-tracker-title">
               {screen === 'insights'
                 ? 'Your progress'
                 : todayOnly
@@ -224,7 +225,10 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           </Button>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <nav className="flex gap-1 rounded-lg bg-surface-raised p-1" aria-label="Habit screens">
+          <nav
+            className="flex max-w-full flex-wrap gap-1 rounded-lg bg-surface-raised p-1"
+            aria-label="Habit screens"
+          >
             <Button
               variant={screen === 'checkins' && todayOnly ? 'primary' : 'ghost'}
               aria-pressed={screen === 'checkins' && todayOnly}
@@ -258,7 +262,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           <details>
             <summary
               className={cn(
-                'flex min-h-6 cursor-pointer items-center rounded-md px-2 py-1 text-sm text-muted pointer-coarse:min-h-(--control-lg)',
+                'flex min-h-6 cursor-pointer items-center rounded-md px-2 py-1 text-sm text-muted any-pointer-coarse:min-h-(--control-lg)',
                 focusRing,
               )}
             >
@@ -414,7 +418,13 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           }
         />
       ) : habits.length > 0 && screen === 'checkins' ? (
-        <div className="min-w-0 overflow-x-auto">
+        <div
+          role="region"
+          aria-label={todayOnly ? 'Today habit check-ins' : 'Weekly habit check-ins'}
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll weekly check-ins.
+          tabIndex={0}
+          className={cn('min-w-0 max-w-full overflow-x-auto', focusRing)}
+        >
           {todayOnly ? (
             <Text variant="bodySmall" tone="muted" className="mb-3">
               {
@@ -493,7 +503,7 @@ export function HabitTrackerView({ container, view, onOpen }: HabitTrackerViewPr
           <details>
             <summary
               className={cn(
-                'flex min-h-6 cursor-pointer items-center rounded-md py-2 text-sm font-medium pointer-coarse:min-h-(--control-lg)',
+                'flex min-h-6 cursor-pointer items-center rounded-md py-2 text-sm font-medium any-pointer-coarse:min-h-(--control-lg)',
                 focusRing,
               )}
             >
@@ -577,6 +587,7 @@ function HabitRow({
     status: 'active' | 'paused' | 'archived',
   ) => Promise<string | null>;
 }): ReactNode {
+  const itemActions = useItemContextActions(onOpen);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const [statusPending, setStatusPending] = useState(false);
@@ -623,34 +634,45 @@ function HabitRow({
             : 'block p-3 text-left align-middle @lg:table-cell'
         }
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <Button
-              variant="ghost"
-              className="max-w-full justify-start truncate px-0 text-left text-lg font-semibold"
-              aria-label={`Open ${title || 'Untitled habit'}`}
-              onClick={() => {
-                onOpen(itemId);
-              }}
-            >
-              {title || 'Untitled habit'}
-            </Button>
-            <Text variant="caption" tone="muted">
-              {tracker.target === 1 && tracker.unit === 'times'
-                ? 'Check-in'
-                : `Goal: ${String(tracker.target)} ${tracker.unit}`}
-            </Text>
-          </div>
-          {lifecycle !== 'active' ? (
-            <Text variant="caption" tone="muted" className="capitalize">
-              {lifecycle}
-            </Text>
-          ) : null}
-        </div>
+        <ContextMenu
+          label={`${title || 'Untitled habit'} actions`}
+          items={() =>
+            itemActions(itemId, title, [
+              { kind: 'action', label: 'Edit schedule', onSelect: onEdit },
+            ])
+          }
+        >
+          {(contextTarget) => (
+            <div {...contextTarget} className="flex min-w-0 items-start justify-between gap-3">
+              <div className="min-w-0">
+                <Button
+                  variant="ghost"
+                  className="max-w-full justify-start truncate px-0 text-left text-lg font-semibold"
+                  aria-label={`Open ${title || 'Untitled habit'}`}
+                  onClick={() => {
+                    onOpen(itemId);
+                  }}
+                >
+                  {title || 'Untitled habit'}
+                </Button>
+                <Text variant="caption" tone="muted">
+                  {tracker.target === 1 && tracker.unit === 'times'
+                    ? 'Check-in'
+                    : `Goal: ${String(tracker.target)} ${tracker.unit}`}
+                </Text>
+              </div>
+              {lifecycle !== 'active' ? (
+                <Text variant="caption" tone="muted" className="capitalize">
+                  {lifecycle}
+                </Text>
+              ) : null}
+            </div>
+          )}
+        </ContextMenu>
         <details className="mt-1">
           <summary
             className={cn(
-              'w-fit cursor-default rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised',
+              'w-fit cursor-default rounded-md px-2 py-1 text-sm font-medium text-muted hover:bg-surface-raised any-pointer-coarse:min-h-(--control-lg)',
               focusRing,
             )}
           >
@@ -780,7 +802,7 @@ function HabitRow({
             {compact && selectedDay !== day ? (
               <Button
                 variant={checked ? 'primary' : 'ghost'}
-                className="h-10 w-10 p-0 pointer-coarse:size-(--control-lg)"
+                className="h-10 w-10 p-0 any-pointer-coarse:size-(--control-lg)"
                 disabled={future || (!scheduled && !hasEntry)}
                 aria-label={`${title}, ${day}, ${future ? 'future' : checked ? 'completed' : scheduled ? 'not completed' : 'not scheduled'}`}
                 aria-pressed={checked}
@@ -928,7 +950,7 @@ function HabitSetup({
   const [reminderTime, setReminderTime] = useState(initial?.reminderTime ?? '');
   return (
     <form
-      className="flex flex-wrap items-end gap-3 border border-divider p-4"
+      className="grid min-w-0 items-end gap-3 border border-divider p-3 @lg:grid-cols-2 @lg:p-4"
       onSubmit={(event) => {
         event.preventDefault();
         if (pending) return;

@@ -8,7 +8,7 @@ import type { ChangeEvent, FocusEvent, KeyboardEvent as ReactKeyboardEvent } fro
  * markup and styling the two had copied verbatim.
  */
 export const CELL_EDITOR_CLASSNAME =
-  'absolute z-10 bg-background px-2 py-1.5 text-sm outline-2 -outline-offset-2 outline-accent';
+  'absolute z-10 min-w-0 bg-background px-2 py-1 text-lg outline-2 -outline-offset-2 outline-accent';
 
 export interface CellEditorPosition {
   top: string;

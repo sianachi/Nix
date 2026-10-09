@@ -1,15 +1,7 @@
 import { files as fileResources } from '@nix/api-client';
 import { Button, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { ImagePlus } from 'lucide-react';
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
 import { PartialNotice } from '../../components/states/status-panels';
@@ -37,7 +29,6 @@ import { useVirtualWindow } from '../core/use-virtual-window';
 import { ListCell } from '../list/list-cell';
 
 const VIRTUALIZATION_THRESHOLD = 100;
-const GALLERY_ROW_GAP = 12;
 
 /**
  * The gallery: a container's children as a grid of cards, each optionally showing a cover picture.
@@ -124,9 +115,11 @@ export const DEFAULT_CARD_SIZE: CardSize = 'medium';
  * been asked keeps looking exactly as it always has.
  */
 const CARD_SIZE_GRID: Record<CardSize, string> = {
-  small: 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6',
-  medium: 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4',
-  large: 'grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3',
+  small:
+    'grid grid-cols-1 gap-3 @2xl/gallery:grid-cols-3 @5xl/gallery:grid-cols-4 @7xl/gallery:grid-cols-6',
+  medium:
+    'grid grid-cols-1 gap-3 @2xl/gallery:grid-cols-2 @5xl/gallery:grid-cols-3 @7xl/gallery:grid-cols-4',
+  large: 'grid grid-cols-1 gap-3 @5xl/gallery:grid-cols-2 @7xl/gallery:grid-cols-3',
 };
 
 /**
@@ -292,7 +285,7 @@ export function GalleryView(props: ViewRendererProps): ReactNode {
     coverItemId === null ? null : (chrome.items.find((item) => item.id === coverItemId) ?? null);
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="@container/gallery flex min-h-0 min-w-0 flex-col gap-3">
       {chrome.notice}
 
       {/* Above the grid rather than repeated on every card. The property is gone once, not once per
@@ -416,8 +409,13 @@ function VirtualGalleryGrid(
 ): ReactNode {
   const { items, label, size, renderCard } = props;
   const rootRef = useRef<HTMLDivElement>(null);
-  const viewportWidth = useViewportWidth();
-  const columns = galleryColumnCount(size, viewportWidth);
+  const gridRef = useRef<HTMLUListElement>(null);
+  const [focusedItemId, setFocusedItemId] = useState<string | null>(null);
+  const { width, rowGap } = useGalleryGeometry(rootRef, gridRef);
+  const columns = galleryColumnCount(size, width);
+  // Keep the same focused item when resizing changes its row.
+  const focusedPosition =
+    focusedItemId === null ? -1 : items.findIndex((item) => item.id === focusedItemId);
   const rowCount = Math.ceil(items.length / columns);
   // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
   const keys = useMemo(
@@ -435,10 +433,11 @@ function VirtualGalleryGrid(
     keys,
     rootRef,
     estimate: galleryRowEstimate(size),
-    measurementGap: GALLERY_ROW_GAP,
+    measurementGap: rowGap,
     // Five rows above and below the viewport leaves room for one separately retained focused row
     // while keeping even the six-column card size below the 100-card stress ceiling at 900px.
     overscan: galleryRowEstimate(size) * 5,
+    retainedIndexes: focusedPosition < 0 ? [] : [Math.floor(focusedPosition / columns)],
   });
 
   return (
@@ -447,52 +446,98 @@ function VirtualGalleryGrid(
       role="list"
       aria-label={label}
       className="relative"
+      onFocusCapture={(event) => {
+        const position =
+          Number(event.target.closest('[aria-posinset]')?.getAttribute('aria-posinset')) - 1;
+        setFocusedItemId(items[position]?.id ?? null);
+      }}
+      onBlurCapture={(event) => {
+        if (!(
+          event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)
+        ))
+          setFocusedItemId(null);
+      }}
       style={{ height: windowed.totalSize }} // design-token-exempt: virtual content height is derived from measured gallery rows at runtime and cannot be represented by a design token
     >
-      {windowed.segments.map((segment) => {
-        const firstItem = segment.first * columns;
-        const afterLastItem = Math.min(items.length, (segment.last + 1) * columns);
-        return (
-          <ul
-            key={`${String(segment.first)}-${String(segment.last)}`}
-            role="presentation"
-            className={cn(CARD_SIZE_GRID[size], 'absolute inset-x-0')}
-            style={{ top: windowed.offsets[segment.first] ?? 0 }} // design-token-exempt: virtual segment position is calculated from measured gallery-row offsets at runtime
-          >
-            {items
+      {/* One parent keeps each retained card's draft and focus as virtual segments change. */}
+      <ul
+        ref={gridRef}
+        role="presentation"
+        className={cn(CARD_SIZE_GRID[size], 'absolute inset-x-0 top-0')}
+      >
+        {windowed.segments.flatMap((segment, segmentIndex) => {
+          const firstItem = segment.first * columns;
+          const afterLastItem = Math.min(items.length, (segment.last + 1) * columns);
+          const previous = windowed.segments[segmentIndex - 1];
+          const before = previous === undefined ? 0 : (windowed.offsets[previous.last + 1] ?? 0);
+          const spacerHeight = Math.max(
+            0,
+            (windowed.offsets[segment.first] ?? 0) - before - rowGap,
+          );
+          return [
+            ...(spacerHeight === 0
+              ? []
+              : [
+                  <li
+                    key={`gap:${String(segment.first)}`}
+                    role="presentation"
+                    aria-hidden="true"
+                    className="col-span-full"
+                    style={{ height: spacerHeight }} // design-token-exempt: omitted gallery rows use their measured offset minus the grid gap
+                  />,
+                ]),
+            ...items
               .slice(firstItem, afterLastItem)
               .map((item, offset) =>
                 renderCard(item, firstItem + offset, Math.floor((firstItem + offset) / columns)),
-              )}
-          </ul>
-        );
-      })}
+              ),
+          ];
+        })}
+      </ul>
     </div>
   );
 }
 
-function useViewportWidth(): number {
-  const [width, setWidth] = useState(() => window.innerWidth);
-  useEffect(() => {
+function useGalleryGeometry(
+  rootRef: RefObject<HTMLDivElement | null>,
+  gridRef: RefObject<HTMLUListElement | null>,
+): { readonly width: number; readonly rowGap: number } {
+  const [geometry, setGeometry] = useState(() => ({ width: window.innerWidth, rowGap: 0 }));
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    const grid = gridRef.current;
+    if (root === null || grid === null) return;
     const update = (): void => {
-      setWidth(window.innerWidth);
+      const width = root.getBoundingClientRect().width;
+      const measuredGap = Number.parseFloat(getComputedStyle(grid).rowGap);
+      const rowGap = Number.isFinite(measuredGap) ? measuredGap : 0;
+      if (root.isConnected && width > 0)
+        setGeometry((current) =>
+          current.width === width && current.rowGap === rowGap ? current : { width, rowGap },
+        );
     };
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(root);
+    observer?.observe(grid);
+    update();
     window.addEventListener('resize', update, { passive: true });
     return () => {
+      observer?.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, []);
-  return width;
+  }, [rootRef, gridRef]);
+  return geometry;
 }
 
-export function galleryColumnCount(size: CardSize, viewportWidth: number): number {
+export function galleryColumnCount(size: CardSize, availableWidth: number): number {
+  // Tailwind's named container tokens are @2xl (42rem), @5xl (64rem) and @7xl (80rem).
   if (size === 'small') {
-    return viewportWidth >= 1280 ? 6 : viewportWidth >= 1024 ? 4 : viewportWidth >= 640 ? 3 : 2;
+    return availableWidth >= 1280 ? 6 : availableWidth >= 1024 ? 4 : availableWidth >= 672 ? 3 : 1;
   }
   if (size === 'medium') {
-    return viewportWidth >= 1280 ? 4 : viewportWidth >= 1024 ? 3 : viewportWidth >= 640 ? 2 : 1;
+    return availableWidth >= 1280 ? 4 : availableWidth >= 1024 ? 3 : availableWidth >= 672 ? 2 : 1;
   }
-  return viewportWidth >= 1280 ? 3 : viewportWidth >= 1024 ? 2 : 1;
+  return availableWidth >= 1280 ? 3 : availableWidth >= 1024 ? 2 : 1;
 }
 
 function galleryRowEstimate(size: CardSize): number {
@@ -617,7 +662,16 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     // against - and `shadow-sm` is the resting elevation every other card in the product has.
     <ContextMenu
       label={`${item.title || 'Untitled'} actions`}
-      items={() => itemActions(item.id, item.title)}
+      items={() =>
+        itemActions(item.id, item.title, [
+          {
+            kind: 'action',
+            label: coverValue.length > 0 ? 'Change cover' : 'Set cover',
+            icon: ImagePlus,
+            onSelect: onRequestCover,
+          },
+        ])
+      }
     >
       {(contextTarget) => (
         <li
@@ -640,7 +694,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           named things and nothing else - and a `span` styled to look like a heading gives a screen
           reader user no way through it. The control lives inside the heading so both the outline
           and the affordance survive. */}
-          <h3>
+          <h3 className="min-w-0 pr-(--control-lg)">
             <button
               type="button"
               onClick={() => {
@@ -676,6 +730,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
                   : `Set cover for ${item.title || 'Untitled'}`
               }
               onClick={onRequestCover}
+              aria-haspopup="dialog"
             >
               <Icon icon={ImagePlus} size="sm" />
             </Button>

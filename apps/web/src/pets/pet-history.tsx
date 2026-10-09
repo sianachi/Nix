@@ -71,7 +71,7 @@ export function PetHistory({
     }
   }
   return (
-    <section aria-label="Companion history" className="flex flex-col gap-2">
+    <section aria-label="Companion history" className="flex min-w-0 flex-col gap-2">
       <Button
         variant="ghost"
         disabled={busy}
@@ -110,9 +110,13 @@ export function PetHistory({
           </Select>
           {messages.length ? (
             <>
-              <div className="flex max-h-60 flex-col gap-2 overflow-y-auto">
+              <div className="flex min-w-0 max-h-60 flex-col gap-2 overflow-y-auto overscroll-contain">
                 {messages.map((message) => (
-                  <Text key={message.id} variant="note" className="whitespace-pre-wrap break-words">
+                  <Text
+                    key={message.id}
+                    variant="note"
+                    className="whitespace-pre-wrap wrap-anywhere"
+                  >
                     {message.role === 'system'
                       ? message.text
                       : `${message.role === 'user' ? 'You' : name}: ${message.text}`}
@@ -121,11 +125,12 @@ export function PetHistory({
               </div>
               <Button
                 variant="ghost"
+                aria-label="Export saved conversation"
                 onClick={() => {
                   exportPetMessages(messages, name);
                 }}
               >
-                Export saved conversation
+                Export conversation
               </Button>
               {confirm ? (
                 <>
@@ -135,12 +140,13 @@ export function PetHistory({
                   </Text>
                   <Button
                     variant="secondary"
+                    aria-label="Delete saved conversation permanently"
                     disabled={busy}
                     onClick={() => {
                       void load('delete_history', selected);
                     }}
                   >
-                    Delete saved conversation permanently
+                    Delete permanently
                   </Button>
                   <Button
                     variant="ghost"
@@ -154,11 +160,12 @@ export function PetHistory({
               ) : (
                 <Button
                   variant="ghost"
+                  aria-label="Remove saved conversation"
                   onClick={() => {
                     setConfirm(true);
                   }}
                 >
-                  Remove saved conversation
+                  Remove conversation
                 </Button>
               )}
             </>

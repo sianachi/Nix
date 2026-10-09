@@ -1,5 +1,16 @@
 import { isCanceledError } from '@nix/api-client';
-import { Button, Card, Dialog, Field, Icon, Input, Tag, Text } from '@nix/ui';
+import {
+  Button,
+  Card,
+  ContextMenu,
+  Dialog,
+  Field,
+  Icon,
+  Input,
+  Tag,
+  Text,
+  type MenuEntry,
+} from '@nix/ui';
 import { Copy, Download, FileUp, LayoutTemplate, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
@@ -19,6 +30,7 @@ import { templateFailure } from './use-templates';
 import { TemplateViewPreview } from './template-view-preview';
 import { useWorkspace } from '../workspaces/workspace-context';
 import { usePetSettings } from '../pets/use-pet-settings';
+import { useZenActive } from '../lib/zen-mode';
 
 function originLabel(template: TemplateSummary): string {
   if (template.origin === 'managed') return 'Managed from file';
@@ -35,6 +47,7 @@ interface DuplicateAttempt {
 }
 
 export function TemplateLibraryPage(): ReactNode {
+  const zen = useZenActive();
   const library = useTemplateLibrary();
   const client = useApiClient();
   const navigate = useNavigate();
@@ -233,15 +246,16 @@ export function TemplateLibraryPage(): ReactNode {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto bg-background p-4 sm:p-6 lg:p-8">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="flex max-w-2xl flex-col gap-1">
-            <Text variant="kicker">Workspace library</Text>
-            <Text variant="h1" as="h1">
+    <div className="@container/library min-h-0 min-w-0 flex-1 overflow-y-auto bg-background p-3 sm:p-5">
+      <div className="mx-auto flex min-w-0 max-w-6xl flex-col gap-4">
+        <header
+          className={`flex min-w-0 flex-col gap-3 @3xl/library:flex-row @3xl/library:items-end @3xl/library:justify-between ${zen ? 'pr-16' : ''}`}
+        >
+          <div className="flex min-w-0 max-w-2xl flex-col gap-1">
+            <Text variant="h4" as="h1">
               Templates
             </Text>
-            <Text tone="muted">
+            <Text variant="bodySmall" tone="muted">
               Reuse the fields, views, and starting content your team has agreed on.
             </Text>
           </div>
@@ -332,7 +346,7 @@ export function TemplateLibraryPage(): ReactNode {
             detail="Try a different name, description, or view type."
           />
         ) : (
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid min-w-0 gap-4 @3xl/library:grid-cols-2 @6xl/library:grid-cols-3">
             {visible.map((template) => (
               <TemplateCard
                 key={template.id}
@@ -431,68 +445,100 @@ function TemplateCard({
     `${String(template.viewCount)} ${template.viewCount === 1 ? 'view' : 'views'}`,
     `${String(template.childCount)} ${template.childCount === 1 ? 'item' : 'items'}`,
   ].join(' · ');
+  const actions: MenuEntry[] = [];
+  if (template.capabilities.canApply) {
+    actions.push({ label: 'Use template', icon: LayoutTemplate, onSelect: onUse });
+  }
+  if (template.capabilities.canEdit) {
+    actions.push({ label: 'Edit', icon: Pencil, onSelect: onEdit });
+  }
+  if (canDuplicate) {
+    actions.push({
+      label: duplicating ? 'Duplicating…' : 'Duplicate',
+      icon: Copy,
+      disabled: duplicateDisabled,
+      onSelect: onDuplicate,
+    });
+  }
+  if (template.capabilities.canExport) {
+    actions.push({
+      label: 'Download',
+      icon: Download,
+      disabled: downloading,
+      onSelect: onDownload,
+    });
+  }
+  if (template.capabilities.canDelete) {
+    actions.push({ label: 'Delete', icon: Trash2, destructive: true, onSelect: onDelete });
+  }
 
   return (
-    <Card title={template.title} kicker={originLabel(template)} headingLevel={2}>
-      <TemplateViewPreview templateId={template.id} title={template.title} />
-      <div className="flex min-h-16 flex-col gap-3">
-        <Text variant="bodySmall" tone="muted">
-          {template.description ?? 'No description yet.'}
-        </Text>
-        <Text variant="caption" tone="muted">
-          {contents}
-        </Text>
-        <div className="flex flex-wrap gap-1.5">
-          {template.includeBody ? <Tag tone="muted">Content</Tag> : null}
-          {template.includeChildren ? <Tag tone="muted">Children</Tag> : null}
-          {template.viewKinds.map((kind) => (
-            <Tag key={kind}>{kind.replace('_', ' ')}</Tag>
-          ))}
-        </div>
-      </div>
+    <ContextMenu label={`${template.title} template actions`} items={actions}>
+      {(target) => (
+        <div {...target} role="group" aria-label={`${template.title} template`} className="min-w-0">
+          <Card title={template.title} kicker={originLabel(template)} headingLevel={2}>
+            <TemplateViewPreview templateId={template.id} title={template.title} />
+            <div className="flex min-h-16 flex-col gap-3">
+              <Text variant="bodySmall" tone="muted">
+                {template.description ?? 'No description yet.'}
+              </Text>
+              <Text variant="caption" tone="muted">
+                {contents}
+              </Text>
+              <div className="flex flex-wrap gap-1.5">
+                {template.includeBody ? <Tag tone="muted">Content</Tag> : null}
+                {template.includeChildren ? <Tag tone="muted">Children</Tag> : null}
+                {template.viewKinds.map((kind) => (
+                  <Tag key={kind}>{kind.replace('_', ' ')}</Tag>
+                ))}
+              </div>
+            </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {template.capabilities.canApply ? (
-          <Button aria-label={`Use ${template.title} template`} onClick={onUse}>
-            <Icon icon={LayoutTemplate} size="sm" /> Use template
-          </Button>
-        ) : null}
-        {template.capabilities.canEdit ? (
-          <Button
-            variant="secondary"
-            aria-label={`Edit ${template.title} template`}
-            onClick={onEdit}
-          >
-            <Icon icon={Pencil} size="sm" /> Edit
-          </Button>
-        ) : null}
-        {canDuplicate ? (
-          <Button
-            variant="secondary"
-            aria-label={`Duplicate ${template.title}`}
-            disabled={duplicateDisabled}
-            onClick={onDuplicate}
-          >
-            <Icon icon={Copy} size="sm" /> {duplicating ? 'Duplicating…' : 'Duplicate'}
-          </Button>
-        ) : null}
-        {template.capabilities.canExport ? (
-          <Button
-            variant="icon"
-            aria-label={`Download ${template.title}`}
-            disabled={downloading}
-            onClick={onDownload}
-          >
-            <Icon icon={Download} size="sm" />
-          </Button>
-        ) : null}
-        {template.capabilities.canDelete ? (
-          <Button variant="icon" aria-label={`Delete ${template.title}`} onClick={onDelete}>
-            <Icon icon={Trash2} size="sm" />
-          </Button>
-        ) : null}
-      </div>
-    </Card>
+            <div className="flex flex-wrap items-center gap-2">
+              {template.capabilities.canApply ? (
+                <Button aria-label={`Use ${template.title} template`} onClick={onUse}>
+                  <Icon icon={LayoutTemplate} size="sm" /> Use template
+                </Button>
+              ) : null}
+              {template.capabilities.canEdit ? (
+                <Button
+                  variant="secondary"
+                  aria-label={`Edit ${template.title} template`}
+                  onClick={onEdit}
+                >
+                  <Icon icon={Pencil} size="sm" /> Edit
+                </Button>
+              ) : null}
+              {canDuplicate ? (
+                <Button
+                  variant="secondary"
+                  aria-label={`Duplicate ${template.title}`}
+                  disabled={duplicateDisabled}
+                  onClick={onDuplicate}
+                >
+                  <Icon icon={Copy} size="sm" /> {duplicating ? 'Duplicating…' : 'Duplicate'}
+                </Button>
+              ) : null}
+              {template.capabilities.canExport ? (
+                <Button
+                  variant="icon"
+                  aria-label={`Download ${template.title}`}
+                  disabled={downloading}
+                  onClick={onDownload}
+                >
+                  <Icon icon={Download} size="sm" />
+                </Button>
+              ) : null}
+              {template.capabilities.canDelete ? (
+                <Button variant="icon" aria-label={`Delete ${template.title}`} onClick={onDelete}>
+                  <Icon icon={Trash2} size="sm" />
+                </Button>
+              ) : null}
+            </div>
+          </Card>
+        </div>
+      )}
+    </ContextMenu>
   );
 }
 

@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Eye } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 
 import type { PropertyDefinition } from '../core/container-model';
+import { useZenActive } from '../../lib/zen-mode';
 import {
   STEPS,
   validateDraft,
@@ -56,6 +57,7 @@ export function CreationStudioFrame({
   readonly onDiscard: () => void;
   readonly children: ReactNode;
 }): ReactNode {
+  const zen = useZenActive();
   const stepMainRef = useRef<HTMLElement>(null);
   const previousStep = useRef(step);
 
@@ -96,13 +98,15 @@ export function CreationStudioFrame({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b border-divider px-4 py-3">
+    <div className="@container/studio flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      <header
+        className={`flex min-w-0 shrink-0 items-center gap-2 border-b border-divider px-3 py-2 ${zen ? 'pr-16' : ''}`}
+      >
         <Button variant="icon" aria-label="Cancel guided setup" onClick={onCancel}>
           <Icon icon={ArrowLeft} size="sm" />
         </Button>
         <div className="min-w-0 flex-1">
-          <Text variant="h2" as="h1" className="truncate">
+          <Text variant="h4" as="h1" className="truncate">
             {itemId === undefined
               ? `New ${recipe.label}`
               : viewId === undefined
@@ -117,19 +121,26 @@ export function CreationStudioFrame({
                 : `Editing in ${destination}`}
           </Text>
         </div>
-        <Button variant="secondary" className="lg:hidden" onClick={onPreviewToggle}>
-          <Icon icon={Eye} size="sm" /> {previewing ? 'Hide preview' : 'Preview'}
+        <Button
+          variant="icon"
+          className="shrink-0 @4xl/studio:hidden"
+          aria-label={previewing ? 'Hide preview' : 'Preview'}
+          aria-expanded={previewing}
+          aria-controls="creation-studio-preview"
+          onClick={onPreviewToggle}
+        >
+          <Icon icon={Eye} size="sm" />
         </Button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @4xl/studio:flex-row">
         <nav
           aria-label="Creation steps"
-          className="shrink-0 border-b border-divider bg-surface p-3 lg:w-44 lg:border-b-0 lg:border-r"
+          className="min-w-0 shrink-0 border-b border-divider bg-surface p-2 @4xl/studio:w-44 @4xl/studio:border-b-0 @4xl/studio:border-r"
         >
-          <ol className="grid grid-cols-4 gap-1 lg:flex lg:flex-col lg:gap-2">
+          <ol className="grid grid-cols-4 gap-1 @4xl/studio:flex @4xl/studio:flex-col @4xl/studio:gap-2">
             {STEPS.map((entry, index) => (
-              <li key={entry.id}>
+              <li key={entry.id} className="min-w-0">
                 <button
                   type="button"
                   aria-current={step === index ? 'step' : undefined}
@@ -138,18 +149,23 @@ export function CreationStudioFrame({
                     goToStep(index);
                   }}
                   className={cn(
-                    `flex min-h-10 w-full items-center gap-2 rounded-md px-2 py-2 text-left pointer-coarse:min-h-(--control-lg) ${focusRing}`,
+                    `flex min-h-(--control-lg) w-full flex-col items-center gap-1 rounded-md px-1 py-2 text-center @4xl/studio:flex-row @4xl/studio:gap-2 @4xl/studio:px-2 @4xl/studio:text-left ${focusRing}`,
                     step === index ? 'bg-accent/10 text-accent-text' : 'hover:bg-foreground/7',
                   )}
                 >
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-background">
                     {index < step ? <Icon icon={Check} size="sm" /> : String(index + 1)}
                   </span>
-                  <span className="hidden min-w-0 lg:block">
-                    <Text variant="note" as="span" className="block">
+                  <span className="min-w-0 max-w-full">
+                    <Text variant="caption" as="span" className="block max-w-full truncate">
                       {entry.label}
                     </Text>
-                    <Text variant="caption" as="span" tone="muted" className="block truncate">
+                    <Text
+                      variant="caption"
+                      as="span"
+                      tone="muted"
+                      className="hidden truncate @4xl/studio:block"
+                    >
                       {entry.detail}
                     </Text>
                   </span>
@@ -159,14 +175,15 @@ export function CreationStudioFrame({
           </ol>
         </nav>
 
-        <main
+        <section
+          aria-label="Guided setup"
           ref={stepMainRef}
           className={cn(
-            'min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6',
-            previewing ? 'hidden lg:block' : '',
+            'min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-5',
+            previewing ? 'hidden @4xl/studio:block' : '',
           )}
         >
-          <div className="mx-auto flex max-w-xl flex-col gap-6">
+          <div className="mx-auto flex min-w-0 max-w-xl flex-col gap-4">
             {children}
 
             {error === null ? null : (
@@ -175,7 +192,7 @@ export function CreationStudioFrame({
               </Text>
             )}
 
-            <div className="flex items-center justify-between border-t border-divider pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider pt-3">
               <Button
                 variant="secondary"
                 disabled={step === 0 || saving}
@@ -214,14 +231,15 @@ export function CreationStudioFrame({
               )}
             </div>
           </div>
-        </main>
+        </section>
 
         <aside
+          id="creation-studio-preview"
           aria-label="Live preview"
           className={cn(
             'min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain border-t border-divider bg-surface p-4',
-            'lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0 lg:w-80 xl:w-96',
-            previewing ? 'block' : 'hidden lg:block',
+            '@4xl/studio:flex-none @4xl/studio:shrink-0 @4xl/studio:border-l @4xl/studio:border-t-0 @4xl/studio:w-80 @5xl/studio:w-96',
+            previewing ? 'block' : 'hidden @4xl/studio:block',
           )}
         >
           <Text variant="note" as="div" tone="muted" className="mb-3">

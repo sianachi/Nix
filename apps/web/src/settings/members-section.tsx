@@ -23,7 +23,9 @@ const columns = [
     header: 'Member',
     rowHeader: true,
     cell: (member: WorkspaceMember) => (
-      <span className="inline-flex items-center gap-2">{member.subjectDisplayName}</span>
+      <span className="inline-flex items-center gap-2 break-words">
+        {member.subjectDisplayName}
+      </span>
     ),
   },
   {
@@ -71,15 +73,23 @@ export function MembersSection(): ReactElement {
           {truncated ? (
             <PartialNotice pending="Not every member is shown: the list stopped at its page bound. What is here is accurate; the count is not complete." />
           ) : null}
-          <Table
-            caption="The principals and groups holding a role in this workspace."
-            columns={columns}
-            rows={members}
-            rowKey={(member) => `${member.subjectType}:${member.subjectId}:${member.role}`}
-            loading={status === 'loading'}
-            loadingMessage="Loading the workspace members."
-            emptyMessage="Nobody holds a role in this workspace yet. Membership is granted by a tenant administrator."
-          />
+          <div
+            className="min-w-0 overflow-x-auto"
+            role="region"
+            aria-label="Workspace members table"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll the member table horizontally.
+            tabIndex={0}
+          >
+            <Table
+              caption="The principals and groups holding a role in this workspace."
+              columns={columns}
+              rows={members}
+              rowKey={(member) => `${member.subjectType}:${member.subjectId}:${member.role}`}
+              loading={status === 'loading'}
+              loadingMessage="Loading the workspace members."
+              emptyMessage="Nobody holds a role in this workspace yet. Membership is granted by a tenant administrator."
+            />
+          </div>
         </>
       )}
     </section>

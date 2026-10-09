@@ -327,6 +327,19 @@ describe('searchable transaction history', () => {
       net: 2700,
     };
   });
+  it('opens the existing transaction editor from the row context menu', () => {
+    render(<FinanceTransactions state={state} finance={finance} month="2026-09" />);
+
+    fireEvent.contextMenu(screen.getByRole('row', { name: /Corner shop/ }), {
+      clientX: 40,
+      clientY: 60,
+    });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit transaction' }));
+
+    expect(screen.getByRole('dialog', { name: 'Edit Corner shop' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Description')).toHaveValue(transactionA.description);
+    expect(screen.getByLabelText('Amount')).toHaveValue('12.4');
+  });
   it('searches all history on Core and paginates the result while retaining full totals', () => {
     render(<FinanceTransactions state={state} finance={finance} month="2026-09" />);
     fireEvent.click(screen.getByRole('button', { name: 'All history' }));

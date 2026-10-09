@@ -498,7 +498,8 @@ describe('the guided creation studio', () => {
     await screen.findByRole('heading', { name: /new board/i });
     const preview = screen.getByLabelText('Live preview');
     expect(preview.previousElementSibling).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto');
-    expect(preview).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', 'lg:flex-none');
+    expect(preview).toHaveClass('min-h-0', 'flex-1', 'overflow-y-auto', '@4xl/studio:flex-none');
+    expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
   it('refuses malformed recovered data at the session boundary', async () => {

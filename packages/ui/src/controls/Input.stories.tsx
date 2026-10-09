@@ -1,6 +1,7 @@
 import { type Meta, type StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, within } from 'storybook/test';
 
+import { Button } from './Button';
 import { Input } from './Input';
 
 /**
@@ -27,6 +28,29 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const NarrowLayout: Story = {
+  args: { defaultValue: 'A longer note title on a small screen' },
+  render: (args) => (
+    <div className="flex w-64 max-w-full items-start gap-2">
+      <Input {...args} />
+      <Button>Save</Button>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const input = within(canvasElement).getByRole('textbox');
+    const button = within(canvasElement).getByRole('button', { name: 'Save' });
+    await userEvent.click(input);
+    await expect(input).toHaveFocus();
+    await expect(input.getBoundingClientRect().right).toBeLessThanOrEqual(
+      button.getBoundingClientRect().left,
+    );
+    const typeStep = matchMedia('(any-pointer: coarse)').matches ? '--text-lg' : '--text-md';
+    await expect(getComputedStyle(input).fontSize).toBe(
+      getComputedStyle(document.documentElement).getPropertyValue(typeStep).trim(),
+    );
+  },
+};
 
 export const WithValue: Story = {
   args: { defaultValue: 'Quarterly plan' },

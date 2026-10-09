@@ -4,7 +4,7 @@ import {
   type PetSettings,
   type PetSettingsResponse,
 } from '@nix/api-client';
-import { Button, Field, Input, Select, Text, Textarea } from '@nix/ui';
+import { Button, Checkbox, Field, Input, Select, Text, Textarea } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 import { newPet, petCatalog, personalityDescriptions } from './catalog';
 import { usePetSettings } from './use-pet-settings';
@@ -15,7 +15,7 @@ import { PetDeviceSettings } from './pet-device-settings';
 export function PetSettingsSection(): ReactElement {
   const state = usePetSettings();
   return (
-    <section aria-labelledby="pets-heading" className="flex max-w-3xl flex-col gap-6">
+    <section aria-labelledby="pets-heading" className="flex min-w-0 max-w-3xl flex-col gap-6">
       <div className="flex flex-col gap-2">
         <Text id="pets-heading" variant="h3" as="h2">
           Your companions
@@ -108,7 +108,7 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
 
   return (
     <form
-      className="flex flex-col gap-6"
+      className="@container flex min-w-0 flex-col gap-6"
       onSubmit={(event) => {
         event.preventDefault();
         const parsed = petSettingsSchema.safeParse(draft);
@@ -126,29 +126,23 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
     >
       <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4">
         <legend className="sr-only">Saved pets</legend>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={draft.enabled}
-            disabled={draft.activePetId === null}
+        <Checkbox
+          label="Show companion in my workspaces"
+          checked={draft.enabled}
+          disabled={draft.activePetId === null}
+          onChange={(event) => {
+            change({ ...draft, enabled: event.currentTarget.checked });
+          }}
+        />
+        <div className="flex flex-col gap-1">
+          <Checkbox
+            label="Use AI while writing notes"
+            checked={draft.inlineWriting}
+            disabled={draft.activePetId === null || !draft.enabled}
             onChange={(event) => {
-              change({ ...draft, enabled: event.currentTarget.checked });
+              change({ ...draft, inlineWriting: event.currentTarget.checked });
             }}
           />
-          <Text>Show companion in my workspaces</Text>
-        </label>
-        <div className="flex flex-col gap-1">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={draft.inlineWriting}
-              disabled={draft.activePetId === null || !draft.enabled}
-              onChange={(event) => {
-                change({ ...draft, inlineWriting: event.currentTarget.checked });
-              }}
-            />
-            <Text>Use AI while writing notes</Text>
-          </label>
           <Text variant="note" tone="muted">
             Adds AI commands to the slash menu and the selection menu in notes. The text you select
             is sent to your connected model. Locked notes are never sent.
@@ -222,7 +216,7 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
                 />
               )}
             </Field>
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-4 @lg:grid-cols-2">
               <Field label="Appearance">
                 {(control) => (
                   <Select
@@ -309,8 +303,13 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
               >
                 Use this pet
               </Button>
-              <Button type="button" variant="ghost" onClick={remove}>
-                Remove pet from settings
+              <Button
+                type="button"
+                variant="ghost"
+                aria-label="Remove pet from settings"
+                onClick={remove}
+              >
+                Remove pet
               </Button>
             </div>
           </>

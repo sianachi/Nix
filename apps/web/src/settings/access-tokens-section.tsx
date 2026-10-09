@@ -177,7 +177,13 @@ export function AccessTokensSection(): ReactElement {
         />
       ) : (
         <>
-          <div className="hidden min-w-0 sm:block">
+          <div
+            className="hidden min-w-0 overflow-x-auto sm:block"
+            role="region"
+            aria-label="Access tokens table"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll the token table horizontally.
+            tabIndex={0}
+          >
             <Table
               caption="Your personal access tokens, newest first."
               columns={columns}
@@ -320,7 +326,7 @@ function MobileTokenList({
                 ))}
               </div>
             </div>
-            <dl className="grid grid-cols-2 gap-x-3 gap-y-2">
+            <dl className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
               <div>
                 <dt>
                   <Text variant="caption" tone="muted">

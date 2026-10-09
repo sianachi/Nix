@@ -431,7 +431,7 @@ export function ImportDialog({
         )
       }
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4 break-words">
         {/* One live region for the dialog's whole life, mounted before any of its texts, so phase
             changes are actually announced - a region inserted together with its text is the
             canonical reason one never speaks (see a11y/announcer.ts). Deliberately coarse: phases,
@@ -763,7 +763,7 @@ function Report({
         />
       ))}
       {report.rootItemId !== null ? (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" onClick={onUndo} disabled={undo.name !== 'available'}>
             {undo.name === 'working' ? 'Undoing…' : undo.name === 'done' ? 'Undone' : 'Undo import'}
           </Button>
@@ -814,7 +814,7 @@ function DocumentPreview({
         <PartialNotice key={`omission-${omission}`} pending={`Omitted: ${omission}`} />
       ))}
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h5" as="h2">
           Item mapping
         </Text>
         <ul className="mt-2 space-y-2">
@@ -865,7 +865,7 @@ function DocumentReport({
       {(operation.omissions ?? plan.omissions).map((omission) => (
         <PartialNotice key={`receipt-omission-${omission}`} pending={`Omitted: ${omission}`} />
       ))}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={onUndo} disabled={undo.name !== 'available'}>
           {undo.name === 'working' ? 'Undoing…' : undo.name === 'done' ? 'Undone' : 'Undo import'}
         </Button>

@@ -37,18 +37,20 @@ if (typeof Element !== 'undefined' && typeof Element.prototype.scrollIntoView !=
 // has nothing to do with any component here. The pin moves with that test, not with this shim.
 //
 // Shimmed for the same reason as `scrollIntoView` above: the gap belongs to the environment, and
-// `<PaneDivider>`'s drag tests construct real PointerEvents. Only the two fields the window
-// splitter reads beyond MouseEvent's are carried. `defineProperty` rather than a cast, so the
+// `<PaneDivider>`'s drag tests construct real PointerEvents. Only the fields the gesture controls
+// read beyond MouseEvent's are carried. `defineProperty` rather than a cast, so the
 // assignment does not have to erase the window's type to land.
 if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
   class PointerEventShim extends MouseEvent {
     readonly pointerId: number;
     readonly pointerType: string;
+    readonly isPrimary: boolean;
 
     constructor(type: string, init: PointerEventInit = {}) {
       super(type, init);
       this.pointerId = init.pointerId ?? 0;
       this.pointerType = init.pointerType ?? '';
+      this.isPrimary = init.isPrimary ?? true;
     }
   }
 

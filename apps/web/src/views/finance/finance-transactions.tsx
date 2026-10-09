@@ -10,6 +10,8 @@ import {
   Tag,
   Text,
   Textarea,
+  cn,
+  focusRing,
   type TableColumn,
 } from '@nix/ui';
 import {
@@ -340,7 +342,7 @@ export function FinanceTransactions({
         }}
       >
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="Search transactions">
+          <Field label="Search transactions" className="min-w-0 flex-1 basis-48">
             {(control) => (
               <Input
                 {...control}
@@ -354,6 +356,7 @@ export function FinanceTransactions({
             )}
           </Field>
           <Segmented<'month' | 'all' | 'custom'>
+            className="min-w-0 flex-wrap"
             label="History period"
             options={[
               { value: 'month', label: 'Selected month' },
@@ -395,8 +398,8 @@ export function FinanceTransactions({
           ) : null}
         </div>
         {range === 'custom' ? (
-          <div className="flex flex-wrap gap-3">
-            <Field label="From date">
+          <div className="grid min-w-0 grid-cols-1 gap-3 @sm:grid-cols-2">
+            <Field label="From date" className="min-w-0">
               {(control) => (
                 <Input
                   {...control}
@@ -408,7 +411,7 @@ export function FinanceTransactions({
                 />
               )}
             </Field>
-            <Field label="To date">
+            <Field label="To date" className="min-w-0">
               {(control) => (
                 <Input
                   {...control}
@@ -423,7 +426,7 @@ export function FinanceTransactions({
           </div>
         ) : null}
         <details>
-          <summary className="cursor-pointer text-muted">
+          <summary className="cursor-pointer text-muted any-pointer-coarse:min-h-(--control-lg)">
             Filter by account, category or amount
           </summary>
           <div className="mt-3 grid min-w-0 grid-cols-1 gap-3 @lg:grid-cols-2">
@@ -580,11 +583,12 @@ export function FinanceTransactions({
                 }}
               />
               {selected.size === 0 ? null : (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <Text as="span" variant="bodySmall">
                     {String(selected.size)} selected
                   </Text>
                   <Select
+                    className="min-w-0 flex-1 basis-48"
                     aria-label="Assign to line"
                     value={assignLineId}
                     disabled={assigning}
@@ -626,20 +630,38 @@ export function FinanceTransactions({
             </div>
           )}
           <WriteError message={assignError} />
-          <Table<FinanceTransaction>
-            caption="Matching transactions, newest first"
-            columns={columns}
-            rows={query.data.transactions}
-            rowKey={(row) => row.id}
-            emptyMessage="No matching transactions. Try another date range or clear your filters."
-          />
+          <div
+            role="region"
+            aria-label="Transaction history"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach horizontally clipped transaction columns.
+            tabIndex={0}
+            className={cn('min-w-0 overflow-x-auto', focusRing)}
+          >
+            <Table<FinanceTransaction>
+              caption="Matching transactions, newest first"
+              columns={columns}
+              rows={query.data.transactions}
+              rowKey={(row) => row.id}
+              rowContextMenuLabel={(row) => `Actions for ${row.description}`}
+              rowContextMenu={(row) => [
+                {
+                  label: 'Edit transaction',
+                  disabled: query.status !== 'ready' || assigning,
+                  onSelect: () => {
+                    setEditing(row);
+                  },
+                },
+              ]}
+              emptyMessage="No matching transactions. Try another date range or clear your filters."
+            />
+          </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Text variant="bodySmall" tone="muted">
               Showing {query.data.total === 0 ? '0' : String((query.data.offset ?? 0) + 1)}–
               {String((query.data.offset ?? 0) + query.data.transactions.length)} of{' '}
               {String(query.data.total)}
             </Text>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
                 disabled={offset === 0 || query.status !== 'ready'}
@@ -664,7 +686,7 @@ export function FinanceTransactions({
       )}
       {changes.length === 0 ? null : (
         <details className="rounded-lg border border-divider p-3">
-          <summary className="cursor-pointer text-muted">
+          <summary className="cursor-pointer text-muted any-pointer-coarse:min-h-(--control-lg)">
             Changes in this visit ({String(changes.length)})
           </summary>
           <Text variant="caption" tone="muted" className="mt-2">
@@ -1100,7 +1122,7 @@ export function TransactionDialog({
       presentation={transaction === null ? 'standard' : 'workspace'}
     >
       <form
-        className="flex flex-col gap-4"
+        className="@container flex min-w-0 flex-col gap-4"
         aria-busy={busy}
         onSubmit={(event) => {
           void submit(event);
@@ -1150,7 +1172,7 @@ export function TransactionDialog({
         <fieldset disabled={busy || closePending} className="flex flex-col gap-4">
           <Field label="Amount" hint={`In ${currency}. Refunds go in as money in.`}>
             {(control) => (
-              <div className="flex gap-2">
+              <div className="grid min-w-0 grid-cols-1 gap-2 @sm:grid-cols-2">
                 <Input
                   {...control}
                   ref={amountField}
@@ -1420,7 +1442,13 @@ function ImportForm({ state, finance, onClose }: ImportDialogProps): ReactNode {
               matching something already typed, {String(preview.duplicates)} already imported,{' '}
               {String(preview.unreadable)} unreadable.
             </Text>
-            <div className="max-h-64 overflow-auto">
+            <div
+              role="region"
+              aria-label="Statement import preview"
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach the scrollable statement preview.
+              tabIndex={0}
+              className={cn('max-h-64 min-w-0 overflow-auto', focusRing)}
+            >
               <Table<FinanceImport['preview'][number]>
                 caption="Statement rows"
                 columns={[

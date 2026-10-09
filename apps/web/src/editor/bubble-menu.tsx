@@ -1,18 +1,25 @@
 import { Icon, placeFloatingMenu, readViewportBounds } from '@nix/ui';
-import { isPointerCoarse } from '../lib/pointer';
 import type { TextColor } from '@nix/editor-schema';
 import type { Editor } from '@tiptap/react';
 import type { MarkType, Node as ProseMirrorNode } from '@tiptap/pm/model';
-import { Baseline, Highlighter, Sparkles, type LucideIcon } from 'lucide-react';
+import {
+  Baseline,
+  Bold,
+  Code,
+  Highlighter,
+  Italic,
+  Sparkles,
+  Strikethrough,
+  Underline,
+  type LucideIcon,
+} from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 /**
  * The selection bubble menu: a small toolbar that appears over selected text.
  *
- * It carries the two colour axes - the ink and the wash behind it - because colour is the one
- * formatting decision with no keyboard shortcut and no input rule; everything else the main
- * toolbar offers is reachable without leaving the keys. More groups earn their place here by
- * the same argument, one at a time.
+ * Common text styles and both colour axes stay beside the selection, including on touch
+ * screens where keyboard shortcuts and the main toolbar may not be within reach.
  *
  * **The same shape as the slash menu, deliberately.** The document's selection is the source of
  * truth, read back out of the editor on every transaction - and on scroll and resize too,
@@ -124,6 +131,14 @@ const ROW_INDEX: ReadonlyMap<ColorOption, number> = new Map(
   ROW.map((entry, index) => [entry.option, index]),
 );
 
+const TEXT_STYLES = [
+  { mark: 'bold', label: 'Bold', icon: Bold },
+  { mark: 'italic', label: 'Italic', icon: Italic },
+  { mark: 'underline', label: 'Underline', icon: Underline },
+  { mark: 'strike', label: 'Strikethrough', icon: Strikethrough },
+  { mark: 'code', label: 'Inline code', icon: Code },
+] satisfies readonly { readonly mark: string; readonly label: string; readonly icon: LucideIcon }[];
+
 /** Whether the command behind `axis` can run where the selection is. */
 function canSet(can: ReturnType<Editor['can']>, axis: ColorAxis, color: TextColor): boolean {
   return axis === 'text' ? can.setTextColor(color) : can.setTextBackground(color);
@@ -131,7 +146,7 @@ function canSet(can: ReturnType<Editor['can']>, axis: ColorAxis, color: TextColo
 
 /** Applies `color` on `axis`, keeping the focus in the text the selection is in. */
 function applyColor(editor: Editor, axis: ColorAxis, color: TextColor): void {
-  const chain = editor.chain().focus();
+  const chain = editor.chain().focus(undefined, { scrollIntoView: false });
   if (axis === 'text') {
     chain.setTextColor(color).run();
   } else {
@@ -144,14 +159,14 @@ function applyColor(editor: Editor, axis: ColorAxis, color: TextColor): void {
  * nearer the top edge than this gets the menu underneath instead, where there is room - the
  * alternative is a toolbar drawn off-screen for anybody colouring their first line.
  */
-const MENU_CLEARANCE = 48;
+const MENU_CLEARANCE = 80;
 
 /**
  * A rough upper bound on the menu's own width, wide enough to cover both colour groups on any
  * screen this renders on. Used only to keep its left edge from being clamped past where the menu
  * would actually reach - the row itself still sizes to its content, not to this number.
  */
-const MENU_WIDTH_ESTIMATE = 360;
+const MENU_WIDTH_ESTIMATE = 720;
 
 /**
  * Whether a range holds any text at all.
@@ -244,6 +259,8 @@ interface MenuPlacement {
   readonly top: number;
   /** Flipped under the selection, because the viewport had no room above it. */
   readonly below: boolean;
+  readonly maxWidth: number;
+  readonly maxHeight: number;
   /** The selected range, so a dismissal is of this selection rather than of all of them. */
   readonly from: number;
   readonly to: number;
@@ -304,17 +321,26 @@ export function BubbleMenu({
       // this menu opens over the selection, not under the caret. On a touch screen it always
       // opens below regardless of room, because iOS draws its own Copy/Paste bar directly above
       // a selection, and this menu would otherwise open right underneath it.
+      const viewport = readViewportBounds();
       const placed = placeFloatingMenu(
         { left: coords.left, top: coords.top, bottom: coords.bottom },
         MENU_WIDTH_ESTIMATE,
-        readViewportBounds(),
-        { preferAbove: true, forceBelow: isPointerCoarse(), minHeight: MENU_CLEARANCE },
+        viewport,
+        {
+          preferAbove: true,
+          forceBelow:
+            typeof window.matchMedia === 'function' &&
+            window.matchMedia('(any-pointer: coarse)').matches,
+          minHeight: MENU_CLEARANCE,
+        },
       );
 
       setPlacement({
         left: placed.left,
         top: placed.top,
         below: !placed.above,
+        maxWidth: placed.maxWidth,
+        maxHeight: Math.max(0, placed.maxHeight - 8),
         from,
         to,
       });
@@ -351,6 +377,9 @@ export function BubbleMenu({
     // handler only ever books a frame.
     window.addEventListener('scroll', scheduleRead, { capture: true, passive: true });
     window.addEventListener('resize', scheduleRead);
+    const viewport = window.visualViewport;
+    viewport?.addEventListener('resize', scheduleRead);
+    viewport?.addEventListener('scroll', scheduleRead);
 
     return () => {
       if (frame !== null) {
@@ -360,6 +389,8 @@ export function BubbleMenu({
       editor.off('blur', onBlur);
       window.removeEventListener('scroll', scheduleRead, { capture: true });
       window.removeEventListener('resize', scheduleRead);
+      viewport?.removeEventListener('resize', scheduleRead);
+      viewport?.removeEventListener('scroll', scheduleRead);
     };
   }, [editor]);
 
@@ -401,7 +432,8 @@ export function BubbleMenu({
   // render for three of them (measured 66-136 microseconds). Sharing it is safe because `can()`
   // captures one transaction and every probe through it runs undispatched.
   const can = editor.can();
-  const runnable = ROW.map((entry) => canSet(can, entry.group.axis, entry.option.color));
+  const runnable = TEXT_STYLES.map((style) => can.toggleMark(style.mark));
+  runnable.push(...ROW.map((entry) => canSet(can, entry.group.axis, entry.option.color)));
   // The writing assistance is one more stop at the end of the row, so the toolbar stays one
   // widget with one tab stop. Offered only where the note can be written to.
   const aiIndex = onOpenInlineAi !== undefined && editor.isEditable ? runnable.length : null;
@@ -434,27 +466,28 @@ export function BubbleMenu({
     placement.to,
     editor.state.schema.marks.textColor,
   );
+  const { left, top, maxWidth, maxHeight } = placement;
 
   return (
     <>
       {/* Announced when the menu appears. It opens away from the focus, so without this a
           screen-reader user who has just selected text has no way to know the options exist. */}
       <p aria-live="polite" className="sr-only">
-        Text colour and highlight options available
+        Selection formatting options available
       </p>
 
       <div
         ref={container}
         role="toolbar"
-        aria-label="Text colour and highlight"
+        aria-label="Selection formatting"
         aria-orientation="horizontal"
         // Positioned against the selection in viewport coordinates, re-read on scroll and on
         // resize above, so it stays with its text rather than with the page.
-        style={{ left: placement.left, top: placement.top }} // design-token-exempt: a selection's position is a runtime measurement, not a scale step.
+        style={{ left, top, maxWidth, maxHeight }} // design-token-exempt: position and size are measured against the visible viewport.
         className={[
           // The wider gap is what separates the two groups: they are the same kind of thing on
           // the same surface, so a rule between them would be a border used where air will do.
-          'fixed z-20 flex items-center gap-2 rounded-md bg-surface p-1 shadow-md',
+          'fixed z-20 flex items-center gap-2 overflow-x-auto overscroll-x-contain rounded-md border border-divider bg-surface p-1 shadow-md',
           placement.below ? 'mt-2' : '-mt-2 -translate-y-full',
         ].join(' ')}
         // Swallowed before the browser can move focus: a pointer press on a menu button must
@@ -478,10 +511,10 @@ export function BubbleMenu({
           // whole row, straight through the group boundary, because the groups are a way of
           // reading the toolbar and not a wall inside it - Home and End jump to its ends, and
           // Tab stays one stop through all of it.
-          if (event.key === 'ArrowRight') {
+          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
             event.preventDefault();
             rove(tabStop, 1);
-          } else if (event.key === 'ArrowLeft') {
+          } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
             event.preventDefault();
             rove(tabStop, -1);
           } else if (event.key === 'Home') {
@@ -493,15 +526,53 @@ export function BubbleMenu({
           }
         }}
       >
+        <div role="group" aria-label="Text styles" className="flex shrink-0 items-center gap-0.5">
+          {TEXT_STYLES.map((style, offset) => {
+            const index = offset;
+            const active = editor.isActive(style.mark);
+            return (
+              <button
+                key={style.mark}
+                ref={(element) => {
+                  buttons.current[index] = element;
+                }}
+                type="button"
+                aria-label={style.label}
+                title={style.label}
+                aria-pressed={active}
+                disabled={runnable[index] !== true}
+                tabIndex={index === tabStop ? 0 : -1}
+                onClick={() => {
+                  editor
+                    .chain()
+                    .focus(undefined, { scrollIntoView: false })
+                    .toggleMark(style.mark)
+                    .run();
+                }}
+                className={[
+                  'flex size-11 shrink-0 items-center justify-center rounded-sm',
+                  'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+                  runnable[index] !== true
+                    ? 'cursor-not-allowed opacity-40'
+                    : active
+                      ? 'bg-accent/18'
+                      : 'hover:bg-foreground/7',
+                ].join(' ')}
+              >
+                <Icon icon={style.icon} size="sm" />
+              </button>
+            );
+          })}
+        </div>
         {COLOR_GROUPS.map((group) => (
           <div
             key={group.axis}
             role="group"
             aria-label={group.label}
-            className="flex items-center gap-0.5"
+            className="flex shrink-0 items-center gap-0.5"
           >
             {group.options.map((option) => {
-              const index = ROW_INDEX.get(option) ?? 0;
+              const index = TEXT_STYLES.length + (ROW_INDEX.get(option) ?? 0);
               const active =
                 option.color === 'default'
                   ? !coloured[group.axis]
@@ -524,7 +595,7 @@ export function BubbleMenu({
                     applyColor(editor, group.axis, option.color);
                   }}
                   className={[
-                    'flex h-7 items-center gap-1 rounded-sm px-1.5 text-xs',
+                    'flex min-h-11 items-center gap-1 rounded-sm px-2 text-xs',
                     'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
                     disabled
                       ? 'cursor-not-allowed opacity-40'
@@ -554,7 +625,7 @@ export function BubbleMenu({
             aria-haspopup="dialog"
             tabIndex={aiIndex === tabStop ? 0 : -1}
             onClick={onOpenInlineAi}
-            className="flex h-7 items-center gap-1 rounded-sm px-1.5 text-xs hover:bg-foreground/7 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            className="flex min-h-11 shrink-0 items-center gap-1 rounded-sm px-2 text-xs hover:bg-foreground/7 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
           >
             <Icon icon={Sparkles} size="sm" />
             <span className="px-0.5">AI</span>

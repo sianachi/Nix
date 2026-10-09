@@ -369,7 +369,7 @@ export function NavRail({ onNavigate, onImport, compact = false }: NavRailProps)
     // one way to move around and "navigation, navigation" is not a landmark list anybody can use.
     <nav
       aria-label="Destinations"
-      className={`flex shrink-0 border-r border-divider bg-surface ${chromeSurface}`}
+      className={`flex min-h-0 shrink-0 overflow-y-auto overscroll-contain border-r border-divider bg-surface ${chromeSurface}`}
     >
       <ul className="flex min-h-0 flex-1 list-none flex-col items-center gap-1 px-1 py-2 max-lg:items-stretch max-lg:px-2">
         {items.map((item, index) => {

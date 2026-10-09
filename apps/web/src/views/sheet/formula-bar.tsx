@@ -1,5 +1,6 @@
 import { SHEET_LIMITS, type CellRef, cellKey } from '@nix/sheet';
-import { cn, fieldLabel, focusRing } from '@nix/ui';
+import { Button, Icon, cn, fieldLabel, focusRing } from '@nix/ui';
+import { Check, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 /**
@@ -26,8 +27,8 @@ export function FormulaBar(props: FormulaBarProps): ReactNode {
   const { active, text, editing, onBeginEdit, onChange, onCommit, onCancel } = props;
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-1.5">
-      <output aria-label="Active cell" className={cn('w-16 shrink-0', fieldLabel)}>
+    <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-divider px-3 py-1.5">
+      <output aria-label="Active cell" className={cn('w-12 shrink-0', fieldLabel)}>
         {cellKey(active)}
       </output>
 
@@ -53,8 +54,32 @@ export function FormulaBar(props: FormulaBarProps): ReactNode {
           }
         }}
         placeholder="Type a value, or = to start a formula"
-        className={`min-w-0 flex-1 bg-transparent text-sm ${focusRing}`}
+        className={`min-h-(--control-md) min-w-0 flex-1 bg-transparent text-lg any-pointer-coarse:min-h-(--control-lg) ${focusRing}`}
       />
+      {editing ? (
+        <div className="flex shrink-0 gap-1">
+          <Button
+            variant="icon"
+            aria-label="Apply cell edit"
+            onPointerDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={onCommit}
+          >
+            <Icon icon={Check} size="sm" />
+          </Button>
+          <Button
+            variant="icon"
+            aria-label="Cancel cell edit"
+            onPointerDown={(event) => {
+              event.preventDefault();
+            }}
+            onClick={onCancel}
+          >
+            <Icon icon={X} size="sm" />
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

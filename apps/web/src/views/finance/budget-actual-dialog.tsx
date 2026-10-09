@@ -1,4 +1,14 @@
-import { Button, Dialog, Field, Input, Table, Text, type TableColumn } from '@nix/ui';
+import {
+  Button,
+  Dialog,
+  Field,
+  Input,
+  Table,
+  Text,
+  cn,
+  focusRing,
+  type TableColumn,
+} from '@nix/ui';
 import {
   finance as financeApi,
   type BudgetCell,
@@ -288,8 +298,8 @@ function ActualSummary({
       presentation="workspace"
       dirty={dirty || reopenedHere}
     >
-      <div className="flex flex-col gap-4">
-        <dl className="grid grid-cols-2 gap-3 rounded-lg bg-surface-raised p-3 sm:grid-cols-3">
+      <div className="@container flex min-w-0 flex-col gap-4">
+        <dl className="grid min-w-0 grid-cols-1 gap-3 rounded-lg bg-surface-raised p-3 @xs:grid-cols-2 @lg:grid-cols-3">
           <div>
             <Text as="dt" variant="caption" tone="muted">
               Plan
@@ -358,7 +368,7 @@ function ActualSummary({
               }
             >
               {(control) => (
-                <div className="flex gap-2">
+                <div className="flex min-w-0 flex-col gap-2 @sm:flex-row">
                   <Input
                     {...control}
                     ref={amountField}
@@ -412,7 +422,7 @@ function ActualSummary({
           </Text>
         )}
         <div className="flex flex-col gap-2">
-          <div className="flex items-end justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-end justify-between gap-3">
             <div ref={listHeading} tabIndex={-1} className="outline-none">
               <Text as="h3" variant="h4">
                 Transactions
@@ -441,13 +451,39 @@ function ActualSummary({
                   {String(query.data.total)}; the total above counts them all.
                 </Text>
               ) : null}
-              <Table<FinanceTransaction>
-                caption={`${line.name} transactions in ${formatMonth(month, 'long')}`}
-                columns={columns}
-                rows={query.data.transactions}
-                rowKey={(row) => row.id}
-                emptyMessage={`Nothing recorded on ${line.name} this month.`}
-              />
+              <div
+                role="region"
+                aria-label={`${line.name} transactions`}
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach horizontally clipped budget transaction columns.
+                tabIndex={0}
+                className={cn('min-w-0 overflow-x-auto', focusRing)}
+              >
+                <Table<FinanceTransaction>
+                  caption={`${line.name} transactions in ${formatMonth(month, 'long')}`}
+                  columns={columns}
+                  rows={query.data.transactions}
+                  rowKey={(row) => row.id}
+                  rowContextMenuLabel={(row) => `Actions for ${row.description}`}
+                  rowContextMenu={(row) => [
+                    {
+                      label: 'Edit transaction',
+                      disabled: busy || savedNeedsClose,
+                      onSelect: () => {
+                        onEdit(row);
+                      },
+                    },
+                    {
+                      label: 'Delete transaction',
+                      destructive: true,
+                      disabled: busy || closed || savedNeedsClose,
+                      onSelect: () => {
+                        setDeleting(row.id);
+                      },
+                    },
+                  ]}
+                  emptyMessage={`Nothing recorded on ${line.name} this month.`}
+                />
+              </div>
             </>
           )}
         </div>

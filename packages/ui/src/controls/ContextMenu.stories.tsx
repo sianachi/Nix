@@ -70,3 +70,45 @@ export const EscapeReturnsFocus: Story = {
     await waitFor(() => expect(row).toHaveFocus());
   },
 };
+
+export const TouchLongPress: Story = {
+  play: async ({ canvasElement }) => {
+    const row = within(canvasElement).getByRole('button', { name: 'Quarterly plan' });
+    await fireEvent.pointerDown(row, {
+      pointerType: 'touch',
+      pointerId: 1,
+      isPrimary: true,
+      clientX: 80,
+      clientY: 40,
+    });
+    await waitFor(() =>
+      expect(within(document.body).getByRole('menuitem', { name: 'Open beside' })).toHaveFocus(),
+    );
+    await fireEvent.pointerUp(row, { pointerType: 'touch', pointerId: 1, isPrimary: true });
+    await fireEvent.mouseDown(row);
+    await fireEvent.click(row);
+    await expect(within(document.body).getByRole('menu', { name: 'Page actions' })).toBeVisible();
+  },
+};
+
+export const NestedTargets: Story = {
+  render: (args) => (
+    <ContextMenu label="Folder actions" items={[{ label: 'Rename folder', onSelect: fn() }]}>
+      {(target) => (
+        <div {...target} className="border border-divider p-3">
+          <ContextMenu {...args} />
+          <button type="button" aria-expanded="false" className={focusRing}>
+            Expand folder
+          </button>
+        </div>
+      )}
+    </ContextMenu>
+  ),
+  play: async ({ canvasElement }) => {
+    await fireEvent.contextMenu(
+      within(canvasElement).getByRole('button', { name: 'Quarterly plan' }),
+    );
+    await expect(within(document.body).getAllByRole('menu')).toHaveLength(1);
+    await expect(within(document.body).getByRole('menu', { name: 'Page actions' })).toBeVisible();
+  },
+};

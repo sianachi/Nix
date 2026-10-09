@@ -1,10 +1,10 @@
 import { files as fileResources, isNixApiError, type FileRecord } from '@nix/api-client';
-import { Button, Dialog, Icon, Text, cn } from '@nix/ui';
+import { Button, ContextMenu, Dialog, Icon, Text, cn } from '@nix/ui';
 import { Download, File as FileIcon, Info, Upload } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
-import { useNarrowViewport } from '../layout/viewport';
+import { useOverlayDetails } from '../layout/viewport';
 import { findBuiltInFileViewer } from '../plugins/built-in-file-viewers';
 import { FileDetails } from './file-details';
 import { fileKindLabel, formatBytes } from './file-facts';
@@ -51,7 +51,7 @@ export function FileViewer({
   readonly itemControls?: ReactNode;
 }): ReactNode {
   const client = useApiClient();
-  const narrow = useNarrowViewport();
+  const overlayDetails = useOverlayDetails();
   const zen = useZenActive();
   const nearTop = useNearTopEdge();
   const [record, setRecord] = useState<FileRecord | null>(null);
@@ -200,7 +200,7 @@ export function FileViewer({
   );
 
   return (
-    <section aria-label="File" className="flex min-h-0 flex-1 flex-col">
+    <section aria-label="File" className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* In Zen the bar gives way to one quiet download beside the shell's exit control, and the
           stage below keeps its place in the tree, so a PDF keeps its page and audio keeps playing. */}
       {zen ? (
@@ -219,38 +219,49 @@ export function FileViewer({
           <Icon icon={Download} size="sm" />
         </Button>
       ) : (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-divider px-5 py-1.5 sm:px-8">
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2 border-b border-divider px-3 py-1.5 sm:px-8">
           {/* The bar: what the file is, and the three things done to a file. One line, the
               header's own gutter, so it reads as part of the page's chrome and not as content. */}
           <Icon icon={FileIcon} size="sm" />
-          <Text as="span" variant="bodySmall" className="min-w-0 truncate font-semibold">
+          <Text as="span" variant="bodySmall" className="min-w-0 flex-1 truncate font-semibold">
             {file.fileName}
           </Text>
-          <Text as="span" variant="caption" tone="muted" className="whitespace-nowrap">
+          <Text
+            as="span"
+            variant="caption"
+            tone="muted"
+            className="hidden whitespace-nowrap sm:inline"
+          >
             {fileKindLabel(file.fileName, file.mediaType)} · {formatBytes(file.byteLength)}
           </Text>
-          <span className="flex-1" />
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="shrink-0"
+            aria-label={downloading ? 'Downloading…' : 'Download'}
             disabled={downloading}
             onClick={() => void download()}
           >
             <Icon icon={Download} size="sm" />
-            {downloading ? 'Downloading…' : 'Download'}
+            <span className="sr-only sm:not-sr-only">
+              {downloading ? 'Downloading…' : 'Download'}
+            </span>
           </Button>
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="shrink-0"
+            aria-label={replacing ? 'Replacing…' : 'Replace file'}
             disabled={replacing}
             onClick={() => replacementRef.current?.click()}
           >
             <Icon icon={Upload} size="sm" />
-            {replacing ? 'Replacing…' : 'Replace file'}
+            <span className="sr-only sm:not-sr-only">
+              {replacing ? 'Replacing…' : 'Replace file'}
+            </span>
           </Button>
           <Button
             variant="ghost"
-            className="px-2 py-1 text-xs"
+            className="shrink-0"
+            aria-label="File info"
             aria-expanded={detailsOpen}
             onClick={() => {
               setDetailsOpen(!detailsOpen);
@@ -259,21 +270,24 @@ export function FileViewer({
             <Icon icon={Info} size="sm" />
             {/* "File info", not "Details": the item's own Details - its fields and settings - can
               sit in this same bar on a phone, and two buttons with one name would be a guess. */}
-            File info
+            <span className="sr-only sm:not-sr-only">File info</span>
           </Button>
           {itemControls}
-          <input
-            ref={replacementRef}
-            type="file"
-            className="sr-only"
-            aria-label="Choose replacement file"
-            onChange={(event) => {
-              const selected = event.currentTarget.files?.[0];
-              if (selected !== undefined) void replace(selected);
-            }}
-          />
         </div>
       )}
+      <input
+        ref={replacementRef}
+        type="file"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        aria-label="Choose replacement file"
+        onChange={(event) => {
+          const selected = event.currentTarget.files?.[0];
+          event.currentTarget.value = '';
+          if (selected !== undefined) void replace(selected);
+        }}
+      />
 
       {visibleError === null ? null : (
         <Text variant="note" as="p" role="alert" className="shrink-0 px-5 py-1.5 sm:px-8">
@@ -281,22 +295,51 @@ export function FileViewer({
         </Text>
       )}
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
         {/* The stage. It owns the scrolling so a tall image or a long listing scrolls under the
             bar rather than pushing it away. */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <Stage
-            itemId={itemId}
-            file={file}
-            preview={currentPreview}
-            viewer={currentViewer}
-            canPreview={canPreview}
-            downloading={downloading}
-            onDownload={() => void download()}
-          />
-        </div>
+        <ContextMenu
+          label="File actions"
+          items={[
+            {
+              label: 'Download',
+              icon: Download,
+              disabled: downloading,
+              onSelect: () => void download(),
+            },
+            {
+              label: 'Replace file',
+              icon: Upload,
+              disabled: replacing,
+              onSelect: () => {
+                replacementRef.current?.click();
+              },
+            },
+            {
+              label: 'File info',
+              icon: Info,
+              onSelect: () => {
+                setDetailsOpen(true);
+              },
+            },
+          ]}
+        >
+          {(target) => (
+            <div {...target} className="flex min-h-0 min-w-0 flex-1 flex-col">
+              <Stage
+                itemId={itemId}
+                file={file}
+                preview={currentPreview}
+                viewer={currentViewer}
+                canPreview={canPreview}
+                downloading={downloading}
+                onDownload={() => void download()}
+              />
+            </div>
+          )}
+        </ContextMenu>
 
-        {detailsOpen && !narrow && !zen ? (
+        {detailsOpen && !overlayDetails && !zen ? (
           <aside
             aria-label="File details"
             className="w-80 shrink-0 overflow-y-auto border-l border-divider p-4"
@@ -306,7 +349,7 @@ export function FileViewer({
         ) : null}
       </div>
 
-      {detailsOpen && narrow && !zen ? (
+      {detailsOpen && (overlayDetails || zen) ? (
         <Dialog
           open
           swipeToClose
@@ -426,9 +469,9 @@ function Placard({
   readonly children: ReactNode;
 }): ReactNode {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+    <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 overflow-auto p-4 text-center sm:p-8">
       <Icon icon={FileIcon} size="lg" />
-      <Text variant="body" as="p" className="font-semibold">
+      <Text variant="body" as="p" className="max-w-full break-all font-semibold">
         {file.fileName}
       </Text>
       <Text variant="note" tone="muted" as="p" {...(alert ? { role: 'alert' } : {})}>

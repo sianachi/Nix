@@ -19,7 +19,20 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  play: async ({ canvasElement }) => {
+    const checkbox = within(canvasElement).getByRole('checkbox');
+    const size = getComputedStyle(document.documentElement)
+      .getPropertyValue(
+        matchMedia('(any-pointer: coarse)').matches ? '--control-lg' : '--control-sm',
+      )
+      .trim();
+    await expect(getComputedStyle(checkbox).height).toBe(size);
+    await expect(getComputedStyle(checkbox).width).toBe(size);
+    await userEvent.click(checkbox);
+    await expect(checkbox).toBeChecked();
+  },
+};
 
 export const Checked: Story = {
   args: { defaultChecked: true },

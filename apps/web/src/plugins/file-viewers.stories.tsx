@@ -1,4 +1,5 @@
 import type { ReactElement } from 'react';
+import { within } from '@testing-library/dom';
 
 import { CsvViewer } from './csv-viewer';
 import { MarkdownViewer } from './markdown-viewer';
@@ -69,4 +70,58 @@ export const Markdown = {
       <MarkdownViewer fileName="README.md" source={README} />
     </Stage>
   ),
+};
+
+function SmallStage({ children }: { readonly children: ReactElement }): ReactElement {
+  return (
+    <div
+      role="region"
+      aria-label="Small file preview"
+      className="flex h-96 w-64 max-w-full flex-col"
+    >
+      {children}
+    </div>
+  );
+}
+
+function checkContainedPreview(canvasElement: HTMLElement): void {
+  const region = within(canvasElement).getByRole('region', { name: 'Small file preview' });
+  if (region.scrollWidth > region.clientWidth)
+    throw new Error('File content overflowed its narrow scroll container.');
+}
+
+export const SmallCsv = {
+  render: (): ReactElement => (
+    <SmallStage>
+      <CsvViewer fileName="revenue.csv" source={CSV} />
+    </SmallStage>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await within(canvasElement).findByRole('table', { name: 'revenue.csv' });
+    checkContainedPreview(canvasElement);
+  },
+};
+
+export const SmallSourceCode = {
+  render: (): ReactElement => (
+    <SmallStage>
+      <TextViewer fileName="main.go" source={GO} />
+    </SmallStage>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await within(canvasElement).findByText('package main');
+    checkContainedPreview(canvasElement);
+  },
+};
+
+export const SmallMarkdown = {
+  render: (): ReactElement => (
+    <SmallStage>
+      <MarkdownViewer fileName="README.md" source={README} />
+    </SmallStage>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await within(canvasElement).findByRole('heading', { name: 'Deploy runbook' });
+    checkContainedPreview(canvasElement);
+  },
 };

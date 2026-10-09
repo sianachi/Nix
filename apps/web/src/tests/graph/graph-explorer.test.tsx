@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { GraphExplorer, graphConnections } from '../../graph/graph-explorer';
@@ -11,6 +11,7 @@ beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage());
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 const DATES = {
@@ -97,6 +98,35 @@ it('opens focus mode from the phone list', async () => {
   expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('plan');
 });
 
+it('offers item actions on long press without also opening the item', () => {
+  stubViewport(false);
+  vi.useFakeTimers();
+  const onOpen = vi.fn();
+  render(<GraphExplorer nodes={nodes} links={[]} onOpen={onOpen} />);
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find an item' }), {
+    target: { value: 'Plan' },
+  });
+  const item = screen.getByRole('button', { name: 'Plan' });
+  fireEvent.pointerDown(item, {
+    pointerType: 'touch',
+    pointerId: 1,
+    isPrimary: true,
+    button: 0,
+    clientX: 10,
+    clientY: 10,
+  });
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+  fireEvent.pointerUp(item, { pointerType: 'touch', pointerId: 1, isPrimary: true, button: 0 });
+  fireEvent.click(item);
+  const menu = screen.getByRole('menu', { name: 'Plan actions' });
+  expect(onOpen).not.toHaveBeenCalled();
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Focus in graph' }));
+  expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('plan');
+  expect(screen.getByRole('combobox', { name: 'Graph layout' })).toHaveValue('focused');
+});
+
 it('keeps timeline positions fixed during a drag and still opens an item on a click', () => {
   stubViewport(true);
   const onOpen = vi.fn();
@@ -124,6 +154,57 @@ it('keeps timeline positions fixed during a drag and still opens an item on a cl
   fireEvent.pointerDown(disc, { button: 0, pointerId: 2, clientX: 100, clientY: 100 });
   fireEvent.pointerUp(disc, { pointerId: 2, clientX: 100, clientY: 100 });
   expect(onOpen).toHaveBeenCalledWith('project');
+});
+
+it('selects a touched node first even when the device also has a mouse', () => {
+  stubViewport(true);
+  const onOpen = vi.fn();
+  const { container } = render(<GraphView nodes={nodes} links={[]} onOpen={onOpen} />);
+  const disc = container.querySelector('svg > g.group');
+  if (disc === null) throw new Error('The graph node is missing.');
+  const touch = { button: 0, pointerId: 1, pointerType: 'touch', clientX: 100, clientY: 100 };
+  fireEvent.pointerDown(disc, touch);
+  fireEvent.pointerUp(disc, touch);
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(disc.querySelector('button')).toHaveTextContent('Open Project');
+  fireEvent.pointerDown(disc, touch);
+  fireEvent.pointerUp(disc, touch);
+  expect(onOpen).toHaveBeenCalledWith('project');
+});
+
+it('offers drawn node actions without opening or nudging a held node', () => {
+  stubViewport(true);
+  vi.useFakeTimers();
+  const onOpen = vi.fn();
+  const { container } = render(<GraphView nodes={nodes} links={[]} onOpen={onOpen} />);
+  const disc = container.querySelector('[data-graph-node="project"]');
+  if (disc === null) throw new Error('The graph node is missing.');
+  const touch = {
+    button: 0,
+    pointerId: 1,
+    isPrimary: true,
+    pointerType: 'touch',
+    clientX: 100,
+    clientY: 100,
+  };
+  fireEvent.pointerDown(disc, touch);
+  fireEvent.pointerMove(disc, { ...touch, clientX: 106 });
+  act(() => {
+    vi.advanceTimersByTime(500);
+  });
+  fireEvent.pointerUp(disc, touch);
+  fireEvent.click(disc);
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: 'Tidy up' })).not.toBeInTheDocument();
+  const menu = screen.getByRole('menu', { name: 'Graph item actions' });
+  fireEvent.click(within(menu).getByRole('menuitem', { name: 'Fold branch' }));
+  expect(within(screen.getByRole('tree')).getAllByRole('treeitem')).toHaveLength(1);
+  const foldedNode = container.querySelector('[data-graph-node="project"]');
+  if (foldedNode === null) throw new Error('The folded graph node is missing.');
+  fireEvent.pointerDown(foldedNode, { button: 2, pointerId: 2, pointerType: 'mouse' });
+  fireEvent.contextMenu(foldedNode);
+  fireEvent.click(screen.getByRole('menuitem', { name: 'Open Project' }));
+  expect(onOpen).toHaveBeenCalledExactlyOnceWith('project');
 });
 
 it('reads separate saved arrangements for each layout and keeps the legacy radial entry', () => {

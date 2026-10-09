@@ -174,10 +174,14 @@ export function PetMessageText({
 }): ReactElement {
   const parsed = format === 'markdown' ? markdownToDocument(text) : undefined;
   if (!parsed?.ok) {
-    return <Text className="whitespace-pre-wrap break-words">{plainText(text, workspaceId)}</Text>;
+    return (
+      <Text className="min-w-0 whitespace-pre-wrap wrap-anywhere">
+        {plainText(text, workspaceId)}
+      </Text>
+    );
   }
   return (
-    <div className="flex min-w-0 flex-col gap-3 break-words">
+    <div className="flex min-w-0 max-w-full flex-col gap-3 wrap-anywhere">
       {messageNode(nixSchema.nodeFromJSON(parsed.doc), workspaceId, [])}
     </div>
   );

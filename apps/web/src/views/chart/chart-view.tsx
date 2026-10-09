@@ -139,7 +139,7 @@ export function ChartBody({ chart, fields = [] }: ChartBodyProps): ReactNode {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <Text as="h3" variant="h6">
         {caption}
       </Text>
@@ -362,7 +362,12 @@ function Drawing({
         <div className="flex flex-col gap-3">
           <YearGrid cells={cells} label={caption} unit={unit} />
           <details>
-            <summary className={cn('cursor-pointer rounded-sm py-1', focusRing)}>
+            <summary
+              className={cn(
+                'cursor-pointer rounded-sm py-1 any-pointer-coarse:min-h-(--control-lg)',
+                focusRing,
+              )}
+            >
               <Text as="span" variant="bodySmall">
                 Every day as a table
               </Text>
@@ -480,7 +485,7 @@ function BarTable({
         aria-label={caption}
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
         tabIndex={0}
-        className={cn('overflow-x-auto rounded-sm', focusRing)}
+        className={cn('min-w-0 max-w-full overflow-x-auto rounded-sm', focusRing)}
       >
         <table className="w-full border-collapse">
           <caption className="sr-only">{caption}</caption>

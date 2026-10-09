@@ -31,7 +31,7 @@ export function PetChatViewport({
   }, [latestKey]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="mx-auto flex min-h-0 min-w-0 w-full max-w-4xl flex-1 flex-col">
       <div
         ref={viewport}
         role="log"
@@ -40,7 +40,7 @@ export function PetChatViewport({
         // Scrollable conversation content must be reachable for keyboard scrolling.
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
-        className={`flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto overscroll-contain p-4 ${focusRing}`}
+        className={`flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain p-3 @sm:gap-5 @sm:p-4 ${focusRing}`}
         onScroll={(event) => {
           const node = event.currentTarget;
           following.current = node.scrollHeight - node.scrollTop - node.clientHeight <= 48;

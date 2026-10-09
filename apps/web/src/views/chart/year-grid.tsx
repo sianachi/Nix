@@ -243,13 +243,13 @@ export function YearGrid({ cells, label, unit, onSelect, selected }: YearGridPro
   return (
     <div
       className={cn(
-        'flex flex-col gap-2',
+        'flex min-w-0 flex-col gap-2',
         interactive
-          ? '[--year-cell:calc(var(--spacing)*7)]'
-          : '[--year-cell:calc(var(--spacing)*3)] pointer-coarse:[--year-cell:calc(var(--spacing)*5)]',
+          ? '[--year-cell:calc(var(--spacing)*7)] any-pointer-coarse:[--year-cell:var(--control-lg)]'
+          : '[--year-cell:calc(var(--spacing)*3)] any-pointer-coarse:[--year-cell:calc(var(--spacing)*5)]',
       )}
     >
-      <div ref={scroller} className="overflow-x-auto p-1 pb-2">
+      <div ref={scroller} className="min-w-0 max-w-full overflow-x-auto p-1 pb-2">
         <div className="flex min-w-fit flex-col gap-1">
           <div className="flex gap-1" aria-hidden="true">
             <span className="w-4 shrink-0" />

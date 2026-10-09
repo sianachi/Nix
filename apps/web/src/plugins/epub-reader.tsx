@@ -138,7 +138,7 @@ export function EpubReader({
 
   if (opening.status === 'opening') {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
+      <div className="flex min-w-0 flex-1 items-center justify-center p-2 sm:p-8">
         <Text variant="note" tone="muted" role="status">
           Opening the book…
         </Text>
@@ -147,7 +147,7 @@ export function EpubReader({
   }
   if (opening.status === 'refused') {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+      <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 p-2 text-center sm:p-8">
         <Text variant="note" role="alert">
           {opening.message}
         </Text>
@@ -159,7 +159,7 @@ export function EpubReader({
   }
   if (chapterCount === 0 || book === null) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
+      <div className="flex min-w-0 flex-1 items-center justify-center p-2 sm:p-8">
         <Text variant="note" tone="muted" role="status">
           This book has no chapters to show.
         </Text>
@@ -187,14 +187,14 @@ export function EpubReader({
   };
 
   return (
-    <section aria-label={`Book: ${title}`} className="flex min-h-0 flex-1 flex-col">
+    <section aria-label={`Book: ${title}`} className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div
         role="toolbar"
         aria-label="Reader controls"
         onKeyDown={onKeyDown}
-        className="flex shrink-0 flex-wrap items-center gap-2 border-b border-divider px-5 py-1.5 sm:px-8"
+        className="flex shrink-0 flex-wrap items-center gap-2 border-b border-divider px-2 py-1.5 sm:px-8"
       >
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-full sm:basis-0">
           <Text as="p" variant="bodySmall" className="truncate font-semibold">
             {title}
           </Text>
@@ -206,7 +206,7 @@ export function EpubReader({
         </div>
         <Popover
           label="Contents"
-          className="w-80"
+          className="w-64 max-w-full sm:w-80"
           trigger={(trigger) => (
             <Button variant="ghost" className="px-2 py-1 text-xs" {...trigger}>
               <Icon icon={List} size="sm" />
@@ -295,7 +295,7 @@ export function EpubReader({
       </div>
 
       {frame === null || 'error' in frame ? (
-        <div className="flex flex-1 items-center justify-center p-8">
+        <div className="flex min-w-0 flex-1 items-center justify-center p-2 sm:p-8">
           <Text variant="note" role="alert">
             {frame === null ? 'This book has no chapters to show.' : frame.error}
           </Text>
@@ -308,7 +308,7 @@ export function EpubReader({
           sandbox=""
           referrerPolicy="no-referrer"
           srcDoc={frame.document}
-          className="min-h-0 w-full flex-1 border-0"
+          className="min-h-0 min-w-0 w-full max-w-full flex-1 border-0"
         />
       )}
     </section>

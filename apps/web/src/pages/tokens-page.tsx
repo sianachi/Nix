@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 
+import { paneScroller } from '../layout/regions';
 import { ColorSpecimen } from './tokens/color-specimen';
 import { RhythmSpecimen } from './tokens/rhythm-specimen';
 import { ShapeSpecimen, SpacingSpecimen } from './tokens/scale-specimen';
@@ -26,11 +27,13 @@ import { Text } from '@nix/ui';
  */
 export function TokensPage(): ReactElement {
   return (
-    <div className="flex flex-col gap-8">
+    <div className={`${paneScroller} flex flex-col gap-6 break-words p-3 sm:gap-8 sm:p-6`}>
       {/* A div, not a <header>: the document has exactly one banner, and it
           is the application header in the root layout. */}
       <div className="flex flex-col gap-3">
-        <Text variant="h1">Industry design tokens</Text>
+        <Text variant="h3" as="h1">
+          Industry design tokens
+        </Text>
         <Text tone="muted" className="max-w-prose">
           Steel-blue on a light technical ground, Barlow Condensed over Barlow, and objects framed
           as blueprint line drawings. Everything below is drawn with token-backed utility classes

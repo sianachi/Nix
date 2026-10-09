@@ -1,4 +1,4 @@
-import { Field, Select, Text } from '@nix/ui';
+import { Checkbox, Field, Select, Text } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 
 import {
@@ -16,7 +16,7 @@ export function PetDeviceSettings(): ReactElement {
   );
   const [surface, setSurface] = useState<PetSurface>(() => readPetSurface());
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-4">
       <Field label="Where the chat opens">
         {(control) => (
           <Select
@@ -40,17 +40,14 @@ export function PetDeviceSettings(): ReactElement {
         )}
       </Field>
       <div className="flex flex-col gap-1">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={inlineContext}
-            onChange={(event) => {
-              setInlineContext(event.currentTarget.checked);
-              writeDevicePreference('inlineContext', String(event.currentTarget.checked));
-            }}
-          />
-          <Text>Send note context with inline AI on this device</Text>
-        </label>
+        <Checkbox
+          label="Send note context with inline AI on this device"
+          checked={inlineContext}
+          onChange={(event) => {
+            setInlineContext(event.currentTarget.checked);
+            writeDevicePreference('inlineContext', String(event.currentTarget.checked));
+          }}
+        />
         <Text variant="note" tone="muted">
           When inline AI is enabled, also sends up to 32 KB of this note to your connected model.
           Off by default; otherwise only the command's text is sent.

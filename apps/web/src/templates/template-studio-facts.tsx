@@ -24,7 +24,7 @@ export function Review({
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           Review
         </Text>
         <Text variant="bodySmall" tone="muted">
@@ -269,11 +269,11 @@ export function TemplateFact({
   readonly value: string;
 }): ReactNode {
   return (
-    <div className="flex items-baseline justify-between gap-4">
+    <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-2">
       <Text variant="caption" tone="muted">
         {label}
       </Text>
-      <Text variant="bodySmall" className="text-right">
+      <Text variant="bodySmall" className="min-w-0 flex-1 text-right">
         {value}
       </Text>
     </div>

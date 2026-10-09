@@ -86,12 +86,14 @@ describe('interactive forms', () => {
     const user = userEvent.setup();
     renderForm(create);
 
-    await user.selectOptions(screen.getByLabelText('Mood'), 'Low');
+    expect(screen.getByRole('combobox', { name: 'Mood' })).toBeRequired();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Low');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByRole('heading', { name: 'Tell us more' }).closest('header')).toHaveFocus();
     await user.click(screen.getByRole('button', { name: 'Send response' }));
     expect(screen.getByText('This answer is required.')).toBeInTheDocument();
 
-    const detail = screen.getByLabelText('What happened?');
+    const detail = screen.getByRole('textbox', { name: 'What happened?' });
     await vi.waitFor(() => {
       expect(detail).toHaveFocus();
     });
@@ -114,7 +116,7 @@ describe('interactive forms', () => {
     const user = userEvent.setup();
     renderForm(create);
 
-    await user.selectOptions(screen.getByLabelText('Mood'), 'Good');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Good');
 
     const button = screen.getByRole('button', { name: 'Send response' });
     // Both taps land before `container.create` has any chance to answer - exactly the double-tap
@@ -134,9 +136,28 @@ describe('interactive forms', () => {
     const user = userEvent.setup();
     renderForm(create);
 
-    await user.selectOptions(screen.getByLabelText('Mood'), 'Good');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Good');
     await user.click(screen.getByRole('button', { name: 'Send response' }));
 
     expect(create).toHaveBeenCalledWith('Good', { mood: 'Good' });
+  });
+
+  it('keeps answers and allows another attempt after the connection fails', async () => {
+    const create = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValueOnce(null);
+    const user = userEvent.setup();
+    renderForm(create);
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Good');
+    await user.click(screen.getByRole('button', { name: 'Send response' }));
+
+    expect(await screen.findByText(/Check the connection and try again/)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Mood' })).toHaveValue('Good');
+    expect(screen.getByRole('button', { name: 'Send response' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await user.click(screen.getByRole('button', { name: 'Send response' }));
+    expect(await screen.findByText('Recorded')).toBeInTheDocument();
+    expect(create).toHaveBeenCalledTimes(2);
   });
 });

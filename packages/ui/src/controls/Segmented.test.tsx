@@ -89,11 +89,11 @@ describe('Segmented', () => {
     );
   });
 
-  it('grows each segment to the 44px touch step on a coarse pointer', () => {
+  it('grows each segment to the 44px touch step when any pointer is coarse', () => {
     render(<Segmented label="Calendar grain" options={GRAINS} value="week" onChange={vi.fn()} />);
 
     expect(screen.getByRole('button', { name: 'Week' }).className).toContain(
-      'pointer-coarse:min-h-(--control-lg)',
+      'any-pointer-coarse:min-h-(--control-lg)',
     );
   });
 

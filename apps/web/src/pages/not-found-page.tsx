@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 
 import { EmptyPanel } from '../components/states/status-panels';
+import { paneScroller } from '../layout/regions';
 
 import { Button } from '@nix/ui';
 
@@ -15,19 +16,21 @@ export function NotFoundPage(): ReactElement {
   const navigate = useNavigate();
 
   return (
-    <EmptyPanel
-      title="No such page"
-      detail={`Nothing is routed at ${location.pathname}. The link may be out of date, or the workspace may have moved.`}
-      action={
-        <Button
-          variant="secondary"
-          onClick={() => {
-            void navigate('/');
-          }}
-        >
-          Back to start
-        </Button>
-      }
-    />
+    <div className={`${paneScroller} break-words p-3 sm:p-4`}>
+      <EmptyPanel
+        title="No such page"
+        detail={`Nothing is routed at ${location.pathname}. The link may be out of date, or the workspace may have moved.`}
+        action={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void navigate('/');
+            }}
+          >
+            Back to start
+          </Button>
+        }
+      />
+    </div>
   );
 }

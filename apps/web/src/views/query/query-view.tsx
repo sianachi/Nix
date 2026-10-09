@@ -1,4 +1,4 @@
-import { Button, Checkbox, Icon, Menu, Text, cn, focusRing } from '@nix/ui';
+import { Button, Checkbox, ContextMenu, Icon, Menu, Text, cn, focusRing } from '@nix/ui';
 import { Ellipsis, TriangleAlert } from 'lucide-react';
 import { lazy, Suspense, useState, type ReactNode } from 'react';
 
@@ -146,7 +146,7 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   }
 
   return (
-    <div className="flex flex-col gap-2" aria-busy={run.refreshing}>
+    <div className="flex min-w-0 flex-col gap-2" aria-busy={run.refreshing}>
       <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="secondary"
@@ -163,7 +163,12 @@ export function QueryView(props: ViewRendererProps): ReactNode {
         </Button>
         {picking ? (
           <>
-            <Text variant="note" tone="muted" as="span">
+            <Text
+              variant="note"
+              tone="muted"
+              as="span"
+              className="min-w-0 max-w-full wrap-anywhere"
+            >
               {examples.size === 0
                 ? 'Tick the items this list is meant to hold.'
                 : `${String(examples.size)} ${examples.size === 1 ? 'example' : 'examples'} ticked.`}
@@ -253,83 +258,118 @@ export function QueryView(props: ViewRendererProps): ReactNode {
           const owner = { title: row.title ?? '', properties: row.properties };
 
           return (
-            <li key={row.id} className="flex items-start gap-3 border-b border-divider py-3">
-              <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <div className="flex items-start gap-2">
-                  {picking ? (
-                    <Checkbox
-                      aria-label={`Use ${row.title ?? 'Untitled'} as an example`}
-                      checked={examples.has(row.id)}
-                      onChange={(event) => {
-                        const next = new Set(examples);
-                        if (event.target.checked) {
-                          next.add(row.id);
-                        } else {
-                          next.delete(row.id);
-                        }
-                        setExamples(next);
-                      }}
-                    />
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpen(row.id);
-                    }}
-                    className={cn(
-                      'min-w-0 flex-1 cursor-default text-left font-semibold hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
-                      focusRing,
-                    )}
-                  >
-                    {row.title ?? 'Untitled'}
-                  </button>
-                </div>
-                {row.containerTitle === null ? null : (
-                  <Text variant="note" tone="muted" as="span">
-                    in {row.containerTitle}
-                  </Text>
-                )}
-
-                {/* The values the query matched on, so a row says why it is here. The rule
-                  properties are the view's own filters, deduplicated - a rule pair over one
-                  property (Overdue's due/done) shows each key once. */}
-                <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  {[...new Set(ruleConditions(view.filters).map((rule) => rule.property))].map(
-                    (key) => {
-                      const text = readPropertyText(owner, key);
-                      return text.length === 0 ? null : (
-                        <Text key={key} variant="note" tone="muted" as="span">
-                          {text}
-                        </Text>
-                      );
-                    },
-                  )}
-                </div>
-              </div>
-              <Menu
-                label={`Actions for ${row.title ?? 'Untitled'}`}
-                items={[
-                  {
-                    kind: 'action',
-                    label: 'Hide for me',
-                    onSelect: () => {
-                      visibility.hide(row.id, row.title ?? 'Untitled');
-                    },
+            <ContextMenu
+              key={row.id}
+              label={`Actions for ${row.title ?? 'Untitled'}`}
+              items={[
+                {
+                  label: 'Open',
+                  onSelect: () => {
+                    onOpen(row.id);
                   },
-                ]}
-              >
-                {(trigger) => (
-                  <Button
-                    {...trigger}
-                    variant="ghost"
-                    className="shrink-0"
-                    aria-label={`Actions for ${row.title ?? 'Untitled'}`}
+                },
+                {
+                  label: 'Hide for me',
+                  onSelect: () => {
+                    visibility.hide(row.id, row.title ?? 'Untitled');
+                  },
+                },
+              ]}
+            >
+              {(target) => (
+                <li
+                  {...target}
+                  className="flex min-w-0 items-start gap-2 border-b border-divider py-3 sm:gap-3"
+                >
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <div className="flex items-start gap-2">
+                      {picking ? (
+                        <Checkbox
+                          aria-label={`Use ${row.title ?? 'Untitled'} as an example`}
+                          checked={examples.has(row.id)}
+                          onChange={(event) => {
+                            const next = new Set(examples);
+                            if (event.target.checked) {
+                              next.add(row.id);
+                            } else {
+                              next.delete(row.id);
+                            }
+                            setExamples(next);
+                          }}
+                        />
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpen(row.id);
+                        }}
+                        className={cn(
+                          'min-w-0 flex-1 cursor-default wrap-anywhere text-left font-semibold hover:text-accent-text any-pointer-coarse:min-h-(--control-lg)',
+                          focusRing,
+                        )}
+                      >
+                        {row.title ?? 'Untitled'}
+                      </button>
+                    </div>
+                    {row.containerTitle === null ? null : (
+                      <Text
+                        variant="note"
+                        tone="muted"
+                        as="span"
+                        className="min-w-0 max-w-full wrap-anywhere"
+                      >
+                        in {row.containerTitle}
+                      </Text>
+                    )}
+
+                    {/* The values the query matched on, so a row says why it is here. The rule
+                      properties are the view's own filters, deduplicated - a rule pair over one
+                      property (Overdue's due/done) shows each key once. */}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1">
+                      {[...new Set(ruleConditions(view.filters).map((rule) => rule.property))].map(
+                        (key) => {
+                          const text = readPropertyText(owner, key);
+                          return text.length === 0 ? null : (
+                            <Text
+                              key={key}
+                              variant="note"
+                              tone="muted"
+                              as="span"
+                              className="min-w-0 max-w-full wrap-anywhere"
+                            >
+                              {text}
+                            </Text>
+                          );
+                        },
+                      )}
+                    </div>
+                  </div>
+                  <Menu
+                    label={`Actions for ${row.title ?? 'Untitled'}`}
+                    items={[
+                      {
+                        kind: 'action',
+                        label: 'Hide for me',
+                        onSelect: () => {
+                          visibility.hide(row.id, row.title ?? 'Untitled');
+                        },
+                      },
+                    ]}
                   >
-                    <Icon icon={Ellipsis} size="sm" />
-                  </Button>
-                )}
-              </Menu>
-            </li>
+                    {(trigger) => (
+                      <Button
+                        {...trigger}
+                        variant="ghost"
+                        className="shrink-0"
+                        aria-label={`Actions for ${row.title ?? 'Untitled'}`}
+                      >
+                        <Icon icon={Ellipsis} size="sm" />
+                      </Button>
+                    )}
+                  </Menu>
+                </li>
+              )}
+            </ContextMenu>
           );
         })}
       </ul>

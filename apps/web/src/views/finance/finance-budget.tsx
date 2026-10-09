@@ -203,7 +203,7 @@ export function FinanceBudget({
     ? ' This month is closed.'
     : ' Choose a plan to change it, or an actual to see and record what is behind it.';
   return (
-    <div className="flex flex-col gap-4">
+    <div className="@container flex min-w-0 flex-col gap-4">
       <SectionHeading
         id="finance-budget-title"
         title="Budget"
@@ -589,7 +589,7 @@ const EMPTY_CELL: BudgetCell = { month: '', plan: 0, actual: 0, variance: 0, tra
  * a column of numbers.
  */
 const cellButton = cn(
-  '-mx-1 rounded px-1 py-0.5 text-right tabular-nums transition-colors',
+  '-mx-1 rounded px-1 py-0.5 text-right tabular-nums transition-colors any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg)',
   // A dotted rule beneath says at rest that the figure is a control; the ring is inset because
   // the last column sits against the edge of a horizontal scroll clip.
   'underline decoration-dotted decoration-divider underline-offset-4',

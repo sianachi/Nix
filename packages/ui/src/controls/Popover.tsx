@@ -159,16 +159,16 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
   // An outside pointerdown closes it, as every other disclosure in this package does. The trigger
   // is not "outside": its own click toggles the panel, and closing here first would reopen it.
   useEffect(() => {
-    function onPointerDown(event: MouseEvent): void {
+    function onPointerDown(event: PointerEvent): void {
       const target = event.target as Node;
       if (triggerRef.current?.contains(target) === true) return;
       if (panelRef.current?.contains(target) === true) return;
       latest.current(false);
     }
 
-    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown);
     return () => {
-      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('pointerdown', onPointerDown);
     };
   }, [triggerRef]);
 
@@ -199,8 +199,8 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
         chromeSurface,
         // design-token-exempt: the same reading-measure floor and phone bottom-sheet concession as
         // `<Menu>`'s panel, so a popover and a menu opened from one toolbar look like one family.
-        'min-w-[220px] max-w-[calc(100vw-16px)]',
-        'max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto! max-sm:left-0! max-sm:max-h-[min(80vh,100dvh)] max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none max-sm:pb-[max(var(--spacing)*3,env(safe-area-inset-bottom))]',
+        'min-w-0 max-w-[calc(100vw-16px)] sm:min-w-[220px]',
+        'max-sm:rounded-b-none max-sm:pb-[max(var(--spacing)*3,env(safe-area-inset-bottom))]',
         className,
       )}
     >

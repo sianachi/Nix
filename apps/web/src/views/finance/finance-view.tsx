@@ -113,7 +113,7 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
       aria-busy={state.refreshing}
     >
       {state.refreshError === null ? null : (
-        <div role="alert" className="flex items-start gap-2 border border-divider p-3">
+        <div role="alert" className="flex flex-wrap items-start gap-2 border border-divider p-3">
           <Icon icon={TriangleAlert} className="size-4 text-accent-text" />
           <Text variant="note" as="span" tone="accent">
             {state.refreshError} The figures may be out of date.
@@ -123,9 +123,9 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
           </Button>
         </div>
       )}
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-divider pb-4">
-        <div>
-          <Text as="h2" variant="h2" id="finance-title">
+      <header className="flex min-w-0 flex-col gap-4 border-b border-divider pb-4 @3xl:flex-row @3xl:items-end @3xl:justify-between">
+        <div className="min-w-0">
+          <Text as="h2" variant="h4" id="finance-title">
             Finances
           </Text>
           <Text variant="bodySmall" tone="muted">
@@ -135,7 +135,7 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
               : 'Open month. Record spending as you go.'}
           </Text>
         </div>
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex min-w-0 flex-col gap-3 @3xl:flex-row @3xl:flex-wrap @3xl:items-center">
           <MonthNav
             month={month}
             min={finance.settings.startMonth}
@@ -143,7 +143,7 @@ export function FinanceView({ container }: FinanceViewProps): ReactNode {
             onChange={setMonth}
             current={finance.currentMonth}
           />
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <div className="grid min-w-0 grid-cols-1 gap-2 @sm:grid-cols-2 @3xl:flex @3xl:flex-wrap">
             {section === 'transactions' ? null : (
               <Button
                 onClick={() => {

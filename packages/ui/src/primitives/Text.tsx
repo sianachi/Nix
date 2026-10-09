@@ -156,7 +156,7 @@ const BODY_SIZED_VARIANTS = [
 const heading = 'font-heading font-semibold tracking-tight';
 const body = 'font-body font-normal';
 
-const textVariants = cva('break-words', {
+const textVariants = cva('wrap-anywhere', {
   variants: {
     variant: {
       h1: `text-3xl ${heading}`,

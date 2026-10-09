@@ -68,7 +68,7 @@ export function ChartTable({ caption, rowHeader, rows, columns }: ChartTableProp
       aria-label={caption}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
       tabIndex={0}
-      className={cn('overflow-x-auto rounded-sm', focusRing)}
+      className={cn('min-w-0 max-w-full overflow-x-auto rounded-sm', focusRing)}
     >
       <Table
         caption={caption}

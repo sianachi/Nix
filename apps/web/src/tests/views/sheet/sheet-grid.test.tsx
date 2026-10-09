@@ -1,5 +1,6 @@
-import { SHEET_COLUMN_WIDTH, readMeta, setColumnWidth, writeCell } from '@nix/sheet';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { SHEET_COLUMN_WIDTH, readCells, readMeta, setColumnWidth, writeCell } from '@nix/sheet';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
@@ -61,6 +62,75 @@ beforeEach(() => {
       disconnect = vi.fn();
     },
   );
+});
+
+describe('touch cell actions', () => {
+  it('opens actions for the held cell and clears that cell without changing another', () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new Y.Doc();
+      writeCell(doc, { row: 0, col: 0 }, 'Keep');
+      writeCell(doc, { row: 1, col: 1 }, 'Clear');
+      renderGrid(doc);
+      fireEvent.pointerDown(screen.getByRole('gridcell', { name: 'B2, Clear' }), {
+        pointerType: 'touch',
+        isPrimary: true,
+        clientX: 20,
+        clientY: 20,
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      expect(screen.getByRole('menu', { name: 'Spreadsheet cell actions' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Clear B2' }));
+      expect(readCells(doc).get('B2')).toBeUndefined();
+      expect(readCells(doc).get('A1')).toBe('Keep');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps focus in the cell editor opened through the context menu', async () => {
+    const doc = new Y.Doc();
+    renderGrid(doc);
+    screen.getByRole('grid').focus();
+    fireEvent.contextMenu(screen.getByRole('gridcell', { name: 'B2' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit B2' }));
+    const editor = screen.getByRole('textbox', { name: 'Edit cell B2' });
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    expect(editor).toHaveFocus();
+    fireEvent.change(editor, { target: { value: 'Edited on touch' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(readCells(doc).get('B2')).toBe('Edited on touch');
+  });
+
+  it('applies a formula-bar edit from its visible button', async () => {
+    const user = userEvent.setup();
+    const doc = new Y.Doc();
+    renderGrid(doc);
+    const formula = screen.getByRole('textbox', { name: 'Formula' });
+    await user.click(formula);
+    await user.type(formula, '=2+3');
+    await user.click(screen.getByRole('button', { name: 'Apply cell edit' }));
+    expect(readCells(doc).get('A1')).toBe('=2+3');
+    expect(screen.getByRole('gridcell', { name: 'A1, 5' })).toBeInTheDocument();
+  });
+
+  it('cancels an inline edit without blur saving the discarded draft', async () => {
+    const user = userEvent.setup();
+    const doc = new Y.Doc();
+    writeCell(doc, { row: 0, col: 0 }, 'Original');
+    renderGrid(doc);
+    fireEvent.doubleClick(screen.getByRole('gridcell', { name: 'A1, Original' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit cell A1' }), {
+      target: { value: 'Discard this' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Cancel cell edit' }));
+    expect(readCells(doc).get('A1')).toBe('Original');
+    expect(screen.queryByRole('textbox', { name: 'Edit cell A1' })).toBeNull();
+  });
 });
 
 describe('column resize handle', () => {

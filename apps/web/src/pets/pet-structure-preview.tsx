@@ -47,7 +47,7 @@ export function PetStructurePreview({
       ];
   const counts = countsLine.filter((value): value is string => value !== undefined);
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-2 wrap-anywhere">
       <Text variant="body">{model.headline}</Text>
       <Text variant="note" tone="muted">
         In: {model.destination.path.length ? model.destination.path.join(' / ') : 'Workspace root'}

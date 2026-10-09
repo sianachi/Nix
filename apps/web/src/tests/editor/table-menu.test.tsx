@@ -100,6 +100,18 @@ function rowCount(editor: Editor): number {
 }
 
 describe('the table menu', () => {
+  it('keeps table controls inside a narrow viewport', () => {
+    vi.stubGlobal('innerWidth', 280);
+    const editor = makeEditor([table()]);
+    render(<TableMenu editor={editor} />);
+    placeCaret(editor, 'b2');
+
+    expect(screen.getByRole('toolbar', { name: 'Table tools' })).toHaveStyle({
+      left: '8px',
+      maxWidth: '264px',
+    });
+  });
+
   it('is absent until the caret is in a table', () => {
     const editor = makeEditor([
       { type: 'paragraph', content: [{ type: 'text', text: 'outside' }] },

@@ -136,7 +136,7 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="@container flex min-w-0 flex-col gap-2">
       <Text variant="note" tone="muted" as="p">
         {scope === 'query'
           ? 'Filters run across every container you can read, joined with AND; an "any of" group matches when one of its filters does. A property here is a key that may live in other containers, so it is typed rather than picked.'
@@ -171,7 +171,7 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
         isFilterGroup(rule) ? (
           <fieldset
             key={index}
-            className="flex flex-col gap-2 rounded-md border border-divider p-3"
+            className="flex min-w-0 flex-col gap-2 rounded-md border border-divider p-3"
           >
             <legend className={fieldLabel}>Any of</legend>
             {rule.any.map((condition, inner) => (
@@ -272,8 +272,8 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
   const hint = valueHint(rule);
 
   return (
-    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-      <Field label="Property">
+    <div className="grid min-w-0 grid-cols-1 gap-2 @xl:grid-cols-2 @4xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] @xl:items-end">
+      <Field label="Property" className="min-w-0">
         {(control) => (
           <Input
             {...control}
@@ -286,7 +286,7 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
         )}
       </Field>
 
-      <Field label="Condition">
+      <Field label="Condition" className="min-w-0">
         {(control) => (
           <Select
             {...control}
@@ -314,7 +314,7 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
       </Field>
 
       {operatorTakesValue(rule.operator) ? (
-        <Field label="Value" {...(hint === null ? {} : { hint })}>
+        <Field label="Value" className="min-w-0" {...(hint === null ? {} : { hint })}>
           {(control) => (
             <Input
               {...control}
@@ -332,6 +332,7 @@ function ConditionRow({ rule, listId, onChange, onRemove }: ConditionRowProps): 
 
       <Button
         variant="icon"
+        className="justify-self-start"
         aria-label={`Remove the filter on ${rule.property.length > 0 ? rule.property : 'this property'}`}
         onClick={onRemove}
       >

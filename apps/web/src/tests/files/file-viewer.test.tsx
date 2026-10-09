@@ -1,9 +1,10 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { NixClient } from '@nix/api-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileViewer } from '../../files/file-viewer';
+import { stubViewport } from '../stub-viewport';
 
 let client: NixClient;
 
@@ -60,6 +61,7 @@ function fakeClient(previewable: boolean, mediaType = 'image/png'): NixClient {
 }
 
 beforeEach(() => {
+  stubViewport(true);
   Object.defineProperty(URL, 'createObjectURL', {
     configurable: true,
     value: vi.fn(() => 'blob:nix-preview'),
@@ -132,6 +134,25 @@ describe('the file item viewer', () => {
     expect(within(drawer).getByRole('button', { name: 'Download version 1' })).toBeEnabled();
 
     await user.click(details);
+    expect(screen.queryByRole('complementary', { name: 'File details' })).not.toBeInTheDocument();
+  });
+
+  it('offers file actions from the content and keeps tablet details over the preview', async () => {
+    stubViewport(768);
+    client = fakeClient(false);
+    vi.stubGlobal('fetch', vi.fn());
+    const user = userEvent.setup();
+    render(<FileViewer itemId={ITEM} />);
+    await screen.findAllByText('diagram.png');
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Download 7 B' }));
+    const menu = screen.getByRole('menu', { name: 'File actions' });
+    expect(within(menu).getByRole('menuitem', { name: 'Download' })).toBeEnabled();
+    expect(within(menu).getByRole('menuitem', { name: 'Replace file' })).toBeEnabled();
+    await user.click(within(menu).getByRole('menuitem', { name: 'File info' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'File details' });
+    expect(within(dialog).getByText('Version 1')).toBeVisible();
     expect(screen.queryByRole('complementary', { name: 'File details' })).not.toBeInTheDocument();
   });
 

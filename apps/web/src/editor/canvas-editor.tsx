@@ -57,7 +57,12 @@ function CanvasEditorSession({
   const navigate = useNavigate();
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
-  const [spatial, setSpatial] = useState(false);
+  const [presentation, setPresentation] = useState<'unopened' | 'contents' | 'spatial'>(
+    narrow ? 'unopened' : 'spatial',
+  );
+  // Once a spatial editor opens, keep its undo history and viewport through presentation changes.
+  if (!narrow && presentation === 'unopened') setPresentation('spatial');
+  const spatial = presentation === 'spatial';
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
   const [readOnly, setReadOnly] = useState(false);
@@ -146,75 +151,78 @@ function CanvasEditorSession({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-end gap-1 px-8 py-1.5">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 px-4 py-1.5 sm:px-8">
+        {narrow ? (
+          <div className="mr-auto flex gap-2" role="group" aria-label="Canvas presentation">
+            <Button
+              variant="ghost"
+              aria-pressed={!spatial}
+              onClick={() => {
+                setPresentation((current) => (current === 'unopened' ? current : 'contents'));
+              }}
+            >
+              Contents
+            </Button>
+            <Button
+              variant="ghost"
+              aria-pressed={spatial}
+              aria-label="Spatial canvas"
+              onClick={() => {
+                setPresentation('spatial');
+              }}
+            >
+              Canvas
+            </Button>
+          </div>
+        ) : null}
         <PresenceList awareness={awareness} />
         {itemControls}
       </div>
-
-      {narrow ? (
-        <div className="flex shrink-0 gap-2 px-4 py-2" aria-label="Canvas presentation">
-          <Button
-            variant="ghost"
-            aria-pressed={!spatial}
-            onClick={() => {
-              setSpatial(false);
-            }}
-          >
-            Contents
-          </Button>
-          <Button
-            variant="ghost"
-            aria-pressed={spatial}
-            onClick={() => {
-              setSpatial(true);
-            }}
-          >
-            Spatial canvas
-          </Button>
-        </div>
-      ) : null}
-      <div className="min-h-0 flex-1" aria-label="Canvas body">
+      <div className="min-h-0 min-w-0 flex-1" aria-label="Canvas body">
         {narrow && !spatial ? (
           <CanvasBrowser
             elements={elements}
             onOpen={openItem}
             onSpatial={() => {
-              setSpatial(true);
+              setPresentation('spatial');
             }}
             loading={syncState === 'connecting'}
           />
-        ) : (
-          <Suspense fallback={<Text as="p">Loading spatial canvas…</Text>}>
-            <NixCanvas
-              elements={elements}
-              workspaceId={workspaceId}
-              parentItemId={itemId}
-              awareness={awareness}
-              readOnly={readOnly || stale}
-              allowFileUploads={documentPath === undefined}
-              onChange={(nextElements) => {
-                const binding = bindingRef.current;
-                if (binding === null) {
+        ) : null}
+        {presentation !== 'unopened' ? (
+          <div className={narrow && !spatial ? 'hidden h-full' : 'h-full'}>
+            <Suspense fallback={<Text as="p">Loading spatial canvas…</Text>}>
+              <NixCanvas
+                elements={elements}
+                workspaceId={workspaceId}
+                parentItemId={itemId}
+                awareness={awareness}
+                readOnly={readOnly || stale}
+                allowFileUploads={documentPath === undefined}
+                onChange={(nextElements) => {
+                  const binding = bindingRef.current;
+                  if (binding === null) {
+                    setElements((current) =>
+                      sceneFingerprint(current) === sceneFingerprint(nextElements)
+                        ? current
+                        : [...nextElements],
+                    );
+                    return;
+                  }
+                  binding.applyLocal(nextElements);
+                  // The map may already hold a newer remote version. Render the accepted merged scene,
+                  // never an optimistic local array that the binding just rejected.
+                  const snapshot = binding.snapshot();
                   setElements((current) =>
-                    sceneFingerprint(current) === sceneFingerprint(nextElements)
-                      ? current
-                      : [...nextElements],
+                    sceneFingerprint(current) === sceneFingerprint(snapshot) ? current : snapshot,
                   );
-                  return;
-                }
-                binding.applyLocal(nextElements);
-                // The map may already hold a newer remote version. Render the accepted merged scene,
-                // never an optimistic local array that the binding just rejected.
-                const snapshot = binding.snapshot();
-                setElements((current) =>
-                  sceneFingerprint(current) === sceneFingerprint(snapshot) ? current : snapshot,
-                );
-              }}
-              onOpenItem={openItem}
-            />
-          </Suspense>
-        )}
+                }}
+                onOpenItem={openItem}
+              />
+            </Suspense>
+          </div>
+        ) : null}
       </div>
 
       <DocumentIssueDialog

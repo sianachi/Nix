@@ -1,4 +1,4 @@
-import { Blueprint, Button, SkeletonLines, Text } from '@nix/ui';
+import { Blueprint, Button, SkeletonLines, Text, focusRing } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 
@@ -211,7 +211,7 @@ export function LaunchPage(): ReactNode {
   if (phase.name === 'finished') {
     const [first] = phase.created;
     return (
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 p-6">
+      <div className="mx-auto flex min-w-0 w-full max-w-3xl flex-col gap-3 p-3 sm:p-6">
         <ErrorPanel
           title={
             phase.created.length === 0
@@ -224,10 +224,10 @@ export function LaunchPage(): ReactNode {
               : `${String(phase.created.length)} ${phase.created.length === 1 ? 'note was' : 'notes were'} created.`
           }
           action={
-            <div className="flex flex-col gap-3">
-              <ul className="flex list-disc flex-col gap-1 pl-5">
+            <div className="flex min-w-0 w-full flex-col gap-3">
+              <ul className="flex min-w-0 list-disc flex-col gap-1 pl-5">
                 {phase.problems.map((problem) => (
-                  <Text as="li" variant="bodySmall" key={problem}>
+                  <Text as="li" variant="bodySmall" className="wrap-anywhere" key={problem}>
                     {problem}
                   </Text>
                 ))}
@@ -235,16 +235,21 @@ export function LaunchPage(): ReactNode {
               <div className="flex flex-wrap gap-2">
                 {first === undefined ? null : (
                   <Button
+                    className="h-auto min-h-(--control-md) min-w-0 max-w-full wrap-anywhere whitespace-normal py-2 any-pointer-coarse:h-auto any-pointer-coarse:min-h-(--control-lg)"
                     onClick={() =>
                       void navigate(`${home}?item=${encodeURIComponent(first.itemId)}`, {
                         replace: true,
                       })
                     }
                   >
-                    Open {first.title}
+                    <span className="min-w-0 wrap-anywhere">Open {first.title}</span>
                   </Button>
                 )}
-                <Button variant="secondary" onClick={() => void navigate(home, { replace: true })}>
+                <Button
+                  variant="secondary"
+                  className="h-auto min-h-(--control-md) max-w-full whitespace-normal py-2 any-pointer-coarse:h-auto any-pointer-coarse:min-h-(--control-lg)"
+                  onClick={() => void navigate(home, { replace: true })}
+                >
                   Go to the workspace
                 </Button>
               </div>
@@ -256,7 +261,7 @@ export function LaunchPage(): ReactNode {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-8">
+    <div className="mx-auto min-w-0 w-full max-w-3xl p-3 sm:p-8">
       <SkeletonLines label={workingLabel(intent?.kind)} heading />
     </div>
   );
@@ -282,7 +287,7 @@ function skippedProblems(received: LaunchedFiles | null): string[] {
  * The one step between a launch address and a new note: where it goes, what it will say, and a
  * button that is the only way to make it. Shared text is shown as the plain text it will become.
  */
-function ConfirmLaunch(props: {
+export function ConfirmLaunch(props: {
   readonly intent: Extract<LaunchIntent, { kind: 'new' | 'share' }>;
   readonly workspaceName: string;
   readonly onConfirm: () => void;
@@ -290,25 +295,30 @@ function ConfirmLaunch(props: {
 }): ReactNode {
   const { intent, workspaceName, onConfirm, onCancel } = props;
   return (
-    <div className="mx-auto w-full max-w-2xl p-6">
-      <Blueprint className="flex flex-col gap-4 p-6">
-        <Text as="h1" variant="h3">
+    <div className="mx-auto min-w-0 w-full max-w-2xl p-3 sm:p-6">
+      <Blueprint className="flex min-w-0 flex-col gap-4 p-3 sm:p-6">
+        <Text as="h1" variant="h5" className="wrap-anywhere">
           {intent.kind === 'share'
             ? `Save this to ${workspaceName}?`
             : `Create a note in ${workspaceName}?`}
         </Text>
         {intent.kind === 'share' ? (
-          <div role="group" aria-label="What will be saved" className="flex flex-col gap-2">
-            <Text variant="h5">{sharedNoteTitle(intent)}</Text>
+          <div role="group" aria-label="What will be saved" className="flex min-w-0 flex-col gap-2">
+            <Text as="h2" variant="h6" className="wrap-anywhere">
+              {sharedNoteTitle(intent)}
+            </Text>
             {intent.text === '' ? null : (
-              <Text
-                as="p"
-                variant="bodySmall"
-                tone="muted"
-                className="line-clamp-6 whitespace-pre-wrap"
+              <div
+                role="region"
+                aria-label="Shared text"
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: the shared-text preview scrolls and needs keyboard access.
+                tabIndex={0}
+                className={`${focusRing} max-h-64 overflow-y-auto`}
               >
-                {intent.text}
-              </Text>
+                <Text as="p" variant="bodySmall" className="wrap-anywhere whitespace-pre-wrap">
+                  {intent.text}
+                </Text>
+              </div>
             )}
             {intent.url === null || intent.text.includes(intent.url) ? null : (
               <Text as="p" variant="bodySmall" className="break-all">

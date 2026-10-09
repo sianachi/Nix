@@ -9,7 +9,7 @@ import { formatMoney, formatMoneyRound, formatMonth, shiftMonth } from './money'
  * the same for pointer and keyboard.
  */
 export const editableTextButton = cn(
-  '-mx-1 rounded px-1 py-0.5 text-left',
+  '-mx-1 rounded px-1 py-0.5 text-left any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg)',
   'underline decoration-dotted decoration-divider underline-offset-4',
   inkWashStates,
   focusRing,
@@ -28,7 +28,7 @@ export function Money({
   readonly round?: boolean;
 }): ReactNode {
   return (
-    <span className="tabular-nums">
+    <span className="break-words tabular-nums">
       {round ? formatMoneyRound(amount, currency) : formatMoney(amount, currency, { signed })}
     </span>
   );
@@ -47,11 +47,11 @@ export function Tile({
   readonly children?: ReactNode;
 }): ReactNode {
   return (
-    <div className="flex flex-col gap-1 rounded-lg bg-surface-raised p-3">
+    <div className="flex min-w-0 flex-col gap-1 rounded-lg bg-surface-raised p-3">
       <Text variant="caption" tone="muted">
         {label}
       </Text>
-      <Text as="p" variant="h4">
+      <Text as="p" variant="h4" className="break-words">
         {value}
       </Text>
       {caption === undefined ? null : (
@@ -105,7 +105,10 @@ export function MonthNav({
   readonly current?: string;
 }): ReactNode {
   return (
-    <div className="flex flex-wrap items-center gap-2" aria-label="Choose a month">
+    <div
+      className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 @lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
+      aria-label="Choose a month"
+    >
       <Button
         variant="secondary"
         aria-label="Previous month"
@@ -117,6 +120,7 @@ export function MonthNav({
         <ChevronLeft size={18} aria-hidden="true" />
       </Button>
       <Select
+        className="min-w-0"
         aria-label="Month"
         value={month}
         onChange={(event) => {
@@ -156,6 +160,7 @@ export function MonthNav({
       {current === undefined ? null : (
         <Button
           variant="ghost"
+          className="col-span-3 @lg:col-span-1"
           disabled={month === current}
           onClick={() => {
             onChange(current);
@@ -180,9 +185,9 @@ export function SectionHeading({
   readonly actions?: ReactNode;
 }): ReactNode {
   return (
-    <header className="flex flex-col gap-3 border-b border-divider pb-3 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <Text as="h3" variant="h3" id={id}>
+    <header className="flex min-w-0 flex-col gap-3 border-b border-divider pb-3 @lg:flex-row @lg:items-end @lg:justify-between">
+      <div className="min-w-0">
+        <Text as="h3" variant="h4" id={id}>
           {title}
         </Text>
         {detail === undefined ? null : (

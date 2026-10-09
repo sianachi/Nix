@@ -61,7 +61,7 @@ export function Field(props: FieldProps): ReactNode {
   const describedBy = invalid ? errorId : hint === undefined ? undefined : hintId;
 
   return (
-    <div className={cn('flex flex-col gap-1', className)}>
+    <div className={cn('flex min-w-0 flex-col gap-1 wrap-anywhere', className)}>
       {/* The muted role rather than a translucent ink wash, here and on the hint below: at these
           sizes an ink wash falls under the 4.5:1 contrast floor, and a label nobody can read is
           not a subtle label. A ramp step would have been the light ground's answer baked in -

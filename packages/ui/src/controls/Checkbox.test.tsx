@@ -16,6 +16,9 @@ describe('Checkbox', () => {
     render(<Checkbox aria-label="Select row" />);
 
     expect(screen.getByRole('checkbox', { name: 'Select row' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox').parentElement).toHaveClass(
+      'any-pointer-coarse:size-(--control-lg)',
+    );
   });
 
   it('is reachable and toggled from the keyboard', async () => {

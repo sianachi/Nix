@@ -8,9 +8,18 @@ import {
   columnLetters,
   formatCellValue,
   isSheetError,
+  parseCellKey,
   rangeContains,
 } from '@nix/sheet';
-import { Text, cn, dragHandleLineStates, fieldLabel, focusRingInset, gridRangeCell } from '@nix/ui';
+import {
+  ContextMenu,
+  Text,
+  cn,
+  dragHandleLineStates,
+  fieldLabel,
+  focusRingInset,
+  gridRangeCell,
+} from '@nix/ui';
 import {
   Fragment,
   useEffect,
@@ -87,6 +96,8 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const [trapsTab, setTrapsTab] = useState(true);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
+  const menuCellRef = useRef<CellRef | null>(null);
+  const editSettledRef = useRef(false);
   // The latest pointer position and the one frame scheduled to apply it:
   // pointermove fires at the pointer's report rate (well past 60Hz on gaming
   // mice), each event its own task, so moves coalesce to one state write per
@@ -191,28 +202,38 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   const rangeIsCell = range.startRow === range.endRow && range.startCol === range.endCol;
 
   function commitDraft(then: 'down' | 'right' | 'stay'): void {
-    if (selection.mode !== 'edit') {
+    if (selection.mode !== 'edit' || editSettledRef.current) {
       return;
     }
+    editSettledRef.current = true;
     const raw = selection.draft.slice(0, SHEET_LIMITS.maxRawLength);
     if (raw !== activeRaw) {
       sheet.setCell(selection.active, raw);
     }
     dispatch({ type: 'commit', then, bounds });
-    scrollerRef.current?.focus();
+    scrollerRef.current?.focus({ preventScroll: true });
   }
 
   function cancelEdit(): void {
+    editSettledRef.current = true;
     dispatch({ type: 'cancel' });
-    scrollerRef.current?.focus();
+    scrollerRef.current?.focus({ preventScroll: true });
   }
 
   function beginEdit(source: 'typing' | 'open' | 'bar', draft: string): void {
+    editSettledRef.current = false;
     dispatch({ type: 'startEdit', draft, source });
   }
 
   function isOccupied(ref: CellRef): boolean {
     return sheet.cells.has(cellKey(ref));
+  }
+
+  function captureMenuCell(target: EventTarget | null): void {
+    menuCellRef.current =
+      target instanceof Element
+        ? parseCellKey(target.closest('[data-sheet-cell]')?.getAttribute('data-sheet-cell') ?? '')
+        : null;
   }
 
   function onGridKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
@@ -457,7 +478,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <FormulaBar
         active={selection.active}
         text={selection.mode === 'edit' ? selection.draft : activeRaw}
@@ -482,7 +503,7 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
         Arrow keys resize the column. Home and End set the narrowest and widest widths.
       </p>
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1">
         {/* The drag surface: it owns move, release and cancel (see the
             handler comments for why the handle must not), keeps the resize
             cursor everywhere the pointer goes, and keeps hover states under
@@ -589,183 +610,231 @@ export function SheetGrid({ sheet }: SheetGridProps): ReactNode {
         </div>
 
         {/* The body: the one real scroller, and the keyboard's home. */}
-        <div
-          ref={scrollerRef}
-          role="grid"
-          aria-label="Spreadsheet"
-          aria-describedby={GRID_HINT_ID}
-          aria-rowcount={bounds.rows}
-          aria-colcount={bounds.cols}
-          aria-activedescendant={selection.mode === 'edit' ? undefined : `sheet-cell-${activeKey}`}
-          aria-multiselectable="true"
-          tabIndex={0}
-          onKeyDown={onGridKeyDown}
-          onScroll={(event) => {
-            setScroll({ top: event.currentTarget.scrollTop, left: event.currentTarget.scrollLeft });
+        <ContextMenu
+          label="Spreadsheet cell actions"
+          items={() => {
+            const ref = menuCellRef.current ?? selection.active;
+            const key = cellKey(ref);
+            return [
+              {
+                label: `Edit ${key}`,
+                onSelect: () => {
+                  commitDraft('stay');
+                  dispatch({ type: 'moveTo', ref, extend: false });
+                  beginEdit('open', sheet.cells.get(key) ?? '');
+                },
+              },
+              {
+                label: `Clear ${key}`,
+                disabled: !sheet.cells.has(key),
+                onSelect: () => {
+                  commitDraft('stay');
+                  sheet.setCell(ref, '');
+                  dispatch({ type: 'moveTo', ref, extend: false });
+                },
+              },
+              { label: 'Undo', onSelect: sheet.undo },
+              { label: 'Redo', onSelect: sheet.redo },
+            ];
           }}
-          onCopy={(event) => {
-            if (selection.mode === 'edit') {
-              return;
-            }
-            event.preventDefault();
-            event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
-          }}
-          onCut={(event) => {
-            if (selection.mode === 'edit') {
-              return;
-            }
-            event.preventDefault();
-            event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
-            sheet.clearRange(range);
-          }}
-          onPaste={(event) => {
-            if (selection.mode === 'edit') {
-              return;
-            }
-            event.preventDefault();
-            const text = event.clipboardData.getData('text/plain');
-            if (text.length > 0) {
-              sheet.pasteBlock({ row: range.startRow, col: range.startCol }, parseTsv(text));
-            }
-          }}
-          className={`absolute bottom-0 left-12 right-0 top-8 overflow-auto outline-none ${focusRingInset}`}
         >
-          <div
-            className="relative"
-            role="presentation"
-            style={{ width: `${String(totalWidth)}px`, height: `${String(totalHeight)}px` }} // design-token-exempt: the scrollable canvas is sized by the grid's own extent, a runtime value
-          >
-            {visibleRows.map((row) => (
-              <div key={row} role="row" aria-rowindex={row + 1} className="contents">
-                {visibleCols.map((col) => {
-                  const key = cellKey({ row, col });
-                  const value = sheet.values.get(key);
-                  const display = value === undefined ? '' : formatCellValue(value);
-                  const failed = value !== undefined && isSheetError(value);
-                  const raw = sheet.cells.get(key);
-                  const inRange = !rangeIsCell && rangeContains(range, { row, col });
-                  const isActive = row === selection.active.row && col === selection.active.col;
-                  const numeric = typeof value === 'number';
-                  const width = widths[col] ?? DEFAULT_COLUMN_WIDTH;
-                  // A number that does not fit shows hash marks, never a
-                  // digit prefix that reads as a smaller number. The label
-                  // keeps the real value, so assistive technology hears it
-                  // and the hover reveals it.
-                  const shown = fitCellText(display, numeric, width);
-                  const overflowed = shown !== display;
-                  // The hover disclosure, most specific first: a hashed
-                  // formula cell shows its value and its formula, a hashed
-                  // literal its value, a fitting formula its raw text.
-                  let titleText: string | undefined;
-                  if (overflowed) {
-                    titleText =
-                      raw !== undefined && raw !== display ? `${display} (${raw})` : display;
-                  } else if (raw !== undefined && raw !== display) {
-                    titleText = raw;
-                  }
-                  // design-token-exempt: a cell's place and size are grid geometry computed at runtime
-                  const cellStyle = {
-                    top: `${String(row * ROW_HEIGHT)}px`,
-                    left: `${String(offsets[col] ?? 0)}px`,
-                    width: `${String(width)}px`,
-                    height: `${String(ROW_HEIGHT)}px`,
-                  };
-                  // Justification: this grid uses aria-activedescendant, where focus stays on the
-                  // role="grid" container and the active cell is only named, not focused. A
-                  // tabIndex here would let Tab escape into individual cells and break that
-                  // pattern.
-                  return (
-                    // eslint-disable-next-line jsx-a11y/interactive-supports-focus
-                    <div
-                      key={col}
-                      id={`sheet-cell-${key}`}
-                      role="gridcell"
-                      aria-colindex={col + 1}
-                      aria-selected={isActive || inRange}
-                      aria-label={`${key}${display.length > 0 ? `, ${display}` : ''}`}
-                      title={titleText}
-                      onMouseDown={(event) => {
-                        // Mouse down rather than click, so a drag begins a
-                        // range from the right corner; shift-click extends.
-                        //
-                        // Checked before we take focus below: a tap that
-                        // lands on a cell the grid already had focused and
-                        // active is a request to edit it, the same door the
-                        // double-click and Enter already open - without it,
-                        // a touch user could select a cell but never edit
-                        // one without a keyboard or a double-tap.
-                        const alreadyFocused =
-                          scrollerRef.current !== null &&
-                          document.activeElement === scrollerRef.current;
-                        event.preventDefault();
-                        scrollerRef.current?.focus();
-                        if (selection.mode === 'edit') {
-                          commitDraft('stay');
-                        }
-                        if (
-                          alreadyFocused &&
-                          !event.shiftKey &&
-                          row === selection.active.row &&
-                          col === selection.active.col
-                        ) {
-                          beginEdit('open', raw ?? '');
-                          return;
-                        }
-                        dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
-                      }}
-                      onDoubleClick={() => {
-                        beginEdit('open', raw ?? '');
-                      }}
-                      // px-2 here is the box overflow.ts's
-                      // CELL_HORIZONTAL_PADDING describes - change both.
-                      className={`absolute overflow-hidden text-ellipsis border-b border-r border-divider px-2 py-1.5 text-sm whitespace-nowrap ${
-                        numeric ? 'text-right' : 'text-left'
-                      } ${failed ? 'font-semibold underline decoration-dotted decoration-2' : ''} ${
-                        inRange ? gridRangeCell : ''
-                      } ${isActive ? 'outline-2 -outline-offset-2 outline-accent' : ''}`}
-                      style={cellStyle}
-                    >
-                      {shown}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
+          {(target) => (
+            <div
+              {...target}
+              ref={scrollerRef}
+              role="grid"
+              aria-label="Spreadsheet"
+              aria-describedby={GRID_HINT_ID}
+              aria-rowcount={bounds.rows}
+              aria-colcount={bounds.cols}
+              aria-activedescendant={
+                selection.mode === 'edit' ? undefined : `sheet-cell-${activeKey}`
+              }
+              aria-multiselectable="true"
+              tabIndex={0}
+              onContextMenuCapture={(event) => {
+                captureMenuCell(event.target);
+              }}
+              onPointerDownCapture={(event) => {
+                captureMenuCell(event.target);
+              }}
+              onKeyDownCapture={() => {
+                menuCellRef.current = null;
+              }}
+              onKeyDown={onGridKeyDown}
+              onScroll={(event) => {
+                setScroll({
+                  top: event.currentTarget.scrollTop,
+                  left: event.currentTarget.scrollLeft,
+                });
+              }}
+              onCopy={(event) => {
+                if (selection.mode === 'edit') {
+                  return;
+                }
+                event.preventDefault();
+                event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
+              }}
+              onCut={(event) => {
+                if (selection.mode === 'edit') {
+                  return;
+                }
+                event.preventDefault();
+                event.clipboardData.setData('text/plain', rangeToTsv(sheet.cells, range));
+                sheet.clearRange(range);
+              }}
+              onPaste={(event) => {
+                if (selection.mode === 'edit') {
+                  return;
+                }
+                event.preventDefault();
+                const text = event.clipboardData.getData('text/plain');
+                if (text.length > 0) {
+                  sheet.pasteBlock({ row: range.startRow, col: range.startCol }, parseTsv(text));
+                }
+              }}
+              className={`absolute bottom-0 left-12 right-0 top-8 overflow-auto overscroll-contain outline-none ${focusRingInset}`}
+            >
+              <div
+                className="relative"
+                role="presentation"
+                style={{ width: `${String(totalWidth)}px`, height: `${String(totalHeight)}px` }} // design-token-exempt: the scrollable canvas is sized by the grid's own extent, a runtime value
+              >
+                {visibleRows.map((row) => (
+                  <div key={row} role="row" aria-rowindex={row + 1} className="contents">
+                    {visibleCols.map((col) => {
+                      const key = cellKey({ row, col });
+                      const value = sheet.values.get(key);
+                      const display = value === undefined ? '' : formatCellValue(value);
+                      const failed = value !== undefined && isSheetError(value);
+                      const raw = sheet.cells.get(key);
+                      const inRange = !rangeIsCell && rangeContains(range, { row, col });
+                      const isActive = row === selection.active.row && col === selection.active.col;
+                      const numeric = typeof value === 'number';
+                      const width = widths[col] ?? DEFAULT_COLUMN_WIDTH;
+                      // A number that does not fit shows hash marks, never a
+                      // digit prefix that reads as a smaller number. The label
+                      // keeps the real value, so assistive technology hears it
+                      // and the hover reveals it.
+                      const shown = fitCellText(display, numeric, width);
+                      const overflowed = shown !== display;
+                      // The hover disclosure, most specific first: a hashed
+                      // formula cell shows its value and its formula, a hashed
+                      // literal its value, a fitting formula its raw text.
+                      let titleText: string | undefined;
+                      if (overflowed) {
+                        titleText =
+                          raw !== undefined && raw !== display ? `${display} (${raw})` : display;
+                      } else if (raw !== undefined && raw !== display) {
+                        titleText = raw;
+                      }
+                      // design-token-exempt: a cell's place and size are grid geometry computed at runtime
+                      const cellStyle = {
+                        top: `${String(row * ROW_HEIGHT)}px`,
+                        left: `${String(offsets[col] ?? 0)}px`,
+                        width: `${String(width)}px`,
+                        height: `${String(ROW_HEIGHT)}px`,
+                      };
+                      // Justification: this grid uses aria-activedescendant, where focus stays on the
+                      // role="grid" container and the active cell is only named, not focused. A
+                      // tabIndex here would let Tab escape into individual cells and break that
+                      // pattern.
+                      return (
+                        // eslint-disable-next-line jsx-a11y/interactive-supports-focus
+                        <div
+                          key={col}
+                          id={`sheet-cell-${key}`}
+                          data-sheet-cell={key}
+                          role="gridcell"
+                          aria-colindex={col + 1}
+                          aria-selected={isActive || inRange}
+                          aria-label={`${key}${display.length > 0 ? `, ${display}` : ''}`}
+                          title={titleText}
+                          onMouseDown={(event) => {
+                            if (event.button !== 0) return;
+                            // Mouse down rather than click, so a drag begins a
+                            // range from the right corner; shift-click extends.
+                            //
+                            // Checked before we take focus below: a tap that
+                            // lands on a cell the grid already had focused and
+                            // active is a request to edit it, the same door the
+                            // double-click and Enter already open - without it,
+                            // a touch user could select a cell but never edit
+                            // one without a keyboard or a double-tap.
+                            const alreadyFocused =
+                              scrollerRef.current !== null &&
+                              document.activeElement === scrollerRef.current;
+                            event.preventDefault();
+                            scrollerRef.current?.focus({ preventScroll: true });
+                            if (selection.mode === 'edit') {
+                              commitDraft('stay');
+                            }
+                            if (
+                              alreadyFocused &&
+                              !event.shiftKey &&
+                              row === selection.active.row &&
+                              col === selection.active.col
+                            ) {
+                              beginEdit('open', raw ?? '');
+                              return;
+                            }
+                            dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
+                          }}
+                          onDoubleClick={() => {
+                            beginEdit('open', raw ?? '');
+                          }}
+                          // px-2 here is the box overflow.ts's
+                          // CELL_HORIZONTAL_PADDING describes - change both.
+                          className={`absolute overflow-hidden text-ellipsis border-b border-r border-divider px-2 py-1.5 text-sm whitespace-nowrap ${
+                            numeric ? 'text-right' : 'text-left'
+                          } ${failed ? 'font-semibold underline decoration-dotted decoration-2' : ''} ${
+                            inRange ? gridRangeCell : ''
+                          } ${isActive ? 'outline-2 -outline-offset-2 outline-accent' : ''}`}
+                          style={cellStyle}
+                        >
+                          {shown}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
 
-            {selection.mode === 'edit' && selection.editSource !== 'bar' ? (
-              <CellEditor
-                ref={editorRef}
-                ariaLabel={`Edit cell ${activeKey}`}
-                value={selection.draft}
-                maxLength={SHEET_LIMITS.maxRawLength}
-                onChange={(event) => {
-                  dispatch({ type: 'setDraft', draft: event.target.value });
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    commitDraft('down');
-                  } else if (event.key === 'Tab') {
-                    event.preventDefault();
-                    commitDraft('right');
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    cancelEdit();
-                  }
-                }}
-                onBlur={() => {
-                  // Clicking elsewhere commits, as in every spreadsheet; the
-                  // cell handler that took the click has already done so via
-                  // commitDraft when it saw edit mode.
-                  if (selection.mode === 'edit') {
-                    commitDraft('stay');
-                  }
-                }}
-                position={editorStyle}
-              />
-            ) : null}
-          </div>
-        </div>
+                {selection.mode === 'edit' && selection.editSource !== 'bar' ? (
+                  <CellEditor
+                    ref={editorRef}
+                    ariaLabel={`Edit cell ${activeKey}`}
+                    value={selection.draft}
+                    maxLength={SHEET_LIMITS.maxRawLength}
+                    onChange={(event) => {
+                      dispatch({ type: 'setDraft', draft: event.target.value });
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        commitDraft('down');
+                      } else if (event.key === 'Tab') {
+                        event.preventDefault();
+                        commitDraft('right');
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        cancelEdit();
+                      }
+                    }}
+                    onBlur={() => {
+                      // Clicking elsewhere commits, as in every spreadsheet; the
+                      // cell handler that took the click has already done so via
+                      // commitDraft when it saw edit mode.
+                      if (selection.mode === 'edit') {
+                        commitDraft('stay');
+                      }
+                    }}
+                    position={editorStyle}
+                  />
+                ) : null}
+              </div>
+            </div>
+          )}
+        </ContextMenu>
       </div>
 
       {/* Always mounted, so a screen reader announces the text the moment it

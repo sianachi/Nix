@@ -311,6 +311,11 @@ function InsightsStory({
   );
 }
 export const Insights = { render: (): ReactElement => <InsightsStory /> };
+export const TodayPhone = { ...Today, parameters: { viewport: { defaultViewport: 'mobile1' } } };
+export const InsightsPhone = {
+  ...Insights,
+  parameters: { viewport: { defaultViewport: 'mobile1' } },
+};
 export const InsightsDark = { ...Insights, globals: { ground: 'dark' } };
 export const InsightsYearLoading = { render: (): ReactElement => <InsightsStory year="loading" /> };
 export const InsightsYearLoadingDark = { ...InsightsYearLoading, globals: { ground: 'dark' } };

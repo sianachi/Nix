@@ -246,7 +246,7 @@ export function DocumentTabStrip({
       }}
       onDrop={onDrop}
       className={cn(
-        'relative flex',
+        'relative flex min-w-0',
         orientation === 'vertical' ? 'flex-col' : 'flex-row items-center',
         dropTarget === draggedTab &&
           canReceive &&
@@ -284,7 +284,7 @@ export function DocumentTabStrip({
               },
             }
           : {})}
-        className="flex-1"
+        className="min-w-0 flex-1"
       />
 
       <div
@@ -334,7 +334,7 @@ export function DocumentTabStrip({
           }
           onClick={orientationToggled}
           className={cn(
-            'flex shrink-0 items-center justify-center p-1.5 text-muted hover:text-foreground',
+            'flex shrink-0 items-center justify-center p-1.5 text-muted hover:text-foreground any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg)',
             focusRing,
             inkWashStates,
           )}

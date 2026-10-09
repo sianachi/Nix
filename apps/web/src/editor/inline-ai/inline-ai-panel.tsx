@@ -129,6 +129,7 @@ function OpenPanel({
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const panel = useRef<HTMLDivElement | null>(null);
   const output = useRef<HTMLDivElement | null>(null);
+  const followOutput = useRef(true);
   const primary = useRef<HTMLButtonElement | null>(null);
   const keep = useRef<HTMLButtonElement | null>(null);
   const place = useRef<(() => void) | null>(null);
@@ -156,16 +157,16 @@ function OpenPanel({
       if (element === null) return;
       const wide =
         typeof matchMedia === 'function' ? matchMedia('(min-width: 640px)').matches : true;
+      const bounds = readViewportBounds();
       if (!wide) {
-        // A phone: docked to the bottom by the classes, lifted over the keyboard by this one
-        // measurement. The inline position a wide screen sets is cleared so it cannot fight them.
+        // Follow the visible viewport when the keyboard opens or the person zooms and pans.
         element.style.removeProperty('top');
-        element.style.removeProperty('left');
-        element.style.removeProperty('width');
         element.style.removeProperty('transform');
         element.style.removeProperty('max-height');
-        const viewport = window.visualViewport;
-        const bottom = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+        element.style.setProperty('left', `${String(bounds.left + 8)}px`);
+        element.style.setProperty('width', `${String(Math.max(0, bounds.width - 16))}px`);
+        element.style.setProperty('--inline-ai-viewport-height', `${String(bounds.height)}px`);
+        const bottom = bounds.height + bounds.top;
         element.style.setProperty(
           '--keyboard-inset',
           `${String(Math.max(0, window.innerHeight - bottom))}px`,
@@ -174,12 +175,12 @@ function OpenPanel({
       }
       const anchor = anchorRect();
       if (anchor === null) return;
-      const placed = placeFloatingMenu(anchor, PANEL_WIDTH, readViewportBounds(), {
-        minHeight: element.getBoundingClientRect().height + 8,
+      const placed = placeFloatingMenu(anchor, PANEL_WIDTH, bounds, {
+        minHeight: Math.max(element.scrollHeight, element.getBoundingClientRect().height) + 8,
       });
       element.style.setProperty('left', `${String(placed.left)}px`);
       element.style.setProperty('width', `${String(placed.maxWidth)}px`);
-      element.style.setProperty('max-height', `${String(placed.maxHeight)}px`);
+      element.style.setProperty('max-height', `${String(Math.max(0, placed.maxHeight - 4))}px`);
       element.style.setProperty(
         'top',
         `${String(placed.above ? placed.top - 4 : placed.top + 4)}px`,
@@ -198,6 +199,8 @@ function OpenPanel({
     place.current = apply;
     apply();
     const viewport = window.visualViewport;
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    observer?.observe(element);
     window.addEventListener('scroll', schedule, { capture: true, passive: true });
     window.addEventListener('resize', schedule);
     viewport?.addEventListener('resize', schedule);
@@ -210,6 +213,7 @@ function OpenPanel({
       window.removeEventListener('resize', schedule);
       viewport?.removeEventListener('resize', schedule);
       viewport?.removeEventListener('scroll', schedule);
+      observer?.disconnect();
       editor.off('transaction', schedule);
     };
   }, [anchorRect, editor]);
@@ -224,16 +228,23 @@ function OpenPanel({
     if (confirming) keep.current?.focus();
   }, [confirming]);
 
-  // A growing result stays scrolled to its newest words.
+  useEffect(() => {
+    if (streaming) followOutput.current = true;
+  }, [streaming]);
+
+  // Follow new words until the person scrolls back to read an earlier part of the result.
   useEffect(() => {
     const element = output.current;
-    if (streaming && element !== null) element.scrollTop = element.scrollHeight;
+    if (streaming && element !== null && followOutput.current) {
+      element.scrollTop = element.scrollHeight;
+    }
   }, [state.text, streaming]);
 
   // Focus goes where the next decision is: the first control on opening, and the primary action
   // when a result lands - but only if focus was on the panel (the Stop button that just went away)
   // or nowhere, never pulled out of the note a person went back to reading.
   useEffect(() => {
+    if (confirming) return;
     const element = panel.current;
     if (element === null) return;
     const active = document.activeElement;
@@ -244,7 +255,7 @@ function OpenPanel({
         ? (primary.current ?? element)
         : (element.querySelector<HTMLElement>('textarea, select, button') ?? element);
     target.focus();
-  }, [state.phase]);
+  }, [state.phase, confirming]);
 
   // Escape works from the note as well as from the panel: the person may have gone back to the
   // text while a result streams, and the key should still be the way out.
@@ -264,15 +275,15 @@ function OpenPanel({
   }, [discard, editor, stop, streaming]);
 
   useEffect(() => {
-    function onPointerDown(event: MouseEvent): void {
+    function onPointerDown(event: PointerEvent): void {
       const target = event.target;
       if (!(target instanceof Node) || panel.current?.contains(target) === true) return;
       if (worthKeeping) setConfirming(true);
       else discard();
     }
-    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown);
     return () => {
-      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('pointerdown', onPointerDown);
     };
   }, [discard, worthKeeping]);
 
@@ -332,7 +343,7 @@ function OpenPanel({
       </Button>
     ) : null;
     return (
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 [&>button]:max-w-full [&>button]:whitespace-normal">
         {replaceFirst ? replace : insert}
         {replaceFirst ? insert : replace}
         {retry}
@@ -359,10 +370,10 @@ function OpenPanel({
         else controller.discard();
       }}
       className={[
-        'fixed z-30 flex min-w-60 max-w-[calc(100vw-1rem)] flex-col gap-3 rounded-md border border-divider bg-background p-3 shadow-md',
+        'fixed z-30 flex min-w-0 max-w-[calc(100vw-var(--spacing)*4)] flex-col gap-3 overflow-y-auto overscroll-contain rounded-md border border-divider bg-background p-3 shadow-md [&>*]:shrink-0',
         // A phone: the full width above the keyboard, as the mobile toolbar sits.
         // design-token-exempt: the keyboard inset is measured from the runtime visual viewport.
-        'max-sm:inset-x-3 max-sm:bottom-[max(calc(var(--keyboard-inset,0%)+var(--spacing)*3),env(safe-area-inset-bottom))] max-sm:max-w-none',
+        'max-sm:bottom-[max(calc(var(--keyboard-inset,0%)+var(--spacing)*2),env(safe-area-inset-bottom))] max-sm:max-h-[calc(var(--inline-ai-viewport-height,100dvh)-var(--spacing)*4-env(safe-area-inset-bottom))] max-sm:max-w-none',
       ].join(' ')}
     >
       <Text variant="kicker" tone="muted">
@@ -372,7 +383,7 @@ function OpenPanel({
       {confirming ? (
         <div className="flex flex-col gap-2" role="group" aria-label="Discard this text?">
           <Text variant="bodySmall">Discard this text? It has not been added to your note.</Text>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
               ref={keep}
@@ -390,15 +401,12 @@ function OpenPanel({
       ) : (
         <>
           {state.phase === 'choosing' ? (
-            <div
-              role="group"
-              aria-label="Writing commands"
-              className="flex flex-col items-start gap-1"
-            >
+            <div role="group" aria-label="Writing commands" className="flex flex-col gap-1">
               {INLINE_AI_COMMANDS.map((command) => (
                 <Button
                   key={command.id}
                   variant="ghost"
+                  className="min-w-0 justify-start whitespace-normal text-left"
                   onClick={() => {
                     controller.start(command.kind);
                   }}
@@ -406,6 +414,9 @@ function OpenPanel({
                   {command.label}
                 </Button>
               ))}
+              <Button variant="ghost" onClick={controller.discard}>
+                Close
+              </Button>
             </div>
           ) : null}
 
@@ -429,14 +440,20 @@ function OpenPanel({
                   controller.setInstruction(event.target.value);
                 }}
                 onKeyDown={(event) => {
-                  // Enter sends; Shift+Enter is a new line. Composition keeps its own Enter.
-                  if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  const touch =
+                    typeof matchMedia === 'function' && matchMedia('(any-pointer: coarse)').matches;
+                  // Touch keyboards keep Enter for new lines; Ctrl/Cmd+Enter sends everywhere.
+                  if (
+                    event.key === 'Enter' &&
+                    !event.nativeEvent.isComposing &&
+                    (event.ctrlKey || event.metaKey || (!touch && !event.shiftKey))
+                  ) {
                     event.preventDefault();
                     controller.generate();
                   }
                 }}
               />
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={state.instruction.trim() === ''}>
                   Generate
                 </Button>
@@ -485,7 +502,7 @@ function OpenPanel({
                   }}
                 />
               ) : null}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button type="submit" disabled={state.language.trim() === ''}>
                   Translate
                 </Button>
@@ -500,14 +517,21 @@ function OpenPanel({
             // The live region is the output itself, so a screen reader hears the text arrive.
             <div
               ref={output}
+              role="region"
+              aria-label="AI writing result"
               aria-live="polite"
               aria-busy={streaming}
               // Focusable so a keyboard user can scroll a long result with the arrow keys.
               // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
               tabIndex={0}
-              className={`max-h-48 overflow-y-auto rounded-sm border border-divider p-2 ${focusRing}`}
+              onScroll={(event) => {
+                const element = event.currentTarget;
+                followOutput.current =
+                  element.scrollHeight - element.scrollTop - element.clientHeight <= 16;
+              }}
+              className={`min-w-0 max-h-48 overflow-y-auto overscroll-contain rounded-sm border border-divider p-2 ${focusRing}`}
             >
-              <Text variant="bodySmall" className="whitespace-pre-wrap">
+              <Text variant="bodySmall" className="whitespace-pre-wrap wrap-anywhere">
                 {state.text === '' ? 'Writing…' : state.text}
               </Text>
             </div>

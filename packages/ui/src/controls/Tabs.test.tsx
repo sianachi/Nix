@@ -306,6 +306,7 @@ describe('Tabs', () => {
     // The class, not a measured width jsdom cannot lay out - a fixed cap is what leaves the tab
     // after it, and the strip's own scroll and close controls, on screen regardless of the string.
     expect(tab.className).toMatch(/\bmax-w-48\b/);
+    expect(tab.className).toContain('any-pointer-coarse:min-h-(--control-lg)');
     expect(tab.querySelector('span')).toHaveClass('truncate');
 
     // The strip itself must be able to shrink below its content for `overflow-x-auto` to ever

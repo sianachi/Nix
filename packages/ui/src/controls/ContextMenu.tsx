@@ -49,7 +49,8 @@ export interface ContextMenuProps {
   readonly items: readonly MenuEntry[] | (() => readonly MenuEntry[]);
   /**
    * Renders the target - the same element for the life of this component. Spread the argument
-   * onto it.
+   * onto it. Secondary controls without native disclosure/toggle semantics can opt out with
+   * `data-context-menu-ignore`.
    */
   readonly children: (target: ContextMenuTargetProps) => ReactNode;
   readonly renderLink?: (props: MenuLinkRenderProps) => ReactNode;
@@ -66,12 +67,16 @@ const LONG_PRESS_SLOP = 10;
 function hasSelectionWithin(element: HTMLElement): boolean {
   const selection = globalThis.getSelection();
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false;
-  return element.contains(selection.getRangeAt(0).commonAncestorContainer);
+  for (let index = 0; index < selection.rangeCount; index += 1) {
+    if (selection.getRangeAt(index).intersectsNode(element)) return true;
+  }
+  return false;
 }
 
 interface OpenMenu {
   readonly anchor: MenuPanelAnchor;
   readonly items: readonly MenuEntry[];
+  readonly host: HTMLElement;
   /** What held focus when the menu opened, to hand it back to. */
   readonly returnFocus: HTMLElement | null;
 }
@@ -94,6 +99,7 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
     if (element === null) return;
     let press: {
       readonly timer: ReturnType<typeof setTimeout>;
+      readonly pointerId: number;
       readonly x: number;
       readonly y: number;
     } | null = null;
@@ -108,6 +114,7 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
       setOpen({
         anchor,
         items: entries,
+        host: element.closest<HTMLElement>('dialog[open]') ?? document.body,
         returnFocus: active instanceof HTMLElement ? active : null,
       });
       return true;
@@ -122,14 +129,41 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
     const cancelPress = (): void => {
       if (press) clearTimeout(press.timer);
       press = null;
+      document.removeEventListener('pointerdown', onOtherPointerDown, true);
+      document.removeEventListener('pointermove', onPointerMove, true);
+      document.removeEventListener('pointerup', onPointerEnd, true);
+      document.removeEventListener('pointercancel', onPointerEnd, true);
+      document.removeEventListener('scroll', cancelPress, true);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      window.removeEventListener('blur', cancelPress);
+    };
+    const ownsTarget = (target: EventTarget | null): boolean =>
+      target instanceof Element && target.closest('[data-context-menu]') === element;
+    const isNestedControl = (target: EventTarget | null): boolean => {
+      if (!(target instanceof Element)) return false;
+      if (target.closest('[data-context-menu-ignore]')) return true;
+      const control = target.closest(
+        'summary, label, [aria-haspopup], [aria-pressed], [aria-expanded], [role="checkbox"], [role="switch"]',
+      );
+      return control !== null && control !== element && element.contains(control);
     };
 
     const onContextMenu = (event: MouseEvent): void => {
-      if (isEditableTarget(event.target) || hasSelectionWithin(element)) return;
+      if (
+        event.defaultPrevented ||
+        !ownsTarget(event.target) ||
+        isEditableTarget(event.target) ||
+        isNestedControl(event.target) ||
+        hasSelectionWithin(element)
+      )
+        return;
+      const touch =
+        press !== null || (event instanceof PointerEvent && event.pointerType === 'touch');
       cancelPress();
       // The press that already opened this menu is still being held; Android now asks again.
       if (openedByPress) {
         event.preventDefault();
+        event.stopPropagation();
         return;
       }
       // A keyboard-raised menu (Windows sends one after Menu or Shift+F10) has no pointer position.
@@ -138,6 +172,10 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
         ? elementAnchor()
         : { left: event.clientX, top: event.clientY, bottom: event.clientY };
       if (show(anchor)) {
+        if (touch) {
+          swallowClick = true;
+          openedByPress = true;
+        }
         event.preventDefault();
         // A nested target (a row inside a list that has its own menu) answers for itself.
         event.stopPropagation();
@@ -145,7 +183,15 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
     };
     const onKeyDown = (event: KeyboardEvent): void => {
       const asks = event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey);
-      if (!asks || event.defaultPrevented || isEditableTarget(event.target)) return;
+      if (
+        !asks ||
+        event.defaultPrevented ||
+        !ownsTarget(event.target) ||
+        isEditableTarget(event.target) ||
+        isNestedControl(event.target) ||
+        hasSelectionWithin(element)
+      )
+        return;
       if (show(elementAnchor())) {
         // Also stops the browser raising its own `contextmenu` for the same key.
         event.preventDefault();
@@ -155,27 +201,64 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
     const onPointerDown = (event: PointerEvent): void => {
       swallowClick = false;
       openedByPress = false;
-      if (event.pointerType !== 'touch' || isEditableTarget(event.target)) return;
+      if (
+        event.pointerType !== 'touch' ||
+        !event.isPrimary ||
+        event.button !== 0 ||
+        event.defaultPrevented ||
+        !ownsTarget(event.target) ||
+        isEditableTarget(event.target) ||
+        isNestedControl(event.target) ||
+        hasSelectionWithin(element) ||
+        press !== null
+      )
+        return;
       cancelPress();
       const { clientX: x, clientY: y } = event;
       press = {
+        pointerId: event.pointerId,
         x,
         y,
         timer: setTimeout(() => {
-          press = null;
+          cancelPress();
+          if (hasSelectionWithin(element)) return;
           if (show({ left: x, top: y, bottom: y })) {
             swallowClick = true;
             openedByPress = true;
           }
         }, LONG_PRESS_MS),
       };
+      document.addEventListener('pointerdown', onOtherPointerDown, true);
+      document.addEventListener('pointermove', onPointerMove, true);
+      document.addEventListener('pointerup', onPointerEnd, true);
+      document.addEventListener('pointercancel', onPointerEnd, true);
+      document.addEventListener('scroll', cancelPress, true);
+      document.addEventListener('selectionchange', onSelectionChange);
+      window.addEventListener('blur', cancelPress);
+    };
+    const onOtherPointerDown = (event: PointerEvent): void => {
+      if (press && event.pointerId !== press.pointerId) cancelPress();
     };
     const onPointerMove = (event: PointerEvent): void => {
-      if (press && Math.hypot(event.clientX - press.x, event.clientY - press.y) > LONG_PRESS_SLOP)
+      if (
+        press?.pointerId === event.pointerId &&
+        Math.hypot(event.clientX - press.x, event.clientY - press.y) > LONG_PRESS_SLOP
+      )
         cancelPress();
+    };
+    const onPointerEnd = (event: PointerEvent): void => {
+      if (press?.pointerId === event.pointerId) cancelPress();
+    };
+    const onSelectionChange = (): void => {
+      if (hasSelectionWithin(element)) cancelPress();
     };
     // Captured on the target, so the tap that ends a long-press never reaches the row's own click
     // handler - React dispatches those from the root, after this has stopped the event.
+    const onMouseDown = (event: MouseEvent): void => {
+      if (!swallowClick) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
     const onClick = (event: MouseEvent): void => {
       if (!swallowClick) return;
       swallowClick = false;
@@ -186,21 +269,17 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
     element.addEventListener('contextmenu', onContextMenu);
     element.addEventListener('keydown', onKeyDown);
     element.addEventListener('pointerdown', onPointerDown);
-    element.addEventListener('pointermove', onPointerMove);
-    element.addEventListener('pointerup', cancelPress);
-    element.addEventListener('pointercancel', cancelPress);
     // A long press that becomes a drag belongs to the platform's drag, not to this menu.
     element.addEventListener('dragstart', cancelPress);
+    element.addEventListener('mousedown', onMouseDown, { capture: true });
     element.addEventListener('click', onClick, { capture: true });
     return () => {
       cancelPress();
       element.removeEventListener('contextmenu', onContextMenu);
       element.removeEventListener('keydown', onKeyDown);
       element.removeEventListener('pointerdown', onPointerDown);
-      element.removeEventListener('pointermove', onPointerMove);
-      element.removeEventListener('pointerup', cancelPress);
-      element.removeEventListener('pointercancel', cancelPress);
       element.removeEventListener('dragstart', cancelPress);
+      element.removeEventListener('mousedown', onMouseDown, { capture: true });
       element.removeEventListener('click', onClick, { capture: true });
     };
   }, [marker]);
@@ -225,14 +304,14 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
                 setOpen(null);
                 if (!restore) return;
                 const target = open.returnFocus;
-                // After the choice has run: it may have removed or moved the element focus
-                // came from, and focus sent to a detached node lands on nothing.
+                // A choice may remove its target or open an editor that has already taken focus.
                 requestAnimationFrame(() => {
-                  if (target?.isConnected === true) target.focus();
+                  if (target?.isConnected === true && document.activeElement === document.body)
+                    target.focus({ preventScroll: true });
                 });
               }}
             />,
-            document.body,
+            open.host,
           )
         : null}
     </>

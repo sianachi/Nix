@@ -8,6 +8,7 @@ import { TEXT_COLORS, TOGGLE_LEVELS, nixSchema } from '@nix/editor-schema';
 import { calloutClass, headingClass, proseClasses, proseRoot } from '../../editor/prose';
 import {
   DOCUMENT_HEADING_STEP,
+  DOCUMENT_BODY_STEP,
   DOCUMENT_SECONDARY_STEP,
   TOGGLE_SUMMARY_STEP,
 } from '../../editor/prose-type';
@@ -153,9 +154,21 @@ describe('the values these strings are built from', () => {
     // A resizable table is built by prosemirror-tables' own node view, which never receives the
     // `table` entry of `proseClasses`; the look has to reach the element from the root. The
     // step is spelled out with the variant, so this is what keeps it the secondary step.
-    expect(proseRoot).toContain(`[&_.tableWrapper>table]:${DOCUMENT_SECONDARY_STEP}`);
+    for (const step of DOCUMENT_SECONDARY_STEP.split(' ')) {
+      const separator = step.lastIndexOf(':') + 1;
+      expect(proseRoot).toContain(
+        `${step.slice(0, separator)}[&_.tableWrapper>table]:${step.slice(separator)}`,
+      );
+    }
     expect(proseRoot).toContain('[&_.tableWrapper>table]:w-full');
     expect(proseRoot).toContain('[&_.tableWrapper]:overflow-x-auto');
+  });
+
+  it('keeps editable touch text above the mobile focus-zoom threshold', () => {
+    expect(DOCUMENT_BODY_STEP).toBe('text-lg sm:not-any-pointer-coarse:text-md');
+    expect(DOCUMENT_SECONDARY_STEP).toBe('text-lg sm:not-any-pointer-coarse:text-base');
+    expect(proseRoot).toContain('[&_.tableWrapper>table]:text-lg');
+    expect(proseRoot).toContain('sm:not-any-pointer-coarse:[&_.tableWrapper>table]:text-base');
   });
 
   it('keeps the document to a measure', () => {

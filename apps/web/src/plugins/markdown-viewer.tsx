@@ -46,7 +46,13 @@ function RenderedMarkdown({
     [doc],
   );
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+    <div
+      role="region"
+      aria-label={`${fileName} document`}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to scroll documents and wider tables.
+      tabIndex={0}
+      className="min-h-0 min-w-0 flex-1 overflow-auto px-2 py-4 sm:px-8 sm:py-6"
+    >
       <EditorContent editor={editor} />
     </div>
   );
@@ -62,8 +68,8 @@ export function MarkdownViewer({
   const parsed = useMemo(() => markdownToDocument(source), [source]);
   if (!parsed.ok) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <Text variant="note" tone="muted" as="p" role="status" className="px-8 py-2">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <Text variant="note" tone="muted" as="p" role="status" className="px-2 py-2 sm:px-8">
           Shown as source: {parsed.reason}
         </Text>
         <TextViewer fileName={fileName} source={source} />

@@ -100,7 +100,7 @@ export function WorkspaceItemTransfer({
   }
 
   return (
-    <section aria-label="Move to another workspace" className="flex flex-col gap-3">
+    <section aria-label="Move to another workspace" className="flex min-w-0 flex-col gap-3">
       <Text as="p" variant="bodySmall">
         This moves the item and all its children to the top of the selected workspace. Its members
         will have access through that workspace. Existing item grants stay with the item; published

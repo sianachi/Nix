@@ -1,14 +1,17 @@
-import { Blueprint, Button, Field, Input, Text } from '@nix/ui';
+import { Blueprint, Button, ContextMenu, Field, Input, Text, focusRing } from '@nix/ui';
 import { workspaces as coreWorkspaces } from '@nix/api-client';
-import { useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useLayoutEffect, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 
 import { useApiClient } from '../api/api-client-provider';
 import { ErrorPanel, LoadingPanel } from '../components/states/status-panels';
+import { claimZenSurface, toggleZenMode, useZenActive } from '../lib/zen-mode';
 import { useAccessibleWorkspaces } from './workspace-context';
 
 /** Lists workspaces outside everyday navigation so archived work remains recoverable. */
 export function ArchivedWorkspacesPage(): ReactNode {
+  useLayoutEffect(claimZenSurface, []);
+  const zen = useZenActive();
   const client = useApiClient();
   const { status, workspaces, error, reload, workspaceUpdated } = useAccessibleWorkspaces();
   const navigate = useNavigate();
@@ -70,41 +73,48 @@ export function ArchivedWorkspacesPage(): ReactNode {
     }
   }
 
-  if (status === 'loading') return <LoadingPanel label="archived workspaces" />;
-  if (status === 'error') {
-    return (
-      <ErrorPanel
-        title="Archived workspaces could not be loaded"
-        detail={error ?? 'Try again.'}
-        action={
-          <Button variant="secondary" onClick={reload}>
-            Try again
-          </Button>
-        }
-      />
-    );
-  }
-
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-3xl flex-col gap-6 p-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <Text variant="h2" as="h1">
+    <main className="mx-auto flex min-h-dvh w-full min-w-0 max-w-3xl flex-col gap-4 break-words p-3 sm:gap-6 sm:p-6">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 max-sm:basis-full">
+          <Text variant="h3" as="h1">
             Archived workspaces
           </Text>
-          <Text variant="note" tone="muted" className="mt-1 max-w-2xl">
-            Archived workspaces are out of everyday navigation. Restore one to make it available
-            again.
-          </Text>
+          {zen ? null : (
+            <Text variant="note" tone="muted" className="mt-1 hidden max-w-2xl sm:block">
+              Archived workspaces are out of everyday navigation. Restore one to make it available
+              again.
+            </Text>
+          )}
         </div>
-        <Link to="/" className="text-sm text-accent-text underline">
+        <Button variant="secondary" onClick={toggleZenMode} aria-pressed={zen}>
+          {zen ? 'Exit Zen' : 'Enter Zen'}
+        </Button>
+      </div>
+      {zen ? null : (
+        <Link
+          to="/"
+          className={`${focusRing} inline-flex min-h-11 items-center self-start text-sm text-accent-text underline`}
+        >
           Back to workspaces
         </Link>
-      </div>
+      )}
 
       {mutationError === null ? null : <Text role="alert">{mutationError}</Text>}
 
-      {archived.length === 0 ? (
+      {status === 'loading' ? (
+        <LoadingPanel label="archived workspaces" />
+      ) : status === 'error' ? (
+        <ErrorPanel
+          title="Archived workspaces could not be loaded"
+          detail={error ?? 'Try again.'}
+          action={
+            <Button variant="secondary" onClick={reload}>
+              Try again
+            </Button>
+          }
+        />
+      ) : archived.length === 0 ? (
         <Blueprint className="flex flex-col gap-3 p-4">
           <Text>No archived workspaces.</Text>
           <Text variant="note" tone="muted">
@@ -116,7 +126,7 @@ export function ArchivedWorkspacesPage(): ReactNode {
               void createWorkspace(event);
             }}
           >
-            <Field label="New workspace name">
+            <Field label="New workspace name" className="min-w-0 flex-1">
               {(control) => (
                 <Input
                   {...control}
@@ -135,55 +145,84 @@ export function ArchivedWorkspacesPage(): ReactNode {
       ) : (
         <div className="flex flex-col gap-3">
           {archived.map((workspace) => (
-            <Blueprint key={workspace.id} className="flex flex-wrap items-center gap-3 p-4">
-              <div className="min-w-0 flex-1">
-                <Text>{workspace.name}</Text>
-                <Text variant="note" tone="muted">
-                  Archived{' '}
-                  {workspace.archivedAt
-                    ? new Date(workspace.archivedAt).toLocaleDateString()
-                    : 'recently'}
-                </Text>
-              </div>
-              <Button
-                variant="secondary"
-                disabled={restoring !== null || purging !== null}
-                onClick={() => void restore(workspace.id)}
-              >
-                {restoring === workspace.id ? 'Restoring…' : 'Restore workspace'}
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={restoring !== null || purging !== null}
-                onClick={() => {
-                  setConfirmation(workspace.id);
-                }}
-              >
-                Delete permanently
-              </Button>
-              {confirmation === workspace.id ? (
-                <div className="w-full border-t border-divider pt-3">
-                  <Text variant="note" tone="muted">
-                    This permanently deletes the workspace, its content, and its stored files. It
-                    cannot be undone.
-                  </Text>
-                  <div className="mt-3 flex gap-2">
+            <ContextMenu
+              key={workspace.id}
+              label={`Actions for ${workspace.name}`}
+              items={[
+                {
+                  label: 'Restore workspace',
+                  disabled: restoring !== null || purging !== null,
+                  onSelect: () => {
+                    void restore(workspace.id);
+                  },
+                },
+                {
+                  label: 'Delete permanently',
+                  disabled: restoring !== null || purging !== null,
+                  destructive: true,
+                  onSelect: () => {
+                    setConfirmation(workspace.id);
+                  },
+                },
+              ]}
+            >
+              {(target) => (
+                <div {...target}>
+                  <Blueprint className="flex min-w-0 flex-col gap-3 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:p-4">
+                    <div className="min-w-0 flex-1">
+                      <Text className="break-words">{workspace.name}</Text>
+                      <Text variant="note" tone="muted">
+                        Archived{' '}
+                        {workspace.archivedAt
+                          ? new Date(workspace.archivedAt).toLocaleDateString()
+                          : 'recently'}
+                      </Text>
+                    </div>
                     <Button
                       variant="secondary"
-                      disabled={purging !== null}
+                      disabled={restoring !== null || purging !== null}
+                      onClick={() => void restore(workspace.id)}
+                    >
+                      {restoring === workspace.id ? 'Restoring…' : 'Restore workspace'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={restoring !== null || purging !== null}
                       onClick={() => {
-                        setConfirmation(null);
+                        setConfirmation(workspace.id);
                       }}
                     >
-                      Cancel
+                      Delete permanently
                     </Button>
-                    <Button disabled={purging !== null} onClick={() => void purge(workspace.id)}>
-                      {purging === workspace.id ? 'Deleting…' : 'Delete permanently'}
-                    </Button>
-                  </div>
+                    {confirmation === workspace.id ? (
+                      <div className="w-full border-t border-divider pt-3">
+                        <Text variant="note" tone="muted">
+                          This permanently deletes the workspace, its content, and its stored files.
+                          It cannot be undone.
+                        </Text>
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                          <Button
+                            variant="secondary"
+                            disabled={purging !== null}
+                            onClick={() => {
+                              setConfirmation(null);
+                            }}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            disabled={purging !== null}
+                            onClick={() => void purge(workspace.id)}
+                          >
+                            {purging === workspace.id ? 'Deleting…' : 'Delete permanently'}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </Blueprint>
                 </div>
-              ) : null}
-            </Blueprint>
+              )}
+            </ContextMenu>
           ))}
         </div>
       )}

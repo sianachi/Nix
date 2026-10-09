@@ -265,7 +265,7 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
         </>
       }
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4 break-words">
         {formatState.phase === 'loading' ? (
           <div role="status" aria-busy="true">
             <Text tone="muted">Loading available export formats…</Text>
@@ -294,7 +294,7 @@ export function ExportDialog({ open, itemId, hasChildren, onClose }: ExportDialo
         ) : null}
 
         {selectedFormat === undefined ? null : (
-          <fieldset disabled={working} className="flex flex-col gap-4">
+          <fieldset disabled={working} className="flex min-w-0 flex-col gap-4">
             <Field label="Format" hint={formatPreamble(selectedFormat)}>
               {(control) => (
                 <Select

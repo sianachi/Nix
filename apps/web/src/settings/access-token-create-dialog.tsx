@@ -269,7 +269,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
               </span>
             </legend>
             {ACCESS_TOKEN_SCOPES.map((scope) => (
-              <label key={scope} className="flex items-baseline gap-2">
+              <label key={scope} className="flex min-h-11 items-center gap-2">
                 <input
                   type="checkbox"
                   checked={scopes.has(scope)}
@@ -307,7 +307,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
             </legend>
             <div className="flex flex-wrap items-center gap-3">
               {EXPIRY_PRESETS.map((days) => (
-                <label key={days} className="flex items-center gap-1.5">
+                <label key={days} className="flex min-h-11 items-center gap-1.5">
                   <input
                     type="radio"
                     name="token-expiry"
@@ -321,7 +321,7 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
                   </Text>
                 </label>
               ))}
-              <label className="flex items-center gap-1.5">
+              <label className="flex min-h-11 items-center gap-1.5">
                 <input
                   type="radio"
                   name="token-expiry"
@@ -335,7 +335,10 @@ export function AccessTokenCreateDialog(props: AccessTokenCreateDialogProps): Re
                 </Text>
               </label>
               {expiry === 'custom' ? (
-                <label htmlFor="token-custom-expiry-days" className="flex items-center gap-1.5">
+                <label
+                  htmlFor="token-custom-expiry-days"
+                  className="flex min-h-11 items-center gap-1.5"
+                >
                   <span className="sr-only">Custom expiry in days</span>
                   <Input
                     id="token-custom-expiry-days"
@@ -391,7 +394,7 @@ function SecretSurface(props: {
       </Text>
 
       <Blueprint className="p-4">
-        <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row">
           <code className="min-w-0 flex-1 break-all font-mono text-sm">{minted.token}</code>
           <Button
             variant="secondary"

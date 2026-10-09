@@ -65,8 +65,8 @@ const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
   // Table.tsx: the border model the hairline row rules depend on.
   ['the table border model', /border-collapse:\s*separate/],
   ['the table border spacing', /border-spacing:/],
-  // Button.tsx, Input.tsx, Select.tsx: every control's height.
-  ['the control height', /height:\s*var\(--control-md\)/],
+  // Textarea.tsx: the auto-growing field follows its content.
+  ['the textarea content sizing', /field-sizing:\s*content/],
   // Button.tsx: the horizontal padding, off the spacing scale.
   ['the button padding', /padding-inline:\s*calc\(var\(--spacing\)\s*\*\s*3\.6\)/],
   // Text.tsx: the top of the type scale, which only the h1 variant asks for.
@@ -84,8 +84,8 @@ const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
  *
  * That is not hypothetical. `apps/web` had no letter-spacing vocabulary at all
  * until the sweep that moved it onto the scale, and it now names four of the
- * six tracking steps; `min-w-(--control-md)` appeared in the same sweep, one
- * keystroke from the `h-` spelling below.
+ * six tracking steps; responsive app controls now also name the control-height
+ * step, so that canary has moved to the textarea's content sizing.
  *
  * So the canaries are checked for what they are. When this fails, the fix is to
  * pick a different declaration that is still library-only - not to delete the
@@ -94,7 +94,7 @@ const LIBRARY_ONLY: readonly (readonly [string, RegExp])[] = [
 const CANARY_UTILITIES = [
   'border-separate',
   'border-spacing-',
-  'h-(--control-md)',
+  '[field-sizing:content]',
   'px-3.6',
   'text-3xl',
 ];

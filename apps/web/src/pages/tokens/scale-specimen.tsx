@@ -19,18 +19,26 @@ import { Card, Text, cn } from '@nix/ui';
 
 function SpacingScale(): ReactElement {
   return (
-    <dl className="flex flex-col gap-2">
-      {SPACING_STEPS.map((entry) => (
-        <div key={entry.step} className="flex items-center gap-4">
-          <Text as="dt" tone="muted" variant="bodySmall" className="w-20 shrink-0">
-            {entry.step}
-          </Text>
-          <dd className="flex-1">
-            <span aria-hidden="true" className={cn('block h-3 bg-accent-500', entry.className)} />
-          </dd>
-        </div>
-      ))}
-    </dl>
+    <div
+      className="min-w-0 overflow-x-auto"
+      role="region"
+      aria-label="Spacing scale"
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to inspect full-width spacing specimens.
+      tabIndex={0}
+    >
+      <dl className="flex min-w-max flex-col gap-2">
+        {SPACING_STEPS.map((entry) => (
+          <div key={entry.step} className="flex items-center gap-4">
+            <Text as="dt" tone="muted" variant="bodySmall" className="w-20 shrink-0">
+              {entry.step}
+            </Text>
+            <dd className="flex-1">
+              <span aria-hidden="true" className={cn('block h-3 bg-accent-500', entry.className)} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }
 

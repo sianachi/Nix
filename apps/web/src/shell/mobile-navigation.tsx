@@ -79,7 +79,7 @@ export function MobileNavigation({
         type="button"
         className={cn(
           control,
-          'ml-2 flex-none rounded-full bg-accent-fill px-4 text-background hover:bg-accent-fill-hover',
+          'rounded-md bg-accent-fill text-background hover:bg-accent-fill-hover',
         )}
         disabled={creating}
         onClick={onCreate}

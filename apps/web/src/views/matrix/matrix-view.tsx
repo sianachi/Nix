@@ -246,7 +246,7 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
   };
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-col gap-3">
       {moveError === null ? null : (
         <div role="alert" className="flex items-start gap-2 border border-divider p-3">
           <Icon icon={CircleAlert} size="sm" className="text-accent-text" />
@@ -297,7 +297,13 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
           ))}
         </div>
       ) : (
-        <div className="min-w-0 overflow-x-auto">
+        <div
+          role="region"
+          aria-label={`${view.name} matrix`}
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll wider matrices.
+          tabIndex={0}
+          className={cn('min-w-0 max-w-full overflow-x-auto', focusRing)}
+        >
           <table className="w-full border-collapse">
             <caption className="sr-only">
               {`${view.name}: ${rows.label} in rows, ${columns.label} in columns`}
@@ -451,7 +457,10 @@ function MatrixCard(props: MatrixCardProps): ReactNode {
                 onClick={() => {
                   onOpen(item.id);
                 }}
-                className={cn('w-full text-left', focusRing)}
+                className={cn(
+                  'min-w-0 w-full text-left any-pointer-coarse:min-h-(--control-lg)',
+                  focusRing,
+                )}
               >
                 <Text variant="h5" as="span" lines={2}>
                   {title}

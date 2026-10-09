@@ -109,6 +109,21 @@ beforeEach(() => {
 });
 
 describe('the smart list', () => {
+  it('opens row actions through its context menu', async () => {
+    const user = userEvent.setup();
+    stubRun(results([row(ROW_ONE, 'Water plants', '2026-08-10')]));
+    const onOpen = renderQueryView();
+    const title = await screen.findByRole('button', { name: 'Water plants' });
+
+    title.focus();
+    fireEvent.contextMenu(title);
+    await user.click(screen.getByRole('menuitem', { name: 'Open' }));
+    expect(onOpen).toHaveBeenCalledWith(ROW_ONE);
+    await vi.waitFor(() => {
+      expect(title).toHaveFocus();
+    });
+  });
+
   it('offers hiding through row actions and recovery when every match is hidden', async () => {
     const user = userEvent.setup();
     const preference = hiddenItemsKey('test-subject', WORKSPACE);
