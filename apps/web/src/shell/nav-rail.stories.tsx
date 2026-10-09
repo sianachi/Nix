@@ -1,7 +1,8 @@
-import type { Workspace } from '@nix/api-client';
+import { createNixClient, type NixClient, type Workspace } from '@nix/api-client';
 import type { ReactNode } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
+import { ApiClientOverrideProvider } from '../api/api-client-provider';
 import { useKnownSmartListsStore } from '../views/query/known-smart-lists';
 import { WorkspaceProvider } from '../workspaces/workspace-context';
 import { NavRail } from './nav-rail';
@@ -10,6 +11,15 @@ export default { title: 'Nix/Shell/Navigation rail', parameters: { layout: 'full
 
 const WORKSPACE = 'd5555555-5555-4555-8555-555555555555';
 const noop = (): void => undefined;
+
+/** A client that never reaches a server: the rail's own reads (the pet entry) answer nothing. */
+const client: NixClient = createNixClient({
+  baseUrl: 'http://nix.invalid',
+  tokens: {
+    getAccessToken: () => Promise.resolve(null),
+    refreshAccessToken: () => Promise.resolve(null),
+  },
+});
 
 const workspace: Workspace = {
   id: WORKSPACE,
@@ -49,30 +59,32 @@ function Example({
         },
   });
   return (
-    <MemoryRouter initialEntries={[`/w/${WORKSPACE}`]}>
-      <Routes>
-        <Route
-          path="/w/:workspaceId"
-          element={
-            <WorkspaceProvider
-              state={{
-                status: 'ready',
-                workspaces: [workspace],
-                error: null,
-                reload: noop,
-                workspaceCreated: noop,
-                workspaceUpdated: noop,
-                workspaceRemoved: noop,
-              }}
-            >
-              <div className="flex h-dvh">
-                <NavRail onImport={noop} compact={compact} />
-              </div>
-            </WorkspaceProvider>
-          }
-        />
-      </Routes>
-    </MemoryRouter>
+    <ApiClientOverrideProvider client={client}>
+      <MemoryRouter initialEntries={[`/w/${WORKSPACE}`]}>
+        <Routes>
+          <Route
+            path="/w/:workspaceId"
+            element={
+              <WorkspaceProvider
+                state={{
+                  status: 'ready',
+                  workspaces: [workspace],
+                  error: null,
+                  reload: noop,
+                  workspaceCreated: noop,
+                  workspaceUpdated: noop,
+                  workspaceRemoved: noop,
+                }}
+              >
+                <div className="flex h-dvh">
+                  <NavRail onImport={noop} compact={compact} />
+                </div>
+              </WorkspaceProvider>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </ApiClientOverrideProvider>
   );
 }
 

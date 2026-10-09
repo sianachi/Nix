@@ -695,8 +695,15 @@ function DraftField({
   }, []);
 
   return (
-    // A group, which a tree may own, so the field can sit among the rows it adds to.
-    <div role="group" aria-label="New item">
+    // A row of the tree in its own right - the row being made - so the tree owns only tree items
+    // while the field sits where the new item will appear.
+    <div
+      role="treeitem"
+      tabIndex={-1}
+      aria-label="New item"
+      aria-level={level}
+      aria-selected={false}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();

@@ -139,9 +139,13 @@ function Harness(options: HarnessOptions): ReactNode {
 
 /** Each row's title: its first text, before any note or lock the row also carries. */
 function treeTitles(): string[] {
-  return screen
-    .getAllByRole('treeitem')
-    .map((row) => row.querySelector('span.flex-1')?.textContent ?? '');
+  return (
+    screen
+      .getAllByRole('treeitem')
+      .map((row) => row.querySelector('span.flex-1')?.textContent ?? '')
+      // The new-item row is a tree item too, and has no title yet.
+      .filter((title) => title.length > 0)
+  );
 }
 
 /**
