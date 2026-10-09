@@ -41,7 +41,7 @@ export const chartSeriesSchema = z.object({
   /** The splitting property's value; null for the children with none, and for "Other". */
   value: z.string().nullable(),
 
-  /** Whether this series stands for every value past the twelfth, folded together. */
+  /** Whether this series stands for every value past the sixth, folded together. */
   other: z.boolean(),
   children: z.int(),
   total: z.number().nullable(),
@@ -94,8 +94,22 @@ export const itemChartSchema = z.object({
   /** The series, largest first and any "Other" last; empty when not split. */
   series: z.array(chartSeriesSchema).default([]),
 
-  /** How many series values were folded into "Other". */
+  /** How many series values were folded into "Other" (every value past the sixth). */
   otherSeries: z.int().default(0),
+
+  /**
+   * Dated items outside the time axis's window - before it, or after its end - counted so a chart
+   * whose items all fall elsewhere can say so rather than looking empty.
+   */
+  outsideWindow: z.int().default(0),
+
+  /**
+   * The view's drawing options, as stored, returned with the buckets so a renderer reads every
+   * option from this one payload rather than mixing it with a possibly newer client-side view.
+   */
+  stacked: z.boolean().default(false),
+  cumulative: z.boolean().default(false),
+  rollingAverage: z.boolean().default(false),
 
   /**
    * Children a time axis could not place because they have no date. Counted rather than dropped,
