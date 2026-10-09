@@ -44,6 +44,17 @@ describe('the pets resource', () => {
     });
   });
 
+  it('carries the locked-content mark both ways, defaulting to unmarked', async () => {
+    const { petConnectionSchema } = await import('../schemas/pets.js');
+    expect(runtime({ operation: 'tool_result', toolLockedContent: true }).body).toMatchObject({
+      toolLockedContent: true,
+    });
+    expect(runtime({ operation: 'read' }).body).toMatchObject({ toolLockedContent: false });
+    const base = { provider: 'chatgpt', status: 'connected', reason: '', canConnect: false };
+    expect(petConnectionSchema.parse(base).lockedRead).toBe(false);
+    expect(petConnectionSchema.parse({ ...base, lockedRead: true }).lockedRead).toBe(true);
+  });
+
   it('a message parses without any actions member', async () => {
     const { petMessageSchema } = await import('../schemas/pets.js');
     expect(petMessageSchema.parse({ id: 'm', role: 'assistant', text: 'Hi', actions: [] })).toEqual(

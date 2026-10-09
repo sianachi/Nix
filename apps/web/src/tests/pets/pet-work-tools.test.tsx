@@ -1396,11 +1396,19 @@ describe('companion work approvals', () => {
       expect(await screen.findByText('Done without asking')).toBeVisible();
     });
 
+    const lockedNote =
+      'This one waits for you: earlier in this conversation it read locked content.';
+    const claimedTools = () =>
+      client.execute.mock.calls
+        .map((call) => (call[0] as { body?: { operation?: string; toolId?: string } }).body)
+        .filter((body) => body?.operation === 'tool_claim')
+        .map((body) => body?.toolId);
+
     it.each([
       [true, 'waits'],
       [false, 'runs'],
     ])(
-      'after a read whose content was under a lock (%s), the next write in the turn %s',
+      'reports a read under a lock (%s) with its result, and the next write %s on the server mark',
       async (locked, outcome) => {
         const itemId = '33333333-3333-4333-8333-333333333333';
         const read = {
@@ -1418,7 +1426,28 @@ describe('companion work approvals', () => {
         };
         const write = { ...(runtime.tools ?? [])[0], id: 'write-1', arguments: structuredArguments };
         const turn = { ...runtime, tools: [read, write] } as typeof runtime;
-        completeEachCall(turn);
+        // The worker marks the conversation from the tool result's own flag; this stands in for it.
+        let marked = false;
+        client.execute.mockImplementation(
+          (endpoint: {
+            body: { operation: string; requestId: string; toolId: string; toolLockedContent?: boolean };
+          }) => {
+            if (endpoint.body.toolLockedContent === true) marked = true;
+            return Promise.resolve({
+              ...turn,
+              lockedRead: marked,
+              tools: turn.tools?.map((tool) =>
+                tool.id === endpoint.body.toolId
+                  ? {
+                      ...tool,
+                      status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+                      claimId: endpoint.body.requestId,
+                    }
+                  : tool,
+              ),
+            });
+          },
+        );
         // The real executor reads the item, then its lock state, exactly as in the app.
         client.query.mockImplementation((endpoint: { operation: string }) =>
           Promise.resolve(
@@ -1443,33 +1472,60 @@ describe('companion work approvals', () => {
         render(<Live initial={turn} onNeedsDecisionChange={onNeedsDecisionChange} />, {
           wrapper: MemoryRouter,
         });
-        const claimedTools = () =>
-          client.execute.mock.calls
-            .map((call) => (call[0] as { body?: { operation?: string; toolId?: string } }).body)
-            .filter((body) => body?.operation === 'tool_claim')
-            .map((body) => body?.toolId);
         await waitFor(() => {
           expect(claimedTools()).toContain('read-1');
         });
+        await waitFor(() => {
+          expect(client.execute).toHaveBeenCalledWith(
+            expect.objectContaining({
+              body: expect.objectContaining({
+                operation: 'tool_result',
+                toolId: 'read-1',
+                toolLockedContent: locked,
+              }) as unknown,
+            }),
+            expect.anything(),
+          );
+        });
         if (outcome === 'waits') {
-          expect(
-            await screen.findByText('This one waits for you: it follows a read of locked content.'),
-          ).toBeVisible();
+          expect(await screen.findByText(lockedNote)).toBeVisible();
           await waitFor(() => {
             expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['write-1']);
           });
           expect(claimedTools()).not.toContain('write-1');
-          expect(screen.getByRole('button', { name: 'Approve request' })).toBeInTheDocument();
         } else {
           await waitFor(() => {
             expect(claimedTools()).toContain('write-1');
           });
-          expect(
-            screen.queryByText('This one waits for you: it follows a read of locked content.'),
-          ).not.toBeInTheDocument();
+          expect(screen.queryByText(lockedNote)).not.toBeInTheDocument();
         }
       },
     );
+
+    it('holds a write in a later turn, in every open panel, while the server says the thread read locked content', async () => {
+      // A later turn: the read is gone from the tool list, only the server's mark remains. Two
+      // instances stand in for two tabs; neither keeps any local memory of the read.
+      const laterTurn = {
+        ...withArguments(structuredArguments),
+        lockedRead: true,
+      } as typeof runtime;
+      const first = vi.fn();
+      const second = vi.fn();
+      render(
+        <>
+          <Live initial={laterTurn} onNeedsDecisionChange={first} />
+          <Live initial={laterTurn} onNeedsDecisionChange={second} />
+        </>,
+        { wrapper: MemoryRouter },
+      );
+      expect(await screen.findAllByText(lockedNote)).toHaveLength(2);
+      await waitFor(() => {
+        expect(first).toHaveBeenLastCalledWith(['tool-1']);
+        expect(second).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(client.execute).not.toHaveBeenCalled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+    });
 
     it('never completes an occurrence of a repeating task without asking', async () => {
       const taskId = '33333333-3333-4333-8333-333333333333';

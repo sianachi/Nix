@@ -74,15 +74,11 @@ function writeMayRunWithoutAsking(
 const WAITS_FOR_FORMATTING =
   'This one waits for you: approving it removes formatting this edit can’t keep (see below).';
 const WAITS_FOR_LINK = 'This one waits for you: it adds a link to another site.';
-const HELD_AFTER_LOCKED_READ = 'This one waits for you: it follows a read of locked content.';
+const HELD_AFTER_LOCKED_READ =
+  'This one waits for you: earlier in this conversation it read locked content.';
 const HELD_FOR_OCCURRENCE =
   "This one waits for you: completing a repeating task's occurrence cannot be undone.";
 
-/** The receipt key marking a read that returned content from under a lock. Stored like every
- * other receipt, so reopening the panel mid-turn keeps the turn's writes waiting. */
-function lockedReadKey(decisionKey: string): string {
-  return `locked-read:${decisionKey}`;
-}
 
 /** Why a write the owner's switch would otherwise run is waiting anyway, in the owner's words,
  * when that is something the preview shows: formatting a body edit drops, or a link to another
@@ -331,11 +327,6 @@ export function PetWorkTools({
   // The owner's sentence for an approved write refused before it changed anything. Kept in
   // memory only: receipts in session storage hold outcomes, never document text.
   const [ownerReasons, setOwnerReasons] = useState<Record<string, string>>({});
-  // Reads in this turn that returned content from under a lock. The pet's reads carry the owner's
-  // unlocks, so once one did, no write in the same turn applies without asking: injected text
-  // could otherwise copy what it read out to somewhere unlocked. The worker starts every turn
-  // with an empty tool list, so `runtime.tools` is exactly the current turn.
-  const [lockedReads, setLockedReads] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const changed = () => {
@@ -354,11 +345,12 @@ export function PetWorkTools({
     return applyWithoutAsking && !applyExemptToolIds.includes(tool.id);
   }
 
-  const turnReadLockedContent = (runtime.tools ?? []).some(
-    (tool) =>
-      lockedReads[tool.id] === true ||
-      readActionReceipt(lockedReadKey(decisionKey(tool))) === 'locked',
-  );
+  // The pet's reads carry the owner's unlocks, so once any read in this conversation returned
+  // content from under a lock, no write applies without asking: injected text could otherwise
+  // copy what was read out to somewhere unlocked, in this turn or any later one, since the
+  // model's thread keeps the result. The worker holds the mark for the thread's whole life, so
+  // every tab and every later turn sees the same answer.
+  const conversationReadLockedContent = runtime.lockedRead;
 
   const needsDecision = (runtime.tools ?? [])
     .filter((tool) => {
@@ -378,7 +370,7 @@ export function PetWorkTools({
         appliesWithoutAsking(tool) &&
         writeMayRunWithoutAsking(parsed.data) &&
         !previewFailed[tool.id] &&
-        !turnReadLockedContent
+        !conversationReadLockedContent
       );
     })
     .map((tool) => tool.id);
@@ -444,6 +436,7 @@ export function PetWorkTools({
       let toolResult = refusalResult ?? DECLINED_BY_USER;
       let toolSuccess = false;
       let notRun: string | undefined;
+      let toolLockedContent = false;
       if (approved) {
         try {
           const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
@@ -472,10 +465,7 @@ export function PetWorkTools({
           );
           toolResult = outcome.text;
           toolSuccess = true;
-          if (outcome.lockedContent) {
-            writeActionReceipt(lockedReadKey(key), 'locked');
-            setLockedReads((old) => ({ ...old, [tool.id]: true }));
-          }
+          toolLockedContent = outcome.lockedContent;
           if (args.operation === 'build_blueprint') {
             const build = buildOutcome(outcome.text);
             if (build?.complete) setBuildLedgers((old) => ({ ...old, [mode]: build.ledger }));
@@ -511,6 +501,7 @@ export function PetWorkTools({
           requestId,
           toolResult,
           toolSuccess,
+          toolLockedContent,
         }),
         { signal },
       );
@@ -578,7 +569,7 @@ export function PetWorkTools({
           busy={busy}
           readWithoutAsking={readWithoutAsking}
           applyWithoutAsking={appliesWithoutAsking(tool)}
-          followsLockedRead={turnReadLockedContent}
+          followsLockedRead={conversationReadLockedContent}
           progress={progress[tool.id]}
           onBuildProgress={(message) => {
             setProgress((old) => ({ ...old, [tool.id]: message }));
@@ -1118,7 +1109,7 @@ function PetWorkToolCard({
    * once a loaded preview shows a note body edit whose resulting text links to another host,
    * which only the preview can tell (`writeMayRunWithoutAsking` with the model). */
   readonly onPreviewFailedChange: (failed: boolean) => void;
-  /** A read earlier in this turn returned content from under a lock. */
+  /** A read earlier in this conversation returned content from under a lock. */
   readonly followsLockedRead: boolean;
   readonly submitted?: string;
   readonly onResolve: Resolver;

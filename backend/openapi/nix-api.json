@@ -15515,6 +15515,10 @@
             ],
             "format": "int64",
             "default": 0
+          },
+          "lockedRead": {
+            "type": "boolean",
+            "default": false
           }
         }
       },
@@ -15753,6 +15757,10 @@
             "items": {
               "$ref": "#/components/schemas/PetWorkspaceMapEntry"
             }
+          },
+          "toolLockedContent": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

@@ -251,6 +251,8 @@ export async function executePetToolRun(
 
   let toolResult = DECLINED_RESULT;
   let toolSuccess = false;
+  // Reported with the result so the worker marks the conversation (a read from under a lock).
+  let toolLockedContent = false;
   if (decision === 'approve') {
     try {
       const outcome = await runWorkspaceTool(
@@ -273,6 +275,7 @@ export async function executePetToolRun(
       );
       toolResult = outcome.text;
       toolSuccess = true;
+      toolLockedContent = outcome.lockedContent;
     } catch (reason) {
       toolResult =
         reason instanceof WorkspaceToolRefusal ? reason.message : UNCERTAIN_OUTCOME_RESULT;
@@ -290,6 +293,7 @@ export async function executePetToolRun(
         requestId,
         toolResult,
         toolSuccess,
+        toolLockedContent,
         mode,
       }),
     );

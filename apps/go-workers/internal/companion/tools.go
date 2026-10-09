@@ -769,6 +769,10 @@ func (a *account) resolveTool(key string, r Request) error {
 		if r.ToolSuccess {
 			t.Status = "completed"
 		}
+		if r.ToolLockedContent {
+			// Sticky for the thread's life: the result is now in the model's context.
+			c.LockedRead = true
+		}
 		level := slog.LevelInfo
 		kind := resultKind(r.ToolSuccess, t.Result)
 		if kind == "failed" || kind == "no_result" {

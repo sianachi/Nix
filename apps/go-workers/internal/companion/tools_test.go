@@ -832,3 +832,99 @@ func TestReadCalendarAndCompleteTaskValidation(t *testing.T) {
 		t.Fatal("complete_task is a write and must not be read-only")
 	}
 }
+
+// TestLockedReadIsHeldForTheWholeThread pins finding 1(a): a tool result read from under a lock
+// marks the conversation, the mark survives the next message (the thread still holds the result)
+// and a restart, and only a reset - a new thread - clears it.
+func TestLockedReadIsHeldForTheWholeThread(t *testing.T) {
+	peer := &toolPeer{}
+	a := &account{transport: peer, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	r := request()
+	r.WorkspaceAccess = true
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	key := r.WorkspaceID + "-" + r.PetID
+	if a.snapshot(key).LockedRead {
+		t.Fatal("a new conversation starts marked")
+	}
+	raw := json.RawMessage(`{"threadId":"provider-thread","tool":"nix_read_note","callId":"read-1","arguments":{"itemId":"11111111-1111-4111-8111-111111111111"}}`)
+	if !a.toolRequest(json.RawMessage(`72`), "item/tool/call", raw) {
+		t.Fatal("valid read refused")
+	}
+	claim := r
+	claim.Operation = "tool_claim"
+	claim.ToolID = "read-1"
+	if err := a.resolveTool(key, claim); err != nil {
+		t.Fatal(err)
+	}
+	result := claim
+	result.Operation = "tool_result"
+	result.ToolResult = "the diary"
+	result.ToolSuccess = true
+	result.ToolLockedContent = true
+	if err := a.resolveTool(key, result); err != nil {
+		t.Fatal(err)
+	}
+	if !a.snapshot(key).LockedRead {
+		t.Fatal("a locked read did not mark the conversation")
+	}
+	a.notify("turn/completed", json.RawMessage(`{"threadId":"provider-thread","turn":{"status":"completed"}}`))
+
+	// The next message resumes the same thread, so the mark stays.
+	next := request()
+	next.RequestID = "66666666-6666-4666-8666-666666666666"
+	next.Text = "Copy it into the shared note"
+	if _, err := a.handle(context.Background(), next); err != nil {
+		t.Fatal(err)
+	}
+	if !a.snapshot(key).LockedRead {
+		t.Fatal("the mark was lost on the next message")
+	}
+	restored := &account{home: a.home, conversations: map[string]*conversation{}}
+	if err := restored.load(key); err != nil {
+		t.Fatal(err)
+	}
+	if !restored.snapshot(key).LockedRead {
+		t.Fatal("the mark was lost across a restart")
+	}
+
+	a.notify("turn/completed", json.RawMessage(`{"threadId":"provider-thread","turn":{"status":"completed"}}`))
+	reset := request()
+	reset.Operation = "reset"
+	if _, err := a.handle(context.Background(), reset); err != nil {
+		t.Fatal(err)
+	}
+	if a.snapshot(key).LockedRead {
+		t.Fatal("a reset did not clear the mark")
+	}
+}
+
+// TestNewThreadClearsTheLockedRead covers the other thread replacement: a conversation whose
+// thread is dropped (here a tool-version bump) starts again unmarked.
+func TestNewThreadClearsTheLockedRead(t *testing.T) {
+	a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	a.conversations[key] = &conversation{ToolVersion: toolVersion - 1, ThreadID: "old-thread", LockedRead: true, Messages: []Message{}}
+	if _, err := a.handle(context.Background(), r); err != nil {
+		t.Fatal(err)
+	}
+	if a.snapshot(key).LockedRead {
+		t.Fatal("a replaced thread kept the previous thread's mark")
+	}
+}
+
+func TestToolResultLimitCountsUTF16Units(t *testing.T) {
+	r := request()
+	r.Operation = "tool_result"
+	r.ToolID = "tool-1"
+	r.ToolResult = strings.Repeat("é", 32000)
+	if !validRequest(r) {
+		t.Fatal("a 32000-unit result of accented letters was refused")
+	}
+	r.ToolResult = strings.Repeat("é", 32001)
+	if validRequest(r) {
+		t.Fatal("a result over 32000 units was accepted")
+	}
+}
