@@ -61,13 +61,12 @@ const UNCERTAIN_OUTCOME_RESULT =
 const DECLINED_RESULT = 'Declined by the user. Do not retry this change unless asked.';
 
 /**
- * Opens the client a pet operation runs as: an interactive `NIX_SESSION_TOKEN` paired with
- * `apiUrl` opens a short-lived session with no stored profile (never expanding PAT scopes),
- * with the collaboration endpoint derived the same way a stored profile's would be; otherwise
- * this resolves the named (or default) profile as usual.
+ * Opens the named (or default) profile for a pet operation. Browser-approved profiles renew
+ * short-lived access tokens automatically. A supplied `NIX_SESSION_TOKEN` paired with `apiUrl`
+ * remains an explicit override with no stored profile; neither path expands PAT scopes.
  *
  * Shared by `petCommand`, `petToolRun` and their MCP mirrors, so all four reach Core (and, for
- * `petToolRun`, Collab) with the same credential the moment `NIX_SESSION_TOKEN` is set.
+ * `petToolRun`, Collab) with the same session handling.
  */
 export async function petSessionFor(
   apiUrl: string | undefined,

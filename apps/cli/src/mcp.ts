@@ -1765,8 +1765,8 @@ function lazy<T>(factory: () => Promise<T>): () => Promise<T> {
 /** Adapts {@link petSessionFor} (shared with the CLI's `petCommand`/`petToolRun`) to this
  * server's per-call `apiUrl` and its own `resolve` test seam, so `pet_runtime` and
  * `pet_tool_run` reach Core (and Collab) with the same interactive-session-first rule the CLI
- * uses: an `NIX_SESSION_TOKEN` paired with `apiUrl` opens a short-lived session with no stored
- * profile, never expanding PAT scopes; otherwise this resolves the server's configured profile. */
+ * uses: browser-approved profiles renew access tokens automatically. An `NIX_SESSION_TOKEN`
+ * paired with `apiUrl` remains an explicit override; neither path expands PAT scopes. */
 async function petSessionForMcp(
   apiUrl: string | undefined,
   options: WorkspaceMcpOptions,

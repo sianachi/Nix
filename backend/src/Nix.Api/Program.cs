@@ -274,6 +274,21 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 
+    options.AddPolicy<IPAddress>(CliLoginEndpoints.StartPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientKey.For(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 6,
+            Window = writesWindow,
+            QueueLimit = 0,
+        }));
+    options.AddPolicy<IPAddress>(CliLoginEndpoints.PollPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(ClientKey.For(httpContext), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 120,
+            Window = writesWindow,
+            QueueLimit = 0,
+        }));
+
     // Every route that checks an item-lock password. Partitioned by address alone, like the writes
     // policy: each check costs a deliberately expensive key derivation, so the bound has to be on
     // how much of that one client can ask for in total, not per item - a per-item window would let
@@ -387,6 +402,7 @@ if (persistenceConfigured)
     // cache inside it is static and shared, which is the part that must not be per request.
     builder.Services.AddScoped<NixTokenValidator>();
     builder.Services.AddScoped<BrowserAuthCoordinator>();
+    builder.Services.AddScoped<CliLoginCoordinator>();
 }
 
 builder.Services.AddOpenApi(options =>
@@ -501,6 +517,7 @@ app.MapHealthEndpoints();
 if (persistenceConfigured)
 {
     app.MapBrowserAuthEndpoints();
+    app.MapCliLoginEndpoints();
     Nix.Features.CalendarSync.CalendarOAuthCallbackEndpoint.MapCalendarOAuthCallback(app);
 }
 

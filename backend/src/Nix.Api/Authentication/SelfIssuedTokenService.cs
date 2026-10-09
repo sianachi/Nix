@@ -231,7 +231,8 @@ public sealed class SelfIssuedTokenService : IDisposable
     public string MintBrowserSession(
         PrincipalId principalId,
         TenantId tenantId,
-        BrowserSessionId browserSessionId)
+        BrowserSessionId browserSessionId,
+        DateTimeOffset? sessionExpiresAt = null)
     {
         if (principalId.Value == Guid.Empty || browserSessionId.Value == Guid.Empty)
         {
@@ -244,6 +245,12 @@ public sealed class SelfIssuedTokenService : IDisposable
         }
 
         var now = Clock.GetUtcNow();
+        var expiresAt = now + Lifetime;
+        if (sessionExpiresAt is { } hardExpiry && hardExpiry < expiresAt)
+        {
+            expiresAt = hardExpiry;
+        }
+
         var token = new JwtSecurityToken(
             issuer: Issuer,
             audience: Audience,
@@ -255,7 +262,7 @@ public sealed class SelfIssuedTokenService : IDisposable
                 new Claim("jti", Guid.CreateVersion7().ToString("D", CultureInfo.InvariantCulture)),
             ],
             notBefore: now.UtcDateTime,
-            expires: (now + Lifetime).UtcDateTime,
+            expires: expiresAt.UtcDateTime,
             signingCredentials: new SigningCredentials(_securityKey, SecurityAlgorithms.EcdsaSha256));
         return _handler.WriteToken(token);
     }

@@ -23,8 +23,9 @@ namespace Nix.Integration.Tests.Persistence;
 /// </para>
 /// <para>
 /// The theories run over <see cref="NixTables.TenantScoped"/> rather than over a list written
-/// here, and a separate test asserts that list matches what the database contains. Together they
-/// mean a new table cannot be added without either gaining a policy or failing a test - a list
+/// here. A separate test exhaustively classifies every database table as tenant-scoped or
+/// capability-only, and the capability class proves forced RLS and no ambient access. Together they
+/// mean a new table cannot be added without a checked security boundary - a list
 /// maintained by hand next to the tables it describes would drift silently, which is the failure
 /// this pair exists to prevent.
 /// </para>
@@ -72,6 +73,21 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
                 {
                     tables.Add(table);
                 }
+            }
+
+            return tables;
+        }
+    }
+
+    /// <summary>The explicitly capability-only tables; identity is derived only through exact secret lookups.</summary>
+    public static TheoryData<string> CapabilityOnlyTables
+    {
+        get
+        {
+            var tables = new TheoryData<string>();
+            foreach (var table in NixTables.CapabilityOnly)
+            {
+                tables.Add(table);
             }
 
             return tables;
@@ -148,7 +164,7 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task The_tenant_scoped_table_list_names_every_table_the_database_actually_has()
+    public async Task The_security_classification_names_every_table_the_database_actually_has()
     {
         var connection = await _fixture.OpenMigratorConnectionAsync();
         await using (connection.ConfigureAwait(false))
@@ -166,7 +182,56 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
                 ORDER BY c.relname
                 """);
 
-            Assert.Equal(NixTables.TenantScoped.Order(StringComparer.Ordinal), actual);
+            Assert.Empty(NixTables.TenantScoped.Intersect(NixTables.CapabilityOnly, StringComparer.Ordinal));
+            var classified = NixTables.TenantScoped.Concat(NixTables.CapabilityOnly).ToArray();
+            Assert.Equal(classified.Length, classified.Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(classified.Order(StringComparer.Ordinal), actual);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(CapabilityOnlyTables))]
+    public async Task Each_capability_only_table_forces_RLS_with_no_policies_or_ambient_grants(string table)
+    {
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            Assert.Equal(1, await RawSql.CountAsync(connection, null, $"""
+                SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'public' AND c.relname = '{table}' AND c.relrowsecurity AND c.relforcerowsecurity
+                """));
+            Assert.Equal(0, await RawSql.CountAsync(connection, null, $"SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename = '{table}'"));
+            var grants = await RawSql.TextListAsync(connection, $"""
+                SELECT grantee || ':' || privilege_type FROM information_schema.table_privileges
+                 WHERE table_schema = 'public' AND table_name = '{table}'
+                   AND grantee IN ('PUBLIC', 'nix_app', 'nix_collab') ORDER BY grantee, privilege_type
+                """);
+            Assert.Empty(grants);
+            Assert.Empty(NixTables.ExpectedApplicationPrivileges[table]);
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(CapabilityOnlyTables))]
+    public async Task Each_capability_only_table_refuses_direct_access_even_inside_an_active_tenant(string table)
+    {
+        foreach (var actor in new[] { TestTenants.AlphaContext, TestTenants.BetaContext })
+        {
+            var work = await _fixture.Application.BeginUnitOfWorkAsync(actor, Cancellation);
+            await using (work.ConfigureAwait(false))
+            {
+                var connection = (NpgsqlConnection)work.DbContext.Database.GetDbConnection();
+                var transaction = (NpgsqlTransaction)work.Transaction.GetDbTransaction();
+                var failure = await Assert.ThrowsAsync<PostgresException>(() => RawSql.CountAsync(connection, transaction, $"SELECT count(*) FROM {table}"));
+                Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, failure.SqlState);
+            }
+        }
+
+        var anonymous = await _fixture.OpenApplicationConnectionAsync();
+        await using (anonymous.ConfigureAwait(false))
+        {
+            var failure = await Assert.ThrowsAsync<PostgresException>(() => RawSql.CountAsync(anonymous, null, $"SELECT count(*) FROM {table}"));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, failure.SqlState);
         }
     }
 
@@ -273,15 +338,12 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
     }
 
     [Fact]
-    public void The_privilege_matrix_names_every_tenant_scoped_table()
+    public void The_privilege_matrix_names_every_security_classified_table()
     {
         // The theory above indexes into the matrix, so a table missing from it would throw rather
         // than fail readably. This says which one.
-        var missing = NixTables.TenantScoped
-            .Where(table => !NixTables.ExpectedApplicationPrivileges.ContainsKey(table))
-            .ToArray();
-
-        Assert.Empty(missing);
+        var classified = NixTables.TenantScoped.Concat(NixTables.CapabilityOnly).Order(StringComparer.Ordinal);
+        Assert.Equal(classified, NixTables.ExpectedApplicationPrivileges.Keys.Order(StringComparer.Ordinal));
     }
 
     [Fact]

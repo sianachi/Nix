@@ -1,12 +1,8 @@
 /**
  * Where the CLI keeps what it needs to act as you: one file, one object per profile.
  *
- * **A personal access token is a credential, so the file it lives in is written 0600 and nothing
- * widens it.** A profile is a named set of endpoints and the token that reaches them, so a person
- * who works against a local stack and a shared one keeps two profiles rather than re-authenticating
- * each time. The token itself is the personal access token, not an exchanged session: the session
- * is short-lived and re-minted from this on demand (see `session.ts`), so what rests on disk is the
- * thing a person can revoke from the same screen that issued it.
+ * Credentials are written atomically with mode 0600. A profile holds either a personal access
+ * token or a revocable browser-approved CLI session; short-lived access tokens remain in memory.
  *
  * The location follows the XDG base-directory spec - `$XDG_CONFIG_HOME/nixctl/config.json`, or
  * `~/.config/nixctl/config.json` when that is unset - so it sits where a person's other tool config
@@ -15,15 +11,22 @@
 
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 
 /** One profile: where a workspace lives and the token that reaches it. */
 export interface Profile {
   /** Core's base URL, e.g. `http://localhost:5014`. */
   readonly apiUrl: string;
 
-  /** The personal access token, `nixpat_...`. Exchanged for a short-lived session per run. */
+  /** The personal access token, `nixpat_...`; empty for a browser-approved CLI session. */
   readonly token: string;
+
+  /** A browser-approved, revocable credential with an absolute session expiry. */
+  readonly interactiveSession?: {
+    readonly refreshToken: string;
+    readonly expiresAt: string;
+  };
 
   /** The collaboration service, for note bodies. Defaults are derived from `apiUrl` when absent. */
   readonly collabUrl?: string;
@@ -146,10 +149,21 @@ export async function resolveProfile(
 async function writeConfig(config: Config, env: NodeJS.ProcessEnv): Promise<void> {
   await mkdir(configDir(env), { recursive: true, mode: 0o700 });
   const path = configPath(env);
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-  // Set the mode explicitly as well as at creation: writeFile's mode is a no-op when the file
-  // already exists, so a file created before this rule was added is narrowed on the next write.
-  await chmod(path, 0o600);
+  const temporary = join(configDir(env), `.config-${randomUUID()}.tmp`);
+  try {
+    const file = await open(temporary, 'wx', 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(config, null, 2)}\n`, 'utf8');
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, path);
+  } finally {
+    await unlink(temporary).catch((cause: unknown) => {
+      if (!isNotFound(cause)) throw cause;
+    });
+  }
 }
 
 function normalise(value: unknown): Config {
@@ -168,9 +182,12 @@ function normalise(value: unknown): Config {
     }
     const profile = entry as Record<string, unknown>;
     if (typeof profile.apiUrl === 'string' && typeof profile.token === 'string') {
+      const interactiveSession = readInteractiveSession(profile.interactiveSession);
+      if (profile.interactiveSession !== undefined && interactiveSession === undefined) continue;
       profiles[name] = {
         apiUrl: profile.apiUrl,
         token: profile.token,
+        ...(interactiveSession === undefined ? {} : { interactiveSession }),
         ...(typeof profile.collabUrl === 'string' ? { collabUrl: profile.collabUrl } : {}),
         ...(typeof profile.mediaUrl === 'string' ? { mediaUrl: profile.mediaUrl } : {}),
       };
@@ -181,6 +198,17 @@ function normalise(value: unknown): Config {
     defaultProfile: typeof record.defaultProfile === 'string' ? record.defaultProfile : 'default',
     profiles,
   };
+}
+
+function readInteractiveSession(value: unknown): Profile['interactiveSession'] {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const session = value as Record<string, unknown>;
+  return typeof session.refreshToken === 'string' &&
+    session.refreshToken.startsWith('nixcli_') &&
+    typeof session.expiresAt === 'string' &&
+    Number.isFinite(Date.parse(session.expiresAt))
+    ? { refreshToken: session.refreshToken, expiresAt: session.expiresAt }
+    : undefined;
 }
 
 function isNotFound(cause: unknown): boolean {

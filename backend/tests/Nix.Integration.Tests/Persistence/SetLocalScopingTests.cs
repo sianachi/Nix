@@ -340,25 +340,41 @@ public sealed class SetLocalScopingTests : IAsyncLifetime
     public async Task Postgres_receives_only_set_local_statements_for_the_session_context()
     {
         var since = DateTime.UtcNow.AddSeconds(-2);
-        var tenant = TestTenants.Alpha.ToString("D", CultureInfo.InvariantCulture);
-
-        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
-        await using (work.ConfigureAwait(false))
+        // The server log is shared with other tests and background hosts. Alpha appears in
+        // those statements too, including intentional raw set_config(..., true) setup. Use a
+        // fresh context and its actual backend rather than treating a time window as ownership.
+        var context = TestTenants.ContextFor(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        var tenant = context.TenantId.Value.ToString("D", CultureInfo.InvariantCulture);
+        var workspace = context.WorkspaceId!.Value.Value.ToString("D", CultureInfo.InvariantCulture);
+        var principal = context.PrincipalId.Value.ToString("D", CultureInfo.InvariantCulture);
+        var host = NixPersistenceHost.Create(SingleConnectionPool());
+        int backendProcessId;
+        await using (host.ConfigureAwait(false))
         {
-            await work.Sql.ScalarOrDefaultAsync<string>("SELECT 1::text", cancellationToken: Cancellation);
-            await work.CommitAsync(Cancellation);
+            var work = await host.BeginUnitOfWorkAsync(context, Cancellation);
+            await using (work.ConfigureAwait(false))
+            {
+                backendProcessId = await work.Sql.ScalarOrDefaultAsync<int>(
+                    SessionSql.BackendProcessId, cancellationToken: Cancellation);
+                await work.CommitAsync(Cancellation);
+            }
         }
 
         var lines = await _fixture.ServerLogLinesSinceAsync(since);
 
         var sessionContextLines = lines
-            .Where(line => line.Contains("nix.tenant_id", StringComparison.Ordinal)
-                && line.Contains(tenant, StringComparison.Ordinal))
+            .Where(line => line.Contains($"[{backendProcessId}]", StringComparison.Ordinal)
+                && (line.Contains(tenant, StringComparison.Ordinal)
+                    || line.Contains(workspace, StringComparison.Ordinal)
+                    || line.Contains(principal, StringComparison.Ordinal)))
             .ToArray();
 
-        Assert.NotEmpty(sessionContextLines);
+        Assert.Equal(3, sessionContextLines.Length);
         Assert.All(sessionContextLines, line =>
-            Assert.Contains($"SET LOCAL nix.tenant_id = '{tenant}'", line, StringComparison.Ordinal));
+            Assert.Contains(": SET LOCAL ", line, StringComparison.Ordinal));
+        Assert.Contains(sessionContextLines, line => line.EndsWith($"SET LOCAL nix.tenant_id = '{tenant}'", StringComparison.Ordinal));
+        Assert.Contains(sessionContextLines, line => line.EndsWith($"SET LOCAL nix.workspace_id = '{workspace}'", StringComparison.Ordinal));
+        Assert.Contains(sessionContextLines, line => line.EndsWith($"SET LOCAL nix.principal_id = '{principal}'", StringComparison.Ordinal));
     }
 
     private static async Task<UnitOfWorkObservation> ReadAsAsync(

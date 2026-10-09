@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, rm, stat, readFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, stat, readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   configPath,
+  configDir,
   loadConfig,
   removeProfile,
   resolveProfile,
@@ -43,6 +44,24 @@ describe('the config store', () => {
 
     const mode = (await stat(configPath(env))).mode & 0o777;
     expect(mode).toBe(0o600);
+  });
+
+  it('atomically replaces an existing broadly readable file with a private file', async () => {
+    await saveProfile('work', profile, { env });
+    await chmod(configPath(env), 0o644);
+    await saveProfile('work', { ...profile, token: 'nixpat_new' }, { env });
+    expect((await stat(configPath(env))).mode & 0o777).toBe(0o600);
+    expect(await readdir(configDir(env))).toEqual(['config.json']);
+  });
+
+  it('round-trips a browser-approved session without inventing a PAT', async () => {
+    const interactive: Profile = {
+      apiUrl: profile.apiUrl,
+      token: '',
+      interactiveSession: { refreshToken: 'nixcli_test', expiresAt: '2026-10-10T12:00:00Z' },
+    };
+    await saveProfile('work', interactive, { env });
+    expect((await resolveProfile('work', env))?.profile).toEqual(interactive);
   });
 
   it('keeps the token off any wider surface than the file', async () => {

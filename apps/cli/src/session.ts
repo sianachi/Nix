@@ -1,21 +1,21 @@
 /**
- * A run's authenticated session: the personal access token exchanged for a short-lived JWT, and a
- * Nix client that carries it.
+ * A run's authenticated session: a saved PAT or browser-approved CLI credential exchanged for a
+ * short-lived access token, and the Nix client that carries it.
  *
- * **The personal access token never leaves this process to anywhere but Core's exchange, and the
- * JWT it buys is what everything downstream sees.** That is the same shape the web application's
+ * Credentials travel only to Core's corresponding exchange. The short-lived access token is what
+ * downstream services see. That is the same shape the web application's
  * sessions have and the same one the collaboration service already validates, so the CLI is a
  * client of the API rather than a second thing to authorize. The exchange is re-minted when
  * the JWT is close to expiring and, as a fallback, whenever a request comes back 401 - the
  * api-client's own single-flight refresh collapses a burst of those into one exchange.
  *
- * This is the first production host of `createNixClient`: the web application still talks to Core
- * with raw fetch, so the descriptor executor, its cache and this refresh path run here for real
- * rather than only in tests.
+ * Browser-approved credentials have a fixed expiry and remain revocable through their source
+ * browser session. Refreshing access does not extend that session or widen a PAT's scope.
  */
 
 import { createNixClient, type NixClient, type TokenProvider } from '@nix/api-client';
 import type { Profile } from './config.ts';
+import { cliAuthRequest, cliTokenSchema } from './cli-auth.ts';
 
 /** How close to expiry the JWT may drift before a read re-mints it, rather than risking a 401. */
 const REFRESH_SKEW_MS = 30_000;
@@ -105,6 +105,66 @@ export function createBearerTokenProvider(token: string): TokenProvider {
   };
 }
 
+/** Refreshes a browser-approved CLI session without extending its absolute lifetime. */
+export function createInteractiveTokenProvider(options: SessionOptions): TokenProvider {
+  const session = options.profile.interactiveSession;
+  if (session === undefined) throw new Error('This profile has no browser-approved CLI session.');
+  const now = options.now ?? Date.now;
+  let accessToken: string | null = null;
+  let expiresAt = 0;
+  let refreshAfter = 0;
+  const sessionExpiresAt = Date.parse(session.expiresAt);
+  let inFlight: Promise<string | null> | null = null;
+
+  const exchange = async (): Promise<string | null> => {
+    accessToken = null;
+    expiresAt = 0;
+    refreshAfter = 0;
+    if (now() >= sessionExpiresAt) {
+      throw new Error('This CLI session has expired. Run `nixctl auth login` to sign in again.');
+    }
+    const token = await cliAuthRequest(
+      options.profile.apiUrl,
+      '/auth/cli/token',
+      { refreshToken: session.refreshToken },
+      cliTokenSchema,
+      { ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }) },
+    );
+    const nextExpiry = Date.parse(token.expiresAt);
+    if (
+      nextExpiry <= now() ||
+      nextExpiry > Date.parse(token.sessionExpiresAt) ||
+      Date.parse(token.sessionExpiresAt) > sessionExpiresAt
+    ) {
+      throw new Error(
+        'Core returned an invalid CLI session expiry. Run `nixctl auth login` again.',
+      );
+    }
+    accessToken = token.accessToken;
+    expiresAt = nextExpiry;
+    // Core caps the last access token to its session bound. Re-exchanging inside the normal
+    // skew cannot produce a later expiry, so retain that token through its actual expiry.
+    refreshAfter =
+      nextExpiry >= Date.parse(token.sessionExpiresAt) - 1_000
+        ? nextExpiry
+        : nextExpiry - REFRESH_SKEW_MS;
+    return accessToken;
+  };
+  const refresh = (): Promise<string | null> => {
+    inFlight ??= exchange().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  };
+  return {
+    getAccessToken: () =>
+      accessToken !== null && now() < Math.min(refreshAfter, expiresAt, sessionExpiresAt)
+        ? accessToken
+        : refresh(),
+    refreshAccessToken: refresh,
+  };
+}
+
 /**
  * The endpoints retained by a profile. New durable operations use Core; collaboration remains the
  * direct note-body boundary, and the media URL remains only for profile compatibility.
@@ -139,9 +199,11 @@ export interface Session {
  */
 export function openSession(options: SessionOptions): Session {
   const tokens =
-    options.bearerToken === undefined
-      ? createPatTokenProvider(options)
-      : createBearerTokenProvider(options.bearerToken);
+    options.bearerToken !== undefined
+      ? createBearerTokenProvider(options.bearerToken)
+      : options.profile.interactiveSession === undefined
+        ? createPatTokenProvider(options)
+        : createInteractiveTokenProvider(options);
   const endpoints = endpointsFor(options.profile);
   // The resource descriptors carry the full `/api/v1/...` path, so the base is Core's origin.
   const client = createNixClient({ baseUrl: endpoints.apiUrl, tokens });
