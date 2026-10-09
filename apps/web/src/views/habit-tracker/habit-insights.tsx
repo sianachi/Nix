@@ -3,12 +3,15 @@ import { Button, Field, Input, Select, Text } from '@nix/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import { formatShortDate } from '../../lib/date-format';
+import { YearGrid } from '../chart/year-grid';
 import {
   HabitConsistency,
+  habitDayLabel,
   habitDays,
   habitPeriodSummary,
   HabitQuantityTrend,
   rollingHabitWindow,
+  shiftHabitDay,
 } from './habit-progress';
 import { useHabits } from './use-habits';
 
@@ -39,15 +42,22 @@ export function HabitInsights({
   );
   const state = useHabits(ids, window.from, window.to);
   const previous = useHabits(ids, window.previousFrom, window.previousTo);
+  // The year grid's own read: the longest range the habit endpoint serves, 366 days to today.
+  const yearFrom = shiftHabitDay(today, -365);
+  const year = useHabits(ids, yearFrom, today);
   const refreshKey = habit?.tracker;
   const { reload } = state;
   const { reload: reloadPrevious } = previous;
+  const { reload: reloadYear } = year;
   useEffect(() => {
     if (refreshKey !== undefined) {
       reload();
       reloadPrevious();
+      reloadYear();
     }
-  }, [refreshKey, reload, reloadPrevious]);
+  }, [refreshKey, reload, reloadPrevious, reloadYear]);
+  const yearTracker = habit === undefined ? undefined : year.trackers.get(habit.id);
+  const yearDays = yearTracker === undefined ? [] : habitDays(yearTracker, yearFrom, today, today);
   const tracker = habit === undefined ? undefined : state.trackers.get(habit.id);
   const previousTracker = habit === undefined ? undefined : previous.trackers.get(habit.id);
   const days = tracker === undefined ? [] : habitDays(tracker, window.from, window.to, today);
@@ -213,6 +223,38 @@ export function HabitInsights({
                 </Text>
                 {renderDay(habit, selectedDay, tracker)}
               </div>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-4">
+            <div>
+              <Text as="h3" variant="h3">
+                Year at a glance
+              </Text>
+              <Text variant="bodySmall" tone="muted">
+                {yearFrom} to {today}. Darker days recorded more; empty days recorded nothing.
+              </Text>
+            </div>
+            {year.status === 'loading' ? <LoadingPanel label="the year" /> : null}
+            {year.status === 'error' ? (
+              <Text variant="bodySmall" tone="muted">
+                The year could not be loaded. {year.error ?? ''}
+              </Text>
+            ) : null}
+            {year.status !== 'loading' && year.status !== 'error' ? (
+              <YearGrid
+                label={`${habit === undefined || habit.title === '' ? 'Habit' : habit.title}, the last year`}
+                unit={tracker.target !== 1 || tracker.unit !== 'times' ? tracker.unit : 'check-ins'}
+                cells={yearDays.map((day) => ({
+                  date: day.date,
+                  // A quantity where one was recorded, otherwise a completed check-in counts once.
+                  // Unscheduled and upcoming days are empty, never zero-valued misses.
+                  value:
+                    day.state === 'upcoming' || day.state === 'unscheduled'
+                      ? null
+                      : (day.quantity ?? (day.completed ? 1 : 0)),
+                  label: habitDayLabel(day),
+                }))}
+              />
             ) : null}
           </div>
           {tracker.target !== 1 || tracker.unit !== 'times' ? (
