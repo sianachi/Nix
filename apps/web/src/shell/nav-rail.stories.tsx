@@ -28,17 +28,25 @@ const workspace: Workspace = {
 };
 
 /**
- * The rail with its Queries section: one pinned smart list beside the Queries control, and the
- * menu (open it from the Queries glyph) listing every smart list this browser has opened.
+ * The rail with its Smart lists section: one pinned smart list beside the Queries control, and the
+ * menu (open it from the Smart lists glyph) listing every smart list this browser has opened.
  */
-function Example({ compact = false }: { readonly compact?: boolean }): ReactNode {
+function Example({
+  compact = false,
+  empty = false,
+}: {
+  readonly compact?: boolean;
+  readonly empty?: boolean;
+}): ReactNode {
   useKnownSmartListsStore.setState({
-    known: {
-      [WORKSPACE]: [
-        { id: 'shopping', title: 'Shopping', pinned: true },
-        { id: 'overdue', title: 'Overdue', pinned: false },
-      ],
-    },
+    known: empty
+      ? {}
+      : {
+          [WORKSPACE]: [
+            { id: 'shopping', title: 'Shopping', pinned: true },
+            { id: 'overdue', title: 'Overdue', pinned: false },
+          ],
+        },
   });
   return (
     <MemoryRouter initialEntries={[`/w/${WORKSPACE}`]}>
@@ -70,5 +78,7 @@ function Example({ compact = false }: { readonly compact?: boolean }): ReactNode
 
 export const WithQueries = { render: (): ReactNode => <Example /> };
 export const CompactWithQueries = { render: (): ReactNode => <Example compact /> };
+export const NoSmartListsYet = { render: (): ReactNode => <Example empty /> };
+export const DarkNoSmartListsYet = { ...NoSmartListsYet, globals: { ground: 'dark' } };
 export const DarkWithQueries = { ...WithQueries, globals: { ground: 'dark' } };
 export const DarkCompactWithQueries = { ...CompactWithQueries, globals: { ground: 'dark' } };

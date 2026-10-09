@@ -8,8 +8,8 @@ import { App } from '../../app';
 import { useKnownSmartListsStore } from '../../views/query/known-smart-lists';
 
 /**
- * The rail's Queries section (plan 1.8): every smart list this browser has opened, pin and unpin,
- * and "New query" - driven through the whole application, like the rail's own tests, because what
+ * The rail's Smart lists section (plan 1.8): every smart list this browser has opened, pin and unpin,
+ * and "New smart list" - driven through the whole application, like the rail's own tests, because what
  * a link points at is only true in a router.
  */
 
@@ -34,40 +34,45 @@ beforeEach(() => {
   });
 });
 
-describe('the rail Queries section', () => {
-  it('shows a pinned smart list as a rail destination right after Queries', async () => {
+describe('the rail Smart lists section', () => {
+  it('shows a pinned smart list as a rail destination right after Smart lists', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
-    const labels = within(rail())
+    const controls = within(rail())
       .getAllByRole('listitem')
-      .map((entry) => entry.textContent);
-    expect(labels.slice(labels.indexOf('Queries'), labels.indexOf('Queries') + 2)).toEqual([
-      'Queries',
-      'Shopping',
-    ]);
+      .map((entry) => within(entry).queryByRole('link')?.textContent ?? entry.textContent);
+    const at = controls.indexOf('Smart lists');
+    // The pinned list carries its initial before its name, so two pinned lists differ at a glance.
+    expect(controls.slice(at, at + 2)).toEqual(['Smart lists', 'SShopping']);
     expect(within(rail()).getByRole('link', { name: 'Shopping' })).toHaveAttribute(
       'href',
       `${ROOT}?item=list-shop`,
     );
   });
 
-  it('lists every known smart list, pinned first, with New query', async () => {
+  it('says first that the list is only what this browser opened, then lists them', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
-    await user.click(within(rail()).getByRole('button', { name: 'Queries' }));
-    const menu = await screen.findByRole('menu', { name: 'Queries' });
+    await user.click(within(rail()).getByRole('button', { name: 'Smart lists' }));
+    const menu = await screen.findByRole('menu', { name: 'Smart lists' });
 
+    expect(within(menu).getAllByRole('menuitem')[0]).toHaveAccessibleName(
+      'Smart lists opened in this browser',
+    );
+    expect(within(menu).getAllByRole('menuitem')[0]).toBeDisabled();
     expect(within(menu).getByRole('menuitem', { name: 'Overdue' })).toHaveAttribute(
       'href',
       `${ROOT}?item=list-overdue`,
     );
-    expect(within(menu).getByRole('menuitem', { name: 'Unpin Shopping' })).toBeInTheDocument();
-    expect(within(menu).getByRole('menuitem', { name: 'New query' })).toHaveAttribute(
+    expect(
+      within(menu).getByRole('menuitem', { name: "Unpin Shopping from this browser's rail" }),
+    ).toBeInTheDocument();
+    expect(within(menu).getByRole('menuitem', { name: 'New smart list' })).toHaveAttribute(
       'href',
       `${ROOT}/new/query`,
     );
@@ -79,8 +84,10 @@ describe('the rail Queries section', () => {
     renderAt(<App />);
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
-    await user.click(within(rail()).getByRole('button', { name: 'Queries' }));
-    await user.click(await screen.findByRole('menuitem', { name: 'Pin Overdue' }));
+    await user.click(within(rail()).getByRole('button', { name: 'Smart lists' }));
+    await user.click(
+      await screen.findByRole('menuitem', { name: "Pin Overdue to this browser's rail" }),
+    );
 
     expect(await within(rail()).findByRole('link', { name: 'Overdue' })).toHaveAttribute(
       'href',
@@ -95,10 +102,10 @@ describe('the rail Queries section', () => {
     renderAt(<App />);
     await screen.findByRole('button', { name: 'Acquisition memo' });
 
-    await user.click(within(rail()).getByRole('button', { name: 'Queries' }));
+    await user.click(within(rail()).getByRole('button', { name: 'Smart lists' }));
 
     expect(
-      await screen.findByRole('menuitem', { name: 'No smart lists opened in this browser yet' }),
+      await screen.findByRole('menuitem', { name: 'Smart lists opened in this browser: none yet' }),
     ).toBeDisabled();
   });
 });
