@@ -104,6 +104,24 @@
      points this at the other end of it. */
   --color-muted: var(--color-neutral-700);
 
+  /* ── Chart series ──────────────────────────────────────────────────────
+     Six roles a chart tells its series apart by, and the only categorical
+     colour in the system. Muted on purpose - steel, ochre, teal, plum, moss
+     and graphite - so a chart sits in the Industry palette rather than on
+     top of it. Each is at least 3:1 against the ground and the surface it
+     is drawn on, which is the non-text contrast a mark needs, and no two
+     are closer than 1.2:1 to each other, so neighbours stay apart in
+     lightness as well as hue for a reader who cannot see the hue. Like
+     --color-muted they move per ground: on ink the same hues come from the
+     light end, in a different lightness order. theme.test.ts computes and
+     asserts every one of those ratios. */
+  --color-series-1: #5087bd;
+  --color-series-2: #a16428;
+  --color-series-3: #2a6d62;
+  --color-series-4: #72437c;
+  --color-series-5: #374d21;
+  --color-series-6: #383838;
+
   /* ── The solid accent fill ─────────────────────────────────────────────
      The primary button, and anything else that fills with accent and puts
      ground-coloured text on top of it.
@@ -321,6 +339,12 @@
     --color-accent-hover: var(--color-accent-400);
     --color-accent-pressed: var(--color-accent-300);
     --color-muted: var(--color-neutral-400);
+    --color-series-1: #96b7d7;
+    --color-series-2: #bd762f;
+    --color-series-3: #97d7cd;
+    --color-series-4: #9a5ba6;
+    --color-series-5: #dbe9cd;
+    --color-series-6: #9c9c9c;
 
     /* Lighter rather than deeper: on ink the label is dark, so the fill has
        to move away from it. */
@@ -365,6 +389,12 @@
   --color-accent-hover: var(--color-accent-400);
   --color-accent-pressed: var(--color-accent-300);
   --color-muted: var(--color-neutral-400);
+  --color-series-1: #96b7d7;
+  --color-series-2: #bd762f;
+  --color-series-3: #97d7cd;
+  --color-series-4: #9a5ba6;
+  --color-series-5: #dbe9cd;
+  --color-series-6: #9c9c9c;
 
   /* Lighter rather than deeper: on ink the label is dark, so the fill has
      to move away from it. */
@@ -397,6 +427,12 @@
   --color-accent-hover: var(--color-accent-600);
   --color-accent-pressed: var(--color-accent-700);
   --color-muted: var(--color-neutral-700);
+  --color-series-1: #5087bd;
+  --color-series-2: #a16428;
+  --color-series-3: #2a6d62;
+  --color-series-4: #72437c;
+  --color-series-5: #374d21;
+  --color-series-6: #383838;
 
   --color-accent-fill: var(--color-accent-700);
   --color-accent-fill-hover: var(--color-accent-800);
