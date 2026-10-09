@@ -10,7 +10,7 @@ import {
 describe('the structured-view recipe registry', () => {
   it('defines every guided action in one registry', () => {
     expect(STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured')).toHaveLength(10);
-    expect(STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'view')).toHaveLength(4);
+    expect(STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'view')).toHaveLength(5);
     expect(STRUCTURED_RECIPES.map((recipe) => recipe.id)).toEqual([
       'board',
       'timeline',
@@ -23,6 +23,7 @@ describe('the structured-view recipe registry', () => {
       'list',
       'checklist',
       'matrix',
+      'outline',
       'drive',
       'habit-tracker',
       'finances',

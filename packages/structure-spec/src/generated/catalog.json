@@ -194,6 +194,12 @@
       "viewKind": "matrix"
     },
     {
+      "id": "outline",
+      "label": "Outline",
+      "detail": "Shape the items inside as a tree of titles: add, indent and reorder by keyboard.",
+      "viewKind": "outline"
+    },
+    {
       "id": "habit-tracker",
       "label": "Habit tracker",
       "detail": "Track daily or weekday habits with a simple weekly check-in grid.",
@@ -363,6 +369,13 @@
         }
       ],
       "description": "Cards in a grid of cells, placed by two properties at once."
+    },
+    {
+      "kind": "outline",
+      "label": "Outline",
+      "requires": null,
+      "optional": [],
+      "description": "The subtree as a collapsible tree of titles, reshaped by keyboard."
     }
   ],
   "queryOperators": [

@@ -298,7 +298,8 @@
                 "habit-tracker",
                 "query",
                 "checklist",
-                "matrix"
+                "matrix",
+                "outline"
               ]
             },
             "fields": {
@@ -395,7 +396,8 @@
                       "chart",
                       "habit_tracker",
                       "checklist",
-                      "matrix"
+                      "matrix",
+                      "outline"
                     ]
                   },
                   "name": {
@@ -788,7 +790,8 @@
                       "chart",
                       "habit_tracker",
                       "checklist",
-                      "matrix"
+                      "matrix",
+                      "outline"
                     ]
                   },
                   "name": {
@@ -1335,7 +1338,8 @@
                           "chart",
                           "habit_tracker",
                           "checklist",
-                          "matrix"
+                          "matrix",
+                          "outline"
                         ]
                       },
                       "name": {
@@ -2190,7 +2194,8 @@
                           "chart",
                           "habit_tracker",
                           "checklist",
-                          "matrix"
+                          "matrix",
+                          "outline"
                         ]
                       },
                       "name": {

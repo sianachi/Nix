@@ -34,6 +34,7 @@ const VIEW_KINDS = [
   'habit_tracker',
   'checklist',
   'matrix',
+  'outline',
 ] as const;
 type ViewKind = (typeof VIEW_KINDS)[number];
 
@@ -59,6 +60,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   habit_tracker: [],
   checklist: ['columns', 'doneProperty'],
   matrix: ['columns', 'rowBy', 'columnBy'],
+  outline: [],
 };
 
 const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;

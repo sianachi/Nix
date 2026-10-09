@@ -15,7 +15,8 @@ export type StructuredRecipeId =
   | 'habit-tracker'
   | 'finances'
   | 'checklist'
-  | 'matrix';
+  | 'matrix'
+  | 'outline';
 
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;
@@ -187,6 +188,16 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
         required: false,
       },
     ],
+  },
+  {
+    id: 'outline',
+    label: 'Outline',
+    detail: 'Shape the items inside as a tree of titles: add, indent and reorder by keyboard.',
+    menu: 'view',
+    viewKind: 'outline',
+    defaultTitle: 'Untitled outline',
+    defaultViewName: 'Outline',
+    properties: [],
   },
   {
     id: 'drive',

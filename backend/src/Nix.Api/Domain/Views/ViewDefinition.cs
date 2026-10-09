@@ -149,6 +149,15 @@ public enum ViewKind
     /// card dragged to another cell is one write of both properties.
     /// </remarks>
     Matrix = 14,
+
+    /// <summary>The subtree as a collapsible tree of titles, edited by keyboard.</summary>
+    /// <remarks>
+    /// The one kind that edits structure rather than properties: adding a sibling, indenting and
+    /// reordering all go through the item create and move endpoints, so everything a move already
+    /// refuses - a lock, an item that accepts no children, a cycle - is refused here too.
+    /// Requirement-free, because a tree of titles needs nothing from the schema.
+    /// </remarks>
+    Outline = 15,
 }
 
 /// <summary>
@@ -264,6 +273,9 @@ public static class ViewKinds
         // Like a list, and by the list's own argument: with nothing configured a checklist still
         // has titles to list, and it falls back to a "done" checkbox or the task completion.
         new ViewKindDescriptor(ViewKind.Checklist, "checklist", Requirement: null),
+
+        // Titles and structure only, so like a list it needs nothing from the schema.
+        new ViewKindDescriptor(ViewKind.Outline, "outline", Requirement: null),
 
         // The board's field for its columns, so a board switched to a matrix keeps them, but the
         // wider section predicate: a matrix cell draws a checkbox's two values honestly. Its rows
