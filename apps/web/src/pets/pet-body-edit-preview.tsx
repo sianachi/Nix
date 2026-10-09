@@ -1,35 +1,78 @@
 import { Text, cn, focusRing } from '@nix/ui';
-import type { ReactElement } from 'react';
+import { useEffect, useRef, type ReactElement } from 'react';
 import type { PreviewBodyEdit } from '@nix/structure-spec';
+import { lineSegments, rangeSegments, type DiffSegment } from '../lib/text-diff';
 
-/** One side of the comparison: a label in words (never colour alone) and the full text in a
- * focusable scroll region, so nothing the owner is approving hides behind a fold. */
+const COPY = {
+  pending: {
+    intro: 'The edited part of the note, before and after',
+    before: 'Text now',
+    after: 'Text after this change',
+  },
+  applied: {
+    intro: 'The edited part of the note, before and after this change',
+    before: 'Text before',
+    after: 'Text after',
+  },
+} as const;
+
+/** One side of the comparison: a label in words, and the full text in a focusable plain-text
+ * scroll region whose changed runs are marked as removed or added in text as well as style. The
+ * region scrolls to its first change when it appears, so a long section opens on the edit. */
 function TextSide({
   label,
-  text,
-  empty,
+  name,
+  segments,
+  kind,
 }: {
   readonly label: string;
-  readonly text: string;
-  readonly empty: string;
+  readonly name: string;
+  readonly segments: readonly DiffSegment[];
+  readonly kind: 'removed' | 'added';
 }): ReactElement {
-  const lineCount = text ? text.split('\n').length : 0;
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const region = box.current;
+    const first = region?.querySelector('[data-change]');
+    if (region && first instanceof HTMLElement) region.scrollTop = first.offsetTop;
+  }, []);
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <Text variant="note" tone="muted">
-        {label} ({String(lineCount)} line{lineCount === 1 ? '' : 's'})
+        {label}
       </Text>
       <div
+        ref={box}
         role="region"
-        aria-label={label}
+        aria-label={name}
         // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
         tabIndex={0}
         className={cn(
-          'max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded border border-divider p-2',
+          'relative max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-sm border border-divider p-2',
           focusRing,
         )}
       >
-        {text ? <Text variant="note">{text}</Text> : <Text variant="note">{empty}</Text>}
+        <Text variant="note">
+          {segments.map((segment, index) =>
+            !segment.changed ? (
+              <span key={index}>{segment.text}</span>
+            ) : kind === 'removed' ? (
+              <del key={index} data-change="" className="text-muted line-through">
+                <Text as="span" variant="note" className="sr-only">
+                  removed:{' '}
+                </Text>
+                {segment.text}
+              </del>
+            ) : (
+              <ins key={index} data-change="" className="bg-accent/10 underline">
+                <Text as="span" variant="note" className="sr-only">
+                  added:{' '}
+                </Text>
+                {segment.text}
+              </ins>
+            ),
+          )}
+        </Text>
       </div>
     </div>
   );
@@ -37,20 +80,52 @@ function TextSide({
 
 /** The text a section or passage edit replaces and the text it leaves, side by side when the
  * panel is wide enough and stacked when it is not. Both sides are plain text: the model chose
- * the new one, so it is never rendered as Markdown. */
-export function PetBodyEditPreview({ edit }: { readonly edit: PreviewBodyEdit }): ReactElement {
+ * the new one, so it is never rendered as Markdown. A passage marks the characters that change;
+ * a section marks the lines that differ. `phase` is `applied` on a receipt, once the edit ran. */
+export function PetBodyEditPreview({
+  edit,
+  phase = 'pending',
+}: {
+  readonly edit: PreviewBodyEdit;
+  readonly phase?: 'pending' | 'applied';
+}): ReactElement {
+  const copy = COPY[phase];
+  const marked =
+    edit.beforeRange && edit.afterRange
+      ? {
+          before: rangeSegments(edit.before, edit.beforeRange),
+          after: rangeSegments(edit.after, edit.afterRange),
+        }
+      : lineSegments(edit.before, edit.after);
   return (
     <div className="@container flex flex-col gap-2">
       <Text variant="note" tone="muted">
-        The edited part of the note, before and after
+        {copy.intro}
       </Text>
       <div className="grid grid-cols-1 gap-3 @md:grid-cols-2">
-        <TextSide label="Text now" text={edit.before} empty="(empty)" />
         <TextSide
-          label="Text after this change"
-          text={edit.after}
-          empty="(removed: nothing replaces it)"
+          label={copy.before}
+          name={`${copy.before}, ${edit.subject}`}
+          segments={marked.before}
+          kind="removed"
         />
+        {edit.after ? (
+          <TextSide
+            label={copy.after}
+            name={`${copy.after}, ${edit.subject}`}
+            segments={marked.after}
+            kind="added"
+          />
+        ) : (
+          <div className="flex min-w-0 flex-col gap-1">
+            <Text variant="note" tone="muted">
+              {copy.after}
+            </Text>
+            <Text variant="note" tone="muted">
+              Nothing replaces it: this text is removed.
+            </Text>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { Text } from '@nix/ui';
 import { petCatalog } from './catalog';
 import { PetAvatar, petAnimationStates, type PetAnimationState } from './pet-avatar';
@@ -21,7 +21,6 @@ import * as Y from 'yjs';
 import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
-import { PetBodyEditPreview } from './pet-body-edit-preview';
 
 export default { title: 'Nix/Companions', parameters: { layout: 'padded' } };
 
@@ -1243,14 +1242,24 @@ export const HistoryPanel = {
 export const DarkHistoryPanel = { ...HistoryPanel, globals: { ground: 'dark' } };
 
 const bodyEditNoteId = '33333333-3333-4333-8333-333333333333';
+const bodyEditWorkspaceId = '11111111-1111-4111-8111-111111111111';
+const bodyEditPetId = '22222222-2222-4222-8222-222222222222';
+
+type BodyEditRuntime = ReturnType<typeof petConnectionSchema.parse>;
 
 /** A note's whole collab history as one update, served the way the collab endpoint pages it, so
- * the card computes its before and after text from a real document. */
-function bodyEditClient(markdown: string): NixClient {
-  const parsed = markdownToDocument(markdown);
+ * the card computes its before and after text from a real document. Writes are accepted, and a
+ * runtime call moves the tool on (claimed, then completed) the way the worker does, so a story
+ * can show what the switch leaves behind. */
+function bodyEditClient(
+  content: string | { type: 'doc'; content: unknown[] },
+  onRuntime?: (operation: string, requestId: string) => BodyEditRuntime,
+): NixClient {
+  const parsed = typeof content === 'string' ? markdownToDocument(content) : undefined;
   const doc = new Y.Doc();
-  if (parsed.ok)
-    prosemirrorJSONToYXmlFragment(nixSchema, parsed.doc, doc.getXmlFragment('default'));
+  const json = parsed === undefined ? content : parsed.ok ? parsed.doc : undefined;
+  if (json !== undefined)
+    prosemirrorJSONToYXmlFragment(nixSchema, json, doc.getXmlFragment('default'));
   const update = btoa(
     Array.from(Y.encodeStateAsUpdate(doc), (byte) => String.fromCharCode(byte)).join(''),
   );
@@ -1262,13 +1271,22 @@ function bodyEditClient(markdown: string): NixClient {
       if (endpoint.operation === 'items.get')
         return Promise.resolve({
           id: bodyEditNoteId,
-          workspaceId: '11111111-1111-4111-8111-111111111111',
+          workspaceId: bodyEditWorkspaceId,
           parentId: null,
           title: 'Trip plan',
           type: 'note',
           properties: {},
         });
       return Promise.reject(new Error(`Unexpected preview read: ${endpoint.operation}`));
+    },
+    execute: (endpoint: {
+      operation: string;
+      body?: { operation?: string; requestId?: string };
+    }): Promise<unknown> => {
+      if (endpoint.operation === 'companion.body.append') return Promise.resolve({ seq: '2' });
+      if (onRuntime && endpoint.body?.operation)
+        return Promise.resolve(onRuntime(endpoint.body.operation, endpoint.body.requestId ?? ''));
+      return Promise.reject(new Error('This story does not write.'));
     },
     invalidate: () => undefined,
   } as unknown as NixClient;
@@ -1293,52 +1311,66 @@ const bodyEditNote = [
   'Total is 400.',
 ].join('\n');
 
+function bodyEditRuntime(
+  operation: 'replace_section' | 'replace_passage',
+  query: string,
+  markdown: string,
+): BodyEditRuntime {
+  return petConnectionSchema.parse({
+    provider: 'chatgpt',
+    status: 'connected',
+    reason: '',
+    canConnect: false,
+    tools: [
+      {
+        id: `preview-${operation}`,
+        arguments: JSON.stringify({
+          operation,
+          itemId: bodyEditNoteId,
+          parentId: '',
+          title: '',
+          markdown,
+          query,
+          propertiesJson: '',
+          specJson: '',
+        }),
+        status: 'pending',
+        result: '',
+        claimId: '',
+      },
+    ],
+  });
+}
+
 function BodyEditCard({
   operation,
   query,
   markdown,
+  content = bodyEditNote,
+  applyWithoutAsking = false,
 }: {
   readonly operation: 'replace_section' | 'replace_passage';
   readonly query: string;
   readonly markdown: string;
+  readonly content?: string | { type: 'doc'; content: unknown[] };
+  readonly applyWithoutAsking?: boolean;
 }): ReactElement {
   return (
     <MemoryRouter>
       <PetWorkTools
-        client={bodyEditClient(bodyEditNote)}
-        workspaceId="11111111-1111-4111-8111-111111111111"
-        petId="22222222-2222-4222-8222-222222222222"
+        client={bodyEditClient(content)}
+        workspaceId={bodyEditWorkspaceId}
+        petId={bodyEditPetId}
         onChange={() => undefined}
-        runtime={petConnectionSchema.parse({
-          provider: 'chatgpt',
-          status: 'connected',
-          reason: '',
-          canConnect: false,
-          tools: [
-            {
-              id: `preview-${operation}`,
-              arguments: JSON.stringify({
-                operation,
-                itemId: bodyEditNoteId,
-                parentId: '',
-                title: '',
-                markdown,
-                query,
-                propertiesJson: '',
-                specJson: '',
-              }),
-              status: 'pending',
-              result: '',
-              claimId: '',
-            },
-          ],
-        })}
+        applyWithoutAsking={applyWithoutAsking}
+        runtime={bodyEditRuntime(operation, query, markdown)}
       />
     </MemoryRouter>
   );
 }
 
-/** A section edit: nested list and code block out, a shorter list in, heading kept. */
+/** A section edit: nested list and code block out, a shorter list in, heading kept. The
+ * changed lines are marked on both sides. */
 export const SectionEditApproval = {
   render: (): ReactElement => (
     <BodyEditCard
@@ -1350,7 +1382,7 @@ export const SectionEditApproval = {
 };
 export const DarkSectionEditApproval = { ...SectionEditApproval, globals: { ground: 'dark' } };
 
-/** A passage edit inside one nested list item. */
+/** A passage edit inside one nested list item: only the changed characters are marked. */
 export const PassageEditApproval = {
   render: (): ReactElement => (
     <BodyEditCard operation="replace_passage" query="Shirts" markdown="T-shirts" />
@@ -1358,42 +1390,73 @@ export const PassageEditApproval = {
 };
 export const DarkPassageEditApproval = { ...PassageEditApproval, globals: { ground: 'dark' } };
 
-const passageLossModel: PreviewModel = {
-  headline: 'I will change one passage in the linked note. Every other block stays as it is.',
-  destination: { title: 'Trip plan', path: ['Trip plan'] },
-  counts: { items: 0, fields: 0, views: 0, entries: 0, writes: 1 },
-  tree: [],
-  notes: ['Removes 1 block and adds 1 block.'],
-  warnings: [
-    {
-      path: 'Replaced text',
-      code: 'color-dropped',
-      message:
-        'A text-colour mark was dropped; the text it covered was kept. The edit will not keep it.',
-    },
-  ],
-  problems: [],
-  neverDoes: ['Publish a public link', 'Delete anything permanently', 'Remove or retype a field'],
-  bodyEdit: {
-    before: 'Book the **venue** by Friday, then confirm the caterer.',
-    after: '',
-    blocksRemoved: 1,
-    blocksAdded: 0,
-    losesFormatting: true,
-  },
-};
-
-/** A passage edit that removes a whole paragraph and drops a colour mark: the loss is a
- * warning in words and the empty side says so, never a colour alone. */
+/** A coloured paragraph removed through the real card, with the switch on: the loss is a
+ * warning in words, nothing replaces the text, and the card says why it waits anyway. */
 export const PassageRemovalWithLoss = {
   render: (): ReactElement => (
-    <div className="flex flex-col gap-2">
-      <PetStructurePreview model={passageLossModel} pending />
-      {passageLossModel.bodyEdit ? <PetBodyEditPreview edit={passageLossModel.bodyEdit} /> : null}
-    </div>
+    <BodyEditCard
+      operation="replace_passage"
+      query="then confirm the caterer."
+      markdown=""
+      applyWithoutAsking
+      content={{
+        type: 'doc',
+        content: [
+          {
+            type: 'paragraph',
+            content: [
+              { type: 'text', text: 'Book the venue by Friday, ' },
+              {
+                type: 'text',
+                text: 'then confirm the caterer.',
+                marks: [{ type: 'textColor', attrs: { text: 'accent', background: null } }],
+              },
+            ],
+          },
+          { type: 'paragraph', content: [{ type: 'text', text: 'Send the invitations.' }] },
+        ],
+      }}
+    />
   ),
 };
 export const DarkPassageRemovalWithLoss = {
   ...PassageRemovalWithLoss,
+  globals: { ground: 'dark' },
+};
+
+/** A clean passage edit the "Apply without asking" switch ran: the receipt says so, and "What
+ * was applied" keeps the before and after text and the way back through the note's history. */
+function AppliedBodyEditReceipt(): ReactElement {
+  const initial = bodyEditRuntime('replace_passage', 'Shirts', 'T-shirts');
+  const [live, setLive] = useState(initial);
+  const [client] = useState(() =>
+    bodyEditClient(bodyEditNote, (operation, requestId) => ({
+      ...initial,
+      tools: (initial.tools ?? []).map((tool) => ({
+        ...tool,
+        status: operation === 'tool_result' ? 'completed' : 'claimed',
+        claimId: requestId,
+        result: operation === 'tool_result' ? '{"replaced":true}' : '',
+      })),
+    })),
+  );
+  return (
+    <MemoryRouter>
+      <PetWorkTools
+        client={client}
+        workspaceId={bodyEditWorkspaceId}
+        petId={bodyEditPetId}
+        onChange={setLive}
+        applyWithoutAsking
+        runtime={live}
+      />
+    </MemoryRouter>
+  );
+}
+export const AppliedBodyEditWithoutAsking = {
+  render: (): ReactElement => <AppliedBodyEditReceipt />,
+};
+export const DarkAppliedBodyEditWithoutAsking = {
+  ...AppliedBodyEditWithoutAsking,
   globals: { ground: 'dark' },
 };

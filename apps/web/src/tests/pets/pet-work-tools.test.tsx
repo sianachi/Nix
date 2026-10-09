@@ -1448,15 +1448,52 @@ describe('companion work approvals', () => {
     }
     function claimThenComplete(base: typeof runtime) {
       client.execute.mockImplementation(
-        (endpoint: { body: { operation: string; requestId: string } }) =>
+        (endpoint: {
+          body: {
+            operation: string;
+            requestId: string;
+            toolSuccess?: boolean;
+            toolResult?: string;
+          };
+        }) =>
           Promise.resolve({
             ...base,
             tools: base.tools?.map((tool) => ({
               ...tool,
-              status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
+              status:
+                endpoint.body.operation !== 'tool_result'
+                  ? 'claimed'
+                  : endpoint.body.toolSuccess
+                    ? 'completed'
+                    : 'failed',
               claimId: endpoint.body.requestId,
+              result: endpoint.body.toolResult ?? '',
             })),
           }),
+      );
+    }
+
+    function LiveTools({
+      initial,
+      applyWithoutAsking = false,
+      onNeedsDecisionChange,
+    }: {
+      readonly initial: typeof runtime;
+      readonly applyWithoutAsking?: boolean;
+      readonly onNeedsDecisionChange?: (ids: readonly string[]) => void;
+    }): ReactElement {
+      const [live, setLive] = useState(initial);
+      return (
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={live}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          petName="Cat"
+          onChange={setLive}
+          applyWithoutAsking={applyWithoutAsking}
+          {...(onNeedsDecisionChange ? { onNeedsDecisionChange } : {})}
+        />
       );
     }
 
@@ -1485,16 +1522,16 @@ describe('companion work approvals', () => {
       );
       expect(
         await screen.findByText(
-          'I will replace the section “Budget” in the linked note. The rest of the note stays as it is.',
+          'I will rewrite the section “Budget” in the linked note. The rest of the note stays as it is.',
         ),
       ).toBeVisible();
-      expect(screen.getByRole('region', { name: 'Text now' })).toHaveTextContent(
-        '## Budget Total is 400.',
-      );
-      expect(screen.getByRole('region', { name: 'Text after this change' })).toHaveTextContent(
-        '## Budget Total is 450. - Venue',
-      );
-      expect(screen.getByText('Removes 1 block and adds 2 blocks.')).toBeVisible();
+      expect(
+        screen.getByRole('region', { name: 'Text now, Section “Budget” in Trip' }),
+      ).toHaveTextContent('## Budget removed: Total is 400.');
+      expect(
+        screen.getByRole('region', { name: 'Text after this change, Section “Budget” in Trip' }),
+      ).toHaveTextContent('## Budget added: Total is 450. - Venue');
+      expect(screen.queryByText(/Removes 1 block/)).not.toBeInTheDocument();
       // The comparison already carries the new text; it is not listed a second time.
       expect(screen.queryByRole('region', { name: /New section text/ })).not.toBeInTheDocument();
       await approveRequest();
@@ -1514,16 +1551,7 @@ describe('companion work approvals', () => {
         markdown: 'Day one.',
       });
       claimThenComplete(missingRuntime);
-      render(
-        <PetWorkTools
-          client={client as unknown as NixClient}
-          runtime={missingRuntime}
-          workspaceId={workspaceId}
-          petId="22222222-2222-4222-8222-222222222222"
-          onChange={vi.fn()}
-        />,
-        { wrapper: MemoryRouter },
-      );
+      render(<LiveTools initial={missingRuntime} />, { wrapper: MemoryRouter });
       await waitFor(() => {
         expect(client.execute).toHaveBeenCalledTimes(2);
       });
@@ -1537,6 +1565,12 @@ describe('companion work approvals', () => {
         },
       });
       expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      // The owner reads the problem without tool names; the model got its own text.
+      expect(await screen.findByText('Sent 1 problem back to Cat')).toBeVisible();
+      await userEvent.click(screen.getByText('Show problems'));
+      expect(
+        screen.getByText('There is no heading “Itinerary” in this note, so nothing was edited.'),
+      ).toBeVisible();
     });
 
     it('runs a clean passage edit without asking when the switch is on', async () => {
@@ -1604,8 +1638,16 @@ describe('companion work approvals', () => {
         { wrapper: MemoryRouter },
       );
       expect(
-        await screen.findByRole('region', { name: 'Text after this change' }),
-      ).toHaveTextContent('Centered line');
+        await screen.findByRole('region', { name: /^Text after this change/ }),
+      ).toHaveTextContent('Centadded: ered line');
+      expect(
+        screen.getByText(
+          'This one waits for you: approving it removes formatting Markdown can’t keep.',
+        ),
+      ).toBeVisible();
+      expect(
+        screen.getByText('This paragraph: Its text alignment goes back to the default.'),
+      ).toBeVisible();
       await waitFor(() => {
         expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
       });
@@ -1635,14 +1677,115 @@ describe('companion work approvals', () => {
         { wrapper: MemoryRouter },
       );
       expect(
-        await screen.findByRole('region', { name: 'Text after this change' }),
+        await screen.findByRole('region', { name: /^Text after this change/ }),
       ).toHaveTextContent('http://evil.example/a');
+      expect(
+        screen.getByText('This one waits for you: it adds a link to another site.'),
+      ).toBeVisible();
       await waitFor(() => {
         expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
       });
       expect(screen.getByRole('button', { name: 'Approve request' })).toBeEnabled();
       expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
       expect(client.execute).not.toHaveBeenCalled();
+    });
+
+    it('keeps the comparison on the receipt of an edit the owner approved, with the way back', async () => {
+      serveNote('# Trip\n\n## Budget\n\nTotal is 400.');
+      const sectionRuntime = editRuntime({
+        operation: 'replace_section',
+        query: 'Budget',
+        markdown: 'Total is 450.',
+      });
+      claimThenComplete(sectionRuntime);
+      runWorkspaceToolSpy.mockResolvedValueOnce({
+        text: '{"replaced":true}',
+        readOnly: false,
+        touchedParents: [],
+      });
+      render(<LiveTools initial={sectionRuntime} />, { wrapper: MemoryRouter });
+      await approveRequest();
+      expect(await screen.findByText('Done')).toBeVisible();
+      await userEvent.click(screen.getByText('What was applied'));
+      expect(
+        screen.getByRole('region', { name: 'Text before, Section “Budget” in Trip' }),
+      ).toHaveTextContent('Total is 400.');
+      expect(
+        screen.getByRole('region', { name: 'Text after, Section “Budget” in Trip' }),
+      ).toHaveTextContent('Total is 450.');
+      expect(
+        screen.getByText('You can restore the earlier text from this note’s history.'),
+      ).toBeVisible();
+      expect(screen.getByRole('link', { name: 'Open the note' })).toHaveAttribute(
+        'href',
+        `/w/${workspaceId}?item=${noteId}`,
+      );
+    });
+
+    it('says an approved edit refused before it changed anything was not run, in the owner’s words', async () => {
+      serveNote('Meet at teh station.');
+      const passageRuntime = editRuntime({
+        operation: 'replace_passage',
+        query: 'teh',
+        markdown: 'the',
+      });
+      client.execute.mockImplementation(
+        (endpoint: { body: { operation: string; requestId: string; toolResult?: string } }) =>
+          Promise.resolve({
+            ...passageRuntime,
+            tools: passageRuntime.tools.map((tool) => ({
+              ...tool,
+              status: endpoint.body.operation === 'tool_result' ? 'failed' : 'claimed',
+              claimId: endpoint.body.requestId,
+              result: endpoint.body.toolResult ?? '',
+            })),
+          }),
+      );
+      const { WorkspaceToolRefusal } = await import('@nix/companion/tool-args');
+      runWorkspaceToolSpy.mockRejectedValueOnce(
+        new WorkspaceToolRefusal(
+          'The note changed since you approved this. Read it again before editing.',
+          'The note changed after you approved this, so nothing was edited.',
+        ),
+      );
+      render(<LiveTools initial={passageRuntime} />, { wrapper: MemoryRouter });
+      await approveRequest();
+      expect(await screen.findByText('Not run - nothing changed')).toBeVisible();
+      expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
+        body: {
+          operation: 'tool_result',
+          toolSuccess: false,
+          toolResult: 'The note changed since you approved this. Read it again before editing.',
+        },
+      });
+      await userEvent.click(screen.getByText('Why it did not run'));
+      expect(
+        screen.getByText('The note changed after you approved this, so nothing was edited.'),
+      ).toBeVisible();
+      expect(screen.queryByText(/Read it again before editing/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Didn't finish/)).not.toBeInTheDocument();
+    });
+
+    it('counts a body edit as needing a decision until its preview has loaded', async () => {
+      client.query.mockImplementation(() => new Promise(() => undefined));
+      const passageRuntime = editRuntime({
+        operation: 'replace_passage',
+        query: 'teh',
+        markdown: 'the',
+      });
+      const onNeedsDecisionChange = vi.fn();
+      render(
+        <LiveTools
+          initial={passageRuntime}
+          applyWithoutAsking
+          onNeedsDecisionChange={onNeedsDecisionChange}
+        />,
+        { wrapper: MemoryRouter },
+      );
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
     });
   });
 });

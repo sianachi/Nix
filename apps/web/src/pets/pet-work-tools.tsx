@@ -48,6 +48,8 @@ const DECLINED_BY_USER = 'Declined by the user. Do not retry this change unless 
 function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel): boolean {
   return (
     canApplyWithoutAsking(args.operation) &&
+    // A body edit's stored text is only known once its preview has placed it.
+    (!BODY_EDIT_OPERATIONS.has(args.operation) || model?.bodyEdit !== undefined) &&
     model?.bodyEdit?.losesFormatting !== true &&
     !hasExternalLink([
       args.title,
@@ -59,6 +61,37 @@ function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel)
 
 /** Note body edits show the whole edited block before and after (`PetBodyEditPreview`), which
  * already includes every character the request would store. */
+const WAITS_FOR_FORMATTING =
+  'This one waits for you: approving it removes formatting Markdown can’t keep.';
+const WAITS_FOR_LINK = 'This one waits for you: it adds a link to another site.';
+
+/** Why a write the owner's switch would otherwise run is waiting anyway, in the owner's words,
+ * when that is something the preview shows: formatting a body edit drops, or a link to another
+ * host in what it would store. */
+function waitsForOwnerBecause(args: WorkspaceToolArgs, model: PreviewModel): string | undefined {
+  if (model.bodyEdit?.losesFormatting) return WAITS_FOR_FORMATTING;
+  if (
+    hasExternalLink([
+      args.title,
+      ...writeTextItems(args).map((item) => item.text),
+      ...(model.bodyEdit ? [model.bodyEdit.after] : []),
+    ])
+  )
+    return WAITS_FOR_LINK;
+  return undefined;
+}
+
+/** The receipt of an approved write that was refused before it changed anything, with the
+ * owner's reason kept beside it (`ownerReasons`) rather than the model's. */
+const NOT_RUN = 'Not run - nothing changed';
+
+/** A settled body edit's one-line receipt, which is never previewed again (see the card's
+ * preview effect): what it was, without claiming what the note says now. */
+function settledBodyEditHeadline(args: WorkspaceToolArgs): string {
+  return args.operation === 'replace_section'
+    ? `Edit to the section “${args.query}” in the linked note`
+    : 'Edit to one passage in the linked note';
+}
 const BODY_EDIT_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set([
   'replace_section',
   'replace_passage',
@@ -245,6 +278,9 @@ export function PetWorkTools({
   // Whether a pending write's preview failed to load, reported by its card. Such a write can
   // never run on its own under `applyWithoutAsking`, so it counts towards `needsDecision`.
   const [previewFailed, setPreviewFailed] = useState<Record<string, boolean>>({});
+  // The owner's sentence for an approved write refused before it changed anything. Kept in
+  // memory only: receipts in session storage hold outcomes, never document text.
+  const [ownerReasons, setOwnerReasons] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const changed = () => {
@@ -345,6 +381,7 @@ export function PetWorkTools({
         throw new Error('Tool was claimed elsewhere.');
       let toolResult = refusalResult ?? DECLINED_BY_USER;
       let toolSuccess = false;
+      let notRun: string | undefined;
       if (approved) {
         try {
           const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
@@ -388,6 +425,10 @@ export function PetWorkTools({
             reason instanceof WorkspaceToolRefusal
               ? reason.message
               : 'The operation failed or its result is uncertain. Inspect Nix before retrying a write. Do not assume success.';
+          // A refusal that says so in the owner's words changed nothing: it is "not run", not
+          // "didn't finish", and the owner reads their sentence rather than the model's.
+          if (reason instanceof WorkspaceToolRefusal && reason.ownerMessage)
+            notRun = reason.ownerMessage;
         }
       }
       const result = await client.execute(
@@ -423,6 +464,11 @@ export function PetWorkTools({
             : outcome + WITHOUT_ASKING_SUFFIX;
         writeActionReceipt(key, receipt);
         setDecisions((old) => ({ ...old, [key]: receipt }));
+      } else if (approved && notRun !== undefined) {
+        const reason = notRun;
+        writeActionReceipt(key, NOT_RUN);
+        setDecisions((old) => ({ ...old, [key]: NOT_RUN }));
+        setOwnerReasons((old) => ({ ...old, [tool.id]: reason }));
       } else if (!approved) {
         // Mirrors the approved branch above: once the `tool_result` POST for a decline - a
         // plain user decline, or an automatic one sent back for a design's problems - has
@@ -477,6 +523,7 @@ export function PetWorkTools({
             );
           }}
           submitted={decisions[decisionKey(tool)] ?? readActionReceipt(decisionKey(tool))}
+          ownerReason={ownerReasons[tool.id]}
           onResolve={resolve}
         />
       ))}
@@ -656,6 +703,7 @@ function writeStatusText(
       return withoutAsking ? (submitted ?? DONE_WITHOUT_ASKING) : 'Done';
     case 'failed':
       if (tool.result === DECLINED_BY_USER) return 'Declined';
+      if (submitted === NOT_RUN) return NOT_RUN;
       return withoutAsking
         ? "Didn't finish (ran without asking) - check your workspace before retrying"
         : "Didn't finish - check your workspace before retrying";
@@ -676,8 +724,11 @@ function WriteReceiptRow({
   progress,
   cleanup,
   applied,
+  ownerReason,
 }: {
   readonly tool: PetToolCall;
+  /** For a write that was not run: why, in the owner's words. */
+  readonly ownerReason?: string | undefined;
   readonly headline: string;
   readonly problems: readonly Problem[];
   /** What a write that ran without asking stored, so the owner can still read it afterwards:
@@ -696,10 +747,18 @@ function WriteReceiptRow({
       details={
         declinedForProblems
           ? problems.map((problem) => problem.message).join('\n')
-          : tool.result || undefined
+          : submitted === NOT_RUN
+            ? ownerReason
+            : tool.result || undefined
       }
       detailsLabel={
-        declinedForProblems ? 'Show problems' : applied ? 'What was applied' : 'Result details'
+        declinedForProblems
+          ? 'Show problems'
+          : submitted === NOT_RUN
+            ? 'Why it did not run'
+            : applied
+              ? 'What was applied'
+              : 'Result details'
       }
       detailsExtra={applied}
       actions={
@@ -894,7 +953,7 @@ function WriteTextSection({
               // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: a scrollable region needs a tab stop or its content cannot be scrolled without a pointer.
               tabIndex={0}
               className={cn(
-                'max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded border border-divider p-2',
+                'max-h-60 overflow-y-auto whitespace-pre-wrap break-words rounded-sm border border-divider p-2',
                 focusRing,
               )}
             >
@@ -966,9 +1025,11 @@ function PetWorkToolCard({
   onProblemsChange,
   onPreviewFailedChange,
   submitted,
+  ownerReason,
   onResolve,
 }: {
   readonly tool: PetToolCall;
+  readonly ownerReason?: string | undefined;
   readonly client: NixClient;
   readonly workspaceId: string;
   readonly petName: string;
@@ -1001,6 +1062,8 @@ function PetWorkToolCard({
   }
   const args = parsed.success ? parsed.data : undefined;
   const isReadOp = args !== undefined && isAutoReadOperation(args.operation);
+  const isBodyEdit = args !== undefined && BODY_EDIT_OPERATIONS.has(args.operation);
+  const settledBodyEdit = isBodyEdit && tool.status !== 'pending';
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1013,7 +1076,9 @@ function PetWorkToolCard({
     // Reads (and design checks) never need a mutation preview - they have nothing to approve,
     // only whether they ran - so the preview-only `@nix/companion` chunk is never fetched for
     // them at all.
-    if (!current.success || isAutoReadOperation(current.data.operation)) {
+    // A body edit that already has an outcome is never previewed again: a fresh plan would
+    // describe the note as it is now, after the edit, not the text that was approved.
+    if (!current.success || isAutoReadOperation(current.data.operation) || settledBodyEdit) {
       return () => {
         controller.abort();
       };
@@ -1061,13 +1126,13 @@ function PetWorkToolCard({
     return () => {
       controller.abort();
     };
-  }, [tool.arguments, workspaceId, client]);
+  }, [tool.arguments, workspaceId, client, settledBodyEdit]);
 
   const currentPreview = state.arguments === tool.arguments;
   const model = currentPreview ? state.prepared?.model : undefined;
   const problems = model?.problems ?? [];
   const problemResult = `${DECLINED_FOR_PROBLEMS_PREFIX}\n${problems
-    .map((problem: Problem) => `${problem.path}: ${problem.message}`)
+    .map((problem: Problem) => `${problem.path}: ${problem.modelMessage ?? problem.message}`)
     .join('\n')}`.slice(0, 16000);
   const itemId = args?.itemId && z.uuid().safeParse(args.itemId).success ? args.itemId : undefined;
   const parentId =
@@ -1214,22 +1279,63 @@ function PetWorkToolCard({
         () => !(model?.bodyEdit && BODY_EDIT_OPERATIONS.has(args.operation)),
       )
     : [];
+  // With the switch on, a clean write that waits anyway says why, above the buttons.
+  const waitReason =
+    applyWithoutAsking &&
+    args !== undefined &&
+    model !== undefined &&
+    tool.status === 'pending' &&
+    !submitted &&
+    problems.length === 0
+      ? waitsForOwnerBecause(args, model)
+      : undefined;
   const isCompactWrite =
     args !== undefined && (tool.status !== 'pending' || Boolean(submitted) || problems.length > 0);
   if (isCompactWrite) {
+    // A body edit that ran keeps its comparison whether the owner approved it or the switch
+    // did, plus the way back: the note's own history. After the panel is reopened the approved
+    // text is gone (receipts never store document text), so only the way back remains.
+    const bodyEditDone = isBodyEdit && tool.status === 'completed';
+    const restore = bodyEditDone ? (
+      <div className="flex flex-wrap items-baseline gap-2">
+        <Text variant="note">You can restore the earlier text from this note’s history.</Text>
+        {itemId ? (
+          <Link className={cn('underline', focusRing)} to={`/w/${workspaceId}?item=${itemId}`}>
+            Open the note
+          </Link>
+        ) : null}
+      </div>
+    ) : null;
     const applied =
-      ranWithoutAsking(submitted) && model ? (
+      (ranWithoutAsking(submitted) || bodyEditDone) && model ? (
         <div className="flex flex-col gap-2">
-          <PetStructurePreview model={model} captureSummary={false} />
-          {model.bodyEdit ? <PetBodyEditPreview edit={model.bodyEdit} /> : null}
+          <PetStructurePreview model={model} captureSummary={false}>
+            {model.bodyEdit ? (
+              <PetBodyEditPreview
+                edit={model.bodyEdit}
+                phase={tool.status === 'completed' ? 'applied' : 'pending'}
+              />
+            ) : null}
+          </PetStructurePreview>
+          {restore}
           <WriteTextSection items={textItems} />
         </div>
-      ) : undefined;
+      ) : (
+        (restore ?? undefined)
+      );
     return (
       <WriteReceiptRow
         applied={applied}
+        ownerReason={ownerReason}
         tool={tool}
-        headline={model?.headline ?? (state.loading ? 'Preparing a summary…' : 'This change')}
+        headline={
+          model?.headline ??
+          (settledBodyEdit
+            ? settledBodyEditHeadline(args)
+            : state.loading
+              ? 'Preparing a summary…'
+              : 'This change')
+        }
         problems={problems}
         petName={petName}
         submitted={submitted}
@@ -1252,9 +1358,10 @@ function PetWorkToolCard({
           // to approve - "Show N more", "Why", and warnings all stay open. Folding is fine again
           // once the write has an outcome, on `WriteReceiptRow`'s own receipt.
           pending
-        />
+        >
+          {model.bodyEdit ? <PetBodyEditPreview edit={model.bodyEdit} /> : null}
+        </PetStructurePreview>
       ) : null}
-      {model?.bodyEdit ? <PetBodyEditPreview edit={model.bodyEdit} /> : null}
       {!currentPreview || state.loading ? (
         <Text variant="note">Preparing the preview...</Text>
       ) : null}
@@ -1290,6 +1397,11 @@ function PetWorkToolCard({
       <Text variant="note" tone="muted">
         Approval applies this change using your Nix permissions.
       </Text>
+      {waitReason ? (
+        <Text variant="note" tone="muted">
+          {waitReason}
+        </Text>
+      ) : null}
       {cleanup}
       {tool.status === 'pending' && !submitted ? (
         <div className="flex flex-wrap gap-2">
