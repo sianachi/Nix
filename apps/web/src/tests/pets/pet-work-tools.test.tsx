@@ -2171,7 +2171,10 @@ describe('companion work approvals', () => {
       expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
         fence: JSON.stringify(['passage', 'Meet at teh station.']),
       });
-      expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+      expect(await screen.findByText('Done without asking')).toBeVisible();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+      });
     });
 
     it('holds a clean passage edit while the conversation has read locked content', async () => {
