@@ -6,7 +6,7 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 
 import { useOptionalApiClient } from '../../api/api-client-provider';
-import type { ViewFilterRule } from './container-model';
+import { isFilterGroup, type ViewFilterRule } from './container-model';
 import { ME_TOKEN, type RuleContext } from './filter-rules';
 import { readerToday } from './timestamps';
 
@@ -35,7 +35,9 @@ export interface ReaderRuleContext {
 
 /** Whether a rule reads the reader's identity. */
 export function namesReader(rule: ViewFilterRule): boolean {
-  return rule.value === ME_TOKEN;
+  return isFilterGroup(rule)
+    ? rule.any.some((condition) => condition.value === ME_TOKEN)
+    : rule.value === ME_TOKEN;
 }
 
 /**

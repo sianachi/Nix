@@ -1,7 +1,12 @@
 import type { ViewSpec } from '../spec/view.js';
 import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { findSmartList } from '../vocabulary/smart-lists.js';
-import type { StructureFilter, StructureProperty, StructureView } from '../types.js';
+import type {
+  StructureFilter,
+  StructureFilterEntry,
+  StructureProperty,
+  StructureView,
+} from '../types.js';
 import { compileForm } from './forms.js';
 import { resolveKey } from './resolve.js';
 
@@ -34,8 +39,8 @@ function compileFilters(
   spec: ViewSpec,
   effective: readonly StructureProperty[],
   addedKeys: ReadonlySet<string> | undefined,
-): StructureFilter[] {
-  const filters: StructureFilter[] = [];
+): StructureFilterEntry[] {
+  const filters: StructureFilterEntry[] = [];
 
   if (spec.preset !== undefined) {
     const preset = findSmartList(spec.preset);
@@ -45,17 +50,28 @@ function compileFilters(
     filters.push(...preset.filters.map((filter) => ({ ...filter })));
   }
 
+  const condition = (filter: { field: string; op: string; value: string }): StructureFilter => ({
+    // A structural field (`$type`, `$inside`, ...) is a fact about the item, not a property, so
+    // it is never resolved against the schema; Core polices which ones exist.
+    property: isStructuralField(filter.field)
+      ? filter.field
+      : resolveKey(filter.field, effective, addedKeys),
+    operator: filter.op,
+    value: filter.value,
+  });
+
   if (spec.filters !== undefined) {
     for (const filter of spec.filters) {
-      filters.push({
-        property: resolveKey(filter.field, effective, addedKeys),
-        operator: filter.op,
-        value: filter.value,
-      });
+      filters.push(condition(filter));
     }
   }
 
   return filters;
+}
+
+/** Whether a filter field names a structural query field rather than a property. */
+export function isStructuralField(field: string): boolean {
+  return field.startsWith('$');
 }
 
 /**

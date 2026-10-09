@@ -1,5 +1,6 @@
 import type {
   StructureFilter,
+  StructureFilterEntry,
   StructureForm,
   StructureFormCondition,
   StructureHabitWidget,
@@ -28,6 +29,7 @@ const MAXIMUM_HABIT_WIDGETS = 12;
 const MAXIMUM_HABIT_RANGE_DAYS = 366;
 const MILLISECONDS_PER_DAY = 86_400_000;
 
+/** `QueryOperators.All` (`backend/src/Nix.Api/Domain/Views/FilterRule.cs`). */
 const KNOWN_FILTER_OPERATORS: ReadonlySet<string> = new Set([
   'equals',
   'not-equals',
@@ -35,8 +37,29 @@ const KNOWN_FILTER_OPERATORS: ReadonlySet<string> = new Set([
   'before',
   'on-or-after',
   'within-next',
+  'within-last',
+  'contains',
+  'not-contains',
+  'greater-than',
+  'less-than',
+  'is-empty',
+  'is-not-empty',
 ]);
 const DAY_FILTER_OPERATORS: ReadonlySet<string> = new Set(['on', 'before', 'on-or-after']);
+const DAY_COUNT_FILTER_OPERATORS: ReadonlySet<string> = new Set(['within-next', 'within-last']);
+const NUMBER_FILTER_OPERATORS: ReadonlySet<string> = new Set(['greater-than', 'less-than']);
+const VALUELESS_FILTER_OPERATORS: ReadonlySet<string> = new Set(['is-empty', 'is-not-empty']);
+const EQUALITY_FILTER_OPERATORS: ReadonlySet<string> = new Set(['equals', 'not-equals']);
+/** `QueryOperators.DayTokens`: resolved from the reader's today when the query runs. */
+const DAY_TOKENS: ReadonlySet<string> = new Set([
+  'today',
+  'start-of-week',
+  'start-of-month',
+  'same-day-last-week',
+  'same-day-last-month',
+]);
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NUMBER_PATTERN = /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
 const KNOWN_CONDITION_OPERATORS: ReadonlySet<string> = new Set([
   'equals',
   'not_equals',
@@ -216,10 +239,11 @@ function refuseMeasureAndCover(
 }
 
 /**
- * Ports `QueryOperators.Refuse` (`backend/src/Nix.Api/Domain/Views/FilterRule.cs:40-170`): grammar
- * only. Whether `filter.property` names a real property is deliberately not asked here, for the
- * same reason Core does not ask it - a query view spans containers and a rule naming a property
- * nothing declares simply matches nothing.
+ * Ports `QueryOperators.Refuse` and `QueryFields.Refuse`
+ * (`backend/src/Nix.Api/Domain/Views/FilterRule.cs`, `QueryFields.cs`): grammar only. Whether
+ * `filter.property` names a real property is deliberately not asked here, for the same reason Core
+ * does not ask it - a query view spans containers and a rule naming a property nothing declares
+ * simply matches nothing.
  */
 function refuseFilter(filter: StructureFilter): string | null {
   if (filter.property.length === 0) {
@@ -231,6 +255,9 @@ function refuseFilter(filter: StructureFilter): string | null {
   if (!KNOWN_FILTER_OPERATORS.has(filter.operator)) {
     return `'${filter.operator}' is not a filter operator`;
   }
+  if (VALUELESS_FILTER_OPERATORS.has(filter.operator)) {
+    return filter.value.length === 0 ? null : `'${filter.operator}' takes no value`;
+  }
   if (filter.value.length === 0) {
     return 'a filter needs a value to compare against';
   }
@@ -239,15 +266,83 @@ function refuseFilter(filter: StructureFilter): string | null {
   }
   if (
     DAY_FILTER_OPERATORS.has(filter.operator) &&
-    filter.value !== 'today' &&
+    !DAY_TOKENS.has(filter.value) &&
     !isRealCalendarDay(filter.value)
   ) {
-    return `'${filter.operator}' reads a day: 'today' or a date written yyyy-MM-dd`;
+    return `'${filter.operator}' reads a day: 'today', 'start-of-week', 'start-of-month', 'same-day-last-week', 'same-day-last-month' or a date written yyyy-MM-dd`;
   }
-  if (filter.operator === 'within-next') {
+  if (NUMBER_FILTER_OPERATORS.has(filter.operator) && !NUMBER_PATTERN.test(filter.value.trim())) {
+    return `'${filter.operator}' reads a number, written like 12 or -3.5`;
+  }
+  if (DAY_COUNT_FILTER_OPERATORS.has(filter.operator)) {
     const days = Number(filter.value);
     if (!/^\d+$/.test(filter.value) || days < 1 || days > WITHIN_NEXT_MAXIMUM_DAYS) {
-      return `'within-next' reads a number of days from 1 to ${String(WITHIN_NEXT_MAXIMUM_DAYS)}`;
+      return `'${filter.operator}' reads a number of days from 1 to ${String(WITHIN_NEXT_MAXIMUM_DAYS)}`;
+    }
+  }
+  return filter.property.startsWith('$') ? refuseStructuralFilter(filter) : null;
+}
+
+/** Ports `QueryFields.Refuse`: which operators and values each structural field takes. */
+function refuseStructuralFilter(filter: StructureFilter): string | null {
+  switch (filter.property) {
+    case '$type':
+      return EQUALITY_FILTER_OPERATORS.has(filter.operator)
+        ? null
+        : "'$type' compares with 'equals' or 'not-equals'";
+    case '$inside':
+      if (!EQUALITY_FILTER_OPERATORS.has(filter.operator)) {
+        return "'$inside' compares with 'equals' or 'not-equals'";
+      }
+      return UUID_PATTERN.test(filter.value) ? null : "'$inside' reads an item id";
+    case '$created':
+    case '$modified':
+      return DAY_FILTER_OPERATORS.has(filter.operator) ||
+        DAY_COUNT_FILTER_OPERATORS.has(filter.operator)
+        ? null
+        : `'${filter.property}' is a day, so it compares with the day operators`;
+    case '$done':
+      if (!EQUALITY_FILTER_OPERATORS.has(filter.operator)) {
+        return "'$done' compares with 'equals' or 'not-equals'";
+      }
+      return filter.value === 'true' || filter.value === 'false'
+        ? null
+        : "'$done' reads true or false";
+    case '$tag':
+      return "'$tag' is reserved and cannot be filtered on yet";
+    default:
+      return `'${filter.property}' is not a field a query can test; names starting with '$' are reserved for $type, $inside, $created, $modified, $done`;
+  }
+}
+
+/**
+ * Ports `QueryRules.Refuse` (`backend/src/Nix.Api/Domain/Views/QueryRules.cs`): the ceiling across
+ * groups, one level of "any of", each condition's grammar, and structural fields on queries only.
+ */
+function refuseFilters(filters: readonly StructureFilterEntry[], query: boolean): string | null {
+  const count = filters.reduce(
+    (total, entry) => total + ('any' in entry ? entry.any.length : 1),
+    0,
+  );
+  if (count > MAXIMUM_FILTERS) {
+    return `a view may carry at most ${String(MAXIMUM_FILTERS)} filters, counting those inside "any of" groups`;
+  }
+  for (const entry of filters) {
+    const conditions = 'any' in entry ? entry.any : [entry];
+    if ('any' in entry && entry.any.length === 0) {
+      return 'an "any of" group needs at least one filter';
+    }
+    for (const condition of conditions) {
+      if ('any' in condition) {
+        return '"any of" groups do not nest; a group holds plain filters';
+      }
+      const reason = refuseFilter(condition);
+      if (reason !== null) {
+        return reason;
+      }
+      if (!query && condition.property.startsWith('$')) {
+        return `only a query can filter by '${condition.property}'; a view filters its own children by their properties`;
+      }
     }
   }
   return null;
@@ -528,14 +623,9 @@ export function refuseViews(
     }
 
     if (view.filters.length > 0) {
-      if (view.filters.length > MAXIMUM_FILTERS) {
-        return `'${view.name}': a view may carry at most ${String(MAXIMUM_FILTERS)} filters.`;
-      }
-      for (const filter of view.filters) {
-        const reason = refuseFilter(filter);
-        if (reason !== null) {
-          return `'${view.name}': ${reason}.`;
-        }
+      const reason = refuseFilters(view.filters, view.kind === 'query');
+      if (reason !== null) {
+        return `'${view.name}': ${reason}.`;
       }
     }
 

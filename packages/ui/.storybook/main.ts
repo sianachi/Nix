@@ -27,6 +27,7 @@ const config: StorybookConfig = {
     '../../../apps/web/src/views/checklist/*.stories.tsx',
     '../../../apps/web/src/views/matrix/*.stories.tsx',
     '../../../apps/web/src/views/outline/*.stories.tsx',
+    '../../../apps/web/src/views/query/*.stories.tsx',
     '../../../apps/web/src/views/suggest/*.stories.tsx',
     '../../../apps/web/src/properties/*.stories.tsx',
     '../../../apps/web/src/automations/*.stories.tsx',

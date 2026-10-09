@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import type { PropertyOwner, ViewFilterRule } from '../../../views/core/container-model';
+import {
+  filterGroup,
+  type PropertyOwner,
+  type ViewFilterCondition,
+  type ViewFilterRule,
+} from '../../../views/core/container-model';
 import { applyRules, evaluateRule, type RuleContext } from '../../../views/core/filter-rules';
 
 const CONTEXT: RuleContext = { today: '2026-10-01', principalId: 'principal-me' };
@@ -9,7 +14,7 @@ function owner(properties: Record<string, unknown>): PropertyOwner {
   return { title: 'Item', properties };
 }
 
-function rule(property: string, operator: string, value = ''): ViewFilterRule {
+function rule(property: string, operator: string, value = ''): ViewFilterCondition {
   return { property, operator, value };
 }
 
@@ -116,5 +121,58 @@ describe('client-side filter rules', () => {
     expect(evaluateRule(tagged, rule('tags', 'contains', 'Urg'), CONTEXT)).toBe(false);
     expect(evaluateRule(tagged, rule('tags', 'contains', 'urgent'), CONTEXT)).toBe(false);
     expect(evaluateRule(tagged, rule('tags', 'not-contains', 'Work'), CONTEXT)).toBe(true);
+  });
+
+  it('reads within-last as the window back to today, both ends included', () => {
+    // CONTEXT's today is 2026-10-01.
+    expect(
+      evaluateRule(owner({ due: '2026-09-24' }), rule('due', 'within-last', '7'), CONTEXT),
+    ).toBe(true);
+    expect(
+      evaluateRule(owner({ due: '2026-10-01' }), rule('due', 'within-last', '7'), CONTEXT),
+    ).toBe(true);
+    expect(
+      evaluateRule(owner({ due: '2026-09-23' }), rule('due', 'within-last', '7'), CONTEXT),
+    ).toBe(false);
+    expect(
+      evaluateRule(owner({ due: '2026-10-02' }), rule('due', 'within-last', '7'), CONTEXT),
+    ).toBe(false);
+  });
+
+  it.each([
+    ['start-of-week', '2026-09-28'],
+    ['start-of-month', '2026-10-01'],
+    ['same-day-last-week', '2026-09-24'],
+    ['same-day-last-month', '2026-09-01'],
+  ])("resolves %s from the reader's today, as the server does", (token, day) => {
+    expect(evaluateRule(owner({ due: day }), rule('due', 'on', token), CONTEXT)).toBe(true);
+  });
+
+  it('clamps same-day-last-month to the shorter month', () => {
+    const context: RuleContext = { today: '2026-03-31', principalId: null };
+
+    expect(
+      evaluateRule(owner({ due: '2026-02-28' }), rule('due', 'on', 'same-day-last-month'), context),
+    ).toBe(true);
+  });
+
+  it('admits an item an any-of group admits through any one of its conditions', () => {
+    const items = [
+      owner({ status: 'Doing', points: 1 }),
+      owner({ status: 'Blocked', points: 1 }),
+      owner({ status: 'Done', points: 9 }),
+      owner({ status: 'Done', points: 1 }),
+    ];
+    const group: ViewFilterRule = filterGroup([
+      rule('status', 'equals', 'Doing'),
+      rule('status', 'equals', 'Blocked'),
+      rule('points', 'greater-than', '5'),
+    ]);
+
+    expect(applyRules(items, [group], CONTEXT)).toEqual([items[0], items[1], items[2]]);
+    expect(applyRules(items, [group, rule('status', 'not-equals', 'Done')], CONTEXT)).toEqual([
+      items[0],
+      items[1],
+    ]);
   });
 });

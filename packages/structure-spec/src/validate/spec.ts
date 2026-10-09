@@ -15,7 +15,7 @@ import type { ViewSpec } from '../spec/view.js';
 import { mergeProperties } from '../vocabulary/merge-properties.js';
 import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { compileFields } from '../compile/fields.js';
-import { compileView } from '../compile/views.js';
+import { compileView, isStructuralField } from '../compile/views.js';
 import { tryResolveKey } from '../compile/resolve.js';
 import { refuseSchema } from './schema-rules.js';
 import { refuseViews } from './view-rules.js';
@@ -229,7 +229,10 @@ function compileViews(
       check(ref, `columns[${String(columnIndex)}]`);
     });
     spec.filters?.forEach((filter, filterIndex) => {
-      check(filter.field, `filters[${String(filterIndex)}].field`);
+      // Structural fields ($type, ...) are not field references; view-rules polices them.
+      if (!isStructuralField(filter.field)) {
+        check(filter.field, `filters[${String(filterIndex)}].field`);
+      }
     });
     valid = inspectFormRefs(spec, index, scope, problems) && valid;
     if (valid) views.push(compileView(spec, effective, usedIds, addedKeys));

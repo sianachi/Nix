@@ -3,6 +3,7 @@ import { PRINT_PALETTE } from '@nix/design-tokens/print';
 import { renderView } from '@nix/view-render';
 import { type ReactNode } from 'react';
 
+import { isFilterGroup } from '../core/container-model';
 import { isDateShaped } from '../core/property-types';
 import { InteractiveFormRespondentPreview } from '../form/interactive-form-editor';
 import type { StudioDraft } from './creation-studio-model';
@@ -40,6 +41,9 @@ export function StudioPreview({ draft }: { readonly draft: StudioDraft }): React
   }));
   const view = {
     ...draft.view,
+    // The printed preview draws sample rows and never applies filters, and the archive snapshot
+    // it renders from holds plain conditions only, so a group is left out of what it is handed.
+    filters: draft.view.filters.filter((rule) => !isFilterGroup(rule)),
     companionViewId: draft.view.companionViewId ?? null,
     companionPlacement: draft.view.companionPlacement ?? null,
     interactiveForm: null,

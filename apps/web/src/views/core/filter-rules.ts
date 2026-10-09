@@ -1,18 +1,30 @@
-import { addDays, dayFromText, dayText } from './calendar-dates';
-import type { PropertyOwner, ViewFilterRule } from './container-model';
+import {
+  addDays,
+  dayFromText,
+  daysInMonth,
+  dayText,
+  startOfWeek,
+  type CalendarDay,
+} from './calendar-dates';
+import {
+  isFilterGroup,
+  type PropertyOwner,
+  type ViewFilterCondition,
+  type ViewFilterRule,
+} from './container-model';
 
 /**
  * A view's stored filter rules, evaluated against the children already loaded.
  *
  * The grammar is the server's (`QueryOperators.All` in FilterRule.cs) and so are the meanings,
- * operator for operator: a query view compiles the first six to SQL, and a board filtered by the
- * same rule has to show the same items or the two views of one thing disagree. The other six
- * (ADR-0054) are evaluated only here until the server-side container query gives them SQL; the
- * server validates them on write and refuses them on a query view. Where this goes further than
- * the SQL - an `equals` against a multi-select matches an item carrying that option among others -
- * the SQL is the one that is narrower, and the server half is the place to widen it.
+ * operator for operator: a query view compiles every one of them to SQL, and a board filtered by
+ * the same rule has to show the same items or the two views of one thing disagree. Where this goes
+ * further than the SQL - an `equals` against a multi-select matches an item carrying that option
+ * among others - the SQL is the one that is narrower, and the server half is the place to widen it.
  *
- * **Rules AND together**, as they do on the server (ADR-0039).
+ * **Rules AND together, with one level of "any of" groups**, as they do on the server. The
+ * structural `$` fields (`$type`, `$inside`, ...) are query-only and the server refuses them on a
+ * container view, so none reaches this evaluator.
  */
 
 /** What a rule needs besides the item: the reader's day and who "me" is. */
@@ -35,9 +47,18 @@ export const TODAY_TOKEN = 'today';
 export const ME_TOKEN = 'me';
 
 /**
- * Every operator this build evaluates: the server's `QueryOperators.All`, the six a query view
- * compiles followed by the six only container views evaluate (ADR-0054).
+ * Every token a day operator accepts where a date would go, resolved from the reader's own today
+ * (`QueryOperators.DayTokens`). Weeks start on Monday, as the calendar draws them.
  */
+export const DAY_TOKENS = [
+  'today',
+  'start-of-week',
+  'start-of-month',
+  'same-day-last-week',
+  'same-day-last-month',
+] as const;
+
+/** Every operator this build evaluates: the server's `QueryOperators.All`. */
 export const RULE_OPERATORS = [
   'equals',
   'not-equals',
@@ -49,6 +70,7 @@ export const RULE_OPERATORS = [
   'before',
   'on-or-after',
   'within-next',
+  'within-last',
   'is-empty',
   'is-not-empty',
 ] as const;
@@ -70,7 +92,18 @@ export function applyRules<TItem extends PropertyOwner>(
     return items;
   }
 
-  return items.filter((item) => rules.every((rule) => evaluateRule(item, rule, context)));
+  return items.filter((item) =>
+    rules.every((rule) =>
+      isFilterGroup(rule)
+        ? rule.any.some((condition) => evaluateRule(item, condition, context))
+        : evaluateRule(item, rule, context),
+    ),
+  );
+}
+
+/** Every condition of a rule set, top level and inside groups, in order. */
+export function ruleConditions(rules: readonly ViewFilterRule[]): readonly ViewFilterCondition[] {
+  return rules.flatMap((rule) => (isFilterGroup(rule) ? rule.any : [rule]));
 }
 
 /**
@@ -82,7 +115,7 @@ export function applyRules<TItem extends PropertyOwner>(
  */
 export function evaluateRule(
   item: PropertyOwner,
-  rule: ViewFilterRule,
+  rule: ViewFilterCondition,
   context: RuleContext,
 ): boolean {
   const value = item.properties[rule.property];
@@ -109,7 +142,9 @@ export function evaluateRule(
     case 'on-or-after':
       return compareDay(value, rule.value, context, (a, b) => a >= b);
     case 'within-next':
-      return withinNext(value, rule.value, context);
+      return withinWindow(value, rule.value, context, 'next');
+    case 'within-last':
+      return withinWindow(value, rule.value, context, 'last');
     case 'is-empty':
       return isEmpty(value);
     case 'is-not-empty':
@@ -194,8 +229,25 @@ function dayOf(value: unknown): string | null {
 }
 
 function resolveDay(literal: string, context: RuleContext): string | null {
-  const day = literal === TODAY_TOKEN ? context.today : literal;
-  return dayFromText(day) === null ? null : day;
+  const today = dayFromText(context.today);
+  if (today === null) {
+    return null;
+  }
+
+  switch (literal) {
+    case 'today':
+      return context.today;
+    case 'start-of-week':
+      return dayText(startOfWeek(today));
+    case 'start-of-month':
+      return dayText({ ...today, day: 1 });
+    case 'same-day-last-week':
+      return dayText(addDays(today, -7));
+    case 'same-day-last-month':
+      return dayText(sameDayLastMonth(today));
+    default:
+      return dayFromText(literal) === null ? null : literal;
+  }
 }
 
 function compareDay(
@@ -212,17 +264,33 @@ function compareDay(
   return actual !== null && expected !== null && test(actual, expected);
 }
 
-function withinNext(value: unknown, literal: string, context: RuleContext): boolean {
+/** The same day of the previous month, clamped to its last day, as `DateOnly.AddMonths(-1)` does. */
+function sameDayLastMonth(today: CalendarDay): CalendarDay {
+  // Months are counted from zero here, so January's previous month is December of the year before.
+  const year = today.month === 0 ? today.year - 1 : today.year;
+  const month = today.month === 0 ? 11 : today.month - 1;
+  return { year, month, day: Math.min(today.day, daysInMonth({ year, month })) };
+}
+
+function withinWindow(
+  value: unknown,
+  literal: string,
+  context: RuleContext,
+  direction: 'next' | 'last',
+): boolean {
   const actual = dayOf(value);
   const days = Number(literal);
-  const from = dayFromText(context.today);
+  const today = dayFromText(context.today);
 
-  if (actual === null || from === null || !Number.isInteger(days) || days < 1) {
+  if (actual === null || today === null || !Number.isInteger(days) || days < 1) {
     return false;
   }
 
-  // BETWEEN today AND today + n, inclusive at both ends, as the server compiles it.
-  return actual >= context.today && actual <= dayText(addDays(from, days));
+  // BETWEEN the two ends, inclusive at both, as the server compiles it: forward from today for
+  // within-next, back to today for within-last.
+  return direction === 'next'
+    ? actual >= context.today && actual <= dayText(addDays(today, days))
+    : actual >= dayText(addDays(today, -days)) && actual <= context.today;
 }
 
 function isEmpty(value: unknown): boolean {
