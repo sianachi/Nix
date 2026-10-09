@@ -3,7 +3,6 @@ import type { ReactElement } from 'react';
 import { useApiClient } from '../api/api-client-provider';
 import { AudioPlayer } from '../audio/audio-player';
 import { authorisedAudioUrl } from '../audio/audio-source';
-import { TranscriptionPanel } from '../speech/transcription-panel';
 import {
   bareMediaType,
   fileExtension,
@@ -80,7 +79,6 @@ export function AudioViewer({ fileName, itemId, onDownload }: FileViewerProps): 
         resolveUrl={() => authorisedAudioUrl(client, itemId)}
         onDownload={onDownload}
       />
-      <TranscriptionPanel key={itemId} itemId={itemId} />
     </div>
   );
 }

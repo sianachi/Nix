@@ -20,7 +20,7 @@ import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/str
 /**
  * The dialog behind each entry of the sidebar's New menu.
  *
- * The menu used to be the whole flow: a destination checkbox, every body kind, upload, recording,
+ * The menu used to be the whole flow: a destination checkbox, every body kind, upload,
  * every structured recipe and three templates in one long list, with an item created the moment
  * its row was chosen and named "Untitled" until somebody renamed it. The menu now names six
  * things, and each opens this dialog, which asks the two questions that decide what gets made -

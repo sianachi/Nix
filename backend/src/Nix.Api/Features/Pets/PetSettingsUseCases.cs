@@ -17,7 +17,7 @@ public sealed record SavePetSettings(long ExpectedRevision, PetSettings Settings
 public static class PetSettingsValidation
 {
     /// <summary>Gets the initial disabled configuration.</summary>
-    public static PetSettings Empty => new(false, null, "system", false, []);
+    public static PetSettings Empty => new(false, null, "system", []);
 
     /// <summary>Refuses unknown presets, invalid active references, duplicate identities, and unbounded text.</summary>
     public static bool IsValid(PetSettings? settings)

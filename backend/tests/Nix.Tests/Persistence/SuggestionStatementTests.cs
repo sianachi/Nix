@@ -113,13 +113,6 @@ public sealed class SuggestionStatementTests
             StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void The_search_candidate_re_read_leaves_out_what_sits_under_a_closed_lock()
-    {
-        // ADR-0056. At most a page of identifiers, so a point probe per row is the right shape.
-        Assert.Contains(ItemLockSql.ItemIsNotUnderClosedLock, SearchSql.SearchCandidatesById, StringComparison.Ordinal);
-    }
-
     [Theory]
     [InlineData(nameof(SearchSql.MatchingItems), "matches AS (", "UNION ALL", "item.id")]
     [InlineData(nameof(SearchSql.ItemsTitledAs), "matches AS MATERIALIZED (", "ranked AS", "candidate.id")]
@@ -188,7 +181,6 @@ public sealed class SuggestionStatementTests
     [Theory]
     [InlineData(nameof(SearchSql.MatchingItems))]
     [InlineData(nameof(SearchSql.ReadableItemsById))]
-    [InlineData(nameof(SearchSql.SearchCandidatesById))]
     [InlineData(nameof(SearchSql.ItemsLinkingTo))]
     [InlineData(nameof(SearchSql.CoCitedItems))]
     [InlineData(nameof(SearchSql.ItemsTitledAs))]

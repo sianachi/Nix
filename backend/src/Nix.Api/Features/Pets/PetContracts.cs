@@ -5,13 +5,13 @@ namespace Nix.Features.Pets;
 /// <summary>Independent appearance and communication preferences for one companion.</summary>
 public sealed record PetProfile(Guid Id, string Name, string Appearance, string Personality, string ResponseLength, string Instructions);
 
-/// <summary>Account preferences. Device voices and placement are deliberately absent.</summary>
+/// <summary>Account preferences. Device placement is deliberately absent.</summary>
 /// <remarks>
 /// <c>InlineWriting</c> is the separate opt-in for sending text the person selects in a note to
 /// the model provider from the editor. It defaults to off, and settings stored before it existed
 /// read as off. It is the last member so a stored document without it still deserialises.
 /// </remarks>
-public sealed record PetSettings(bool Enabled, Guid? ActivePetId, string Motion, bool Narration, IReadOnlyList<PetProfile> Profiles, bool InlineWriting = false);
+public sealed record PetSettings(bool Enabled, Guid? ActivePetId, string Motion, IReadOnlyList<PetProfile> Profiles, bool InlineWriting = false);
 
 /// <summary>The saved document and its concurrency version.</summary>
 public sealed record PetSettingsResponse(long Revision, PetSettings Settings);

@@ -9,7 +9,7 @@
 #     (com.docker.compose.project.config_files), for example an old checkout or override;
 #   - lists services whose config hash differs from their running container, which
 #     `up` will recreate, and services that `up` would create;
-#   - exits 3 when a stateful infrastructure service (postgres, versitygw, opensearch) would be
+#   - exits 3 when a stateful infrastructure service (postgres, versitygw) would be
 #     recreated, unless NIX_ALLOW_INFRA_RECREATE=1. NIX_INFRA_SERVICES overrides that list;
 #   - names services recreated only after writers stop (RabbitMQ, whose configuration is
 #     mounted from the release checkout and so changes path every release) without refusing
@@ -36,7 +36,7 @@ if [ -z "$project" ] || [ "${#files[@]}" -eq 0 ]; then
   echo 'drift: the Compose command must name the project (-p) and at least one file (-f)' >&2
   exit 2
 fi
-read -r -a infra <<< "${NIX_INFRA_SERVICES:-postgres nix-versitygw nix-opensearch}"
+read -r -a infra <<< "${NIX_INFRA_SERVICES:-postgres nix-versitygw}"
 read -r -a after_writers <<< "${NIX_AFTER_WRITERS_SERVICES:-rabbitmq}"
 
 # Compose records absolute manifest paths joined by commas.

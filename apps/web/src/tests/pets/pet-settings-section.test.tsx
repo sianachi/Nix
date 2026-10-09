@@ -12,7 +12,6 @@ const initial: PetSettingsResponse = {
     enabled: false,
     activePetId: null,
     motion: 'system',
-    narration: false,
     profiles: [],
     inlineWriting: false,
   },
@@ -23,6 +22,7 @@ describe('pet configuration', () => {
     const save = vi.fn().mockResolvedValue(true);
     const user = userEvent.setup();
     render(<PetSettingsEditor initial={initial} saving={false} onSave={save} />);
+    expect(screen.queryByRole('checkbox', { name: /read a reply aloud/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Add pet' }));
     await user.clear(screen.getByRole('textbox', { name: 'Name' }));
     await user.type(screen.getByRole('textbox', { name: 'Name' }), 'Pip');

@@ -28,13 +28,10 @@ import (
 	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importplan"
-	"github.com/sianachi/Nix/apps/go-workers/internal/index"
-	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/jobrunner"
 	"github.com/sianachi/Nix/apps/go-workers/internal/notifyjob"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objectcleanup"
 	"github.com/sianachi/Nix/apps/go-workers/internal/objecttransfer"
-	"github.com/sianachi/Nix/apps/go-workers/internal/opensearch"
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginruntime"
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/pushtransport"
@@ -76,8 +73,6 @@ func Run(service role.Service) {
 		return
 	}
 
-	searchIndex := index.New(settings.MaxTokens, settings.MaxRecords)
-	indexState := indexer.NewState()
 	apiClient := workerapi.New(settings.InternalAPIURL, settings.InternalSecret, settings.WorkerID, settings.RequestTimeout)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -109,23 +104,7 @@ func Run(service role.Service) {
 			logger.Warn("broker close failed", "error", closeErr)
 		}
 	}()
-	readiness := newReadinessState(roles, brokerClient.ConsumerReady, indexState.Ready)
-	var indexControl httpserver.IndexControl
-	var indexHydrator indexer.Hydrator
-	if roles.Has(role.Index) && settings.InternalAPIURL != "" {
-		indexControl = apiClient
-		indexHydrator = apiClient
-	}
-	var speech *speechRole
-	var speechHandler http.Handler
-	if roles.Has(role.Speech) {
-		built, speechErr := newSpeechRole(settings, apiClient, logger)
-		if speechErr != nil {
-			logger.Error("speech role configuration failed", "error", speechErr)
-			os.Exit(1)
-		}
-		speech, speechHandler = built, built.handler
-	}
+	readiness := newReadinessState(roles, brokerClient.ConsumerReady)
 	serverRole := role.All
 	if len(roles) == 1 {
 		for enabled := range roles {
@@ -138,14 +117,9 @@ func Run(service role.Service) {
 		MaxInputSize:   settings.MaxInputBytes,
 		MaxRecords:     settings.MaxRecords,
 		MaxLineBytes:   settings.MaxLineBytes,
-		MaxTokens:      settings.MaxTokens,
 		RequestTimeout: settings.RequestTimeout,
-		Index:          searchIndex,
-		IndexControl:   indexControl,
-		IndexHealth:    indexState.Snapshot,
 		Ready:          readiness.AllReady,
 		Companion:      companionHandler,
-		Speech:         speechHandler,
 	})
 	httpServer := &http.Server{
 		Addr:              settings.Address,
@@ -157,30 +131,19 @@ func Run(service role.Service) {
 		MaxHeaderBytes:    16 * 1024,
 	}
 
-	var searchProbe *opensearch.Client
-	if roles.Has(role.Index) && settings.OpenSearchURL != "" {
-		searchProbe = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
-	}
 	var collaborationProbe *serviceProbe
 	var objectProbe *objectStoreProbe
-	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Speech) {
+	if roles.Has(role.Import) || roles.Has(role.Export) {
 		collaborationProbe = newServiceProbe(settings.CollaborationURL, settings.RequestTimeout)
 	}
-	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) || roles.Has(role.Speech) {
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) {
 		objectProbe = newObjectStoreProbe(settings.ObjectOrigins, settings.RequestTimeout)
 	}
 	var apiProbe *workerapi.Client
 	if settings.InternalAPIURL != "" {
 		apiProbe = apiClient
 	}
-	startReadinessProbes(ctx, apiProbe, brokerClient, searchProbe, collaborationProbe, objectProbe, readiness, settings.PollInterval, logger)
-	if roles.Has(role.Index) {
-		var searchClient *opensearch.Client
-		if settings.OpenSearchURL != "" {
-			searchClient = opensearch.New(settings.OpenSearchURL, settings.OpenSearchIndex, settings.RequestTimeout)
-		}
-		go indexer.Run(ctx, brokerClient, indexHydrator, searchIndex, searchClient, indexState, logger, workerInstanceID(settings.WorkerID), settings.MaxRecords, settings.PollInterval)
-	}
+	startReadinessProbes(ctx, apiProbe, brokerClient, collaborationProbe, objectProbe, readiness, settings.PollInterval, logger)
 	if roles.Has(role.Import) {
 		transfer := objecttransfer.New(settings.RequestTimeout, settings.ObjectOrigins...)
 		imports := importjob.New(
@@ -337,12 +300,6 @@ func Run(service role.Service) {
 		}
 		go runner.Run(ctx)
 	}
-	if speech != nil {
-		if speechErr := speech.start(ctx, settings, brokerClient, apiClient, logger); speechErr != nil {
-			logger.Error("speech role configuration failed", "error", speechErr)
-			os.Exit(1)
-		}
-	}
 	serverFailures := make(chan error, 1)
 	go func() {
 		logger.Info("go worker listening", "address", settings.Address, "roles", settings.WorkerRoles)
@@ -446,25 +403,14 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 	if settings.RabbitMQURL == "" {
 		return errors.New("NIX_RABBITMQ_URL is required")
 	}
-	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Speech) {
+	if roles.Has(role.Import) || roles.Has(role.Export) {
 		if !validServiceOrigin(settings.CollaborationURL) {
-			return errors.New("NIX_WORKER_COLLAB_URL must be a valid collaboration service origin for imports, exports, and speech")
+			return errors.New("NIX_WORKER_COLLAB_URL must be a valid collaboration service origin for imports and exports")
 		}
 	}
-	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) || roles.Has(role.Speech) {
+	if roles.Has(role.Import) || roles.Has(role.Export) || roles.Has(role.Plugin) {
 		if len(settings.ObjectOrigins) == 0 {
-			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports, exports, plugins, and speech")
-		}
-	}
-	if roles.Has(role.Speech) {
-		if settings.SpeechWhisperModel == "" {
-			return errors.New("NIX_SPEECH_WHISPER_MODEL must name the whisper model file for the speech role")
-		}
-		if settings.SpeechWhisperThreads <= 0 || settings.SpeechWhisperThreads > 64 {
-			return errors.New("NIX_SPEECH_WHISPER_THREADS must be between 1 and 64")
-		}
-		if settings.SpeechTranscribeTimeout < time.Minute {
-			return errors.New("NIX_SPEECH_TRANSCRIBE_TIMEOUT_SECONDS must be at least 60")
+			return errors.New("NIX_WORKER_OBJECT_ORIGINS is required for imports, exports, and plugins")
 		}
 	}
 	if roles.Has(role.Calendar) {
@@ -473,14 +419,6 @@ func validateSettings(roles role.Set, settings config.Settings) error {
 		}
 		if !validServiceOrigin(settings.CalendarMicrosoftOrigin) {
 			return errors.New("NIX_CALENDAR_MICROSOFT_ORIGIN must be a valid Microsoft Graph origin")
-		}
-	}
-	if roles.Has(role.Index) {
-		if !validServiceOrigin(settings.OpenSearchURL) {
-			return errors.New("NIX_OPENSEARCH_URL must be a valid OpenSearch origin for indexing")
-		}
-		if err := opensearch.ValidateIndexName(settings.OpenSearchIndex); err != nil {
-			return fmt.Errorf("NIX_OPENSEARCH_INDEX must be an exact safe index name: %w", err)
 		}
 	}
 	if roles.Has(role.Notify) {
@@ -658,16 +596,14 @@ type dependencyProbe interface {
 type readinessState struct {
 	roles         role.Set
 	consumerReady func(string) bool
-	indexReady    func() bool
 	api           atomic.Bool
 	rabbit        atomic.Bool
-	search        atomic.Bool
 	collaboration atomic.Bool
 	objects       atomic.Bool
 }
 
-func newReadinessState(roles role.Set, consumerReady func(string) bool, indexReady func() bool) *readinessState {
-	return &readinessState{roles: roles, consumerReady: consumerReady, indexReady: indexReady}
+func newReadinessState(roles role.Set, consumerReady func(string) bool) *readinessState {
+	return &readinessState{roles: roles, consumerReady: consumerReady}
 }
 
 func (state *readinessState) RoleReady(service role.Service) bool {
@@ -675,12 +611,8 @@ func (state *readinessState) RoleReady(service role.Service) bool {
 		return false
 	}
 	switch service {
-	// Speech is ready to take work once it can reach what a job needs. The model loading is not
-	// part of this: a job waits for it, and dictation answers that speech is warming up.
-	case role.Import, role.Export, role.Speech:
+	case role.Import, role.Export:
 		return state.collaboration.Load() && state.objects.Load()
-	case role.Index:
-		return state.search.Load() && state.indexReady != nil && state.indexReady()
 	case role.Plugin:
 		return state.objects.Load()
 	case role.Calendar, role.Notify:
@@ -708,16 +640,12 @@ func queueForRole(service role.Service) string {
 		return broker.ImportQueue
 	case role.Export:
 		return broker.ExportQueue
-	case role.Index:
-		return broker.IndexQueue
 	case role.Plugin:
 		return broker.PluginEventsQueue
 	case role.Calendar:
 		return broker.CalendarQueue
 	case role.Notify:
 		return broker.NotifyQueue
-	case role.Speech:
-		return broker.TranscribeQueue
 	default:
 		return ""
 	}
@@ -727,7 +655,6 @@ func startReadinessProbes(
 	ctx context.Context,
 	api *workerapi.Client,
 	rabbit *broker.Client,
-	search *opensearch.Client,
 	collaboration *serviceProbe,
 	objects *objectStoreProbe,
 	state *readinessState,
@@ -736,13 +663,10 @@ func startReadinessProbes(
 ) {
 	go probeDependency(ctx, "Nix.Api", api, &state.api, interval, logger)
 	go probeDependency(ctx, "RabbitMQ", rabbit, &state.rabbit, interval, logger)
-	if state.roles.Has(role.Index) {
-		go probeDependency(ctx, "OpenSearch", search, &state.search, interval, logger)
-	}
-	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Speech) {
+	if state.roles.Has(role.Import) || state.roles.Has(role.Export) {
 		go probeDependency(ctx, "Collaboration", collaboration, &state.collaboration, interval, logger)
 	}
-	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Plugin) || state.roles.Has(role.Speech) {
+	if state.roles.Has(role.Import) || state.roles.Has(role.Export) || state.roles.Has(role.Plugin) {
 		go probeDependency(ctx, "object storage", objects, &state.objects, interval, logger)
 	}
 }

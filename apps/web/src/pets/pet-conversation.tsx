@@ -15,18 +15,7 @@ import {
   focusRing,
   type MenuEntry,
 } from '@nix/ui';
-import {
-  ArrowLeft,
-  ArrowUp,
-  Maximize2,
-  Mic,
-  MoreHorizontal,
-  Square,
-  TextQuote,
-  Volume2,
-  VolumeX,
-  X,
-} from 'lucide-react';
+import { ArrowLeft, ArrowUp, Maximize2, MoreHorizontal, Square, TextQuote, X } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -40,7 +29,6 @@ import { Link, useLocation, useSearchParams } from 'react-router';
 import { useApiClient } from '../api/api-client-provider';
 import { useNarrowViewport } from '../layout/viewport';
 import { PetAvatar, type PetAnimationState } from './pet-avatar';
-import { usePetVoice } from './use-pet-voice';
 import { type UsePetRuntimeResult } from './use-pet-runtime';
 import {
   readConversationModel,
@@ -223,17 +211,7 @@ export function Conversation({
   // still announced as a level-3 heading, just not itself the tab stop.
   const panelHeading = useRef<HTMLDivElement | null>(null);
   const menuTrigger = useRef<{ current: HTMLButtonElement | null } | null>(null);
-  const narrationPending = useRef(false);
-  // Owner decision 2026-10-08: a finished reply is read aloud only when it was asked for - the
-  // message was dictated, or "Read aloud" is pressed on the reply. A typed message gets a
-  // silent reply even with narration on. Set by dictation, cleared when the message is sent.
-  const dictated = useRef(false);
   const preparing = useRef(false);
-  const voice = usePetVoice((text) => {
-    setDraft(`${draft}${draft ? ' ' : ''}${text}`.slice(0, 8000));
-    dictated.current = true;
-    regenerateRequestId();
-  }, client);
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
   const approvalPending = needsDecisionIds.length > 0;
@@ -256,19 +234,15 @@ export function Conversation({
     setApplySwitch({ scope: applyScope, on, exempt: on ? needsDecisionIds : [] });
   };
   const hasDraft = messages.some((message) => message.id.includes(':draft:'));
-  const animation: PetAnimationState = voice.listening
-    ? 'listening'
-    : voice.speaking
-      ? 'speaking'
-      : approvalPending
-        ? 'awaiting-approval'
-        : running || busy
-          ? 'thinking'
-          : error || runtime?.state === 'error'
-            ? 'error'
-            : runtime?.state === 'success'
-              ? 'success'
-              : 'idle';
+  const animation: PetAnimationState = approvalPending
+    ? 'awaiting-approval'
+    : running || busy
+      ? 'thinking'
+      : error || runtime?.state === 'error'
+        ? 'error'
+        : runtime?.state === 'success'
+          ? 'success'
+          : 'idle';
   const errored = Boolean(error) || runtime?.state === 'error';
   const connected = runtime?.status === 'connected';
 
@@ -447,17 +421,6 @@ export function Conversation({
     };
   }, []);
 
-  useEffect(() => {
-    if (!narrationPending.current || runtime?.state !== 'success') return;
-    narrationPending.current = false;
-    const last = runtime.messages?.at(-1);
-    // Narration speaks a finished reply only, never a still-streaming draft (id contains
-    // `:draft:`) - `runtime.state === 'success'` above should already mean the turn is done,
-    // but this is the belt to that suspender's braces.
-    if (settings.narration && last?.role === 'assistant' && !last.id.includes(':draft:'))
-      voice.speak(last.text);
-  }, [runtime, settings.narration, voice]);
-
   function shareSelection() {
     const text = window.getSelection()?.toString().trim() ?? '';
     if (!currentItem || !text) return;
@@ -501,8 +464,6 @@ export function Conversation({
       ...(workspaceMap?.length ? { workspaceMap } : {}),
     });
     if (ok) {
-      narrationPending.current = dictated.current;
-      dictated.current = false;
       setDraft('');
       setShared(null);
     }
@@ -524,8 +485,7 @@ export function Conversation({
   }
 
   /** Must-fix 4: the label a hook-level `error` offers, keyed by `errorKind` - `send` and
-   * `command` both resubmit ("Try again"), `load` wakes the watch loop instead ("Retry now").
-   * Voice errors carry no hook `error` at all, so they never reach this - no button for them. */
+   * `command` both resubmit ("Try again"), `load` wakes the watch loop instead ("Retry now"). */
   function retryLabel(): string | null {
     if (errorKind === 'send' || errorKind === 'command') return 'Try again';
     if (errorKind === 'load') return 'Retry now';
@@ -807,10 +767,6 @@ export function Conversation({
                     petName={pet.name}
                     workspaceId={workspaceId}
                     latest={index === messages.length - 1}
-                    canSpeak={voice.canSpeak}
-                    onReadAloud={() => {
-                      voice.speak(message.text);
-                    }}
                   />
                 );
                 return (
@@ -848,11 +804,9 @@ export function Conversation({
               </div>
             ) : null}
           </PetChatViewport>
-          {error || voice.error ? (
+          {error ? (
             <div className="flex items-center justify-between gap-2 border-t border-divider px-4 py-2">
-              <Text role="alert">
-                {error ? (errorKind === 'load' ? loadErrorMessage : error) : voice.error}
-              </Text>
+              <Text role="alert">{errorKind === 'load' ? loadErrorMessage : error}</Text>
               {error && retryLabel() ? (
                 <Button variant="ghost" onClick={retryError}>
                   {retryLabel()}
@@ -1005,32 +959,6 @@ export function Conversation({
               >
                 <Icon icon={TextQuote} size="sm" />
               </Button>
-              {voice.canDictate ? (
-                <Button
-                  variant="icon"
-                  aria-label="Dictate"
-                  aria-pressed={voice.listening}
-                  disabled={running || voice.transcribing}
-                  onClick={voice.dictate}
-                >
-                  <Icon icon={Mic} size="sm" />
-                </Button>
-              ) : null}
-              {voice.pressToFinish || voice.transcribing ? (
-                <Text as="span" variant="caption" tone="muted" role="status">
-                  {voice.transcribing ? 'Recognising' : 'Listening. Press again to finish.'}
-                </Text>
-              ) : null}
-              {/* While words are being taken down this button throws them away, so it says so. */}
-              {voice.listening || voice.transcribing ? (
-                <Button variant="icon" aria-label="Cancel dictation" onClick={voice.stop}>
-                  <Icon icon={X} size="sm" />
-                </Button>
-              ) : voice.speaking ? (
-                <Button variant="icon" aria-label="Stop audio" onClick={voice.stop}>
-                  <Icon icon={VolumeX} size="sm" />
-                </Button>
-              ) : null}
             </div>
           </div>
         </>
@@ -1056,15 +984,11 @@ function PetMessageRow({
   petName,
   workspaceId,
   latest,
-  canSpeak,
-  onReadAloud,
 }: {
   readonly message: NonNullable<PetConnection['messages']>[number];
   readonly petName: string;
   readonly workspaceId: string;
   readonly latest: boolean;
-  readonly canSpeak: boolean;
-  readonly onReadAloud: () => void;
 }): ReactElement {
   if (message.role === 'system')
     return (
@@ -1077,8 +1001,7 @@ function PetMessageRow({
   const fromUser = message.role === 'user';
   // A streaming draft (id contains `:draft:`) is never durable text yet, so it is kept out of
   // the viewport's `aria-live="polite"` announcement (a screen reader would otherwise read it
-  // out token by token) and shown with a caret instead, in place of the read-aloud action a
-  // finished reply gets.
+  // out token by token) and shown with a caret instead.
   const isDraft = message.id.includes(':draft:');
   return (
     <div
@@ -1105,11 +1028,6 @@ function PetMessageRow({
           />
         ) : null}
       </div>
-      {!fromUser && !isDraft && canSpeak ? (
-        <Button variant="icon" aria-label="Read this reply aloud" onClick={onReadAloud}>
-          <Icon icon={Volume2} size="sm" />
-        </Button>
-      ) : null}
     </div>
   );
 }

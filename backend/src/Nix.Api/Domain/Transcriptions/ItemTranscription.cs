@@ -6,8 +6,7 @@ using Nix.Domain.Workers;
 namespace Nix.Domain.Transcriptions;
 
 /// <summary>
-/// The current transcription of one audio item (ADR-0059): which job is transcribing it, into
-/// which note, and how far along it is.
+/// Historical transcription state (ADR-0059), retained so retiring speech does not drop user data.
 /// </summary>
 /// <remarks>
 /// <para>

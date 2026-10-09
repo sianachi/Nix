@@ -14,15 +14,9 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/broker"
 	"github.com/sianachi/Nix/apps/go-workers/internal/pluginworker"
-)
-
-const (
-	maxIndexMetadataBytes = 256 << 10
-	MaxIndexBodyBytes     = 2 << 20
 )
 
 var ErrResponseTooLarge = errors.New("worker API response exceeds its size limit")
@@ -155,46 +149,6 @@ func unwrapJSONText(raw json.RawMessage) (json.RawMessage, error) {
 		return nil, errors.New("payload text is not valid JSON")
 	}
 	return decoded, nil
-}
-
-// IndexItemMetadata is the authoritative, body-free search projection hydrated
-// from Nix.Api for a workspace event.
-type IndexItemMetadata struct {
-	TenantID          string         `json:"tenant_id"`
-	WorkspaceID       string         `json:"workspace_id"`
-	ItemID            string         `json:"item_id"`
-	ParentID          string         `json:"parent_id,omitempty"`
-	ItemType          string         `json:"item_type"`
-	AncestorIDs       []string       `json:"ancestor_ids"`
-	Title             string         `json:"title"`
-	PropertyText      string         `json:"property_text,omitempty"`
-	Properties        map[string]any `json:"properties,omitempty"`
-	Links             []string       `json:"links"`
-	AuthorizationKeys []string       `json:"authorization_keys"`
-	LifecycleState    string         `json:"lifecycle_state,omitempty"`
-	Indexable         bool           `json:"indexable"`
-	SourceUpdatedAt   string         `json:"source_updated_at"`
-}
-
-type IndexRebuildRequest struct {
-	AfterTenantID *string    `json:"afterTenantId,omitempty"`
-	AfterItemID   *string    `json:"afterItemId,omitempty"`
-	UpdatedSince  *time.Time `json:"updatedSince,omitempty"`
-	Limit         *int       `json:"limit,omitempty"`
-}
-
-type IndexRebuildPage struct {
-	Enqueued     int     `json:"enqueued"`
-	NextTenantID *string `json:"nextTenantId"`
-	NextItemID   *string `json:"nextItemId"`
-	HasMore      bool    `json:"hasMore"`
-}
-
-type IndexQueueStatus struct {
-	Pending           int64      `json:"pending"`
-	OldestAvailableAt *time.Time `json:"oldestAvailableAt"`
-	HighestAttempts   int        `json:"highestAttempts"`
-	PendingFailures   int64      `json:"pendingFailures"`
 }
 
 type JobState struct {
@@ -588,111 +542,6 @@ func (client *Client) Ping(ctx context.Context) error {
 		return errors.New("worker API dispatch probe returned an impossible job kind")
 	}
 	return nil
-}
-
-// GetIndexItemMetadata returns nil on the authoritative item-not-found response.
-func (client *Client) GetIndexItemMetadata(ctx context.Context, tenantID, itemID string) (*IndexItemMetadata, error) {
-	path := "/internal/worker-dispatch/index/items/" + url.PathEscape(tenantID) + "/" + url.PathEscape(itemID)
-	request, err := client.newRequest(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "application/json")
-	response, err := client.httpClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNotFound {
-		return nil, nil
-	}
-	if response.StatusCode != http.StatusOK {
-		return nil, ResponseErrorFrom(response, path)
-	}
-	if !hasMediaType(response.Header.Get("Content-Type"), "application/json") {
-		return nil, errors.New("worker API index metadata is not JSON")
-	}
-	body, err := readBounded(response.Body, response.ContentLength, maxIndexMetadataBytes)
-	if err != nil {
-		return nil, err
-	}
-	var metadata IndexItemMetadata
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&metadata); err != nil {
-		return nil, fmt.Errorf("decode worker API index metadata: %w", err)
-	}
-	if err := requireResponseEOF(decoder); err != nil {
-		return nil, fmt.Errorf("decode worker API index metadata: %w", err)
-	}
-	return &metadata, nil
-}
-
-// GetIndexItemBody returns nil when the item disappeared between metadata and
-// body hydration. A 204 response is represented by a non-nil empty string.
-func (client *Client) GetIndexItemBody(ctx context.Context, tenantID, itemID string) (*string, error) {
-	path := "/internal/worker-dispatch/index/items/" + url.PathEscape(tenantID) + "/" + url.PathEscape(itemID) + "/body"
-	request, err := client.newRequest(ctx, http.MethodGet, path, nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "text/plain")
-	response, err := client.httpClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	switch response.StatusCode {
-	case http.StatusNotFound:
-		return nil, nil
-	case http.StatusNoContent:
-		empty := ""
-		return &empty, nil
-	case http.StatusOK:
-	default:
-		return nil, ResponseErrorFrom(response, path)
-	}
-	if !hasMediaType(response.Header.Get("Content-Type"), "text/plain") {
-		return nil, errors.New("worker API index body is not plain text")
-	}
-	body, err := readBounded(response.Body, response.ContentLength, MaxIndexBodyBytes)
-	if err != nil {
-		return nil, err
-	}
-	if !utf8.Valid(body) {
-		return nil, errors.New("worker API index body is not valid UTF-8")
-	}
-	text := string(body)
-	return &text, nil
-}
-
-func (client *Client) EnqueueIndexRebuild(ctx context.Context, request IndexRebuildRequest) (*IndexRebuildPage, error) {
-	if (request.AfterTenantID == nil) != (request.AfterItemID == nil) || request.Limit != nil && (*request.Limit < 1 || *request.Limit > 1000) || request.AfterTenantID != nil && !canonicalUUID(*request.AfterTenantID) || request.AfterItemID != nil && !canonicalUUID(*request.AfterItemID) || request.UpdatedSince != nil && request.UpdatedSince.IsZero() {
-		return nil, errors.New("index rebuild request is invalid")
-	}
-	body, err := json.Marshal(request)
-	if err != nil {
-		return nil, err
-	}
-	var page IndexRebuildPage
-	if err := client.requestStrictJSON(ctx, http.MethodPost, "/internal/worker-dispatch/index/rebuild", bytes.NewReader(body), &page, 64<<10); err != nil {
-		return nil, err
-	}
-	if page.Enqueued < 0 || page.HasMore && (page.NextTenantID == nil || page.NextItemID == nil || !canonicalUUID(*page.NextTenantID) || !canonicalUUID(*page.NextItemID)) {
-		return nil, errors.New("worker API index rebuild response is invalid")
-	}
-	return &page, nil
-}
-
-func (client *Client) GetIndexStatus(ctx context.Context) (*IndexQueueStatus, error) {
-	var status IndexQueueStatus
-	if err := client.requestStrictJSON(ctx, http.MethodGet, "/internal/worker-dispatch/index/status", nil, &status, 64<<10); err != nil {
-		return nil, err
-	}
-	if status.Pending < 0 || status.HighestAttempts < 0 || status.PendingFailures < 0 {
-		return nil, errors.New("worker API index status is invalid")
-	}
-	return &status, nil
 }
 
 func (client *Client) PreparePluginEvent(ctx context.Context, event broker.WorkspaceEvent, leaseSeconds int) (pluginworker.Preparation, error) {

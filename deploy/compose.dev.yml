@@ -8,7 +8,6 @@
 # Profiles:
 #   core   - the default developer set: app Postgres (pgvector), RabbitMQ, Versity S3
 #            gateway, Zitadel (with its own Postgres), Mailpit (Zitadel's outbox).
-#   search - OpenSearch, the rebuildable index used by the Go index role.
 #   media  - clamd virus scanner (heavy: ~1-2 GB RAM for the signature DB).
 #
 # Combine profiles as needed:
@@ -27,7 +26,6 @@
 #   15673 RabbitMQ management
 #   8300  Zitadel             (8080 is too popular to claim)
 #   8325  Mailpit web UI      (Zitadel's password-reset and verification mail)
-#   9201  OpenSearch          (9200 is commonly occupied)
 #
 # Application processes are not in this file. Core (5014), the web app (5173)
 # and the collaboration service (8100) run on the host from source, because in
@@ -81,11 +79,9 @@ services:
       NIX_RABBITMQ_API_PASSWORD: ${NIX_RABBITMQ_API_PASSWORD:-nix-dev-api-rabbit}
       NIX_RABBITMQ_IMPORT_PASSWORD: ${NIX_RABBITMQ_IMPORT_PASSWORD:-nix-dev-import-rabbit}
       NIX_RABBITMQ_EXPORT_PASSWORD: ${NIX_RABBITMQ_EXPORT_PASSWORD:-nix-dev-export-rabbit}
-      NIX_RABBITMQ_INDEX_PASSWORD: ${NIX_RABBITMQ_INDEX_PASSWORD:-nix-dev-index-rabbit}
       NIX_RABBITMQ_PLUGIN_PASSWORD: ${NIX_RABBITMQ_PLUGIN_PASSWORD:-nix-dev-plugin-rabbit}
       NIX_RABBITMQ_CALENDAR_PASSWORD: ${NIX_RABBITMQ_CALENDAR_PASSWORD:-nix-dev-calendar-rabbit}
       NIX_RABBITMQ_NOTIFY_PASSWORD: ${NIX_RABBITMQ_NOTIFY_PASSWORD:-nix-dev-notify-rabbit}
-      NIX_RABBITMQ_SPEECH_PASSWORD: ${NIX_RABBITMQ_SPEECH_PASSWORD:-nix-dev-speech-rabbit}
       NIX_RABBITMQ_DEV_WORKER_PASSWORD: ${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-nix-dev-combined-worker-rabbit}
       NIX_RABBITMQ_ADMIN_PASSWORD: ${NIX_RABBITMQ_ADMIN_PASSWORD:-nix-dev-admin-rabbit}
     ports:
@@ -104,29 +100,6 @@ services:
       retries: 18
       start_period: 15s
 
-  opensearch:
-    image: opensearchproject/opensearch:${NIX_OPENSEARCH_IMAGE_TAG:-3.3.0}
-    profiles: ["search"]
-    environment:
-      discovery.type: single-node
-      bootstrap.memory_lock: "false"
-      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
-      DISABLE_INSTALL_DEMO_CONFIG: "true"
-      DISABLE_SECURITY_PLUGIN: "true"
-    ports:
-      - "127.0.0.1:${NIX_OPENSEARCH_PORT:-9201}:9200"
-    volumes:
-      - nix-opensearch-data:/usr/share/opensearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 20
-      start_period: 30s
-    mem_limit: 1g
-
-  # S3-compatible object store: Versity gateway, posix backend over a named
-  # volume. Same IBlobStore + presigned-URL contract as production S3.
   versitygw:
     image: versity/versitygw:v1.7.0
     profiles: ["core"]
@@ -247,7 +220,6 @@ services:
 volumes:
   nix-pg-data:
   nix-rabbitmq-data:
-  nix-opensearch-data:
   versity-data:
   zitadel-pg-data:
   zitadel-machinekey:

@@ -21,13 +21,12 @@ kubectl get namespace nix >/dev/null 2>&1 || kubectl apply -f deploy/k8s/namespa
 
 create_rabbitmq_secret() {
   local update_existing="$1"
-  local rabbitmq_api_password rabbitmq_import_password rabbitmq_export_password rabbitmq_index_password rabbitmq_plugin_password rabbitmq_calendar_password rabbitmq_notify_password
-  local rabbitmq_api_url rabbitmq_import_url rabbitmq_export_url rabbitmq_index_url rabbitmq_plugin_url rabbitmq_calendar_url rabbitmq_notify_url rabbitmq_url
+  local rabbitmq_api_password rabbitmq_import_password rabbitmq_export_password rabbitmq_plugin_password rabbitmq_calendar_password rabbitmq_notify_password
+  local rabbitmq_api_url rabbitmq_import_url rabbitmq_export_url rabbitmq_plugin_url rabbitmq_calendar_url rabbitmq_notify_url rabbitmq_url
 
   rabbitmq_api_password="$(openssl rand -hex 24)"
   rabbitmq_import_password="$(openssl rand -hex 24)"
   rabbitmq_export_password="$(openssl rand -hex 24)"
-  rabbitmq_index_password="$(openssl rand -hex 24)"
   rabbitmq_plugin_password="$(openssl rand -hex 24)"
   rabbitmq_calendar_password="$(openssl rand -hex 24)"
   rabbitmq_notify_password="$(openssl rand -hex 24)"
@@ -38,11 +37,10 @@ create_rabbitmq_secret() {
   rabbitmq_api_url="${NIX_RABBITMQ_API_URL:-amqp://nix-api:$rabbitmq_api_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_import_url="${NIX_RABBITMQ_IMPORT_URL:-amqp://nix-import:$rabbitmq_import_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_export_url="${NIX_RABBITMQ_EXPORT_URL:-amqp://nix-export:$rabbitmq_export_password@nix-rabbitmq:5672/%2Fnix}"
-  rabbitmq_index_url="${NIX_RABBITMQ_INDEX_URL:-amqp://nix-index:$rabbitmq_index_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_plugin_url="${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:$rabbitmq_plugin_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_calendar_url="${NIX_RABBITMQ_CALENDAR_URL:-amqp://nix-calendar:$rabbitmq_calendar_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_notify_url="${NIX_RABBITMQ_NOTIFY_URL:-amqp://nix-notify:$rabbitmq_notify_password@nix-rabbitmq:5672/%2Fnix}"
-  for rabbitmq_url in "$rabbitmq_api_url" "$rabbitmq_import_url" "$rabbitmq_export_url" "$rabbitmq_index_url" "$rabbitmq_plugin_url" "$rabbitmq_calendar_url" "$rabbitmq_notify_url"; do
+  for rabbitmq_url in "$rabbitmq_api_url" "$rabbitmq_import_url" "$rabbitmq_export_url" "$rabbitmq_plugin_url" "$rabbitmq_calendar_url" "$rabbitmq_notify_url"; do
     case "$rabbitmq_url" in
       amqp://* | amqps://*) ;;
       *)
@@ -57,14 +55,12 @@ create_rabbitmq_secret() {
     --from-literal=api-password="$rabbitmq_api_password"
     --from-literal=import-password="$rabbitmq_import_password"
     --from-literal=export-password="$rabbitmq_export_password"
-    --from-literal=index-password="$rabbitmq_index_password"
     --from-literal=plugin-password="$rabbitmq_plugin_password"
     --from-literal=calendar-password="$rabbitmq_calendar_password"
     --from-literal=notify-password="$rabbitmq_notify_password"
     --from-literal=api-url="$rabbitmq_api_url"
     --from-literal=import-url="$rabbitmq_import_url"
     --from-literal=export-url="$rabbitmq_export_url"
-    --from-literal=index-url="$rabbitmq_index_url"
     --from-literal=plugin-url="$rabbitmq_plugin_url"
     --from-literal=calendar-url="$rabbitmq_calendar_url"
     --from-literal=notify-url="$rabbitmq_notify_url"
@@ -101,31 +97,6 @@ create_object_store_secret() {
   fi
 }
 
-create_observability_secret() {
-  local update_existing="$1"
-  local grafana_admin_user grafana_admin_password
-
-  if [ "$update_existing" = true ]; then
-    if [ -n "${NIX_GRAFANA_ADMIN_USER:-}" ] || [ -n "${NIX_GRAFANA_ADMIN_PASSWORD:-}" ]; then
-      echo "Grafana credential rotation is not supported by this script: Grafana applies its admin password only on first initialization." >&2
-      echo "Update the credential through Grafana's supported administration flow before changing nix-observability." >&2
-      return 1
-    fi
-    echo "nix-observability is unchanged; Grafana admin credentials are initialized only on first deployment."
-    return 0
-  fi
-
-  grafana_admin_user="${NIX_GRAFANA_ADMIN_USER:-admin}"
-  grafana_admin_password="${NIX_GRAFANA_ADMIN_PASSWORD:-$(openssl rand -hex 24)}"
-
-  local -a observability_secret_args=(
-    -n nix create secret generic nix-observability
-    --from-literal=grafana-admin-user="$grafana_admin_user"
-    --from-literal=grafana-admin-password="$grafana_admin_password"
-  )
-  kubectl "${observability_secret_args[@]}"
-}
-
 # Calendar sync OAuth clients (ADR-0052). Every value is optional: a provider without a client id
 # and secret is reported unavailable. The api Deployment reads this secret with optional keys, so a
 # cluster without it still starts. Redirect URIs to register at the providers:
@@ -158,10 +129,6 @@ case "${1:-}" in
     echo "Object-store configuration updated. Run deploy/k8s/deploy.sh to roll it out."
     exit 0
     ;;
-  --observability-only)
-    create_observability_secret true
-    exit 0
-    ;;
   --calendar-only)
     create_calendar_secret true
     echo "Calendar OAuth clients updated. Run deploy/k8s/deploy.sh to roll them out."
@@ -169,7 +136,7 @@ case "${1:-}" in
     ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--observability-only|--calendar-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--calendar-only]" >&2
     exit 2
     ;;
 esac
@@ -197,7 +164,6 @@ kubectl -n nix create secret generic nix-internal \
 
 create_rabbitmq_secret false
 create_object_store_secret false
-create_observability_secret false
 create_calendar_secret false
 
 auth_key_file="$(mktemp)"

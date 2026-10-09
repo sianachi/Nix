@@ -28,10 +28,9 @@ source deploy/k8s/template-boot-config.sh
 : "${DOMAIN:?set DOMAIN, e.g. nix.example.com}"
 require_template_boot_config
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
-export NIX_SEARCH_OPENSEARCH_ENABLED="${NIX_SEARCH_OPENSEARCH_ENABLED:-false}"
-export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN NIX_SEARCH_OPENSEARCH_ENABLED
+export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${NIX_SEARCH_OPENSEARCH_ENABLED} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -49,11 +48,7 @@ if ! kubectl -n nix get secret nix-object-store >/dev/null 2>&1; then
   echo "secret nix-object-store not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
-if ! kubectl -n nix get secret nix-observability >/dev/null 2>&1; then
-  echo "secret nix-observability not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
-  exit 1
-fi
-for rabbitmq_key in api-password import-password export-password index-password plugin-password calendar-password notify-password api-url import-url export-url index-url plugin-url calendar-url notify-url; do
+for rabbitmq_key in api-password import-password export-password plugin-password calendar-password notify-password api-url import-url export-url plugin-url calendar-url notify-url; do
   rabbitmq_value="$(kubectl -n nix get secret nix-rabbitmq -o "jsonpath={.data['$rabbitmq_key']}")"
   if [ -z "$rabbitmq_value" ]; then
     echo "secret nix-rabbitmq is missing $rabbitmq_key - run deploy/k8s/create-secrets.sh --rabbitmq-only" >&2
@@ -79,6 +74,29 @@ if [ -z "$OBJECT_STORE_SECRET_VERSION" ]; then
 fi
 export RABBITMQ_SECRET_VERSION OBJECT_STORE_SECRET_VERSION
 
+# Retire workloads explicitly; leave all PersistentVolumeClaims intact.
+kubectl -n nix delete deployment/nix-indexer --ignore-not-found
+retired_search=$(kubectl -n nix get statefulset nix-opensearch --ignore-not-found -o name)
+if [ -n "$retired_search" ]; then
+  kubectl -n nix patch statefulset nix-opensearch --type=merge \
+    -p '{"spec":{"persistentVolumeClaimRetentionPolicy":{"whenDeleted":"Retain","whenScaled":"Retain"}}}'
+fi
+kubectl -n nix delete statefulset/nix-opensearch --ignore-not-found
+kubectl -n nix delete service/nix-indexer service/nix-opensearch networkpolicy/opensearch-ingress --ignore-not-found
+
+# Retire the log stack without deleting Loki or Grafana storage.
+retired_loki=$(kubectl -n nix get statefulset nix-loki --ignore-not-found -o name)
+if [ -n "$retired_loki" ]; then
+  kubectl -n nix patch statefulset nix-loki --type=merge \
+    -p '{"spec":{"persistentVolumeClaimRetentionPolicy":{"whenDeleted":"Retain","whenScaled":"Retain"}}}'
+fi
+kubectl -n nix delete deployment/nix-alloy deployment/nix-grafana --ignore-not-found
+kubectl -n nix delete statefulset/nix-loki --ignore-not-found
+kubectl -n nix delete service/nix-loki service/nix-grafana --ignore-not-found
+kubectl -n nix delete serviceaccount/nix-alloy role/nix-alloy rolebinding/nix-alloy \
+  configmap/nix-loki-config configmap/nix-alloy-config configmap/nix-grafana-provisioning \
+  secret/nix-observability --ignore-not-found
+
 echo "== Postgres =="
 kubectl apply -f deploy/k8s/postgres.yaml
 kubectl -n nix rollout status statefulset/postgres --timeout=180s
@@ -90,11 +108,9 @@ kubectl -n nix create configmap nix-rabbitmq-config \
   --from-file=start.sh=deploy/rabbitmq/start.sh \
   --dry-run=client -o yaml | kubectl apply -f -
 render deploy/k8s/rabbitmq.yaml | kubectl apply -f -
+# Apply startup topology and account retirement even when the secret version is unchanged.
+kubectl -n nix rollout restart statefulset/nix-rabbitmq
 kubectl -n nix rollout status statefulset/nix-rabbitmq --timeout=180s
-
-echo "== OpenSearch =="
-kubectl apply -f deploy/k8s/opensearch.yaml
-kubectl -n nix rollout status statefulset/nix-opensearch --timeout=300s
 
 echo "== Seed =="
 kubectl apply -f deploy/k8s/job-seed.yaml
@@ -121,22 +137,6 @@ echo "== Caddyfile =="
 kubectl -n nix create configmap nix-caddy --from-file=Caddyfile=deploy/k8s/Caddyfile \
   --dry-run=client -o yaml | kubectl apply -f -
 
-echo "== Observability =="
-kubectl -n nix create configmap nix-loki-config \
-  --from-file=config.yaml=deploy/observability/loki.yaml \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n nix create configmap nix-alloy-config \
-  --from-file=config.alloy=deploy/observability/alloy-kubernetes.alloy \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n nix create configmap nix-grafana-provisioning \
-  --from-file=nix-logs.yaml=deploy/observability/grafana-datasource-kubernetes.yaml \
-  --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f deploy/k8s/observability.yaml
-kubectl -n nix rollout restart statefulset/nix-loki deployment/nix-alloy deployment/nix-grafana
-kubectl -n nix rollout status statefulset/nix-loki --timeout=180s
-kubectl -n nix rollout status deployment/nix-alloy --timeout=180s
-kubectl -n nix rollout status deployment/nix-grafana --timeout=180s
-
 echo "== Workloads =="
 render deploy/k8s/api.yaml | kubectl apply -f -
 render deploy/k8s/collab.yaml | kubectl apply -f -
@@ -147,7 +147,6 @@ kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s
 kubectl -n nix rollout status deployment/nix-import-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-export-worker --timeout=180s
-kubectl -n nix rollout status deployment/nix-indexer --timeout=180s
 kubectl -n nix rollout status deployment/nix-plugin-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-calendar-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-notify-worker --timeout=180s

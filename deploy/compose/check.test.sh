@@ -13,6 +13,9 @@ python3 - "$fixture/compose.json" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1])); s=c['services']
 assert s['nix-versitygw']['image']=='versity/versitygw:v1.7.0'
+assert 'nix-indexer' not in s and 'nix-opensearch' not in s
+assert 'nix-opensearch-data' not in c['volumes']
+assert not any('OpenSearch' in key for key in s['nix-api']['environment'])
 assert s['nix-api']['image']=='ghcr.io/sianachi/nix/api:replace-with-commit-sha'
 assert s['nix-import-worker']['image']=='ghcr.io/sianachi/nix/worker:replace-with-commit-sha'
 assert c['volumes']['nix-versity-data']['name']=='nix-versity-data'
@@ -32,17 +35,15 @@ assert any(v.get('source') == 'nix-companion-data' for v in s['nix-import-worker
 assert not s['nix-import-worker'].get('ports')
 assert not any('companion' in name or 'codex' in name for name in s)
 assert not s['nix-versitygw'].get('ports')
-assert set(s['docker-socket-proxy']['networks']) == {'docker-logs'}
-assert set(s['alloy']['networks']) == {'docker-logs', 'observability'}
-assert set(s['loki']['networks']) == {'observability'}
-assert set(s['grafana']['networks']) == {'observability', 'grafana-access'}
-assert c['networks']['docker-logs']['internal']
-assert c['networks']['observability']['internal']
-assert s['docker-socket-proxy']['environment']['POST'] == '0'
-assert not s['docker-socket-proxy'].get('ports')
-assert not s['loki'].get('ports')
-assert s['grafana']['ports'][0]['host_ip'] == '127.0.0.1'
-assert s['grafana']['environment']['GF_AUTH_ANONYMOUS_ENABLED'] == 'false'
+retired_observability = {'grafana', 'alloy', 'loki', 'docker-socket-proxy'}
+assert retired_observability.isdisjoint(s)
+assert {'docker-logs', 'observability', 'grafana-access'}.isdisjoint(c['networks'])
+assert {'nix-loki-data', 'nix-alloy-data', 'nix-grafana-data'}.isdisjoint(c['volumes'])
+assert s['nix-api']['environment']['Logging__Console__FormatterName'] == 'json'
+for service in ['nix-import-worker', 'nix-export-worker', 'nix-plugin-worker', 'nix-calendar-worker', 'nix-notify-worker']:
+ assert s[service]['healthcheck']['test'] == ['CMD', '/nix-worker', '--healthcheck']
+assert s['nix-web']['healthcheck']['test'][0] == 'CMD'
+assert not any(service.get('logging', {}).get('driver') == 'none' for service in s.values())
 from pathlib import Path
 edge=Path('deploy/Caddyfile.prod').read_text()
 exchange=edge.split('handle /public/v1/auth/token {',1)[1].split('\n\thandle ',1)[0]
@@ -131,7 +132,11 @@ cat > "$fixture/bin/docker" <<'PYCODE'
 import sys,os,json
 args=sys.argv[1:]
 with open(os.environ['DOCKER_TEST_LOG'],'a') as f: f.write(' '.join(args)+'\n')
-if 'config' in args and '--format' in args:
+if args[0]=='ps':
+ for service in ['nix-speech-worker', 'nix-indexer', 'nix-opensearch', 'grafana', 'alloy', 'loki', 'docker-socket-proxy']:
+  if 'label=com.docker.compose.service='+service in args and os.environ.get('RETIRED_CONTAINERS'):
+   print('retired-'+service)
+elif 'config' in args and '--format' in args:
  c=json.load(open(os.environ['COMPOSE_TEST_CONFIG']))
  c['services']['nix-api']['environment']['Nix__Bff__PublicOrigin']='https://production.example'
  print(json.dumps(c))
@@ -161,7 +166,7 @@ if rg -q '\bnode\b' deploy/compose/deploy.sh; then echo 'deploy.sh still calls n
 mkdir "$fixture/nodeless"
 printf '#!/bin/sh\necho "node called on the host" >&2\nexit 97\n' > "$fixture/nodeless/node"
 chmod +x "$fixture/nodeless/node"
-PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-result"
+RETIRED_CONTAINERS=1 PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-result"
 python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
 import sys
 calls=open(sys.argv[1]).read().splitlines()
@@ -178,10 +183,16 @@ smokes=[i for i,s in enumerate(calls) if s.startswith('run --rm ') and tools+' s
 assert len(smokes)==2 and calls[smokes[0]].endswith(' smoke --preflight') and calls[smokes[1]].endswith(tools+' smoke')
 assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
 # Writers stop before the infrastructure `up`, so a RabbitMQ recreate never meets a publisher.
-infra=next(i for i,s in enumerate(calls) if ' up ' in s and s.endswith('postgres rabbitmq nix-opensearch nix-versitygw'))
+infra=next(i for i,s in enumerate(calls) if ' up ' in s and s.endswith('postgres rabbitmq nix-versitygw'))
 assert stop < infra < migrate
 bind_check=next(i for i,s in enumerate(calls) if 'run --rm --no-deps --entrypoint /bin/sh rabbitmq -c ' in s)
-assert bind_check < stop
+for service in ['nix-speech-worker', 'nix-indexer', 'nix-opensearch', 'grafana', 'alloy', 'loki', 'docker-socket-proxy']:
+ retired=calls.index('stop retired-'+service)
+ assert bind_check < retired < stop
+ assert any('label=com.docker.compose.project=nix' in call and 'label=com.docker.compose.service='+service in call for call in calls)
+assert len([call for call in calls if call.startswith('stop retired-')]) == 7
+assert not any(' stop ' in call and 'nix-indexer' in call for call in calls)
+assert not any(' up ' in call and 'nix-opensearch' in call for call in calls)
 assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
 PYCODE
 # The drift preview must run before the first `up` can recreate a service.

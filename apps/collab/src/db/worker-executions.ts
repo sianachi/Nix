@@ -4,13 +4,13 @@ import type { ScopedQuery } from './tenant-scope.ts';
  * Which worker execution a write is being made by, and the kind of job it must be running.
  *
  * The kind is part of the question, not a description of the caller: a lease on an import job
- * proves nothing about the right to append a transcript, so each write names the one kind of job
+ * proves nothing about the right to commit a template, so each write names the one kind of job
  * that may make it and the fence refuses any other.
  */
 export interface WorkerExecutionFence {
   readonly jobId: string;
   readonly executionId: string;
-  readonly kind: 'import.commit' | 'template.commit' | 'transcribe.audio';
+  readonly kind: 'import.commit' | 'template.commit';
 }
 
 /**
@@ -22,7 +22,7 @@ export interface WorkerExecutionFence {
  * answer is a boolean rather than a throw so each caller refuses in its own vocabulary.
  *
  * Here rather than beside any one caller because every worker-driven body write asks it - staged
- * imports, template imports, transcript appends - and none of them owns it.
+ * imports and template imports - and neither of them owns it.
  */
 export async function workerExecutionHeld(
   sql: ScopedQuery,

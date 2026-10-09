@@ -17,11 +17,9 @@ const (
 	CapabilitiesExchange = "nix.capabilities.v1"
 	ImportQueue          = "nix.worker.import.v1"
 	ExportQueue          = "nix.worker.export.v1"
-	IndexQueue           = "nix.worker.index.v1"
 	PluginEventsQueue    = "nix.worker.plugin-events.v1"
 	CalendarQueue        = "nix.worker.calendar.v1"
 	NotifyQueue          = "nix.worker.notify.v1"
-	TranscribeQueue      = "nix.worker.transcribe.v1"
 	ResultRoutingKey     = "job.result"
 	CommandMessageType   = "worker.command.v1"
 	ResultMessageType    = "worker.result.v1"
@@ -51,7 +49,7 @@ type Envelope struct {
 	AggregateVersion *int64          `json:"aggregateVersion,omitempty"`
 }
 
-// WorkspaceEvent is the validated durable event contract consumed by the indexer.
+// WorkspaceEvent is the validated durable event contract consumed by plugins.
 // AggregateVersion is optional until every Nix.Api publisher includes the source
 // aggregate's monotonic version in workspace.event.v1.
 type WorkspaceEvent struct {
@@ -155,7 +153,7 @@ func (envelope Envelope) Command() (CommandReference, error) {
 	return command, nil
 }
 
-// WorkspaceEvent validates the scope and routing invariants shared by all index events.
+// WorkspaceEvent validates the scope and routing invariants for plugin workspace events.
 func (envelope Envelope) WorkspaceEvent() (WorkspaceEvent, error) {
 	if envelope.MessageType != WorkspaceMessageType || !isCanonicalUUID(envelope.MessageID) || !isCanonicalUUID(envelope.TenantID) || envelope.WorkspaceID == nil || !isCanonicalUUID(*envelope.WorkspaceID) || envelope.ItemID == nil || !isCanonicalUUID(*envelope.ItemID) || envelope.CorrelationID != envelope.MessageID {
 		return WorkspaceEvent{}, ErrInvalidMessage

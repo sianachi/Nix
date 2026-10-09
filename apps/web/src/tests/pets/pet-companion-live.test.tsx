@@ -18,7 +18,6 @@ vi.mock('../../pets/use-pet-settings', () => ({
         enabled: true,
         activePetId: '44444444-4444-4444-8444-444444444444',
         motion: 'reduced',
-        narration: false,
         profiles: [
           {
             id: '44444444-4444-4444-8444-444444444444',

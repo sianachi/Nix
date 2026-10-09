@@ -28,6 +28,26 @@ cat > "$fake_bin/kubectl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ " $* " == *" get statefulset nix-opensearch "* ]]; then
+  printf 'get:%s\n' "$*" >> "$KUBECTL_LOG"
+  if [ "${FAIL_RETIRED_SEARCH_LOOKUP:-}" = 1 ]; then exit 1; fi
+  if [ "${MISSING_RETIRED_SEARCH:-}" != 1 ]; then printf 'statefulset.apps/nix-opensearch'; fi
+  exit 0
+fi
+
+if [[ " $* " == *" get statefulset nix-loki "* ]]; then
+  printf 'get:%s\n' "$*" >> "$KUBECTL_LOG"
+  if [ "${FAIL_RETIRED_LOKI_LOOKUP:-}" = 1 ]; then exit 1; fi
+  if [ "${MISSING_RETIRED_LOKI:-}" != 1 ]; then printf 'statefulset.apps/nix-loki'; fi
+  exit 0
+fi
+
+if [[ " $* " == *" patch statefulset nix-loki "* ]]; then
+  printf 'kubectl:%s\n' "$*" >> "$KUBECTL_LOG"
+  if [ "${FAIL_RETIRED_LOKI_PATCH:-}" = 1 ]; then exit 1; fi
+  exit 0
+fi
+
 if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *"metadata.resourceVersion"* ]]; then
   printf '12345'
   exit 0
@@ -102,6 +122,7 @@ EOF
 
 chmod +x "$fake_bin/git" "$fake_bin/kubectl"
 
+run_deploy() {
 PATH="$fake_bin:$PATH" \
 REGISTRY=registry.example.test \
 TAG=render-order \
@@ -113,6 +134,9 @@ TEMPLATE_BOOT_OIDC_AUDIENCE=project-id \
 TEMPLATE_BOOT_PVC=template-files \
 TEMPLATE_BOOT_SERVICE_KEY_SECRET=template-service-key \
 NIX_DEPLOY_TARGET=kubernetes bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null
+
+}
+run_deploy
 
 line_of() {
   local pattern="$1"
@@ -160,17 +184,11 @@ grep -Fq 'automountServiceAccountToken: false' "$RENDERED_PRESET_JOB"
 grep -Fq 'configMap: { name: nix-template-presets }' "$RENDERED_PRESET_JOB"
 grep -Fq 'name: PGUSER, value: nix_migrator' "$RENDERED_PRESET_JOB"
 grep -Fq 'create-configmap:nix-rabbitmq-config' "$KUBECTL_LOG"
-grep -Fq 'create-configmap:nix-loki-config' "$KUBECTL_LOG"
-grep -Fq 'create-configmap:nix-alloy-config' "$KUBECTL_LOG"
-grep -Fq 'create-configmap:nix-grafana-provisioning' "$KUBECTL_LOG"
-grep -Fq 'apply-file:deploy/k8s/observability.yaml' "$KUBECTL_LOG"
-grep -Fq 'kubectl:-n nix rollout restart statefulset/nix-loki deployment/nix-alloy deployment/nix-grafana' "$KUBECTL_LOG"
 grep -Fq 'apply-stdin:nix-rabbitmq,nix-rabbitmq,rabbitmq-ingress' "$KUBECTL_LOG"
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_RABBITMQ"
 grep -Fq 'key: api-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: import-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: export-password' "$RENDERED_RABBITMQ"
-grep -Fq 'key: index-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: plugin-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: calendar-password' "$RENDERED_RABBITMQ"
 grep -Fq 'key: notify-password' "$RENDERED_RABBITMQ"
@@ -193,7 +211,6 @@ grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_WORKERS"
 test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WORKERS")" -eq 3
 grep -Fq 'key: import-url' "$RENDERED_WORKERS"
 grep -Fq 'key: export-url' "$RENDERED_WORKERS"
-grep -Fq 'key: index-url' "$RENDERED_WORKERS"
 grep -Fq 'key: plugin-url' "$RENDERED_WORKERS"
 grep -Fq 'key: calendar-url' "$RENDERED_WORKERS"
 grep -Fq 'key: notify-url' "$RENDERED_WORKERS"
@@ -201,4 +218,58 @@ grep -Fq 'name: NIX_OBJECT_STORE_PUBLIC_ORIGIN' "$RENDERED_WEB"
 grep -Fq 'key: public-origin' "$RENDERED_WEB"
 test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WEB")" -eq 1
 
+if grep -Eq 'nix-indexer|OpenSearch|opensearch|index-password|index-url' "$RENDERED_WORKERS" "$RENDERED_API" "$RENDERED_RABBITMQ"; then
+  echo 'Deployment still renders retired search components.' >&2
+  exit 1
+fi
+assert_before "kubectl:-n nix patch statefulset nix-opensearch" "delete:-n nix delete statefulset/nix-opensearch"
+grep -Fq '"whenDeleted":"Retain","whenScaled":"Retain"' "$KUBECTL_LOG"
+assert_before "delete:-n nix delete deployment/nix-indexer" "create-configmap:nix-rabbitmq-config"
+if grep -Eq 'delete.*(persistentvolume|pvc)' "$KUBECTL_LOG"; then
+  echo 'Deployment attempted to delete retained storage.' >&2
+  exit 1
+fi
+assert_before "kubectl:-n nix patch statefulset nix-loki" "delete:-n nix delete statefulset/nix-loki"
+grep -Fq 'kubectl:-n nix patch statefulset nix-loki --type=merge -p {"spec":{"persistentVolumeClaimRetentionPolicy":{"whenDeleted":"Retain","whenScaled":"Retain"}}}' "$KUBECTL_LOG"
+assert_before "delete:-n nix delete deployment/nix-alloy deployment/nix-grafana" "delete:-n nix delete statefulset/nix-loki"
+assert_before "delete:-n nix delete statefulset/nix-loki" "create-configmap:nix-rabbitmq-config"
+grep -Fq 'delete:-n nix delete service/nix-loki service/nix-grafana --ignore-not-found' "$KUBECTL_LOG"
+grep -Fq 'serviceaccount/nix-alloy role/nix-alloy rolebinding/nix-alloy configmap/nix-loki-config configmap/nix-alloy-config configmap/nix-grafana-provisioning secret/nix-observability --ignore-not-found' "$KUBECTL_LOG"
+if grep -Eq '(create-configmap|apply-file|apply-stdin|rollout):.*(loki|alloy|grafana|observability)' "$KUBECTL_LOG"; then
+  echo 'Deployment still starts retired observability components.' >&2
+  exit 1
+fi
+assert_before "kubectl:-n nix rollout restart statefulset/nix-rabbitmq" "rollout:-n nix rollout status statefulset/nix-rabbitmq"
+: > "$KUBECTL_LOG"
+if FAIL_RETIRED_SEARCH_LOOKUP=1 run_deploy; then
+  echo 'Deployment ignored a failed retained-storage lookup.' >&2
+  exit 1
+fi
+if grep -Eq 'delete:.*nix-opensearch' "$KUBECTL_LOG"; then
+  echo 'Deployment deleted search before ensuring its storage is retained.' >&2
+  exit 1
+fi
+: > "$KUBECTL_LOG"
+MISSING_RETIRED_SEARCH=1 run_deploy
+if grep -Fq 'patch statefulset nix-opensearch' "$KUBECTL_LOG"; then
+  echo 'Deployment patched a missing retired search set.' >&2
+  exit 1
+fi
+: > "$KUBECTL_LOG"
+MISSING_RETIRED_LOKI=1 run_deploy
+if grep -Fq 'patch statefulset nix-loki' "$KUBECTL_LOG"; then
+  echo 'Deployment patched a missing retired Loki set.' >&2
+  exit 1
+fi
+for failed_loki_step in FAIL_RETIRED_LOKI_LOOKUP FAIL_RETIRED_LOKI_PATCH; do
+  : > "$KUBECTL_LOG"
+  if (export "$failed_loki_step=1"; run_deploy); then
+    echo "Deployment ignored $failed_loki_step." >&2
+    exit 1
+  fi
+  if grep -Eq 'delete:.*(nix-loki|nix-grafana|nix-alloy)' "$KUBECTL_LOG"; then
+    echo 'Deployment retired observability before ensuring its storage is retained.' >&2
+    exit 1
+  fi
+done
 echo "deployment render-order self-test passed"

@@ -1,8 +1,8 @@
 import * as bodies from '../../editor/body-cache';
-import * as recordings from '../../recording/recording-spool';
 import * as drafts from '../../editor/draft-journal';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { IDBFactory } from 'fake-indexeddb';
 import { StrictMode, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -314,25 +314,93 @@ describe('Core-mediated browser sessions', () => {
       .mockResolvedValueOnce(authenticated())
       .mockResolvedValueOnce(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetch);
-    vi.stubGlobal('indexedDB', {});
+    vi.stubGlobal('indexedDB', new IDBFactory());
     const clearDrafts = vi.spyOn(drafts, 'clearDrafts').mockResolvedValue(undefined);
     const clearBodies = vi.spyOn(bodies, 'clearBodyCache').mockResolvedValue(undefined);
-    const clearRecordings = vi
-      .spyOn(recordings, 'clearRecordingSpool')
-      .mockResolvedValue(undefined);
     renderProvider();
     await screen.findByText('authenticated');
     await user.click(screen.getByRole('button', { name: 'Sign out' }));
     await screen.findByText('anonymous');
     expect(clearDrafts).toHaveBeenCalledOnce();
     expect(clearBodies).toHaveBeenCalledOnce();
-    // Audio recorded under this account must not be on offer to whoever signs in next.
-    expect(clearRecordings).toHaveBeenCalledOnce();
     clearDrafts.mockRestore();
     clearBodies.mockRestore();
-    clearRecordings.mockRestore();
     vi.unstubAllGlobals();
   });
+
+  it.each(['local', 'another tab'])(
+    'clears pre-upgrade recording chunks on %s sign-out',
+    async (source) => {
+      const factory = new IDBFactory();
+      vi.stubGlobal('indexedDB', factory);
+      vi.spyOn(bodies, 'openBodyCache').mockResolvedValue(undefined);
+      vi.spyOn(bodies, 'clearBodyCache').mockResolvedValue(undefined);
+      vi.spyOn(drafts, 'clearDrafts').mockResolvedValue(undefined);
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = factory.open('nix-recordings', 1);
+        request.onupgradeneeded = () => {
+          request.result.createObjectStore('sessions', { keyPath: 'id' });
+          request.result.createObjectStore('chunks', { keyPath: ['sessionId', 'index'] });
+        };
+        request.onsuccess = () => {
+          resolve(request.result);
+        };
+        request.onerror = () => {
+          reject(new Error('Recording fixture request failed.', { cause: request.error }));
+        };
+      });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const transaction = db.transaction(['sessions', 'chunks'], 'readwrite');
+          transaction.objectStore('sessions').put({ id: 'old-recording', principalId: 'person-1' });
+          transaction
+            .objectStore('chunks')
+            .put({ sessionId: 'old-recording', index: 0, bytes: new ArrayBuffer(16) });
+          transaction.oncomplete = () => {
+            resolve();
+          };
+          transaction.onerror = () => {
+            reject(
+              new Error('Recording fixture transaction failed.', { cause: transaction.error }),
+            );
+          };
+        });
+        vi.stubGlobal(
+          'fetch',
+          vi
+            .fn()
+            .mockResolvedValueOnce(authenticated())
+            .mockResolvedValueOnce(new Response(null, { status: 204 })),
+        );
+        renderProvider();
+        await screen.findByText('authenticated');
+        if (source === 'local') {
+          await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+        } else {
+          window.dispatchEvent(new Event('nix:signed-out-elsewhere'));
+        }
+        await screen.findByText('anonymous');
+        // Keep the old tab's handle open: deleting the database would remain blocked.
+        await waitFor(async () => {
+          for (const name of ['sessions', 'chunks']) {
+            const count = await new Promise<number>((resolve, reject) => {
+              const request = db.transaction(name).objectStore(name).count();
+              request.onsuccess = () => {
+                resolve(request.result);
+              };
+              request.onerror = () => {
+                reject(new Error('Recording fixture request failed.', { cause: request.error }));
+              };
+            });
+            expect(count).toBe(0);
+          }
+        });
+      } finally {
+        db.close();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it('revokes the Core session and clears the in-memory token on sign-out', async () => {
     const user = userEvent.setup();

@@ -8,11 +8,6 @@ import type { ImportBodyService } from '../imports/bodies.ts';
 import type { TemplateImportBodyService } from '../template-imports/bodies.ts';
 import type { TemplateService } from '../templates/service.ts';
 import { TemplateBodyError } from '../templates/bodies.ts';
-import {
-  TranscriptionAppendError,
-  type TranscriptionAppendService,
-} from '../transcriptions/append.ts';
-import { CoreTranscriptionError } from '../transcriptions/core.ts';
 import type { SessionHub } from '../ws/server.ts';
 import { createSessionAuthenticator } from '../ws/session-auth.ts';
 import { createServer } from './server.ts';
@@ -67,7 +62,6 @@ function server(overrides: {
   importBodies?: ImportBodyService;
   templateImportBodies?: TemplateImportBodyService;
   templates?: TemplateService;
-  transcriptions?: TranscriptionAppendService;
   hub?: SessionHub;
 }) {
   return createServer({
@@ -85,7 +79,6 @@ function server(overrides: {
       ? {}
       : { templateImportBodies: overrides.templateImportBodies }),
     ...(overrides.templates === undefined ? {} : { templates: overrides.templates }),
-    ...(overrides.transcriptions === undefined ? {} : { transcriptions: overrides.transcriptions }),
     ...(overrides.hub === undefined ? {} : { hub: overrides.hub }),
   });
 }
@@ -102,6 +95,21 @@ afterEach(async () => {
 });
 
 describe('the collaboration service HTTP surface', () => {
+  it('does not expose the retired transcription append route', async () => {
+    const response = await track(server({})).inject({
+      method: 'POST',
+      url: '/internal/worker-executions/transcriptions/append',
+      headers: {
+        'x-nix-internal-secret': INTERNAL_SECRET,
+        'x-nix-worker-job-id': ITEM,
+        'x-nix-worker-execution-id': 'worker:execution',
+      },
+      payload: {},
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
   it('forwards an approved capture fingerprint to the template service', async () => {
     let captured: unknown;
     const templates = {
@@ -555,232 +563,6 @@ describe('worker-fenced template import bodies', () => {
         body,
       },
     ]);
-  });
-});
-
-describe('the worker-fenced transcript append', () => {
-  const URL = '/internal/worker-executions/transcriptions/append';
-  const JOB = 'c1000000-0000-4000-8000-0000000000a1';
-  const PROOF = {
-    'x-nix-internal-secret': INTERNAL_SECRET,
-    'x-nix-worker-job-id': JOB,
-    'x-nix-worker-execution-id': 'worker:execution',
-  };
-  const TRANSCRIPT = {
-    durationMillis: 61_000,
-    paragraphs: [{ startMillis: 0, speaker: 'me', text: 'Shall we start?' }],
-  };
-
-  /** A hub that only records which items it was told to bring up to date. */
-  function recordingHub(refreshed: string[]): SessionHub {
-    return {
-      join: () => Promise.resolve({ ok: false, closeCode: 1011, reason: 'not under test' }),
-      handleMessage: () => undefined,
-      leave: () => undefined,
-      refresh: (itemId) => {
-        refreshed.push(itemId);
-        return Promise.resolve();
-      },
-    };
-  }
-
-  it('answers not-found without the secret, a uuid job, or an execution', async () => {
-    let called = false;
-    const app = track(
-      server({
-        transcriptions: {
-          append: () => {
-            called = true;
-            return Promise.resolve({ appended: true, paragraphs: 1, noteItemId: ITEM });
-          },
-        },
-      }),
-    );
-    const without = (name: keyof typeof PROOF, replacement?: string) => {
-      const headers: Record<string, string> = { ...PROOF };
-      if (replacement === undefined) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        delete headers[name];
-      } else {
-        headers[name] = replacement;
-      }
-      return app.inject({ method: 'POST', url: URL, headers, payload: TRANSCRIPT });
-    };
-
-    const responses = await Promise.all([
-      without('x-nix-internal-secret'),
-      without('x-nix-internal-secret', 'wrong-secret'),
-      without('x-nix-worker-job-id'),
-      without('x-nix-worker-job-id', 'not-a-uuid'),
-      without('x-nix-worker-execution-id'),
-    ]);
-
-    expect(responses.map((response) => response.statusCode)).toEqual([404, 404, 404, 404, 404]);
-    expect(responses.map((response) => response.json<{ code: string }>().code)).toEqual(
-      Array.from({ length: 5 }, () => 'transcription_not_found'),
-    );
-    expect(called).toBe(false);
-  });
-
-  it('no longer answers at the path outside the worker-execution routes', async () => {
-    const app = track(
-      server({
-        transcriptions: {
-          append: () => Promise.resolve({ appended: true, paragraphs: 1, noteItemId: ITEM }),
-        },
-      }),
-    );
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/internal/transcriptions/append',
-      headers: PROOF,
-      payload: TRANSCRIPT,
-    });
-
-    expect(response.statusCode).toBe(404);
-    expect(response.json<{ code?: string }>().code).not.toBe('transcription_not_found');
-  });
-
-  it('is not registered when the service is not configured', async () => {
-    const response = await track(server({})).inject({
-      method: 'POST',
-      url: URL,
-      headers: PROOF,
-      payload: TRANSCRIPT,
-    });
-
-    expect(response.statusCode).toBe(404);
-  });
-
-  it('appends on worker proof alone, refreshes the open note, and keeps the note id to itself', async () => {
-    const seen: unknown[] = [];
-    const refreshed: string[] = [];
-    const app = track(
-      server({
-        hub: recordingHub(refreshed),
-        transcriptions: {
-          append: (input) => {
-            seen.push(input);
-            return Promise.resolve({ appended: true, paragraphs: 1, noteItemId: ITEM });
-          },
-        },
-      }),
-    );
-
-    const response = await app.inject({
-      method: 'POST',
-      url: URL,
-      headers: PROOF,
-      payload: TRANSCRIPT,
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ appended: true, paragraphs: 1 });
-    expect(seen).toEqual([{ jobId: JOB, executionId: 'worker:execution', body: TRANSCRIPT }]);
-    expect(refreshed).toEqual([ITEM]);
-  });
-
-  it('reports a retry that changed nothing and refreshes nobody', async () => {
-    const refreshed: string[] = [];
-    const app = track(
-      server({
-        hub: recordingHub(refreshed),
-        transcriptions: {
-          append: () => Promise.resolve({ appended: false, paragraphs: 1, noteItemId: ITEM }),
-        },
-      }),
-    );
-
-    const response = await app.inject({
-      method: 'POST',
-      url: URL,
-      headers: PROOF,
-      payload: TRANSCRIPT,
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ appended: false, paragraphs: 1 });
-    expect(refreshed).toEqual([]);
-  });
-
-  it('still succeeds when the open note cannot be refreshed: the write has committed', async () => {
-    const hub = recordingHub([]);
-    const app = track(
-      server({
-        hub: { ...hub, refresh: () => Promise.reject(new Error('lock session lost')) },
-        transcriptions: {
-          append: () => Promise.resolve({ appended: true, paragraphs: 1, noteItemId: ITEM }),
-        },
-      }),
-    );
-
-    const response = await app.inject({
-      method: 'POST',
-      url: URL,
-      headers: PROOF,
-      payload: TRANSCRIPT,
-    });
-
-    expect(response.statusCode).toBe(200);
-  });
-
-  it.each([
-    [new TranscriptionAppendError(400, 'transcription_invalid', 'Bad transcript.')],
-    [new TranscriptionAppendError(409, 'transcription_note_locked', 'Locked.')],
-    [new TranscriptionAppendError(409, 'transcription_note_unsupported', 'Not prose.')],
-    [new TranscriptionAppendError(413, 'transcription_too_large', 'Too large.')],
-    [new CoreTranscriptionError(409, 'transcription_execution_lost', 'Lease lost.')],
-    [new CoreTranscriptionError(403, 'transcription_authorization_refused', 'Refused.')],
-    [new CoreTranscriptionError(503, 'transcription_core_unavailable', 'Core is away.')],
-  ])('turns a service refusal into a problem response: %s', async (refusal) => {
-    const refreshed: string[] = [];
-    const app = track(
-      server({
-        hub: recordingHub(refreshed),
-        transcriptions: { append: () => Promise.reject(refusal) },
-      }),
-    );
-
-    const response = await app.inject({
-      method: 'POST',
-      url: URL,
-      headers: PROOF,
-      payload: TRANSCRIPT,
-    });
-
-    expect(response.statusCode).toBe(refusal.status);
-    expect(response.headers['content-type']).toContain('application/problem+json');
-    expect(response.json<{ code: string }>().code).toBe(refusal.code);
-    expect(refreshed).toEqual([]);
-  });
-
-  it('accepts a transcript larger than the default body limit', async () => {
-    let paragraphs = 0;
-    const app = track(
-      server({
-        transcriptions: {
-          append: (input) => {
-            paragraphs = (input.body as { paragraphs: unknown[] }).paragraphs.length;
-            return Promise.resolve({ appended: true, paragraphs, noteItemId: ITEM });
-          },
-        },
-      }),
-    );
-    // About 3 MiB: over the server-wide 2 MiB default, under this route's 4 MiB.
-    const large = {
-      durationMillis: 1,
-      paragraphs: Array.from({ length: 800 }, () => ({
-        startMillis: 0,
-        speaker: '',
-        text: 'x'.repeat(3_900),
-      })),
-    };
-
-    const response = await app.inject({ method: 'POST', url: URL, headers: PROOF, payload: large });
-
-    expect(response.statusCode).toBe(200);
-    expect(paragraphs).toBe(800);
   });
 });
 

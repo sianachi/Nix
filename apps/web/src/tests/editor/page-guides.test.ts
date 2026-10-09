@@ -25,7 +25,7 @@ describe('the exported page', () => {
   it('is the one the Go PDF exporter prints', () => {
     // The exporter is Go and cannot be imported here, so its numbers are mirrored. This is what
     // keeps the mirror honest: change the margin there and this names the constant to change
-    // here. It reads the Go source rather than `packages/pdf-export`, which nothing ships.
+    // here.
     const source = readFileSync(
       join(repoRoot, 'apps', 'go-workers', 'internal', 'exporter', 'pdf.go'),
       'utf8',

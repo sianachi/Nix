@@ -10,8 +10,7 @@
  * **How the estimate is made.** The export page is A4 with fixed margins and a fixed body size.
  * The exporter that ships is the Go one (`apps/go-workers/internal/exporter/pdf.go`); its numbers
  * are mirrored here and a test keeps them in agreement, because a browser bundle cannot read a Go
- * constant. (`packages/pdf-export` is an earlier TypeScript renderer nothing imports; its
- * different margins are not the ones a person's PDF has.) Zoom that page until its body
+ * constant. Zoom that page until its body
  * type is the size of the editor's, and the page becomes a rectangle in editor pixels. Text is
  * roughly an area: the same words fill the same number of square pixels whether the column is
  * wide or narrow. So a page's worth of editor column is that rectangle's area divided by the

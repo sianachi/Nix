@@ -162,7 +162,7 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets the passwords item bodies are held behind.</summary>
     public DbSet<ItemLock> ItemLocks => Set<ItemLock>();
 
-    /// <summary>Gets the current transcription of each audio item.</summary>
+    /// <summary>Preserves historical transcription rows after the feature was retired.</summary>
     public DbSet<ItemTranscription> ItemTranscriptions => Set<ItemTranscription>();
 
     /// <summary>Gets the short-lived grants past item locks.</summary>

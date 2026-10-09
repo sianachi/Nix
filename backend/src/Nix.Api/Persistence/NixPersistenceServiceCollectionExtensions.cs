@@ -173,7 +173,6 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddSingleton<Nix.Persistence.Workers.WorkerDispatchStore>();
         services.AddSingleton<IWorkerDispatchStore>(provider => provider.GetRequiredService<Nix.Persistence.Workers.WorkerDispatchStore>());
         services.AddScoped<IWorkerExecutionFence, Nix.Persistence.Workers.WorkerExecutionFence>();
-        services.AddSingleton<Nix.Persistence.Workers.SearchIndexDispatchStore>();
         services.AddSingleton<PluginDispatchStore>();
         services.AddScoped<PluginInstallationStore>();
         services.AddScoped<Nix.Persistence.Workers.WorkerStore>();
@@ -329,7 +328,6 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IItemQuery, ItemQueryReader>();
         services.AddScoped<IBookmarkShelf, BookmarkShelfStore>();
         services.AddScoped<IItemLocks, ItemLockStore>();
-        services.AddScoped<Nix.Abstractions.Transcriptions.IItemTranscriptionStore, Nix.Persistence.Transcriptions.ItemTranscriptionStore>();
         services.AddScoped<IItemProtections, Nix.Persistence.Items.ItemProtectionStore>();
 
         // One per process: the backoff it keeps and the derivation ceiling it enforces are only

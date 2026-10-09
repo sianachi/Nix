@@ -142,7 +142,7 @@ public static class NixTables
     /// <summary>Short-lived per-credential grants past an item lock.</summary>
     public const string ItemUnlock = "item_unlock";
 
-    /// <summary>The current transcription of each audio item, and its progress.</summary>
+    /// <summary>Historical transcription state retained after the feature was retired.</summary>
     public const string ItemTranscription = "item_transcription";
 
     /// <summary>One revocable capability per published item view.</summary>
@@ -333,9 +333,7 @@ public static class NixTables
             [ItemLock] = FullDml,
             [ItemUnlock] = FullDml,
 
-            // Core alone starts a transcription, records the worker's progress reports and reads
-            // the status back; the row goes with its audio item by cascade. The collaboration
-            // service is told what it may write by Core and holds no grant here.
+            // Preserve the historical table's grants; its rows still cascade with audio items.
             [ItemTranscription] = FullDml,
             [PublicFormLink] = FullDml,
             [WorkspaceTemplate] = FullDml,

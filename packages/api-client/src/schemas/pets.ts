@@ -14,7 +14,6 @@ export const petSettingsSchema = z
     enabled: z.boolean(),
     activePetId: z.uuid().nullable(),
     motion: z.enum(['system', 'reduced', 'full']),
-    narration: z.boolean(),
     profiles: z.array(petProfileSchema).max(12),
     inlineWriting: z.boolean().default(false),
   })

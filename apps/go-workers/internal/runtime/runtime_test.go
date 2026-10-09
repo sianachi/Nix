@@ -13,7 +13,7 @@ import (
 )
 
 func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
-	for _, service := range []role.Service{role.Import, role.Export, role.Index, role.Plugin, role.Notify} {
+	for _, service := range []role.Service{role.Import, role.Export, role.Plugin, role.Notify} {
 		roles := role.Set{service: true}
 		if err := validateSettings(roles, config.Settings{}); err == nil {
 			t.Fatalf("%s accepted an empty internal credential", service)
@@ -30,10 +30,6 @@ func TestBrokerWorkersRequireAuthenticatedDependencies(t *testing.T) {
 		}
 		if service == role.Import || service == role.Export || service == role.Plugin {
 			valid.ObjectOrigins = []string{"https://objects.example.test"}
-		}
-		if service == role.Index {
-			valid.OpenSearchURL = "http://opensearch"
-			valid.OpenSearchIndex = "nix-items"
 		}
 		if service == role.Notify {
 			valid.PushVAPIDPrivateKey = make([]byte, 32)
@@ -82,28 +78,6 @@ func TestNotifyWorkerRequiresAVAPIDKeyAndSubject(t *testing.T) {
 	httpsSubject.PushVAPIDSubject = "https://example.test/contact"
 	if err := validateSettings(roles, httpsSubject); err != nil {
 		t.Fatalf("notify worker rejected a valid https VAPID subject: %v", err)
-	}
-}
-
-func TestIndexWorkerRejectsMissingOrBroadOpenSearchTargets(t *testing.T) {
-	settings := config.Settings{
-		InternalAPIURL:  "http://api",
-		InternalSecret:  "secret",
-		RabbitMQURL:     "amqp://rabbit",
-		OpenSearchURL:   "http://opensearch",
-		OpenSearchIndex: "nix-items",
-	}
-	roles := role.Set{role.Index: true}
-
-	missingURL := settings
-	missingURL.OpenSearchURL = ""
-	if err := validateSettings(roles, missingURL); err == nil {
-		t.Fatal("index worker accepted a missing OpenSearch URL")
-	}
-	broadIndex := settings
-	broadIndex.OpenSearchIndex = "nix-*"
-	if err := validateSettings(roles, broadIndex); err == nil {
-		t.Fatal("index worker accepted a wildcard OpenSearch index")
 	}
 }
 
@@ -177,11 +151,11 @@ func TestObjectStoreProbeAcceptsPrivateRefusalButRejectsRedirectAndOutage(t *tes
 }
 
 func TestCombinedWorkerParsesConfiguredRoles(t *testing.T) {
-	roles, err := selectedRoles(role.All, "import,export,index,plugin-events")
+	roles, err := selectedRoles(role.All, "import,export,plugin-events")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !roles.Has(role.Import) || !roles.Has(role.Export) || !roles.Has(role.Index) || !roles.Has(role.Plugin) {
+	if !roles.Has(role.Import) || !roles.Has(role.Export) || !roles.Has(role.Plugin) {
 		t.Fatalf("configured roles were not preserved: %#v", roles)
 	}
 }
@@ -205,7 +179,6 @@ func TestReadinessRequiresAnActiveConsumerForEveryEnabledRole(t *testing.T) {
 	state := newReadinessState(
 		role.Set{role.Import: true, role.Export: true},
 		func(queue string) bool { return consumers[queue] },
-		func() bool { return true },
 	)
 	state.api.Store(true)
 	state.rabbit.Store(true)
@@ -227,7 +200,6 @@ func TestNotifyReadinessNeedsOnlyTheAPIRabbitAndItsConsumer(t *testing.T) {
 	state := newReadinessState(
 		role.Set{role.Notify: true},
 		func(queue string) bool { return queue == broker.NotifyQueue },
-		func() bool { return true },
 	)
 	if state.RoleReady(role.Notify) {
 		t.Fatal("notify role was ready before its dependencies were marked healthy")
@@ -247,24 +219,22 @@ func TestNotifyReadinessNeedsOnlyTheAPIRabbitAndItsConsumer(t *testing.T) {
 
 func TestCombinedDependencyFailureDoesNotPoisonExportAdvertisement(t *testing.T) {
 	state := newReadinessState(
-		role.Set{role.Export: true, role.Index: true},
-		func(queue string) bool { return queue == broker.ExportQueue || queue == broker.IndexQueue },
-		func() bool { return true },
+		role.Set{role.Export: true, role.Notify: true},
+		func(queue string) bool { return queue == broker.ExportQueue },
 	)
 	state.api.Store(true)
 	state.rabbit.Store(true)
 	state.collaboration.Store(true)
 	state.objects.Store(true)
-	state.search.Store(false)
 
 	if !state.RoleReady(role.Export) {
-		t.Fatal("an unrelated OpenSearch outage poisoned export readiness")
+		t.Fatal("an unrelated notify consumer outage poisoned export readiness")
 	}
-	if state.RoleReady(role.Index) {
-		t.Fatal("index role was ready while OpenSearch was unavailable")
+	if state.RoleReady(role.Notify) {
+		t.Fatal("notify role was ready without an active consumer")
 	}
 	if state.AllReady() {
-		t.Fatal("combined readiness hid the failed index dependency")
+		t.Fatal("combined readiness hid the failed notify consumer")
 	}
 }
 

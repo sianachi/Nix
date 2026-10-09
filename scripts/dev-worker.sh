@@ -19,21 +19,13 @@ export NIX_WORKER_OBJECT_ORIGINS="${NIX_WORKER_OBJECT_ORIGINS:-http://localhost:
 # To exercise the notify role locally, add "notify" to NIX_WORKER_ROLES (or set
 # NIX_WORKER_ROLES=notify to run it alone) and export NIX_PUSH_VAPID_PRIVATE_KEY (32 raw bytes,
 # base64url, no padding) and NIX_PUSH_VAPID_SUBJECT (a mailto: or https: contact URI).
-# To exercise the speech role locally (ADR-0059), run it as its own process beside the default
-# one: NIX_WORKER_ROLES=speech NIX_WORKER_ADDRESS=:8303 bash scripts/dev-worker.sh. It needs
-# whisper-server, piper, ffmpeg and ffprobe on PATH (or NIX_SPEECH_WHISPER_SERVER and
-# NIX_SPEECH_PIPER pointing at them), NIX_SPEECH_WHISPER_MODEL naming a ggml model file, and
-# optionally NIX_SPEECH_VOICES_DIR holding Piper voices. The web dev server proxies /speech to
-# that address.
-export NIX_WORKER_ROLES="${NIX_WORKER_ROLES:-import,export,index,plugin-events}"
+export NIX_WORKER_ROLES="${NIX_WORKER_ROLES:-import,export,plugin-events}"
 export NIX_WORKER_ADDRESS="${NIX_WORKER_ADDRESS:-:8301}"
 export NIX_COMPANION_DATA_DIR="${NIX_COMPANION_DATA_DIR:-$repo_root/.local/companion}"
 # Local development keeps the full-content pet trace on, so a misbehaving pet can be debugged
 # from <data dir>/<account>/traces/*.jsonl. It is off unless set anywhere else.
 # traces/ holds private workspace content and may hold provider credentials: never share it.
 export NIX_COMPANION_TRACE="${NIX_COMPANION_TRACE:-true}"
-export NIX_OPENSEARCH_URL="${NIX_OPENSEARCH_URL:-http://localhost:${NIX_OPENSEARCH_PORT:-9201}}"
-export NIX_OPENSEARCH_INDEX="${NIX_OPENSEARCH_INDEX:-nix-items}"
 
 if [ -z "${NIX_RABBITMQ_URL:-}" ]; then
   case "$NIX_WORKER_ROLES" in
@@ -43,9 +35,6 @@ if [ -z "${NIX_RABBITMQ_URL:-}" ]; then
     export)
       NIX_RABBITMQ_URL="${NIX_RABBITMQ_EXPORT_URL:-amqp://nix-export:nix-dev-export-rabbit@localhost:5673/%2Fnix}"
       ;;
-    index)
-      NIX_RABBITMQ_URL="${NIX_RABBITMQ_INDEX_URL:-amqp://nix-index:nix-dev-index-rabbit@localhost:5673/%2Fnix}"
-      ;;
     plugin-events)
       NIX_RABBITMQ_URL="${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:nix-dev-plugin-rabbit@localhost:5673/%2Fnix}"
       ;;
@@ -54,9 +43,6 @@ if [ -z "${NIX_RABBITMQ_URL:-}" ]; then
       ;;
     notify)
       NIX_RABBITMQ_URL="${NIX_RABBITMQ_NOTIFY_URL:-amqp://nix-notify:nix-dev-notify-rabbit@localhost:5673/%2Fnix}"
-      ;;
-    speech)
-      NIX_RABBITMQ_URL="${NIX_RABBITMQ_SPEECH_URL:-amqp://nix-speech:nix-dev-speech-rabbit@localhost:5673/%2Fnix}"
       ;;
     *)
       # The combined account exists only in the local stack and has worker permissions, not

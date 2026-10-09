@@ -3,7 +3,6 @@ import {
   FilePlus,
   Keyboard,
   Maximize2,
-  Mic,
   NotebookPen,
   PanelLeft,
   Star,
@@ -74,11 +73,6 @@ export interface CommandContext {
    * out of the list rather than offered and refused, for the reason `toggleBookmark` is.
    */
   readonly captureToToday: (() => void) | null;
-  /**
-   * Opens the recorder's setup, or null when this browser cannot record or a recording is already
-   * under way - left out rather than offered and refused.
-   */
-  readonly recordMeeting: (() => void) | null;
   readonly openShortcuts: () => void;
 
   /** Enters or leaves Zen mode, the open item alone in the window. */
@@ -129,18 +123,6 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
             icon: NotebookPen,
             keywords: ['capture', 'quick', 'add', 'append', 'jot', 'today', 'daily', 'journal'],
             run: context.captureToToday,
-          },
-        ]),
-    ...(context.recordMeeting === null
-      ? []
-      : [
-          {
-            id: 'record-meeting',
-            label: 'Record a meeting',
-            hint: 'Saved as a note with the audio beneath it',
-            icon: Mic,
-            keywords: ['record', 'recording', 'meeting', 'audio', 'microphone', 'voice', 'call'],
-            run: context.recordMeeting,
           },
         ]),
     {

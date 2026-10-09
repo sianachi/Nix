@@ -39,8 +39,6 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: import-password } }
             - name: NIX_RABBITMQ_EXPORT_PASSWORD
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: export-password } }
-            - name: NIX_RABBITMQ_INDEX_PASSWORD
-              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: index-password } }
             - name: NIX_RABBITMQ_PLUGIN_PASSWORD
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: plugin-password } }
             - name: NIX_RABBITMQ_CALENDAR_PASSWORD
@@ -95,5 +93,5 @@ spec:
         - podSelector: { matchLabels: { app: nix-api } }
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-indexer, nix-plugin-worker, nix-calendar-worker, nix-notify-worker] }
+              - { key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-plugin-worker, nix-calendar-worker, nix-notify-worker] }
       ports: [{ protocol: TCP, port: 5672 }]

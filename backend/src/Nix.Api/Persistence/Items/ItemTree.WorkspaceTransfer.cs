@@ -130,7 +130,7 @@ public sealed partial class ItemTree
         {
             // The failed statement marks this request transaction for rollback. No partial file,
             // closure or document metadata changes can be committed by a refused command.
-            return "Finish active uploads, transcription and template operations, and disable scoped automations before moving this item.";
+            return "Finish active uploads, background jobs and template operations, and disable scoped automations before moving this item.";
         }
         return null;
     }

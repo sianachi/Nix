@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { EditorToolbar, type ToolbarSpeech } from '../../editor/toolbar';
+import { EditorToolbar } from '../../editor/toolbar';
 import { Editor, EditorContent } from '@tiptap/react';
 import { nixEditingExtensions } from '@nix/editor-schema';
 import { MoveBlock } from '../../editor/move-block';
@@ -87,7 +87,7 @@ function editorStub(
 
 function renderToolbar(
   options: Parameters<typeof editorStub>[0] = {},
-  props: { readonly compact?: boolean; readonly speech?: ToolbarSpeech } = {},
+  props: { readonly compact?: boolean } = {},
 ): {
   ran: string[];
   onInsertImage: ReturnType<typeof vi.fn>;
@@ -105,7 +105,6 @@ function renderToolbar(
     <EditorToolbar
       editor={editor}
       compact={props.compact}
-      speech={props.speech}
       onInsertImage={onInsertImage}
       onInsertLink={onInsertLink}
       onUndo={onUndo}
@@ -116,22 +115,11 @@ function renderToolbar(
 }
 
 describe('what the toolbar offers', () => {
-  it('keeps speech available in the compact writing sheet without crowding the bar', async () => {
-    const user = userEvent.setup();
-    const onDictate = vi.fn();
-    const onReadAloud = vi.fn();
-    renderToolbar(
-      {},
-      { compact: true, speech: { dictation: 'idle', reading: 'idle', onDictate, onReadAloud } },
-    );
+  it('keeps speech controls out of the compact writing sheet', async () => {
+    renderToolbar({}, { compact: true });
+    await userEvent.click(screen.getByRole('button', { name: 'More' }));
     expect(screen.queryByRole('button', { name: 'Dictate' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Read aloud' })).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'More' }));
-    await user.click(screen.getByRole('button', { name: 'Dictate' }));
-    expect(onDictate).toHaveBeenCalledOnce();
-    await user.click(screen.getByRole('button', { name: 'More' }));
-    await user.click(screen.getByRole('button', { name: 'Read aloud' }));
-    expect(onReadAloud).toHaveBeenCalledOnce();
   });
 
   it('keeps common actions visible and makes the remaining tools discoverable', async () => {

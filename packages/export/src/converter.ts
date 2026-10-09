@@ -130,11 +130,8 @@ export interface DocumentConverter {
   /**
    * The bytes of the exported file.
    *
-   * **Output streams; input does not.** `.nix` is end to end streamed, but pdfmake and Open XML
-   * both assemble a whole document before emitting a byte, so the bundles are consumed in full
-   * first. The ceiling on that is the caller's - `EXPORT_LIMITS` upstream and a byte cap in the
-   * service - not this interface's, and nobody should read the async signature as a promise of
-   * constant memory.
+   * A converter may consume bundles in full before emitting bytes. Callers enforce input limits;
+   * the async signature alone does not promise constant memory.
    */
   convert(request: ConvertRequest): AsyncGenerator<Uint8Array>;
 }
