@@ -1,10 +1,11 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CanvasElement } from '../../editor/canvas-binding';
 import { CanvasEditor } from '../../editor/canvas-editor';
 import type { NixCanvasProps } from '../../editor/nix-canvas';
+import { stubViewport } from '../stub-viewport';
 
 const canvasHarness = vi.hoisted(() => ({
   props: null as NixCanvasProps | null,
@@ -108,5 +109,34 @@ describe('canvas document identity', () => {
     });
 
     expect(canvasHarness.rendered).toHaveBeenCalledTimes(rendersAfterChange);
+  });
+
+  it('starts phones in contents and preserves the live scene when switching presentation', async () => {
+    stubViewport(280);
+    render(
+      <MemoryRouter>
+        <CanvasEditor itemId="10000000-0000-4000-8000-000000000001" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('searchbox', { name: 'Find in canvas' })).toBeInTheDocument();
+    expect(canvasHarness.props).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Spatial canvas' }));
+    await screen.findByTestId('canvas-elements');
+    const firstAwareness = currentCanvasProps().awareness;
+    const spatialElement = screen.getByTestId('canvas-elements');
+    act(() => {
+      currentCanvasProps().onChange([
+        { id: 'text', type: 'text', text: 'A phone canvas note', version: 1, versionNonce: 1 },
+      ]);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Contents' }));
+    expect(screen.getByText('A phone canvas note')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Spatial canvas' }));
+    expect(await screen.findByTestId('canvas-elements')).toBe(spatialElement);
+    expect(spatialElement).toHaveTextContent('text');
+    expect(currentCanvasProps().awareness).toBe(firstAwareness);
+    expect(canvasHarness.destroyed).not.toHaveBeenCalled();
   });
 });

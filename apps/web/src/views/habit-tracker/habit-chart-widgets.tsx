@@ -1,4 +1,4 @@
-import { Button, Field, Input, Select, Text } from '@nix/ui';
+import { Button, Field, Input, Select, Text, cn, focusRing } from '@nix/ui';
 import type { HabitTracker } from '@nix/api-client';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
@@ -83,18 +83,26 @@ export function HabitChartWidgets({
   };
 
   return (
-    <section className="flex flex-col gap-3" aria-labelledby="habit-chart-widgets-title">
+    <section
+      className="@container flex min-w-0 flex-col gap-3"
+      aria-labelledby="habit-chart-widgets-title"
+    >
       <Text as="h3" variant="h3" id="habit-chart-widgets-title">
         Progress charts
       </Text>
       <details>
-        <summary>
+        <summary
+          className={cn(
+            'cursor-pointer rounded-sm py-1 any-pointer-coarse:min-h-(--control-lg)',
+            focusRing,
+          )}
+        >
           <Text as="span" variant="bodySmall">
             Add a custom chart
           </Text>
         </summary>
         <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 max-w-full flex-col gap-1">
             <Text variant="note" tone="muted" as="span">
               Chart
             </Text>
@@ -111,7 +119,7 @@ export function HabitChartWidgets({
               ))}
             </Select>
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 max-w-full flex-col gap-1">
             <Text variant="note" tone="muted" as="span">
               Habit
             </Text>
@@ -128,7 +136,7 @@ export function HabitChartWidgets({
               ))}
             </Select>
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex min-w-0 max-w-full flex-col gap-1">
             <Text variant="note" tone="muted" as="span">
               Days
             </Text>
@@ -162,12 +170,12 @@ export function HabitChartWidgets({
       {widgets.map((widget, index) => {
         const tracker = trackers.get(widget.habitId);
         return (
-          <article key={widget.id} className="rounded-md border border-divider p-3">
-            <header className="flex items-center justify-between gap-2">
+          <article key={widget.id} className="min-w-0 rounded-md border border-divider p-3">
+            <header className="flex flex-wrap items-center justify-between gap-2">
               <Text as="h4" variant="body" className="font-medium">
                 {labels[widget.kind]}
               </Text>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 <Button
                   variant="ghost"
                   disabled={index === 0}
@@ -199,13 +207,18 @@ export function HabitChartWidgets({
               </div>
             </header>
             <details>
-              <summary>
+              <summary
+                className={cn(
+                  'cursor-pointer rounded-sm py-1 any-pointer-coarse:min-h-(--control-lg)',
+                  focusRing,
+                )}
+              >
                 <Text as="span" variant="caption">
                   Edit chart settings
                 </Text>
               </summary>
               <div className="flex flex-wrap items-end gap-2 py-2">
-                <label className="flex flex-col gap-1">
+                <label className="flex min-w-0 max-w-full flex-col gap-1">
                   <Text variant="note" tone="muted" as="span">
                     Chart
                   </Text>
@@ -222,7 +235,7 @@ export function HabitChartWidgets({
                     ))}
                   </Select>
                 </label>
-                <label className="flex flex-col gap-1">
+                <label className="flex min-w-0 max-w-full flex-col gap-1">
                   <Text variant="note" tone="muted" as="span">
                     Habit
                   </Text>
@@ -409,14 +422,17 @@ function Chart({
         </Text>
       ) : null}
       {values.map((value) => (
-        <div key={value.label} className="flex items-center gap-3">
-          <Text variant="caption" tone="muted" className="w-24">
+        <div key={value.label} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <Text variant="caption" tone="muted" className="min-w-0 flex-1 @sm:w-24 @sm:flex-none">
             {value.label}
           </Text>
-          <span className="h-3 flex-1 rounded-full bg-surface-raised" aria-hidden="true">
+          <span
+            className="order-last h-3 w-full rounded-full bg-surface-raised @sm:order-none @sm:w-auto @sm:flex-1"
+            aria-hidden="true"
+          >
             <DataBar value={(value.value ?? 0) * 100} maximum={100} />
           </span>
-          <Text variant="bodySmall" className="w-20 text-right">
+          <Text variant="bodySmall" className="shrink-0 text-right @sm:w-20">
             {value.value === null ? '—' : `${String(Math.round(value.value * 100))}%`}
           </Text>
           <Text variant="caption" tone="muted">

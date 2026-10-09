@@ -1,5 +1,5 @@
 import { Icon, chromeSurface, focusRing } from '@nix/ui';
-import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
+import { Maximize2, PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react';
 import { type ReactNode, type RefObject } from 'react';
 import { Link } from 'react-router';
 
@@ -7,6 +7,7 @@ import type { CurrentPrincipalState } from '../session/use-current-principal';
 import { formatShortcut } from '../lib/shortcuts';
 import { WorkspaceSwitcher } from '../workspaces/workspace-switcher';
 import { shortcutFor } from '../keyboard/shortcut-registry';
+import { toggleZenMode } from '../lib/zen-mode';
 import { NotificationBell } from './notifications/notification-bell';
 import { ProfileMenu } from './profile-menu';
 
@@ -62,6 +63,7 @@ export function ShellHeader({
 }: ShellHeaderProps): ReactNode {
   return (
     <header
+      aria-label="Workspace controls"
       className={`flex min-w-0 shrink-0 items-center gap-1.5 px-2 py-2 sm:gap-3 sm:px-4 ${chromeSurface} ${TITLE_BAR_OVERLAY}`}
     >
       {/* Next to the tree it opens and closes, rather than inside it - a control that vanishes
@@ -72,7 +74,7 @@ export function ShellHeader({
         aria-label={sidebarVisible ? 'Hide the workspace tree' : 'Show the workspace tree'}
         aria-expanded={sidebarVisible}
         onClick={onToggleSidebar}
-        className={`flex size-(--control-sm) items-center justify-center rounded-md text-muted max-sm:min-h-(--control-lg) max-sm:min-w-(--control-lg) hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+        className={`flex size-(--control-sm) shrink-0 items-center justify-center rounded-md text-muted max-sm:min-h-(--control-lg) max-sm:min-w-(--control-lg) any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg) hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
       >
         <Icon icon={sidebarVisible ? PanelLeftClose : PanelLeftOpen} size="sm" />
       </button>
@@ -105,6 +107,16 @@ export function ShellHeader({
       <div className="hidden lg:block">
         <NotificationBell unread={unreadNotifications} onClick={onOpenInbox} />
       </div>
+
+      <button
+        type="button"
+        aria-label="Enter Zen mode"
+        title="Enter Zen mode"
+        onClick={toggleZenMode}
+        className={`flex size-(--control-sm) shrink-0 items-center justify-center rounded-md text-muted max-sm:min-h-(--control-lg) max-sm:min-w-(--control-lg) any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg) hover:bg-foreground/7 hover:text-foreground ${focusRing}`}
+      >
+        <Icon icon={Maximize2} size="sm" />
+      </button>
 
       <ProfileMenu principal={principal} />
     </header>

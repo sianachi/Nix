@@ -1,5 +1,5 @@
 import { Blueprint, Button, Field, Icon, Input, Select, Text, focusRing } from '@nix/ui';
-import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { type ReactNode } from 'react';
 
 import type { PropertyDefinition as PropertyDefinitionType } from '../core/container-model';
@@ -29,9 +29,9 @@ export function BasicsStep({
   readonly onChange: (draft: StudioDraft) => void;
 }): ReactNode {
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex min-w-0 flex-col gap-4">
       <div className="max-w-prose">
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           {existingItem ? 'Name the view' : 'Name the setup'}
         </Text>
         <Text variant="note" tone="muted" className="mt-1">
@@ -70,9 +70,9 @@ export function SetupStep({
 }): ReactNode {
   const fields = mergedFields(draft.properties, existingProperties);
   return (
-    <section className="flex flex-col gap-5">
+    <section className="flex min-w-0 flex-col gap-4">
       <div className="max-w-prose">
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           Set up {draft.view.name}
         </Text>
         <Text variant="note" tone="muted" className="mt-1">
@@ -135,12 +135,11 @@ function FieldsEditor({
   readonly onChange: (properties: readonly PropertyDefinitionType[]) => void;
 }): ReactNode {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="@container/fields flex min-w-0 flex-col gap-3">
       {properties.map((property, index) => (
-        <div key={index} className="flex flex-col gap-3 rounded-md bg-surface p-3">
-          <div className="flex flex-wrap items-end gap-2">
-            <Icon icon={GripVertical} size="sm" />
-            <Field label="Field name" className="min-w-full sm:min-w-0 sm:flex-1">
+        <div key={index} className="flex min-w-0 flex-col gap-3 rounded-md bg-surface p-3">
+          <div className="flex min-w-0 flex-wrap items-end gap-2">
+            <Field label="Field name" className="min-w-0 flex-1 basis-full @md/fields:basis-0">
               {(control) => (
                 <Input
                   {...control}
@@ -158,7 +157,7 @@ function FieldsEditor({
                 />
               )}
             </Field>
-            <Field label="Type" className="min-w-0 flex-1 sm:w-48 sm:flex-none">
+            <Field label="Type" className="min-w-0 flex-1 basis-full @md/fields:basis-0">
               {(control) => (
                 <Select
                   {...control}
@@ -350,9 +349,9 @@ export function CompanionStep({
   const offeredKinds = new Set(['list', 'sheet', 'board', 'calendar', 'gallery']);
   const configuredCompanion = companionView(draft);
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex min-w-0 flex-col gap-4">
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           Add a companion view
         </Text>
         <Text variant="bodySmall" tone="muted">
@@ -429,9 +428,9 @@ export function ReviewStep({
   readonly intent: StudioIntent;
 }): ReactNode {
   return (
-    <section className="flex flex-col gap-4">
+    <section className="@container/review flex min-w-0 flex-col gap-4">
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           {intent === 'create'
             ? 'Ready to create'
             : intent === 'add'
@@ -446,7 +445,7 @@ export function ReviewStep({
               : 'Nothing changes until you press Save.'}
         </Text>
       </div>
-      <Blueprint className="grid gap-3 p-4 sm:grid-cols-2">
+      <Blueprint className="grid min-w-0 gap-3 p-3 @md/review:grid-cols-2">
         <div>
           <Text variant="caption" tone="muted">
             Name

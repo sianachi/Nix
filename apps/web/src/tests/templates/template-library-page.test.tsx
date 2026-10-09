@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -283,6 +283,42 @@ describe('the workspace template library', () => {
     expect(await screen.findByRole('heading', { name: 'No templates yet' })).toBeVisible();
   });
 
+  it('offers template actions on a held touch and confirms deletion before changing the library', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ templates: [USER_TEMPLATE] });
+    renderAt(<App />, '/templates');
+
+    const card = await screen.findByRole('group', { name: 'Weekly planning template' });
+    fireEvent(
+      card,
+      Object.assign(new MouseEvent('pointerdown', { bubbles: true, clientX: 20, clientY: 20 }), {
+        pointerType: 'touch',
+        pointerId: 1,
+        isPrimary: true,
+      }),
+    );
+    const menu = await screen.findByRole('menu', { name: 'Weekly planning template actions' });
+    fireEvent.pointerUp(card, { pointerType: 'touch' });
+
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((action) => action.textContent),
+    ).toEqual(['Use template', 'Edit', 'Download', 'Delete']);
+    await user.click(within(menu).getByRole('menuitem', { name: 'Delete' }));
+    const confirmation = screen.getByRole('dialog', { name: 'Delete this template?' });
+    expect(confirmation).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Weekly planning' })).toBeVisible();
+    await user.click(within(confirmation).getByRole('button', { name: 'Keep template' }));
+    expect(screen.getByRole('group', { name: 'Weekly planning template' })).toBeVisible();
+
+    screen.getByRole('button', { name: 'Use Weekly planning template' }).focus();
+    await user.keyboard('{Shift>}{F10}{/Shift}');
+    await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
+    await user.click(screen.getByRole('button', { name: 'Delete template' }));
+    expect(await screen.findByRole('heading', { name: 'No templates yet' })).toBeVisible();
+  });
+
   it('discards the staged subtree without changing the active template', async () => {
     const user = userEvent.setup();
     stubCoreApi({ templates: [USER_TEMPLATE] });
@@ -300,6 +336,7 @@ describe('the workspace template library', () => {
   });
 
   it('lets readers browse and download without offering workspace-changing actions', async () => {
+    const user = userEvent.setup();
     const readerTemplate: StubTemplate = {
       ...USER_TEMPLATE,
       capabilities: {
@@ -320,6 +357,19 @@ describe('the workspace template library', () => {
       screen.queryByRole('button', { name: /delete weekly planning/i }),
     ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Import template' })).not.toBeInTheDocument();
+
+    const card = screen.getByRole('group', { name: 'Weekly planning template' });
+    const download = screen.getByRole('button', { name: 'Download Weekly planning' });
+    download.focus();
+    fireEvent.contextMenu(card, { clientX: 20, clientY: 20 });
+    const menu = screen.getByRole('menu', { name: 'Weekly planning template actions' });
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((action) => action.textContent),
+    ).toEqual(['Download']);
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(download).toHaveFocus());
   });
 
   it('hides item-level template writes from readers', async () => {

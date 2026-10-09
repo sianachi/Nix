@@ -33,7 +33,7 @@ export function EpubViewer({
   return (
     <Suspense
       fallback={
-        <div className="flex flex-1 items-center justify-center p-8">
+        <div className="flex min-w-0 flex-1 items-center justify-center p-2 sm:p-8">
           <Text variant="note" tone="muted" role="status">
             Opening the book…
           </Text>

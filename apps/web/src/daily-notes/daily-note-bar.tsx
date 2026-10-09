@@ -87,14 +87,14 @@ export function DailyNoteBar({
       >
         <Button
           variant="ghost"
-          className="w-full justify-between"
+          className="min-w-0 w-full justify-between gap-2"
           aria-haspopup="dialog"
           aria-label={`Day navigation, ${dailyNoteLabel(date)}`}
           onClick={() => {
             setNavigationOpen(true);
           }}
         >
-          <Text as="span" variant="bodySmall">
+          <Text as="span" variant="bodySmall" className="min-w-0 truncate">
             {dailyNoteLabel(date)}
           </Text>
           <Icon icon={ChevronDown} size="sm" />
@@ -117,7 +117,7 @@ export function DailyNoteBar({
                   go(parseDailyNoteDate(event.target.value));
                 }}
               />
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <Button
                   variant="ghost"
                   aria-label="Previous day"
@@ -253,7 +253,7 @@ function DaySchedule({
   }
   if (status === 'error' || calendar === null) {
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Text variant="caption" tone="muted" as="p" role="alert">
           {error ?? 'The schedule could not be loaded.'}
         </Text>
@@ -305,7 +305,7 @@ function DaySchedule({
           <li key={`${entry.itemId}:${entry.value}`}>
             <button
               type="button"
-              className={`${focusRing} flex w-full items-baseline gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent/10`}
+              className={`${focusRing} flex w-full items-baseline gap-2 rounded-sm px-1 py-0.5 text-left hover:bg-accent/10 pointer-coarse:min-h-(--control-lg)`}
               onClick={() => {
                 openPreview(entry.itemId);
               }}

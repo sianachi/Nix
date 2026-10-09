@@ -2,6 +2,7 @@ import { TEXT_ALIGNMENTS } from '@nix/editor-schema';
 import { Button, Dialog, Popover, Text, chromeSurface } from '@nix/ui';
 import type { ItemInsertKind } from './item-insert-dialog';
 import { TableSizePicker } from './table-size-picker';
+import type { WritingMode } from './writing-mode';
 import { Icon } from '@nix/ui';
 import type { Editor } from '@tiptap/react';
 import {
@@ -87,6 +88,8 @@ const visibleModifier = applePlatform ? 'Command' : 'Ctrl';
 export interface ToolbarProps {
   readonly editor: Editor;
   readonly compact?: boolean | undefined;
+  readonly writingMode?: WritingMode;
+  readonly writingModeControl?: ReactNode;
 
   /** Opens the editor-owned image form without making this toolbar own modal state. */
   readonly onInsertImage: () => void;
@@ -110,6 +113,8 @@ export interface ToolbarProps {
 export function EditorToolbar({
   editor,
   compact = false,
+  writingMode = 'prose',
+  writingModeControl,
   onInsertImage,
   onInsertItem,
   onPageBreak,
@@ -182,7 +187,8 @@ export function EditorToolbar({
     enabled: editor.can().setTextAlign(value),
     shortcut: `${visibleModifier}+Shift+${alignmentKeys[value]}`,
     ariaShortcut: `${ariaModifier}+Shift+${alignmentKeys[value]}`,
-    run: () => void editor.chain().focus().setTextAlign(value).run(),
+    run: () =>
+      void editor.chain().focus(undefined, { scrollIntoView: false }).setTextAlign(value).run(),
   }));
 
   const lists: readonly Control[] = [
@@ -223,48 +229,72 @@ export function EditorToolbar({
     },
   ];
 
+  const poetry: readonly Control[] =
+    writingMode === 'poetry'
+      ? [
+          {
+            id: 'lineBreak',
+            label: 'Line break',
+            icon: Rows3,
+            enabled: editor.can().setHardBreak(),
+            run: () => void editor.chain().focus().setHardBreak().run(),
+          },
+          {
+            id: 'stanza',
+            label: 'New stanza',
+            icon: Pilcrow,
+            enabled: editor.isActive('paragraph') && editor.can().splitBlock(),
+            run: () => void editor.chain().focus().splitBlock().run(),
+          },
+        ]
+      : [];
+
   const marks: readonly Control[] = [
     {
       id: 'bold',
       label: 'Bold',
       icon: Bold,
       active: editor.isActive('bold'),
-      run: () => void editor.chain().focus().toggleBold().run(),
+      run: () => void editor.chain().focus(undefined, { scrollIntoView: false }).toggleBold().run(),
     },
     {
       id: 'italic',
       label: 'Italic',
       icon: Italic,
       active: editor.isActive('italic'),
-      run: () => void editor.chain().focus().toggleItalic().run(),
+      run: () =>
+        void editor.chain().focus(undefined, { scrollIntoView: false }).toggleItalic().run(),
     },
     {
       id: 'underline',
       label: 'Underline',
       icon: Underline,
       active: editor.isActive('underline'),
-      run: () => void editor.chain().focus().toggleUnderline().run(),
+      run: () =>
+        void editor.chain().focus(undefined, { scrollIntoView: false }).toggleUnderline().run(),
     },
     {
       id: 'strike',
       label: 'Strikethrough',
       icon: Strikethrough,
       active: editor.isActive('strike'),
-      run: () => void editor.chain().focus().toggleStrike().run(),
+      run: () =>
+        void editor.chain().focus(undefined, { scrollIntoView: false }).toggleStrike().run(),
     },
     {
       id: 'code',
       label: 'Inline code',
       icon: Code,
       active: editor.isActive('code'),
-      run: () => void editor.chain().focus().toggleCode().run(),
+      run: () => void editor.chain().focus(undefined, { scrollIntoView: false }).toggleCode().run(),
     },
     {
       id: 'highlight',
       label: 'Highlight',
       icon: Highlighter,
       active: editor.isActive('highlight'),
-      run: () => void editor.chain().focus().toggleHighlight().run(),
+      run: () =>
+        void editor.chain().focus(undefined, { scrollIntoView: false }).toggleHighlight().run(),
     },
     {
       id: 'link',
@@ -273,7 +303,7 @@ export function EditorToolbar({
       active: editor.isActive('link'),
       run: () => {
         if (editor.isActive('link')) {
-          editor.chain().focus().unsetLink().run();
+          editor.chain().focus(undefined, { scrollIntoView: false }).unsetLink().run();
           return;
         }
 
@@ -474,7 +504,18 @@ export function EditorToolbar({
         className={`flex w-max items-center gap-1 ${chromeSurface}`}
       >
         <Group controls={marks.filter((control) => ['bold', 'italic'].includes(control.id))} />
-        <Group controls={lists.filter((control) => control.id === 'bulletList')} />
+        {writingMode === 'poetry' ? (
+          <Group controls={poetry} label="Poetry tools" />
+        ) : (
+          <Group
+            controls={lists.filter((control) =>
+              writingMode === 'planning'
+                ? ['taskList', 'orderedList'].includes(control.id)
+                : control.id === 'bulletList',
+            )}
+          />
+        )}
+        {writingModeControl}
         <Button
           variant="ghost"
           onClick={() => {
@@ -580,6 +621,14 @@ export function EditorToolbar({
         controls={marks.filter((control) => ['bold', 'italic', 'link'].includes(control.id))}
         label="Text formatting"
       />
+      {writingMode === 'planning' ? (
+        <Group
+          controls={lists.filter((control) => ['taskList', 'orderedList'].includes(control.id))}
+          label="Planning tools"
+        />
+      ) : null}
+      {writingMode === 'poetry' ? <Group controls={poetry} label="Poetry tools" /> : null}
+      {writingModeControl}
       <Popover
         label="Insert content"
         open={insertOpen}
@@ -822,7 +871,7 @@ function ToolbarButton({
       disabled={disabled}
       onClick={control.run}
       className={[
-        'flex size-7 max-xl:min-h-(--control-lg) max-xl:min-w-(--control-lg) items-center justify-center rounded-sm',
+        'flex size-7 max-xl:min-h-(--control-lg) max-xl:min-w-(--control-lg) any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg) items-center justify-center rounded-sm',
         'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
         disabled
           ? 'cursor-not-allowed text-muted opacity-40'

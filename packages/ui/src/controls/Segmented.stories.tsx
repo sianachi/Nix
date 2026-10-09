@@ -1,5 +1,6 @@
 import { useId, useState, type ReactNode } from 'react';
 import { type Meta, type StoryObj } from '@storybook/react-vite';
+import { expect, userEvent, within } from 'storybook/test';
 
 import { Text } from '../primitives/Text';
 import { Segmented } from './Segmented';
@@ -63,6 +64,39 @@ export const Grain: Story = {
       initial="week"
     />
   ),
+};
+
+export const NarrowLabels: Story = {
+  render: () => (
+    <div className="w-32 max-w-full">
+      <Example
+        label="Writing mode"
+        options={[
+          { value: 'poem', label: 'PoemsWithoutDistractions' },
+          { value: 'plan', label: 'PlansWithCollaborators' },
+          { value: 'collaborate', label: 'SharedWriting' },
+        ]}
+        initial="poem"
+      />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const group = canvas.getByRole('group', { name: 'Writing mode' });
+    const plan = canvas.getByRole('button', { name: 'PlansWithCollaborators' });
+    await userEvent.click(plan);
+    await expect(plan).toHaveAttribute('aria-current', 'true');
+    await expect(group.scrollWidth).toBeLessThanOrEqual(group.clientWidth);
+    if (matchMedia('(any-pointer: coarse)').matches) {
+      const size = Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--control-lg'),
+      );
+      for (const button of canvas.getAllByRole('button')) {
+        await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(size);
+        await expect(button.getBoundingClientRect().width).toBeGreaterThanOrEqual(size);
+      }
+    }
+  },
 };
 
 /** The settings panel's three panes. */

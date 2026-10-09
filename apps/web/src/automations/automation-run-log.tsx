@@ -37,7 +37,7 @@ export function AutomationRunLog(props: AutomationRunLogProps): ReactNode {
 
   return (
     <section aria-labelledby="automation-runs-heading" className="flex min-w-0 flex-col gap-3">
-      <Text id="automation-runs-heading" variant="h4" as="h3">
+      <Text id="automation-runs-heading" variant="h6" as="h3">
         Run log
       </Text>
       {status === 'loading' ? <Text role="status">Loading the run log…</Text> : null}
@@ -59,7 +59,7 @@ export function AutomationRunLog(props: AutomationRunLogProps): ReactNode {
       {runs.length > 0 ? (
         <ol aria-label="Runs, newest first" className="flex flex-col divide-y divide-divider">
           {runs.map((run) => (
-            <li key={run.id} className="flex flex-col gap-1 py-2">
+            <li key={run.id} className="flex min-w-0 flex-col gap-1 py-2 wrap-anywhere">
               <div className="flex flex-wrap items-center gap-2">
                 <Tag tone={statusTone(run.status)}>{describeRunStatus(run.status)}</Tag>
                 <Text variant="note" as="span">

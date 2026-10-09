@@ -1,4 +1,4 @@
-import { Button, Dialog, Icon, Text } from '@nix/ui';
+import { Button, ContextMenu, Dialog, Icon, Text } from '@nix/ui';
 import { RotateCcw, Trash2 } from 'lucide-react';
 import { isNixApiError, items as coreItems, type Item } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState, type ReactElement, type ReactNode } from 'react';
@@ -11,8 +11,8 @@ import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 
 function Frame({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div className={`${paneScroller} flex flex-col gap-4 p-4`}>
-      <Text variant="h2" as="h1">
+    <div className={`${paneScroller} flex flex-col gap-4 break-words p-3 sm:p-4`}>
+      <Text variant="h3" as="h1">
         Trash
       </Text>
       {children}
@@ -121,6 +121,11 @@ export function TrashPage(): ReactElement {
   if (state.items.length === 0)
     return (
       <Frame>
+        {notice ? (
+          <Text variant="note" as="p" role="status">
+            {notice}
+          </Text>
+        ) : null}
         <EmptyPanel
           title="Trash is empty"
           detail="Items you delete can be restored here until their retention period ends."
@@ -136,40 +141,64 @@ export function TrashPage(): ReactElement {
       ) : null}
       <ul aria-label="Trash" className="flex flex-col gap-px">
         {state.items.map((item) => (
-          <li
+          <ContextMenu
             key={item.id}
-            className="flex flex-col gap-2 rounded-sm px-2 py-2 hover:bg-surface sm:flex-row sm:items-center sm:gap-3"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <Icon icon={Trash2} size="sm" className="shrink-0 text-muted" />
-              <Text variant="note" as="span" className="min-w-0 flex-1 break-words sm:truncate">
-                {item.title || 'Untitled'}
-              </Text>
-            </div>
-            <div className="flex min-w-0 gap-2 pl-7 sm:ml-auto sm:pl-0">
-              <Button
-                className="min-w-0 flex-1 justify-center sm:flex-none"
-                variant="secondary"
-                disabled={restoring === item.id}
-                onClick={() => {
+            label={`Actions for ${item.title || 'Untitled'}`}
+            items={[
+              {
+                label: 'Restore',
+                disabled: restoring !== null,
+                onSelect: () => {
                   void restore(item);
-                }}
-              >
-                <Icon icon={RotateCcw} size="sm" />
-                {restoring === item.id ? 'Restoring…' : 'Restore'}
-              </Button>
-              <Button
-                className="min-w-0 flex-1 justify-center text-center sm:flex-none"
-                variant="primary"
-                disabled={restoring === item.id}
-                onClick={() => {
+                },
+              },
+              {
+                label: 'Delete permanently',
+                disabled: restoring !== null,
+                destructive: true,
+                onSelect: () => {
                   setPurgeTarget(item);
-                }}
+                },
+              },
+            ]}
+          >
+            {(target) => (
+              <li
+                {...target}
+                className="flex flex-col gap-2 rounded-sm px-2 py-2 hover:bg-surface sm:flex-row sm:items-center sm:gap-3"
               >
-                Delete permanently
-              </Button>
-            </div>
-          </li>
+                <div className="flex min-w-0 flex-1 items-center gap-3">
+                  <Icon icon={Trash2} size="sm" className="shrink-0 text-muted" />
+                  <Text variant="note" as="span" className="min-w-0 flex-1 break-words sm:truncate">
+                    {item.title || 'Untitled'}
+                  </Text>
+                </div>
+                <div className="flex min-w-0 flex-col gap-2 pl-7 sm:ml-auto sm:flex-row sm:pl-0">
+                  <Button
+                    className="min-w-0 flex-1 justify-center sm:flex-none"
+                    variant="secondary"
+                    disabled={restoring !== null}
+                    onClick={() => {
+                      void restore(item);
+                    }}
+                  >
+                    <Icon icon={RotateCcw} size="sm" />
+                    {restoring === item.id ? 'Restoring…' : 'Restore'}
+                  </Button>
+                  <Button
+                    className="min-w-0 flex-1 justify-center text-center sm:flex-none"
+                    variant="primary"
+                    disabled={restoring !== null}
+                    onClick={() => {
+                      setPurgeTarget(item);
+                    }}
+                  >
+                    Delete permanently
+                  </Button>
+                </div>
+              </li>
+            )}
+          </ContextMenu>
         ))}
       </ul>
       <Dialog

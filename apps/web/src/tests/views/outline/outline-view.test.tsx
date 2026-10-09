@@ -1,5 +1,5 @@
 import { NixApiError } from '@nix/api-client';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useRef, useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -158,6 +158,38 @@ function row(title: string): HTMLElement {
 }
 
 describe('OutlineTree', () => {
+  it('opens and moves the row whose context menu was requested', async () => {
+    const onOpen = vi.fn();
+    const onMove = vi.fn();
+    const user = userEvent.setup();
+    renderAt(<Harness onOpen={onOpen} onMove={onMove} />);
+
+    row('Alpha').focus();
+    fireEvent.contextMenu(row('Bravo'), { clientX: 10, clientY: 10 });
+    await user.click(screen.getByRole('menuitem', { name: 'Open' }));
+    expect(onOpen).toHaveBeenCalledWith('b');
+
+    fireEvent.contextMenu(row('Bravo'), { clientX: 10, clientY: 10 });
+    await user.click(screen.getByRole('menuitem', { name: 'Move up' }));
+    await waitFor(() => {
+      expect(onMove).toHaveBeenCalledWith('b', ROOT, null);
+    });
+    expect(treeTitles()).toEqual(['Bravo', 'Alpha', 'Charlie', 'Delta']);
+  });
+
+  it('adds a sibling from the keyboard context menu', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness />);
+    row('Bravo').focus();
+    fireEvent.keyDown(row('Bravo'), { key: 'F10', shiftKey: true });
+
+    await user.click(screen.getByRole('menuitem', { name: 'Add item below' }));
+    await user.type(screen.getByRole('textbox', { name: 'New item' }), 'New sibling{Enter}');
+    await waitFor(() => {
+      expect(treeTitles()).toEqual(['Alpha', 'Bravo', 'New sibling', 'Charlie', 'Delta']);
+    });
+  });
+
   it('draws the top level as a tree with one tab stop', () => {
     renderAt(<Harness />);
 
@@ -214,6 +246,7 @@ describe('OutlineTree', () => {
   });
 
   it('outdents with Shift+Tab to after its parent', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const user = userEvent.setup();
     const onMove = vi.fn();
     renderAt(<Harness onMove={onMove} />);
@@ -231,6 +264,11 @@ describe('OutlineTree', () => {
       expect(treeTitles()).toEqual(['Alpha', 'Bravo', 'Bravo one', 'Charlie', 'Delta']);
     });
     expect(row('Bravo one')).toHaveAttribute('aria-level', '1');
+    expect(
+      errors.mock.calls.map(([message]: readonly unknown[]) =>
+        typeof message === 'string' ? message : '',
+      ),
+    ).not.toContain(expect.stringContaining('same key'));
   });
 
   it('reorders with Ctrl+Up and Ctrl+Down', async () => {

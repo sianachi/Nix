@@ -85,7 +85,7 @@ export function CloseMonthDialog({
         </>
       }
     >
-      <div className="flex flex-col gap-4">
+      <div className="@container flex min-w-0 flex-col gap-4">
         {checklist === null ? (
           query.status === 'error' ? (
             <Text as="p" variant="bodySmall" role="alert">
@@ -175,7 +175,7 @@ function ChecklistRow({
   readonly action?: ReactNode;
 }): ReactNode {
   return (
-    <li className="flex items-center justify-between gap-3 rounded-lg bg-surface-raised p-3">
+    <li className="flex min-w-0 flex-col items-start justify-between gap-3 rounded-lg bg-surface-raised p-3 @sm:flex-row @sm:items-center">
       <Text as="span" variant="bodySmall" tone={ok ? 'muted' : 'default'}>
         {ok ? 'Done: ' : 'Open: '}
         {text}

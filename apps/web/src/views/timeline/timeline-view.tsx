@@ -4,6 +4,7 @@ import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
+import { CalendarEntryMenu } from '../calendar/calendar-entry-menu';
 import { PropertyInput } from '../../properties/property-input';
 import { dayFromText, dayLabel, dayText, type CalendarDay } from '../core/calendar-dates';
 import {
@@ -216,9 +217,9 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
   return (
     // `min-h-0 flex-1` so the pane keeps the vertical axis: the wide axis is this view's and is
     // owned by the track below, and a second vertical scroller here would compete with the pane's.
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Text variant="h4" as="h2">
+        <Text variant="h6" as="h2" className="min-w-0 break-words">
           {axis.label}
         </Text>
 
@@ -319,29 +320,41 @@ export function TimelineView(props: ViewRendererProps): ReactNode {
         <section aria-label="Timeline schedule">
           <ul className="divide-y divide-divider">
             {rows.map((entry) => (
-              <li key={entry.item.id} className="flex flex-col gap-2 py-3">
-                <Button
-                  variant="ghost"
-                  className="justify-start whitespace-normal text-left"
-                  onClick={() => {
-                    onOpen(entry.item.id);
-                  }}
-                >
-                  {entry.item.title || 'Untitled'}
-                </Button>
-                <Text as="p" variant="caption">
-                  {readPropertyText(entry.item, startKey)}
-                  {endKey ? ` – ${readPropertyText(entry.item, endKey)}` : ''}
-                </Text>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setRescheduling(entry.item.id);
-                  }}
-                >
-                  Reschedule {entry.item.title || 'Untitled'}
-                </Button>
-              </li>
+              <CalendarEntryMenu
+                key={entry.item.id}
+                itemId={entry.item.id}
+                title={titleOf(entry.item)}
+                onOpen={onOpen}
+                onReschedule={setRescheduling}
+              >
+                {(contextTarget) => (
+                  <li {...contextTarget} className="flex min-w-0 flex-col gap-2 py-3">
+                    <Button
+                      variant="ghost"
+                      className="min-w-0 max-w-full justify-start whitespace-normal text-left wrap-anywhere"
+                      onClick={() => {
+                        onOpen(entry.item.id);
+                      }}
+                    >
+                      {entry.item.title || 'Untitled'}
+                    </Button>
+                    <Text as="p" variant="caption" className="wrap-anywhere">
+                      {readPropertyText(entry.item, startKey)}
+                      {endKey ? ` – ${readPropertyText(entry.item, endKey)}` : ''}
+                    </Text>
+                    <Button
+                      variant="secondary"
+                      className="self-start"
+                      aria-label={`Reschedule ${titleOf(entry.item)}`}
+                      onClick={() => {
+                        setRescheduling(entry.item.id);
+                      }}
+                    >
+                      Reschedule
+                    </Button>
+                  </li>
+                )}
+              </CalendarEntryMenu>
             ))}
           </ul>
           {rows.length === 0 ? <Text as="p">No items scheduled in this window.</Text> : null}
@@ -733,50 +746,63 @@ function TimelineRow({ placed, columns, aside, virtualIndex }: TimelineRowProps)
   const last = placement.kind === 'span' ? placement.last : placement.column;
 
   return (
-    <tr
-      className="align-middle"
-      data-virtual-index={virtualIndex}
-      aria-rowindex={virtualIndex === undefined ? undefined : virtualIndex + 2}
+    <CalendarEntryMenu
+      itemId={item.id}
+      title={titleOf(item)}
+      onOpen={aside.onOpen}
+      onReschedule={aside.setRescheduling}
     >
-      <th
-        scope="row"
-        className={cn(LABEL_COLUMN, 'border-b border-divider bg-surface p-1 text-left font-normal')}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <Text variant="bodySmall" as="span" className="truncate">
-            {titleOf(item)}
-          </Text>
+      {(contextTarget) => (
+        <tr
+          {...contextTarget}
+          className="align-middle"
+          data-virtual-index={virtualIndex}
+          aria-rowindex={virtualIndex === undefined ? undefined : virtualIndex + 2}
+        >
+          <th
+            scope="row"
+            className={cn(
+              LABEL_COLUMN,
+              'border-b border-divider bg-surface p-1 text-left font-normal',
+            )}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <Text variant="bodySmall" as="span" className="truncate">
+                {titleOf(item)}
+              </Text>
 
-          <RescheduleToggle item={item} aside={aside} />
-        </div>
-      </th>
+              <RescheduleToggle item={item} aside={aside} />
+            </div>
+          </th>
 
-      {/* One spanning cell rather than a run of empty ones. At the month scale a four-day bar would
+          {/* One spanning cell rather than a run of empty ones. At the month scale a four-day bar would
           otherwise emit twenty-seven `td`s of nothing, per row - the largest allocation in this
           view and the only part of it that grows with rows times columns.
 
           The zero guard is load-bearing rather than defensive: `colSpan={0}` does not mean "span
           nothing" in HTML, it means "span to the end of the column group", so a bar starting in the
           first column would silently swallow the whole row. */}
-      {first === 0 ? null : <td colSpan={first} className="border-b border-divider p-0" />}
+          {first === 0 ? null : <td colSpan={first} className="border-b border-divider p-0" />}
 
-      <td colSpan={last - first + 1} className="border-b border-divider p-1">
-        {placement.kind === 'milestone' ? (
-          <Milestone placed={placed} onOpen={aside.onOpen} />
-        ) : (
-          <Bar
-            placed={placed}
-            onOpen={aside.onOpen}
-            continuesBefore={placement.continuesBefore}
-            continuesAfter={placement.continuesAfter}
-          />
-        )}
-      </td>
+          <td colSpan={last - first + 1} className="border-b border-divider p-1">
+            {placement.kind === 'milestone' ? (
+              <Milestone placed={placed} onOpen={aside.onOpen} />
+            ) : (
+              <Bar
+                placed={placed}
+                onOpen={aside.onOpen}
+                continuesBefore={placement.continuesBefore}
+                continuesAfter={placement.continuesAfter}
+              />
+            )}
+          </td>
 
-      {columns - last - 1 === 0 ? null : (
-        <td colSpan={columns - last - 1} className="border-b border-divider p-0" />
+          {columns - last - 1 === 0 ? null : (
+            <td colSpan={columns - last - 1} className="border-b border-divider p-0" />
+          )}
+        </tr>
       )}
-    </tr>
+    </CalendarEntryMenu>
   );
 }
 
@@ -1157,33 +1183,42 @@ function OffAxisEntry({
   const { item } = placed;
 
   return (
-    <li className="flex flex-col gap-1">
-      <div className="flex items-center justify-between gap-2">
-        {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
+    <CalendarEntryMenu
+      itemId={item.id}
+      title={titleOf(item)}
+      onOpen={aside.onOpen}
+      onReschedule={aside.setRescheduling}
+    >
+      {(contextTarget) => (
+        <li {...contextTarget} className="flex min-w-0 flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            {/* `before:-inset-x-0.5`: the control keeps `<Button>`'s 36px height, but with `px-0` its
             width is its text's, and a one- or two-character title lands under WCAG 2.5.8's 24px
             floor - the same widening as the calendar card's title, half a step each side so it
             never reaches the reschedule toggle beside it. */}
-        <Button
-          variant="ghost"
-          aria-label={announce(placed)}
-          className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
-          onClick={() => {
-            aside.onOpen(item.id);
-          }}
-        >
-          <span className="truncate">{titleOf(item)}</span>
-        </Button>
+            <Button
+              variant="ghost"
+              aria-label={announce(placed)}
+              className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
+              onClick={() => {
+                aside.onOpen(item.id);
+              }}
+            >
+              <span className="truncate">{titleOf(item)}</span>
+            </Button>
 
-        <RescheduleToggle item={item} aside={aside} />
-      </div>
+            <RescheduleToggle item={item} aside={aside} />
+          </div>
 
-      {/* Both dates in front of somebody, always. For a reversed pair especially: the whole reason
+          {/* Both dates in front of somebody, always. For a reversed pair especially: the whole reason
           this band exists is that the contradiction is worth seeing rather than being corrected
           away, and a list that named neither date would be hiding it a second time. */}
-      <Text variant="caption" tone="muted">
-        {describeDates(placed)}
-      </Text>
-    </li>
+          <Text variant="caption" tone="muted">
+            {describeDates(placed)}
+          </Text>
+        </li>
+      )}
+    </CalendarEntryMenu>
   );
 }
 

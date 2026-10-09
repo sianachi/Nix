@@ -54,12 +54,14 @@ describe('Input', () => {
     expect(screen.getByRole('textbox', { name: 'Title' }).className).toContain('rounded-md');
   });
 
-  it('grows to the 44px touch step on a coarse pointer', () => {
+  it('uses the touch height and readable type when any pointer is coarse', () => {
     render(<Input aria-label="Title" />);
 
     const className = screen.getByRole('textbox', { name: 'Title' }).className;
     expect(className).toContain('h-(--control-md)');
-    expect(className).toContain('pointer-coarse:h-(--control-lg)');
+    expect(className).toContain('any-pointer-coarse:h-(--control-lg)');
+    expect(className).toContain('any-pointer-coarse:text-lg');
+    expect(className).toContain('min-w-0');
   });
 
   it('draws focus as one ring flush with the field, not a halo offset from it', () => {

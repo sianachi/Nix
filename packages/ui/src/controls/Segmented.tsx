@@ -62,7 +62,10 @@ export function Segmented<TValue extends string>(props: SegmentedProps<TValue>):
       role="group"
       aria-label={label}
       aria-describedby={describedBy}
-      className={cn('flex items-center gap-0.5 rounded-md bg-surface p-0.5', className)}
+      className={cn(
+        'flex min-w-0 flex-wrap items-center gap-0.5 rounded-md bg-surface p-0.5',
+        className,
+      )}
     >
       {options.map((option) => {
         const current = option.value === value;
@@ -76,8 +79,8 @@ export function Segmented<TValue extends string>(props: SegmentedProps<TValue>):
               onChange(option.value);
             }}
             className={cn(
-              'flex-1 rounded-sm px-2 py-1 text-sm transition-colors',
-              'pointer-coarse:min-h-(--control-lg)',
+              'min-w-0 flex-1 rounded-sm px-2 py-1 text-sm wrap-anywhere transition-colors',
+              'any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg) any-pointer-coarse:text-md',
               focusRing,
               current
                 ? 'bg-background text-foreground shadow-sm'

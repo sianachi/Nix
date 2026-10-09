@@ -32,6 +32,33 @@ export const Default: Story = {
   },
 };
 
+export const NarrowGrid: Story = {
+  args: {
+    label: 'LongLabelWithoutSpacesThatMustFitTheScreen',
+    hint: 'https://example.test/averylongguidancereferencethatmuststayinsideitsfield',
+  },
+  render: (args) => (
+    <div className="grid w-64 max-w-full grid-cols-2 gap-2">
+      <Field {...args} />
+      <Field label="Other title">{(control) => <Input {...control} />}</Field>
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const input = within(canvasElement).getByRole('textbox', {
+      name: 'LongLabelWithoutSpacesThatMustFitTheScreen',
+    });
+    const other = within(canvasElement).getByRole('textbox', { name: 'Other title' });
+    await expect(input.getBoundingClientRect().right).toBeLessThanOrEqual(
+      other.getBoundingClientRect().left,
+    );
+    const field = input.parentElement;
+    await expect(field).not.toBeNull();
+    if (field !== null) {
+      await expect(field.scrollWidth).toBeLessThanOrEqual(field.clientWidth);
+    }
+  },
+};
+
 export const WithHint: Story = {
   args: { hint: 'Shown in the tree and in search results.' },
   play: async ({ canvasElement }) => {

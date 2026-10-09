@@ -1,4 +1,5 @@
 import { useState, type ReactElement } from 'react';
+import { within } from '@testing-library/dom';
 
 import { filterGroup, type PropertyDefinition, type ViewFilterRule } from '../core/container-model';
 import { FilterRulesEditor } from './filter-rules-editor';
@@ -74,3 +75,18 @@ export function AtTheCeiling(): ReactElement {
     />
   );
 }
+
+export const NarrowPane = {
+  render: (): ReactElement => (
+    <section aria-label="Narrow filter editor" className="w-64 max-w-full">
+      <QueryWithGroup />
+    </section>
+  ),
+  play: ({ canvasElement }: { readonly canvasElement: HTMLElement }): void => {
+    const region = within(canvasElement).getByRole('region', { name: 'Narrow filter editor' });
+    if (region.scrollWidth > region.clientWidth) {
+      throw new Error('Filter controls must fit within a narrow pane.');
+    }
+  },
+};
+export const DarkNarrowPane = { ...NarrowPane, globals: { ground: 'dark' } };

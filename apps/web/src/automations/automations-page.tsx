@@ -32,10 +32,9 @@ export function AutomationsPage(): ReactNode {
     `/w/${encodeURIComponent(workspaceId)}?item=${encodeURIComponent(itemId)}`;
 
   return (
-    <div className={`${paneScroller} flex flex-col`}>
-      <header className="border-b border-divider px-5 pb-5 pt-6 sm:px-8 sm:pt-8">
-        <Text variant="kicker">Workspace</Text>
-        <Text variant="h2" as="h1" className="mt-1">
+    <div className={`${paneScroller} flex min-w-0 flex-col`}>
+      <header className="border-b border-divider p-3 sm:p-5">
+        <Text variant="h4" as="h1">
           Automations
         </Text>
         <Text variant="note" tone="muted" className="mt-2 max-w-2xl">
@@ -44,7 +43,7 @@ export function AutomationsPage(): ReactNode {
         </Text>
       </header>
 
-      <div className="flex min-w-0 max-w-4xl flex-col gap-6 p-5 sm:p-8">
+      <div className="flex min-w-0 max-w-4xl flex-col gap-4 p-3 sm:p-5">
         {selection.kind === 'list' ? (
           <ListView state={state} workspaceId={workspaceId} />
         ) : (
@@ -130,7 +129,7 @@ function ListView({
   return (
     <section aria-label="Automations" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Text variant="h3" as="h2">
+        <Text variant="h5" as="h2">
           Your automations
         </Text>
         <Button

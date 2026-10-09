@@ -1,4 +1,4 @@
-import { Button, Icon, Text, focusRing } from '@nix/ui';
+import { Button, ContextMenu, Icon, Text, focusRing } from '@nix/ui';
 import { FileText } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
@@ -34,8 +34,8 @@ import { useOpenItem } from '../tabs/use-open-item';
  */
 function BookmarksFrame({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div className={`${paneScroller} flex flex-col gap-4 p-4`}>
-      <Text variant="h2" as="h1">
+    <div className={`${paneScroller} flex flex-col gap-4 break-words p-3 sm:p-4`}>
+      <Text variant="h3" as="h1">
         Bookmarks
       </Text>
       {children}
@@ -51,6 +51,7 @@ export function BookmarksPage(): ReactElement {
   const error = useBookmarksStore((state) => state.error);
 
   const reload = useBookmarksStore((state) => state.reload);
+  const toggle = useBookmarksStore((state) => state.toggle);
   const { openPreview } = useOpenItem();
 
   if (status === 'loading') {
@@ -115,22 +116,43 @@ export function BookmarksPage(): ReactElement {
           const title = item.title ?? 'Untitled';
 
           return (
-            <li key={item.itemId} className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  openPreview(item.itemId);
-                }}
-                className={`${focusRing} flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface`}
-              >
-                <Icon icon={FileText} size="sm" className="shrink-0 text-muted" />
-                <Text as="span" variant="note" className="truncate">
-                  {title}
-                </Text>
-              </button>
+            <ContextMenu
+              key={item.itemId}
+              label={`Actions for ${title}`}
+              items={[
+                {
+                  label: 'Open',
+                  onSelect: () => {
+                    openPreview(item.itemId);
+                  },
+                },
+                {
+                  label: 'Remove bookmark',
+                  onSelect: () => {
+                    void toggle(item.itemId);
+                  },
+                },
+              ]}
+            >
+              {(target) => (
+                <li {...target} className="flex min-w-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openPreview(item.itemId);
+                    }}
+                    className={`${focusRing} flex min-w-0 flex-1 items-center gap-2 rounded-sm px-2 py-1.5 text-left hover:bg-surface pointer-coarse:min-h-11`}
+                  >
+                    <Icon icon={FileText} size="sm" className="shrink-0 text-muted" />
+                    <Text as="span" variant="note" className="truncate">
+                      {title}
+                    </Text>
+                  </button>
 
-              <BookmarkButton compact itemId={item.itemId} title={title} />
-            </li>
+                  <BookmarkButton compact itemId={item.itemId} title={title} />
+                </li>
+              )}
+            </ContextMenu>
           );
         })}
       </ul>

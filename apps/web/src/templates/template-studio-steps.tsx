@@ -33,8 +33,8 @@ export function Basics({
 }): ReactNode {
   if (mode === 'apply') {
     return (
-      <section className="flex flex-col gap-4">
-        <Text variant="h2" as="h2">
+      <section className="flex min-w-0 flex-col gap-4">
+        <Text variant="h3" as="h2">
           Apply to {targetTitle ?? 'this item'}
         </Text>
         <Text tone="muted">
@@ -54,9 +54,9 @@ export function Basics({
     );
   }
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex min-w-0 flex-col gap-4">
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           {mode === 'create' ? 'Name the new item' : 'Name the template'}
         </Text>
         <Text variant="bodySmall" tone="muted">
@@ -259,7 +259,7 @@ export function Contents({
       );
     }
     return (
-      <section className="flex flex-col gap-4">
+      <section className="flex min-w-0 flex-col gap-4">
         <Text variant="caption" tone="muted">
           Draft available until {formatDateTime(new Date(editOperation.expiresAt))}. Save before
           then to keep body edits.
@@ -295,8 +295,8 @@ export function Contents({
   }
   if (mode !== 'capture') {
     return (
-      <section className="flex flex-col gap-4">
-        <Text variant="h2" as="h2">
+      <section className="flex min-w-0 flex-col gap-4">
+        <Text variant="h3" as="h2">
           What this template adds
         </Text>
         <TemplateFacts template={template} mode={mode} />
@@ -304,9 +304,9 @@ export function Contents({
     );
   }
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex min-w-0 flex-col gap-4">
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           Choose what to capture
         </Text>
         <Text variant="bodySmall" tone="muted">

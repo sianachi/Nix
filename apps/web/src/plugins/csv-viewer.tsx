@@ -89,14 +89,20 @@ export function CsvViewer({
   const hidden = Math.max(0, rows.length - 1 - body.length);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {hidden > 0 ? (
-        <Text variant="note" tone="muted" as="p" role="status" className="px-8 py-2">
+        <Text variant="note" tone="muted" as="p" role="status" className="px-2 py-2 sm:px-8">
           Showing the first {String(CSV_VIEWER_ROW_LIMIT)} of {String(rows.length - 1)} rows.
           Download the file for the rest.
         </Text>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-auto px-8 py-4">
+      <div
+        role="region"
+        aria-label={`${fileName} table`}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Keyboard users need to scroll wider tables.
+        tabIndex={0}
+        className="min-h-0 min-w-0 flex-1 overflow-auto px-2 py-4 sm:px-8"
+      >
         <table aria-label={fileName} className="border-collapse text-sm">
           <thead>
             <tr>

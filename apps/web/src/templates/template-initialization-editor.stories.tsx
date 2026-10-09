@@ -2,6 +2,8 @@ import { useState, type ReactElement } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { createNixClient, type TemplateInitialization } from '@nix/api-client';
 import type { NixClient, Workspace } from '@nix/api-client';
+import { within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 
 import { ApiClientOverrideProvider } from '../api/api-client-provider';
 import type { WorkspaceLoadState } from '../workspaces/workspace-context';
@@ -192,3 +194,30 @@ export const CompleteSetup = {
 };
 
 export const DarkCompleteSetup = { ...CompleteSetup, globals: { ground: 'dark' } };
+
+export const SmallScreenSetup = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider client={previewClient}>
+      <section aria-label="Small screen template setup" className="w-60 max-w-full p-3">
+        <Example />
+      </section>
+    </ApiClientOverrideProvider>
+  ),
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    const setup = canvas.getByRole('region', { name: 'Small screen template setup' });
+    await document.fonts.ready;
+    if (setup.scrollWidth > setup.clientWidth) {
+      throw new Error('Template setup questions and rules must fit within a small screen.');
+    }
+    for (const checkbox of canvas.getAllByRole('checkbox', { name: 'Set a time and time zone' })) {
+      await userEvent.click(checkbox);
+    }
+    await userEvent.click(canvas.getByRole('button', { name: 'Add question' }));
+    if (setup.scrollWidth > setup.clientWidth) {
+      throw new Error('Adding questions and date controls must preserve the small screen layout.');
+    }
+  },
+};
+
+export const DarkSmallScreenSetup = { ...SmallScreenSetup, globals: { ground: 'dark' } };

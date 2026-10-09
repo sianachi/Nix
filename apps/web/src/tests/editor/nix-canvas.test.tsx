@@ -131,8 +131,10 @@ vi.mock('@excalidraw/excalidraw', async () => {
     }, [excalidrawAPI]);
     return React.createElement(
       'div',
-      { 'data-testid': 'mock-excalidraw' },
+      { 'data-testid': 'mock-excalidraw', className: 'excalidraw' },
       props.renderTopRightUI?.(false, excalidrawHarness.state.appState),
+      React.createElement('button', { className: 'main-menu-trigger', type: 'button' }),
+      React.createElement('footer', { role: 'contentinfo' }),
     );
   }
 
@@ -286,7 +288,10 @@ describe('the Excalidraw canvas integration', () => {
     document.documentElement.removeAttribute('data-theme');
   });
 
-  it('keeps custom toolbar labels on one line and uses icons on narrow canvases', async () => {
+  it('keeps desktop actions visible and groups narrow canvas actions in one menu', async () => {
+    fileHarness.client.paginate.mockImplementation(function* () {
+      yield { id: 'release-plan', title: 'Release plan' };
+    });
     await renderCanvas();
     const item = screen.getByRole('button', { name: 'Add a Nix item to the canvas' });
     expect(item).toHaveTextContent('Nix item');
@@ -296,9 +301,22 @@ describe('the Excalidraw canvas integration', () => {
       <>{currentExcalidrawProps().renderTopRightUI?.(true, excalidrawHarness.state.appState)}</>,
     );
     expect(mobile.container).not.toHaveTextContent('Nix item');
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas actions' }));
     expect(
-      mobile.container.querySelector('[aria-label="Add a Nix item to the canvas"]'),
-    ).not.toBeNull();
+      screen.getByRole('menuitem', { name: 'Import an Excalidraw scene' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Add a Nix item to the canvas' }));
+    expect(screen.getByRole('dialog', { name: 'Add a Nix item' })).toBeInTheDocument();
+  });
+
+  it('names native canvas controls without introducing a page-footer landmark', async () => {
+    await renderCanvas();
+    expect(screen.getByRole('button', { name: 'Canvas menu' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Canvas view controls' })).toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Import an Excalidraw scene', { selector: 'input' }),
+    ).toHaveAttribute('type', 'file');
   });
 
   it('flags the "Add a Nix item" list as cut off, and narrows it by search once three letters are typed', async () => {

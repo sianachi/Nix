@@ -53,7 +53,7 @@ export function mediaKind(fileName: string, mediaType: string): 'audio' | 'video
 
 export function MediaViewer({ fileName, source }: FileViewerProps): ReactElement {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-8">
+    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center p-2 sm:p-8">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption -- an uploaded recording has no track to offer. */}
       <video
         controls
@@ -72,7 +72,7 @@ export function MediaViewer({ fileName, source }: FileViewerProps): ReactElement
 export function AudioViewer({ fileName, itemId, onDownload }: FileViewerProps): ReactElement {
   const client = useApiClient();
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 p-8">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-4 p-2 sm:gap-6 sm:p-8">
       <AudioPlayer
         itemId={itemId}
         title={fileName}

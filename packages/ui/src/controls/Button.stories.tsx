@@ -57,6 +57,15 @@ export const IconOnly: Story = {
     'aria-label': 'Add block',
     children: <Icon icon={Plus} />,
   },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole('button', { name: 'Add block' });
+    const touch = matchMedia('(any-pointer: coarse)').matches;
+    const size = getComputedStyle(document.documentElement)
+      .getPropertyValue(touch ? '--control-lg' : '--control-md')
+      .trim();
+    await expect(getComputedStyle(button).height).toBe(size);
+    await expect(getComputedStyle(button).width).toBe(size);
+  },
 };
 
 /** The block button: stretched to its container. */

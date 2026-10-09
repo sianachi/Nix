@@ -92,17 +92,17 @@ function Choice(props: {
         type="button"
         onClick={props.onChoose}
         className={cn(
-          'flex w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-accent/10',
+          'flex min-w-0 w-full items-start gap-3 px-3 py-2.5 text-left hover:bg-accent/10',
           focusRing,
         )}
       >
         <Icon icon={LayoutTemplate} size="sm" className="mt-0.5 shrink-0" />
         <span className="flex min-w-0 flex-col gap-0.5">
-          <Text as="span" variant="body">
+          <Text as="span" variant="body" className="break-words">
             {props.label}
           </Text>
           {props.detail === null || props.detail === '' ? null : (
-            <Text as="span" variant="caption" tone="muted">
+            <Text as="span" variant="caption" tone="muted" className="break-words">
               {props.detail}
             </Text>
           )}
@@ -173,7 +173,7 @@ export function NewItemDialog(props: NewItemDialogProps): ReactNode {
           </>
         }
       >
-        <form id="new-item-form" onSubmit={submit} className="flex flex-col gap-4">
+        <form id="new-item-form" onSubmit={submit} className="flex min-w-0 flex-col gap-4">
           <Field label="Title" hint={`Left empty, it is called "${kind.untitled}".`}>
             {(control) => (
               <Input
@@ -216,7 +216,7 @@ export function NewItemDialog(props: NewItemDialogProps): ReactNode {
           </>
         }
       >
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           <Text variant="body">
             Each file becomes an item you can open, preview and link to. You can also drop files
             onto the tree or into a note.
@@ -231,7 +231,7 @@ export function NewItemDialog(props: NewItemDialogProps): ReactNode {
     const recipes = STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured');
     return (
       <Dialog open title={titleOf(mode)} onClose={onClose}>
-        <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-col gap-4">
           {placeControl}
           <ul aria-label="Structured items" className="-mx-3 flex flex-col">
             {recipes.map((recipe) => (
@@ -271,7 +271,7 @@ export function NewItemDialog(props: NewItemDialogProps): ReactNode {
         </Button>
       }
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex min-w-0 flex-col gap-4">
         {placeControl}
         {templates.length === 0 ? (
           <Text variant="note" tone="muted" role="status">

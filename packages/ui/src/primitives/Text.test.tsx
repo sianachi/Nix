@@ -84,6 +84,7 @@ describe('Text', () => {
     const className = container.firstElementChild?.className ?? '';
     expect(className).toContain('mt-4');
     expect(className).toContain('text-md');
+    expect(className).toContain('wrap-anywhere');
   });
 
   it('sets a note at the sheet step between body-small and caption', () => {

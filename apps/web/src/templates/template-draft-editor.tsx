@@ -162,9 +162,9 @@ export function TemplateDraftEditor({
   }, [selected.sourceId]);
 
   return (
-    <section className="flex flex-col gap-5">
+    <section className="@container/draft flex min-w-0 flex-col gap-4">
       <div>
-        <Text variant="h2" as="h2">
+        <Text variant="h3" as="h2">
           Edit the template contents
         </Text>
         <Text variant="bodySmall" tone="muted">
@@ -173,12 +173,12 @@ export function TemplateDraftEditor({
         </Text>
       </div>
 
-      <div className="grid min-h-0 gap-4 md:grid-cols-[12rem_minmax(0,1fr)]">
-        <nav aria-label="Items in this template" className="rounded-md bg-surface p-2">
+      <div className="grid min-h-0 min-w-0 gap-4 @2xl/draft:grid-cols-4">
+        <nav aria-label="Items in this template" className="min-w-0 rounded-md bg-surface p-2">
           <Text variant="kicker" className="px-2 py-1">
             Template items
           </Text>
-          <ul className="mt-1 flex flex-col gap-0.5">
+          <ul className="mt-1 flex max-h-56 flex-col gap-0.5 overflow-y-auto">
             {items.map(({ item, depth }) => (
               <li key={item.sourceId}>
                 <button
@@ -199,7 +199,7 @@ export function TemplateDraftEditor({
                     })();
                   }}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-sm py-1.5 pr-2 text-left',
+                    'flex min-h-(--control-lg) min-w-0 w-full items-center gap-2 rounded-sm py-1.5 pr-2 text-left',
                     depth === 0 ? 'pl-2' : depth === 1 ? 'pl-4' : depth === 2 ? 'pl-6' : 'pl-8',
                     item.sourceId === selected.sourceId
                       ? 'bg-accent/10 text-accent-text'
@@ -207,7 +207,7 @@ export function TemplateDraftEditor({
                     focusRing,
                   )}
                 >
-                  <Icon icon={FileText} size="sm" />
+                  <Icon icon={FileText} size="sm" className="shrink-0" />
                   <span className="truncate">{currentItem(item, edits).title || 'Untitled'}</span>
                 </button>
               </li>
@@ -215,7 +215,7 @@ export function TemplateDraftEditor({
           </ul>
         </nav>
 
-        <div className="flex min-w-0 flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-4 @2xl/draft:col-span-3">
           {bodyError === null ? null : (
             <Text variant="bodySmall" role="alert" className="rounded-md bg-surface px-3 py-2">
               {bodyError}
@@ -273,7 +273,7 @@ function TemplateBodyEditor({
   readonly onSync: (sync: CollabSync | null) => void;
 }): ReactNode {
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex min-w-0 flex-col gap-3">
       <div>
         <Text variant="h3" as="h3">
           Body
@@ -355,7 +355,7 @@ function TemplateFieldsEditor({
 }): ReactNode {
   const fields = declaredFields(edit);
   return (
-    <section className="flex flex-col gap-3">
+    <section className="@container/template-fields flex min-w-0 flex-col gap-3">
       <div>
         <Text variant="h3" as="h3">
           Fields
@@ -371,8 +371,11 @@ function TemplateFieldsEditor({
       ) : null}
       {fields.map((field, index) => (
         <div key={field.key} className="flex flex-col gap-3 rounded-md bg-surface p-3">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <Field label="Field name" className="flex-1">
+          <div className="flex min-w-0 flex-wrap items-end gap-3">
+            <Field
+              label="Field name"
+              className="min-w-0 flex-1 basis-full @md/template-fields:basis-0"
+            >
               {(control) => (
                 <Input
                   {...control}
@@ -390,7 +393,7 @@ function TemplateFieldsEditor({
                 />
               )}
             </Field>
-            <Field label="Type" className="sm:w-48">
+            <Field label="Type" className="min-w-0 flex-1 basis-full @md/template-fields:basis-0">
               {(control) => (
                 <Select
                   {...control}
@@ -650,9 +653,9 @@ function TemplateViewCard({
     (candidate) => candidate.id !== view.id && candidate.companionViewId === null,
   );
   return (
-    <div className="flex flex-col gap-3 rounded-md bg-surface p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <Field label="View name" className="min-w-0 flex-1">
+    <div className="@container/view-card flex min-w-0 flex-col gap-3 rounded-md bg-surface p-3">
+      <div className="flex min-w-0 flex-wrap items-end gap-2">
+        <Field label="View name" className="min-w-0 flex-1 basis-full">
           {(control) => (
             <Input
               {...control}
@@ -701,7 +704,7 @@ function TemplateViewCard({
         allowGroups={false}
       />
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid min-w-0 gap-3 @lg/view-card:grid-cols-2">
         <Field
           label="Companion view"
           hint={

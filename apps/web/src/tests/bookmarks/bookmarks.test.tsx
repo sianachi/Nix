@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -131,6 +131,18 @@ describe('keeping an item', () => {
 });
 
 describe('the bookmarks destination', () => {
+  it('offers bookmark actions from the row context menu', async () => {
+    stubCoreApi({ items: [NOTE], bookmarks: [KEPT] });
+    renderAt(<App />, '/bookmarks');
+
+    const shelf = await screen.findByRole('list', { name: 'Bookmarks' });
+    fireEvent.contextMenu(within(shelf).getByRole('listitem'));
+    const menu = await screen.findByRole('menu', { name: 'Actions for Acquisition memo' });
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'Remove bookmark' }));
+
+    expect(await screen.findByText(/nothing kept yet/i)).toBeVisible();
+  });
+
   it('lists what has been kept', async () => {
     stubCoreApi({ items: [NOTE], bookmarks: [KEPT] });
     renderAt(<App />, '/bookmarks');

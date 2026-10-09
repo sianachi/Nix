@@ -1,12 +1,14 @@
 import { Button, Text } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useParams } from 'react-router';
 
-import { isCanceledError } from '@nix/api-client';
+import { isCanceledError, isNixApiError } from '@nix/api-client';
 
 import { useApiClient } from '../api/api-client-provider';
 import { PropertyInput, isKnownPropertyType } from '../properties/property-input';
 import { type PropertyValue } from '../views/core/container-model';
+import { reportFormValidity } from '../views/form/form-validity';
+import { claimZenSurface, toggleZenMode, useZenActive } from '../lib/zen-mode';
 import {
   publicFormByToken,
   submitPublicForm,
@@ -69,6 +71,8 @@ function resolveFlow(
 }
 
 export function PublicFormPage(): ReactNode {
+  useLayoutEffect(claimZenSurface, []);
+  const zen = useZenActive();
   const { token = '' } = useParams();
   const client = useApiClient();
   const [form, setForm] = useState<PublicForm | null>(null);
@@ -79,7 +83,14 @@ export function PublicFormPage(): ReactNode {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [complete, setComplete] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const pendingSubmit = useRef<AbortController | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const pageHeaderRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    pageHeaderRef.current?.focus();
+  }, [pageIndex, complete]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,23 +116,36 @@ export function PublicFormPage(): ReactNode {
         <Text variant="h2" as="h1">
           This form is unavailable
         </Text>
-        <Text tone="muted">The link may have expired or been revoked.</Text>
+        <Text tone="muted" className="wrap-anywhere">
+          The link may have expired or been revoked.
+        </Text>
       </PublicFrame>
     );
   }
   if (form === null)
     return (
       <PublicFrame>
-        <Text tone="muted">Loading form…</Text>
+        <Text tone="muted" className="wrap-anywhere">
+          Loading form…
+        </Text>
       </PublicFrame>
     );
   if (complete) {
     return (
       <PublicFrame>
-        <Text variant="h2" as="h1">
-          {form.form.confirmationTitle}
-        </Text>
-        <Text tone="muted">{form.form.confirmationMessage}</Text>
+        <section
+          ref={pageHeaderRef}
+          tabIndex={-1}
+          aria-live="polite"
+          className="flex flex-col gap-2"
+        >
+          <Text variant="h3" as="h1" className="wrap-anywhere">
+            {form.form.confirmationTitle}
+          </Text>
+          <Text tone="muted" className="wrap-anywhere">
+            {form.form.confirmationMessage}
+          </Text>
+        </section>
       </PublicFrame>
     );
   }
@@ -131,13 +155,16 @@ export function PublicFormPage(): ReactNode {
   if (page === undefined)
     return (
       <PublicFrame>
-        <Text tone="muted">No questions are available.</Text>
+        <Text tone="muted" className="wrap-anywhere">
+          No questions are available.
+        </Text>
       </PublicFrame>
     );
   const blocks = page.blocks.filter((block) => visible(block, answers));
   const last = pageIndex >= pages.length - 1;
 
   function validate(candidates: readonly PublicFormPageContract['blocks'][number][]): boolean {
+    if (!reportFormValidity(formRef.current)) return false;
     const currentAnswers = answersRef.current;
     const next = Object.fromEntries(
       candidates
@@ -147,24 +174,38 @@ export function PublicFormPage(): ReactNode {
         .map((block) => [block.id, 'This answer is required.']),
     );
     setErrors(next);
-    return Object.keys(next).length === 0;
+    if (Object.keys(next).length === 0) return true;
+    const firstMissingPage = pages.findIndex((candidate) =>
+      candidate.blocks.some((block) => block.id in next),
+    );
+    if (firstMissingPage >= 0) setPageIndex(firstMissingPage);
+    requestAnimationFrame(() =>
+      formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
+    );
+    return false;
   }
 
   async function submit(): Promise<void> {
-    if (form === null) return;
+    if (form === null || pendingSubmit.current !== null) return;
     const currentAnswers = answersRef.current;
     const flow = resolveFlow(form.form.pages, currentAnswers);
     const shown = flow.pages.flatMap((candidate) => candidate.blocks);
     if (!validate(shown)) return;
-    pendingSubmit.current?.abort();
     const controller = new AbortController();
     pendingSubmit.current = controller;
     setSubmitting(true);
+    setSubmitError(null);
     try {
       await client.execute(submitPublicForm(token, flow.answers), { signal: controller.signal });
       setComplete(true);
     } catch (reason) {
-      if (!isCanceledError(reason)) setFailed(true);
+      if (!isCanceledError(reason)) {
+        setSubmitError(
+          isNixApiError(reason) && reason.detail
+            ? reason.detail
+            : 'The response could not be sent. Your answers are still here. Check the connection and try again.',
+        );
+      }
     } finally {
       if (pendingSubmit.current === controller) pendingSubmit.current = null;
       setSubmitting(false);
@@ -174,39 +215,50 @@ export function PublicFormPage(): ReactNode {
   return (
     <PublicFrame>
       <form
-        className="flex flex-col gap-6"
+        ref={formRef}
+        aria-label={form.name}
+        className="flex min-w-0 flex-col gap-5"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           if (last) void submit();
           else if (validate(blocks)) setPageIndex((current) => current + 1);
         }}
       >
-        <header className="flex flex-col gap-2 border-b border-divider p-3">
+        <header
+          ref={pageHeaderRef}
+          tabIndex={-1}
+          className="flex min-w-0 flex-col gap-1 border-b border-divider pb-3"
+        >
           <Text variant="caption" tone="muted">
-            {form.name} · Page {String(pageIndex + 1)} of {String(pages.length)}
+            {zen ? null : `${form.name} · `}Page {String(pageIndex + 1)} of {String(pages.length)}
           </Text>
-          <Text variant="h2" as="h1">
+          <Text variant="h3" as="h1" className={zen ? 'sr-only' : 'wrap-anywhere'}>
             {page.title}
           </Text>
-          {page.description === null ? null : <Text tone="muted">{page.description}</Text>}
+          {page.description === null ? null : (
+            <Text tone="muted" className={zen ? 'sr-only' : 'wrap-anywhere'}>
+              {page.description}
+            </Text>
+          )}
         </header>
         {blocks.map((block) => {
           if (block.kind === 'heading')
             return (
-              <Text key={block.id} variant="h3" as="h2">
+              <Text key={block.id} variant="h3" as="h2" className="wrap-anywhere">
                 {block.text}
               </Text>
             );
           if (block.kind === 'paragraph')
             return (
-              <Text key={block.id} tone="muted">
+              <Text key={block.id} tone="muted" className="wrap-anywhere">
                 {block.text}
               </Text>
             );
           const field = fields.get(block.id);
           if (field === undefined || !isKnownPropertyType(field.type)) return null;
           return (
-            <div key={block.id} className="flex flex-col gap-1">
+            <div key={block.id} className="flex min-w-0 flex-col gap-1">
               {block.help === null ? null : (
                 <Text variant="note" tone="muted">
                   {block.help}
@@ -230,6 +282,9 @@ export function PublicFormPage(): ReactNode {
                   const next = { ...answersRef.current, [block.id]: value };
                   answersRef.current = next;
                   setAnswers(next);
+                  setErrors((current) =>
+                    Object.fromEntries(Object.entries(current).filter(([id]) => id !== block.id)),
+                  );
                 }}
               />
             </div>
@@ -243,7 +298,10 @@ export function PublicFormPage(): ReactNode {
           className="hidden"
           aria-hidden="true"
         />
-        <div className="flex gap-2">
+        <Text variant="note" role="alert">
+          {submitError}
+        </Text>
+        <div className="flex flex-wrap gap-2">
           {pageIndex === 0 ? null : (
             <Button
               type="button"
@@ -255,7 +313,7 @@ export function PublicFormPage(): ReactNode {
               Back
             </Button>
           )}
-          <Button type="submit" disabled={submitting}>
+          <Button type="submit" aria-disabled={submitting}>
             {submitting ? 'Sending…' : last ? 'Send response' : 'Continue'}
           </Button>
         </div>
@@ -265,9 +323,13 @@ export function PublicFormPage(): ReactNode {
 }
 
 function PublicFrame({ children }: { readonly children: ReactNode }): ReactNode {
+  const zen = useZenActive();
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col justify-center px-5 py-12">
-      <section className="border border-divider bg-surface p-6 shadow-sm sm:p-10">
+    <main className="mx-auto flex min-h-dvh min-w-0 w-full max-w-2xl flex-col gap-3 px-2 py-4 sm:justify-center sm:px-5 sm:py-8">
+      <Button variant="secondary" className="self-end" onClick={toggleZenMode} aria-pressed={zen}>
+        {zen ? 'Exit Zen' : 'Enter Zen'}
+      </Button>
+      <section className="min-w-0 border border-divider bg-surface p-3 shadow-sm sm:p-6">
         {children}
       </section>
     </main>

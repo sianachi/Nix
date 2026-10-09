@@ -56,8 +56,8 @@ import { useWorkspace } from '../workspaces/workspace-context';
  */
 function CalendarFrame({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div className={`${paneScroller} flex flex-col gap-4 p-4`}>
-      <Text variant="h2" as="h1">
+    <div className={`${paneScroller} flex min-w-0 flex-col gap-3 p-3 sm:p-4`}>
+      <Text variant="h4" as="h1">
         Calendar
       </Text>
       {children}
@@ -163,20 +163,6 @@ export function CalendarPage(): ReactElement {
   const options = noteOptions(visible);
   const shown = filterByNotes(visible, notes);
 
-  // Nothing scheduled anywhere *and* nothing misconfigured. A workspace with only a misconfigured
-  // container is not empty - it has a calendar nobody finished setting up, and saying "nothing to
-  // show" would hide the one thing worth acting on.
-  if (listed.length === 0 && calendar.unplaceable.length === 0) {
-    return (
-      <CalendarFrame>
-        <EmptyPanel
-          title="Nothing scheduled"
-          detail="No item in this workspace carries a date in this range. Give a note a calendar view and a date property, and it will appear here."
-        />
-      </CalendarFrame>
-    );
-  }
-
   return (
     <CalendarFrame>
       {calendar.entriesTruncated && (
@@ -200,13 +186,20 @@ export function CalendarPage(): ReactElement {
           Hidden items excluded
         </Text>
       ) : null}
-      <NoteFilter
-        options={options}
-        selected={notes}
-        onChange={(next) => {
-          write({ notes: notesParam(next) });
-        }}
-      />
+      {listed.length === 0 && calendar.unplaceable.length === 0 ? (
+        <EmptyPanel
+          title="Nothing scheduled"
+          detail="No item in this workspace carries a date in this range. Give a note a calendar view and a date property, and it will appear here."
+        />
+      ) : (
+        <NoteFilter
+          options={options}
+          selected={notes}
+          onChange={(next) => {
+            write({ notes: notesParam(next) });
+          }}
+        />
+      )}
 
       <CollatedCalendar
         entries={shown}

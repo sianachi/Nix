@@ -64,7 +64,13 @@ const INITIAL: InlinePanelState = {
   hadSelection: true,
   applying: false,
 };
-function InlinePreview({ failed = false }: { failed?: boolean }): ReactElement {
+function InlinePreview({
+  failed = false,
+  initial = INITIAL,
+}: {
+  failed?: boolean;
+  initial?: InlinePanelState;
+}): ReactElement {
   const editor = useEditor({
     extensions: [...nixEditingExtensions],
     content: '<p>Original text remains here until accepted.</p>',
@@ -73,7 +79,7 @@ function InlinePreview({ failed = false }: { failed?: boolean }): ReactElement {
   const [state, setState] = useState<InlinePanelState>(
     failed
       ? { ...INITIAL, phase: 'error', failure: 'interrupted', text: 'Partial text is kept.' }
-      : INITIAL,
+      : initial,
   );
   const idle = () => {
     setState({ ...state, phase: 'idle' });
@@ -82,8 +88,12 @@ function InlinePreview({ failed = false }: { failed?: boolean }): ReactElement {
     state,
     available: true,
     start: () => undefined,
-    setInstruction: () => undefined,
-    setLanguage: () => undefined,
+    setInstruction: (instruction) => {
+      setState((previous) => ({ ...previous, instruction }));
+    },
+    setLanguage: (language) => {
+      setState((previous) => ({ ...previous, language }));
+    },
     generate: () => undefined,
     stop: () => undefined,
     retry: () => undefined,
@@ -100,3 +110,31 @@ function InlinePreview({ failed = false }: { failed?: boolean }): ReactElement {
 }
 export const InlineResult = { render: (): ReactElement => <InlinePreview /> };
 export const InlineInterrupted = { render: (): ReactElement => <InlinePreview failed /> };
+export const InlineCommandChooser = {
+  render: (): ReactElement => (
+    <InlinePreview initial={{ ...INITIAL, phase: 'choosing', kind: null, text: '' }} />
+  ),
+};
+export const InlineCustomPrompt = {
+  render: (): ReactElement => (
+    <InlinePreview
+      initial={{
+        ...INITIAL,
+        phase: 'composing',
+        kind: 'custom',
+        text: '',
+        instruction: 'Write a poem about the morning.\nKeep each line short.',
+      }}
+    />
+  ),
+};
+export const InlineLongResult = {
+  render: (): ReactElement => (
+    <InlinePreview
+      initial={{
+        ...INITIAL,
+        text: `A link to review:\nhttps://example.com/${'unbroken-path'.repeat(40)}\n${'More words to read.\n'.repeat(20)}`,
+      }}
+    />
+  ),
+};

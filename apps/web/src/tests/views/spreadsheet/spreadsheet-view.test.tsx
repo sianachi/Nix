@@ -1,4 +1,5 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -453,6 +454,84 @@ describe('honesty around the edges', () => {
 });
 
 describe('reaching editing and opening by pointer alone', () => {
+  it('applies an inline property edit with a visible control and writes once', async () => {
+    const user = userEvent.setup();
+    renderAt(sheetWith({ items: [ALPHA] }));
+    await user.dblClick(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Count for Alpha' }), {
+      target: { value: '7' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Apply property edit' }));
+    expect(writes).toEqual([{ itemId: 'item-a', bag: { count: 7 } }]);
+  });
+
+  it('cancels an inline property edit with a visible control without blur committing', async () => {
+    const user = userEvent.setup();
+    renderAt(sheetWith({ items: [ALPHA] }));
+    await user.dblClick(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Count for Alpha' }), {
+      target: { value: '7' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Cancel property edit' }));
+    expect(writes).toEqual([]);
+    expect(screen.queryByRole('textbox', { name: 'Edit Count for Alpha' })).toBeNull();
+  });
+
+  it('opens the held row without selecting or opening a different row', () => {
+    vi.useFakeTimers();
+    try {
+      const onOpen = vi.fn();
+      renderAt(sheetWith({ items: [ALPHA, BETA], onOpen }));
+      fireEvent.pointerDown(screen.getByRole('gridcell', { name: 'Status for Beta, done' }), {
+        pointerType: 'touch',
+        isPrimary: true,
+        clientX: 20,
+        clientY: 20,
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Open Beta' }));
+      expect(onOpen).toHaveBeenCalledExactlyOnceWith('item-b');
+      expect(writes).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('edits the requested property through its context menu and preserves editor focus', async () => {
+    renderAt(sheetWith({ items: [ALPHA, BETA] }));
+    grid().focus();
+    fireEvent.contextMenu(screen.getByRole('gridcell', { name: 'Status for Beta, done' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit Status' }));
+    const editor = screen.getByRole('textbox', { name: 'Edit Status for Beta' });
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    expect(editor).toHaveFocus();
+    fireEvent.change(editor, { target: { value: 'open' } });
+    fireEvent.keyDown(editor, { key: 'Enter' });
+    expect(writes).toEqual([{ itemId: 'item-b', bag: { status: 'open' } }]);
+  });
+
+  it('clears the requested property through the existing bulk-write path', () => {
+    renderAt(sheetWith({ items: [ALPHA, BETA] }));
+    fireEvent.contextMenu(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Clear Count' }));
+    expect(writes).toEqual([{ itemId: 'item-a', bag: { count: null } }]);
+  });
+
+  it('keeps computed properties read-only in the context menu', () => {
+    const computed = item('item-a', 'Alpha', 1, { total: 8 });
+    renderAt(
+      sheetWith({ items: [computed], schema: schemaOf(property('total', 'Total', 'formula')) }),
+    );
+    fireEvent.contextMenu(screen.getByRole('gridcell', { name: 'Total for Alpha, 8' }));
+    expect(screen.getByRole('menuitem', { name: 'Edit Total' })).toBeDisabled();
+    expect(screen.getByRole('menuitem', { name: 'Clear Total' })).toBeDisabled();
+    expect(writes).toEqual([]);
+  });
+
   it('turns a second tap on the already-active cell into an edit; the first only selects it', () => {
     renderAt(sheetWith({ items: [ALPHA] }));
 

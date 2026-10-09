@@ -41,8 +41,8 @@ import { useOpenItem } from '../tabs/use-open-item';
  */
 function GraphFrame({ children }: { readonly children: ReactNode }): ReactElement {
   return (
-    <div className={`${paneScroller} flex flex-col gap-4 p-4`}>
-      <Text variant="h2" as="h1">
+    <div className={`${paneScroller} flex flex-col gap-3 p-3 sm:gap-4 sm:p-4`}>
+      <Text variant="h5" as="h1">
         Graph
       </Text>
       {children}

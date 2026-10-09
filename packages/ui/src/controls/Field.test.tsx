@@ -9,6 +9,9 @@ describe('Field', () => {
     render(<Field label="Note title">{(control) => <Input {...control} />}</Field>);
 
     expect(screen.getByRole('textbox', { name: 'Note title' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Note title' }).parentElement).toHaveClass(
+      'min-w-0 wrap-anywhere',
+    );
   });
 
   it('describes the control with its hint', () => {

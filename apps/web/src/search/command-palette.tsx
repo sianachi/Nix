@@ -199,7 +199,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     >
       <div
         className={[
-          'flex items-center gap-3 px-5',
+          'flex min-w-0 items-center gap-3 px-3 sm:px-5',
           options.length === 0 ? '' : 'border-b border-divider',
         ].join(' ')}
       >

@@ -997,6 +997,18 @@ export const DarkConversationPhone320 = {
   globals: { ground: 'dark' },
 };
 
+export const ConversationPhone280 = {
+  render: (): ReactElement => (
+    <PhoneFrame width={280}>
+      <AutoOpenCompanion />
+    </PhoneFrame>
+  ),
+};
+export const DarkConversationPhone280 = {
+  ...ConversationPhone280,
+  globals: { ground: 'dark' },
+};
+
 export const ConversationPhoneLandscape = {
   render: (): ReactElement => (
     <PhoneFrame width={568} height={320}>

@@ -1,9 +1,10 @@
-import { screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
+import { ConfirmLaunch } from '../../launch/launch-page';
 import { STUB_WORKSPACE, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 
@@ -57,6 +58,33 @@ beforeEach(() => {
 });
 
 describe('launching the installed app', () => {
+  it('lets a keyboard user review all shared text before saving or cancelling', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const onCancel = vi.fn();
+    const text = `${'A line in the shared draft.\n'.repeat(20)}The final line.`;
+    render(
+      <ConfirmLaunch
+        intent={{ kind: 'share', title: 'Shared draft', text, url: null }}
+        workspaceName="Writing"
+        onConfirm={onConfirm}
+        onCancel={onCancel}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Shared text' });
+    expect(preview).toHaveTextContent('The final line.');
+    await user.tab();
+    expect(preview).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Save note' })).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(onConfirm).toHaveBeenCalledOnce();
+    await user.tab();
+    await user.keyboard('{Enter}');
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
   it('opens today from the Today shortcut', async () => {
     stubCoreApi();
     renderLaunch('/launch/today');

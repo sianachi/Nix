@@ -49,7 +49,8 @@ const BLOCK_GAP = 'mt-4 first:mt-0';
  * to appear complete in the source for Tailwind to emit it, so this cannot be composed from
  * `DOCUMENT_SECONDARY_STEP` at runtime. `prose.test.ts` checks the two agree.
  */
-const TABLE_TYPE_STEP = '[&_.tableWrapper>table]:text-base';
+const TABLE_TYPE_STEP =
+  '[&_.tableWrapper>table]:text-lg sm:not-any-pointer-coarse:[&_.tableWrapper>table]:text-base';
 
 /**
  * The editable element itself: the measure, the ground, and the pieces of the document that
@@ -65,6 +66,7 @@ export const proseRoot = [
   // A measure. Text that runs the full width of a wide pane is measurably harder to read; 65ch is
   // Tailwind's prose measure and lands near the classic 45-75 character band.
   `max-w-prose font-body ${DOCUMENT_BODY_STEP} text-foreground`,
+  '[&[data-writing-mode="planning"]]:max-w-none [&[data-writing-mode="collaboration"]]:max-w-none',
 
   // The caret and the text selection. The selection fill is a fixed ramp step rather than a role
   // because a highlight is a physical light wash: dark ink on a pale accent reads on either

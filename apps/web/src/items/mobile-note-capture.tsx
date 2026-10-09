@@ -69,7 +69,7 @@ export function MobileNoteCapture({
           event.preventDefault();
           void create();
         }}
-        className="flex flex-col gap-3"
+        className="flex min-w-0 flex-col gap-3"
       >
         <Field label="Note title">
           {(control) => (
@@ -88,14 +88,17 @@ export function MobileNoteCapture({
         </Field>
         <Button
           variant="secondary"
+          className="min-w-0"
           disabled={saving}
           aria-expanded={choosing}
           onClick={() => {
             setChoosing(!choosing);
           }}
         >
-          Create in:{' '}
-          {parentId === null ? 'Workspace' : (tree.find(parentId)?.title ?? '') || 'Untitled'}
+          <span className="min-w-0 truncate">
+            Create in:{' '}
+            {parentId === null ? 'Workspace' : (tree.find(parentId)?.title ?? '') || 'Untitled'}
+          </span>
         </Button>
         {choosing ? (
           <MobileDestinationPicker

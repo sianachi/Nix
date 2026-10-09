@@ -1,5 +1,5 @@
 import { Button, Text } from '@nix/ui';
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
 import type {
@@ -10,6 +10,7 @@ import type {
 } from '../core/container-model';
 import { resolveLoadState } from '../core/view-chrome';
 import type { ViewRendererProps } from '../core/view-kinds';
+import { reportFormValidity } from './form-validity';
 
 type FormPage = InteractiveFormDefinition['pages'][number];
 
@@ -75,6 +76,12 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
   const [sending, setSending] = useState(false);
   const [complete, setComplete] = useState(false);
   const [outcome, setOutcome] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const pageHeaderRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    pageHeaderRef.current?.focus();
+  }, [pageIndex, complete]);
 
   const definitions = new Map(
     (container.schema?.properties ?? []).map((property) => [property.key, property]),
@@ -84,7 +91,7 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
   if (loadState !== null) return loadState;
   if (form === null || form === undefined || form.pages.length === 0) {
     return (
-      <Text tone="muted">
+      <Text tone="muted" className="wrap-anywhere">
         Configure this interactive form in Views before collecting responses.
       </Text>
     );
@@ -97,13 +104,17 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
   if (complete) {
     return (
       <section
+        ref={pageHeaderRef}
+        tabIndex={-1}
         aria-live="polite"
-        className="flex max-w-xl flex-col gap-2 border border-divider p-3"
+        className="flex min-w-0 w-full max-w-xl flex-col gap-2 border border-divider p-3"
       >
-        <Text variant="h3" as="h2">
+        <Text variant="h3" as="h2" className="wrap-anywhere">
           {definition.confirmationTitle}
         </Text>
-        <Text tone="muted">{definition.confirmationMessage}</Text>
+        <Text tone="muted" className="wrap-anywhere">
+          {definition.confirmationMessage}
+        </Text>
         <Button
           variant="secondary"
           className="self-start"
@@ -120,11 +131,17 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
     );
   }
 
-  if (page === undefined) return <Text tone="muted">No page currently matches these answers.</Text>;
+  if (page === undefined)
+    return (
+      <Text tone="muted" className="wrap-anywhere">
+        No page currently matches these answers.
+      </Text>
+    );
   const visibleBlocks = page.blocks.filter((block) => isVisible(block.visibleWhen, answers));
   const last = pageIndex >= visiblePages.length - 1;
 
   function validate(blocks: readonly FormBlock[]): boolean {
+    if (!reportFormValidity(formRef.current)) return false;
     const currentAnswers = answersRef.current;
     const required = Object.fromEntries(
       blocks
@@ -139,12 +156,12 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
     setErrors(required);
     if (Object.keys(required).length === 0) return true;
     setOutcome('Some required answers are still empty.');
+    const firstMissingPage = visiblePages.findIndex((candidate) =>
+      candidate.blocks.some((block) => block.id in required),
+    );
+    if (firstMissingPage >= 0) setPageIndex(firstMissingPage);
     requestAnimationFrame(() =>
-      document
-        .querySelector<HTMLElement>(
-          '[data-form-error="true"] input, [data-form-error="true"] select',
-        )
-        ?.focus(),
+      formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus(),
     );
     return false;
   }
@@ -181,19 +198,26 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
 
     setSending(true);
     setOutcome(null);
-    const refusal = await container.create(title || `${view.name} response`, properties);
-    setSending(false);
-    if (refusal !== null) {
-      setOutcome(refusal);
-      return;
+    try {
+      const refusal = await container.create(title || `${view.name} response`, properties);
+      if (refusal !== null) {
+        setOutcome(refusal);
+        return;
+      }
+      setComplete(true);
+    } catch {
+      setOutcome('The response could not be sent. Check the connection and try again.');
+    } finally {
+      setSending(false);
     }
-    setComplete(true);
   }
 
   return (
     <form
+      ref={formRef}
       aria-label={view.name}
-      className="flex max-w-xl flex-col gap-5"
+      className="flex min-w-0 w-full max-w-xl flex-col gap-5"
+      noValidate
       onSubmit={(event) => {
         event.preventDefault();
         if (last) void finish();
@@ -203,14 +227,22 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
         }
       }}
     >
-      <header className="flex flex-col gap-1 border-b border-divider pb-3">
+      <header
+        ref={pageHeaderRef}
+        tabIndex={-1}
+        className="flex min-w-0 flex-col gap-1 border-b border-divider pb-3"
+      >
         <Text variant="caption" tone="muted">
           Page {String(pageIndex + 1)} of {String(visiblePages.length)}
         </Text>
-        <Text variant="h3" as="h2">
+        <Text variant="h3" as="h2" className="wrap-anywhere">
           {page.title}
         </Text>
-        {page.description === null ? null : <Text tone="muted">{page.description}</Text>}
+        {page.description === null ? null : (
+          <Text tone="muted" className="wrap-anywhere">
+            {page.description}
+          </Text>
+        )}
       </header>
 
       {visibleBlocks.map((block) => (
@@ -232,7 +264,7 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
       ))}
 
       {outcome === null ? null : <Text role="alert">{outcome}</Text>}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {pageIndex === 0 ? null : (
           <Button
             type="button"
@@ -275,24 +307,21 @@ function InteractiveBlock({
 }): ReactNode {
   if (block.kind === 'heading')
     return (
-      <Text variant="h4" as="h3">
+      <Text variant="h4" as="h3" className="wrap-anywhere">
         {block.text}
       </Text>
     );
-  if (block.kind === 'paragraph') return <Text tone="muted">{block.text}</Text>;
+  if (block.kind === 'paragraph')
+    return (
+      <Text tone="muted" className="wrap-anywhere">
+        {block.text}
+      </Text>
+    );
   if (definition === undefined || !isKnownPropertyType(definition.type)) {
     return <Text role="alert">“{block.text}” refers to a field that is no longer available.</Text>;
   }
   return (
-    <div
-      className="flex flex-col gap-1"
-      data-form-error={error === null ? undefined : 'true'}
-      tabIndex={error === null ? undefined : -1}
-    >
-      <Text variant="h4" as="h3">
-        {block.text}
-        {block.required ? ' *' : ''}
-      </Text>
+    <div className="flex min-w-0 flex-col gap-1">
       {block.help === null ? null : (
         <Text variant="note" tone="muted">
           {block.help}
@@ -300,7 +329,7 @@ function InteractiveBlock({
       )}
       <PropertyInput
         item={{ title: '', properties: value === undefined ? {} : { [definition.key]: value } }}
-        property={{ ...definition, label: block.text }}
+        property={{ ...definition, label: block.text, required: block.required }}
         error={error}
         onCommit={onValue}
       />

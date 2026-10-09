@@ -1,6 +1,7 @@
 import { Button, Dialog, Icon, Text, cn, focusRing } from '@nix/ui';
 import { ArrowLeft, ArrowRight, Check, Eye } from 'lucide-react';
 import type { ReactNode, RefObject } from 'react';
+import { useZenActive } from '../lib/zen-mode';
 
 import { TemplateBlueprint } from './template-studio-facts';
 import type { TemplateDetail } from './template-api';
@@ -64,14 +65,17 @@ export function TemplateStudioShell({
   readonly finishLabel: string;
   readonly finishDisabled: boolean;
 }): ReactNode {
+  const zen = useZenActive();
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      <header className="flex shrink-0 items-center gap-3 border-b border-divider px-4 py-3">
+    <div className="@container/studio flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+      <header
+        className={`flex min-w-0 shrink-0 items-center gap-2 border-b border-divider px-3 py-2 ${zen ? 'pr-16' : ''}`}
+      >
         <Button variant="icon" aria-label="Cancel template setup" onClick={onRequestDiscard}>
           <Icon icon={ArrowLeft} size="sm" />
         </Button>
         <div className="min-w-0 flex-1">
-          <Text variant="h3" as="h1" className="truncate">
+          <Text variant="h4" as="h1" className="truncate">
             {title}
           </Text>
           <Text variant="caption" tone="muted" className="truncate">
@@ -80,19 +84,26 @@ export function TemplateStudioShell({
               : `Destination: ${destination}`}
           </Text>
         </div>
-        <Button variant="secondary" className="lg:hidden" onClick={onTogglePreview}>
-          <Icon icon={Eye} size="sm" /> {previewing ? 'Hide preview' : 'Preview'}
+        <Button
+          variant="icon"
+          className="shrink-0 @4xl/studio:hidden"
+          aria-label={previewing ? 'Hide preview' : 'Preview'}
+          aria-expanded={previewing}
+          aria-controls="template-studio-preview"
+          onClick={onTogglePreview}
+        >
+          <Icon icon={Eye} size="sm" />
         </Button>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col @4xl/studio:flex-row">
         <nav
           aria-label="Template steps"
-          className="shrink-0 border-b border-divider bg-surface p-3 lg:w-44 lg:border-b-0 lg:border-r"
+          className="min-w-0 shrink-0 border-b border-divider bg-surface p-2 @4xl/studio:w-44 @4xl/studio:border-b-0 @4xl/studio:border-r"
         >
-          <ol className="grid grid-cols-3 gap-1 lg:flex lg:flex-col lg:gap-2">
+          <ol className="grid grid-cols-3 gap-1 @4xl/studio:flex @4xl/studio:flex-col @4xl/studio:gap-2">
             {TEMPLATE_STUDIO_STEPS.map((entry, index) => (
-              <li key={entry.label}>
+              <li key={entry.label} className="min-w-0">
                 <button
                   type="button"
                   aria-current={index === step ? 'step' : undefined}
@@ -102,7 +113,7 @@ export function TemplateStudioShell({
                     onStepChange(index);
                   }}
                   className={cn(
-                    `flex w-full flex-col items-center gap-1 rounded-md px-2 py-2 text-center ${focusRing} lg:flex-row lg:items-center lg:gap-2 lg:text-left`,
+                    `flex min-h-(--control-lg) w-full flex-col items-center gap-1 rounded-md px-2 py-2 text-center ${focusRing} @4xl/studio:flex-row @4xl/studio:items-center @4xl/studio:gap-2 @4xl/studio:text-left`,
                     index === step ? 'bg-accent/10 text-accent-text' : 'hover:bg-foreground/7',
                   )}
                 >
@@ -122,7 +133,7 @@ export function TemplateStudioShell({
                       variant="caption"
                       as="span"
                       tone="muted"
-                      className="hidden max-w-full truncate lg:block"
+                      className="hidden max-w-full truncate @4xl/studio:block"
                     >
                       {entry.detail}
                     </Text>
@@ -133,14 +144,15 @@ export function TemplateStudioShell({
           </ol>
         </nav>
 
-        <main
+        <section
+          aria-label="Template setup"
           ref={stepMainRef}
           className={cn(
-            'min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6',
-            previewing ? 'hidden lg:block' : '',
+            'min-h-0 min-w-0 flex-1 overflow-y-auto p-3 sm:p-5',
+            previewing ? 'hidden @4xl/studio:block' : '',
           )}
         >
-          <div className="mx-auto flex max-w-2xl flex-col gap-5">
+          <div className="mx-auto flex min-w-0 max-w-2xl flex-col gap-4">
             {children}
             {statusMessage === null ? null : (
               <Text variant="bodySmall" role="status" className="bg-surface px-3 py-2">
@@ -152,7 +164,7 @@ export function TemplateStudioShell({
                 {error}
               </Text>
             )}
-            <div className="flex items-center justify-between border-t border-divider pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-divider pt-3">
               <Button variant="secondary" disabled={step === 0 || working} onClick={onBack}>
                 Back
               </Button>
@@ -167,14 +179,15 @@ export function TemplateStudioShell({
               )}
             </div>
           </div>
-        </main>
+        </section>
 
         <aside
+          id="template-studio-preview"
           aria-label="Template preview"
           className={cn(
             'min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain border-t border-divider bg-surface p-4',
-            'lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0 lg:w-80 xl:w-96',
-            previewing ? 'block' : 'hidden lg:block',
+            '@4xl/studio:flex-none @4xl/studio:shrink-0 @4xl/studio:border-l @4xl/studio:border-t-0 @4xl/studio:w-80 @5xl/studio:w-96',
+            previewing ? 'block' : 'hidden @4xl/studio:block',
           )}
         >
           <TemplateBlueprint

@@ -50,7 +50,13 @@ import { WorkspaceInvitationNotice } from '../workspaces/workspace-invitation-no
 import type { LaunchNavigationState } from '../launch/launch-intent';
 import { viewCommitted } from '../lib/view-transition';
 import { onNotice } from '../lib/notices';
-import { onZenModeChanged, setZenMode, toggleZenMode, useZenActive } from '../lib/zen-mode';
+import {
+  claimZenSurface,
+  onZenModeChanged,
+  setZenMode,
+  toggleZenMode,
+  useZenActive,
+} from '../lib/zen-mode';
 
 /**
  * The application chrome: one workspace, always visible.
@@ -112,9 +118,23 @@ export function AppShell(): ReactNode {
   const narrow = useDrawerNavigation();
   const keyboardVisible = useMobileKeyboard(narrow);
   const templateLibrary = useTemplates();
-  // Whether Zen is both asked for and has an item to act on (see `lib/zen-mode.ts`). The chrome
-  // below is not drawn while it holds - not hidden, so nothing of it stays in the tab order.
+  // One claim covers every workspace route, including pages without an open item.
+  useLayoutEffect(claimZenSurface, []);
   const zen = useZenActive();
+  const mainRef = useRef<HTMLElement>(null);
+  const previousZen = useRef(zen);
+  useEffect(() => {
+    if (previousZen.current === zen) return;
+    previousZen.current = zen;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement === null) {
+        mainRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [zen]);
 
   // The shelf is loaded once, here, because four places read it at the same time - this page's
   // rail, the tree's rows, the open document's control and the palette. See use-bookmarks.ts.
@@ -415,8 +435,8 @@ export function AppShell(): ReactNode {
   }, [navRendered]);
 
   return (
-    // design-token-exempt: device safe-area inset protects the header in standalone mode.
-    <div className="flex h-dvh flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] font-body text-foreground">
+    // design-token-exempt: device safe-area insets protect content in portrait and landscape.
+    <div className="flex h-dvh flex-col overflow-hidden bg-background pt-[env(safe-area-inset-top)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] font-body text-foreground">
       {/* First focusable thing in the document, for everybody, on every screen. It used to live in
           a layout element that the route tree had stopped rendering, so in practice the app had no
           skip link at all.
@@ -483,6 +503,11 @@ export function AppShell(): ReactNode {
               event.preventDefault();
               sidebar.toggle();
               focusPane(0);
+              requestAnimationFrame(() => {
+                if (!mainRef.current?.contains(document.activeElement)) {
+                  mainRef.current?.focus({ preventScroll: true });
+                }
+              });
             }
           }}
           className={`sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-4 focus:py-2 focus:shadow-md ${focusRing}`}
@@ -601,7 +626,9 @@ export function AppShell(): ReactNode {
                 geometrically - this only stops it from painting above chrome that lives outside
                 `<main>`. */}
             <main
+              ref={mainRef}
               id="main"
+              tabIndex={-1}
               inert={narrow && sidebar.visible && !zen}
               className={`isolate flex flex-1 ${paneClip}`}
             >
@@ -626,8 +653,8 @@ export function AppShell(): ReactNode {
         {/* In this region, not over content: it takes its own row, so the pet launcher, which
             clears this region's measured height, clears the player too. Hidden while the software
             keyboard is up, when the room is better spent on the text being typed. */}
-        {keyboardVisible ? null : <MiniPlayer onOpen={openPinned} />}
-        <PwaControls compact={keyboardVisible} />
+        {keyboardVisible || zen ? null : <MiniPlayer onOpen={openPinned} />}
+        {zen ? null : <PwaControls compact={keyboardVisible} />}
         {navRendered ? (
           <MobileNavigation
             workspaceId={workspaceId}

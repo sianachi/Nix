@@ -1,6 +1,6 @@
 import { useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { type Meta, type StoryObj } from '@storybook/react-vite';
-import { expect, fireEvent, fn, within } from 'storybook/test';
+import { expect, fireEvent, fn, userEvent, within } from 'storybook/test';
 
 import { Select } from './Select';
 import { Tabs, type TabItem, type TabsOrientation } from './Tabs';
@@ -162,6 +162,38 @@ export const PinnedAndPreview: Story = {
       initial="a"
     />
   ),
+};
+
+export const NarrowTouchTargets: Story = {
+  render: () => (
+    <div className="w-64 max-w-full">
+      <Example
+        items={[
+          { id: 'a', label: 'A long planning document', pinned: true },
+          { id: 'b', label: 'A long poem document', pinned: true },
+        ]}
+        initial="a"
+      />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const close = canvas.getByTitle('Close A long planning document (Delete)');
+    if (matchMedia('(any-pointer: coarse)').matches) {
+      const size = Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--control-lg'),
+      );
+      await expect(close.getBoundingClientRect().height).toBeGreaterThanOrEqual(size);
+      await expect(close.getBoundingClientRect().width).toBeGreaterThanOrEqual(size);
+      await expect(getComputedStyle(close).opacity).toBe('1');
+      for (const tab of canvas.getAllByRole('tab')) {
+        await expect(tab.getBoundingClientRect().height).toBeGreaterThanOrEqual(size);
+      }
+    }
+    await userEvent.click(close);
+    await expect(canvas.queryByRole('tab', { name: 'A long planning document' })).toBeNull();
+    await expect(canvas.getByRole('tab', { name: 'A long poem document' })).toBeInTheDocument();
+  },
 };
 
 /** A pane with several documents pinned open at once. */

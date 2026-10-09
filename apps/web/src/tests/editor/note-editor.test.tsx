@@ -9,6 +9,7 @@ import type * as apiClient from '@nix/api-client';
 import type * as collabSync from '../../editor/collab-sync';
 import type * as apiClientProvider from '../../api/api-client-provider';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
+import { useWritingModePreference } from '../../editor/writing-mode';
 import { NoteEditor } from '../../editor/note-editor';
 import type * as reactRouter from 'react-router';
 
@@ -137,6 +138,7 @@ beforeEach(() => {
   fileHarness.deleteItem.mockClear();
   fileHarness.client.execute.mockClear();
   useKeyboardModeStore.setState({ mode: 'standard', persistence: 'stored' });
+  useWritingModePreference.setState({ mode: 'prose', saved: true });
 });
 
 /** Renders the editor and returns the shared document it handed the provider. */
@@ -157,6 +159,23 @@ async function open(): Promise<Y.Doc> {
   }
   return doc;
 }
+
+it('changes writing modes while retaining the collaborative body and its connection', async () => {
+  const document = await open();
+  const body = screen.getByRole('textbox', { name: 'Note body' });
+  body.focus();
+  await userEvent.type(body, 'My plan', { skipClick: true });
+  await userEvent.click(screen.getByRole('button', { name: 'Writing mode: Prose' }));
+  await userEvent.click(screen.getByRole('button', { name: /^Planning/ }));
+
+  await waitFor(() => {
+    expect(body).toHaveAttribute('data-writing-mode', 'planning');
+  });
+  expect(screen.getByRole('textbox', { name: 'Note body' })).toBe(body);
+  expect(captured).toBe(document);
+  expect(body).toHaveTextContent('My plan');
+  expect(screen.getByRole('button', { name: 'Task list' })).toBeInTheDocument();
+});
 
 it('reports sync and save failures in one dialog without a footer or warning banners', async () => {
   await open();

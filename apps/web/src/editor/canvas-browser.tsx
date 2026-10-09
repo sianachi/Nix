@@ -1,5 +1,5 @@
-import { Button, Input, Text } from '@nix/ui';
-import { useMemo, useState, type ReactNode } from 'react';
+import { Button, ContextMenu, focusRing, Input, Text } from '@nix/ui';
+import { useId, useMemo, useState, type ReactNode } from 'react';
 import type { CanvasElement } from './canvas-binding';
 import {
   itemIdFromNixLink,
@@ -62,19 +62,20 @@ export function CanvasBrowser({
   readonly loading: boolean;
 }): ReactNode {
   const [search, setSearch] = useState('');
+  const searchId = useId();
   // Scene conversion walks every shape; searching must not repeat it for unchanged scene data.
   const { entries, drawingCount } = useMemo(() => canvasEntries(elements), [elements]);
   const visible = entries.filter((entry) =>
     entry.title.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
   );
   return (
-    <section aria-label="Canvas contents" className="h-full overflow-y-auto px-4 py-3">
-      <label htmlFor="canvas-browser-search" className="flex flex-col gap-2">
+    <section aria-label="Canvas contents" className="h-full min-w-0 overflow-y-auto px-4 py-3">
+      <label htmlFor={searchId} className="flex min-w-0 flex-col gap-2">
         <Text as="span" variant="caption">
           Find in canvas
         </Text>
         <Input
-          id="canvas-browser-search"
+          id={searchId}
           type="search"
           value={search}
           onChange={(event) => {
@@ -99,34 +100,60 @@ export function CanvasBrowser({
       ) : null}
       <ul className="divide-y divide-divider">
         {visible.map((entry) => (
-          <li key={entry.id} className="py-4">
-            <Text as="p" variant="caption" tone="muted">
-              {entry.kind}
-            </Text>
-            {entry.itemId !== null ? (
-              <Button
-                variant="ghost"
-                className="w-full justify-start whitespace-normal text-left"
-                onClick={() => {
-                  if (entry.itemId) onOpen(entry.itemId);
-                }}
+          <ContextMenu
+            key={entry.id}
+            label="Canvas content actions"
+            items={[
+              ...(entry.itemId === null
+                ? []
+                : [
+                    {
+                      label: 'Open item',
+                      onSelect: () => {
+                        if (entry.itemId !== null) onOpen(entry.itemId);
+                      },
+                    },
+                  ]),
+              { label: 'Show spatial canvas', onSelect: onSpatial },
+            ]}
+          >
+            {(target) => (
+              <li
+                {...target}
+                tabIndex={entry.itemId === null && entry.kind === 'Text' ? 0 : undefined}
+                className={`min-w-0 py-4 ${focusRing}`}
               >
-                {entry.title || 'Untitled'}
-              </Button>
-            ) : entry.kind === 'Image' ? (
-              <Button variant="ghost" onClick={onSpatial}>
-                View image in canvas
-              </Button>
-            ) : (
-              <Text as="p" className="whitespace-pre-wrap break-words">
-                {entry.title}
-              </Text>
+                <Text as="p" variant="caption" tone="muted">
+                  {entry.kind}
+                </Text>
+                {entry.itemId !== null ? (
+                  <Button
+                    variant="ghost"
+                    className="h-auto min-h-(--control-md) w-full justify-start whitespace-normal py-2 text-left any-pointer-coarse:h-auto any-pointer-coarse:min-h-(--control-lg)"
+                    onClick={() => {
+                      if (entry.itemId) onOpen(entry.itemId);
+                    }}
+                  >
+                    <Text as="span" className="min-w-0 [overflow-wrap:anywhere]">
+                      {entry.title || 'Untitled'}
+                    </Text>
+                  </Button>
+                ) : entry.kind === 'Image' ? (
+                  <Button variant="ghost" className="max-w-full" onClick={onSpatial}>
+                    View image in canvas
+                  </Button>
+                ) : (
+                  <Text as="p" className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {entry.title}
+                  </Text>
+                )}
+              </li>
             )}
-          </li>
+          </ContextMenu>
         ))}
       </ul>
       {drawingCount > 0 ? (
-        <Button variant="secondary" onClick={onSpatial}>
+        <Button variant="secondary" className="max-w-full" onClick={onSpatial}>
           View drawing ({String(drawingCount)} shapes)
         </Button>
       ) : null}

@@ -26,6 +26,7 @@ describe('template file import', () => {
     await user.click(screen.getByRole('button', { name: /validate file/i }));
 
     expect(await screen.findByRole('heading', { name: 'Imported template' })).toBeVisible();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
     expect(
       screen.getByText('Validation complete. Review this preview before adding it to the library.')
         .parentElement,

@@ -30,10 +30,10 @@ function PlaceHereSlot({
       variant={selected ? 'primary' : 'ghost'}
       aria-pressed={selected}
       disabled={disabled}
-      className="w-full justify-start"
+      className="min-w-0 w-full justify-start"
       onClick={onSelect}
     >
-      {label}
+      <span className="min-w-0 truncate">{label}</span>
     </Button>
   );
 }
@@ -170,7 +170,7 @@ export function MobileItemMove({
       }
     >
       {step !== 'workspace' ? (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="secondary" disabled={saving || !canMoveUp} onClick={moveUp}>
             <Icon icon={ArrowUp} size="sm" /> Move up
           </Button>
@@ -213,7 +213,7 @@ export function MobileItemMove({
           />
         </>
       ) : (
-        <section aria-label="Position" className="flex min-h-0 flex-col gap-2">
+        <section aria-label="Position" className="flex min-h-0 min-w-0 flex-col gap-2">
           <Text as="p" variant="bodySmall">
             Place in: {parentId === null ? 'Workspace' : (destination?.title ?? '') || 'Untitled'}
           </Text>
@@ -234,7 +234,7 @@ export function MobileItemMove({
             {destinationChildren.map((child) => (
               <div key={child.id}>
                 <div className="px-3 py-2">
-                  <Text as="span" variant="bodySmall" className="truncate">
+                  <Text as="span" variant="bodySmall" className="block min-w-0 truncate">
                     {child.title || 'Untitled'}
                   </Text>
                 </div>

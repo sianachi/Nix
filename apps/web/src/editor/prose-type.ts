@@ -33,7 +33,8 @@
  * A step above the interface's own body text on purpose: this is prose somebody sits and reads,
  * and it is measured to a `max-w-prose` column rather than fitted into a panel.
  */
-export const DOCUMENT_BODY_STEP = 'text-md';
+// Touch text stays above mobile browsers' 16px focus-zoom threshold.
+export const DOCUMENT_BODY_STEP = 'text-lg sm:not-any-pointer-coarse:text-md';
 
 /**
  * One step under body copy, for the blocks that are not prose: code, tables, and the two blocks
@@ -42,7 +43,7 @@ export const DOCUMENT_BODY_STEP = 'text-md';
  * Monospace runs visually larger than the body face at the same nominal size, and a table or a
  * generated index is scanned rather than read - both want to sit back from the copy around them.
  */
-export const DOCUMENT_SECONDARY_STEP = 'text-base';
+export const DOCUMENT_SECONDARY_STEP = 'text-lg sm:not-any-pointer-coarse:text-base';
 
 /**
  * The three heading ranks the schema defines, as sizes.

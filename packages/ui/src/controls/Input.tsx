@@ -24,14 +24,15 @@ import { disabledState, fieldFocus } from '../primitives/interaction';
 const inputVariants = cva(
   cn(
     blueprintFrame,
-    'w-full bg-background px-3',
+    'w-full min-w-0 bg-background px-3',
     // The height is the control scale's middle step rather than whatever the padding and the line
     // height add up to. It used to add up to 36.6px, which is a number nobody chose and which
     // never quite matched the 36px button standing beside it. On a coarse pointer it grows to
     // `--control-lg`, the same 44px touch step `<Button>` reserves, and `<Select>` grows in step
     // with it - a text field and a select beside each other on a phone are furniture too, not
     // exempt from the hit-area floor a button gets.
-    'h-(--control-md) pointer-coarse:h-(--control-lg) font-body text-md text-foreground',
+    // Touch stays readable without Safari focus zoom, including tablets using a mouse.
+    'h-(--control-md) any-pointer-coarse:h-(--control-lg) font-body text-md any-pointer-coarse:text-lg text-foreground',
     // The muted role, not an ink wash and not a ramp step: a placeholder at 4:1 is one people ask
     // you to repeat. neutral-600 was this package's own answer to that and did not reach it -
     // 3.8:1 on paper - and it is the light ground's step besides. `--color-muted` clears AA on both

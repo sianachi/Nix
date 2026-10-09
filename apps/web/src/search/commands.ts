@@ -75,7 +75,7 @@ export interface CommandContext {
   readonly captureToToday: (() => void) | null;
   readonly openShortcuts: () => void;
 
-  /** Enters or leaves Zen mode, the open item alone in the window. */
+  /** Enters or leaves Zen mode for the current page. */
   readonly toggleZen: () => void;
 
   /** Opens the caller's automations in this workspace. */
@@ -136,7 +136,7 @@ export function builtInCommands(context: CommandContext): readonly PaletteComman
     {
       id: 'toggle-zen',
       label: 'Toggle Zen mode',
-      hint: 'The open note or file, with nothing around it',
+      hint: 'Current page, with workspace navigation hidden',
       icon: Maximize2,
       shortcut: keysOf('zen'),
       keywords: ['zen', 'focus', 'distraction', 'fullscreen', 'full', 'screen', 'read', 'write'],

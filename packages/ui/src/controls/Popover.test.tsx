@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -102,5 +102,17 @@ describe('Popover', () => {
     await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(onOpenChange.mock.calls.map(([open]) => open)).toEqual([true, false, true, false]);
+  });
+
+  it('dismisses on an outside touch press without returning focus to its trigger', async () => {
+    const user = userEvent.setup();
+    render(<Subject />);
+    const trigger = screen.getByRole('button', { name: 'Filter' });
+    await user.click(trigger);
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Elsewhere' }), {
+      pointerType: 'touch',
+    });
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(trigger).not.toHaveFocus();
   });
 });

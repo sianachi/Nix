@@ -1,4 +1,4 @@
-import { Button, Icon, Menu, Text } from '@nix/ui';
+import { Button, ContextMenu, Icon, Menu, Text, type MenuEntry } from '@nix/ui';
 import { ArrowLeft, ChevronRight, EyeOff, MoreHorizontal, Shapes, X } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
 import { PaneViewport } from '../layout/pane-viewport';
@@ -36,7 +36,7 @@ export function MobileWorkspaceBrowser({
   const loading =
     tree.status === 'loading' || (parentId !== null && tree.isLoadingChildren(parentId));
   return (
-    <aside aria-label="Workspace" className="flex min-h-0 w-full flex-col bg-background">
+    <aside aria-label="Workspace" className="flex min-h-0 min-w-0 w-full flex-col bg-background">
       <div className="flex shrink-0 items-center gap-2 border-b border-divider px-3 py-2">
         {parentId !== null ? (
           <Button
@@ -104,83 +104,99 @@ export function MobileWorkspaceBrowser({
         scrollKey={`mobile-workspace:${parentId ?? 'root'}`}
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2"
       >
-        {visible.map((item) => (
-          <div key={item.id} className="flex min-w-0 items-center gap-1 rounded-md">
-            <Button
-              variant="ghost"
-              className="min-h-(--control-lg) min-w-0 flex-1 justify-start text-left"
-              onClick={() => {
-                onOpen(item.id);
-              }}
-            >
-              <ItemLandmarkIcon landmark={landmarks.landmarks[item.id]} />
-              <Text as="span" variant="bodySmall" className="truncate">
-                {item.title || 'Untitled'}
-              </Text>
-            </Button>
-            <Menu
-              label={`Actions for ${item.title || 'Untitled'}`}
-              items={[
-                ...(landmarks.enabled
-                  ? [
-                      {
-                        kind: 'action' as const,
-                        label: 'Choose icon…',
-                        icon: Shapes,
-                        onSelect: () => {
-                          setIconItem({
-                            scope: landmarks.scope,
-                            id: item.id,
-                            title: item.title || 'Untitled',
-                          });
-                        },
-                      },
-                    ]
-                  : []),
-                {
-                  kind: 'action',
-                  label: 'Hide for me',
-                  icon: EyeOff,
-                  onSelect: () => {
-                    visibility.hide(item.id, item.title);
+        {visible.map((item) => {
+          const actions: MenuEntry[] = [
+            ...(landmarks.enabled
+              ? [
+                  {
+                    kind: 'action' as const,
+                    label: 'Choose icon…',
+                    icon: Shapes,
+                    onSelect: () => {
+                      setIconItem({
+                        scope: landmarks.scope,
+                        id: item.id,
+                        title: item.title || 'Untitled',
+                      });
+                    },
                   },
-                },
-              ]}
-            >
-              {(trigger) => (
-                <Button
-                  {...trigger}
-                  onClick={() => {
-                    iconReturnFocus.current = trigger.ref.current;
-                    trigger.onClick();
-                  }}
-                  onKeyDown={(event) => {
-                    iconReturnFocus.current = trigger.ref.current;
-                    trigger.onKeyDown(event);
-                  }}
-                  variant="ghost"
-                  className="min-h-(--control-lg) min-w-(--control-lg) shrink-0 px-2"
-                  aria-label={`Actions for ${item.title || 'Untitled'}`}
-                >
-                  <Icon icon={MoreHorizontal} size="sm" />
-                </Button>
-              )}
-            </Menu>
-            {item.hasChildren ? (
-              <Button
-                variant="ghost"
-                className="min-h-(--control-lg) min-w-(--control-lg)"
-                aria-label={`Browse children of ${item.title || 'Untitled'}`}
-                onClick={() => {
-                  onParent(item.id);
-                  void tree.expand(item.id);
-                }}
+                ]
+              : []),
+            {
+              kind: 'action',
+              label: 'Hide for me',
+              icon: EyeOff,
+              onSelect: () => {
+                visibility.hide(item.id, item.title);
+              },
+            },
+          ];
+          return (
+            <div key={item.id} className="flex min-w-0 items-center gap-1 rounded-md">
+              <ContextMenu
+                label={`Actions for ${item.title || 'Untitled'}`}
+                items={[
+                  {
+                    label: 'Open',
+                    onSelect: () => {
+                      onOpen(item.id);
+                    },
+                  },
+                  ...actions,
+                ]}
               >
-                <Icon icon={ChevronRight} size="sm" />
-              </Button>
-            ) : null}
-          </div>
-        ))}
+                {(target) => (
+                  <Button
+                    {...target}
+                    variant="ghost"
+                    className="min-h-(--control-lg) min-w-0 flex-1 justify-start text-left"
+                    onClick={() => {
+                      onOpen(item.id);
+                    }}
+                  >
+                    <ItemLandmarkIcon landmark={landmarks.landmarks[item.id]} />
+                    <Text as="span" variant="bodySmall" className="min-w-0 truncate">
+                      {item.title || 'Untitled'}
+                    </Text>
+                  </Button>
+                )}
+              </ContextMenu>
+              <Menu label={`Actions for ${item.title || 'Untitled'}`} items={actions}>
+                {(trigger) => (
+                  <Button
+                    {...trigger}
+                    onClick={() => {
+                      iconReturnFocus.current = trigger.ref.current;
+                      trigger.onClick();
+                    }}
+                    onKeyDown={(event) => {
+                      iconReturnFocus.current = trigger.ref.current;
+                      trigger.onKeyDown(event);
+                    }}
+                    variant="ghost"
+                    className="min-h-(--control-lg) min-w-(--control-lg) shrink-0 px-2"
+                    aria-label={`Actions for ${item.title || 'Untitled'}`}
+                  >
+                    <Icon icon={MoreHorizontal} size="sm" />
+                  </Button>
+                )}
+              </Menu>
+              {item.hasChildren ? (
+                <Button
+                  variant="ghost"
+                  className="min-h-(--control-lg) min-w-(--control-lg)"
+                  aria-label={`Browse children of ${item.title || 'Untitled'}`}
+                  onClick={() => {
+                    onParent(item.id);
+                    void tree.expand(item.id);
+                  }}
+                >
+                  <Icon icon={ChevronRight} size="sm" />
+                </Button>
+              ) : null}
+            </div>
+          );
+        })}
         {!loading && !tree.error && visible.length === 0 ? (
           <Text as="p" variant="note" tone="muted" className="p-3">
             {tree.childrenOf(parentId).length > 0

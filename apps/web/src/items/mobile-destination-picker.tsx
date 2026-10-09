@@ -23,7 +23,7 @@ export function MobileDestinationPicker({
   const loading =
     tree.status === 'loading' || (parentId !== null && tree.isLoadingChildren(parentId));
   return (
-    <section aria-label="Destination" className="flex min-h-0 flex-col gap-2">
+    <section aria-label="Destination" className="flex min-h-0 min-w-0 flex-col gap-2">
       <Text as="p" variant="bodySmall">
         {purpose === 'create' ? 'Create in:' : 'Move to:'}{' '}
         {parentId === null ? 'Workspace' : (parent?.title ?? '') || 'Untitled'}
@@ -58,16 +58,16 @@ export function MobileDestinationPicker({
               key={item.id}
               variant="ghost"
               disabled={disabled}
-              className="w-full justify-between text-left"
+              className="min-w-0 w-full justify-between text-left"
               onClick={() => {
                 onChange(item.id);
                 void tree.expand(item.id);
               }}
             >
-              <Text as="span" variant="bodySmall" className="truncate">
+              <Text as="span" variant="bodySmall" className="min-w-0 truncate">
                 {item.title || 'Untitled'}
               </Text>
-              <Icon icon={ChevronRight} size="sm" />
+              <Icon icon={ChevronRight} size="sm" className="shrink-0" />
             </Button>
           ))}
         {!loading && !tree.error && tree.childrenOf(parentId).length === 0 ? (

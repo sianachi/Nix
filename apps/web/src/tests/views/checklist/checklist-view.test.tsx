@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -98,6 +98,20 @@ function Harness(options: HarnessOptions): ReactNode {
 }
 
 describe('ChecklistView', () => {
+  it('ticks a line from its context menu through the same property write', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Open Bread' }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    await user.click(screen.getByRole('menuitem', { name: 'Mark as done' }));
+    await waitFor(() => {
+      expect(screen.getByRole('checkbox', { name: 'Bread' })).toBeChecked();
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('2 of 3 done');
+  });
+
   it('draws one line per item with a box, the title and its one secondary property', () => {
     renderAt(<Harness />);
 

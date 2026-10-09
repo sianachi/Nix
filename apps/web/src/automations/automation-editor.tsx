@@ -86,7 +86,7 @@ export function AutomationEditor(props: AutomationEditorProps): ReactNode {
   return (
     <form
       noValidate
-      className="flex min-w-0 flex-col gap-6"
+      className="flex min-w-0 flex-col gap-4"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
@@ -132,7 +132,7 @@ export function AutomationEditor(props: AutomationEditorProps): ReactNode {
 
       <fieldset disabled={busy} className="flex min-w-0 flex-col gap-4">
         <legend>
-          <Text as="span" variant="h4">
+          <Text as="span" variant="h6">
             When
           </Text>
         </legend>
@@ -647,7 +647,7 @@ function ConditionFields({
   return (
     <fieldset className="flex min-w-0 flex-col gap-4">
       <legend>
-        <Text as="span" variant="h4">
+        <Text as="span" variant="h6">
           Only if
         </Text>
       </legend>
@@ -768,7 +768,7 @@ function ActionFields(props: AutomationEditorProps): ReactNode {
   return (
     <fieldset disabled={props.busy} className="flex min-w-0 flex-col gap-4">
       <legend>
-        <Text as="span" variant="h4">
+        <Text as="span" variant="h6">
           Then
         </Text>
       </legend>

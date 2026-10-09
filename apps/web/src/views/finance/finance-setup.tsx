@@ -173,7 +173,7 @@ function SettingsForm({ state, finance, onClose }: SettingsDialogProps): ReactNo
           )}
         </Field>
         <WriteError message={error} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -439,7 +439,7 @@ function AccountForm({ state, finance, account, onClose }: AccountDialogProps): 
           </label>
         )}
         <WriteError message={error} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>
@@ -665,7 +665,7 @@ function LineForm({ state, finance, line, onClose }: LineDialogProps): ReactNode
           </label>
         )}
         <WriteError message={error} />
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
           </Button>

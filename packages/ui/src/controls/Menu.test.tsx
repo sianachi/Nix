@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Settings } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
@@ -43,6 +43,77 @@ describe('Menu', () => {
     expect(screen.getByRole('menu').parentElement).toBe(
       screen.getByRole('dialog', { name: 'Item settings' }),
     );
+  });
+
+  it('dismisses on a touch outside without waiting for a compatibility mouse event', async () => {
+    render(<Menu label="Actions" items={ACTION_ITEMS} children={trigger()} />);
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.pointerDown(document.body, { pointerType: 'touch' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('keeps focus on a control opened by a menu action', async () => {
+    render(
+      <>
+        <Menu
+          label="Actions"
+          items={[
+            {
+              label: 'Rename',
+              onSelect: () => {
+                screen.getByRole('textbox', { name: 'Title editor' }).focus();
+              },
+            },
+          ]}
+          children={trigger()}
+        />
+        <input aria-label="Title editor" />
+      </>,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename' }));
+    expect(screen.getByRole('textbox', { name: 'Title editor' })).toHaveFocus();
+  });
+
+  it('keeps the native clipboard menu on editable controls inside a content panel', async () => {
+    render(
+      <Menu
+        label="Tools"
+        items={[
+          {
+            kind: 'content',
+            content: <input aria-label="Title" />,
+          },
+        ]}
+        children={trigger()}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Actions' }));
+    expect(fireEvent.contextMenu(screen.getByRole('textbox', { name: 'Title' }))).toBe(true);
+  });
+
+  it('focuses an unavailable menu so Escape can still dismiss it', async () => {
+    render(
+      <Menu
+        label="Unavailable tools"
+        items={[
+          {
+            label: 'Save',
+            disabled: true,
+            onSelect: vi.fn(),
+          },
+        ]}
+        children={trigger()}
+      />,
+    );
+    const user = userEvent.setup();
+    const button = screen.getByRole('button', { name: 'Actions' });
+    await user.click(button);
+    expect(screen.getByRole('menu', { name: 'Unavailable tools' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(button).toHaveFocus();
   });
 
   it('continues from the trigger when tabbing out of a portaled action menu', async () => {
@@ -253,7 +324,7 @@ describe('Menu', () => {
     await user.click(screen.getByRole('button', { name: 'Actions' }));
 
     expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveClass(
-      'pointer-coarse:h-(--control-lg)',
+      'any-pointer-coarse:min-h-(--control-lg)',
     );
   });
 
@@ -400,6 +471,6 @@ describe('Menu', () => {
     render(<Menu label="Workspace actions" items={ACTION_ITEMS} children={trigger()} />);
     await user.click(screen.getByRole('button', { name: 'Actions' }));
 
-    expect(screen.getByRole('menu')).toHaveClass('max-sm:w-full', 'max-sm:bottom-0');
+    expect(screen.getByRole('menu')).toHaveClass('max-sm:rounded-b-none');
   });
 });

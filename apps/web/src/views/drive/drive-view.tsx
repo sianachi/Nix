@@ -1,5 +1,15 @@
 import { files as fileResources, isNixApiError, items as coreItems } from '@nix/api-client';
-import { Button, Checkbox, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import {
+  Button,
+  Checkbox,
+  ContextMenu,
+  Icon,
+  Text,
+  blueprintFrame,
+  cn,
+  focusRing,
+  type MenuEntry,
+} from '@nix/ui';
 import {
   ArrowDown,
   ArrowUp,
@@ -26,6 +36,7 @@ import { useWorkspaceTree } from '../../items/use-workspace-tree';
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
 import { formatBytes, fileKindLabel, formatWhen } from '../../files/file-facts';
 import { CreateItemControl } from '../core/create-item-control';
+import { useItemContextActions } from '../core/use-item-context-actions';
 import type { Item } from '../core/container-model';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { driveBodyKindLabel, driveKindIcon, isDriveContainerCandidate } from './drive-icons';
@@ -106,6 +117,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
   const client = useApiClient();
   const { workspaceId } = useWorkspace();
   const tree = useWorkspaceTree();
+  const itemActions = useItemContextActions(onOpen);
 
   const layout = resolveLayout(view.layout);
 
@@ -207,8 +219,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     setSelected(allSelected ? new Set() : new Set(rows.map((row) => row.id)));
   }
 
-  async function downloadSelected(): Promise<void> {
-    const items = rows.filter((row) => selected.has(row.id));
+  async function downloadItems(items: readonly Item[]): Promise<void> {
     const files = items.filter((row) => row.type === 'file');
     const skipped = items.length - files.length;
     setStatus(
@@ -395,6 +406,38 @@ export function DriveView(props: ViewRendererProps): ReactNode {
     void moveItems(ids, item.id);
   }
 
+  function rowContextMenu(item: Item): MenuEntry[] {
+    return itemActions(item.id, item.title, [
+      {
+        kind: 'action',
+        label: selected.has(item.id) ? 'Deselect' : 'Select',
+        onSelect: () => {
+          toggleSelect(item.id, false);
+        },
+      },
+      ...(item.type === 'file'
+        ? [
+            {
+              label: 'Download',
+              icon: Download,
+              onSelect: () => {
+                void downloadItems([item]);
+              },
+            },
+          ]
+        : []),
+      {
+        kind: 'action',
+        label: 'Move to…',
+        icon: FolderInput,
+        onSelect: () => {
+          setSelected(new Set([item.id]));
+          setMoveOpen(true);
+        },
+      },
+    ]);
+  }
+
   if (container.status === 'loading') return <LoadingPanel label="this drive" />;
   if (container.status === 'error')
     return (
@@ -429,7 +472,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
   return (
     <div
       className={cn(
-        'flex min-h-0 flex-col gap-3',
+        '@container/drive flex min-h-0 min-w-0 flex-col gap-3',
         dropTargetRoot && 'outline-2 -outline-offset-2 outline-accent',
       )}
       onDragOver={onRootDragOver}
@@ -468,7 +511,10 @@ export function DriveView(props: ViewRendererProps): ReactNode {
               <Text variant="body" as="span">
                 {`${String(selected.size)} selected`}
               </Text>
-              <Button variant="secondary" onClick={() => void downloadSelected()}>
+              <Button
+                variant="secondary"
+                onClick={() => void downloadItems(rows.filter((row) => selected.has(row.id)))}
+              >
                 <Icon icon={Download} size="sm" />
                 Download
               </Button>
@@ -499,6 +545,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
               selected={selected}
               dropTargetRow={dropTargetRow}
               onOpen={onOpen}
+              rowContextMenu={rowContextMenu}
               onToggleSelect={toggleSelect}
               onDragStart={onRowDragStart}
               onDragOver={onRowDragOver}
@@ -514,6 +561,7 @@ export function DriveView(props: ViewRendererProps): ReactNode {
               allSelected={allSelected}
               dropTargetRow={dropTargetRow}
               onOpen={onOpen}
+              rowContextMenu={rowContextMenu}
               onToggleSelect={toggleSelect}
               onToggleSelectAll={toggleSelectAll}
               onChangeSort={changeSort}
@@ -553,6 +601,7 @@ interface RowsProps {
   readonly selected: ReadonlySet<string>;
   readonly dropTargetRow: string | null;
   readonly onOpen: (itemId: string) => void;
+  readonly rowContextMenu: (item: Item) => MenuEntry[];
   readonly onToggleSelect: (itemId: string, shiftKey: boolean) => void;
   readonly onDragStart: (item: Item, event: DragEvent<HTMLElement>) => void;
   readonly onDragOver: (item: Item, event: DragEvent<HTMLElement>) => void;
@@ -576,6 +625,7 @@ function DriveTable(
     allSelected,
     dropTargetRow,
     onOpen,
+    rowContextMenu,
     onToggleSelect,
     onToggleSelectAll,
     onChangeSort,
@@ -586,12 +636,12 @@ function DriveTable(
   } = props;
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-left">
+    <div className="min-w-0 overflow-x-auto">
+      <table className="w-full table-fixed border-collapse text-left @2xl/drive:table-auto">
         <caption className="sr-only">This drive's contents</caption>
         <thead>
           <tr>
-            <th scope="col" className="border-b border-divider p-2">
+            <th scope="col" className="w-(--control-lg) border-b border-divider p-2">
               <Checkbox
                 checked={allSelected}
                 onChange={onToggleSelectAll}
@@ -607,7 +657,7 @@ function DriveTable(
               columnKey="kind"
               sort={sort}
               onChangeSort={onChangeSort}
-              className="max-sm:hidden"
+              className="hidden @2xl/drive:table-cell"
             />
             <SortableHeader
               label="Size"
@@ -615,6 +665,7 @@ function DriveTable(
               sort={sort}
               onChangeSort={onChangeSort}
               align="end"
+              className="w-1/4 @2xl/drive:w-auto"
             />
             <SortableHeader
               label="Modified"
@@ -622,7 +673,7 @@ function DriveTable(
               sort={sort}
               onChangeSort={onChangeSort}
               align="end"
-              className="max-sm:hidden"
+              className="hidden @2xl/drive:table-cell"
             />
           </tr>
         </thead>
@@ -632,77 +683,88 @@ function DriveTable(
             const RowIcon = driveKindIcon(item);
             const isSelected = selected.has(item.id);
             return (
-              <tr
+              <ContextMenu
                 key={item.id}
-                draggable
-                onDragStart={(event) => {
-                  onDragStart(item, event);
-                }}
-                onDragOver={(event) => {
-                  onDragOver(item, event);
-                }}
-                onDragEnd={onDragEnd}
-                onDrop={(event) => {
-                  onDrop(item, event);
-                }}
-                className={cn(
-                  isSelected && 'bg-accent/10',
-                  dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
-                )}
+                label={`${item.title || 'Untitled'} actions`}
+                items={() => rowContextMenu(item)}
               >
-                <td className="border-b border-divider p-2">
-                  <Checkbox
-                    checked={isSelected}
-                    onClick={(event) => {
-                      onToggleSelect(item.id, event.shiftKey);
+                {(contextTarget) => (
+                  <tr
+                    {...contextTarget}
+                    draggable
+                    onDragStart={(event) => {
+                      onDragStart(item, event);
                     }}
-                    onChange={() => undefined}
-                    aria-label={`Select ${item.title || 'Untitled'}`}
-                  />
-                </td>
-                <td className="border-b border-divider p-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onOpen(item.id);
+                    onDragOver={(event) => {
+                      onDragOver(item, event);
                     }}
-                    className={cn('flex items-center gap-2 text-left', focusRing)}
-                  >
-                    {isFileRow(item) ? (
-                      <DriveFileThumbnail
-                        item={item}
-                        info={info}
-                        className="size-8"
-                        iconSize="sm"
-                      />
-                    ) : (
-                      <Icon icon={RowIcon} size="sm" />
+                    onDragEnd={onDragEnd}
+                    onDrop={(event) => {
+                      onDrop(item, event);
+                    }}
+                    className={cn(
+                      isSelected && 'bg-accent/10',
+                      dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
                     )}
-                    <Text variant="body" as="span">
-                      {item.title || 'Untitled'}
-                    </Text>
-                  </button>
-                </td>
-                <td className="max-sm:hidden border-b border-divider p-2">
-                  <Text variant="body" as="span" tone="muted">
-                    {kindOf(item, info)}
-                  </Text>
-                </td>
-                <td className="border-b border-divider p-2 text-right">
-                  <Text variant="body" as="span" tone="muted">
-                    {item.type === 'file'
-                      ? info?.status === 'ready'
-                        ? formatBytes(info.record.current.byteLength)
-                        : '—'
-                      : '—'}
-                  </Text>
-                </td>
-                <td className="max-sm:hidden border-b border-divider p-2 text-right">
-                  <Text variant="body" as="span" tone="muted">
-                    {formatWhen(item.updatedAt)}
-                  </Text>
-                </td>
-              </tr>
+                  >
+                    <td className="border-b border-divider p-2">
+                      <Checkbox
+                        checked={isSelected}
+                        onClick={(event) => {
+                          onToggleSelect(item.id, event.shiftKey);
+                        }}
+                        onChange={() => undefined}
+                        aria-label={`Select ${item.title || 'Untitled'}`}
+                      />
+                    </td>
+                    <td className="border-b border-divider p-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onOpen(item.id);
+                        }}
+                        className={cn(
+                          'flex min-h-(--control-sm) w-full min-w-0 items-center gap-2 text-left pointer-coarse:min-h-(--control-lg)',
+                          focusRing,
+                        )}
+                      >
+                        {isFileRow(item) ? (
+                          <DriveFileThumbnail
+                            item={item}
+                            info={info}
+                            className="size-8"
+                            iconSize="sm"
+                          />
+                        ) : (
+                          <Icon icon={RowIcon} size="sm" />
+                        )}
+                        <Text variant="body" as="span" className="min-w-0">
+                          {item.title || 'Untitled'}
+                        </Text>
+                      </button>
+                    </td>
+                    <td className="hidden border-b border-divider p-2 @2xl/drive:table-cell">
+                      <Text variant="body" as="span" tone="muted">
+                        {kindOf(item, info)}
+                      </Text>
+                    </td>
+                    <td className="border-b border-divider p-2 text-right">
+                      <Text variant="body" as="span" tone="muted">
+                        {item.type === 'file'
+                          ? info?.status === 'ready'
+                            ? formatBytes(info.record.current.byteLength)
+                            : '—'
+                          : '—'}
+                      </Text>
+                    </td>
+                    <td className="hidden border-b border-divider p-2 text-right @2xl/drive:table-cell">
+                      <Text variant="body" as="span" tone="muted">
+                        {formatWhen(item.updatedAt)}
+                      </Text>
+                    </td>
+                  </tr>
+                )}
+              </ContextMenu>
             );
           })}
         </tbody>
@@ -770,6 +832,7 @@ function DriveGrid(props: RowsProps): ReactNode {
     selected,
     dropTargetRow,
     onOpen,
+    rowContextMenu,
     onToggleSelect,
     onDragStart,
     onDragOver,
@@ -782,76 +845,84 @@ function DriveGrid(props: RowsProps): ReactNode {
     <ul
       role="list"
       aria-label="This drive's contents"
-      className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+      className="grid min-w-0 grid-cols-1 gap-3 @lg/drive:grid-cols-2 @3xl/drive:grid-cols-3 @5xl/drive:grid-cols-4 @7xl/drive:grid-cols-6"
     >
       {rows.map((item) => {
         const info = fileInfo.get(item.id);
         const RowIcon = driveKindIcon(item);
         const isSelected = selected.has(item.id);
         return (
-          <li
+          <ContextMenu
             key={item.id}
-            draggable
-            onDragStart={(event) => {
-              onDragStart(item, event);
-            }}
-            onDragOver={(event) => {
-              onDragOver(item, event);
-            }}
-            onDragEnd={onDragEnd}
-            onDrop={(event) => {
-              onDrop(item, event);
-            }}
-            className={cn(
-              blueprintFrame,
-              'relative flex min-w-0 flex-col items-center gap-2 bg-surface p-3',
-              isSelected && 'bg-accent/10',
-              dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
-            )}
+            label={`${item.title || 'Untitled'} actions`}
+            items={() => rowContextMenu(item)}
           >
-            <Checkbox
-              checked={isSelected}
-              onClick={(event) => {
-                onToggleSelect(item.id, event.shiftKey);
-              }}
-              onChange={() => undefined}
-              aria-label={`Select ${item.title || 'Untitled'}`}
-              className="self-start"
-            />
-            {isFileRow(item) ? (
-              <DriveFileThumbnail
-                item={item}
-                info={info}
-                className="aspect-square w-full"
-                iconSize="lg"
-              />
-            ) : (
-              <Icon icon={RowIcon} size="lg" />
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                onOpen(item.id);
-              }}
-              className={cn('w-full min-w-0 text-center', focusRing)}
-            >
-              <Text
-                variant="body"
-                as="span"
-                title={item.title || 'Untitled'}
-                className="line-clamp-2 break-words"
+            {(contextTarget) => (
+              <li
+                {...contextTarget}
+                draggable
+                onDragStart={(event) => {
+                  onDragStart(item, event);
+                }}
+                onDragOver={(event) => {
+                  onDragOver(item, event);
+                }}
+                onDragEnd={onDragEnd}
+                onDrop={(event) => {
+                  onDrop(item, event);
+                }}
+                className={cn(
+                  blueprintFrame,
+                  'relative flex min-w-0 flex-col items-center gap-2 bg-surface p-3',
+                  isSelected && 'bg-accent/10',
+                  dropTargetRow === item.id && 'outline-2 -outline-offset-2 outline-accent',
+                )}
               >
-                {item.title || 'Untitled'}
-              </Text>
-            </button>
-            <Text variant="caption" as="span" tone="muted">
-              {item.type === 'file'
-                ? info?.status === 'ready'
-                  ? formatBytes(info.record.current.byteLength)
-                  : '—'
-                : kindOf(item, info)}
-            </Text>
-          </li>
+                <Checkbox
+                  checked={isSelected}
+                  onClick={(event) => {
+                    onToggleSelect(item.id, event.shiftKey);
+                  }}
+                  onChange={() => undefined}
+                  aria-label={`Select ${item.title || 'Untitled'}`}
+                  className="self-start"
+                />
+                {isFileRow(item) ? (
+                  <DriveFileThumbnail
+                    item={item}
+                    info={info}
+                    className="aspect-square w-full"
+                    iconSize="lg"
+                  />
+                ) : (
+                  <Icon icon={RowIcon} size="lg" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpen(item.id);
+                  }}
+                  className={cn('w-full min-w-0 text-center', focusRing)}
+                >
+                  <Text
+                    variant="body"
+                    as="span"
+                    title={item.title || 'Untitled'}
+                    className="line-clamp-2 break-words"
+                  >
+                    {item.title || 'Untitled'}
+                  </Text>
+                </button>
+                <Text variant="caption" as="span" tone="muted">
+                  {item.type === 'file'
+                    ? info?.status === 'ready'
+                      ? formatBytes(info.record.current.byteLength)
+                      : '—'
+                    : kindOf(item, info)}
+                </Text>
+              </li>
+            )}
+          </ContextMenu>
         );
       })}
     </ul>

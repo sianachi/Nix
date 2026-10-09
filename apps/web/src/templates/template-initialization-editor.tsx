@@ -173,9 +173,12 @@ export function TemplateInitializationEditor({
   }
 
   return (
-    <section className="flex flex-col gap-4" aria-labelledby="template-setup-heading">
+    <section
+      className="@container/setup flex min-w-0 flex-col gap-4"
+      aria-labelledby="template-setup-heading"
+    >
       <div>
-        <Text variant="h2" as="h2" id="template-setup-heading">
+        <Text variant="h3" as="h2" id="template-setup-heading">
           Setup and portability
         </Text>
         <Text variant="bodySmall" tone="muted">
@@ -184,10 +187,10 @@ export function TemplateInitializationEditor({
         </Text>
       </div>
 
-      <Blueprint className="flex flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <Text variant="h3" as="h3">
+      <Blueprint className="flex min-w-0 flex-col gap-3 p-3">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 basis-full @lg/setup:basis-0">
+            <Text variant="h4" as="h3">
               Questions
             </Text>
             <Text variant="caption" tone="muted">
@@ -210,7 +213,7 @@ export function TemplateInitializationEditor({
         {initialization.inputs.map((input, index) => (
           <div
             key={index}
-            className="grid gap-3 rounded-md border border-divider p-3 md:grid-cols-[1fr_1fr_auto]"
+            className="grid min-w-0 gap-3 rounded-md border border-divider p-3 @2xl/setup:grid-cols-2"
           >
             <Field
               label="Question label"
@@ -240,8 +243,8 @@ export function TemplateInitializationEditor({
                 />
               )}
             </Field>
-            <div className="flex items-end gap-3">
-              <Field label="Answer type">
+            <div className="col-span-full flex min-w-0 flex-wrap items-end gap-3">
+              <Field label="Answer type" className="min-w-0 flex-1 basis-full @lg/setup:basis-0">
                 {(control) => (
                   <Select
                     {...control}
@@ -268,7 +271,7 @@ export function TemplateInitializationEditor({
                 Remove
               </Button>
             </div>
-            <label className="flex items-center gap-2 text-sm md:col-span-3">
+            <label className="col-span-full flex min-w-0 items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={input.required}
@@ -278,7 +281,7 @@ export function TemplateInitializationEditor({
               />
               Required
             </label>
-            <div className="md:col-span-3">
+            <div className="col-span-full min-w-0">
               {input.type === 'member' ? (
                 <Input
                   aria-label="Search workspace members"
@@ -311,10 +314,10 @@ export function TemplateInitializationEditor({
         ))}
       </Blueprint>
 
-      <Blueprint className="flex flex-col gap-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <Text variant="h3" as="h3">
+      <Blueprint className="flex min-w-0 flex-col gap-3 p-3">
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 basis-full @lg/setup:basis-0">
+            <Text variant="h4" as="h3">
               Field rules
             </Text>
             <Text variant="caption" tone="muted">
@@ -338,7 +341,7 @@ export function TemplateInitializationEditor({
           return (
             <div
               key={targetKey(rule)}
-              className="grid gap-3 rounded-md border border-divider p-3 md:grid-cols-2"
+              className="grid min-w-0 gap-3 rounded-md border border-divider p-3 @2xl/setup:grid-cols-2"
             >
               <Field label="Item and field">
                 {(control) => (
@@ -396,7 +399,7 @@ export function TemplateInitializationEditor({
                   </Select>
                 )}
               </Field>
-              <div className="md:col-span-2">
+              <div className="col-span-full min-w-0">
                 {rule.kind === 'set' ? (
                   <RuleValueEditor
                     target={currentTarget}
@@ -459,9 +462,9 @@ export function TemplateInitializationEditor({
         })}
       </Blueprint>
 
-      <Blueprint className="flex flex-col gap-3 p-4">
+      <Blueprint className="flex min-w-0 flex-col gap-3 p-3">
         <div>
-          <Text variant="h3" as="h3">
+          <Text variant="h4" as="h3">
             External item links
           </Text>
           <Text variant="caption" tone="muted">
@@ -476,9 +479,9 @@ export function TemplateInitializationEditor({
         {initialization.references.map((reference) => (
           <div
             key={reference.sourceItemId}
-            className="grid gap-3 rounded-md border border-divider p-3 md:grid-cols-2"
+            className="grid min-w-0 gap-3 rounded-md border border-divider p-3 @2xl/setup:grid-cols-2"
           >
-            <Text variant="bodySmall" className="self-center">
+            <Text variant="bodySmall" className="min-w-0 self-center wrap-anywhere">
               {referenceLabels[reference.sourceItemId] ?? 'Loading linked item…'}
             </Text>
             <Field label="On creation">
@@ -511,7 +514,7 @@ export function TemplateInitializationEditor({
               )}
             </Field>
             {reference.policy === 'replace' ? (
-              <Field label="Replacement item" className="md:col-span-2">
+              <Field label="Replacement item" className="col-span-full">
                 {(control) => (
                   <Select
                     {...control}
@@ -532,7 +535,7 @@ export function TemplateInitializationEditor({
                 )}
               </Field>
             ) : null}
-            <Text variant="caption" tone="muted" className="md:col-span-2">
+            <Text variant="caption" tone="muted" className="col-span-full">
               {reference.policy === 'retain'
                 ? 'The applying workspace must authorize this linked item.'
                 : reference.policy === 'replace'
@@ -544,7 +547,7 @@ export function TemplateInitializationEditor({
       </Blueprint>
       {members.status === 'error' &&
       initialization.inputs.some((input) => input.type === 'member') ? (
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Text as="p" role="alert" variant="caption">
             Assignable principals could not be loaded.
           </Text>
@@ -674,8 +677,8 @@ function RelativeDateRuleEditor({
 }): ReactNode {
   const dateInputs = availableDateInputs(inputs);
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid gap-3 md:grid-cols-2">
+    <div className="@container/date-rule flex min-w-0 flex-col gap-3">
+      <div className="grid min-w-0 gap-3 @lg/date-rule:grid-cols-2">
         <Field
           label="Date answer"
           error={dateInputs.length === 0 ? 'Add a date question first.' : null}
@@ -724,7 +727,7 @@ function RelativeDateRuleEditor({
         Set a time and time zone
       </label>
       {useTime ? (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid min-w-0 gap-3 @lg/date-rule:grid-cols-2">
           <Field label="Time">
             {(control) => (
               <Input

@@ -27,8 +27,8 @@ import type {
   LibraryItems,
   SocketId,
 } from '@excalidraw/excalidraw/types';
-import { Button, Dialog, Field, Icon, Input, Select, Text } from '@nix/ui';
-import { Plus, Upload } from 'lucide-react';
+import { Button, Dialog, Field, Icon, Input, Menu, Select, Text } from '@nix/ui';
+import { MoreHorizontal, Plus, Upload } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -130,6 +130,7 @@ export function NixCanvas({
   const [fileNotice, setFileNotice] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const canvasRootRef = useRef<HTMLDivElement>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const onChangeRef = useRef(onChange);
   const lastPublishedFingerprintRef = useRef('');
@@ -142,6 +143,25 @@ export function NixCanvas({
   const librarySeededRef = useRef(false);
   const mountedRef = useRef(true);
   const activeOperationsRef = useRef(new Set<AbortController>());
+
+  useEffect(() => {
+    const root = canvasRootRef.current;
+    if (api === null || root === null) return;
+    // shortcut: Excalidraw 0.18 needs DOM labels, remove when its controls expose these semantics.
+    const labelCanvasControls = (): void => {
+      root.querySelector('.main-menu-trigger')?.setAttribute('aria-label', 'Canvas menu');
+      for (const footer of root.querySelectorAll('.excalidraw footer')) {
+        footer.setAttribute('role', 'group');
+        footer.setAttribute('aria-label', 'Canvas view controls');
+      }
+    };
+    labelCanvasControls();
+    const observer = new MutationObserver(labelCanvasControls);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+    };
+  }, [api]);
 
   const retirePendingUploads = useCallback(
     async (fileIds: readonly FileId[]): Promise<void> => {
@@ -910,10 +930,21 @@ export function NixCanvas({
     allowFileUploads &&
     workspaceId !== undefined &&
     parentItemId !== undefined;
+  const importLabel = allowFileUploads
+    ? 'Import an Excalidraw scene'
+    : 'Import an Excalidraw scene without images';
+
+  function openItemPicker(): void {
+    setItemOptionsStatus('loading');
+    // A fresh open starts from the unfiltered first page.
+    setItemFilter('');
+    setItemDialogOpen(true);
+  }
 
   return (
     <div
-      className="relative h-full min-h-0 w-full overflow-hidden bg-background"
+      ref={canvasRootRef}
+      className="relative h-full min-h-0 min-w-0 w-full overflow-hidden bg-background [&_.App-top-bar>section]:w-full! [&_.App-top-bar>section>.Stack]:w-full! [&_.App-top-bar_.App-toolbar-container]:relative! [&_.App-top-bar_.App-toolbar-container]:w-full! [&_.App-top-bar_.App-toolbar-container]:grid-cols-1! [&_.App-top-bar_.App-toolbar-container]:grid-flow-row! [&_.App-toolbar--mobile]:w-full! [&_.App-toolbar--mobile]:max-w-full! [&_.App-toolbar--mobile>.Stack]:grid-flow-row! [&_.App-toolbar--mobile>.Stack]:grid-cols-[repeat(auto-fit,minmax(var(--control-lg),1fr))]! [&_.App-toolbar--mobile_.ToolIcon]:min-h-(--control-lg)! [&_.App-toolbar--mobile_.ToolIcon]:min-w-(--control-lg)! [&_.mobile-misc-tools-container]:top-full! [&_.mobile-misc-tools-container]:mt-2!"
       role="region"
       aria-label="Canvas workspace"
       onDragOverCapture={(event: ReactDragEvent<HTMLDivElement>) => {
@@ -933,6 +964,7 @@ export function NixCanvas({
         ref={importInputRef}
         className="sr-only"
         type="file"
+        aria-label={importLabel}
         tabIndex={-1}
         accept=".excalidraw,.json,.png,.svg,application/json,image/png,image/svg+xml"
         onChange={(event: ChangeEvent<HTMLInputElement>) => {
@@ -966,16 +998,42 @@ export function NixCanvas({
             tools: { image: imageToolsEnabled },
           }}
           renderTopRightUI={(isMobile) =>
-            readOnly ? null : (
+            readOnly ? null : isMobile ? (
+              <div className="absolute top-full left-0 mt-2">
+                <Menu
+                  label="Canvas actions"
+                  items={[
+                    {
+                      label: importLabel,
+                      icon: Upload,
+                      disabled: importing || uploading,
+                      onSelect: () => importInputRef.current?.click(),
+                    },
+                    ...(workspaceId === undefined
+                      ? []
+                      : [
+                          {
+                            label: 'Add a Nix item to the canvas',
+                            icon: Plus,
+                            disabled: importing || uploading,
+                            onSelect: openItemPicker,
+                          },
+                        ]),
+                  ]}
+                >
+                  {(trigger) => (
+                    <Button {...trigger} variant="icon" aria-label="Canvas actions">
+                      <Icon icon={MoreHorizontal} size="sm" />
+                    </Button>
+                  )}
+                </Menu>
+              </div>
+            ) : (
               <div className="flex shrink-0 items-center gap-2">
                 <Button
                   variant="secondary"
                   className="shrink-0 whitespace-nowrap"
-                  aria-label={
-                    allowFileUploads
-                      ? 'Import an Excalidraw scene'
-                      : 'Import an Excalidraw scene without images'
-                  }
+                  aria-label={importLabel}
                   title={
                     allowFileUploads
                       ? undefined
@@ -985,23 +1043,18 @@ export function NixCanvas({
                   onClick={() => importInputRef.current?.click()}
                 >
                   <Icon icon={Upload} size="sm" />
-                  {isMobile ? null : allowFileUploads ? 'Import' : 'Import shapes'}
+                  {allowFileUploads ? 'Import' : 'Import shapes'}
                 </Button>
                 {workspaceId === undefined ? null : (
                   <Button
                     variant="secondary"
                     className="shrink-0 whitespace-nowrap"
                     aria-label="Add a Nix item to the canvas"
-                    onClick={() => {
-                      setItemOptionsStatus('loading');
-                      // A fresh open starts from the unfiltered first page, not wherever a
-                      // previous open's search left the field.
-                      setItemFilter('');
-                      setItemDialogOpen(true);
-                    }}
+                    disabled={importing || uploading}
+                    onClick={openItemPicker}
                   >
                     <Icon icon={Plus} size="sm" />
-                    {isMobile ? null : 'Nix item'}
+                    Nix item
                   </Button>
                 )}
               </div>
@@ -1128,11 +1181,11 @@ export function NixCanvas({
 
       {fileNotice === null && !uploading && !importing ? null : (
         <div
-          className="pointer-events-none absolute bottom-12 left-1/2 z-20 -translate-x-1/2 rounded-md border border-divider bg-background px-3 py-2 shadow-sm"
+          className="pointer-events-none absolute right-3 bottom-12 left-3 z-20 rounded-md border border-divider bg-background px-3 py-2 shadow-sm sm:right-auto sm:left-1/2 sm:w-fit sm:max-w-full sm:-translate-x-1/2"
           role="status"
           aria-live="polite"
         >
-          <Text variant="caption">
+          <Text variant="caption" className="[overflow-wrap:anywhere]">
             {fileNotice ?? (importing ? 'Importing canvas…' : 'Uploading image…')}
           </Text>
         </div>

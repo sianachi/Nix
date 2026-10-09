@@ -35,6 +35,14 @@ function rail(): HTMLElement {
 }
 
 describe('the navigation rail', () => {
+  it('keeps destinations scrollable when the window is short', async () => {
+    stubCoreApi();
+    renderAt(<App />);
+    expect(await screen.findByRole('navigation', { name: /destinations/i })).toHaveClass(
+      'min-h-0',
+      'overflow-y-auto',
+    );
+  });
   it('names every control, so an icon is never the only thing it says', async () => {
     stubCoreApi({ items: [NOTE] });
     renderAt(<App />);

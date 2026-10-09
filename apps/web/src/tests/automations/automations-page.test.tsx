@@ -6,6 +6,7 @@ import { item, stubCoreApi, STUB_WORKSPACE_ID } from '../api-stub';
 import { automationRule, stubAutomations, type StubAutomationRun } from '../api-stub/automations';
 import { renderAt, signedIn } from '../render-with-router';
 import { App } from '../../app';
+import { stubViewport } from '../stub-viewport';
 
 const RULE_ID = 'a1111111-1111-4111-8111-111111111111';
 const OTHER_ID = 'a2222222-2222-4222-8222-222222222222';
@@ -90,6 +91,32 @@ describe('the automations list', () => {
       expect(screen.getByRole('checkbox', { name: 'Turn on Weekly review' })).not.toBeChecked();
     });
   });
+
+  it.each([280, 320, 768])(
+    'offers rule actions at width %i without hiding long names',
+    async (width) => {
+      stubViewport(width);
+      stubCoreApi();
+      const name = 'A weekly review with a long title that must stay readable on a small screen';
+      const writes = stubAutomations({ rules: [automationRule({ id: RULE_ID, name })] });
+      renderAt(<App />, PAGE);
+      const user = userEvent.setup();
+      const rule = await screen.findByRole('link', { name });
+      expect(rule).not.toHaveClass('truncate');
+      await user.pointer({ target: rule, keys: '[MouseRight]' });
+      const menu = await screen.findByRole('menu', { name: `${name} actions` });
+      await user.click(within(menu).getByRole('menuitem', { name: 'Pause automation' }));
+      await waitFor(() => {
+        expect(writes.updates[0]?.body).toMatchObject({ rule: { enabled: false, name } });
+        expect(screen.getByRole('checkbox', { name: `Turn on ${name}` })).not.toBeChecked();
+      });
+      await user.pointer({ target: rule, keys: '[MouseRight]' });
+      const reopened = await screen.findByRole('menu', { name: `${name} actions` });
+      await user.click(within(reopened).getByRole('menuitem', { name: 'Edit automation' }));
+      expect(await screen.findByRole('heading', { name: `Edit ${name}` })).toBeVisible();
+      expect(screen.getByLabelText('Name')).toHaveValue(name);
+    },
+  );
 
   it('shows an error with a way to try again when the list cannot load', async () => {
     stubCoreApi();

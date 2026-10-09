@@ -932,6 +932,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             {expandable ? (
               <button
                 type="button"
+                data-context-menu-ignore
                 aria-label={expanded ? `Collapse ${item.title}` : `Expand ${item.title}`}
                 onClick={() => {
                   setExpanded(!expanded);
@@ -1013,6 +1014,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               <button
                 type="button"
                 disabled={!canOpenBeside}
+                data-context-menu-ignore
                 aria-label={
                   besideRefusal === null
                     ? `Open ${item.title || 'Untitled'} beside`
@@ -1057,6 +1059,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             {item.parentId === null ? null : (
               <button
                 type="button"
+                data-context-menu-ignore
                 aria-label={`Move ${item.title || 'Untitled'} to the workspace root`}
                 onClick={() => {
                   moveToRoot();
@@ -1072,6 +1075,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             {deleteProtected ? null : (
               <button
                 type="button"
+                data-context-menu-ignore
                 aria-label={`Delete ${item.title}`}
                 onClick={() => {
                   // Immediate, on purpose - see `requestDelete` on `app-shell.tsx` for why a toast

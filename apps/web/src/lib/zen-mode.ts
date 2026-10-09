@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { browserSessionStorage } from './browser-storage';
 
 /**
- * Zen mode: the open note or file fills the window and the application's chrome steps aside.
+ * Zen mode: workspace content fills the window and the application's chrome steps aside.
  *
  * **A leaf store, for the reason `a11y/announcer.ts` is one.** The shell decides whether to draw
  * the rail, the tree and the header; the editor page decides whether to draw the tab strip, the
@@ -15,9 +15,8 @@ import { browserSessionStorage } from './browser-storage';
  * reading; a new session starts with the application as they would expect to find it.
  *
  * **Two facts, not one.** `zenModeOn` is what the reader asked for and is kept across screens.
- * Whether it *does* anything is `useZenActive`: it needs an item on screen, claimed by the page
- * that draws one with `claimZenSurface`. On the calendar or in settings the preference is kept
- * and nothing is hidden, so arriving back at a note finds Zen exactly as it was left.
+ * Whether it *does* anything is `useZenActive`: it needs a workspace surface, claimed by the shell
+ * with `claimZenSurface`. Every workspace page supports it; signing out releases the surface.
  */
 
 const STORAGE_KEY = 'nix.zen';
@@ -78,7 +77,7 @@ export function onZenModeChanged(listener: (on: boolean) => void): () => void {
 }
 
 /**
- * Declares that an item is on screen, so Zen has something to act on. Returns the release.
+ * Declares workspace content is on screen, so Zen has something to act on. Returns the release.
  *
  * A count rather than a flag: a page that unmounts as another mounts must not clear the claim the
  * newcomer has just made.

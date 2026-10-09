@@ -168,7 +168,7 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-col gap-3">
       {notice}
 
       {items.length === 0 ? (
@@ -291,10 +291,23 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
   const detail = secondary === null ? '' : readPropertyText(item, secondary.key);
 
   return (
-    <ContextMenu label={`${title} actions`} items={() => itemActions(item.id, item.title)}>
+    <ContextMenu
+      label={`${title} actions`}
+      items={() =>
+        itemActions(item.id, item.title, [
+          {
+            kind: 'action',
+            label: done ? 'Mark as not done' : 'Mark as done',
+            onSelect: () => {
+              onTick(!done);
+            },
+          },
+        ])
+      }
+    >
       {(contextTarget) => (
         <li {...contextTarget} className="flex flex-col gap-1 py-1">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             {/* Named by the line's title: the box is what a person reaches for, and "Buy milk,
                 checkbox, not checked" is the sentence a screen reader should say about it. */}
             <Checkbox
@@ -326,7 +339,12 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
               </Text>
             </button>
             {detail.length === 0 || secondary === null ? null : (
-              <Text as="span" variant="caption" tone="muted" truncate className="min-w-0 max-w-1/2">
+              <Text
+                as="span"
+                variant="caption"
+                tone="muted"
+                className="min-w-0 basis-full sm:basis-auto sm:max-w-1/2"
+              >
                 <span className="sr-only">{secondary.label}: </span>
                 {detail}
               </Text>

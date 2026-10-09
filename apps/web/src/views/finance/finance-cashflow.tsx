@@ -1,4 +1,4 @@
-import { Table, Tag, Text, type TableColumn } from '@nix/ui';
+import { Table, Tag, Text, cn, focusRing, type TableColumn } from '@nix/ui';
 import {
   finance as financeApi,
   type CashFlow,
@@ -43,7 +43,7 @@ export function FinanceCashFlow({
       header: 'Month',
       rowHeader: true,
       cell: (row) => (
-        <span className="flex items-center gap-2">
+        <span className="flex flex-wrap items-center gap-2">
           {onMonth === undefined ? (
             formatMonth(row.month)
           ) : (
@@ -120,7 +120,7 @@ export function FinanceCashFlow({
   ];
   const last = projection.months[projection.months.length - 1];
   return (
-    <div className="@container flex flex-col gap-4">
+    <div className="@container flex min-w-0 flex-col gap-4">
       <SectionHeading
         id="finance-cashflow-title"
         title="Cash flow"
@@ -154,8 +154,8 @@ export function FinanceCashFlow({
           />
         </div>
       )}
-      <details className="rounded-lg border border-divider p-4">
-        <summary className="cursor-pointer text-base font-semibold">
+      <details className="min-w-0 rounded-lg border border-divider p-4">
+        <summary className="cursor-pointer text-base font-semibold any-pointer-coarse:min-h-(--control-lg)">
           Detailed monthly ledger and targets
         </summary>
         <div className="mt-4 grid gap-3 @lg:grid-cols-2 @3xl:grid-cols-4">
@@ -202,13 +202,21 @@ export function FinanceCashFlow({
             caption="The first month the net position covers that month's target."
           />
         </div>
-        <Table<CashFlowMonth>
-          caption="Cash flow by month"
-          columns={columns}
-          rows={projection.months}
-          rowKey={(row) => row.month}
-          emptyMessage="The plan has no months."
-        />
+        <div
+          role="region"
+          aria-label="Monthly cash flow"
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to reach horizontally clipped cash flow columns.
+          tabIndex={0}
+          className={cn('min-w-0 overflow-x-auto', focusRing)}
+        >
+          <Table<CashFlowMonth>
+            caption="Cash flow by month"
+            columns={columns}
+            rows={projection.months}
+            rowKey={(row) => row.month}
+            emptyMessage="The plan has no months."
+          />
+        </div>
       </details>
       <Text variant="bodySmall" tone="muted">
         Cash held is the bank balance. The cash and card position adds card credits and deducts

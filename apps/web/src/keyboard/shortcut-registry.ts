@@ -79,7 +79,7 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
   },
   {
     id: 'zen',
-    label: 'Zen mode: the open note or file alone in the window',
+    label: 'Zen mode: current page with workspace navigation hidden',
     group: 'General',
     // Command-Option-Z, like New note, rather than a bare chord: Mod+Shift+Z is redo in the editor
     // and in the sheet, and no editor keymap, Vim or Emacs preset binds Mod+Alt+Z. `code` because

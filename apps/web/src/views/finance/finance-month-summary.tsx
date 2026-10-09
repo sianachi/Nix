@@ -21,12 +21,12 @@ export function FinanceMonthSummary({
   const afterDebt = dashboard.monthEndAfterDebt;
   return (
     <section
-      className="flex flex-col gap-4 rounded-lg border border-divider bg-surface-raised p-5"
+      className="@container flex min-w-0 flex-col gap-4 rounded-lg border border-divider bg-surface-raised p-3 @sm:p-5"
       aria-labelledby="month-end-title"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Text as="h3" variant="h3" id="month-end-title">
+          <Text as="h3" variant="h4" id="month-end-title">
             At the end of {formatMonth(dashboard.month, 'long')}
           </Text>
           <Text variant="bodySmall" tone="muted">
@@ -40,11 +40,11 @@ export function FinanceMonthSummary({
         </Button>
       </div>
       <div className="grid gap-4 @lg:grid-cols-2">
-        <div className="flex flex-col gap-2 border-l-4 border-accent-fill p-3">
+        <div className="flex min-w-0 flex-col gap-2 border-l-4 border-accent-fill p-3">
           <Text variant="body" className="font-semibold">
             {figures.net < 0 ? 'Spending above income this month' : 'Money left this month'}
           </Text>
-          <Text as="p" variant="h2" className="tabular-nums">
+          <Text as="p" variant="h3" className="break-words tabular-nums">
             <Money amount={Math.abs(figures.net)} currency={currency} />
           </Text>
           <Text variant="bodySmall" tone="muted">
@@ -53,7 +53,7 @@ export function FinanceMonthSummary({
               : 'Income less this month’s outgoings, including card spending and refunds. This is your monthly surplus; cash held and remaining debt are shown separately.'}
           </Text>
         </div>
-        <div className="flex flex-col gap-2 border-l-4 border-divider p-3">
+        <div className="flex min-w-0 flex-col gap-2 border-l-4 border-divider p-3">
           <Text variant="body" className="font-semibold">
             {afterDebt === undefined
               ? dashboard.position.netPosition < 0
@@ -63,7 +63,7 @@ export function FinanceMonthSummary({
                 ? 'Debt above cash held'
                 : 'Cash after all remaining debt'}
           </Text>
-          <Text as="p" variant="h2" className="tabular-nums">
+          <Text as="p" variant="h3" className="break-words tabular-nums">
             <Money
               amount={Math.abs(afterDebt ?? dashboard.position.netPosition)}
               currency={currency}

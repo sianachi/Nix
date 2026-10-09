@@ -105,10 +105,10 @@ export function WorkspaceManagementSection(): ReactNode {
     <section
       aria-labelledby="workspace-management-heading"
       aria-busy={administration.working || creating}
-      className="flex max-w-4xl flex-col gap-6"
+      className="flex min-w-0 max-w-4xl flex-col gap-6"
     >
       <div className="flex flex-col gap-2">
-        <Text id="workspace-management-heading" variant="h3" as="h2">
+        <Text id="workspace-management-heading" variant="h3" as="h2" className="break-words">
           {workspace.name}
         </Text>
         <Text variant="note" tone="muted">
@@ -154,7 +154,7 @@ export function WorkspaceManagementSection(): ReactNode {
             void administration.rename(name.trim());
           }}
         >
-          <Field label="Workspace name">
+          <Field label="Workspace name" className="min-w-0 flex-1">
             {(control) => (
               <Input
                 {...control}
@@ -187,7 +187,7 @@ export function WorkspaceManagementSection(): ReactNode {
             void createWorkspace(event);
           }}
         >
-          <Field label="New workspace name">
+          <Field label="New workspace name" className="min-w-0 flex-1">
             {(control) => (
               <Input
                 {...control}
@@ -282,7 +282,7 @@ export function WorkspaceManagementSection(): ReactNode {
             ) : (
               <>
                 <form
-                  className="grid gap-2 sm:grid-cols-[1fr_12rem_auto] sm:items-end"
+                  className="grid min-w-0 gap-2 lg:grid-cols-[minmax(0,1fr)_12rem_auto] lg:items-end"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void administration.invite(inviteePrincipalId, role).then((saved) => {
@@ -290,7 +290,7 @@ export function WorkspaceManagementSection(): ReactNode {
                     });
                   }}
                 >
-                  <Field label="Person">
+                  <Field label="Person" className="min-w-0">
                     {(control) => (
                       <Select
                         {...control}
@@ -322,7 +322,7 @@ export function WorkspaceManagementSection(): ReactNode {
                       </Select>
                     )}
                   </Field>
-                  <Field label="Role">
+                  <Field label="Role" className="min-w-0">
                     {(control) => (
                       <Select
                         {...control}
@@ -395,7 +395,7 @@ export function WorkspaceManagementSection(): ReactNode {
                   key={`${member.subjectType}:${member.subjectId}`}
                   className="flex flex-wrap items-center gap-2 bg-surface p-3 shadow-sm"
                 >
-                  <Text className="min-w-0 flex-1">{member.subjectDisplayName}</Text>
+                  <Text className="min-w-0 flex-1 break-words">{member.subjectDisplayName}</Text>
                   <Select
                     aria-label={`Role for ${member.subjectDisplayName}`}
                     value={member.role}
@@ -487,7 +487,7 @@ export function WorkspaceManagementSection(): ReactNode {
                   key={invitation.id}
                   className="flex flex-wrap items-center gap-2 bg-surface p-3 shadow-sm"
                 >
-                  <Text className="min-w-0 flex-1">{invitation.emailNormalized}</Text>
+                  <Text className="min-w-0 flex-1 break-all">{invitation.emailNormalized}</Text>
                   <Tag>{invitation.role}</Tag>
                   <Tag tone="muted">{invitation.status}</Tag>
                   {invitation.status === 'pending' ? (

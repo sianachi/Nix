@@ -25,7 +25,7 @@ beforeEach(() => {
   signedIn();
 });
 
-it.each([320, 360, 390, 430])(
+it.each([280, 320, 360, 390, 430])(
   'keeps day controls and schedule behind a disclosure at width %i',
   async (width) => {
     stubViewport(width);

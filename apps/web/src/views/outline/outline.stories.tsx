@@ -124,6 +124,21 @@ function Example({
 }
 
 export const Plans = { render: (): ReactNode => <Example /> };
+export const NarrowPlans = {
+  render: (): ReactNode => (
+    <div className="max-w-xs">
+      <Example />
+    </div>
+  ),
+};
+export const RowActions = {
+  render: (): ReactNode => <Example />,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    canvas.getAllByRole('treeitem')[1]?.focus();
+    await userEvent.keyboard('{Shift>}{F10}{/Shift}');
+  },
+};
 export const Empty = { render: (): ReactNode => <Example empty /> };
 /** The new-item field open below the first row, as Enter leaves it. */
 export const DraftOpen = {
@@ -152,6 +167,8 @@ export const LockedRow = {
   },
 };
 export const DarkPlans = { ...Plans, globals: { ground: 'dark' } };
+export const DarkNarrowPlans = { ...NarrowPlans, globals: { ground: 'dark' } };
+export const DarkRowActions = { ...RowActions, globals: { ground: 'dark' } };
 export const DarkDraftOpen = { ...DraftOpen, globals: { ground: 'dark' } };
 export const DarkRefusalNote = { ...RefusalNote, globals: { ground: 'dark' } };
 export const DarkLockedRow = { ...LockedRow, globals: { ground: 'dark' } };

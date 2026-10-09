@@ -1,5 +1,5 @@
 import type * as apiClient from '@nix/api-client';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState, type ReactElement, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -199,6 +199,17 @@ function coverFrame(title: string): HTMLElement {
 }
 
 describe('the gallery view', () => {
+  it('opens the cover picker from a card context menu', async () => {
+    const user = userEvent.setup();
+    renderAt(galleryOf({ items: [WITH_COVER] }));
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'Harbour at dawn' }), {
+      clientX: 10,
+      clientY: 10,
+    });
+    await user.click(screen.getByRole('menuitem', { name: 'Change cover' }));
+    expect(screen.getByRole('dialog', { name: /Harbour at dawn/ })).toBeInTheDocument();
+  });
+
   it('keeps a 3,200-card gallery DOM bounded and announces positions in the full set', () => {
     vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1_440);
     const many = Array.from({ length: 3_200 }, (_unused, index) =>
@@ -222,23 +233,148 @@ describe('the gallery view', () => {
     // the rendered reflow itself belongs to a real-browser pass.
     expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
       'grid-cols-1',
-      'sm:grid-cols-2',
-      'lg:grid-cols-3',
-      'xl:grid-cols-4',
+      '@2xl/gallery:grid-cols-2',
+      '@5xl/gallery:grid-cols-3',
+      '@7xl/gallery:grid-cols-4',
     );
   });
 
-  it('draws at medium when the view names no size, exactly as every gallery always has', () => {
-    // Null is the ordinary state - every gallery stored before the field existed - so the classes
-    // here must be the ones the view shipped with, verbatim, or old galleries change shape on
-    // upgrade. Class contract, like the reflow test above: jsdom measures nothing.
+  it('keeps a retained card draft and focus as the virtual range and pane width change', async () => {
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1_440);
+    let viewportHeight = 900;
+    vi.spyOn(window, 'innerHeight', 'get').mockImplementation(() => viewportHeight);
+    let scrollPosition = 0;
+    let width = 320;
+    const rowGap = 10.2;
+    const computedStyle = window.getComputedStyle.bind(window);
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudo) => {
+      const style = computedStyle(element, pseudo);
+      Object.defineProperty(style, 'rowGap', { value: `${String(rowGap)}px`, configurable: true });
+      return style;
+    });
+    const observers: { readonly element: Element; readonly resize: () => void }[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(private readonly resize: () => void) {}
+        observe(element: Element): void {
+          observers.push({ element, resize: this.resize });
+        }
+        unobserve(): void {
+          return undefined;
+        }
+        disconnect(): void {
+          observers.splice(
+            0,
+            observers.length,
+            ...observers.filter((entry) => entry.resize !== this.resize),
+          );
+        }
+      },
+    );
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const row = this.dataset.virtualIndex;
+      const top = -scrollPosition + (row === undefined ? 0 : Number(row) * (300 + rowGap));
+      const height = row === undefined ? 900 : 300;
+      return {
+        x: 0,
+        y: top,
+        top,
+        left: 0,
+        right: width,
+        bottom: top + height,
+        width,
+        height,
+        toJSON: () => ({}),
+      };
+    });
+    const many = Array.from({ length: 200 }, (_unused, index) =>
+      itemOf({
+        id: `item-${String(index)}`,
+        title: `Item ${String(index + 1)}`,
+        seq: index,
+        properties: { owner: 'Saved owner' },
+      }),
+    );
+    const write = vi.fn(() => Promise.resolve(null));
+    renderAt(
+      galleryOf({
+        items: many,
+        view: viewOf({ columns: ['owner'], coverProperty: null }),
+        container: aContainer({ schema: schemaOf(OWNER), children: many, setProperties: write }),
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Item 2' }).closest('li')).toHaveAttribute(
+        'data-virtual-index',
+        '1',
+      );
+    });
+    const field = within(card('Item 2')).getByRole('textbox', { name: 'Owner' });
+    field.focus();
+    fireEvent.change(field, { target: { value: 'Draft owner' } });
+    const initialCards = screen.getAllByRole('listitem').length;
+    viewportHeight = 1_400;
+    fireEvent(window, new Event('resize'));
+    await waitFor(() => {
+      expect(screen.getAllByRole('listitem')).not.toHaveLength(initialCards);
+    });
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('Draft owner');
+    width = 1_024;
+    act(() => {
+      for (const observer of observers.filter(
+        (entry) => entry.element === screen.getByRole('list', { name: 'Covers' }),
+      ))
+        observer.resize();
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Item 2' }).closest('li')).toHaveAttribute(
+        'data-virtual-index',
+        '0',
+      );
+    });
+    expect(within(card('Item 2')).getByRole('textbox', { name: 'Owner' })).toBe(field);
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('Draft owner');
+    scrollPosition = 15_000;
+    fireEvent.scroll(window);
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Item 150' })).toBeInTheDocument();
+    });
+    expect(within(card('Item 2')).getByRole('textbox', { name: 'Owner' })).toBe(field);
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('Draft owner');
+    expect(screen.getAllByRole('listitem').length).toBeLessThan(100);
+    expect(
+      screen.getByRole('list', { name: 'Covers' }).querySelector('li[aria-hidden="true"]'),
+    ).toBeInTheDocument();
+    width = 320;
+    act(() => {
+      for (const observer of observers.filter(
+        (entry) => entry.element === screen.getByRole('list', { name: 'Covers' }),
+      ))
+        observer.resize();
+    });
+    await waitFor(() => {
+      expect(field.closest('li')).toHaveAttribute('data-virtual-index', '1');
+    });
+    expect(field).toHaveFocus();
+    expect(field).toHaveValue('Draft owner');
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('draws medium cards when the view names no size', () => {
     renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ cardSize: null }) }));
 
     expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
       'grid-cols-1',
-      'sm:grid-cols-2',
-      'lg:grid-cols-3',
-      'xl:grid-cols-4',
+      '@2xl/gallery:grid-cols-2',
+      '@5xl/gallery:grid-cols-3',
+      '@7xl/gallery:grid-cols-4',
     );
     expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-video');
   });
@@ -247,10 +383,10 @@ describe('the gallery view', () => {
     renderAt(galleryOf({ items: [WITH_COVER], view: viewOf({ cardSize: 'small' }) }));
 
     expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
-      'grid-cols-2',
-      'sm:grid-cols-3',
-      'lg:grid-cols-4',
-      'xl:grid-cols-6',
+      'grid-cols-1',
+      '@2xl/gallery:grid-cols-3',
+      '@5xl/gallery:grid-cols-4',
+      '@7xl/gallery:grid-cols-6',
     );
 
     // The aspect is part of the size, not left to the grid: a sixth of a row at 16:9 is a
@@ -263,8 +399,8 @@ describe('the gallery view', () => {
 
     expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
       'grid-cols-1',
-      'lg:grid-cols-2',
-      'xl:grid-cols-3',
+      '@5xl/gallery:grid-cols-2',
+      '@7xl/gallery:grid-cols-3',
     );
     expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-4/3');
   });
@@ -276,7 +412,7 @@ describe('the gallery view', () => {
 
     expect(screen.getByRole('list', { name: 'Covers' })).toHaveClass(
       'grid-cols-1',
-      'xl:grid-cols-4',
+      '@7xl/gallery:grid-cols-4',
     );
     expect(coverFrame('Harbour at dawn')).toHaveClass('aspect-video');
   });

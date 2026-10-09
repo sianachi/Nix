@@ -26,8 +26,8 @@ import { type InputTone } from './Input';
 const textareaVariants = cva(
   cn(
     blueprintFrame,
-    'w-full bg-background px-3 py-2',
-    'min-h-(--control-lg) font-body text-md text-foreground',
+    'w-full min-w-0 bg-background px-3 py-2',
+    'min-h-(--control-lg) font-body text-md any-pointer-coarse:text-lg text-foreground',
     'placeholder:text-muted',
     'transition-colors',
     fieldFocus,

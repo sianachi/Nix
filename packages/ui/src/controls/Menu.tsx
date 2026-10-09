@@ -19,6 +19,7 @@ import {
   disabledState,
   focusRingInset,
   inkWashStates,
+  isEditableTarget,
 } from '../primitives/interaction';
 import { useAnchoredPanel } from './use-anchored-panel';
 
@@ -49,12 +50,12 @@ import { useAnchoredPanel } from './use-anchored-panel';
  * viewport either way rather than clipped by it. The geometry itself is `placeFloatingMenu`, the
  * same primitive the editor's slash menu, reference picker and bubble menu place themselves
  * with - one tested implementation rather than this component re-deriving its own. Below the `sm`
- * breakpoint this measurement is skipped and the panel becomes a full-width bottom sheet instead,
+ * breakpoint the panel becomes a full-width bottom sheet instead,
  * `Dialog.tsx`'s other device concession: a menu is exactly as unable to predict a phone's safe
  * area or its keyboard as a dialog is, so it inherits the same `env(safe-area-inset-bottom)`
  * padding rather than a second, slightly different guess at the same problem.
  *
- * **Items are 44px tall under `pointer-coarse:`** - `Button.tsx`'s `--control-lg` step, reached
+ * **Items are at least 44px tall under `any-pointer-coarse:`** - `Button.tsx`'s `--control-lg` step, reached
  * the same way: a fine pointer gets the compact row, a finger gets the touch target the platform
  * guidelines ask for.
  *
@@ -205,7 +206,12 @@ function tabStops(root: HTMLElement): HTMLElement[] {
       'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]',
     ),
   ].filter((element) => {
-    if (element.tabIndex < 0 || element.closest('[hidden], [inert]')) return false;
+    if (
+      element.tabIndex < 0 ||
+      element.matches(':disabled') ||
+      element.closest('[hidden], [inert]')
+    )
+      return false;
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- older browsers and jsdom omit this platform method.
     if (!(element.checkVisibility?.() ?? true)) return false;
     if (
@@ -224,8 +230,8 @@ function tabStops(root: HTMLElement): HTMLElement[] {
 }
 
 const itemClass = cn(
-  'flex h-(--control-md) w-full items-center gap-2 px-3 text-left text-sm text-foreground',
-  'pointer-coarse:h-(--control-lg) pointer-coarse:text-base',
+  'flex min-h-(--control-md) w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground',
+  'any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:text-base',
   inkWashStates,
   focusRingInset,
   disabledState,
@@ -253,8 +259,8 @@ export function Menu(props: MenuProps): ReactNode {
   }
 
   useEffect(() => {
-    if (focusReturnToken === 0) return;
-    triggerRef.current?.focus();
+    if (focusReturnToken === 0 || document.activeElement !== document.body) return;
+    triggerRef.current?.focus({ preventScroll: true });
   }, [focusReturnToken]);
 
   const onTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
@@ -402,28 +408,29 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
     const item = panelRef.current?.querySelector<HTMLElement>(
       `[data-menu-item-index="${String(activeIndex)}"]`,
     );
-    if (item) {
+    if (item && enabledCount > 0) {
       item.focus();
     } else if (enabledCount === 0) {
       const controls = panelRef.current ? tabStops(panelRef.current) : [];
       const control = initial === 'last' ? controls[controls.length - 1] : controls[0];
-      control?.focus();
+      (control ?? panelRef.current)?.focus();
     }
   }, [activeIndex, enabledCount, initial]);
 
   // Outside pointerdown closes the menu, the same as every other disclosure in this package.
   useEffect(() => {
-    function onPointerDown(event: MouseEvent): void {
-      const target = event.target as Node;
+    function onPointerDown(event: PointerEvent): void {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
       if (ignoreOutside?.current?.contains(target) === true) return;
       if (panelRef.current?.contains(target) === true) return;
       // Not a return-focus close: the click already moved focus wherever the pointer landed.
       latest.current.onClose(false);
     }
 
-    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('pointerdown', onPointerDown);
     return () => {
-      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('pointerdown', onPointerDown);
     };
   }, [ignoreOutside]);
 
@@ -467,7 +474,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
             ? origin
             : (outside[outside.indexOf(origin) + 1] ?? outside[0] ?? origin);
           onClose(false);
-          next.focus();
+          next.focus({ preventScroll: true });
         } else {
           onClose(false);
         }
@@ -508,7 +515,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
     'min-w-[220px] max-w-[calc(100vw-16px)]',
     // Below `sm` the panel drops the anchored position entirely and becomes a bottom sheet: full
     // width, safe-area padding, same device concession as `Dialog.tsx`'s `presentation="standard"`.
-    'max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto! max-sm:left-0! max-sm:max-h-[min(70vh,100dvh)] max-sm:w-full max-sm:max-w-full max-sm:rounded-b-none max-sm:pb-[max(var(--spacing)*1,env(safe-area-inset-bottom))]',
+    'max-sm:rounded-b-none max-sm:pb-[max(var(--spacing)*1,env(safe-area-inset-bottom))]',
     className,
   );
 
@@ -519,17 +526,15 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
       ref={panelRef}
       role={role}
       aria-label={label}
-      // Not a tab stop of its own: focus lands on an item, never on the menu container itself.
-      // Still needed on the attribute for the same reason `Dialog`'s own `tabIndex={-1}` is.
+      // Escape remains reachable when every command is disabled.
       tabIndex={-1}
       className={panelClass}
       onKeyDown={onPanelKeyDown}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) onClose(false);
       }}
-      // A right-click inside an open menu is not a request for the browser's own menu on top of it.
       onContextMenu={(event) => {
-        event.preventDefault();
+        if (!isEditableTarget(event.target)) event.preventDefault();
       }}
     >
       {items.map((entry, index) => {
@@ -575,7 +580,9 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
               data-menu-item-index={index}
             >
               {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
-              {entry.label} <span className="sr-only">(opens in a new tab)</span>
+              <span className="min-w-0 flex-1 break-words">
+                {entry.label} <span className="sr-only">(opens in a new tab)</span>
+              </span>
               <span className="ml-auto text-muted">
                 <Icon icon={ArrowUpRight} size="sm" />
               </span>
@@ -597,7 +604,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
                 children: (
                   <>
                     {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
-                    {entry.label}
+                    <span className="min-w-0 flex-1 break-words">{entry.label}</span>
                   </>
                 ),
                 'data-menu-item-index': index,
@@ -620,7 +627,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
             }}
           >
             {entry.icon ? <Icon icon={entry.icon} size="sm" /> : null}
-            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            <span className="min-w-0 flex-1 break-words">{entry.label}</span>
             {entry.shortcut ? (
               <kbd aria-hidden="true" className="font-body text-xs text-muted">
                 {entry.shortcut}

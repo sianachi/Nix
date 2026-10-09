@@ -27,16 +27,16 @@ export function FileDetails({
       : null;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <section aria-labelledby="file-facts-heading" className="flex flex-col gap-2">
         <Text id="file-facts-heading" variant="h6" as="h3" tone="muted">
           Details
         </Text>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-2">
           <Fact label="Name">{file.fileName}</Fact>
           <Fact label="Type">
             {fileKindLabel(file.fileName, file.mediaType)}
-            <Text as="span" variant="caption" tone="muted" className="ml-2">
+            <Text as="span" variant="caption" tone="muted" className="ml-2 break-all">
               {file.mediaType}
             </Text>
           </Fact>
@@ -59,10 +59,10 @@ export function FileDetails({
             .map((version) => (
               <li
                 key={version.id}
-                className="flex items-center justify-between gap-3 rounded-md bg-surface px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-surface px-3 py-2"
               >
                 <div className="flex min-w-0 flex-col">
-                  <span className="flex items-center gap-2">
+                  <span className="flex flex-wrap items-center gap-2">
                     <Text as="span" variant="bodySmall">
                       Version {String(version.version)}
                     </Text>
@@ -102,7 +102,7 @@ function Fact({
       <Text as="dt" variant="caption" tone="muted" className="pt-0.5">
         {label}
       </Text>
-      <Text as="dd" variant="bodySmall" className="min-w-0 break-words">
+      <Text as="dd" variant="bodySmall" className="min-w-0 break-all">
         {children}
       </Text>
     </>

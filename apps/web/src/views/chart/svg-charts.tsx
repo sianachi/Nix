@@ -470,7 +470,7 @@ export function ChartLegend({
   return (
     <ul className="flex flex-wrap gap-x-4 gap-y-1">
       {entries.map((entry, index) => (
-        <li key={entry.key} className="flex items-center gap-2">
+        <li key={entry.key} className="flex min-w-0 max-w-full items-center gap-2">
           <svg
             viewBox={lines ? '0 0 24 8' : '0 0 12 12'}
             className={lines ? 'h-2 w-6 shrink-0' : 'size-3 shrink-0'}
@@ -499,7 +499,7 @@ export function ChartLegend({
               </>
             )}
           </svg>
-          <Text as="span" variant="caption">
+          <Text as="span" variant="caption" className="min-w-0">
             {entry.label}
           </Text>
         </li>

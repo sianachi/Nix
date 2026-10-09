@@ -77,9 +77,9 @@ export function HabitInsights({
       ? null
       : Math.round((summary.rate - prior.rate) * 100);
   return (
-    <section className="flex flex-col gap-6" aria-label="Habit insights">
+    <section className="flex min-w-0 flex-col gap-6" aria-label="Habit insights">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <Field label="Habit to explore">
+        <Field label="Habit to explore" className="min-w-0 max-w-full">
           {(control) => (
             <Select
               {...control}
@@ -97,7 +97,7 @@ export function HabitInsights({
             </Select>
           )}
         </Field>
-        <Field label="Progress range">
+        <Field label="Progress range" className="min-w-0 max-w-full">
           {(control) => (
             <Select
               {...control}
@@ -189,6 +189,7 @@ export function HabitInsights({
             <Field
               label="Inspect or correct a day"
               hint="Pick a date or select it in the calendar."
+              className="min-w-0 max-w-full"
             >
               {(control) => (
                 <Input

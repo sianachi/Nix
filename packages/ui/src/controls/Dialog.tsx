@@ -367,24 +367,29 @@ export function Dialog(props: DialogProps): ReactNode {
               // time, or the on-screen-keyboard-adjusted visual viewport once one is up. Below,
               // only the body scrolls - the header and the actions are flex items beside it, not
               // inside it, so a tall body can never carry them out of view.
-              'flex min-h-0 max-h-[min(80vh,var(--sheet-viewport-height,100dvh))] flex-col gap-4 p-6 pb-[max(var(--spacing)*6,env(safe-area-inset-bottom))]'
+              'flex min-h-0 max-h-[min(80dvh,var(--sheet-viewport-height,100dvh))] flex-col gap-3 p-3 pb-[max(var(--spacing)*3,env(safe-area-inset-bottom))] sm:gap-4 sm:p-6'
         }
       >
         <div
           className={
             titleHidden
               ? 'absolute right-3 top-3 z-30 flex items-start gap-4'
-              : 'flex shrink-0 items-start gap-4'
+              : 'flex min-w-0 shrink-0 items-start gap-3'
           }
         >
           {/* h2, not a caller's choice: a modal is its own document for the duration, so its title
               starts a heading outline rather than joining the page's. */}
-          <Text id={titleId} variant="h3" as="h2" className={titleHidden ? 'sr-only' : 'flex-1'}>
+          <Text
+            id={titleId}
+            variant="h3"
+            as="h2"
+            className={titleHidden ? 'sr-only' : 'min-w-0 flex-1 break-words'}
+          >
             {title}
           </Text>
           <Button
             variant="icon"
-            className="max-sm:min-h-(--control-lg) max-sm:min-w-(--control-lg)"
+            className="shrink-0 any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:min-w-(--control-lg)"
             aria-label={closeLabel}
             onClick={requestClose}
           >
@@ -411,7 +416,9 @@ export function Dialog(props: DialogProps): ReactNode {
               // The one scroll region in a standard dialog. `min-h-0` overrides the flex item's
               // default min-content height, which is otherwise exactly tall enough to defeat
               // `overflow-y-auto` by never shrinking below the body's own content.
-              <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">{children}</div>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
+                {children}
+              </div>
             ) : (
               children
             )}

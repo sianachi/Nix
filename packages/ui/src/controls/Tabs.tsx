@@ -104,7 +104,10 @@ const tablistVariants = cva(cn('flex min-w-0 items-stretch', chromeSurface), {
 });
 
 const tabVariants = cva(
-  cn('group flex min-w-0 shrink-0 items-center gap-1 text-sm transition-colors', focusRing),
+  cn(
+    'group flex min-w-0 shrink-0 items-center gap-1 text-sm any-pointer-coarse:min-h-(--control-lg) any-pointer-coarse:text-md transition-colors',
+    focusRing,
+  ),
   {
     variants: {
       orientation: {
@@ -112,8 +115,9 @@ const tabVariants = cva(
         // divide, so without one a single long title claims however much space it wants and pushes
         // every tab after it - and the strip's own scroll and close controls - off the visible
         // strip. Narrower still under `sm`, where the whole strip is narrower than one uncapped tab.
-        horizontal: '-mb-px max-w-48 border-b-2 px-3 py-1.5 max-sm:max-w-32',
-        vertical: '-mr-px border-r-2 px-3 py-1.5',
+        horizontal:
+          '-mb-px max-w-48 border-b-2 px-3 py-1.5 any-pointer-coarse:py-0 max-sm:max-w-32',
+        vertical: '-mr-px border-r-2 px-3 py-1.5 any-pointer-coarse:py-0',
       },
       active: {
         true: 'border-accent-text text-foreground',
@@ -251,11 +255,10 @@ export function Tabs(props: TabsProps): ReactNode {
               `aria-keyshortcuts` above announces, and which the tab's own `title` writes down for
               a sighted keyboard user who has no screen reader to read that attribute out.
               Hidden until the tab is hovered, focused or active, the same reveal-on-proximity
-              rule the pane divider and sidebar rows use. `pointer-coarse:` mirrors that: a touch
+              rule the pane divider and sidebar rows use. `any-pointer-coarse:` mirrors that: a touch
               pointer never fires `:hover`, so without it the close mark would stay invisible and
               under the 24px target floor on every tab but the active one - it forces the mark
-              visible and grows its box to `--control-sm`, the same pairing the sidebar's expand
-              control uses.
+              visible and grows its box to the 44px `--control-lg` touch step.
 
               The cost of `aria-hidden` here, so it is not rediscovered as a bug: this X is gone
               from the accessibility tree for *every* consumer of that tree, which includes
@@ -277,7 +280,7 @@ export function Tabs(props: TabsProps): ReactNode {
                 }}
                 className={cn(
                   'shrink-0 cursor-default rounded-sm p-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
-                  'pointer-coarse:flex pointer-coarse:size-(--control-sm) pointer-coarse:items-center pointer-coarse:justify-center pointer-coarse:p-0 pointer-coarse:opacity-100',
+                  'any-pointer-coarse:flex any-pointer-coarse:size-(--control-lg) any-pointer-coarse:items-center any-pointer-coarse:justify-center any-pointer-coarse:p-0 any-pointer-coarse:opacity-100',
                   active && 'opacity-100',
                   inkWashStates,
                 )}

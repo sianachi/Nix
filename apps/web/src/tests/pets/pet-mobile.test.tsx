@@ -5,6 +5,7 @@ import { MemoryRouter, Outlet, Route, Routes } from 'react-router';
 import { StrictMode } from 'react';
 import { PetCompanion } from '../../pets/pet-companion';
 import { PetPage } from '../../pages/pet-page';
+import { MobileNoteToolbar } from '../../editor/mobile-note-toolbar';
 import { stubViewport } from '../stub-viewport';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn() }));
@@ -134,7 +135,99 @@ describe('companion on a phone', () => {
     expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
     expect(await screen.findByText(/Choose one priority for each day/)).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Message Cat' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Message Cat' })).not.toHaveFocus();
     expect(screen.queryByRole('button', { name: 'Open Cat' })).not.toBeInTheDocument();
+  });
+
+  it('offers conversation actions on a secondary click of the header', async () => {
+    stubViewport(280);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    const title = await screen.findByRole('heading', { name: 'Cat' });
+    expect(fireEvent.contextMenu(screen.getByRole('button', { name: 'Close' }))).toBe(true);
+    expect(fireEvent.contextMenu(screen.getByRole('button', { name: 'Chat' }))).toBe(true);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(fireEvent.contextMenu(title, { clientX: 20, clientY: 30 })).toBe(false);
+    expect(screen.getByRole('menu', { name: 'Conversation actions' })).toBeVisible();
+    await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
+    expect(await screen.findByRole('heading', { name: 'Chat settings' })).toBeVisible();
+  });
+
+  it('offers the same conversation actions after a touch long press', async () => {
+    stubViewport(280);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    const title = await screen.findByRole('heading', { name: 'Cat' });
+    fireEvent.pointerDown(title, {
+      pointerType: 'touch',
+      pointerId: 1,
+      isPrimary: true,
+      button: 0,
+      clientX: 20,
+      clientY: 30,
+    });
+    expect(await screen.findByRole('menu', { name: 'Conversation actions' })).toBeVisible();
+    fireEvent.pointerUp(title, { pointerType: 'touch', pointerId: 1 });
+    await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
+    expect(await screen.findByRole('heading', { name: 'Chat settings' })).toBeVisible();
+  });
+
+  it('waits for a composer tap before opening a touch tablet keyboard', async () => {
+    stubViewport(800);
+    const matchMedia = window.matchMedia.bind(window);
+    const touchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query) => {
+      const media = matchMedia(query);
+      if (query.includes('pointer: coarse'))
+        Object.defineProperty(media, 'matches', { value: true });
+      return media;
+    });
+    try {
+      render(
+        <MemoryRouter>
+          <PetPage />
+        </MemoryRouter>,
+      );
+      expect(await screen.findByRole('textbox', { name: 'Message Cat' })).not.toHaveFocus();
+    } finally {
+      touchMedia.mockRestore();
+    }
+  });
+
+  it('keeps the phone dialog inside the visible viewport when the keyboard pans it', async () => {
+    stubViewport(280);
+    const viewport = Object.assign(new EventTarget(), { height: 460, offsetTop: 30, scale: 1 });
+    vi.stubGlobal('visualViewport', viewport);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+    await waitFor(() => {
+      expect(dialog.style.getPropertyValue('--phone-dialog-height')).toBe('460px');
+      expect(dialog.style.getPropertyValue('--phone-dialog-top')).toBe('30px');
+    });
+    act(() => {
+      viewport.height = 360;
+      viewport.offsetTop = 70;
+      viewport.dispatchEvent(new Event('scroll'));
+    });
+    await waitFor(() => {
+      expect(dialog.style.getPropertyValue('--phone-dialog-height')).toBe('360px');
+      expect(dialog.style.getPropertyValue('--phone-dialog-top')).toBe('70px');
+    });
   });
 
   it('keeps the regular launcher size at tablet width while still clearing the bottom nav', async () => {
@@ -319,6 +412,56 @@ describe('companion on a phone', () => {
       await waitFor(() => {
         expect(companion).toHaveStyle({ left: '318px', top: '708px' });
       });
+    } finally {
+      document.documentElement.style.removeProperty('--mobile-nav-height');
+    }
+  });
+
+  it('keeps a saved launcher above the note dock and restores nav clearance after leaving it', async () => {
+    stubViewport(240);
+    vi.stubGlobal('innerWidth', 240);
+    vi.stubGlobal('innerHeight', 640);
+    document.documentElement.style.setProperty('--mobile-nav-height', '64px');
+    localStorage.setItem('nix.pet.position', JSON.stringify({ x: 5000, y: 5000 }));
+    try {
+      const view = render(
+        <MemoryRouter>
+          <PetCompanion />
+          <MobileNoteToolbar formatting={<button>Bold</button>} />
+        </MemoryRouter>,
+      );
+      const launcher = await screen.findByRole('button', { name: 'Talk with Cat' });
+      vi.spyOn(launcher, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 64, height: 64 }),
+      );
+      const dock = screen.getByRole('group', { name: 'Formatting actions' }).parentElement
+        ?.parentElement;
+      if (!dock) throw new Error('The note dock did not render.');
+      vi.spyOn(dock, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ y: 500, width: 216, height: 48 }),
+      );
+      act(() => {
+        window.dispatchEvent(new Event('resize'));
+      });
+      const companion = screen.getByRole('complementary', { name: 'Cat companion' });
+      await waitFor(() => {
+        expect(companion).toHaveStyle({ top: '428px' });
+      });
+      expect(
+        document.documentElement.style.getPropertyValue('--mobile-note-toolbar-clearance'),
+      ).toBe('140px');
+
+      view.rerender(
+        <MemoryRouter>
+          <PetCompanion />
+        </MemoryRouter>,
+      );
+      await waitFor(() => {
+        expect(companion).toHaveStyle({ top: '504px' });
+      });
+      expect(
+        document.documentElement.style.getPropertyValue('--mobile-note-toolbar-clearance'),
+      ).toBe('');
     } finally {
       document.documentElement.style.removeProperty('--mobile-nav-height');
     }

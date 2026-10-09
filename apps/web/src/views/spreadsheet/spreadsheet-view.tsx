@@ -1,6 +1,15 @@
-import { type CellRef, cellKey, rangeContains } from '@nix/sheet';
-import { Button, Icon, Text, cn, focusRing, focusRingInset, gridRangeCell } from '@nix/ui';
-import { ArrowDown, ArrowUp, ChevronsUpDown, SquareArrowOutUpRight } from 'lucide-react';
+import { type CellRef, cellKey, parseCellKey, rangeContains } from '@nix/sheet';
+import {
+  Button,
+  ContextMenu,
+  Icon,
+  Text,
+  cn,
+  focusRing,
+  focusRingInset,
+  gridRangeCell,
+} from '@nix/ui';
+import { ArrowDown, ArrowUp, Check, ChevronsUpDown, SquareArrowOutUpRight, X } from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -80,7 +89,7 @@ const ROW_HEIGHT = 32;
  * high zoom rather than overflowing it (the calendar's `min-h-[520px]` frame is the size's
  * precedent, the direction here is inverted on purpose - a maximum, shrinking with the viewport).
  */
-const SCROLLER_HEIGHT_CLASS = 'h-[min(520px,60vh)]';
+const SCROLLER_HEIGHT_CLASS = 'h-[min(520px,60dvh)]';
 
 /** What one bulk gesture is called in the notice about it. */
 type PlanVerb = 'taken' | 'filled' | 'cleared';
@@ -132,7 +141,7 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
   }
 
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       {chrome.notice}
 
       <SpreadsheetGrid
@@ -201,6 +210,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
 
   const scrollerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<HTMLInputElement>(null);
+  const menuCellRef = useRef<CellRef | null>(null);
 
   /**
    * Whether the open edit has already been answered - committed or cancelled. A ref rather than
@@ -424,14 +434,14 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     if (item === undefined || !column?.editable) {
       editSettledRef.current = true;
       dispatch({ type: 'commit', then, bounds });
-      scrollerRef.current?.focus();
+      scrollerRef.current?.focus({ preventScroll: true });
       return true;
     }
 
     if (selection.draft === cellText(item, column)) {
       editSettledRef.current = true;
       dispatch({ type: 'commit', then, bounds });
-      scrollerRef.current?.focus();
+      scrollerRef.current?.focus({ preventScroll: true });
       return true;
     }
 
@@ -462,18 +472,20 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
       });
 
     dispatch({ type: 'commit', then, bounds });
-    scrollerRef.current?.focus();
+    scrollerRef.current?.focus({ preventScroll: true });
     return true;
   }
 
   function cancelEdit(): void {
     editSettledRef.current = true;
     dispatch({ type: 'cancel' });
-    scrollerRef.current?.focus();
+    scrollerRef.current?.focus({ preventScroll: true });
   }
 
-  function beginEdit(source: 'typing' | 'open', draft: string): void {
-    if (activeColumn === undefined || activeItem === undefined) {
+  function beginEdit(source: 'typing' | 'open', draft: string, ref: CellRef = active): void {
+    const column = columns[ref.col];
+    const item = items[ref.row];
+    if (column === undefined || item === undefined) {
       return;
     }
 
@@ -481,27 +493,34 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     // and Enter on a row's name is the grid's way of following it. A keystroke that would have
     // typed over it is answered rather than swallowed - a refusal has to be distinguishable from
     // a no-op.
-    if (activeColumn.key === TITLE_COLUMN_KEY) {
+    if (column.key === TITLE_COLUMN_KEY) {
       if (source === 'open') {
-        onOpen(activeItem.id);
+        onOpen(item.id);
       } else {
         setNotice('A row’s name is changed in the item itself - press Enter to open it.');
       }
       return;
     }
 
-    if (!activeColumn.editable) {
+    if (!column.editable) {
       say(
-        activeItem.title || 'Untitled',
-        activeColumn.label,
+        item.title || 'Untitled',
+        column.label,
         'this property type cannot be edited here, so the value is shown as stored.',
       );
       return;
     }
 
     editSettledRef.current = false;
-    editingRef.current = { itemId: activeItem.id, columnKey: activeColumn.key };
+    editingRef.current = { itemId: item.id, columnKey: column.key };
     dispatch({ type: 'startEdit', draft, source });
+  }
+
+  function captureMenuCell(target: EventTarget | null): void {
+    menuCellRef.current =
+      target instanceof Element
+        ? parseCellKey(target.closest('[data-sheet-cell]')?.getAttribute('data-sheet-cell') ?? '')
+        : null;
   }
 
   function isOccupied(ref: CellRef): boolean {
@@ -620,7 +639,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   const canvasStyle = { width: `${String(totalWidth)}px`, height: `${String(totalHeight)}px` };
 
   return (
-    <div>
+    <div className="min-w-0 max-w-full">
       <p id={hintId} className="sr-only">
         Arrow keys move the active cell, and Shift extends the selection. Typing replaces a cell;
         Enter edits it, or opens the item on a title. Control or Command with C copies and V pastes
@@ -633,9 +652,14 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
       {/* The same model, findable by sight: a tap or a click alone reaches selection, editing
           and opening - a second tap on the already-active cell edits it, and this button opens
           it - so the keyboard ladder below is a shortcut, not the only door. */}
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <details>
-          <summary className={cn('inline-block cursor-default', focusRing)}>
+      <div className="mb-1 flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <details className="min-w-0 flex-1">
+          <summary
+            className={cn(
+              'inline-flex min-h-(--control-md) cursor-default items-center any-pointer-coarse:min-h-(--control-lg)',
+              focusRing,
+            )}
+          >
             <Text as="span" variant="note" tone="muted">
               Keyboard
             </Text>
@@ -648,11 +672,41 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           </Text>
         </details>
 
+        {selection.mode === 'edit' ? (
+          <div className="flex shrink-0 gap-1">
+            <Button
+              variant="icon"
+              aria-label="Apply property edit"
+              onPointerDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={() => {
+                commitDraft('stay');
+              }}
+            >
+              <Icon icon={Check} size="sm" />
+            </Button>
+            <Button
+              variant="icon"
+              aria-label="Cancel property edit"
+              onPointerDown={(event) => {
+                event.preventDefault();
+              }}
+              onClick={cancelEdit}
+            >
+              <Icon icon={X} size="sm" />
+            </Button>
+          </div>
+        ) : null}
+
         {/* The pointer-only way to open a row: tapping the title twice already does it, but a
             visible control means opening never depends on a double-click or a keyboard. */}
         <Button
           variant="secondary"
-          className="shrink-0"
+          className="min-w-0 max-w-full"
+          aria-label={
+            activeItem === undefined ? 'Open item' : `Open ${activeItem.title || 'Untitled'}`
+          }
           disabled={activeItem === undefined}
           onClick={() => {
             if (activeItem !== undefined) {
@@ -661,7 +715,9 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           }}
         >
           <Icon icon={SquareArrowOutUpRight} size="sm" />
-          {activeItem === undefined ? 'Open' : `Open ${activeItem.title || 'Untitled'}`}
+          <span className="truncate">
+            {activeItem === undefined ? 'Open' : `Open ${activeItem.title || 'Untitled'}`}
+          </span>
         </Button>
       </div>
 
@@ -720,192 +776,260 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
       </div>
 
       {/* The body: the one real scroller, and the keyboard's home. */}
-      <div
-        ref={scrollerRef}
-        role="grid"
-        aria-label="Spreadsheet of items"
-        aria-describedby={hintId}
-        aria-rowcount={bounds.rows}
-        aria-colcount={bounds.cols}
-        aria-activedescendant={selection.mode === 'edit' ? undefined : cellId(gridId, active)}
-        aria-multiselectable="true"
-        tabIndex={0}
-        onKeyDown={onGridKeyDown}
-        onScroll={(event) => {
-          // Identity-guarded: scroll events between window boundaries, overscroll bounce and
-          // single-axis wheels must not re-render a few hundred cells to change nothing.
-          const { scrollTop, scrollLeft } = event.currentTarget;
-          setScroll((current) =>
-            current.top === scrollTop && current.left === scrollLeft
-              ? current
-              : { top: scrollTop, left: scrollLeft },
-          );
+      <ContextMenu
+        label="Spreadsheet cell actions"
+        items={() => {
+          const ref = menuCellRef.current ?? active;
+          const item = items[ref.row];
+          const column = columns[ref.col];
+          if (item === undefined || column === undefined) return [];
+          return [
+            {
+              label: `Open ${item.title || 'Untitled'}`,
+              onSelect: () => {
+                onOpen(item.id);
+              },
+            },
+            {
+              label: `Edit ${column.label}`,
+              disabled: !column.editable,
+              onSelect: () => {
+                if (!commitDraft('stay')) return;
+                dispatch({ type: 'moveTo', ref, extend: false });
+                beginEdit('open', cellText(item, column), ref);
+              },
+            },
+            {
+              label: `Clear ${column.label}`,
+              disabled: !column.editable || cellText(item, column).length === 0,
+              onSelect: () => {
+                if (!commitDraft('stay')) return;
+                dispatch({ type: 'moveTo', ref, extend: false });
+                applyPlan(
+                  clearPlan(
+                    {
+                      startRow: ref.row,
+                      endRow: ref.row,
+                      startCol: ref.col,
+                      endCol: ref.col,
+                    },
+                    items,
+                    columns,
+                  ),
+                  'cleared',
+                );
+              },
+            },
+          ];
         }}
-        onCopy={(event) => {
-          if (selection.mode === 'edit') {
-            return;
-          }
-          event.preventDefault();
-          event.clipboardData.setData(
-            'text/plain',
-            rangeToTsv(rangeTextMap(range, items, columns), range),
-          );
-        }}
-        onPaste={(event) => {
-          if (selection.mode === 'edit') {
-            return;
-          }
-          event.preventDefault();
-          const text = event.clipboardData.getData('text/plain');
-          if (text.length > 0) {
-            applyPlan(
-              pastePlan(
-                { row: range.startRow, col: range.startCol },
-                parseTsv(text),
-                items,
-                columns,
-              ),
-              'taken',
-            );
-          }
-        }}
-        className={cn('relative overflow-auto outline-none', SCROLLER_HEIGHT_CLASS, focusRingInset)}
       >
-        <div className="relative" role="presentation" style={canvasStyle}>
-          {visibleRows.map((row) => {
-            const item = items[row];
-            if (item === undefined) {
-              return null;
-            }
-            return (
-              <div key={item.id} role="row" aria-rowindex={row + 1} className="contents">
-                {visibleCols.map((col) => {
-                  const column = columns[col];
-                  if (column === undefined) {
-                    return null;
-                  }
-                  const shown = cellDisplay(item, column);
-                  const isActive = row === active.row && col === active.col;
-                  const inRange = !rangeIsCell && rangeContains(range, { row, col });
-                  const isTitle = column.key === TITLE_COLUMN_KEY;
-                  // design-token-exempt: a cell's place and size are grid geometry computed at runtime
-                  const cellStyle = {
-                    top: `${String(row * ROW_HEIGHT)}px`,
-                    left: `${String(offsets[col] ?? 0)}px`,
-                    width: `${String(widths[col] ?? 0)}px`,
-                    height: `${String(ROW_HEIGHT)}px`,
-                  };
-                  // Justification: this grid uses aria-activedescendant, where focus stays on the
-                  // role="grid" container and the active cell is only named, not focused. A
-                  // tabIndex here would let Tab escape into individual cells and break that
-                  // pattern.
-                  return (
-                    // eslint-disable-next-line jsx-a11y/interactive-supports-focus
-                    <div
-                      key={column.key}
-                      id={cellId(gridId, { row, col })}
-                      role="gridcell"
-                      aria-colindex={col + 1}
-                      aria-selected={isActive || inRange}
-                      aria-label={
-                        isTitle
-                          ? `${item.title || 'Untitled'}, opens the item`
-                          : `${column.label} for ${item.title || 'Untitled'}${
-                              shown.length > 0 ? `, ${shown}` : ''
-                            }`
+        {(target) => (
+          <div
+            {...target}
+            ref={scrollerRef}
+            role="grid"
+            aria-label="Spreadsheet of items"
+            aria-describedby={hintId}
+            aria-rowcount={bounds.rows}
+            aria-colcount={bounds.cols}
+            aria-activedescendant={selection.mode === 'edit' ? undefined : cellId(gridId, active)}
+            aria-multiselectable="true"
+            tabIndex={0}
+            onContextMenuCapture={(event) => {
+              captureMenuCell(event.target);
+            }}
+            onPointerDownCapture={(event) => {
+              captureMenuCell(event.target);
+            }}
+            onKeyDownCapture={() => {
+              menuCellRef.current = null;
+            }}
+            onKeyDown={onGridKeyDown}
+            onScroll={(event) => {
+              // Identity-guarded: scroll events between window boundaries, overscroll bounce and
+              // single-axis wheels must not re-render a few hundred cells to change nothing.
+              const { scrollTop, scrollLeft } = event.currentTarget;
+              setScroll((current) =>
+                current.top === scrollTop && current.left === scrollLeft
+                  ? current
+                  : { top: scrollTop, left: scrollLeft },
+              );
+            }}
+            onCopy={(event) => {
+              if (selection.mode === 'edit') {
+                return;
+              }
+              event.preventDefault();
+              event.clipboardData.setData(
+                'text/plain',
+                rangeToTsv(rangeTextMap(range, items, columns), range),
+              );
+            }}
+            onPaste={(event) => {
+              if (selection.mode === 'edit') {
+                return;
+              }
+              event.preventDefault();
+              const text = event.clipboardData.getData('text/plain');
+              if (text.length > 0) {
+                applyPlan(
+                  pastePlan(
+                    { row: range.startRow, col: range.startCol },
+                    parseTsv(text),
+                    items,
+                    columns,
+                  ),
+                  'taken',
+                );
+              }
+            }}
+            className={cn(
+              'relative min-w-0 max-w-full overflow-auto overscroll-contain outline-none',
+              SCROLLER_HEIGHT_CLASS,
+              focusRingInset,
+            )}
+          >
+            <div className="relative" role="presentation" style={canvasStyle}>
+              {visibleRows.map((row) => {
+                const item = items[row];
+                if (item === undefined) {
+                  return null;
+                }
+                return (
+                  <div key={item.id} role="row" aria-rowindex={row + 1} className="contents">
+                    {visibleCols.map((col) => {
+                      const column = columns[col];
+                      if (column === undefined) {
+                        return null;
                       }
-                      title={shown.length > 0 ? shown : undefined}
-                      onMouseDown={(event) => {
-                        // Mouse down rather than click so a shift-click extends the range from
-                        // the pressed corner (there is no drag-selection; Shift with the arrows
-                        // or a shift-click is the range gesture).
-                        //
-                        // Whether the grid already held focus, checked before we take it below,
-                        // is what tells a tap that lands on the already-active cell apart from
-                        // the tap that first brought that cell to life: the former is a person
-                        // asking to edit or open what they can already see is selected, the
-                        // latter is the ordinary first touch that only selects. Without this, a
-                        // touch or mouse user could select a cell but never edit or open one
-                        // without a double-click or the keyboard.
-                        const alreadyFocused =
-                          scrollerRef.current !== null &&
-                          document.activeElement === scrollerRef.current;
-                        event.preventDefault();
-                        scrollerRef.current?.focus();
-                        // A draft that fails coercion keeps its editor open: moving the selection
-                        // out from under it would throw away the typed text with the notice still
-                        // claiming it can be corrected.
-                        if (selection.mode === 'edit' && !commitDraft('stay')) {
-                          return;
-                        }
-                        if (alreadyFocused && isActive && !event.shiftKey) {
-                          if (isTitle) {
-                            onOpen(item.id);
-                          } else {
-                            beginEdit('open', cellText(item, column));
+                      const shown = cellDisplay(item, column);
+                      const isActive = row === active.row && col === active.col;
+                      const inRange = !rangeIsCell && rangeContains(range, { row, col });
+                      const isTitle = column.key === TITLE_COLUMN_KEY;
+                      // design-token-exempt: a cell's place and size are grid geometry computed at runtime
+                      const cellStyle = {
+                        top: `${String(row * ROW_HEIGHT)}px`,
+                        left: `${String(offsets[col] ?? 0)}px`,
+                        width: `${String(widths[col] ?? 0)}px`,
+                        height: `${String(ROW_HEIGHT)}px`,
+                      };
+                      // Justification: this grid uses aria-activedescendant, where focus stays on the
+                      // role="grid" container and the active cell is only named, not focused. A
+                      // tabIndex here would let Tab escape into individual cells and break that
+                      // pattern.
+                      return (
+                        // eslint-disable-next-line jsx-a11y/interactive-supports-focus
+                        <div
+                          key={column.key}
+                          id={cellId(gridId, { row, col })}
+                          data-sheet-cell={cellKey({ row, col })}
+                          role="gridcell"
+                          aria-colindex={col + 1}
+                          aria-selected={isActive || inRange}
+                          aria-label={
+                            isTitle
+                              ? `${item.title || 'Untitled'}, opens the item`
+                              : `${column.label} for ${item.title || 'Untitled'}${
+                                  shown.length > 0 ? `, ${shown}` : ''
+                                }`
                           }
-                          return;
-                        }
-                        dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
-                      }}
-                      onDoubleClick={() => {
-                        if (isTitle) {
-                          onOpen(item.id);
-                        } else {
-                          beginEdit('open', cellText(item, column));
-                        }
-                      }}
-                      className={cn(
-                        'absolute overflow-hidden text-ellipsis whitespace-nowrap border-b border-r border-divider px-2 py-1.5 text-sm',
-                        column.type === 'number' ? 'text-right' : 'text-left',
-                        isTitle ? 'font-semibold' : '',
-                        inRange ? gridRangeCell : '',
-                        isActive ? 'outline-2 -outline-offset-2 outline-accent' : '',
-                      )}
-                      style={cellStyle}
-                    >
-                      {shown}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                          title={shown.length > 0 ? shown : undefined}
+                          onMouseDown={(event) => {
+                            if (event.button !== 0) return;
+                            // Mouse down rather than click so a shift-click extends the range from
+                            // the pressed corner (there is no drag-selection; Shift with the arrows
+                            // or a shift-click is the range gesture).
+                            //
+                            // Whether the grid already held focus, checked before we take it below,
+                            // is what tells a tap that lands on the already-active cell apart from
+                            // the tap that first brought that cell to life: the former is a person
+                            // asking to edit or open what they can already see is selected, the
+                            // latter is the ordinary first touch that only selects. Without this, a
+                            // touch or mouse user could select a cell but never edit or open one
+                            // without a double-click or the keyboard.
+                            const alreadyFocused =
+                              scrollerRef.current !== null &&
+                              document.activeElement === scrollerRef.current;
+                            event.preventDefault();
+                            scrollerRef.current?.focus({ preventScroll: true });
+                            // A draft that fails coercion keeps its editor open: moving the selection
+                            // out from under it would throw away the typed text with the notice still
+                            // claiming it can be corrected.
+                            if (selection.mode === 'edit' && !commitDraft('stay')) {
+                              return;
+                            }
+                            if (alreadyFocused && isActive && !event.shiftKey) {
+                              if (isTitle) {
+                                onOpen(item.id);
+                              } else {
+                                beginEdit('open', cellText(item, column));
+                              }
+                              return;
+                            }
+                            dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
+                          }}
+                          onDoubleClick={() => {
+                            if (isTitle) {
+                              onOpen(item.id);
+                            } else {
+                              beginEdit('open', cellText(item, column));
+                            }
+                          }}
+                          className={cn(
+                            'absolute overflow-hidden text-ellipsis whitespace-nowrap border-b border-r border-divider px-2 py-1.5 text-sm',
+                            column.type === 'number' ? 'text-right' : 'text-left',
+                            isTitle ? 'font-semibold' : '',
+                            inRange ? gridRangeCell : '',
+                            isActive ? 'outline-2 -outline-offset-2 outline-accent' : '',
+                          )}
+                          style={cellStyle}
+                        >
+                          {shown}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
 
-          {selection.mode === 'edit' && activeColumn !== undefined && activeItem !== undefined ? (
-            <CellEditor
-              ref={editorRef}
-              ariaLabel={`Edit ${activeColumn.label} for ${activeItem.title || 'Untitled'}`}
-              value={selection.draft}
-              onChange={(event) => {
-                dispatch({ type: 'setDraft', draft: event.target.value });
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  commitDraft('down');
-                } else if (event.key === 'Tab') {
-                  event.preventDefault();
-                  commitDraft('right');
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  cancelEdit();
-                }
-              }}
-              onBlur={() => {
-                // A genuine click-away commits, as in every spreadsheet. This blur fires
-                // synchronously inside the cell handler's focus() call, BEFORE that handler's own
-                // commitDraft - so this is the call that commits on a click-away, and the settled
-                // flag is what keeps the cell handler's later call from committing twice.
-                if (selection.mode === 'edit') {
-                  commitDraft('stay');
-                }
-              }}
-              position={editorStyle}
-            />
-          ) : null}
-        </div>
-      </div>
+              {selection.mode === 'edit' &&
+              activeColumn !== undefined &&
+              activeItem !== undefined ? (
+                <CellEditor
+                  ref={editorRef}
+                  ariaLabel={`Edit ${activeColumn.label} for ${activeItem.title || 'Untitled'}`}
+                  value={selection.draft}
+                  onChange={(event) => {
+                    dispatch({ type: 'setDraft', draft: event.target.value });
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      commitDraft('down');
+                    } else if (event.key === 'Tab') {
+                      event.preventDefault();
+                      commitDraft('right');
+                    } else if (event.key === 'Escape') {
+                      event.preventDefault();
+                      cancelEdit();
+                    }
+                  }}
+                  onBlur={() => {
+                    // A genuine click-away commits, as in every spreadsheet. This blur fires
+                    // synchronously inside the cell handler's focus() call, BEFORE that handler's own
+                    // commitDraft - so this is the call that commits on a click-away, and the settled
+                    // flag is what keeps the cell handler's later call from committing twice.
+                    if (selection.mode === 'edit') {
+                      commitDraft('stay');
+                    }
+                  }}
+                  position={editorStyle}
+                />
+              ) : null}
+            </div>
+          </div>
+        )}
+      </ContextMenu>
 
       {fillOffer === null || patternedColumn === null ? null : (
         <FillSeriesOffer
@@ -918,11 +1042,11 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
           onFill={() => {
             fillSeries();
             setDismissedFill(rangeKey);
-            scrollerRef.current?.focus();
+            scrollerRef.current?.focus({ preventScroll: true });
           }}
           onDismiss={() => {
             setDismissedFill(rangeKey);
-            scrollerRef.current?.focus();
+            scrollerRef.current?.focus({ preventScroll: true });
           }}
         />
       )}

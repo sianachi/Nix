@@ -82,6 +82,13 @@ import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
 import { PendingReferenceNotice } from './pending-reference-notice';
 import { usePendingDailyTemplate } from './use-pending-daily-template';
+import {
+  setEditorWritingMode,
+  useWritingModePreference,
+  WritingModeKeymap,
+  WRITING_MODES,
+} from './writing-mode';
+import { WritingModeControl } from './writing-mode-control';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -478,6 +485,7 @@ export function NoteEditor({
   const [retryFiles, setRetryFiles] = useState<readonly File[]>([]);
   const [addressRequest, setAddressRequest] = useState<EditorAddressKind | null>(null);
   const keyboardMode = useKeyboardModeStore((state) => state.mode);
+  const writingMode = useWritingModePreference((state) => state.mode);
   const vimDescriptionId = useId();
   const ghostSetting = useGhostTextPreference((state) => state.setting);
   const mentionSetting = useMentionPreference((state) => state.setting);
@@ -667,6 +675,7 @@ export function NoteEditor({
         // never rebuilds this editor or its Yjs binding.
         EmacsKeymap,
         VimMotions,
+        WritingModeKeymap,
         // Phrase suggestions as muted text at the caret; a decoration, never document content.
         // Told what it needs (the preference, the scope) by an effect below, through its storage,
         // so changing the preference never rebuilds this editor or its Yjs binding.
@@ -728,7 +737,8 @@ export function NoteEditor({
           return true;
         },
         attributes: {
-          class: `${proseRoot} sm:max-w-none min-h-full outline-none`,
+          class: `${proseRoot} min-h-full outline-none`,
+          'data-writing-mode': writingMode,
           'aria-label': 'Note body',
           role: 'textbox',
           'aria-multiline': 'true',
@@ -753,6 +763,10 @@ export function NoteEditor({
     editor,
     selector: ({ editor: current }) => vimStatusMode(current.state),
   });
+
+  useEffect(() => {
+    setEditorWritingMode(editor, writingMode);
+  }, [editor, writingMode]);
 
   // The server's read-only mode and stale copies cannot save edits.
   useEffect(() => {
@@ -994,6 +1008,8 @@ export function NoteEditor({
           <EditorToolbar
             compact={narrow}
             editor={editor}
+            writingMode={writingMode}
+            writingModeControl={<WritingModeControl />}
             onInsertItem={(kind) => {
               if (uploadingFilesRef.current > 0) return;
               insertionRef.current = editor.state.selection.from;
@@ -1024,7 +1040,7 @@ export function NoteEditor({
               }
             }}
           />
-          <PresenceList awareness={awareness} />
+          {writingMode === 'collaboration' ? null : <PresenceList awareness={awareness} />}
         </div>
       </div>
     );
@@ -1052,6 +1068,26 @@ export function NoteEditor({
             )}
 
             <PendingReferenceNotice itemId={itemId} editor={editor} />
+            {writingMode === 'collaboration' && !hideToolbar ? (
+              <div
+                aria-label="Collaboration status"
+                className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 px-5 py-2 sm:px-8"
+              >
+                <Text variant="caption" tone="muted">
+                  {
+                    {
+                      connecting: 'Connecting to collaborators',
+                      live: 'Live editing',
+                      pending: 'Saving shared changes',
+                      readonly: 'Shared note is read-only',
+                      degraded: 'Connection interrupted',
+                      offline: 'Working offline',
+                    }[syncState]
+                  }
+                </Text>
+                <PresenceList awareness={awareness} />
+              </div>
+            ) : null}
             <PaneViewport
               scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
               className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
@@ -1140,7 +1176,10 @@ export function NoteEditor({
             `EditorContent` had: the editor fills the viewport, so a click below a short note
             still lands in it.
           */}
-              <div ref={setSurface} className={`relative h-full ${noteColumn}`}>
+              <div
+                ref={setSurface}
+                className={`relative h-full ${noteColumn} ${WRITING_MODES[writingMode].measure}`}
+              >
                 <EditorContent
                   editor={editor}
                   className="h-full"

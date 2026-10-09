@@ -564,7 +564,7 @@ function MobileListRows({
 }: ListRowsProps & { readonly showSort: boolean }): ReactNode {
   const [limit, setLimit] = useState(40);
   return (
-    <section aria-label={caption} className="flex flex-col gap-3">
+    <section aria-label={caption} className="flex min-w-0 flex-col gap-3">
       {showSort ? (
         <MobileSortBar columns={columns} sort={sort} onSortChange={onSortChange} />
       ) : null}
@@ -613,7 +613,7 @@ function MobileSortBar({
   onSortChange,
 }: Pick<ListRowsProps, 'columns' | 'sort' | 'onSortChange'>): ReactNode {
   return (
-    <label className="flex flex-wrap items-center gap-2">
+    <div role="group" aria-label="List sort" className="flex flex-wrap items-center gap-2">
       <Text as="span" variant="caption">
         Sort by
       </Text>
@@ -650,7 +650,7 @@ function MobileSortBar({
       >
         {sort?.direction === 'descending' ? 'Descending' : 'Ascending'}
       </Button>
-    </label>
+    </div>
   );
 }
 
@@ -663,7 +663,7 @@ function MobileRow(props: {
   const { item, columns, target } = props;
 
   return (
-    <li {...target} className="py-3">
+    <li {...target} className="min-w-0 py-3">
       <div className="py-2">{columns[0]?.cell(item)}</div>
       {columns.length > 1 ? (
         <details>

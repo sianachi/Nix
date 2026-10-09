@@ -65,6 +65,15 @@ export const OpenFromKeyboard: Story = {
   },
 };
 
+export const UnavailableActions: Story = {
+  args: { items: [{ label: 'Save', disabled: true, onSelect: fn() }] },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
+    await expect(canvas.getByRole('menu', { name: 'Workspace actions' })).toHaveFocus();
+  },
+};
+
 /** ArrowUp from the trigger opens onto the last item - the pattern's usual courtesy. */
 export const OpenFromKeyboardArrowUp: Story = {
   play: async ({ canvasElement }) => {

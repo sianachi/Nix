@@ -138,8 +138,8 @@ export function HabitConsistency({
     gridTemplateColumns: `repeat(${String(columns)}, var(--habit-cell))`,
   };
   return (
-    <div className="flex flex-col gap-3 [--habit-cell:calc(var(--spacing)*7)] pointer-coarse:[--habit-cell:calc(var(--spacing)*10)]">
-      <div className="overflow-x-auto pb-2">
+    <div className="flex min-w-0 flex-col gap-3 [--habit-cell:calc(var(--spacing)*7)] any-pointer-coarse:[--habit-cell:var(--control-lg)]">
+      <div className="min-w-0 max-w-full overflow-x-auto pb-2">
         <div className="flex gap-2">
           <div className="flex shrink-0 flex-col justify-around pt-6" aria-hidden="true">
             {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, index) => (
@@ -188,7 +188,7 @@ export function HabitConsistency({
                   aria-pressed={selected === day.date}
                   title={habitDayLabel(day)}
                   className={cn(
-                    'flex h-7 min-w-6 items-center justify-center rounded-sm text-xs transition-colors pointer-coarse:h-(--control-lg) pointer-coarse:min-w-(--control-lg)',
+                    'flex h-7 min-w-6 items-center justify-center rounded-sm text-xs transition-colors any-pointer-coarse:h-(--control-lg) any-pointer-coarse:min-w-(--control-lg)',
                     stateClasses[day.state],
                     selected === day.date && 'ring-2 ring-accent ring-offset-2 ring-offset-surface',
                     focusRing,
@@ -299,7 +299,7 @@ export function HabitQuantityTrend({
       </Text>
     );
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <div className="flex gap-3">
         <div
           className="flex h-56 w-12 shrink-0 flex-col justify-between text-right"
@@ -389,14 +389,19 @@ export function HabitQuantityTrend({
         {days.some((day) => day.unit !== unit) ? ` or a different unit` : ''}.
       </Text>
       <details>
-        <summary className={cn('cursor-pointer rounded-md py-2 text-sm', focusRing)}>
+        <summary
+          className={cn(
+            'cursor-pointer rounded-md py-2 text-sm any-pointer-coarse:min-h-(--control-lg)',
+            focusRing,
+          )}
+        >
           {editable ? 'Daily values and corrections' : 'Daily values'}
         </summary>
         <div className="mt-2 max-h-64 overflow-y-auto">
           {days.map((day) => (
             <div
               key={day.date}
-              className="flex items-center justify-between gap-3 border-b border-divider py-1"
+              className="flex flex-wrap items-center justify-between gap-3 border-b border-divider py-1"
             >
               <Text as="span" variant="bodySmall">
                 {day.date}

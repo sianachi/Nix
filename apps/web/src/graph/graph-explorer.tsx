@@ -1,5 +1,5 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
-import { Button, Input, Select, Text } from '@nix/ui';
+import { Button, ContextMenu, Input, Select, Text } from '@nix/ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNarrowViewport } from '../layout/viewport';
 import { useHiddenItems } from '../items/use-hidden-items';
@@ -128,14 +128,18 @@ function WorkspaceGraphExplorer({
       {mode === 'spatial' || visitedSpatial ? (
         <div ref={spatialRef} hidden={mode !== 'spatial'}>
           <div className="mb-3 flex flex-wrap items-end gap-3">
-            <label className="flex min-w-0 flex-col gap-1">
+            <label className="flex min-w-0 max-w-full flex-col gap-1">
               <Text as="span" variant="caption">
                 Graph layout
               </Text>
               <Select
                 value={presentation.representation}
                 onChange={(event) => {
-                  const representation = event.target.value as GraphRepresentation;
+                  const value = event.target.value;
+                  const representation = Object.keys(GRAPH_REPRESENTATIONS).find(
+                    (candidate): candidate is GraphRepresentation => candidate === value,
+                  );
+                  if (representation === undefined) return;
                   setPresentation((current) => ({ ...current, representation }));
                   setReveal(null);
                 }}
@@ -149,7 +153,7 @@ function WorkspaceGraphExplorer({
             </label>
             {presentation.representation === 'focused' ? (
               <>
-                <label className="flex min-w-0 flex-col gap-1">
+                <label className="flex min-w-0 max-w-full flex-col gap-1">
                   <Text as="span" variant="caption">
                     Focus item
                   </Text>
@@ -172,7 +176,7 @@ function WorkspaceGraphExplorer({
                     )}
                   </Select>
                 </label>
-                <label className="flex flex-col gap-1">
+                <label className="flex min-w-0 max-w-full flex-col gap-1">
                   <Text as="span" variant="caption">
                     Connection distance
                   </Text>
@@ -238,40 +242,60 @@ function WorkspaceGraphExplorer({
         <ul className="divide-y divide-divider">
           {matches.slice(0, limit).map((node) => {
             const related = connections.get(node.id) ?? [];
+            const title = titles.get(node.id) ?? 'Untitled';
+            const showInGraph = (): void => {
+              setChoice('spatial');
+              setVisitedSpatial(true);
+              if (presentation.representation === 'focused') {
+                setPresentation((current) => ({ ...current, focusId: node.id }));
+              }
+              setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
+            };
+            const focusInGraph = (): void => {
+              setPresentation({ representation: 'focused', focusId: node.id, distance: 1 });
+              setChoice('spatial');
+              setVisitedSpatial(true);
+              setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
+            };
             return (
-              <li key={node.id} className="py-3">
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start whitespace-normal text-left"
-                  onClick={() => {
-                    onOpen(node.id);
-                  }}
+              <li key={node.id} className="min-w-0 py-3">
+                <ContextMenu
+                  label={`${title} actions`}
+                  items={[
+                    {
+                      label: 'Open',
+                      onSelect: () => {
+                        onOpen(node.id);
+                      },
+                    },
+                    { label: 'Show in graph', onSelect: showInGraph },
+                    { label: 'Focus in graph', onSelect: focusInGraph },
+                  ]}
                 >
-                  {titles.get(node.id)}
-                </Button>
+                  {(target) => (
+                    <Button
+                      {...target}
+                      variant="ghost"
+                      className="h-auto min-h-(--control-md) w-full justify-start break-all whitespace-normal text-left pointer-coarse:min-h-(--control-lg)"
+                      onClick={() => {
+                        onOpen(node.id);
+                      }}
+                    >
+                      {title}
+                    </Button>
+                  )}
+                </ContextMenu>
                 <Button
                   variant="ghost"
                   aria-label={`Show ${titles.get(node.id) ?? 'Untitled'} in graph`}
-                  onClick={() => {
-                    setChoice('spatial');
-                    setVisitedSpatial(true);
-                    if (presentation.representation === 'focused') {
-                      setPresentation((current) => ({ ...current, focusId: node.id }));
-                    }
-                    setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
-                  }}
+                  onClick={showInGraph}
                 >
                   Show in graph
                 </Button>
                 <Button
                   variant="ghost"
                   aria-label={`Focus graph on ${titles.get(node.id) ?? 'Untitled'}`}
-                  onClick={() => {
-                    setPresentation({ representation: 'focused', focusId: node.id, distance: 1 });
-                    setChoice('spatial');
-                    setVisitedSpatial(true);
-                    setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
-                  }}
+                  onClick={focusInGraph}
                 >
                   Focus in graph
                 </Button>
@@ -295,7 +319,7 @@ function WorkspaceGraphExplorer({
                           </Text>
                           <Button
                             variant="ghost"
-                            className="whitespace-normal text-left"
+                            className="h-auto min-h-(--control-md) min-w-0 max-w-full break-all whitespace-normal text-left pointer-coarse:min-h-(--control-lg)"
                             onClick={() => {
                               onOpen(connection.id);
                             }}

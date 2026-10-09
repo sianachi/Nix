@@ -5,7 +5,20 @@ import type {
   CalendarSyncLogEntry,
   ExternalCalendar,
 } from '@nix/api-client';
-import { Button, Dialog, Field, Input, Select, Table, Tag, Text } from '@nix/ui';
+import {
+  Button,
+  Dialog,
+  Field,
+  Icon,
+  Input,
+  Menu,
+  Select,
+  Table,
+  Tag,
+  Text,
+  type MenuEntry,
+} from '@nix/ui';
+import { MoreHorizontal } from 'lucide-react';
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useLocation, useSearchParams } from 'react-router';
 
@@ -123,6 +136,75 @@ export function CalendarsSection(): ReactElement {
   const connectTo = (provider: string): Promise<{ readonly refusal: string | null }> =>
     sync.connect(provider, `${location.pathname}?tab=integrations`);
 
+  function connectionActions(connection: CalendarConnection): readonly MenuEntry[] {
+    return [
+      connection.status === 'active'
+        ? {
+            label: 'Link a calendar',
+            disabled: busy,
+            onSelect: () => {
+              setLinking(connection);
+            },
+          }
+        : {
+            label: 'Reconnect',
+            disabled: busy,
+            onSelect: () => {
+              void act(() => connectTo(connection.provider));
+            },
+          },
+      {
+        label: 'Disconnect account',
+        disabled: busy,
+        destructive: true,
+        onSelect: () => {
+          setDisconnecting(connection);
+        },
+      },
+    ];
+  }
+
+  function linkActions(link: CalendarLink): readonly MenuEntry[] {
+    const actions: MenuEntry[] = [];
+    if (link.status === 'active') {
+      actions.push({
+        label: 'Sync now',
+        disabled: busy,
+        onSelect: () => {
+          void act(() => sync.sync(link.id), `A sync of ${link.name} has started.`);
+        },
+      });
+    }
+    if (link.status === 'active' || link.status === 'paused') {
+      actions.push({
+        label: link.status === 'active' ? 'Pause syncing' : 'Resume syncing',
+        disabled: busy,
+        onSelect: () => {
+          void act(() =>
+            sync.update(link, { status: link.status === 'active' ? 'paused' : 'active' }),
+          );
+        },
+      });
+    }
+    actions.push(
+      {
+        label: 'View sync log',
+        onSelect: () => {
+          setLogFor(link);
+        },
+      },
+      {
+        label: 'Unlink calendar',
+        disabled: busy,
+        destructive: true,
+        onSelect: () => {
+          setUnlinking(link);
+        },
+      },
+    );
+    return actions;
+  }
+
   const connectionColumns = [
     {
       key: 'account',
@@ -144,36 +226,20 @@ export function CalendarsSection(): ReactElement {
       key: 'actions',
       header: 'Actions',
       cell: (connection: CalendarConnection) => (
-        <div className="flex flex-wrap gap-2">
-          {connection.status === 'active' ? (
+        <Menu
+          label={`Actions for ${connection.accountEmail}`}
+          items={connectionActions(connection)}
+        >
+          {(trigger) => (
             <Button
-              variant="ghost"
-              onClick={() => {
-                setLinking(connection);
-              }}
+              {...trigger}
+              variant="icon"
+              aria-label={`Actions for ${connection.accountEmail}`}
             >
-              Link a calendar from {connection.accountEmail}
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                void act(() => connectTo(connection.provider));
-              }}
-            >
-              Reconnect {connection.accountEmail}
+              <Icon icon={MoreHorizontal} size="sm" />
             </Button>
           )}
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setDisconnecting(connection);
-            }}
-          >
-            Disconnect {connection.accountEmail}
-          </Button>
-        </div>
+        </Menu>
       ),
     },
   ] as const;
@@ -234,48 +300,13 @@ export function CalendarsSection(): ReactElement {
       key: 'actions',
       header: 'Actions',
       cell: (link: CalendarLink) => (
-        <div className="flex flex-wrap gap-2">
-          {link.status === 'active' ? (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                void act(() => sync.sync(link.id), `A sync of ${link.name} has started.`);
-              }}
-            >
-              Sync {link.name} now
+        <Menu label={`Actions for ${link.name}`} items={linkActions(link)}>
+          {(trigger) => (
+            <Button {...trigger} variant="icon" aria-label={`Actions for ${link.name}`}>
+              <Icon icon={MoreHorizontal} size="sm" />
             </Button>
-          ) : null}
-          {link.status === 'active' || link.status === 'paused' ? (
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => {
-                void act(() =>
-                  sync.update(link, { status: link.status === 'active' ? 'paused' : 'active' }),
-                );
-              }}
-            >
-              {link.status === 'active' ? `Pause ${link.name}` : `Resume ${link.name}`}
-            </Button>
-          ) : null}
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setLogFor(link);
-            }}
-          >
-            Sync log of {link.name}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setUnlinking(link);
-            }}
-          >
-            Unlink {link.name}
-          </Button>
-        </div>
+          )}
+        </Menu>
       ),
     },
   ] as const;
@@ -345,28 +376,48 @@ export function CalendarsSection(): ReactElement {
             </Text>
           ) : null}
 
-          <Table
-            caption="Accounts connected for calendar sync."
-            columns={connectionColumns}
-            rows={connections}
-            rowKey={(connection) => connection.id}
-            loading={status === 'loading'}
-            loadingMessage="Loading your connected accounts."
-            emptyMessage="No account is connected. Connect one to link its calendars."
-          />
+          <div
+            className="min-w-0 overflow-x-auto"
+            role="region"
+            aria-label="Calendar accounts table"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll account columns horizontally.
+            tabIndex={0}
+          >
+            <Table
+              caption="Accounts connected for calendar sync."
+              columns={connectionColumns}
+              rows={connections}
+              rowKey={(connection) => connection.id}
+              rowContextMenu={connectionActions}
+              rowContextMenuLabel={(connection) => `Actions for ${connection.accountEmail}`}
+              loading={status === 'loading'}
+              loadingMessage="Loading your connected accounts."
+              emptyMessage="No account is connected. Connect one to link its calendars."
+            />
+          </div>
 
           <Text variant="h4" as="h3" className="mt-3">
             Linked calendars
           </Text>
-          <Table
-            caption="Calendars linked into your workspaces."
-            columns={linkColumns}
-            rows={links}
-            rowKey={(link) => link.id}
-            loading={status === 'loading'}
-            loadingMessage="Loading your linked calendars."
-            emptyMessage="No calendar is linked yet."
-          />
+          <div
+            className="min-w-0 overflow-x-auto"
+            role="region"
+            aria-label="Linked calendars table"
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll calendar columns horizontally.
+            tabIndex={0}
+          >
+            <Table
+              caption="Calendars linked into your workspaces."
+              columns={linkColumns}
+              rows={links}
+              rowKey={(link) => link.id}
+              rowContextMenu={linkActions}
+              rowContextMenuLabel={(link) => `Actions for ${link.name}`}
+              loading={status === 'loading'}
+              loadingMessage="Loading your linked calendars."
+              emptyMessage="No calendar is linked yet."
+            />
+          </div>
 
           {/* Only drawn when there is something in it: Core fills it for somebody who manages the
               workspace and for nobody else, so an empty heading would promise a power most
@@ -380,36 +431,44 @@ export function CalendarsSection(): ReactElement {
                 Calendars other members linked into this workspace. You manage the workspace, so you
                 can unlink them; their items cannot be deleted while the link stands.
               </Text>
-              <Table
-                caption="Calendars other members linked into this workspace."
-                columns={
-                  [
-                    {
-                      key: 'title',
-                      header: 'Item',
-                      rowHeader: true,
-                      cell: (entry: WorkspaceCalendarLink) => entry.title || 'Untitled',
-                    },
-                    {
-                      key: 'actions',
-                      header: 'Actions',
-                      cell: (entry: WorkspaceCalendarLink) => (
-                        <Button
-                          variant="ghost"
-                          onClick={() => {
-                            setUnlinkingOthers(entry);
-                          }}
-                        >
-                          Unlink {entry.title || 'Untitled'}
-                        </Button>
-                      ),
-                    },
-                  ] as const
-                }
-                rows={othersLinks}
-                rowKey={(entry) => entry.containerItemId}
-                emptyMessage="No other member has linked a calendar here."
-              />
+              <div
+                className="min-w-0 overflow-x-auto"
+                role="region"
+                aria-label="Other members' calendars table"
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll calendar columns horizontally.
+                tabIndex={0}
+              >
+                <Table
+                  caption="Calendars other members linked into this workspace."
+                  columns={
+                    [
+                      {
+                        key: 'title',
+                        header: 'Item',
+                        rowHeader: true,
+                        cell: (entry: WorkspaceCalendarLink) => entry.title || 'Untitled',
+                      },
+                      {
+                        key: 'actions',
+                        header: 'Actions',
+                        cell: (entry: WorkspaceCalendarLink) => (
+                          <Button
+                            variant="ghost"
+                            onClick={() => {
+                              setUnlinkingOthers(entry);
+                            }}
+                          >
+                            Unlink {entry.title || 'Untitled'}
+                          </Button>
+                        ),
+                      },
+                    ] as const
+                  }
+                  rows={othersLinks}
+                  rowKey={(entry) => entry.containerItemId}
+                  emptyMessage="No other member has linked a calendar here."
+                />
+              </div>
             </>
           )}
         </>
@@ -886,15 +945,23 @@ function SyncLogDialog({ link, sync, onClose }: SyncLogDialogProps): ReactElemen
       actions={<Button onClick={onClose}>Done</Button>}
     >
       {refusal === null ? (
-        <Table
-          caption="The newest fifty sync events, newest first."
-          columns={columns}
-          rows={entries ?? []}
-          rowKey={(entry) => entry.id}
-          loading={entries === null}
-          loadingMessage="Reading the sync log."
-          emptyMessage="Nothing has been synced yet."
-        />
+        <div
+          className="min-w-0 overflow-x-auto"
+          role="region"
+          aria-label="Calendar sync log table"
+          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need to scroll sync log columns horizontally.
+          tabIndex={0}
+        >
+          <Table
+            caption="The newest fifty sync events, newest first."
+            columns={columns}
+            rows={entries ?? []}
+            rowKey={(entry) => entry.id}
+            loading={entries === null}
+            loadingMessage="Reading the sync log."
+            emptyMessage="Nothing has been synced yet."
+          />
+        </div>
       ) : (
         <Text variant="note" role="alert">
           {refusal}

@@ -2,7 +2,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import { EditorToolbar } from '../../editor/toolbar';
+import { EditorToolbar, type ToolbarProps } from '../../editor/toolbar';
 import { Editor, EditorContent } from '@tiptap/react';
 import { nixEditingExtensions } from '@nix/editor-schema';
 import { MoveBlock } from '../../editor/move-block';
@@ -63,11 +63,13 @@ function editorStub(
         {},
         {
           get: (_target, property: string) => () =>
-            property === 'setTextAlign'
-              ? (overrides.alignmentEnabled ?? true)
-              : property.endsWith('ColumnToRow') || property.endsWith('ColumnFromRow')
-                ? (overrides.inColumns ?? false)
-                : (overrides.inTable ?? false),
+            ['setHardBreak', 'splitBlock'].includes(property)
+              ? true
+              : property === 'setTextAlign'
+                ? (overrides.alignmentEnabled ?? true)
+                : property.endsWith('ColumnToRow') || property.endsWith('ColumnFromRow')
+                  ? (overrides.inColumns ?? false)
+                  : (overrides.inTable ?? false),
         },
       ) as Record<string, unknown>,
     isActive: (name: string | Record<string, unknown>, attrs?: Record<string, unknown>) => {
@@ -87,7 +89,7 @@ function editorStub(
 
 function renderToolbar(
   options: Parameters<typeof editorStub>[0] = {},
-  props: { readonly compact?: boolean } = {},
+  props: Pick<ToolbarProps, 'compact' | 'writingMode'> = {},
 ): {
   ran: string[];
   onInsertImage: ReturnType<typeof vi.fn>;
@@ -104,7 +106,7 @@ function renderToolbar(
   render(
     <EditorToolbar
       editor={editor}
-      compact={props.compact}
+      {...props}
       onInsertImage={onInsertImage}
       onInsertLink={onInsertLink}
       onUndo={onUndo}
@@ -115,6 +117,23 @@ function renderToolbar(
 }
 
 describe('what the toolbar offers', () => {
+  it('keeps poetry line and stanza actions reachable on a phone', async () => {
+    const { ran } = renderToolbar(
+      { active: ['paragraph'] },
+      { compact: true, writingMode: 'poetry' },
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Line break' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New stanza' }));
+    expect(ran).toEqual(['setHardBreak', 'splitBlock']);
+  });
+
+  it('keeps task and numbered lists visible while planning on a phone', async () => {
+    const { ran } = renderToolbar({}, { compact: true, writingMode: 'planning' });
+    await userEvent.click(screen.getByRole('button', { name: 'Task list' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Numbered list' }));
+    expect(ran).toEqual(['toggleTaskList', 'toggleOrderedList']);
+  });
+
   it('keeps speech controls out of the compact writing sheet', async () => {
     renderToolbar({}, { compact: true });
     await userEvent.click(screen.getByRole('button', { name: 'More' }));

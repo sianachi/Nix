@@ -147,7 +147,7 @@ export function AutomationDetail(props: AutomationDetailProps): ReactNode {
 function UneditableRule({ rule }: { readonly rule: AutomationRule }): ReactNode {
   return (
     <section className="flex flex-col gap-2 border border-divider p-3">
-      <Text variant="h3" as="h2">
+      <Text variant="h5" as="h2">
         {rule.name}
       </Text>
       <Text variant="note" tone="muted">
@@ -235,7 +235,7 @@ function RuleForm(props: AutomationDetailProps & { readonly start: AutomationDra
       aria-labelledby="automation-editor-heading"
       className="flex min-w-0 flex-col gap-4 outline-none"
     >
-      <Text id="automation-editor-heading" variant="h3" as="h2">
+      <Text id="automation-editor-heading" variant="h5" as="h2">
         {rule === null ? 'New automation' : `Edit ${rule.name}`}
       </Text>
       {conflict === null ? null : (
@@ -249,6 +249,7 @@ function RuleForm(props: AutomationDetailProps & { readonly start: AutomationDra
               type="button"
               variant="secondary"
               disabled={reloading}
+              className="h-auto min-h-(--control-md) max-w-full whitespace-normal py-2 any-pointer-coarse:h-auto any-pointer-coarse:min-h-(--control-lg)"
               onClick={() => {
                 void reloadSaved();
               }}
@@ -389,7 +390,7 @@ function RuleTools(props: AutomationDetailProps & { readonly rule: AutomationRul
   return (
     <>
       <section aria-labelledby="automation-tools-heading" className="flex min-w-0 flex-col gap-3">
-        <Text id="automation-tools-heading" variant="h4" as="h3">
+        <Text id="automation-tools-heading" variant="h6" as="h3">
           Test or run it
         </Text>
         <Text variant="note" tone="muted">
@@ -456,7 +457,7 @@ function RuleTools(props: AutomationDetailProps & { readonly rule: AutomationRul
       />
 
       <section aria-labelledby="automation-delete-heading" className="flex flex-col gap-2">
-        <Text id="automation-delete-heading" variant="h4" as="h3">
+        <Text id="automation-delete-heading" variant="h6" as="h3">
           Delete
         </Text>
         <Text variant="note" tone="muted">

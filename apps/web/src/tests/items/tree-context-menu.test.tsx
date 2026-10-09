@@ -9,6 +9,7 @@ import { useSessionStore } from '../../auth/session-store';
 import { browserStorage } from '../../lib/browser-storage';
 import { itemLandmarksKey } from '../../lib/item-landmarks';
 import { WorkspaceSidebar } from '../../items/workspace-sidebar';
+import { MobileWorkspaceBrowser } from '../../items/mobile-workspace-browser';
 import type { TreeItem, WorkspaceTree } from '../../items/use-workspace-tree';
 import { WorkspaceProvider } from '../../workspaces/workspace-context';
 import { STUB_WORKSPACE } from '../api-stub';
@@ -81,6 +82,7 @@ function renderSidebar(
   tree: WorkspaceTree,
   selectedId: string | null = null,
   callbacks: Callbacks = {},
+  view: 'desktop' | 'mobile' = 'desktop',
 ): void {
   render(
     <MemoryRouter initialEntries={[`/w/${STUB_WORKSPACE.id}`]}>
@@ -101,17 +103,28 @@ function renderSidebar(
                     workspaceRemoved: () => undefined,
                   }}
                 >
-                  <WorkspaceSidebar
-                    tree={tree}
-                    selectedId={selectedId}
-                    onSelect={callbacks.onSelect ?? vi.fn()}
-                    onOpenBeside={callbacks.onOpenBeside ?? (() => undefined)}
-                    onOpenPinned={callbacks.onOpenPinned ?? (() => undefined)}
-                    besideRefusal={null}
-                    canOpenBeside
-                    onDeleteItem={callbacks.onDeleteItem ?? vi.fn()}
-                    treeRegionRef={{ current: null }}
-                  />
+                  {view === 'mobile' ? (
+                    <MobileWorkspaceBrowser
+                      tree={tree}
+                      parentId={null}
+                      onParent={vi.fn()}
+                      onOpen={callbacks.onSelect ?? vi.fn()}
+                      onClose={vi.fn()}
+                      destinations={null}
+                    />
+                  ) : (
+                    <WorkspaceSidebar
+                      tree={tree}
+                      selectedId={selectedId}
+                      onSelect={callbacks.onSelect ?? vi.fn()}
+                      onOpenBeside={callbacks.onOpenBeside ?? (() => undefined)}
+                      onOpenPinned={callbacks.onOpenPinned ?? (() => undefined)}
+                      besideRefusal={null}
+                      canOpenBeside
+                      onDeleteItem={callbacks.onDeleteItem ?? vi.fn()}
+                      treeRegionRef={{ current: null }}
+                    />
+                  )}
                 </WorkspaceProvider>
               }
             />
@@ -192,6 +205,29 @@ describe('the sidebar row context menu', () => {
       'Stop new children',
       'Delete',
     ]);
+  });
+
+  it('leaves secondary row controls out of the item context menu', () => {
+    renderSidebar(treeOf(vi.fn()));
+    expect(fireEvent.contextMenu(screen.getByRole('button', { name: 'Delete First' }))).toBe(true);
+    expect(fireEvent.contextMenu(screen.getByRole('button', { name: 'Open First beside' }))).toBe(
+      true,
+    );
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('offers open and personal hide actions on the mobile browser row', async () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    signedIn();
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    renderSidebar(treeOf(vi.fn()), null, { onSelect }, 'mobile');
+    rightClick('Second');
+    await user.click(screen.getByRole('menuitem', { name: 'Open' }));
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(ROOT_B.id);
+    rightClick('Second');
+    await user.click(screen.getByRole('menuitem', { name: 'Hide for me' }));
+    expect(screen.queryByRole('button', { name: 'Second' })).not.toBeInTheDocument();
   });
 
   it('opens, opens in a tab, and deletes the row it was opened on', async () => {

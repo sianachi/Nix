@@ -1,5 +1,7 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
 import type { ReactElement } from 'react';
+import { fireEvent, within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import { GraphExplorer } from './graph-explorer';
 import { GraphView } from './graph-view';
 import type { GraphRepresentation } from './graph-representations';
@@ -83,3 +85,52 @@ export function PartialFocused(): ReactElement {
 export function Empty(): ReactElement {
   return <GraphExplorer nodes={[]} links={[]} onOpen={noop} />;
 }
+
+export function DrawnNodeActions(): ReactElement {
+  return view('hierarchy');
+}
+DrawnNodeActions.play = async ({
+  canvasElement,
+}: {
+  readonly canvasElement: HTMLElement;
+}): Promise<void> => {
+  const node = canvasElement.querySelector('[data-graph-node="project"]');
+  if (node === null) throw new Error('The graph node is missing.');
+  fireEvent.contextMenu(node);
+  await within(document.body).findByRole('menuitem', { name: 'Fold branch' });
+};
+
+export function BrowseItemActions(): ReactElement {
+  return <GraphExplorer nodes={nodes} links={links} onOpen={noop} />;
+}
+BrowseItemActions.play = async ({
+  canvasElement,
+}: {
+  readonly canvasElement: HTMLElement;
+}): Promise<void> => {
+  const canvas = within(canvasElement);
+  await userEvent.click(canvas.getByRole('button', { name: 'Browse connections' }));
+  await userEvent.type(canvas.getByRole('searchbox', { name: 'Find an item' }), 'Launch project');
+  fireEvent.contextMenu(canvas.getByRole('button', { name: 'Launch project' }));
+  await within(document.body).findByRole('menu', { name: 'Launch project actions' });
+};
+
+export function TinyBrowse(): ReactElement {
+  const longTitle = 'VeryLongItemTitleWithoutSpaces'.repeat(5);
+  return (
+    <div className="w-64 max-w-full">
+      <GraphExplorer
+        nodes={nodes.slice(0, 1).map((node) => ({ ...node, id: 'long-title', title: longTitle }))}
+        links={[]}
+        onOpen={noop}
+      />
+    </div>
+  );
+}
+TinyBrowse.play = async ({
+  canvasElement,
+}: {
+  readonly canvasElement: HTMLElement;
+}): Promise<void> => {
+  await userEvent.click(within(canvasElement).getByRole('button', { name: 'Browse connections' }));
+};

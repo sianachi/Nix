@@ -197,7 +197,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3">
+    <div className="flex min-h-0 min-w-0 flex-col gap-3">
       {moveError === null ? null : (
         <div role="alert" className="flex items-start gap-2 border border-divider p-3">
           <Icon icon={CircleAlert} size="sm" className="text-accent-text" />
@@ -236,7 +236,12 @@ export function BoardView(props: BoardViewProps): ReactNode {
           )}
         </Field>
       ) : null}
-      <div className="flex min-h-0 flex-col items-stretch gap-3 pb-2 sm:flex-row sm:items-start sm:overflow-x-auto">
+      <div
+        className={cn(
+          'flex min-h-0 min-w-0 flex-col items-stretch gap-3 pb-2',
+          narrow ? '' : 'sm:flex-row sm:items-start sm:overflow-x-auto',
+        )}
+      >
         {visibleColumns.map((column) => (
           <BoardColumnPanel
             onCreate={container.create}
@@ -244,6 +249,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
             groupKey={key}
             key={column.value ?? UNSET_VALUE}
             column={column}
+            compact={narrow}
             columns={columns}
             property={property}
             cardProperties={view.columns.filter((candidate) => candidate !== key)}
@@ -270,6 +276,7 @@ export function BoardView(props: BoardViewProps): ReactNode {
 }
 
 interface BoardColumnPanelProps {
+  readonly compact: boolean;
   readonly column: BoardColumn;
   readonly columns: readonly BoardColumn[];
   readonly property: PropertyDefinition;
@@ -302,6 +309,7 @@ interface BoardColumnPanelProps {
 function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
   const {
     column,
+    compact,
     columns,
     property,
     cardProperties,
@@ -361,7 +369,8 @@ function BoardColumnPanel(props: BoardColumnPanelProps): ReactNode {
         // schema and view editors' draft rows - pads at p-3. A column was the one place this rhythm
         // had drifted, and cards inside it sat visibly closer to the frame than the same shape does
         // everywhere else it appears.
-        'flex w-full shrink-0 flex-col sm:w-80 gap-2 border border-divider p-3',
+        'flex w-full min-w-0 shrink-0 flex-col gap-2 border border-divider p-3',
+        compact ? '' : 'sm:w-80',
         dropTarget && dragged !== null ? 'outline-2 -outline-offset-2 outline-accent' : '',
       )}
     >

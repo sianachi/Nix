@@ -120,7 +120,7 @@ describe('Button', () => {
     }
   });
 
-  it('grows to the 44px touch step on a coarse pointer, in every variant', () => {
+  it('grows to the 44px touch step when any pointer is coarse, in every variant', () => {
     for (const variant of ['primary', 'secondary', 'ghost', 'icon'] as const) {
       const { container, unmount } = render(
         <Button variant={variant} aria-label="Act">
@@ -129,9 +129,9 @@ describe('Button', () => {
       );
 
       const className = container.querySelector('button')?.className ?? '';
-      expect(className).toContain('pointer-coarse:h-(--control-lg)');
+      expect(className).toContain('any-pointer-coarse:h-(--control-lg)');
       if (variant === 'icon') {
-        expect(className).toContain('pointer-coarse:w-(--control-lg)');
+        expect(className).toContain('any-pointer-coarse:w-(--control-lg)');
       }
       unmount();
     }

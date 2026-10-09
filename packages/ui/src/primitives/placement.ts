@@ -102,9 +102,9 @@ export function placeFloatingMenu(
   const forceBelow = options.forceBelow === true;
 
   const innerLeft = viewport.left + margin;
-  const innerRight = viewport.left + viewport.width - margin;
+  const innerRight = Math.max(innerLeft, viewport.left + viewport.width - margin);
   const innerTop = viewport.top + margin;
-  const innerBottom = viewport.top + viewport.height - margin;
+  const innerBottom = Math.max(innerTop, viewport.top + viewport.height - margin);
 
   const maxWidth = Math.max(0, innerRight - innerLeft);
   const width = Math.min(preferredWidth, maxWidth);
@@ -113,19 +113,28 @@ export function placeFloatingMenu(
   if (left + width > innerRight) left = innerRight - width;
   if (left < innerLeft) left = innerLeft;
 
-  const spaceAbove = Math.max(0, anchor.top - innerTop);
-  const spaceBelow = Math.max(0, innerBottom - anchor.bottom);
+  const anchorTop = Math.min(innerBottom, Math.max(innerTop, anchor.top));
+  const anchorBottom = Math.min(innerBottom, Math.max(innerTop, anchor.bottom));
+  const spaceAbove = anchorTop - innerTop;
+  const spaceBelow = innerBottom - anchorBottom;
   const preferredSpace = preferAbove ? spaceAbove : spaceBelow;
+  const alternateSpace = preferAbove ? spaceBelow : spaceAbove;
 
-  // Stay on the preferred side when it has room; otherwise take the other one. `forceBelow`
+  // Flip only when the other side offers more room. `forceBelow`
   // skips the question entirely - the colour menu on a touch screen never opens above.
-  const above = !forceBelow && (preferredSpace < minHeight ? !preferAbove : preferAbove);
+  const above =
+    !forceBelow &&
+    (preferredSpace < minHeight && alternateSpace > preferredSpace ? !preferAbove : preferAbove);
+  const minimumRoom = Math.min(minHeight, innerBottom - innerTop);
+  const top = above
+    ? Math.max(anchorTop, innerTop + minimumRoom)
+    : Math.min(anchorBottom, innerBottom - minimumRoom);
 
   return {
     left,
-    top: above ? anchor.top : anchor.bottom,
+    top,
     above,
     maxWidth: width,
-    maxHeight: Math.max(0, above ? spaceAbove : spaceBelow),
+    maxHeight: above ? top - innerTop : innerBottom - top,
   };
 }

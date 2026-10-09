@@ -30,7 +30,6 @@ import {
   lazy,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -90,7 +89,7 @@ import { ItemPanel } from '../panel/item-panel';
 import { DailyNoteBar } from '../daily-notes/daily-note-bar';
 import { parseDailyNoteDate } from '../daily-notes/daily-note';
 import { browserStorage } from '../lib/browser-storage';
-import { claimZenSurface, toggleZenMode, useZenActive } from '../lib/zen-mode';
+import { toggleZenMode, useZenActive } from '../lib/zen-mode';
 import { formatTime } from '../lib/date-format';
 import { readPanelOpen, storePanelOpen } from '../panel/panel-state';
 import { useViewState } from '../views/core/view-state';
@@ -127,11 +126,6 @@ export function EditorPage(): ReactNode {
   const narrow = useNarrowViewport();
   const [draggedTab, setDraggedTab] = useState<TabTransferPayload | null>(null);
 
-  // Zen: an item is on screen whenever there is a pane, so this page is what gives Zen something
-  // to act on (`lib/zen-mode.ts`). Claimed in a layout effect so the chrome is gone in the same
-  // frame an item appears, not a frame later.
-  const itemShown = panes.length > 0;
-  useLayoutEffect(() => (itemShown ? claimZenSurface() : undefined), [itemShown]);
   const zen = useZenActive();
 
   // Which pane Zen keeps: the one that last held focus, which is the one the reader pressed Zen
@@ -760,21 +754,10 @@ export function OpenItem({
       : [{ key: 'close-pane', label: 'Close pane', icon: PanelRightClose, onSelect: onClose }]),
   ];
 
-  const zenAvailable =
-    lock.open && showingDocument && bodyKind !== 'canvas' && bodyKind !== 'spreadsheet';
+  const zenAvailable = lock.open;
   const desktopControls = (
     <div className="flex shrink-0 items-center gap-1">
       <BookmarkButton compact itemId={itemId} title={title} />
-      {zenAvailable ? (
-        <Button
-          variant="icon"
-          aria-label="Enter Zen mode"
-          title="Enter Zen mode"
-          onClick={toggleZenMode}
-        >
-          <Icon icon={Maximize2} size="sm" />
-        </Button>
-      ) : null}
       <Button
         variant="icon"
         aria-label="Settings"
@@ -1189,7 +1172,7 @@ function ItemHeader({
   }, [itemId, title]);
 
   return (
-    <header className="min-w-0 flex-1 px-5 pb-3 pt-5 sm:px-8 sm:pt-8">
+    <header className={`min-w-0 flex-1 px-3 py-2 sm:px-5 sm:py-3 ${zen ? 'pr-16 sm:pr-16' : ''}`}>
       <div className={reading ? noteColumn : undefined}>
         {narrow && !zen ? (
           <div className="flex items-center gap-2">
@@ -1236,7 +1219,7 @@ function ItemHeader({
           </nav>
         ) : null}
 
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-2">
           <input
             ref={titleRef}
             aria-label={`${bodyKind === 'canvas' ? 'Canvas' : bodyKind === 'spreadsheet' ? 'Spreadsheet' : 'Note'} title`}
@@ -1257,7 +1240,7 @@ function ItemHeader({
             // variable - so the two together left the field that renames an item with no visible focus
             // at all. `focusRing` replaces the UA outline rather than removing it, which is the whole
             // point of the primitive.
-            className={`min-w-0 flex-1 bg-transparent font-heading font-semibold tracking-tight text-2xl ${focusRing}`}
+            className={`min-h-(--control-sm) min-w-0 flex-1 bg-transparent font-heading text-lg font-semibold leading-snug sm:text-xl ${focusRing}`}
           />
           {trailing}
         </div>
