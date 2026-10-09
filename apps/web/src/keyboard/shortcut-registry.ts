@@ -10,7 +10,7 @@ import type { Shortcut } from '../lib/shortcuts';
 export type ShellShortcutId =
   'search' | 'new-note' | 'toggle-sidebar' | 'zen' | 'back' | 'forward' | 'shortcuts';
 
-type Group = 'General' | 'Editor' | 'Views' | 'Panes and tabs' | 'Workspace tree';
+type Group = 'General' | 'Editor' | 'Views' | 'Outline' | 'Panes and tabs' | 'Workspace tree';
 
 /**
  * Links the underlined item name at the caret (`editor/unlinked-mentions.ts`). Exported so the
@@ -135,6 +135,61 @@ export const SHORTCUTS: readonly ShortcutEntry[] = [
     label: 'Fill the selected spreadsheet cells down as a series',
     group: 'Views',
     keys: [FILL_SERIES_SHORTCUT],
+    handledBy: 'local',
+  },
+  // The outline view (plan 3.8). Its Alt chords are the workspace tree's own, on purpose.
+  {
+    label: 'Add an item below the chosen row',
+    group: 'Outline',
+    keys: [{ key: 'Enter' }],
+    handledBy: 'local',
+  },
+  {
+    label: 'Move inside the row above',
+    group: 'Outline',
+    keys: [{ key: 'Tab' }, { key: 'ArrowRight', alt: true }],
+    handledBy: 'local',
+  },
+  {
+    label: 'Move out of its parent',
+    group: 'Outline',
+    keys: [
+      { key: 'Tab', shift: true },
+      { key: 'ArrowLeft', alt: true },
+    ],
+    handledBy: 'local',
+  },
+  {
+    label: 'Move up among its siblings',
+    group: 'Outline',
+    keys: [
+      { key: 'ArrowUp', mod: true },
+      { key: 'ArrowUp', alt: true },
+    ],
+    handledBy: 'local',
+  },
+  {
+    label: 'Move down among its siblings',
+    group: 'Outline',
+    keys: [
+      { key: 'ArrowDown', mod: true },
+      { key: 'ArrowDown', alt: true },
+    ],
+    handledBy: 'local',
+  },
+  {
+    label: 'Open the chosen item',
+    group: 'Outline',
+    keys: [
+      { key: 'Enter', mod: true },
+      { key: 'Enter', alt: true },
+    ],
+    handledBy: 'local',
+  },
+  {
+    label: 'Let the next Tab leave the outline',
+    group: 'Outline',
+    keys: [{ key: 'Escape' }],
     handledBy: 'local',
   },
   { label: 'Next pane', group: 'Panes and tabs', keys: [{ key: 'F6' }], handledBy: 'local' },

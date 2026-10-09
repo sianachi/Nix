@@ -450,3 +450,30 @@ export function ViewSettingsLink({ href }: { readonly href: string }): ReactNode
     </Link>
   );
 }
+
+/**
+ * The part of the chrome's notices that is about the container rather than its filters: that only
+ * the first pages of children are loaded, and that a background reload failed or is under way.
+ * For a view that does not go through `useViewChrome` - the outline reads its own levels and
+ * applies no filters - but must still not present a partial container as the whole of it.
+ */
+export function ContainerNotices({
+  container,
+  subject,
+}: {
+  readonly container: ContainerData;
+  readonly subject: string;
+}): ReactNode {
+  const truncated = container.truncated ? (
+    <PartialNotice
+      pending={`Only the first ${String(container.children.length)} items at the top of ${subject} are loaded.`}
+    />
+  ) : null;
+  const background = refreshNotice(container.refreshing, container.refreshError, subject);
+  return truncated === null && background === null ? null : (
+    <>
+      {truncated}
+      {background}
+    </>
+  );
+}

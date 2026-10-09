@@ -57,6 +57,8 @@ function initialTree(): Node[] {
 interface HarnessOptions {
   readonly refuseMove?: Error;
   readonly lockedIds?: readonly string[];
+  readonly onOpen?: (itemId: string) => void;
+  readonly truncated?: boolean;
   readonly onMove?: (itemId: string, parentId: string | null, afterId: string | null) => void;
 }
 
@@ -121,6 +123,7 @@ function Harness(options: HarnessOptions): ReactNode {
   const container = aContainer({
     itemId: ROOT,
     children: childrenOf(ROOT, nodes),
+    truncated: options.truncated ?? false,
     reload: () => Promise.resolve(),
   });
 
@@ -128,18 +131,26 @@ function Harness(options: HarnessOptions): ReactNode {
     <OutlineTree
       container={container}
       view={aView({ kind: 'outline', name: 'Plan' })}
-      onOpen={vi.fn()}
+      onOpen={options.onOpen ?? vi.fn()}
       source={source}
     />
   );
 }
 
+/** Each row's title: its first text, before any note or lock the row also carries. */
 function treeTitles(): string[] {
-  return screen.getAllByRole('treeitem').map((row) => row.textContent);
+  return screen
+    .getAllByRole('treeitem')
+    .map((row) => row.querySelector('span.flex-1')?.textContent ?? '');
 }
 
+/**
+ * A row by its title. A row's name also carries a note or ", locked" after the title, so the name
+ * is matched from the start up to whatever follows a title rather than as the whole.
+ */
 function row(title: string): HTMLElement {
-  return screen.getByRole('treeitem', { name: title });
+  const escaped = title.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  return screen.getByRole('treeitem', { name: new RegExp(`^${escaped}(?:$|,| [A-Z"])`, 'u') });
 }
 
 describe('OutlineTree', () => {
@@ -163,14 +174,14 @@ describe('OutlineTree', () => {
     expect(row('Bravo')).toHaveFocus();
 
     await user.keyboard('{ArrowRight}');
-    expect(await screen.findByRole('treeitem', { name: 'Bravo one' })).toHaveAttribute(
+    expect(await screen.findByRole('treeitem', { name: /^Bravo one/u })).toHaveAttribute(
       'aria-level',
       '2',
     );
     expect(row('Bravo')).toHaveAttribute('aria-expanded', 'true');
 
     await user.keyboard('{ArrowLeft}');
-    expect(screen.queryByRole('treeitem', { name: 'Bravo one' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('treeitem', { name: /^Bravo one/u })).not.toBeInTheDocument();
   });
 
   it('indents with Tab under the row above, after its last child', async () => {
@@ -192,7 +203,7 @@ describe('OutlineTree', () => {
     await waitFor(() => {
       expect(onMove).toHaveBeenCalledWith('c', 'b', 'b1');
     });
-    expect(await screen.findByRole('treeitem', { name: 'Charlie' })).toHaveAttribute(
+    expect(await screen.findByRole('treeitem', { name: /^Charlie/u })).toHaveAttribute(
       'aria-level',
       '2',
     );
@@ -205,7 +216,7 @@ describe('OutlineTree', () => {
 
     row('Bravo').focus();
     await user.keyboard('{ArrowRight}');
-    const child = await screen.findByRole('treeitem', { name: 'Bravo one' });
+    const child = await screen.findByRole('treeitem', { name: /^Bravo one/u });
     child.focus();
     await user.keyboard('{Shift>}{Tab}{/Shift}');
 
@@ -293,5 +304,78 @@ describe('OutlineTree', () => {
 
     expect(onMove).not.toHaveBeenCalled();
     expect(row('Bravo')).not.toHaveFocus();
+  });
+
+  it('opens the chosen row from the toolbar, for a pointer or a phone', async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    renderAt(<Harness onOpen={onOpen} />);
+
+    await user.click(row('Charlie'));
+    expect(screen.getByText('Acting on “Charlie”')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+
+    expect(onOpen).toHaveBeenCalledWith('c');
+  });
+
+  it('accepts the sidebar tree bindings: Alt+Right indents and Alt+Enter opens', async () => {
+    const user = userEvent.setup();
+    const onMove = vi.fn();
+    const onOpen = vi.fn();
+    renderAt(<Harness onMove={onMove} onOpen={onOpen} />);
+
+    row('Bravo').focus();
+    await user.keyboard('{Alt>}{ArrowRight}{/Alt}');
+    await waitFor(() => {
+      expect(onMove).toHaveBeenCalledWith('b', 'a', null);
+    });
+
+    row('Alpha').focus();
+    await user.keyboard('{Alt>}{Enter}{/Alt}');
+    expect(onOpen).toHaveBeenCalledWith('a');
+  });
+
+  it('keeps a made item made when placing it is refused, without offering its name again', async () => {
+    const user = userEvent.setup();
+    renderAt(
+      <Harness
+        refuseMove={
+          new NixApiError({ kind: 'http', code: 'items.locked', status: 423, message: 'Locked' })
+        }
+      />,
+    );
+
+    row('Alpha').focus();
+    await user.keyboard('{Enter}');
+    const field = screen.getByRole('textbox', { name: 'New item' });
+    await user.type(field, 'Alpha two{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Added at the end instead');
+    expect(screen.getByRole('textbox', { name: 'New item' })).toHaveValue('');
+    expect(treeTitles()).toContain('Alpha two');
+  });
+
+  it('does not open the row above when an indent is refused', async () => {
+    const user = userEvent.setup();
+    renderAt(
+      <Harness
+        refuseMove={
+          new NixApiError({ kind: 'http', code: 'items.locked', status: 423, message: 'Locked' })
+        }
+      />,
+    );
+
+    row('Charlie').focus();
+    await user.keyboard('{Tab}');
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(row('Bravo')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('says when only the first items are loaded and does not claim the top-level size', () => {
+    renderAt(<Harness truncated />);
+
+    expect(screen.getByText(/Only the first 4 items/u)).toBeInTheDocument();
+    expect(row('Alpha')).toHaveAttribute('aria-setsize', '-1');
   });
 });
