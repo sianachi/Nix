@@ -1063,9 +1063,51 @@ describe('workspace-scoped companion tools', () => {
       );
       expect(bodies.applyEdit).toHaveBeenCalledWith(itemId, edit, plan.fingerprint, signal);
       expect(JSON.parse(outcome.text)).toMatchObject({ replaced: true, blocksAdded: 2 });
-      expect(outcome).toMatchObject({ readOnly: false, touchedParents: [] });
+      expect(outcome).toMatchObject({ readOnly: false, touchedParents: [], lockedContent: false });
       expect(execute).not.toHaveBeenCalled();
     });
+
+    it.each([true, false])(
+      'marks a refusal that may quote the note as locked content only when the note is under a lock (%s)',
+      async (locked) => {
+        const { ports, query, bodies, signal } = setup();
+        query.mockImplementation((endpoint: { operation: string }) =>
+          Promise.resolve(
+            endpoint.operation === 'locks.get'
+              ? {
+                  locked,
+                  unlockedUntil: locked ? '2030-01-01T00:00:00+00:00' : null,
+                  lockItemId: locked ? itemId : null,
+                  selfLocked: locked,
+                }
+              : {
+                  id: itemId,
+                  workspaceId: workspace,
+                  parentId: null,
+                  title: 'Diary',
+                  type: 'note',
+                },
+          ),
+        );
+        const refusal = () =>
+          new WorkspaceToolRefusal(
+            'No heading "X". Headings in this note: "Secret".',
+            'Not found.',
+          );
+        bodies.applyEdit.mockRejectedValue(refusal());
+        await expect(
+          runWorkspaceTool(ports, workspace, input(operation, { itemId, ...fields }), signal, {
+            fence: plan.fingerprint,
+          }),
+        ).rejects.toMatchObject({ lockedContent: locked });
+        bodies.planEdit.mockRejectedValue(refusal());
+        const parsed = workspaceToolSchema.parse(
+          JSON.parse(input(operation, { itemId, ...fields })),
+        );
+        const context = await loadPreviewContext(ports, workspace, parsed, signal);
+        expect(context.refusalQuotesLockedContent).toBe(locked);
+      },
+    );
 
     it('refuses without an approved preview', async () => {
       const { ports, bodies, signal } = setup();

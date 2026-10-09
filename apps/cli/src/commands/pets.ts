@@ -279,6 +279,7 @@ export async function executePetToolRun(
     } catch (reason) {
       toolResult =
         reason instanceof WorkspaceToolRefusal ? reason.message : UNCERTAIN_OUTCOME_RESULT;
+      if (reason instanceof WorkspaceToolRefusal) toolLockedContent = reason.lockedContent;
       toolSuccess = false;
     }
   }

@@ -1778,7 +1778,7 @@ describe('companion work approvals', () => {
     }
     /** Serves `note` (Markdown, or a document when the fixture needs formatting Markdown cannot
      * spell) as the note's whole collab history and the note item itself. */
-    function serveNote(note: string | Record<string, unknown>) {
+    function serveNote(note: string | Record<string, unknown>, locked = false) {
       let content: unknown;
       if (typeof note === 'string') {
         const parsed = markdownToDocument(note);
@@ -1796,6 +1796,13 @@ describe('companion work approvals', () => {
       client.query.mockImplementation((endpoint: { operation: string }) => {
         if (endpoint.operation === 'companion.body.read')
           return Promise.resolve({ hasMore: false, updates: [{ seq: '1', update }] });
+        if (endpoint.operation === 'locks.get')
+          return Promise.resolve({
+            locked,
+            unlockedUntil: locked ? '2030-01-01T00:00:00+00:00' : null,
+            lockItemId: locked ? noteId : null,
+            selfLocked: locked,
+          });
         if (endpoint.operation === 'items.get')
           return Promise.resolve({
             id: noteId,
@@ -1923,6 +1930,7 @@ describe('companion work approvals', () => {
           toolResult: expect.stringContaining(
             'Headings in this note: "Trip", "Budget".',
           ) as unknown,
+          toolLockedContent: false,
         },
       });
       expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
@@ -1967,6 +1975,62 @@ describe('companion work approvals', () => {
         fence: JSON.stringify(['passage', 'Meet at teh station.']),
       });
       expect(onNeedsDecisionChange).toHaveBeenLastCalledWith([]);
+    });
+
+    it('holds a clean passage edit while the conversation has read locked content', async () => {
+      serveNote('Meet at teh station.');
+      const passageRuntime = {
+        ...editRuntime({ operation: 'replace_passage', query: 'teh', markdown: 'the' }),
+        lockedRead: true,
+      } as typeof runtime;
+      const onNeedsDecisionChange = vi.fn();
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={passageRuntime}
+          workspaceId={workspaceId}
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={vi.fn()}
+          onNeedsDecisionChange={onNeedsDecisionChange}
+          applyWithoutAsking
+        />,
+        { wrapper: MemoryRouter },
+      );
+      // The preview is clean and loads, yet the edit waits and says why.
+      expect(await screen.findByRole('region', { name: /^Text after this change/ })).toBeVisible();
+      expect(
+        screen.getByText(
+          'This one waits for you: earlier in this conversation it read locked content.',
+        ),
+      ).toBeVisible();
+      await waitFor(() => {
+        expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
+      });
+      expect(screen.getByRole('button', { name: 'Approve request' })).toBeEnabled();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(client.execute).not.toHaveBeenCalled();
+    });
+
+    it('reports a refused edit to a locked note as locked content, since its problems quote the note', async () => {
+      serveNote('# Diary\n\n## Private\n\nNothing here.', true);
+      const missingRuntime = editRuntime({
+        operation: 'replace_section',
+        query: 'Itinerary',
+        markdown: 'Day one.',
+      });
+      claimThenComplete(missingRuntime);
+      render(<LiveTools initial={missingRuntime} />, { wrapper: MemoryRouter });
+      await waitFor(() => {
+        expect(client.execute).toHaveBeenCalledTimes(2);
+      });
+      expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
+        body: {
+          operation: 'tool_result',
+          toolSuccess: false,
+          toolLockedContent: true,
+          toolResult: expect.stringContaining('"Private"') as unknown,
+        },
+      });
     });
 
     it('waits for the owner when the edit would drop formatting Markdown cannot keep', async () => {

@@ -23,6 +23,8 @@ interface PreparedPreview {
   fingerprint: StructureFingerprint;
   /** The write completes one occurrence of a repeating task, which Core cannot reopen. */
   taskOccurrence: boolean;
+  /** The preview refused a body edit with text quoting a note under a lock. */
+  refusalQuotesLockedContent: boolean;
 }
 
 interface ToolPreviewState {
@@ -396,6 +398,7 @@ export function PetWorkTools({
     refusalResult?: string,
     reportProgress?: (completed: number, total: number) => void,
     withoutAsking = false,
+    refusalQuotesLockedContent = false,
   ): Promise<boolean> {
     const key = decisionKey(tool);
     if (lock.current || tool.status !== 'pending' || decisions[key] || readActionReceipt(key))
@@ -436,7 +439,8 @@ export function PetWorkTools({
       let toolResult = refusalResult ?? DECLINED_BY_USER;
       let toolSuccess = false;
       let notRun: string | undefined;
-      let toolLockedContent = false;
+      // A declined result (its problems) can quote a locked note just as a read can.
+      let toolLockedContent = refusalQuotesLockedContent;
       if (approved) {
         try {
           const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
@@ -489,6 +493,7 @@ export function PetWorkTools({
           // "didn't finish", and the owner reads their sentence rather than the model's.
           if (reason instanceof WorkspaceToolRefusal && reason.ownerMessage)
             notRun = reason.ownerMessage;
+          if (reason instanceof WorkspaceToolRefusal) toolLockedContent = reason.lockedContent;
         }
       }
       const result = await client.execute(
@@ -601,6 +606,7 @@ type Resolver = (
   refusalResult?: string,
   reportProgress?: (completed: number, total: number) => void,
   withoutAsking?: boolean,
+  refusalQuotesLockedContent?: boolean,
 ) => Promise<boolean>;
 
 /** One line: an icon-free status word or two, next to what happened. Used for every read (and
@@ -1181,6 +1187,7 @@ function PetWorkToolCard({
               model,
               fingerprint: context.fingerprint,
               taskOccurrence: context.taskCompletion?.kind === 'occurrence',
+              refusalQuotesLockedContent: context.refusalQuotesLockedContent ?? false,
             },
           });
       } catch {
@@ -1220,10 +1227,18 @@ function PetWorkToolCard({
     // Only remembered once the decline actually started (security fix S3, as for auto-run
     // reads): a decline that lost the lock to another tool is retried once `busy` clears.
     void (async () => {
-      const started = await onResolve(tool, false, undefined, problemResult);
+      const started = await onResolve(
+        tool,
+        false,
+        undefined,
+        problemResult,
+        undefined,
+        false,
+        state.prepared?.refusalQuotesLockedContent ?? false,
+      );
       if (started) autoDeclineKey.current = tool.id;
     })();
-  }, [hasProblems, busy, tool, problemResult, onResolve]);
+  }, [hasProblems, busy, tool, problemResult, onResolve, state.prepared]);
 
   // Completing an occurrence of a repeating task cannot be undone, so it never runs unattended.
   const taskOccurrence = currentPreview && (state.prepared?.taskOccurrence ?? false);
