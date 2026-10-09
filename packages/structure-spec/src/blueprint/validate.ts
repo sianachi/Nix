@@ -24,6 +24,7 @@ import { refuseSchema } from '../validate/schema-rules.js';
 import { refuseViews } from '../validate/view-rules.js';
 import { validateValue } from '../validate/values.js';
 import type { Problem, ValidationContext, ValidationReport } from '../validate/report.js';
+import { compileChartOptions } from '../compile/views.js';
 import { effectiveSchemaPerNode } from './effective.js';
 import { blueprintSchema, type Blueprint, type Node } from './schema.js';
 import { collectWarnings } from './warnings.js';
@@ -265,6 +266,7 @@ function compileViewForValidation(
   const coverProperty = resolveRef(view.cover, scope, `${path}.cover`, problems);
   const measureProperty = resolveRef(view.measureField, scope, `${path}.measureField`, problems);
   const doneProperty = resolveRef(view.doneProperty, scope, `${path}.doneProperty`, problems);
+  const splitBy = resolveRef(view.splitBy, scope, `${path}.splitBy`, problems);
   const sortBy = resolveRef(view.sortBy, scope, `${path}.sortBy`, problems);
   const columns = (view.columns ?? []).map(
     (ref, index) => resolveRef(ref, scope, `${path}.columns[${String(index)}]`, problems) ?? ref,
@@ -302,6 +304,11 @@ function compileViewForValidation(
     filters,
     measure: view.measure ?? null,
     measureProperty,
+    chart: compileChartOptions(
+      view,
+      scope.existing.find((field) => field.key === groupBy)?.type,
+      splitBy,
+    ),
     interactiveForm,
     doneProperty,
     rowBy,

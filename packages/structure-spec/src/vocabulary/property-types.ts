@@ -154,12 +154,13 @@ export function canSectionBy(type: string): boolean {
 export const TYPE_GROUP_KEY = '$type';
 
 /**
- * Whether a chart may bucket its bars by a property of this type: single select, because the
- * server folds the buckets and reads one select value per item. The server's counterpart is
- * `PropertyTypes.CanChartBy`; it stays narrower than `canGroupBy` once grouping widens.
+ * Whether a chart may bucket its bars by a property of this type: a single select, because the
+ * server folds the buckets and reads one value per item, or a date-shaped property, which puts the
+ * chart on a time axis (each item's day folded into a period). The server's counterpart is
+ * `PropertyTypes.CanChartBy`; the two must widen together.
  */
 export function canChartBy(type: string): boolean {
-  return type === 'select';
+  return type === 'select' || isDateShaped(type);
 }
 
 /**

@@ -133,7 +133,8 @@ describe('the capability catalog', () => {
     );
     // Board grouping is single select until the web board learns the other types (ADR-0054).
     expect(accepts.get('board')).toEqual(['select']);
-    expect(accepts.get('chart')).toEqual(['select']);
+    // A chart buckets by a select, or puts itself on a time axis along any date-shaped type.
+    expect(accepts.get('chart')).toEqual(['select', ...(accepts.get('calendar') ?? [])]);
     // Assignee is listed even though the pet may not declare one: the list is checked against
     // every PropertyType the backend defines.
     expect(accepts.get('calendar')).toEqual([

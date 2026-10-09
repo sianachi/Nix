@@ -67,9 +67,9 @@ export const fieldSpecSchema = z
       .min(1)
       .max(64)
       .regex(/^[a-z][a-z0-9_]*$/)
-      .describe(
-        'Lowercase, starts with a letter; letters, digits and underscores only (e.g. "due_date"). Leave unset to derive one from label.',
-      )
+      // Short on purpose: the pattern already says the shape, and every byte is in the pet's
+      // tool schema budget.
+      .describe('Like "due_date". Leave unset to derive it from label.')
       .optional(),
     type: z.enum(FIELD_SPEC_TYPES),
     options: z.array(z.string().min(1).max(60)).min(1).max(30).optional(),

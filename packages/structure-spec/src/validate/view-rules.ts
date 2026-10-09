@@ -238,6 +238,77 @@ function refuseMeasureAndCover(
   return null;
 }
 
+const CHART_KINDS: ReadonlySet<string> = new Set(['bar', 'column', 'pie', 'line', 'area', 'year']);
+const TIME_AXIS_CHART_KINDS: ReadonlySet<string> = new Set(['line', 'area', 'year']);
+const CHART_PERIODS: ReadonlySet<string> = new Set(['day', 'week', 'month', 'quarter', 'year']);
+/** `ChartOptions.MaximumPeriods`: 53 weeks of days, one year grid. */
+const MAXIMUM_CHART_PERIODS = 371;
+
+/**
+ * Ports `ChartOptions.Refuse` (`backend/src/Nix.Api/Domain/Views/ChartOptions.cs`) - type and
+ * period vocabulary, the time-axis types needing a period, the year grid counting by day, and the
+ * window's shape - and adds two client-only checks Core cannot make without a schema: a period
+ * needs the chart to group by a date, and a split must be a select or a checkbox, because a series
+ * per distinct free-text value is a legend nobody can read.
+ */
+function refuseChartOptions(
+  view: StructureView,
+  effective: readonly StructureProperty[],
+): string | null {
+  const chart = view.chart ?? null;
+  if (chart === null) {
+    return null;
+  }
+
+  const kind = chart.kind ?? null;
+  const period = chart.period ?? null;
+  if (kind !== null && !CHART_KINDS.has(kind)) {
+    return `'${view.name}': '${kind}' is not a chart type; use one of bar, column, pie, line, area, year.`;
+  }
+  if (period !== null && !CHART_PERIODS.has(period)) {
+    return `'${view.name}': '${period}' is not a period; use one of day, week, month, quarter, year.`;
+  }
+  if (kind !== null && TIME_AXIS_CHART_KINDS.has(kind) && period === null) {
+    return `'${view.name}': a ${kind} chart runs along dates, so it needs a date to group by and a period.`;
+  }
+  if (kind === 'year' && period !== 'day') {
+    return `'${view.name}': a year grid counts by day; set its period to day.`;
+  }
+
+  const last = chart.lastPeriods ?? null;
+  const from = chart.from ?? null;
+  const to = chart.to ?? null;
+  if ((last !== null || from !== null || to !== null) && period === null) {
+    return `'${view.name}': a window of periods needs a period to count in.`;
+  }
+  if (last !== null && (from !== null || to !== null)) {
+    return `'${view.name}': a window is either the last few periods or a range of dates, not both.`;
+  }
+  if (last !== null && (!Number.isInteger(last) || last < 1 || last > MAXIMUM_CHART_PERIODS)) {
+    return `'${view.name}': a window may hold from 1 to ${String(MAXIMUM_CHART_PERIODS)} periods.`;
+  }
+  if (from !== null && to !== null && to < from) {
+    return `'${view.name}': a window must end on or after the day it starts.`;
+  }
+
+  if (view.kind === 'chart' && period !== null) {
+    const grouping = findByKey(effective, view.groupBy);
+    if (grouping === undefined || !isDateShaped(grouping.type)) {
+      return `'${view.name}': a chart with a period groups by a date property.`;
+    }
+  }
+
+  const splitBy = chart.splitBy ?? null;
+  if (view.kind === 'chart' && splitBy !== null) {
+    const split = findByKey(effective, splitBy);
+    if (split === undefined || (split.type !== 'select' && split.type !== 'checkbox')) {
+      return `'${view.name}': a chart splits into series by a select or checkbox property.`;
+    }
+  }
+
+  return null;
+}
+
 /**
  * Ports `QueryOperators.Refuse` and `QueryFields.Refuse`
  * (`backend/src/Nix.Api/Domain/Views/FilterRule.cs`, `QueryFields.cs`): grammar only. Whether
@@ -608,6 +679,11 @@ export function refuseViews(
     const measureProblem = refuseMeasureAndCover(view, effective);
     if (measureProblem !== null) {
       return measureProblem;
+    }
+
+    const chartProblem = refuseChartOptions(view, effective);
+    if (chartProblem !== null) {
+      return chartProblem;
     }
 
     if (view.cardSize !== null && !CARD_SIZES.has(view.cardSize)) {

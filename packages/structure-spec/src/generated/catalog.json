@@ -324,16 +324,20 @@
       "label": "Chart",
       "requires": {
         "field": "groupBy",
-        "shape": "select",
-        "accepts": ["select"]
+        "shape": "select-or-date",
+        "accepts": ["select", "date", "timestamp", "datetime", "due_date", "start_date"]
       },
       "optional": [
         {
           "field": "measureField",
           "shape": "number"
+        },
+        {
+          "field": "splitBy",
+          "shape": "select-or-checkbox"
         }
       ],
-      "description": "Children summarised into bars, counted or totalled by a number property."
+      "description": "Children counted or totalled per select value, or per period of a date (set period). chartKind: bar, column, pie, or line/area/year on a date; splitBy makes series."
     },
     {
       "kind": "habit_tracker",

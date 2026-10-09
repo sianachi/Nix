@@ -111,7 +111,13 @@ public sealed class PropertyTypeTests
     [InlineData(PropertyType.MultiSelect, false)]
     [InlineData(PropertyType.Assignee, false)]
     [InlineData(PropertyType.Checkbox, false)]
-    public void Only_a_single_select_buckets_a_chart(PropertyType type, bool expected) =>
+    [InlineData(PropertyType.Number, false)]
+    [InlineData(PropertyType.Date, true)]
+    [InlineData(PropertyType.Timestamp, true)]
+    [InlineData(PropertyType.DueDate, true)]
+    [InlineData(PropertyType.StartDate, true)]
+    [InlineData(PropertyType.DateTime, true)]
+    public void A_chart_buckets_by_a_single_select_or_along_a_date(PropertyType type, bool expected) =>
         Assert.Equal(expected, type.CanChartBy());
 
     [Theory]

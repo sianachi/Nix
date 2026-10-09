@@ -14,7 +14,7 @@ Section: View kinds
 - Form (form). A single-page fillable form over the schema; each submission is a new child.
 - Interactive form (interactive_form). A multi-page, conditional form whose answers create a child item.
 - Smart list (query). A saved cross-container query, run server-side from stored filters.
-- Chart (chart): needs a select property; optional: measureField (number). Children summarised into bars, counted or totalled by a number property.
+- Chart (chart): needs a select-or-date property; optional: measureField (number), splitBy (select-or-checkbox). Children counted or totalled per select value, or per period of a date (set period). chartKind: bar, column, pie, or line/area/year on a date; splitBy makes series.
 - Habit tracker (habit_tracker). Habit children arranged by local date with recorded progress.
 - Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; columns[0] is shown beside each title.
 - Matrix (matrix): needs a select or checkbox property; optional: rowBy (select or checkbox, required). Cards in a grid of cells, placed by two properties at once.

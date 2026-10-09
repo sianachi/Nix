@@ -312,7 +312,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                    "description": "Like \"due_date\". Leave unset to derive it from label."
                   },
                   "type": {
                     "type": "string",
@@ -411,7 +411,7 @@
                   },
                   "groupBy": {
                     "type": "string",
-                    "description": "Board, chart: a select. List: a select, checkbox or $type, drawn as sections."
+                    "description": "Board: select. Chart: select or date. List: select, checkbox or $type."
                   },
                   "groupOrder": {
                     "type": "array",
@@ -485,6 +485,17 @@
                     "enum": ["count", "sum"]
                   },
                   "measureField": {
+                    "type": "string"
+                  },
+                  "chartKind": {
+                    "type": "string",
+                    "enum": ["bar", "column", "pie", "line", "area", "year"]
+                  },
+                  "period": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "quarter", "year"]
+                  },
+                  "splitBy": {
                     "type": "string"
                   },
                   "form": {
@@ -712,7 +723,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                    "description": "Like \"due_date\". Leave unset to derive it from label."
                   },
                   "type": {
                     "type": "string",
@@ -812,7 +823,7 @@
                   },
                   "groupBy": {
                     "type": "string",
-                    "description": "Board, chart: a select. List: a select, checkbox or $type, drawn as sections."
+                    "description": "Board: select. Chart: select or date. List: select, checkbox or $type."
                   },
                   "groupOrder": {
                     "type": "array",
@@ -886,6 +897,17 @@
                     "enum": ["count", "sum"]
                   },
                   "measureField": {
+                    "type": "string"
+                  },
+                  "chartKind": {
+                    "type": "string",
+                    "enum": ["bar", "column", "pie", "line", "area", "year"]
+                  },
+                  "period": {
+                    "type": "string",
+                    "enum": ["day", "week", "month", "quarter", "year"]
+                  },
+                  "splitBy": {
                     "type": "string"
                   },
                   "form": {
@@ -1186,7 +1208,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                    "description": "Like \"due_date\". Leave unset to derive it from label."
                   },
                   "type": {
                     "type": "string",
@@ -1445,7 +1467,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Lowercase, starts with a letter; letters, digits and underscores only (e.g. \"due_date\"). Leave unset to derive one from label."
+                    "description": "Like \"due_date\". Leave unset to derive it from label."
                   },
                   "type": {
                     "type": "string",
