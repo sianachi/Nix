@@ -160,7 +160,7 @@ public sealed partial class DocumentImportStore
                 LastModifiedAt = now,
             };
             // Habit and finance content is checked by its own validators before it is applied.
-            if (ReservedPropertyContent.Refuse(item.Properties, item.Type) is not null)
+            if (ReservedPropertyContent.Refuse(item.Properties, ItemProperties.ReadTitle(item.Properties)) is not null)
             {
                 return null;
             }
