@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Bring up the whole local dev stack: infra, schema, Zitadel, seed data.
 #
-# The cold-start sequence docs/dev-signing-in.md documents as seven separate
-# commands, as one. Every step here is independently idempotent (seed.sh and
+# The cold-start sequence described by the historical native docs/dev-signing-in.md
+# note, as one command. Every step here is independently idempotent (seed.sh and
 # zitadel-configure.sh say so in their own header comments; EF Core migrations
 # no-op on an up-to-date schema; `docker compose up -d` no-ops on running
 # containers), so this is safe to run before every "Full Stack" launch, not

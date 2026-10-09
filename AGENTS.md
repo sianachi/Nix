@@ -6,7 +6,10 @@ material and live in `docs/agent-guides/`.
 
 ## Always
 
-- Product direction is in `README.md`; accepted architecture is in `docs/adr/`.
+- Product direction is in `README.md` and native reference notes; accepted architecture is in
+  the ADR notes inside `docs/nix/nix-reference.nix`. Use `go -C apps/go-workers run ./cmd/nix-docs list`
+  and `read <original-doc-path>` to discover/read them without running Nix. Original `.md`
+  paths in source comments are catalog identifiers. Preserve each decision's recorded Status.
   Reconcile a task with the tree and recent commits. Observed shipped behaviour
   wins; stop and surface an architectural surprise that needs an ADR.
 - Before editing, create an isolated worktree with
@@ -47,13 +50,16 @@ the cases that require broader proof. It does not replace CI or judgment.
   `SET LOCAL`, and never put roles or authorization decisions in browser tokens.
 - Browser auth is Core's BFF flow. Files use capability URLs, never Core bytes.
 - Durable data is authoritative; closure, snapshots, search, links and
-  embeddings are rebuildable derived state.
+  embeddings are rebuildable derived state. The implemented history-retention exception is
+  documented by `go -C apps/go-workers run ./cmd/nix-docs read postgres-durability`: retained base and
+  named-version Yjs checkpoints must survive when their covered updates have been pruned.
 - OpenAPI is a contract seam: explicitly generated `backend/openapi/nix-api.json`
   and generated API-client code are never hand-edited.
 - Production runs CI-published images from `ghcr.io/sianachi/nix`, tagged with the
   full commit SHA. Do not build release images on the production host except
   through the fallback documented in `deploy/README.md`.
 
-The previous complete policy is retained at
-`docs/agent-guides/legacy-full-standards.md` during this transition. Prefer the
-focused guides above; use the legacy file only to resolve a rule not yet routed.
+The previous complete policy is preserved as a native reference note. Read it with
+`go -C apps/go-workers run ./cmd/nix-docs read docs/agent-guides/legacy-full-standards.md`. Prefer the
+focused guides above; use that historical policy only to resolve a rule not yet routed.
+The offline deployment and backup runbooks remain Markdown for recovery when Nix is down.

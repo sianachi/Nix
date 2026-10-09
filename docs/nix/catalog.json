@@ -1,0 +1,3683 @@
+{
+  "format": "nix-documentation-catalog",
+  "version": 1,
+  "createdAt": "2026-10-09T18:00:00.000Z",
+  "sourceRevision": "e037eb02c01ef1aa662a4d2b74b47843a535fd75",
+  "scope": {
+    "included": "Repository-owned root/docs/deploy/CLI Markdown plus the proposed Mermaid ADR from its worktree.",
+    "excluded": [
+      ".local runtime and plugin caches",
+      "third-party dependency documentation",
+      "imported design-review source material",
+      ".claude and .codex tool instructions"
+    ]
+  },
+  "archives": [
+    {
+      "path": "docs/nix/nix-architecture.nix",
+      "sha256": "25372af48fdcf5b0b3521bfcf8acea9e1e697ece717b79d51a82790d7c1964fd",
+      "bytes": 145174,
+      "itemCount": 39,
+      "rootId": "394eaa52-acb0-5570-af4a-894bce3ab6f3"
+    },
+    {
+      "path": "docs/nix/nix-reference.nix",
+      "sha256": "9631072f1b65a49da4e5f78ca2c1ab981aa3dcc3c44a1a276961c1a42cbe22b9",
+      "bytes": 1025210,
+      "itemCount": 119,
+      "rootId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9"
+    }
+  ],
+  "pages": [
+    {
+      "slug": "system-map",
+      "title": "Nix: the whole system",
+      "itemId": "7bc557e8-e63f-59cf-ab8f-960e3e791b29",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "README.md",
+        "backend/src/Nix.Api/Program.cs",
+        "apps/collab/src/http/server.ts",
+        "apps/go-workers/internal/role/role.go",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "deploy/compose.prod.yml",
+        "deploy/Caddyfile.prod",
+        "backend/src/Nix.Api/Persistence/NixPersistenceServiceCollectionExtensions.cs",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs",
+        "packages/export/src/index.ts",
+        "apps/go-workers/internal/exporter/exporter.go"
+      ],
+      "words": 580,
+      "properties": {
+        "area": "Overview",
+        "topic": "Model",
+        "runtime": "Cross-service",
+        "transports": "HTTP/JSON, WebSocket/Yjs, AMQP, PostgreSQL, S3 capabilities",
+        "depends_on": "Core, collaboration, workers and infrastructure",
+        "source_paths": "README.md\nbackend/src/Nix.Api/Program.cs\napps/collab/src/http/server.ts\napps/go-workers/internal/role/role.go\napps/go-workers/internal/runtime/runtime.go\ndeploy/compose.prod.yml\ndeploy/Caddyfile.prod\nbackend/src/Nix.Api/Persistence/NixPersistenceServiceCollectionExtensions.cs\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs\npackages/export/src/index.ts\napps/go-workers/internal/exporter/exporter.go"
+      },
+      "localProofItemId": "01a12247-5982-774d-847c-ccbf3e8e6ad8"
+    },
+    {
+      "slug": "core-api",
+      "title": "Core API: request processing and service boundaries",
+      "itemId": "eacacc7e-234d-5311-aa27-8bdfac04ec9f",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Program.cs",
+        "backend/src/Nix.Api/Features/Health/HealthEndpoints.cs",
+        "backend/src/Nix.Api/Features/Internal/InternalEndpoints.cs",
+        "backend/src/Nix.Api/Persistence",
+        "backend/openapi/nix-api.json",
+        "backend/src/Nix.Api/Authentication/BufferedResponse.cs",
+        "backend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs",
+        "backend/src/Nix.Api/Authentication/WorkerExecutionMiddleware.cs",
+        "backend/src/Nix.Api/Authentication/NixTokenValidator.cs",
+        "backend/tests/Nix.Integration.Tests/Persistence/UnitOfWorkResponseTests.cs",
+        "backend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs"
+      ],
+      "words": 688,
+      "properties": {
+        "area": "Core",
+        "topic": "Service",
+        "runtime": "ASP.NET",
+        "transports": "HTTP/JSON, HTTP/internal, PostgreSQL, AMQP",
+        "depends_on": "Postgres, RabbitMQ, identity provider; scoped collaboration and worker APIs",
+        "source_paths": "backend/src/Nix.Api/Program.cs\nbackend/src/Nix.Api/Features/Health/HealthEndpoints.cs\nbackend/src/Nix.Api/Features/Internal/InternalEndpoints.cs\nbackend/src/Nix.Api/Persistence\nbackend/openapi/nix-api.json\nbackend/src/Nix.Api/Authentication/BufferedResponse.cs\nbackend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs\nbackend/src/Nix.Api/Authentication/WorkerExecutionMiddleware.cs\nbackend/src/Nix.Api/Authentication/NixTokenValidator.cs\nbackend/tests/Nix.Integration.Tests/Persistence/UnitOfWorkResponseTests.cs\nbackend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs"
+      },
+      "localProofItemId": "01a12247-5982-7929-b22d-9697267562aa"
+    },
+    {
+      "slug": "identity-auth",
+      "title": "Identity, BFF, CLI authentication and permissions",
+      "itemId": "a2ec7b46-854a-58ea-a240-0af6e891e252",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features/BrowserAuth",
+        "backend/src/Nix.Api/Features/Tokens",
+        "backend/src/Nix.Api/Persistence/Authorization/WorkspaceMembershipResolver.cs",
+        "backend/src/Nix.Api/Features/Permissions/PermissionEndpoints.cs",
+        "apps/collab/src/ws/session-auth.ts",
+        "apps/cli/src/commands/auth.ts",
+        "deploy/seed/zitadel-configure.sh",
+        "backend/src/Nix.Api/Authentication/NixTokenValidator.cs",
+        "backend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs",
+        "backend/tests/Nix.Tests/Authentication/NixTokenValidatorTests.cs",
+        "backend/src/Nix.Api/Features/Locks/LockUseCases.cs",
+        "backend/src/Nix.Api/Persistence/Locks/ItemLockStore.cs",
+        "backend/src/Nix.Api/Persistence/Sql/Statements/ItemLockSql.cs"
+      ],
+      "words": 651,
+      "properties": {
+        "area": "Core",
+        "topic": "Workflow",
+        "runtime": "Cross-service",
+        "transports": "OIDC, HTTP/JSON, PostgreSQL",
+        "depends_on": "Core, identity provider, browser/CLI sessions",
+        "source_paths": "backend/src/Nix.Api/Features/BrowserAuth\nbackend/src/Nix.Api/Features/Tokens\nbackend/src/Nix.Api/Persistence/Authorization/WorkspaceMembershipResolver.cs\nbackend/src/Nix.Api/Features/Permissions/PermissionEndpoints.cs\napps/collab/src/ws/session-auth.ts\napps/cli/src/commands/auth.ts\ndeploy/seed/zitadel-configure.sh\nbackend/src/Nix.Api/Authentication/NixTokenValidator.cs\nbackend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs\nbackend/tests/Nix.Tests/Authentication/NixTokenValidatorTests.cs\nbackend/src/Nix.Api/Features/Locks/LockUseCases.cs\nbackend/src/Nix.Api/Persistence/Locks/ItemLockStore.cs\nbackend/src/Nix.Api/Persistence/Sql/Statements/ItemLockSql.cs"
+      },
+      "localProofItemId": "01a12247-5982-7d2f-9307-4cb8de5e5121"
+    },
+    {
+      "slug": "postgres-durability",
+      "title": "Postgres: authoritative state, isolation and retained checkpoints",
+      "itemId": "8ff3f167-c610-5cc5-a658-61a6db64e5df",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/collab/src/db/tenant-scope.ts",
+        "apps/collab/src/db/documents.ts",
+        "apps/collab/src/db/history.ts",
+        "apps/collab/src/config.ts",
+        "backend/src/Nix.Api/Persistence/Migrations",
+        "backend/src/Nix.Migrator",
+        "deploy/compose/backup.sh",
+        "deploy/README.md",
+        "backend/src/Nix.Api/Persistence/NixPersistenceServiceCollectionExtensions.cs",
+        "backend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs",
+        "backend/src/Nix.Api/Authentication/BufferedResponse.cs"
+      ],
+      "words": 610,
+      "properties": {
+        "area": "Infrastructure",
+        "topic": "Service",
+        "runtime": "PostgreSQL",
+        "transports": "PostgreSQL",
+        "depends_on": "Core and collaboration runtime roles; retained Yjs checkpoints",
+        "source_paths": "apps/collab/src/db/tenant-scope.ts\napps/collab/src/db/documents.ts\napps/collab/src/db/history.ts\napps/collab/src/config.ts\nbackend/src/Nix.Api/Persistence/Migrations\nbackend/src/Nix.Migrator\ndeploy/compose/backup.sh\ndeploy/README.md\nbackend/src/Nix.Api/Persistence/NixPersistenceServiceCollectionExtensions.cs\nbackend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs\nbackend/src/Nix.Api/Authentication/BufferedResponse.cs"
+      },
+      "localProofItemId": "01a12247-5982-7961-8410-cd2ea5c4773f"
+    },
+    {
+      "slug": "items-structure",
+      "title": "Items, properties, views and declarative structures",
+      "itemId": "100850cf-9b08-56ef-a1f0-6e520d921389",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features/Items",
+        "backend/src/Nix.Api/Features/Properties",
+        "backend/src/Nix.Api/Features/Views",
+        "backend/src/Nix.Api/Features/Query",
+        "backend/src/Nix.Api/Features/Templates",
+        "packages/structure-spec/src",
+        "apps/web/src/views",
+        "packages/view-render/src",
+        "backend/src/Nix.Api/Features/Query/WorkspaceQueryContracts.cs",
+        "backend/src/Nix.Api/Domain/Views/ViewDefinition.cs",
+        "backend/src/Nix.Api/Features/Items/DeleteItem.cs",
+        "backend/src/Nix.Api/Features/Items/MoveItem.cs",
+        "backend/src/Nix.Api/Features/Items/PurgeItem.cs",
+        "backend/src/Nix.Api/Features/Locks/LockUseCases.cs",
+        "backend/tests/Nix.Integration.Tests/Persistence/ItemLockSubtreeTests.cs"
+      ],
+      "words": 664,
+      "properties": {
+        "area": "Core",
+        "topic": "Model",
+        "runtime": "ASP.NET",
+        "transports": "HTTP/JSON, PostgreSQL",
+        "depends_on": "Core item tree, schema cascade and views",
+        "source_paths": "backend/src/Nix.Api/Features/Items\nbackend/src/Nix.Api/Features/Properties\nbackend/src/Nix.Api/Features/Views\nbackend/src/Nix.Api/Features/Query\nbackend/src/Nix.Api/Features/Templates\npackages/structure-spec/src\napps/web/src/views\npackages/view-render/src\nbackend/src/Nix.Api/Features/Query/WorkspaceQueryContracts.cs\nbackend/src/Nix.Api/Domain/Views/ViewDefinition.cs\nbackend/src/Nix.Api/Features/Items/DeleteItem.cs\nbackend/src/Nix.Api/Features/Items/MoveItem.cs\nbackend/src/Nix.Api/Features/Items/PurgeItem.cs\nbackend/src/Nix.Api/Features/Locks/LockUseCases.cs\nbackend/tests/Nix.Integration.Tests/Persistence/ItemLockSubtreeTests.cs"
+      },
+      "localProofItemId": "01a12247-5982-7745-b185-3e0436badd1b"
+    },
+    {
+      "slug": "queries-search",
+      "title": "Queries, charts, graph and search",
+      "itemId": "2921c3a7-6adb-5c41-ad59-66d14eeb7247",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features/Query/QueryEndpoints.cs",
+        "backend/src/Nix.Api/Features/Charts",
+        "backend/src/Nix.Api/Features/Search",
+        "backend/src/Nix.Api/Features/Graph",
+        "backend/src/Nix.Api/Persistence/Search",
+        "apps/collab/src/documents/service.ts",
+        "backend/src/Nix.Api/Persistence/NixPersistenceServiceCollectionExtensions.cs",
+        "backend/src/Nix.Api/Persistence/Search/ItemSearch.cs",
+        "backend/src/Nix.Api/Persistence/Sql/Statements/SearchSql.cs",
+        "backend/src/Nix.Api/Persistence/Sql/Statements/GraphSql.cs",
+        "backend/src/Nix.Api/Persistence/Links/ItemLinks.cs",
+        "backend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs"
+      ],
+      "words": 542,
+      "properties": {
+        "area": "Core",
+        "topic": "Model",
+        "runtime": "Cross-service",
+        "transports": "HTTP/JSON, PostgreSQL",
+        "depends_on": "Core query handlers, Postgres item_search/item_link projections and schema evaluators",
+        "source_paths": "backend/src/Nix.Api/Features/Query/QueryEndpoints.cs\nbackend/src/Nix.Api/Features/Charts\nbackend/src/Nix.Api/Features/Search\nbackend/src/Nix.Api/Features/Graph\nbackend/src/Nix.Api/Persistence/Search\napps/collab/src/documents/service.ts\nbackend/src/Nix.Api/Persistence/NixPersistenceServiceCollectionExtensions.cs\nbackend/src/Nix.Api/Persistence/Search/ItemSearch.cs\nbackend/src/Nix.Api/Persistence/Sql/Statements/SearchSql.cs\nbackend/src/Nix.Api/Persistence/Sql/Statements/GraphSql.cs\nbackend/src/Nix.Api/Persistence/Links/ItemLinks.cs\nbackend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs"
+      },
+      "localProofItemId": "01a12247-5982-7ed2-8206-5c4c67442466"
+    },
+    {
+      "slug": "operations-jobs",
+      "title": "Durable operations, worker leases and outbox communication",
+      "itemId": "98f4c42d-9910-586d-a380-ea75e75b8cb6",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Persistence/Workers/WorkerExecutionFence.cs",
+        "backend/src/Nix.Api/Persistence/Workers/WorkerStore.cs",
+        "backend/src/Nix.Api/Persistence/RabbitMq/RabbitOutboxPublisher.cs",
+        "apps/go-workers/internal/broker/contracts.go",
+        "apps/go-workers/internal/brokerjob/runner.go",
+        "apps/go-workers/internal/workerapi",
+        "apps/go-workers/internal/jobrunner/runner.go",
+        "backend/src/Nix.Api/Persistence/RabbitMq/RabbitResultConsumer.cs",
+        "backend/src/Nix.Api/Persistence/Workers/WorkerDispatchStore.cs",
+        "backend/src/Nix.Api/Authentication/WorkerExecutionMiddleware.cs",
+        "backend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs",
+        "apps/go-workers/internal/role/role.go",
+        "apps/go-workers/internal/runtime/runtime.go"
+      ],
+      "words": 812,
+      "properties": {
+        "area": "Core",
+        "topic": "Workflow",
+        "runtime": "Cross-service",
+        "transports": "PostgreSQL, AMQP, HTTP/internal",
+        "depends_on": "Core leases and outbox, RabbitMQ, worker execution fences",
+        "source_paths": "backend/src/Nix.Api/Persistence/Workers/WorkerExecutionFence.cs\nbackend/src/Nix.Api/Persistence/Workers/WorkerStore.cs\nbackend/src/Nix.Api/Persistence/RabbitMq/RabbitOutboxPublisher.cs\napps/go-workers/internal/broker/contracts.go\napps/go-workers/internal/brokerjob/runner.go\napps/go-workers/internal/workerapi\napps/go-workers/internal/jobrunner/runner.go\nbackend/src/Nix.Api/Persistence/RabbitMq/RabbitResultConsumer.cs\nbackend/src/Nix.Api/Persistence/Workers/WorkerDispatchStore.cs\nbackend/src/Nix.Api/Authentication/WorkerExecutionMiddleware.cs\nbackend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs\napps/go-workers/internal/role/role.go\napps/go-workers/internal/runtime/runtime.go"
+      },
+      "localProofItemId": "01a12247-5982-77f6-95f1-70b0552fb1db"
+    },
+    {
+      "slug": "companion",
+      "title": "Companion: provider sessions, plans, approvals and workspace tools",
+      "itemId": "1f74de04-a2be-5753-a385-492f99fc169e",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features/Pets/PetEndpoints.cs",
+        "backend/src/Nix.Api/Features/Pets/PetWorkerClient.cs",
+        "apps/go-workers/internal/companion/manager.go",
+        "apps/go-workers/internal/companion/rpc.go",
+        "apps/go-workers/internal/companion/tools.go",
+        "packages/companion/src",
+        "packages/structure-spec/src",
+        "apps/cli/src/commands/pets.ts",
+        "backend/src/Nix.Api/Features/Pets/PetContracts.cs",
+        "backend/src/Nix.Api/Features/Pets/PetSettingsUseCases.cs",
+        "apps/web/src/pets/pet-device-settings.tsx",
+        "apps/web/src/pets/pet-conversation.tsx",
+        "apps/web/src/pets/device-preferences.ts"
+      ],
+      "words": 559,
+      "properties": {
+        "area": "Workers",
+        "topic": "Service",
+        "runtime": "Go",
+        "transports": "HTTP/RPC, HTTP/internal, Provider HTTP",
+        "depends_on": "Core authorization, linked provider, worker companion runtime",
+        "source_paths": "backend/src/Nix.Api/Features/Pets/PetEndpoints.cs\nbackend/src/Nix.Api/Features/Pets/PetWorkerClient.cs\napps/go-workers/internal/companion/manager.go\napps/go-workers/internal/companion/rpc.go\napps/go-workers/internal/companion/tools.go\npackages/companion/src\npackages/structure-spec/src\napps/cli/src/commands/pets.ts\nbackend/src/Nix.Api/Features/Pets/PetContracts.cs\nbackend/src/Nix.Api/Features/Pets/PetSettingsUseCases.cs\napps/web/src/pets/pet-device-settings.tsx\napps/web/src/pets/pet-conversation.tsx\napps/web/src/pets/device-preferences.ts"
+      },
+      "localProofItemId": "01a12247-5982-7cb7-ab74-946fc37792ff"
+    },
+    {
+      "slug": "scheduling",
+      "title": "Scheduling, automations, reminders and calendar state",
+      "itemId": "f501265d-dc31-56e8-aeeb-c416374576a4",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features/Automations",
+        "backend/src/Nix.Api/Features/Notifications",
+        "backend/src/Nix.Api/Features/CalendarSync",
+        "backend/src/Nix.Api/Persistence/Scheduling",
+        "apps/go-workers/internal/calendarsync",
+        "apps/go-workers/internal/notifyjob",
+        "backend/src/Nix.Api/Features/Habits",
+        "backend/src/Nix.Api/Features/Finance",
+        "apps/go-workers/internal/role/role.go",
+        "backend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs",
+        "backend/src/Nix.Api/Features/Items/DeleteItem.cs",
+        "backend/src/Nix.Api/Features/Items/MoveItem.cs"
+      ],
+      "words": 509,
+      "properties": {
+        "area": "Core",
+        "topic": "Workflow",
+        "runtime": "ASP.NET",
+        "transports": "PostgreSQL, AMQP, Provider HTTP",
+        "depends_on": "Core scheduling, calendar and notification workers",
+        "source_paths": "backend/src/Nix.Api/Features/Automations\nbackend/src/Nix.Api/Features/Notifications\nbackend/src/Nix.Api/Features/CalendarSync\nbackend/src/Nix.Api/Persistence/Scheduling\napps/go-workers/internal/calendarsync\napps/go-workers/internal/notifyjob\nbackend/src/Nix.Api/Features/Habits\nbackend/src/Nix.Api/Features/Finance\napps/go-workers/internal/role/role.go\nbackend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs\nbackend/src/Nix.Api/Features/Items/DeleteItem.cs\nbackend/src/Nix.Api/Features/Items/MoveItem.cs"
+      },
+      "localProofItemId": "01a12247-5982-7149-877d-1c1f21617e42"
+    },
+    {
+      "slug": "web-runtime-auth-pwa",
+      "title": "Web runtime, authentication and the installed app",
+      "itemId": "5f61d27c-88a6-5f14-a194-12e6c11acebf",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/web/src/main.tsx",
+        "apps/web/src/app.tsx",
+        "apps/web/src/auth/auth-provider.tsx",
+        "apps/web/src/auth/session-store.ts",
+        "apps/web/src/api/api-client-provider.tsx",
+        "packages/api-client/src/http.ts",
+        "apps/web/public/manifest.webmanifest",
+        "apps/web/public/service-worker.js",
+        "apps/web/src/pwa/register-service-worker.ts",
+        "apps/web/vite.config.ts",
+        "apps/web/src/tests/auth/auth-provider.test.tsx",
+        "apps/web/src/shell/app-shell.tsx",
+        "apps/web/src/search/commands.ts"
+      ],
+      "words": 934,
+      "properties": {
+        "area": "Clients",
+        "topic": "Service",
+        "runtime": "Browser",
+        "transports": "HTTP/JSON, OIDC, IndexedDB",
+        "depends_on": "Core BFF, collaboration and service worker",
+        "source_paths": "apps/web/src/main.tsx\napps/web/src/app.tsx\napps/web/src/auth/auth-provider.tsx\napps/web/src/auth/session-store.ts\napps/web/src/api/api-client-provider.tsx\npackages/api-client/src/http.ts\napps/web/public/manifest.webmanifest\napps/web/public/service-worker.js\napps/web/src/pwa/register-service-worker.ts\napps/web/vite.config.ts\napps/web/src/tests/auth/auth-provider.test.tsx\napps/web/src/shell/app-shell.tsx\napps/web/src/search/commands.ts"
+      },
+      "localProofItemId": "01a12247-5982-7342-aad3-f92fc7e61246"
+    },
+    {
+      "slug": "web-editor-local-collaboration",
+      "title": "Editing, synchronization and local document state",
+      "itemId": "ca297523-ec3d-5eb1-a3e2-91ede231e52d",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/web/src/editor/note-editor.tsx",
+        "apps/web/src/editor/canvas-editor.tsx",
+        "apps/web/src/editor/canvas-binding.ts",
+        "apps/web/src/editor/collab-sync.ts",
+        "apps/web/src/editor/body-cache.ts",
+        "apps/web/src/editor/draft-journal.ts",
+        "apps/web/src/views/sheet/sheet-editor.tsx",
+        "packages/editor-schema/src/index.ts",
+        "apps/web/src/editor/toolbar.tsx",
+        "apps/web/src/editor/page-guides.ts",
+        "apps/web/src/tests/editor/toolbar.test.tsx"
+      ],
+      "words": 957,
+      "properties": {
+        "area": "Clients",
+        "topic": "Workflow",
+        "runtime": "Browser",
+        "transports": "WebSocket/Yjs, HTTP/JSON, IndexedDB",
+        "depends_on": "Core, collaboration, Yjs and local body copies",
+        "source_paths": "apps/web/src/editor/note-editor.tsx\napps/web/src/editor/canvas-editor.tsx\napps/web/src/editor/canvas-binding.ts\napps/web/src/editor/collab-sync.ts\napps/web/src/editor/body-cache.ts\napps/web/src/editor/draft-journal.ts\napps/web/src/views/sheet/sheet-editor.tsx\npackages/editor-schema/src/index.ts\napps/web/src/editor/toolbar.tsx\napps/web/src/editor/page-guides.ts\napps/web/src/tests/editor/toolbar.test.tsx"
+      },
+      "localProofItemId": "01a12247-5982-793f-8300-50c278ae2111"
+    },
+    {
+      "slug": "web-views-theme-accessibility",
+      "title": "Views, themes and accessible rendering",
+      "itemId": "1a69c5b3-70e2-5388-aac8-affb63e996e6",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/web/src/views/core/view-kinds.tsx",
+        "apps/web/src/views/core/use-container.ts",
+        "apps/web/src/views/core/view-state.ts",
+        "apps/web/src/theme/theme-store.ts",
+        "apps/web/src/theme/use-theme.ts",
+        "apps/web/index.html",
+        "packages/design-tokens/src/theme.css",
+        "backend/src/Nix.Api/Domain/Views/ViewDefinition.cs",
+        "packages/view-render/src/render.ts",
+        "packages/export/src/index.ts",
+        "apps/go-workers/internal/exporter/exporter.go"
+      ],
+      "words": 839,
+      "properties": {
+        "area": "Clients",
+        "topic": "Workflow",
+        "runtime": "Browser",
+        "transports": "HTTP/JSON",
+        "depends_on": "Core schemas, view configurations and child queries",
+        "source_paths": "apps/web/src/views/core/view-kinds.tsx\napps/web/src/views/core/use-container.ts\napps/web/src/views/core/view-state.ts\napps/web/src/theme/theme-store.ts\napps/web/src/theme/use-theme.ts\napps/web/index.html\npackages/design-tokens/src/theme.css\nbackend/src/Nix.Api/Domain/Views/ViewDefinition.cs\npackages/view-render/src/render.ts\npackages/export/src/index.ts\napps/go-workers/internal/exporter/exporter.go"
+      },
+      "localProofItemId": "01a12247-5982-7d31-b237-89650eca2ca2"
+    },
+    {
+      "slug": "web-files-canvas-mermaid",
+      "title": "Files, Canvas and Mermaid architecture diagrams",
+      "itemId": "449aa1f1-5d58-5e79-ab45-3a4035e8e54d",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/web/src/files/file-viewer.tsx",
+        "apps/web/src/files/file-facts.ts",
+        "apps/web/src/plugins/file-viewer-registry.tsx",
+        "apps/web/src/plugins/built-in-file-viewers.ts",
+        "apps/web/src/plugins/mermaid-js-viewer.tsx",
+        "apps/web/src/editor/nix-canvas.tsx",
+        "apps/web/src/editor/nix-canvas-model.ts",
+        "apps/web/src/editor/nix-canvas-library.ts",
+        "apps/web/src/editor/canvas-binding.ts",
+        "apps/web/package.json",
+        "apps/web/src/plugins/media-viewer.tsx",
+        "apps/web/src/audio/audio-source.ts",
+        "apps/web/src/audio/audio-player.tsx",
+        "apps/web/src/shell/app-shell.tsx",
+        "apps/web/src/search/commands.ts",
+        "packages/export/src/index.ts",
+        "apps/go-workers/internal/exporter/exporter.go"
+      ],
+      "words": 1023,
+      "properties": {
+        "area": "Clients",
+        "topic": "Workflow",
+        "runtime": "Browser",
+        "transports": "HTTP/JSON, S3 capabilities, WebSocket/Yjs",
+        "depends_on": "Core metadata, object storage and collaboration",
+        "source_paths": "apps/web/src/files/file-viewer.tsx\napps/web/src/files/file-facts.ts\napps/web/src/plugins/file-viewer-registry.tsx\napps/web/src/plugins/built-in-file-viewers.ts\napps/web/src/plugins/mermaid-js-viewer.tsx\napps/web/src/editor/nix-canvas.tsx\napps/web/src/editor/nix-canvas-model.ts\napps/web/src/editor/nix-canvas-library.ts\napps/web/src/editor/canvas-binding.ts\napps/web/package.json\napps/web/src/plugins/media-viewer.tsx\napps/web/src/audio/audio-source.ts\napps/web/src/audio/audio-player.tsx\napps/web/src/shell/app-shell.tsx\napps/web/src/search/commands.ts\npackages/export/src/index.ts\napps/go-workers/internal/exporter/exporter.go"
+      },
+      "relatedWorktreeSources": [
+        {
+          "branch": "feature/mermaid-diagram-workflow",
+          "path": "apps/web/src/plugins/mermaid-render.ts"
+        },
+        {
+          "branch": "feature/mermaid-diagram-workflow",
+          "path": "apps/web/src/plugins/mermaid-js-viewer.tsx"
+        },
+        {
+          "branch": "feature/mermaid-diagram-workflow",
+          "path": "apps/web/src/plugins/mermaid-js-viewer.stories.tsx"
+        },
+        {
+          "branch": "feature/mermaid-diagram-workflow",
+          "path": "apps/web/src/tests/plugins/mermaid-family-coverage.test.ts"
+        }
+      ],
+      "localProofItemId": "01a12247-5982-7406-8439-52fccb1b1c8e"
+    },
+    {
+      "slug": "cli-auth-workflows",
+      "title": "CLI authentication, body editing and import/export workflows",
+      "itemId": "761218d3-9ae4-538e-ae65-3045cb105b20",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/cli/package.json",
+        "apps/cli/src/index.ts",
+        "apps/cli/src/config.ts",
+        "apps/cli/src/cli-auth.ts",
+        "apps/cli/src/session.ts",
+        "apps/cli/src/commands/auth.ts",
+        "apps/cli/src/body.ts",
+        "apps/cli/src/commands/import.ts",
+        "apps/cli/src/commands/document-import.ts",
+        "apps/cli/src/commands/export.ts",
+        "apps/cli/src/commands/templates.ts",
+        "apps/go-workers/internal/brokerjob/runner.go",
+        "backend/src/Nix.Api/Persistence/RabbitMq/RabbitResultConsumer.cs",
+        "backend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs",
+        "backend/src/Nix.Api/Persistence/Search/ItemSearch.cs",
+        "apps/go-workers/internal/exporter/exporter.go",
+        "packages/export/src/index.ts"
+      ],
+      "words": 1076,
+      "properties": {
+        "area": "Clients",
+        "topic": "Service",
+        "runtime": "Node.js",
+        "transports": "HTTP/JSON, WebSocket/Yjs, S3 capabilities, Local files",
+        "depends_on": "Core browser-approved CLI sessions, collaboration and object capabilities",
+        "source_paths": "apps/cli/package.json\napps/cli/src/index.ts\napps/cli/src/config.ts\napps/cli/src/cli-auth.ts\napps/cli/src/session.ts\napps/cli/src/commands/auth.ts\napps/cli/src/body.ts\napps/cli/src/commands/import.ts\napps/cli/src/commands/document-import.ts\napps/cli/src/commands/export.ts\napps/cli/src/commands/templates.ts\napps/go-workers/internal/brokerjob/runner.go\nbackend/src/Nix.Api/Persistence/RabbitMq/RabbitResultConsumer.cs\nbackend/src/Nix.Api/Authentication/NixUnitOfWorkMiddleware.cs\nbackend/src/Nix.Api/Persistence/Search/ItemSearch.cs\napps/go-workers/internal/exporter/exporter.go\npackages/export/src/index.ts"
+      },
+      "localProofItemId": "01a12247-5982-71e2-b1f4-8759cf369381"
+    },
+    {
+      "slug": "mcp-service-tool-contract",
+      "title": "MCP service and its current tool contract",
+      "itemId": "121be3e7-0c63-5c22-a32a-96fe36f7d4cd",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/cli/src/mcp.ts",
+        "apps/cli/src/index.ts",
+        "apps/cli/src/config.ts",
+        "apps/cli/src/session.ts",
+        "apps/cli/src/commands/document-import.ts",
+        "apps/cli/src/commands/templates.ts",
+        "apps/cli/src/commands/files.ts",
+        "apps/cli/src/commands/structure.ts",
+        "apps/cli/package.json",
+        "backend/src/Nix.Api/Persistence/Search/ItemSearch.cs",
+        "apps/go-workers/internal/exporter/exporter.go",
+        "packages/export/src/index.ts"
+      ],
+      "words": 969,
+      "properties": {
+        "area": "Clients",
+        "topic": "Service",
+        "runtime": "Node.js",
+        "transports": "JSON-RPC/stdio, HTTP/JSON",
+        "depends_on": "nixctl session and Core tool handlers",
+        "source_paths": "apps/cli/src/mcp.ts\napps/cli/src/index.ts\napps/cli/src/config.ts\napps/cli/src/session.ts\napps/cli/src/commands/document-import.ts\napps/cli/src/commands/templates.ts\napps/cli/src/commands/files.ts\napps/cli/src/commands/structure.ts\napps/cli/package.json\nbackend/src/Nix.Api/Persistence/Search/ItemSearch.cs\napps/go-workers/internal/exporter/exporter.go\npackages/export/src/index.ts"
+      },
+      "localProofItemId": "01a12247-5982-77c0-877d-4019cff28439"
+    },
+    {
+      "slug": "collab-transports-authorization",
+      "title": "Collaboration transports and authorization",
+      "itemId": "70fc1bed-f54a-5fc4-a614-227282688aa6",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/collab/src/http/server.ts",
+        "apps/collab/src/http/context.ts",
+        "apps/collab/src/http/routes/updates.ts",
+        "apps/collab/src/http/routes/history.ts",
+        "apps/collab/src/http/routes/exports.ts",
+        "apps/collab/src/ws/server.ts",
+        "apps/collab/src/ws/session-auth.ts",
+        "apps/collab/src/auth/token.ts",
+        "apps/collab/src/auth/authorize.ts",
+        "apps/collab/src/db/tenant-scope.ts",
+        "apps/web/src/editor/collab-sync.ts",
+        "apps/collab/src/db/worker-executions.ts",
+        "apps/collab/src/index.ts"
+      ],
+      "words": 906,
+      "properties": {
+        "area": "Collaboration",
+        "topic": "Service",
+        "runtime": "Node.js",
+        "transports": "WebSocket/Yjs, HTTP/internal, PostgreSQL",
+        "depends_on": "Core permission authority and Postgres body storage",
+        "source_paths": "apps/collab/src/http/server.ts\napps/collab/src/http/context.ts\napps/collab/src/http/routes/updates.ts\napps/collab/src/http/routes/history.ts\napps/collab/src/http/routes/exports.ts\napps/collab/src/ws/server.ts\napps/collab/src/ws/session-auth.ts\napps/collab/src/auth/token.ts\napps/collab/src/auth/authorize.ts\napps/collab/src/db/tenant-scope.ts\napps/web/src/editor/collab-sync.ts\napps/collab/src/db/worker-executions.ts\napps/collab/src/index.ts"
+      },
+      "localProofItemId": "01a12247-5982-734e-9a0e-9014ff3fab95"
+    },
+    {
+      "slug": "collab-persistence-history-operations",
+      "title": "Collaboration persistence, history and service operations",
+      "itemId": "f30dd222-4715-559a-ad67-f1eb748a5755",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "AGENTS.md",
+        "apps/collab/src/index.ts",
+        "apps/collab/src/config.ts",
+        "apps/collab/src/db/documents.ts",
+        "apps/collab/src/db/history.ts",
+        "apps/collab/src/documents/service.ts",
+        "apps/collab/src/documents/session.ts",
+        "apps/collab/src/documents/registry.ts",
+        "apps/collab/src/documents/retention.ts",
+        "apps/collab/src/documents/limits.ts",
+        "apps/collab/src/documents/body-kinds.ts",
+        "apps/collab/src/migrate-documents.ts",
+        "apps/collab/src/http/server.ts",
+        "backend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs",
+        "backend/src/Nix.Api/Persistence/NixDbContext.cs",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs"
+      ],
+      "words": 1123,
+      "properties": {
+        "area": "Collaboration",
+        "topic": "Workflow",
+        "runtime": "Node.js",
+        "transports": "PostgreSQL, HTTP/internal",
+        "depends_on": "Yjs updates, retained checkpoints and Core touch notifications",
+        "source_paths": "AGENTS.md\napps/collab/src/index.ts\napps/collab/src/config.ts\napps/collab/src/db/documents.ts\napps/collab/src/db/history.ts\napps/collab/src/documents/service.ts\napps/collab/src/documents/session.ts\napps/collab/src/documents/registry.ts\napps/collab/src/documents/retention.ts\napps/collab/src/documents/limits.ts\napps/collab/src/documents/body-kinds.ts\napps/collab/src/migrate-documents.ts\napps/collab/src/http/server.ts\nbackend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs\nbackend/src/Nix.Api/Persistence/NixDbContext.cs\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs"
+      },
+      "localProofItemId": "01a12247-5982-778c-806d-3a5fae598cb8"
+    },
+    {
+      "slug": "collab-import-template-export",
+      "title": "Collaboration imports, templates and export assembly",
+      "itemId": "e6201810-c8f7-5de2-a676-a6f2c7765967",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/collab/src/http/routes/internal-imports.ts",
+        "apps/collab/src/http/routes/templates.ts",
+        "apps/collab/src/http/routes/exports.ts",
+        "apps/collab/src/imports/bodies.ts",
+        "apps/collab/src/template-imports/bodies.ts",
+        "apps/collab/src/templates/bodies.ts",
+        "apps/collab/src/templates/service.ts",
+        "apps/collab/src/export/prepare.ts",
+        "apps/collab/src/export/assemble.ts",
+        "apps/collab/src/export/ndjson.ts",
+        "apps/collab/src/export/embedded-sections.ts",
+        "packages/export/src/manifest.ts",
+        "packages/export/src/archive.ts",
+        "packages/export/src/file-portability.ts",
+        "apps/collab/src/db/worker-executions.ts",
+        "apps/collab/src/http/server.ts",
+        "apps/collab/src/index.ts",
+        "backend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs",
+        "apps/go-workers/internal/exporter/exporter.go",
+        "packages/export/src/index.ts"
+      ],
+      "words": 1042,
+      "properties": {
+        "area": "Collaboration",
+        "topic": "Workflow",
+        "runtime": "Node.js",
+        "transports": "HTTP/internal, S3 capabilities, PostgreSQL",
+        "depends_on": "Core staged plans, worker inputs and native bodies",
+        "source_paths": "apps/collab/src/http/routes/internal-imports.ts\napps/collab/src/http/routes/templates.ts\napps/collab/src/http/routes/exports.ts\napps/collab/src/imports/bodies.ts\napps/collab/src/template-imports/bodies.ts\napps/collab/src/templates/bodies.ts\napps/collab/src/templates/service.ts\napps/collab/src/export/prepare.ts\napps/collab/src/export/assemble.ts\napps/collab/src/export/ndjson.ts\napps/collab/src/export/embedded-sections.ts\npackages/export/src/manifest.ts\npackages/export/src/archive.ts\npackages/export/src/file-portability.ts\napps/collab/src/db/worker-executions.ts\napps/collab/src/http/server.ts\napps/collab/src/index.ts\nbackend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs\napps/go-workers/internal/exporter/exporter.go\npackages/export/src/index.ts"
+      },
+      "localProofItemId": "01a12247-5982-7b16-8b7b-4c634b3e9fb7"
+    },
+    {
+      "slug": "worker-runtime",
+      "title": "Go worker runtime and its five active roles",
+      "itemId": "67fbf240-f837-5417-a42e-c7fd66b5efa2",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/cmd/nix-worker/main.go",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "apps/go-workers/internal/config/config.go",
+        "apps/go-workers/internal/role/role.go",
+        "apps/go-workers/internal/httpserver/server.go",
+        "apps/go-workers/internal/worktemp/worktemp.go",
+        "deploy/compose.prod.yml",
+        "scripts/dev-worker.sh"
+      ],
+      "words": 428,
+      "properties": {
+        "area": "Workers",
+        "topic": "Workflow",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, S3 capabilities, Provider HTTP",
+        "depends_on": "Core, RabbitMQ; role-specific collaboration, object storage, calendar providers and push services",
+        "source_paths": "apps/go-workers/cmd/nix-worker/main.go\napps/go-workers/internal/runtime/runtime.go\napps/go-workers/internal/config/config.go\napps/go-workers/internal/role/role.go\napps/go-workers/internal/httpserver/server.go\napps/go-workers/internal/worktemp/worktemp.go\ndeploy/compose.prod.yml\nscripts/dev-worker.sh"
+      },
+      "localProofItemId": "01a12247-5982-7507-9864-44d1ca26813d"
+    },
+    {
+      "slug": "worker-import",
+      "title": "Import worker: staged document and template publication",
+      "itemId": "4fe34130-4ab3-58cd-ab6b-7967c2ebb299",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/documentimport/handler.go",
+        "apps/go-workers/internal/templateimport/handler.go",
+        "apps/go-workers/internal/importplan/nix.go",
+        "apps/go-workers/internal/importplan/docx.go",
+        "apps/go-workers/internal/importplan/parse.go",
+        "apps/collab/src/imports/bodies.ts",
+        "apps/cli/src/commands/import.ts"
+      ],
+      "words": 424,
+      "properties": {
+        "area": "Workers",
+        "topic": "Service",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, S3 capabilities",
+        "depends_on": "Core staged publication, collaboration and object storage",
+        "source_paths": "apps/go-workers/internal/documentimport/handler.go\napps/go-workers/internal/templateimport/handler.go\napps/go-workers/internal/importplan/nix.go\napps/go-workers/internal/importplan/docx.go\napps/go-workers/internal/importplan/parse.go\napps/collab/src/imports/bodies.ts\napps/cli/src/commands/import.ts"
+      },
+      "localProofItemId": "01a12247-5982-7c8e-a4b4-980759592945"
+    },
+    {
+      "slug": "worker-files",
+      "title": "File inspection, immutable versions and object cleanup",
+      "itemId": "d3d72275-43a3-5fae-a523-367a16178c5e",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features/Files",
+        "backend/src/Nix.Api/Persistence/ObjectStorage",
+        "apps/go-workers/internal/fileinspect/handler.go",
+        "apps/go-workers/internal/objectcleanup",
+        "apps/go-workers/internal/templatefilecopy",
+        "apps/go-workers/internal/objecttransfer",
+        "packages/export/src/file-portability.ts"
+      ],
+      "words": 416,
+      "properties": {
+        "area": "Workers",
+        "topic": "Workflow",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, S3 capabilities",
+        "depends_on": "Core file versions, inspection and immutable object bytes",
+        "source_paths": "backend/src/Nix.Api/Features/Files\nbackend/src/Nix.Api/Persistence/ObjectStorage\napps/go-workers/internal/fileinspect/handler.go\napps/go-workers/internal/objectcleanup\napps/go-workers/internal/templatefilecopy\napps/go-workers/internal/objecttransfer\npackages/export/src/file-portability.ts"
+      },
+      "localProofItemId": "01a12247-5982-79c1-ba4a-35b3d0dfe001"
+    },
+    {
+      "slug": "worker-export",
+      "title": "Export worker: current native, Markdown, DOCX and PDF output",
+      "itemId": "65fed74e-9bec-5360-a7a2-9ff5de85fe28",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/exportjob/handler.go",
+        "apps/go-workers/internal/exporter",
+        "apps/go-workers/internal/nixarchive",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "apps/collab/src/export/assemble.ts",
+        "apps/collab/src/export/ndjson.ts",
+        "apps/cli/src/commands/export.ts",
+        "packages/export/src/archive.ts",
+        "apps/go-workers/internal/brokerjob/runner.go",
+        "apps/go-workers/internal/objecttransfer/client.go",
+        "backend/src/Nix.Api/Persistence/RabbitMq/RabbitResultConsumer.cs",
+        "backend/src/Nix.Api/Persistence/Workers/WorkerDispatchStore.cs"
+      ],
+      "words": 444,
+      "properties": {
+        "area": "Workers",
+        "topic": "Service",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, S3 capabilities",
+        "depends_on": "Core export jobs, collaboration bundles and object storage",
+        "source_paths": "apps/go-workers/internal/exportjob/handler.go\napps/go-workers/internal/exporter\napps/go-workers/internal/nixarchive\napps/go-workers/internal/runtime/runtime.go\napps/collab/src/export/assemble.ts\napps/collab/src/export/ndjson.ts\napps/cli/src/commands/export.ts\npackages/export/src/archive.ts\napps/go-workers/internal/brokerjob/runner.go\napps/go-workers/internal/objecttransfer/client.go\nbackend/src/Nix.Api/Persistence/RabbitMq/RabbitResultConsumer.cs\nbackend/src/Nix.Api/Persistence/Workers/WorkerDispatchStore.cs"
+      },
+      "localProofItemId": "01a12247-5982-7ebf-9a21-9542484cd71e"
+    },
+    {
+      "slug": "worker-index",
+      "title": "Retired index role and OpenSearch; current PostgreSQL search",
+      "itemId": "6975559c-9e56-5b40-a957-fe7525dc3f34",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/role/role.go",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "backend/src/Nix.Api/Persistence/Search/ItemSearch.cs",
+        "backend/src/Nix.Api/Persistence/Sql/Statements/SearchSql.cs",
+        "backend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs",
+        "deploy/rabbitmq/start.sh",
+        "deploy/compose/deploy.sh",
+        "deploy/compose.prod.yml"
+      ],
+      "words": 325,
+      "properties": {
+        "area": "Workers",
+        "topic": "Reference",
+        "runtime": "Offline",
+        "transports": "Current search: Core HTTP and PostgreSQL SQL; retired indexer has no active transport",
+        "depends_on": "Historical Go/OpenSearch projection; current Core PostgreSQL search",
+        "source_paths": "apps/go-workers/internal/role/role.go\napps/go-workers/internal/runtime/runtime.go\nbackend/src/Nix.Api/Persistence/Search/ItemSearch.cs\nbackend/src/Nix.Api/Persistence/Sql/Statements/SearchSql.cs\nbackend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs\ndeploy/rabbitmq/start.sh\ndeploy/compose/deploy.sh\ndeploy/compose.prod.yml"
+      },
+      "localProofItemId": "01a12247-5982-7314-a5f8-ea99a0d0059a"
+    },
+    {
+      "slug": "worker-plugins",
+      "title": "Plugin event role and signed WebAssembly components",
+      "itemId": "7d30e9ea-5d47-5fc9-a4b1-df2d7d942774",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/pluginworker/runner.go",
+        "apps/go-workers/internal/pluginruntime/runtime.go",
+        "backend/src/Nix.Api/Features/Plugins/PluginEndpoints.cs",
+        "apps/go-workers/internal/config/config.go",
+        "apps/go-workers/internal/objecttransfer"
+      ],
+      "words": 300,
+      "properties": {
+        "area": "Workers",
+        "topic": "Service",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, Provider HTTP",
+        "depends_on": "Workspace events, Core API and signed WebAssembly plugins",
+        "source_paths": "apps/go-workers/internal/pluginworker/runner.go\napps/go-workers/internal/pluginruntime/runtime.go\nbackend/src/Nix.Api/Features/Plugins/PluginEndpoints.cs\napps/go-workers/internal/config/config.go\napps/go-workers/internal/objecttransfer"
+      },
+      "localProofItemId": "01a12247-5982-7b17-aa4d-68b1258de8e6"
+    },
+    {
+      "slug": "worker-calendar",
+      "title": "Calendar role and external providers",
+      "itemId": "2f14bf75-4919-5cc0-ad9d-ccfefb15dded",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/calendarsync",
+        "backend/src/Nix.Api/Features/Internal/CalendarSyncWorkerEndpoints.cs",
+        "backend/src/Nix.Api/Features/CalendarSync",
+        "apps/cli/src/commands/calendar-sync.ts",
+        "apps/go-workers/internal/config/config.go"
+      ],
+      "words": 346,
+      "properties": {
+        "area": "Workers",
+        "topic": "Service",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, Provider HTTP",
+        "depends_on": "Core calendar state, Google Calendar and Microsoft Graph",
+        "source_paths": "apps/go-workers/internal/calendarsync\nbackend/src/Nix.Api/Features/Internal/CalendarSyncWorkerEndpoints.cs\nbackend/src/Nix.Api/Features/CalendarSync\napps/cli/src/commands/calendar-sync.ts\napps/go-workers/internal/config/config.go"
+      },
+      "localProofItemId": "01a12247-5982-725a-b276-3dda9ee5c037"
+    },
+    {
+      "slug": "worker-notify",
+      "title": "Notification role and Web Push delivery",
+      "itemId": "54a9bfc8-1665-50c5-ae55-f495803ab3cc",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/notifyjob",
+        "apps/go-workers/internal/webpush",
+        "apps/go-workers/internal/pushtransport",
+        "backend/src/Nix.Api/Features/Notifications",
+        "apps/web/public/service-worker.js",
+        "apps/go-workers/internal/config/config.go"
+      ],
+      "words": 317,
+      "properties": {
+        "area": "Workers",
+        "topic": "Service",
+        "runtime": "Go",
+        "transports": "AMQP, HTTP/internal, Web Push",
+        "depends_on": "Core notification state and browser push services",
+        "source_paths": "apps/go-workers/internal/notifyjob\napps/go-workers/internal/webpush\napps/go-workers/internal/pushtransport\nbackend/src/Nix.Api/Features/Notifications\napps/web/public/service-worker.js\napps/go-workers/internal/config/config.go"
+      },
+      "localProofItemId": "01a12247-5982-7429-b082-219508ffd655"
+    },
+    {
+      "slug": "worker-speech",
+      "title": "Retired speech role, recordings and transcription history",
+      "itemId": "d51106c6-c8a9-5d50-a1de-af215276788f",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/role/role.go",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs",
+        "backend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs",
+        "backend/src/Nix.Api/Persistence/NixDbContext.cs",
+        "backend/tests/Nix.Integration.Tests/Persistence/SpeechRetirementMigrationTests.cs",
+        "deploy/compose/deploy.sh",
+        "deploy/rabbitmq/start.sh",
+        "deploy/Caddyfile.prod",
+        ".github/workflows/ci-images.yml"
+      ],
+      "words": 350,
+      "properties": {
+        "area": "Workers",
+        "topic": "Reference",
+        "runtime": "Offline",
+        "transports": "No active speech transport; ordinary file capabilities retain historic media",
+        "depends_on": "Retained recordings, transcript rows and cancelled job history",
+        "source_paths": "apps/go-workers/internal/role/role.go\napps/go-workers/internal/runtime/runtime.go\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs\nbackend/src/Nix.Api/Domain/Transcriptions/ItemTranscription.cs\nbackend/src/Nix.Api/Persistence/NixDbContext.cs\nbackend/tests/Nix.Integration.Tests/Persistence/SpeechRetirementMigrationTests.cs\ndeploy/compose/deploy.sh\ndeploy/rabbitmq/start.sh\ndeploy/Caddyfile.prod\n.github/workflows/ci-images.yml"
+      },
+      "localProofItemId": "01a12247-5982-799a-9a2e-24e00dd789ac"
+    },
+    {
+      "slug": "rabbitmq",
+      "title": "RabbitMQ: five active role queues, durable outbox and retirement",
+      "itemId": "a08e89de-60f5-5c56-ade7-30e7d5be9bd9",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/broker/contracts.go",
+        "apps/go-workers/internal/broker/client.go",
+        "apps/go-workers/internal/brokerjob/runner.go",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "backend/src/Nix.Api/Persistence/RabbitMq",
+        "backend/src/Nix.Api/Persistence/Workers/WorkerDispatchStore.cs",
+        "deploy/rabbitmq/definitions.json",
+        "deploy/rabbitmq/start.sh",
+        "deploy/compose.prod.yml"
+      ],
+      "words": 393,
+      "properties": {
+        "area": "Infrastructure",
+        "topic": "Service",
+        "runtime": "RabbitMQ",
+        "transports": "AMQP",
+        "depends_on": "Core durable outbox, worker consumers and result consumption",
+        "source_paths": "apps/go-workers/internal/broker/contracts.go\napps/go-workers/internal/broker/client.go\napps/go-workers/internal/brokerjob/runner.go\napps/go-workers/internal/runtime/runtime.go\nbackend/src/Nix.Api/Persistence/RabbitMq\nbackend/src/Nix.Api/Persistence/Workers/WorkerDispatchStore.cs\ndeploy/rabbitmq/definitions.json\ndeploy/rabbitmq/start.sh\ndeploy/compose.prod.yml"
+      },
+      "localProofItemId": "01a12247-5982-7492-89ef-7ae36f8d69c2"
+    },
+    {
+      "slug": "versity",
+      "title": "Versity S3: bytes and signed transfer capabilities",
+      "itemId": "689cce05-cff2-5697-a122-e091ab36e07e",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Persistence/ObjectStorage/S3CapabilitySigner.cs",
+        "backend/src/Nix.Api/Persistence/ObjectStorage/ObjectStorageOptions.cs",
+        "apps/go-workers/internal/objecttransfer",
+        "packages/export/src/file-portability.ts",
+        "deploy/compose.prod.yml",
+        "deploy/Caddyfile.prod"
+      ],
+      "words": 403,
+      "properties": {
+        "area": "Infrastructure",
+        "topic": "Service",
+        "runtime": "S3",
+        "transports": "S3 capabilities",
+        "depends_on": "Core capability signer, immutable objects and allowed transfer origins",
+        "source_paths": "backend/src/Nix.Api/Persistence/ObjectStorage/S3CapabilitySigner.cs\nbackend/src/Nix.Api/Persistence/ObjectStorage/ObjectStorageOptions.cs\napps/go-workers/internal/objecttransfer\npackages/export/src/file-portability.ts\ndeploy/compose.prod.yml\ndeploy/Caddyfile.prod"
+      },
+      "localProofItemId": "01a12247-5982-785e-a2ba-d220988a7ba5"
+    },
+    {
+      "slug": "edge-identity-dev",
+      "title": "Caddy, Cloudflare Tunnel, identity provider and development mail",
+      "itemId": "b26ce780-b54b-5ed0-a366-61914c8f944c",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "deploy/Caddyfile.prod",
+        "deploy/Caddyfile",
+        "deploy/compose.prod.yml",
+        "deploy/compose.dev.yml",
+        "scripts/dev-stack-up.sh",
+        "scripts/dev.sh",
+        "scripts/dev-worker.sh",
+        "deploy/seed/zitadel-configure.sh",
+        "backend/src/Nix.Api/Features/BrowserAuth"
+      ],
+      "words": 359,
+      "properties": {
+        "area": "Infrastructure",
+        "topic": "Service",
+        "runtime": "Containers",
+        "transports": "HTTP/JSON, HTTP/internal, OIDC",
+        "depends_on": "Caddy, Cloudflare Tunnel, configured identity provider; Zitadel/Mailpit in development",
+        "source_paths": "deploy/Caddyfile.prod\ndeploy/Caddyfile\ndeploy/compose.prod.yml\ndeploy/compose.dev.yml\nscripts/dev-stack-up.sh\nscripts/dev.sh\nscripts/dev-worker.sh\ndeploy/seed/zitadel-configure.sh\nbackend/src/Nix.Api/Features/BrowserAuth"
+      },
+      "localProofItemId": "01a12247-5982-7a49-9622-311f06049d13"
+    },
+    {
+      "slug": "observability",
+      "title": "Current diagnostics and retired central logging infrastructure",
+      "itemId": "1763c72e-b862-5ca3-ae73-63ad5c0ed40f",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "deploy/compose.prod.yml",
+        "deploy/compose/deploy.sh",
+        "apps/collab/src/http/server.ts",
+        "apps/collab/src/index.ts",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "apps/go-workers/internal/companion/diagnostics.go",
+        "scripts/dev-worker.sh",
+        "deploy/compose/nightly.sh",
+        "deploy/compose/release.sh"
+      ],
+      "words": 368,
+      "properties": {
+        "area": "Operations",
+        "topic": "Workflow",
+        "runtime": "Containers",
+        "transports": "JSON process logs, Docker logs, Collab metrics, Core operation HTTP",
+        "depends_on": "Application stdout/stderr and durable status; former central collectors are retired",
+        "source_paths": "deploy/compose.prod.yml\ndeploy/compose/deploy.sh\napps/collab/src/http/server.ts\napps/collab/src/index.ts\napps/go-workers/internal/runtime/runtime.go\napps/go-workers/internal/companion/diagnostics.go\nscripts/dev-worker.sh\ndeploy/compose/nightly.sh\ndeploy/compose/release.sh"
+      },
+      "localProofItemId": "01a12247-5982-781b-ba3a-43f77942b4f3"
+    },
+    {
+      "slug": "migrations-release",
+      "title": "Migrations, six CI images and current release ordering",
+      "itemId": "c0c0ee9b-b36b-5881-af8a-9312ded3a2bd",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        ".github/workflows/ci-images.yml",
+        "deploy/compose.prod.yml",
+        "deploy/compose/release.sh",
+        "deploy/compose/deploy.sh",
+        "deploy/compose/drift.sh",
+        "deploy/compose/build.sh",
+        "deploy/compose/smoke.mjs",
+        "backend/src/Nix.Migrator",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs",
+        "apps/collab/src/migrate-documents.ts"
+      ],
+      "words": 478,
+      "properties": {
+        "area": "Operations",
+        "topic": "Workflow",
+        "runtime": "Containers",
+        "transports": "PostgreSQL, S3 capabilities, Local files",
+        "depends_on": "CI-published images, Compose migration and initialization ordering",
+        "source_paths": ".github/workflows/ci-images.yml\ndeploy/compose.prod.yml\ndeploy/compose/release.sh\ndeploy/compose/deploy.sh\ndeploy/compose/drift.sh\ndeploy/compose/build.sh\ndeploy/compose/smoke.mjs\nbackend/src/Nix.Migrator\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs\napps/collab/src/migrate-documents.ts"
+      },
+      "localProofItemId": "01a12247-5982-7a7a-82e6-ccf034e89726"
+    },
+    {
+      "slug": "backups-recovery",
+      "title": "Backups, preserved retired history and recovery boundaries",
+      "itemId": "5ddf4c3c-03b6-54da-ae05-16a65aba783c",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "deploy/compose/backup.sh",
+        "deploy/compose/offsite.sh",
+        "deploy/compose/nightly.sh",
+        "deploy/compose/release.sh",
+        "deploy/backup/production.md",
+        "scripts/backup-r2.py",
+        "apps/collab/src/db/history.ts",
+        "apps/web/public/service-worker.js",
+        "backend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs"
+      ],
+      "words": 488,
+      "properties": {
+        "area": "Operations",
+        "topic": "Workflow",
+        "runtime": "Cross-service",
+        "transports": "PostgreSQL, S3 capabilities, Local files",
+        "depends_on": "Postgres, object store, deployment configuration and off-host backups",
+        "source_paths": "deploy/compose/backup.sh\ndeploy/compose/offsite.sh\ndeploy/compose/nightly.sh\ndeploy/compose/release.sh\ndeploy/backup/production.md\nscripts/backup-r2.py\napps/collab/src/db/history.ts\napps/web/public/service-worker.js\nbackend/src/Nix.Api/Persistence/Migrations/Generated/20261009200000_RetireSpeechJobs.cs"
+      },
+      "localProofItemId": "01a12247-5982-7c81-ad24-e752032d1bc4"
+    },
+    {
+      "slug": "native-documentation",
+      "title": "Native documentation: reading, editing, importing and recovering",
+      "itemId": "01676903-ffd9-5944-ac74-0f4dcf3bbf5d",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/cmd/nix-docs/main.go",
+        "apps/go-workers/internal/docsbrowser",
+        "apps/go-workers/internal/importplan/parse.go",
+        "packages/export/src/archive.ts",
+        "packages/export/src/reader.ts",
+        "apps/cli/src/commands/import.ts",
+        "apps/cli/src/commands/export.ts",
+        "apps/web/src/plugins/mermaid-js-viewer.tsx"
+      ],
+      "words": 684,
+      "properties": {
+        "area": "Reference",
+        "topic": "Workflow",
+        "runtime": "Offline",
+        "transports": "Local files, HTTP/JSON, S3 capabilities",
+        "depends_on": "Native archives, Go documentation TUI and Nix import/export",
+        "source_paths": "apps/go-workers/cmd/nix-docs/main.go\napps/go-workers/internal/docsbrowser\napps/go-workers/internal/importplan/parse.go\npackages/export/src/archive.ts\npackages/export/src/reader.ts\napps/cli/src/commands/import.ts\napps/cli/src/commands/export.ts\napps/web/src/plugins/mermaid-js-viewer.tsx"
+      },
+      "documentationFeatureSources": [
+        "apps/go-workers/cmd/nix-docs/main.go",
+        "apps/go-workers/internal/docsbrowser"
+      ],
+      "baselineSources": [
+        "apps/go-workers/internal/importplan/parse.go",
+        "packages/export/src/archive.ts",
+        "packages/export/src/reader.ts",
+        "apps/cli/src/commands/import.ts",
+        "apps/cli/src/commands/export.ts",
+        "apps/web/src/plugins/mermaid-js-viewer.tsx"
+      ],
+      "localProofItemId": "01a12247-5982-7036-8b86-5b252a4372a2"
+    },
+    {
+      "slug": "failure-tracing",
+      "title": "Tracing failures across current service boundaries",
+      "itemId": "7a3a70ce-2e2f-52e4-aa82-de7cf1750f7e",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/cli/src/commands/document-import.ts",
+        "apps/cli/src/commands/export.ts",
+        "apps/go-workers/internal/runtime/runtime.go",
+        "apps/collab/src/documents/limits.ts",
+        "backend/src/Nix.Api/Persistence/Search/ItemSearch.cs",
+        "deploy/compose/deploy.sh",
+        "deploy/compose/nightly.sh",
+        "deploy/README.md"
+      ],
+      "words": 495,
+      "properties": {
+        "area": "Operations",
+        "topic": "Workflow",
+        "runtime": "Cross-service",
+        "transports": "HTTP/JSON, AMQP, PostgreSQL, S3 capabilities",
+        "depends_on": "Cross-service liveness, readiness, operations and result fences",
+        "source_paths": "apps/cli/src/commands/document-import.ts\napps/cli/src/commands/export.ts\napps/go-workers/internal/runtime/runtime.go\napps/collab/src/documents/limits.ts\nbackend/src/Nix.Api/Persistence/Search/ItemSearch.cs\ndeploy/compose/deploy.sh\ndeploy/compose/nightly.sh\ndeploy/README.md"
+      },
+      "localProofItemId": "01a12247-5982-789f-b09e-9188e217f49a"
+    },
+    {
+      "slug": "compose-service-catalog",
+      "title": "All 17 current Compose services and retired-service inventory",
+      "itemId": "535091ac-65a5-5e4d-a79f-b185d4d47e6e",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "deploy/compose.prod.yml",
+        "deploy/compose.dev.yml",
+        "deploy/compose/deploy.sh"
+      ],
+      "words": 383,
+      "properties": {
+        "area": "Reference",
+        "topic": "Reference",
+        "runtime": "Containers",
+        "transports": "Local files",
+        "depends_on": "deploy/compose.prod.yml and optional service profiles",
+        "source_paths": "deploy/compose.prod.yml\ndeploy/compose.dev.yml\ndeploy/compose/deploy.sh"
+      },
+      "localProofItemId": "01a12247-5982-7aec-9e23-bb22a06f4702"
+    },
+    {
+      "slug": "configuration-contracts",
+      "title": "Current configuration names and retired settings",
+      "itemId": "38357ada-bb7c-5362-af5a-3e59b9072a08",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "apps/go-workers/internal/config/config.go",
+        "apps/collab/src/config.ts",
+        "apps/web/vite.config.ts",
+        "deploy/compose.prod.yml",
+        "scripts/dev-worker.sh",
+        "deploy/compose.prod.env.example",
+        "backend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs"
+      ],
+      "words": 396,
+      "properties": {
+        "area": "Reference",
+        "topic": "Reference",
+        "runtime": "Cross-service",
+        "transports": "Local files",
+        "depends_on": "Source-owned environment/configuration contracts",
+        "source_paths": "apps/go-workers/internal/config/config.go\napps/collab/src/config.ts\napps/web/vite.config.ts\ndeploy/compose.prod.yml\nscripts/dev-worker.sh\ndeploy/compose.prod.env.example\nbackend/tests/Nix.Integration.Tests/Persistence/SearchRetirementHttpTests.cs"
+      },
+      "localProofItemId": "01a12247-5982-7d3e-b07f-b8fcc95bd170"
+    },
+    {
+      "slug": "core-route-index",
+      "title": "Core route registrations by feature",
+      "itemId": "c7c0061b-cc99-527b-ab1e-2d41d872f77c",
+      "archive": "docs/nix/nix-architecture.nix",
+      "sources": [
+        "backend/src/Nix.Api/Features",
+        "backend/openapi/nix-api.json"
+      ],
+      "words": 1054,
+      "properties": {
+        "area": "Reference",
+        "topic": "Reference",
+        "runtime": "ASP.NET",
+        "transports": "HTTP/JSON, HTTP/internal",
+        "depends_on": "Core route registrations and boundary middleware",
+        "source_paths": "backend/src/Nix.Api/Features\nbackend/openapi/nix-api.json"
+      },
+      "localProofItemId": "01a12247-5982-73ab-bd73-7771797101c6"
+    }
+  ],
+  "documents": [
+    {
+      "sourcePath": "AGENTS.md",
+      "sourceSha256": "090433f9cb905fb5a34b97fe38b256700899d30148e333f212ad5875ee135ced",
+      "sourceBytes": 3259,
+      "title": "Nix contributor routing",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "1dba9ec5-b382-5355-a9f0-37f1b25d7e37",
+      "sourceItemId": "ecbdf29e-93d7-5125-a100-ba9314ee6936",
+      "disposition": "retained-essential",
+      "retentionReason": "Contributor routing and invariants must be readable before tools or Nix start.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Retained essential",
+        "source_path": "AGENTS.md",
+        "original_bytes": 3259,
+        "original_sha256": "090433f9cb905fb5a34b97fe38b256700899d30148e333f212ad5875ee135ced"
+      },
+      "localProofItemId": "01a12244-4dfc-7f13-9bcf-eae9cfb7bad7",
+      "localProofSourceItemId": "01a12244-4dfc-7dd7-b367-40f66d12d382"
+    },
+    {
+      "sourcePath": "HANDOFF.md",
+      "sourceSha256": "537652cddab379a4ad81c45c655bfaafbb637715ec9bc237c6f61dec76c06534",
+      "sourceBytes": 23411,
+      "title": "Nix product UX program handoff",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "57ce9294-736a-582c-abb4-f49bb2405826",
+      "sourceItemId": "359269a7-735f-5d76-a5cc-c12d613fba1f",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "HANDOFF.md",
+        "original_bytes": 23411,
+        "original_sha256": "537652cddab379a4ad81c45c655bfaafbb637715ec9bc237c6f61dec76c06534"
+      },
+      "localProofItemId": "01a12244-4dfc-7033-97da-2ef49e3e28b8",
+      "localProofSourceItemId": "01a12244-4dfc-79b7-82cd-063650a34989"
+    },
+    {
+      "sourcePath": "README.md",
+      "sourceSha256": "1f3b85a967b65c6bece57418e9737951dd58434f7f374ae5a625788351366d3b",
+      "sourceBytes": 25587,
+      "title": "Nix product direction",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "4acbc8a5-b9e0-5d4b-abee-745108d471d8",
+      "sourceItemId": "c8568c81-ee3e-56ee-ab2a-199bd52f7bcf",
+      "disposition": "retained-essential",
+      "retentionReason": "GitHub/project bootstrap and compact product direction; replaced with an essential entry point.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Product",
+        "disposition": "Retained essential",
+        "source_path": "README.md",
+        "original_bytes": 25587,
+        "original_sha256": "1f3b85a967b65c6bece57418e9737951dd58434f7f374ae5a625788351366d3b"
+      },
+      "localProofItemId": "01a12244-4dfc-7895-8540-b3b6d2ac206e",
+      "localProofSourceItemId": "01a12244-4dfc-7d7d-9e29-53fbde1f1371"
+    },
+    {
+      "sourcePath": "apps/cli/README.md",
+      "sourceSha256": "f478319a19cd56d0a5dabbd859717b8ddaacdb02fdc94c8d1a8543a312fc9404",
+      "sourceBytes": 7721,
+      "title": "nixctl",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "3abac61d-4644-5568-a2f5-469bb2a51849",
+      "sourceItemId": "c57fe703-ebb5-54b2-a0f2-cc4998f0bc76",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Product",
+        "disposition": "Migrated",
+        "source_path": "apps/cli/README.md",
+        "original_bytes": 7721,
+        "original_sha256": "f478319a19cd56d0a5dabbd859717b8ddaacdb02fdc94c8d1a8543a312fc9404"
+      },
+      "localProofItemId": "01a12244-4dfc-7496-be47-ef78fd53c37b",
+      "localProofSourceItemId": "01a12244-4dfc-7bd5-9c50-880e19c9bb7e"
+    },
+    {
+      "sourcePath": "deploy/README.md",
+      "sourceSha256": "bfd10fcc72b4d0b016df9e213e29173b66789dcbd0aa7b898481b0549d4e7cae",
+      "sourceBytes": 25524,
+      "title": "Deploying Nix with Docker Compose",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "30d21b26-33e8-5ba9-a08a-d760d5a9191a",
+      "sourceItemId": "f03bac1b-f78d-5ddd-a5a4-2469b9cfdf88",
+      "disposition": "retained-essential",
+      "retentionReason": "Release and emergency recovery instructions must remain readable while Nix is down.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Operations",
+        "disposition": "Retained essential",
+        "source_path": "deploy/README.md",
+        "original_bytes": 25524,
+        "original_sha256": "bfd10fcc72b4d0b016df9e213e29173b66789dcbd0aa7b898481b0549d4e7cae"
+      },
+      "localProofItemId": "01a12244-4dfc-77fa-97d7-85349c421299",
+      "localProofSourceItemId": "01a12244-4dfc-7d6f-bf26-0ff10988f404"
+    },
+    {
+      "sourcePath": "deploy/backup/README.md",
+      "sourceSha256": "b7dd5f1543814478d10e222d50120974d1b54d6f48d57ff9809ce3ed074b100e",
+      "sourceBytes": 3659,
+      "title": "Local Nix backups to R2",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "b92dbe92-df84-540d-a6d1-2611e4a17f56",
+      "sourceItemId": "c25f3203-1cd9-5ce7-a158-ba385e2adda8",
+      "disposition": "retained-essential",
+      "retentionReason": "Offline local backup and credential/restore instructions.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Operations",
+        "disposition": "Retained essential",
+        "source_path": "deploy/backup/README.md",
+        "original_bytes": 3659,
+        "original_sha256": "b7dd5f1543814478d10e222d50120974d1b54d6f48d57ff9809ce3ed074b100e"
+      },
+      "localProofItemId": "01a12244-4dfc-7e32-9c17-885027dbaa88",
+      "localProofSourceItemId": "01a12244-4dfc-7dc5-850b-9dd85e35eafe"
+    },
+    {
+      "sourcePath": "deploy/backup/production.md",
+      "sourceSha256": "5a0f5ab9eca597021c17bcb8ed28570d5c1c58e68a497d4667209bb174f9352a",
+      "sourceBytes": 12133,
+      "title": "Production backups",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "ee9bd137-76b6-5165-a6c9-002f45691ab0",
+      "sourceItemId": "37f0525c-5c76-517f-a42b-58995601f842",
+      "disposition": "retained-essential",
+      "retentionReason": "Offline production backup/restore and disaster-recovery procedure.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Operations",
+        "disposition": "Retained essential",
+        "source_path": "deploy/backup/production.md",
+        "original_bytes": 12133,
+        "original_sha256": "5a0f5ab9eca597021c17bcb8ed28570d5c1c58e68a497d4667209bb174f9352a"
+      },
+      "localProofItemId": "01a12244-4dfc-7f8a-be17-4be3dfd8d0aa",
+      "localProofSourceItemId": "01a12244-4dfc-77e5-96e3-9d1c6012cc5d"
+    },
+    {
+      "sourcePath": "docs/README.md",
+      "sourceSha256": "0a3bc6b0569670ff3f613b7d623a519aeefebaae50188a8ed096d7fcba3149f0",
+      "sourceBytes": 3239,
+      "title": "Documentation index and architecture records",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "32be397d-ffe0-538b-ae7b-81d311889a20",
+      "sourceItemId": "b2d0c16d-8005-5718-ad5b-70ff37bfab12",
+      "disposition": "retained-essential",
+      "retentionReason": "Human and agent navigation into native archives while offline.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Product",
+        "disposition": "Retained essential",
+        "source_path": "docs/README.md",
+        "original_bytes": 3239,
+        "original_sha256": "0a3bc6b0569670ff3f613b7d623a519aeefebaae50188a8ed096d7fcba3149f0"
+      },
+      "localProofItemId": "01a12244-4dfc-7830-b5d9-23d8a5ebaeba",
+      "localProofSourceItemId": "01a12244-4dfc-760a-a60b-9bd5f11a6269"
+    },
+    {
+      "sourcePath": "docs/adr/0045-personal-workspaces-and-opt-in-jit.md",
+      "sourceSha256": "d9a7e1a8dd8ab1b9820f88e743a79f8bf016eda2548b0a8da70cc6596d55498e",
+      "sourceBytes": 11471,
+      "title": "ADR-0045: Personal workspaces are provisioned by opt-in JIT",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "1ee7abb2-35f7-5f39-ae3d-c90079cf5083",
+      "sourceItemId": "1fb0bf6a-7202-5bb6-a358-fcf0b7882c23",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0045-personal-workspaces-and-opt-in-jit.md",
+        "original_bytes": 11471,
+        "original_sha256": "d9a7e1a8dd8ab1b9820f88e743a79f8bf016eda2548b0a8da70cc6596d55498e",
+        "decision_status": "Accepted",
+        "recorded_status": "accepted"
+      },
+      "localProofItemId": "01a12244-4dfc-759a-bd17-fef1a4be0a24",
+      "localProofSourceItemId": "01a12244-4dfc-75ef-81d6-6607bc6fcd22"
+    },
+    {
+      "sourcePath": "docs/adr/0046-go-workers-and-opensearch.md",
+      "sourceSha256": "5cd687a9157a4bc0658f1b5579856d6793744b3f77ff3cca2e1a11f1d77308cf",
+      "sourceBytes": 1608,
+      "title": "ADR-0046: Go workers and OpenSearch",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "087e659a-9b07-5043-a33e-b586aac2b0a1",
+      "sourceItemId": "80b91be8-e755-5c13-a326-babfb317c13e",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0046-go-workers-and-opensearch.md",
+        "original_bytes": 1608,
+        "original_sha256": "5cd687a9157a4bc0658f1b5579856d6793744b3f77ff3cca2e1a11f1d77308cf",
+        "decision_status": "Superseded",
+        "recorded_status": "Superseded for worker topology, polling and migration by [ADR-0048](0048-rabbitmq-and-unified-go-workers.md).\nThe original decision below is retained as history; database ownership and rebuildable search\nconstraints remain applicable."
+      },
+      "localProofItemId": "01a12244-4dfc-78dd-adc1-395fe434a17f",
+      "localProofSourceItemId": "01a12244-4dfc-7df2-aeae-860af928b66f"
+    },
+    {
+      "sourcePath": "docs/adr/0047-lightweight-file-bodies-and-document-import.md",
+      "sourceSha256": "02105eb070021eb74e907141a3c8b49570c91a17eff563ab8af3e231a5e3c316",
+      "sourceBytes": 2671,
+      "title": "ADR-0047: Lightweight file bodies and document import",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "a88b2e60-fac6-56c2-a359-4af94eab1745",
+      "sourceItemId": "5667bd85-0017-5e97-a43f-2e347ef146cc",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0047-lightweight-file-bodies-and-document-import.md",
+        "original_bytes": 2671,
+        "original_sha256": "02105eb070021eb74e907141a3c8b49570c91a17eff563ab8af3e231a5e3c316",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted, 2026-08-31. Media responsibility assignments are superseded by\n[ADR-0048](0048-rabbitmq-and-unified-go-workers.md).\n\nImplementation note, 5 September 2026: the temporary opaque publication path bypasses the\ninspection described below, and the web now includes PDF/image previews. These are recorded\nimplementation discrepancies, not retroactive changes to this decision. See\n[the documentation audit](../README.md#open-architecture-discrepancy)."
+      },
+      "localProofItemId": "01a12244-4dfc-7789-9a2c-43cb237843be",
+      "localProofSourceItemId": "01a12244-4dfc-7909-bce7-d0490d238436"
+    },
+    {
+      "sourcePath": "docs/adr/0048-rabbitmq-and-unified-go-workers.md",
+      "sourceSha256": "c9f3b99d0883c50e829ad044ae6ab175088498497fc916d14e44955552fba0f4",
+      "sourceBytes": 5731,
+      "title": "ADR-0048: RabbitMQ and unified Go workers replace Media",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "8cf55bae-1d6d-514c-a8c1-b072d9d3590b",
+      "sourceItemId": "7340255a-4378-5b2e-afbb-717423676b01",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0048-rabbitmq-and-unified-go-workers.md",
+        "original_bytes": 5731,
+        "original_sha256": "c9f3b99d0883c50e829ad044ae6ab175088498497fc916d14e44955552fba0f4",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted, 2026-08-31.\n\nImplementation note, 5 September 2026: unified Go/RabbitMQ source has replaced Node Media.\nThe temporary file-publication path currently bypasses upload inspection; the inspection\nguarantee below is not current behavior. See [the discrepancy record](../README.md#open-architecture-discrepancy).\nThis note preserves the accepted decision and does not approve the deviation."
+      },
+      "localProofItemId": "01a12244-4dfc-7440-bb68-2c9aeeb2a495",
+      "localProofSourceItemId": "01a12244-4dfc-77a0-b9b1-88dc5fff408e"
+    },
+    {
+      "sourcePath": "docs/adr/0049-github-triggered-production-deploys.md",
+      "sourceSha256": "41d88a9cb11183055b4c8e73d98d7a512ddcb757c36792a2b8a6e6e06f7a492f",
+      "sourceBytes": 9933,
+      "title": "ADR-0049: GitHub-triggered production deploys",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "1c5999a5-1e33-5185-aa41-8a5ca9d0db73",
+      "sourceItemId": "4e542787-d0f2-5d14-adf6-9abad12263d3",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0049-github-triggered-production-deploys.md",
+        "original_bytes": 9933,
+        "original_sha256": "41d88a9cb11183055b4c8e73d98d7a512ddcb757c36792a2b8a6e6e06f7a492f",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed, 2026-09-25. Nothing in this record is implemented: no deploy workflow, runner, deploy\nkey or Cloudflare Access application exists, and none may be added until an owner accepts one\noption below."
+      },
+      "localProofItemId": "01a12244-4dfc-7d88-a40b-0f57090aac00",
+      "localProofSourceItemId": "01a12244-4dfc-7d99-9352-4cfec9eea5e1"
+    },
+    {
+      "sourcePath": "docs/adr/0050-companion-structure-tools-compile-declarative-specs.md",
+      "sourceSha256": "529d464a4b4a9cb73b369d58da5ceda76e52a0b19104fc6b31927da517ac6dac",
+      "sourceBytes": 25731,
+      "title": "ADR-0050: Companion structure tools compile declarative specs in the user's client",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "f3cc9fc4-bd61-5b6c-aeb9-0a19ddd59c0d",
+      "sourceItemId": "80d7ea21-0276-5f48-a066-430a1157fba9",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0050-companion-structure-tools-compile-declarative-specs.md",
+        "original_bytes": 25731,
+        "original_sha256": "529d464a4b4a9cb73b369d58da5ceda76e52a0b19104fc6b31927da517ac6dac",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted, 2026-09-25. The owner accepted the decision below and every recommended default in\n\"Owner decisions\". Implemented on `main` as of 2026-10-08 through the consult phase: the chat\nand consult tool catalogs, `packages/structure-spec`, the blueprint tools and the plan preview in\nthe companion panel. The per-phase gates and the [SEC] reviews listed under Security are not\nrecorded here as done."
+      },
+      "localProofItemId": "01a12244-4dfc-7ab5-8d86-3227fc6c6795",
+      "localProofSourceItemId": "01a12244-4dfc-7a13-a0fc-7c451e3e7c02"
+    },
+    {
+      "sourcePath": "docs/adr/0051-scheduler-notifications-reminders-automations.md",
+      "sourceSha256": "84f0311b4d4fea129b62a84a45a6b5e9cfaf6fecb42ff3385bd4a9e138747062",
+      "sourceBytes": 25936,
+      "title": "ADR-0051: Core-owned scheduling, notifications, reminders and automations",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "b13e8abe-d531-59ae-ad9a-bedddfbde2dd",
+      "sourceItemId": "a7c36c4e-b032-54ac-af33-dbf2a20bd4e1",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0051-scheduler-notifications-reminders-automations.md",
+        "original_bytes": 25936,
+        "original_sha256": "84f0311b4d4fea129b62a84a45a6b5e9cfaf6fecb42ff3385bd4a9e138747062",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted by the architect 2026-09-29 for implementation on `feature/life-os`. Owner\ndecisions still open are listed at the end; each defaults as written until the owner says\notherwise. [SEC] surfaces are marked and each needs the security review before its phase merges."
+      },
+      "localProofItemId": "01a12244-4dfc-79c4-9cbc-127b3395c5b3",
+      "localProofSourceItemId": "01a12244-4dfc-777f-abe2-20fc5d5946b5"
+    },
+    {
+      "sourcePath": "docs/adr/0052-two-way-calendar-sync.md",
+      "sourceSha256": "f682b0758b8999653ae9a2f26a14860d8e8c3cb144634f7f89597f7248072984",
+      "sourceBytes": 22191,
+      "title": "ADR-0052: Two-way Google Calendar and Microsoft Outlook sync",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "19c5e3d1-e474-53b5-a234-77e1ec3b502b",
+      "sourceItemId": "2d16d92b-c2d2-5b3a-afbf-f19af899c677",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0052-two-way-calendar-sync.md",
+        "original_bytes": 22191,
+        "original_sha256": "f682b0758b8999653ae9a2f26a14860d8e8c3cb144634f7f89597f7248072984",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted by the architect 2026-09-29 for implementation on `feature/life-os`. The\nowner asked for Google and Outlook on 2026-09-29, which supersedes the 2026-08-02 cut of Outlook in\n`todo.md`. [SEC] throughout: OAuth, stored refresh tokens and outbound calls need security review.\nLive proof needs owner-created provider apps (see Owner steps)."
+      },
+      "localProofItemId": "01a12244-4dfc-7fb1-aace-9791f061e1cd",
+      "localProofSourceItemId": "01a12244-4dfc-7399-90de-91f20d10c4ae"
+    },
+    {
+      "sourcePath": "docs/adr/0053-installed-app-shell-and-local-body-copies.md",
+      "sourceSha256": "1f488e7250cbf8acf82a3a045d14fa5217d3c00fc4bba11c1d17bde1a7bd351d",
+      "sourceBytes": 7610,
+      "title": "ADR-0053: Installed-app shell and local body copies",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "80b46751-3b64-5c79-a5ac-f4a0be887661",
+      "sourceItemId": "d446875e-e105-54da-a670-e9add728cf8d",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0053-installed-app-shell-and-local-body-copies.md",
+        "original_bytes": 7610,
+        "original_sha256": "1f488e7250cbf8acf82a3a045d14fa5217d3c00fc4bba11c1d17bde1a7bd351d",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed, 2026-09-29. The change it describes is on `main` as of 2026-10-08 (`apps/web/src/pwa`,\n`apps/web/src/launch`, `apps/web/src/editor/body-cache.ts`, the service worker). Recording the\nowner's acceptance in this status line is still owed."
+      },
+      "localProofItemId": "01a12244-4dfc-7593-865e-773d5e2b8224",
+      "localProofSourceItemId": "01a12244-4dfc-7784-a9e6-b960b4099e70"
+    },
+    {
+      "sourcePath": "docs/adr/0054-container-view-arrangement.md",
+      "sourceSha256": "63f9b000cb7325a0147eb00d039f895cc2d60ea5ff71463eb8efd41fab228349",
+      "sourceBytes": 9677,
+      "title": "ADR-0054: Container view arrangement - applied filters, several sorts, wider grouping, summaries",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "74c22916-963f-5c68-acf8-399333986f72",
+      "sourceItemId": "ce85d2ec-747f-5a51-a814-1cbf14a92acf",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0054-container-view-arrangement.md",
+        "original_bytes": 9677,
+        "original_sha256": "63f9b000cb7325a0147eb00d039f895cc2d60ea5ff71463eb8efd41fab228349",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted, 2026-10-01, by the owner. Proposed the same day; the change it describes was built on\n`feature/views-overhaul` (commit \"feat(views): container view configuration contract\").\n\nStaged on review, the same day: grouping by a multi-select, checkbox, completion, priority or\nassignee is decided as written below, but lands with the web board work in a later slice, because\nthe web board cannot draw those groups yet. Until then `PropertyTypes.CanGroupBy`, its TypeScript\ntwin `canGroupBy`, the structure catalog and the pet's catalogs stay at single select. Exports\n(`packages/view-render`) group by the raw stored value until they learn the wider types."
+      },
+      "localProofItemId": "01a12244-4dfc-7feb-be3d-441e8b88c417",
+      "localProofSourceItemId": "01a12244-4dfc-76c3-a94b-62e02b0ff914"
+    },
+    {
+      "sourcePath": "docs/adr/0056-a-lock-hides-the-titles-under-it.md",
+      "sourceSha256": "f938e0b915308fa3b4b26890e9d8bf55b2499f28084522740e320034f40bd123",
+      "sourceBytes": 7241,
+      "title": "ADR-0056: A lock hides the titles under it",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "461ccc0f-ffbc-5d50-a3c3-6285a23d19c6",
+      "sourceItemId": "788de6bd-14ea-5800-a66e-1321b71826a3",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0056-a-lock-hides-the-titles-under-it.md",
+        "original_bytes": 7241,
+        "original_sha256": "f938e0b915308fa3b4b26890e9d8bf55b2499f28084522740e320034f40bd123",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted by the owner, 2026-10-01, as part of the suggestions work on `feature/suggestions`.\nADR-0055 is reserved for the server-side container query that ADR-0054 names; this record takes the\nnext free number."
+      },
+      "localProofItemId": "01a12244-4dfc-74a4-a285-5a357fa5668e",
+      "localProofSourceItemId": "01a12244-4dfc-7bd9-ae85-0215bd4147e1"
+    },
+    {
+      "sourcePath": "docs/adr/0057-model-free-suggestions.md",
+      "sourceSha256": "6a978ef41e1b44590c07257486e595d47369563cb0f20d0dca638c3a118b540a",
+      "sourceBytes": 6168,
+      "title": "ADR-0057: Model-free suggestions",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "5ada580f-4730-58cd-adf1-9d626ad75192",
+      "sourceItemId": "3637f268-5f09-5ce3-a82e-03650deca55d",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0057-model-free-suggestions.md",
+        "original_bytes": 6168,
+        "original_sha256": "6a978ef41e1b44590c07257486e595d47369563cb0f20d0dca638c3a118b540a",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted by the owner, 2026-10-01, with [SEC] approval to merge `feature/suggestions` once its\nreview fixes verify. Amends ADR-0053 (a second derived holder of body content)."
+      },
+      "localProofItemId": "01a12244-4dfc-76f9-8d4b-f296a0260efa",
+      "localProofSourceItemId": "01a12244-4dfc-718e-ad8d-9c93d18137c3"
+    },
+    {
+      "sourcePath": "docs/adr/0058-item-protections-and-managed-calendar-items.md",
+      "sourceSha256": "0a84bd85a19a39582b386dea8531a0514ed4a66404d464502d32eb7428a44950",
+      "sourceBytes": 4833,
+      "title": "ADR-0058: Item protections, and calendar items managed from settings",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "229fd70f-7c92-5b39-a80b-e5bfa4bf2f5c",
+      "sourceItemId": "1f9926ed-8f91-55ce-ae06-fa5aff143017",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0058-item-protections-and-managed-calendar-items.md",
+        "original_bytes": 4833,
+        "original_sha256": "0a84bd85a19a39582b386dea8531a0514ed4a66404d464502d32eb7428a44950",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed 2026-10-04. Built and committed on `main` at the owner's direction; [SEC] approval pending.\nAmends ADR-0052 (calendar sync) and notes one consequence for ADR-0056 (locks)."
+      },
+      "localProofItemId": "01a12244-4dfc-7ef2-9b8b-188aa912291b",
+      "localProofSourceItemId": "01a12244-4dfc-7a34-bcb3-4f1fafe30ed6"
+    },
+    {
+      "sourcePath": "docs/adr/0059-speech-role-recording-transcription-and-voice.md",
+      "sourceSha256": "a5b9291ddf70e1721af7982d624146916fe40f68076ffffa72730cf21ab1ab6b",
+      "sourceBytes": 6732,
+      "title": "ADR-0059: A speech role for recording, transcription, voices and dictation",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "681a3e47-76ab-5f08-aa90-516a6a6f6b4a",
+      "sourceItemId": "b6fd8406-97f6-5756-a1d6-1663b3d0b103",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0059-speech-role-recording-transcription-and-voice.md",
+        "original_bytes": 6732,
+        "original_sha256": "a5b9291ddf70e1721af7982d624146916fe40f68076ffffa72730cf21ab1ab6b",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed 2026-10-05. Built on `main` in `deb29b68` (2026-10-05), with the `speech-worker` and\n`speech-worker-l4t` CI images following in `79de973a`. The open items below (host benchmark,\nvoice choice) and the [SEC] approval are not recorded as done.\nTakes up the audio half of the \"transcoding and general binary indexing\" decision that\nADR-0047 left open, and adds a role and a queue to ADR-0048's worker topology."
+      },
+      "localProofItemId": "01a12244-4dfc-7eab-b678-66ba9a06221b",
+      "localProofSourceItemId": "01a12244-4dfc-7ec9-938c-567f6b1380c9"
+    },
+    {
+      "sourcePath": "docs/adr/0060-ad-hoc-workspace-queries.md",
+      "sourceSha256": "7a4e5db5ff28912662e996e7f2adaf136eac1aba19ac6cfb88b2433cf4904d34",
+      "sourceBytes": 1985,
+      "title": "ADR-0060: Ad-hoc workspace queries and aggregates",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "89513e3b-f33e-5687-a368-b625acb84f73",
+      "sourceItemId": "04aef84f-0b0f-5498-abaa-ba336e21bee9",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Migrated",
+        "source_path": "docs/adr/0060-ad-hoc-workspace-queries.md",
+        "original_bytes": 1985,
+        "original_sha256": "7a4e5db5ff28912662e996e7f2adaf136eac1aba19ac6cfb88b2433cf4904d34",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed 2026-10-09 with `feature/core-query`; owner acceptance pending. Supersedes two\ndecisions of the saved-query ADR (0039, no longer kept in this tree): \"the client never sends\nrules\" and \"rules are AND only\"."
+      },
+      "localProofItemId": "01a12244-4dfc-76fa-be05-8846c334a31e",
+      "localProofSourceItemId": "01a12244-4dfc-7d88-9371-79a8c39cab98"
+    },
+    {
+      "sourcePath": "docs/agent-guides/architecture-and-security.md",
+      "sourceSha256": "0fad4b630d6879ca08f8f3e00588393e05d46ab91824fae747600fd6778fc9f5",
+      "sourceBytes": 1036,
+      "title": "Architecture and security guide",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "325592be-b2b7-59a7-afd1-881dad1f3f0e",
+      "sourceItemId": "7f340a21-81d1-5e36-acf2-9e1400d442f7",
+      "disposition": "retained-essential",
+      "retentionReason": "Mandatory security/contributor routing before changes.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Retained essential",
+        "source_path": "docs/agent-guides/architecture-and-security.md",
+        "original_bytes": 1036,
+        "original_sha256": "0fad4b630d6879ca08f8f3e00588393e05d46ab91824fae747600fd6778fc9f5"
+      },
+      "localProofItemId": "01a12244-4dfc-7a1a-974c-d5add55c0680",
+      "localProofSourceItemId": "01a12244-4dfc-7d72-8282-af6192c9eae2"
+    },
+    {
+      "sourcePath": "docs/agent-guides/backend.md",
+      "sourceSha256": "645b1823a99a221db353516d4b74013fc780bbae1fe0e90dac3cafb9622ba99a",
+      "sourceBytes": 1310,
+      "title": "Backend guide",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "f2b48401-e42a-57ab-a085-3d9189cd61ab",
+      "sourceItemId": "4348b66d-cf7c-57a5-ad32-5fbd90bb1036",
+      "disposition": "retained-essential",
+      "retentionReason": "Mandatory backend contributor guide.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Retained essential",
+        "source_path": "docs/agent-guides/backend.md",
+        "original_bytes": 1310,
+        "original_sha256": "645b1823a99a221db353516d4b74013fc780bbae1fe0e90dac3cafb9622ba99a"
+      },
+      "localProofItemId": "01a12244-4dfc-7433-b022-22a92efa423c",
+      "localProofSourceItemId": "01a12244-4dfc-72b7-b4e9-f1eeddf1b980"
+    },
+    {
+      "sourcePath": "docs/agent-guides/frontend.md",
+      "sourceSha256": "1f97684f1a078e2a14304ac294a4e10730757118e7dba530d8e8e96f47d534c8",
+      "sourceBytes": 1243,
+      "title": "Frontend guide",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "6b46d580-230b-50d2-afe2-aa8b7ac600d3",
+      "sourceItemId": "2b07b64f-deed-5ae3-adf1-b0e183ba4f06",
+      "disposition": "retained-essential",
+      "retentionReason": "Mandatory frontend contributor guide.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Retained essential",
+        "source_path": "docs/agent-guides/frontend.md",
+        "original_bytes": 1243,
+        "original_sha256": "1f97684f1a078e2a14304ac294a4e10730757118e7dba530d8e8e96f47d534c8"
+      },
+      "localProofItemId": "01a12244-4dfc-7cbc-bb29-721e63cc91da",
+      "localProofSourceItemId": "01a12244-4dfc-7d73-8a83-2b7577910dda"
+    },
+    {
+      "sourcePath": "docs/agent-guides/legacy-full-standards.md",
+      "sourceSha256": "7b2aff91aa8b500bfae1bb419ad27d2ac708534bf186fcf7ab9eed97144ee349",
+      "sourceBytes": 36030,
+      "title": "Repository Guidelines",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "72af62bf-ec82-560f-acaa-7f2e3ebda1b6",
+      "sourceItemId": "b5ae9566-bd95-51fb-a08e-5783f7560713",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Migrated",
+        "source_path": "docs/agent-guides/legacy-full-standards.md",
+        "original_bytes": 36030,
+        "original_sha256": "7b2aff91aa8b500bfae1bb419ad27d2ac708534bf186fcf7ab9eed97144ee349"
+      },
+      "localProofItemId": "01a12244-4dfc-78eb-8199-dd854aa3b278",
+      "localProofSourceItemId": "01a12244-4dfc-75fd-a2d8-cb27fc3eb813"
+    },
+    {
+      "sourcePath": "docs/agent-guides/workers.md",
+      "sourceSha256": "569f5d41a45cbbf20956123569183d7eebbf3f531c8bb68e52e78177bbcf56c8",
+      "sourceBytes": 898,
+      "title": "Go worker guide",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "89c8c981-ac9f-56d2-ae40-39be0cbc1964",
+      "sourceItemId": "6944a68e-931c-504a-a910-8cce0b5753da",
+      "disposition": "retained-essential",
+      "retentionReason": "Mandatory worker contributor guide.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Retained essential",
+        "source_path": "docs/agent-guides/workers.md",
+        "original_bytes": 898,
+        "original_sha256": "569f5d41a45cbbf20956123569183d7eebbf3f531c8bb68e52e78177bbcf56c8"
+      },
+      "localProofItemId": "01a12244-4dfc-7148-9696-021b6362ea3a",
+      "localProofSourceItemId": "01a12244-4dfc-771c-af27-de5d7ac49899"
+    },
+    {
+      "sourcePath": "docs/agent-guides/workflow-and-validation.md",
+      "sourceSha256": "8afcf3ccf843c145fa45fe6798af84f1a2d4661e0b72745fe46d2520596bd06e",
+      "sourceBytes": 1215,
+      "title": "Workflow and validation guide",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "a9f4419d-a0d7-5196-af45-eceefc87a01d",
+      "sourceItemId": "27b88969-2bbc-59cd-a1a7-a0a13aa75338",
+      "disposition": "retained-essential",
+      "retentionReason": "Mandatory validation and workflow instructions.",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Contributor guide",
+        "disposition": "Retained essential",
+        "source_path": "docs/agent-guides/workflow-and-validation.md",
+        "original_bytes": 1215,
+        "original_sha256": "8afcf3ccf843c145fa45fe6798af84f1a2d4661e0b72745fe46d2520596bd06e"
+      },
+      "localProofItemId": "01a12244-4dfc-7cda-8f17-32d29f494a0f",
+      "localProofSourceItemId": "01a12244-4dfc-72e7-bf24-d8cc82d94a8a"
+    },
+    {
+      "sourcePath": "docs/dev-signing-in.md",
+      "sourceSha256": "62ee98b48dec48f4bec47da6437caf925528353910906850bc6d4b098463be75",
+      "sourceBytes": 2652,
+      "title": "Local setup and sign-in",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "484a4647-2c1f-5810-ade4-bd3efd368696",
+      "sourceItemId": "bb34e836-dcdf-5e46-ad8d-090d365f50d8",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Operations",
+        "disposition": "Migrated",
+        "source_path": "docs/dev-signing-in.md",
+        "original_bytes": 2652,
+        "original_sha256": "62ee98b48dec48f4bec47da6437caf925528353910906850bc6d4b098463be75"
+      },
+      "localProofItemId": "01a12244-4dfc-7005-b247-0c92944390ed",
+      "localProofSourceItemId": "01a12244-4dfc-7eb5-a2ab-f50047dad960"
+    },
+    {
+      "sourcePath": "docs/operations.md",
+      "sourceSha256": "fe22563f98b3a306386dda50a825e77693071dafa14e73f8acd3fcd41d077a63",
+      "sourceBytes": 3743,
+      "title": "Operations and recovery",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "b4b817e1-bb18-54af-a9df-e802b335227e",
+      "sourceItemId": "d3d555fd-6512-5a9a-a740-71c463fe21e8",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Operations",
+        "disposition": "Migrated",
+        "source_path": "docs/operations.md",
+        "original_bytes": 3743,
+        "original_sha256": "fe22563f98b3a306386dda50a825e77693071dafa14e73f8acd3fcd41d077a63"
+      },
+      "localProofItemId": "01a12244-4dfc-79b0-8c11-77b01532dbec",
+      "localProofSourceItemId": "01a12244-4dfc-7f19-ad34-4e1d25a881d5"
+    },
+    {
+      "sourcePath": "docs/plans/graph-improvements.md",
+      "sourceSha256": "34d8ada8b9d2d30dce665b951017aafe19e551e1058e5ca7d766f5352ba3c699",
+      "sourceBytes": 19232,
+      "title": "Graph improvements plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "a3b754a3-298a-52aa-ade7-b8fd6e7882c5",
+      "sourceItemId": "ca796c68-cbb6-52be-a6e2-fa47fc08d6aa",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/graph-improvements.md",
+        "original_bytes": 19232,
+        "original_sha256": "34d8ada8b9d2d30dce665b951017aafe19e551e1058e5ca7d766f5352ba3c699"
+      },
+      "localProofItemId": "01a12244-4dfc-7c2c-83e0-30bc05624624",
+      "localProofSourceItemId": "01a12244-4dfc-71e9-9e3a-08f4de2b7430"
+    },
+    {
+      "sourcePath": "docs/plans/handover-2026-10-01-progressive-merge.md",
+      "sourceSha256": "67815b7612c0d9709a7fceb842cfbbe992875fc24ad01cf9ebf68d79c6a8af22",
+      "sourceBytes": 17709,
+      "title": "Handover: progressive merge of partial branches into main (2026-10-01)",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "18720e64-951f-5338-a84d-5ea6c620b9d8",
+      "sourceItemId": "c0417ea7-17c7-59a3-a9e3-ea29c347cc3d",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/handover-2026-10-01-progressive-merge.md",
+        "original_bytes": 17709,
+        "original_sha256": "67815b7612c0d9709a7fceb842cfbbe992875fc24ad01cf9ebf68d79c6a8af22"
+      },
+      "localProofItemId": "01a12244-4dfc-7240-ab4d-0401295b4c6c",
+      "localProofSourceItemId": "01a12244-4dfc-708e-8d27-970913a15764"
+    },
+    {
+      "sourcePath": "docs/plans/handover-2026-10-04-ui-ux-pass.md",
+      "sourceSha256": "282fd7e731c659597b66279932745a534234808ab343683e9a39807a405dd7a2",
+      "sourceBytes": 22305,
+      "title": "UI/UX pass: completion and verification (2026-10-04)",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "b849f898-163c-5359-aa28-4328adc274f8",
+      "sourceItemId": "644027bb-ce0a-54eb-af6e-3cf4ffa2d97d",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/handover-2026-10-04-ui-ux-pass.md",
+        "original_bytes": 22305,
+        "original_sha256": "282fd7e731c659597b66279932745a534234808ab343683e9a39807a405dd7a2"
+      },
+      "localProofItemId": "01a12244-4dfc-73c6-94ab-ceec417928e6",
+      "localProofSourceItemId": "01a12244-4dfc-7cf2-a76f-0e39a736b787"
+    },
+    {
+      "sourcePath": "docs/plans/handover-2026-10-09-queries-views-pets.md",
+      "sourceSha256": "30b5b3bdb9e33bb5e2db500c3b1996a3eaae2599acd5fd9bb99bb660a1051764",
+      "sourceBytes": 10319,
+      "title": "Handover 2026-10-09: pet tool use, queries, charts, views",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "32a3d0b7-1310-5933-af89-37d2177cc19b",
+      "sourceItemId": "e48190a8-4703-5782-a5ea-4e57379b28ed",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/handover-2026-10-09-queries-views-pets.md",
+        "original_bytes": 10319,
+        "original_sha256": "30b5b3bdb9e33bb5e2db500c3b1996a3eaae2599acd5fd9bb99bb660a1051764"
+      },
+      "localProofItemId": "01a12244-4dfc-777b-8f03-e746f5202eeb",
+      "localProofSourceItemId": "01a12244-4dfc-70d0-8bb6-8403c933d82b"
+    },
+    {
+      "sourcePath": "docs/plans/life-os-direction.md",
+      "sourceSha256": "62e1ce7ae2018be5c52fef3eb5ecb7da3123c50c7038edc23c8dbba80e9ecd20",
+      "sourceBytes": 3686,
+      "title": "Nix as a life-OS: the plan after the direction correction",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "7f126b87-36b5-552b-a460-8abed34b19c2",
+      "sourceItemId": "578f7b41-e8eb-58eb-ab84-9d4200510241",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/life-os-direction.md",
+        "original_bytes": 3686,
+        "original_sha256": "62e1ce7ae2018be5c52fef3eb5ecb7da3123c50c7038edc23c8dbba80e9ecd20"
+      },
+      "localProofItemId": "01a12244-4dfc-7f65-9191-8312cedcef8e",
+      "localProofSourceItemId": "01a12244-4dfc-7fb7-864b-8820b686744f"
+    },
+    {
+      "sourcePath": "docs/plans/life-os-scheduling-and-sync-plan.md",
+      "sourceSha256": "c0e47fcb51fe1de19fd11f16aca3499a10c9598b5dd88dd7d7bcf336c5fe6077",
+      "sourceBytes": 13419,
+      "title": "Life-OS scheduling, reminders, automations and calendar sync: implementation plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "56842b98-2cb1-5551-a254-f215160c5bd1",
+      "sourceItemId": "d418f97b-a36d-51f5-a6c9-05962224270b",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/life-os-scheduling-and-sync-plan.md",
+        "original_bytes": 13419,
+        "original_sha256": "c0e47fcb51fe1de19fd11f16aca3499a10c9598b5dd88dd7d7bcf336c5fe6077"
+      },
+      "localProofItemId": "01a12244-4dfc-77f9-b60d-b04a5ca3eb43",
+      "localProofSourceItemId": "01a12244-4dfc-7aee-a1d7-ffb5ccbd0d73"
+    },
+    {
+      "sourcePath": "docs/plans/meeting-recording-and-voice.md",
+      "sourceSha256": "e5a5c47d29b44c55f230ca8a3437edfecfcfafbb4438b1964e838d06b06e4093",
+      "sourceBytes": 21670,
+      "title": "Meeting recording and voice plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "227bb65d-07e1-5eed-afc6-4e388e8c963c",
+      "sourceItemId": "4bf955d3-90c4-5799-a1cf-4ef0b00d8186",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/meeting-recording-and-voice.md",
+        "original_bytes": 21670,
+        "original_sha256": "e5a5c47d29b44c55f230ca8a3437edfecfcfafbb4438b1964e838d06b06e4093"
+      },
+      "localProofItemId": "01a12244-4dfc-7e84-9a74-6769eaa2b69a",
+      "localProofSourceItemId": "01a12244-4dfc-755e-809e-44278fcf7df8"
+    },
+    {
+      "sourcePath": "docs/plans/mobile-view-quality.md",
+      "sourceSha256": "757327d6a1f544b6eae5f78dc5f32fb2f0e494d4a8459d7142fa3f0d41fd6e21",
+      "sourceBytes": 6092,
+      "title": "Nix view quality and mobile implementation plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "7b361468-4ece-5a31-abba-bc9261f93c2a",
+      "sourceItemId": "6878e2b2-87d5-5657-a822-3c1a7a54490e",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/mobile-view-quality.md",
+        "original_bytes": 6092,
+        "original_sha256": "757327d6a1f544b6eae5f78dc5f32fb2f0e494d4a8459d7142fa3f0d41fd6e21"
+      },
+      "localProofItemId": "01a12244-4dfc-7c36-9fd5-8bdf1a499ac2",
+      "localProofSourceItemId": "01a12244-4dfc-7295-b9ce-59acc62f7937"
+    },
+    {
+      "sourcePath": "docs/plans/pet-improvements.md",
+      "sourceSha256": "1acce960ccde6c4905a7a5661d3cc28c8f65ac69e4f4b52408e6af620449e2c8",
+      "sourceBytes": 11824,
+      "title": "Pet improvements backlog",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "86407fdb-80f8-540a-abe4-6a84583e7f1d",
+      "sourceItemId": "fb5db503-a523-5c17-a056-25bd959973a6",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-improvements.md",
+        "original_bytes": 11824,
+        "original_sha256": "1acce960ccde6c4905a7a5661d3cc28c8f65ac69e4f4b52408e6af620449e2c8"
+      },
+      "localProofItemId": "01a12244-4dfc-72e1-bce2-890fb4c1bd89",
+      "localProofSourceItemId": "01a12244-4dfc-7583-b6c1-cace92675f78"
+    },
+    {
+      "sourcePath": "docs/plans/pet-speed-accuracy-plan.md",
+      "sourceSha256": "a73da37509c5bcb933ebc6f1dc3f5c3876bf9e47fa0e8c1542fa60100251a75c",
+      "sourceBytes": 32084,
+      "title": "Pet speed, accuracy and chat UX: implementation plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "8deb1310-ba72-5e43-a257-4e56042ba396",
+      "sourceItemId": "a150f24a-0755-5b9f-a9ff-2992a532c88b",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-speed-accuracy-plan.md",
+        "original_bytes": 32084,
+        "original_sha256": "a73da37509c5bcb933ebc6f1dc3f5c3876bf9e47fa0e8c1542fa60100251a75c"
+      },
+      "localProofItemId": "01a12244-4dfc-71d6-b2f5-6b3c4cd0645f",
+      "localProofSourceItemId": "01a12244-4dfc-79d6-98cb-ef7da9c8b730"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-architecture.md",
+      "sourceSha256": "a7ba4cb151eca3b4f2fc47a49589d01c9506ec47269a5bb3f96cbb1f72bd2c63",
+      "sourceBytes": 58262,
+      "title": "Pet structure tools and consult mode: architecture",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "9702ce42-c4b0-5ab6-aafe-4a450188ec86",
+      "sourceItemId": "433d0783-87e9-5e68-a249-dfb28316672b",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-architecture.md",
+        "original_bytes": 58262,
+        "original_sha256": "a7ba4cb151eca3b4f2fc47a49589d01c9506ec47269a5bb3f96cbb1f72bd2c63"
+      },
+      "localProofItemId": "01a12244-4dfc-7304-9caf-6d1333edaa0d",
+      "localProofSourceItemId": "01a12244-4dfc-79bc-a7ed-0c8f742816ac"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-plan.md",
+      "sourceSha256": "58f058a11c29f7280f9ff78fc3a318a77f0c968361c2210949f2f9eba04738a5",
+      "sourceBytes": 144741,
+      "title": "Pet structure tools and consult mode: implementation plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "0c6cc016-e4a6-5ffe-a174-ec495f78f072",
+      "sourceItemId": "800a8a01-19d5-5bb5-a8df-30b68d67febc",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-plan.md",
+        "original_bytes": 144741,
+        "original_sha256": "58f058a11c29f7280f9ff78fc3a318a77f0c968361c2210949f2f9eba04738a5"
+      },
+      "localProofItemId": "01a12244-4dfc-788a-9d04-0267c0d8be41",
+      "localProofSourceItemId": "01a12244-4dfc-751f-b5fe-f2c482d34d28"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-research/A-go-runtime.md",
+      "sourceSha256": "076c38345abe05b36b55a275ad65b779426eb09e69904f94f34f2a30592e42ce",
+      "sourceBytes": 27787,
+      "title": "Nix \"pet\" companion — Go worker runtime research",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "d9b058b7-2b5b-52f3-a37a-8f664c272b1f",
+      "sourceItemId": "79c45085-db5b-551e-afe1-37208b3db524",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-research/A-go-runtime.md",
+        "original_bytes": 27787,
+        "original_sha256": "076c38345abe05b36b55a275ad65b779426eb09e69904f94f34f2a30592e42ce"
+      },
+      "localProofItemId": "01a12244-4dfc-7d3a-a9ea-88ce321bb43e",
+      "localProofSourceItemId": "01a12244-4dfc-78d1-8f67-4616d7df4c61"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-research/B-web-tools.md",
+      "sourceSha256": "e661b85dc0cff143c09e19da6587791bbf6f2c04319b11142ec5db8c00e1cfc4",
+      "sourceBytes": 25078,
+      "title": "B — Web/api-client execution side for pet workspace tools",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "bc08dd6e-d5c6-5988-aff7-3ce7b1ffb699",
+      "sourceItemId": "4799b9de-b4dd-551d-ad5a-fb70e05b26a2",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-research/B-web-tools.md",
+        "original_bytes": 25078,
+        "original_sha256": "e661b85dc0cff143c09e19da6587791bbf6f2c04319b11142ec5db8c00e1cfc4"
+      },
+      "localProofItemId": "01a12244-4dfc-7739-8878-45b1ac7e90e0",
+      "localProofSourceItemId": "01a12244-4dfc-7e12-b9bd-69350bd4dc0e"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-research/C-structure.md",
+      "sourceSha256": "45920473c53a292537076bcd6a11a9e54c2381b9808c4ed4112afc7aa9ecf71d",
+      "sourceBytes": 47521,
+      "title": "C — Structural building blocks: property schemas, formulas/rollups, views, structured creation",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "477e3f3a-0d3b-5952-aeb4-b2c27461d189",
+      "sourceItemId": "15e5bc31-20dc-5d08-acb9-31582c0b4f7b",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-research/C-structure.md",
+        "original_bytes": 47521,
+        "original_sha256": "45920473c53a292537076bcd6a11a9e54c2381b9808c4ed4112afc7aa9ecf71d"
+      },
+      "localProofItemId": "01a12244-4dfc-76da-bc27-bfdf7042152e",
+      "localProofSourceItemId": "01a12244-4dfc-73ee-aeca-70f0c8ec68b2"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-research/D-templates-standards.md",
+      "sourceSha256": "624ae321d753bedf311f900078cb09fb55bb999ab345d4004d50a8d4ede589f6",
+      "sourceBytes": 33143,
+      "title": "D: Nix template system + engineering standards for the pet \"consult\" plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "ec73e139-41ca-5245-a68a-a0b1c2f717bf",
+      "sourceItemId": "6b36c5a7-ca01-5979-a139-e1c766320290",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-research/D-templates-standards.md",
+        "original_bytes": 33143,
+        "original_sha256": "624ae321d753bedf311f900078cb09fb55bb999ab345d4004d50a8d4ede589f6"
+      },
+      "localProofItemId": "01a12244-4dfc-7fad-a41b-c4aa0a221e02",
+      "localProofSourceItemId": "01a12244-4dfc-7d09-8d7f-215223d37d55"
+    },
+    {
+      "sourcePath": "docs/plans/pet-structure-consult-research/gate-log.md",
+      "sourceSha256": "1a644034c75d1afc5b6af1c3c5b0fdeb101715985e48b0ca5bd6d4448a1b88b9",
+      "sourceBytes": 47224,
+      "title": "Orchestrator gate log (pet structure + consult)",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "a2fc2aaf-3177-5020-a913-7d33590c1de9",
+      "sourceItemId": "b3a96426-0961-5238-ab49-abcd94544292",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-structure-consult-research/gate-log.md",
+        "original_bytes": 47224,
+        "original_sha256": "1a644034c75d1afc5b6af1c3c5b0fdeb101715985e48b0ca5bd6d4448a1b88b9"
+      },
+      "localProofItemId": "01a12244-4dfc-7575-bc16-01a43eb1e434",
+      "localProofSourceItemId": "01a12244-4dfc-727b-9a9b-737587874f09"
+    },
+    {
+      "sourcePath": "docs/plans/pet-tool-use-plan.md",
+      "sourceSha256": "8abf1805f475e78ea5e912f0834472875e30edce5062573fc11c646fd8fce586",
+      "sourceBytes": 20913,
+      "title": "Pet tool use: implementation plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "4ba320cc-70f3-516e-a3f7-ad8bfc1e617e",
+      "sourceItemId": "f1762904-8871-5e21-a2b1-e9dcce000f6c",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/pet-tool-use-plan.md",
+        "original_bytes": 20913,
+        "original_sha256": "8abf1805f475e78ea5e912f0834472875e30edce5062573fc11c646fd8fce586"
+      },
+      "localProofItemId": "01a12244-4dfc-705d-ab4c-88b61aee13cb",
+      "localProofSourceItemId": "01a12244-4dfc-756e-8d57-c02d3fb4fe2a"
+    },
+    {
+      "sourcePath": "docs/plans/queries-charts-views-plan.md",
+      "sourceSha256": "49e9d9a5b9bd39201d0209e0537de083d2c0fd4ebf8465725bb551ba024fd34a",
+      "sourceBytes": 17870,
+      "title": "Queries, charts and views: implementation plan",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "ac2c1ef3-9ab0-5d3a-ac41-adae4ec15aea",
+      "sourceItemId": "085dcbda-9416-51c9-ad2a-d47fd9e417d9",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/queries-charts-views-plan.md",
+        "original_bytes": 17870,
+        "original_sha256": "49e9d9a5b9bd39201d0209e0537de083d2c0fd4ebf8465725bb551ba024fd34a"
+      },
+      "localProofItemId": "01a12244-4dfc-7102-9d48-4d59c1ab21a8",
+      "localProofSourceItemId": "01a12244-4dfc-7527-b4f0-3d5a9873c417"
+    },
+    {
+      "sourcePath": "docs/plans/ui-ux-pass.md",
+      "sourceSha256": "361d84761e5c2610955db06027de91dad8ec1930510478a24142b75bf41e4d4a",
+      "sourceBytes": 21121,
+      "title": "UI/UX pass",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "4eb99f68-a5ef-5bc7-aa36-c55c4c637486",
+      "sourceItemId": "56fd6721-3a32-5837-a6eb-f43317ed832f",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/ui-ux-pass.md",
+        "original_bytes": 21121,
+        "original_sha256": "361d84761e5c2610955db06027de91dad8ec1930510478a24142b75bf41e4d4a"
+      },
+      "localProofItemId": "01a12244-4dfc-7c6c-996b-af0fd33d79c8",
+      "localProofSourceItemId": "01a12244-4dfc-7ddc-8a8e-8287562e29f6"
+    },
+    {
+      "sourcePath": "docs/plans/version-history.md",
+      "sourceSha256": "465396b77c490a6de51706db392c83ad6d91de8e927204de7d24b5b5d5010b80",
+      "sourceBytes": 7060,
+      "title": "Version history (phase 2 of the Office-parity programme)",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "c41e39f0-3bd6-56b6-a8b1-7d3163e9d711",
+      "sourceItemId": "66c672d8-7aa5-577b-a4ab-fd7a2657dcaa",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Plan",
+        "disposition": "Migrated",
+        "source_path": "docs/plans/version-history.md",
+        "original_bytes": 7060,
+        "original_sha256": "465396b77c490a6de51706db392c83ad6d91de8e927204de7d24b5b5d5010b80"
+      },
+      "localProofItemId": "01a12244-4dfc-786a-9ae7-047e421950d4",
+      "localProofSourceItemId": "01a12244-4dfc-77db-ad72-0ea7399000c7"
+    },
+    {
+      "sourcePath": "docs/production/issues/29-template-library-closure-comment.md",
+      "sourceSha256": "7b4f94d06544f511d035553c0309f53cd1c9caa99e39c489d2e1b36aa92388f6",
+      "sourceBytes": 2135,
+      "title": "Expand the built-in template library",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "f93870bb-6a47-55ed-a380-f6fd5c12a2b0",
+      "sourceItemId": "004e2d75-8825-593b-a6aa-56d26f547172",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/production/issues/29-template-library-closure-comment.md",
+        "original_bytes": 2135,
+        "original_sha256": "7b4f94d06544f511d035553c0309f53cd1c9caa99e39c489d2e1b36aa92388f6"
+      },
+      "localProofItemId": "01a12244-4dfc-7903-8cf8-d47a2ce1c7bc",
+      "localProofSourceItemId": "01a12244-4dfc-7712-a823-a753d1dcce82"
+    },
+    {
+      "sourcePath": "docs/production/issues/47-template-catalog-reproducible.md",
+      "sourceSha256": "86c281eb09fcebfccd10e7f89f0fc7ff93c171b9bc9c7dd07c36c71207ac172d",
+      "sourceBytes": 1040,
+      "title": "Make template catalog archive generation reproducible across platforms",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "21c00622-843d-5f82-ae37-903cac524d41",
+      "sourceItemId": "829365a3-f795-53d3-a646-d4e8e7d75eb8",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/production/issues/47-template-catalog-reproducible.md",
+        "original_bytes": 1040,
+        "original_sha256": "86c281eb09fcebfccd10e7f89f0fc7ff93c171b9bc9c7dd07c36c71207ac172d"
+      },
+      "localProofItemId": "01a12244-4dfc-77ac-bf24-f3bca2523513",
+      "localProofSourceItemId": "01a12244-4dfc-715f-8544-c8e9bff1d28f"
+    },
+    {
+      "sourcePath": "docs/production/issues/89-enable-whisper-speech-worker.md",
+      "sourceSha256": "4382389168efd1edf0d5d793e21c0d6aca3b84ac8fd6312e9ee3e51649328bf3",
+      "sourceBytes": 5692,
+      "title": "Enable the Whisper speech worker in production",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "bd49e904-57f8-5a3e-a891-5281c3860903",
+      "sourceItemId": "e220af1c-b058-5155-ab92-9360872d6bc7",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/production/issues/89-enable-whisper-speech-worker.md",
+        "original_bytes": 5692,
+        "original_sha256": "4382389168efd1edf0d5d793e21c0d6aca3b84ac8fd6312e9ee3e51649328bf3"
+      },
+      "localProofItemId": "01a12244-4dfc-744d-874d-7f7f33cf2755",
+      "localProofSourceItemId": "01a12244-4dfc-7f1b-9afb-148737fea834"
+    },
+    {
+      "sourcePath": "docs/production/issues/90-meeting-listener-speakers.md",
+      "sourceSha256": "7bac785ce44f9b328d9178679e6034fddb27623320516bb43904223955e0e39d",
+      "sourceBytes": 2512,
+      "title": "Meeting listener: tell speakers apart and keep per-person context",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "31de1e19-5aa9-5e95-a56a-1b1f71bf0543",
+      "sourceItemId": "76f6d643-8ee9-54df-a280-123e234c6032",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "docs/production/issues/90-meeting-listener-speakers.md",
+        "original_bytes": 2512,
+        "original_sha256": "7bac785ce44f9b328d9178679e6034fddb27623320516bb43904223955e0e39d"
+      },
+      "localProofItemId": "01a12244-4dfc-71f2-92f7-787595575f61",
+      "localProofSourceItemId": "01a12244-4dfc-7521-be71-785b5928c745"
+    },
+    {
+      "sourcePath": "todo.md",
+      "sourceSha256": "9c8f37a379845aa4b661cb9a0f52b7ef1f52a62c161ecb94eacf9c10b39f95b6",
+      "sourceBytes": 29487,
+      "title": "Nix — TODO, easiest to hardest",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "ff4d01ff-36d4-5986-a4cc-6ae3c0a9cd2c",
+      "sourceItemId": "4b97a183-9a56-52c4-a515-0b3906ac0413",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "todo.md",
+        "original_bytes": 29487,
+        "original_sha256": "9c8f37a379845aa4b661cb9a0f52b7ef1f52a62c161ecb94eacf9c10b39f95b6"
+      },
+      "localProofItemId": "01a12244-4dfc-75d6-82c1-e3843e7797e7",
+      "localProofSourceItemId": "01a12244-4dfc-7e3c-a8be-ed0ef383be94"
+    },
+    {
+      "sourcePath": "worklist.md",
+      "sourceSha256": "bbde25bfbca8623aa96b9e68fcae32f98de894213ce73cbf77bfd7bde7959529",
+      "sourceBytes": 12235,
+      "title": "Worklist",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "9a56af12-aafb-5d9b-a32d-049efd69808f",
+      "sourceItemId": "4c68b758-4ec6-5a0c-aecb-01afaca18bcc",
+      "disposition": "migrated",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Historical record",
+        "disposition": "Migrated",
+        "source_path": "worklist.md",
+        "original_bytes": 12235,
+        "original_sha256": "bbde25bfbca8623aa96b9e68fcae32f98de894213ce73cbf77bfd7bde7959529"
+      },
+      "localProofItemId": "01a12244-4dfc-7748-a4bf-25146c7031ef",
+      "localProofSourceItemId": "01a12244-4dfc-70c4-a2ec-60f40c916d3b"
+    },
+    {
+      "sourcePath": "docs/adr/0061-mermaid-source-canvas-and-shared-components.md",
+      "sourceSha256": "fe85c47f1a175eb9e9f9d62973a3f4ae3d02045233d3b90139b514c7eece7f09",
+      "sourceBytes": 6737,
+      "externalOrigin": "feature/mermaid-diagram-workflow",
+      "proposed": true,
+      "title": "ADR-0061: Mermaid semantic editing and shared components",
+      "archive": "docs/nix/nix-reference.nix",
+      "itemId": "61b0056f-8f45-524d-a397-3ed78214f685",
+      "sourceItemId": "e187adf4-a30c-5bdf-a8b3-7e38e1671d37",
+      "disposition": "preserved-proposal",
+      "conversion": {
+        "unresolvedWikiLinks": 0,
+        "unresolvedObsidianEmbeds": 0,
+        "unresolvedLocalImages": 0,
+        "unsupportedImageAddresses": 0,
+        "inlineImagesFlattened": 0
+      },
+      "properties": {
+        "category": "Architecture decision",
+        "disposition": "Preserved proposal",
+        "source_path": "docs/adr/0061-mermaid-source-canvas-and-shared-components.md",
+        "original_bytes": 6737,
+        "original_sha256": "fe85c47f1a175eb9e9f9d62973a3f4ae3d02045233d3b90139b514c7eece7f09",
+        "decision_status": "Proposed",
+        "recorded_status": "Proposed 2026-10-09, local and uncommitted. The owner requires individual shape\nediting and standard Mermaid export for every diagram family, with shared\ncomponents across separate diagrams. Source-only editing, image fallbacks and\nNix-only export extensions do not satisfy that requirement."
+      },
+      "localProofItemId": "01a12244-4dfc-738a-8cfb-d7d2c38ca836",
+      "localProofSourceItemId": "01a12244-4dfc-7ebd-bada-bb47badc4476"
+    }
+  ],
+  "verification": {
+    "nativeReaderRoundTrip": true,
+    "originalSourcesVerified": true,
+    "liveImportExport": {
+      "status": "passed",
+      "environment": "local development",
+      "workspaceId": "01a121d8-50ba-784d-8c1b-c526c1c56afd",
+      "apiOrigin": "http://localhost:5014",
+      "receipts": [
+        {
+          "kind": "architecture",
+          "status": "passed",
+          "submittedArchiveSha256": "25372af48fdcf5b0b3521bfcf8acea9e1e697ece717b79d51a82790d7c1964fd",
+          "nativeBodiesVerified": 39,
+          "propertiesVerified": 39,
+          "schemasVerified": 39,
+          "configuredViewsVerified": 5,
+          "originalSourcesVerified": 0,
+          "exportId": "01a12247-c819-79af-931d-4559cb1d15f0",
+          "exportSha256": "26e4b0d22de8c44a13e1e5431ff43002322e9fa8450d32a705ed8edc365eb58d",
+          "exportBytes": 141847,
+          "completedAt": "2026-10-09T20:08:12.632978+00:00",
+          "importedRootId": "01a12247-5982-75fd-a1bc-ccc06429be09",
+          "loss": [],
+          "omissions": [],
+          "viewMembership": [
+            {
+              "view": "catalog",
+              "count": 38,
+              "groups": null
+            },
+            {
+              "view": "areas",
+              "count": 38,
+              "groups": {
+                "Overview": 1,
+                "Core": 6,
+                "Clients": 6,
+                "Collaboration": 3,
+                "Workers": 10,
+                "Infrastructure": 4,
+                "Operations": 4,
+                "Reference": 4
+              }
+            },
+            {
+              "view": "services",
+              "count": 15,
+              "groups": null
+            },
+            {
+              "view": "workflows",
+              "count": 15,
+              "groups": null
+            },
+            {
+              "view": "operations",
+              "count": 4,
+              "groups": null
+            }
+          ]
+        },
+        {
+          "kind": "reference",
+          "status": "passed",
+          "submittedArchiveSha256": "9631072f1b65a49da4e5f78ca2c1ab981aa3dcc3c44a1a276961c1a42cbe22b9",
+          "nativeBodiesVerified": 119,
+          "propertiesVerified": 119,
+          "schemasVerified": 119,
+          "configuredViewsVerified": 65,
+          "originalSourcesVerified": 59,
+          "exportId": "01a12244-f469-7927-8fc3-2b38d747e98f",
+          "exportSha256": "743a0b2528e433e0043b667f2ce22a189b64f28ffadc980a8f1905fe15d12543",
+          "exportBytes": 994188,
+          "completedAt": "2026-10-09T20:05:07.812521+00:00",
+          "importedRootId": "01a12244-4dfc-70f3-af32-31d17a4d6ea5",
+          "loss": [],
+          "omissions": [],
+          "viewMembership": [
+            {
+              "view": "catalog",
+              "count": 59,
+              "groups": null
+            },
+            {
+              "view": "categories",
+              "count": 59,
+              "groups": {
+                "Product": 3,
+                "Architecture decision": 16,
+                "Plan": 18,
+                "Operations": 5,
+                "Contributor guide": 7,
+                "Historical record": 10
+              }
+            },
+            {
+              "view": "decisions",
+              "count": 16,
+              "groups": null
+            },
+            {
+              "view": "decision-status",
+              "count": 16,
+              "groups": {
+                "Accepted": 9,
+                "Proposed": 6,
+                "Superseded": 1
+              }
+            },
+            {
+              "view": "plans",
+              "count": 18,
+              "groups": null
+            },
+            {
+              "view": "runbooks",
+              "count": 5,
+              "groups": null
+            }
+          ]
+        }
+      ],
+      "itemMetadata": "Exact submitted bodies, properties, effective/declared schemas, configured views and row snapshots matched the re-export with source IDs remapped and Core title properties added. Runtime commit identity was not asserted."
+    },
+    "mermaidParse": {
+      "status": "passed",
+      "diagramCount": 32,
+      "scope": "final current-design architecture archive"
+    },
+    "offlineReader": {
+      "status": "passed",
+      "language": "Go",
+      "command": "go -C apps/go-workers run ./cmd/nix-docs check",
+      "tests": 14,
+      "testCases": 22,
+      "terminalProof": {
+        "platform": "macOS",
+        "checks": [
+          "complete 158-note tree with current design",
+          "native internal link follow",
+          "back navigation and worker-runtime search",
+          "clean quit and cursor/terminal restoration",
+          "SIGTERM exits cleanly and restores cursor/alternate screen"
+        ]
+      },
+      "dependencies": "existing Go module and golang.org/x/sys; no new versions",
+      "testPackage": "apps/go-workers/internal/docsbrowser"
+    },
+    "checkedAt": "2026-10-09T20:11:37.753Z",
+    "visualReview": {
+      "status": "passed",
+      "environment": "local development",
+      "browserOrigin": "http://localhost:5180",
+      "checks": [
+        "current revision shown in handbook title",
+        "15 active Service rows, 23 other guides filtered out",
+        "retired index/speech/logging pages excluded from Service catalog",
+        "whole-system diagram renders with five active role nodes",
+        "reference Document view explicitly separates preserved snapshot from current main"
+      ],
+      "screenshots": [
+        "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-current-main-service-catalog.jpg",
+        "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-current-main-architecture.jpg"
+      ]
+    },
+    "repositoryValidation": {
+      "status": "passed",
+      "commands": [
+        "./scripts/changed-path-checks.sh --working-tree",
+        "./scripts/validate-changed.sh --working-tree"
+      ],
+      "checkedWorktrees": [
+        "/Users/osinachinwagboso/projects/nix-lanes/native-architecture-docs",
+        "/Users/osinachinwagboso/projects/Nix"
+      ],
+      "checks": [
+        "gofmt",
+        "go vet ./...",
+        "go test ./...",
+        "go test -race ./...",
+        "go build ./cmd/nix-worker",
+        "go build ./cmd/nix-docs",
+        "git diff --check"
+      ]
+    },
+    "previousLiveImportExport": {
+      "status": "passed",
+      "environment": "local development",
+      "workspaceId": "01a121d8-50ba-784d-8c1b-c526c1c56afd",
+      "apiOrigin": "http://localhost:5014",
+      "receipts": [
+        {
+          "kind": "architecture",
+          "nativeBodiesVerified": 39,
+          "originalSourceDigestsVerified": 0,
+          "loss": [],
+          "omissions": [],
+          "importedRootId": "01a12213-9642-7728-a28f-03cae883d5f1",
+          "exportId": "01a12214-6180-7d19-bdec-4678d434398f",
+          "exportBytes": 108937,
+          "exportSha256": "6178a4ab8c8b3bf950c9e6fe3ae6c5f3c837e26c0a3dcc649bb3c733e5843d2a",
+          "completedAt": "2026-10-09T19:12:03.965674+00:00"
+        },
+        {
+          "kind": "reference",
+          "nativeBodiesVerified": 119,
+          "originalSourceDigestsVerified": 59,
+          "loss": [],
+          "omissions": [],
+          "importedRootId": "01a12210-f317-7e07-b217-b09ca6354757",
+          "exportId": "01a12211-a15a-7829-8cc8-7c896743736f",
+          "exportBytes": 922507,
+          "exportSha256": "18174c46d0d1e57ca278a5ef0526297b7e12b38e4e6d812c4624064941ff3a22",
+          "completedAt": "2026-10-09T19:09:07.09772+00:00"
+        }
+      ],
+      "itemMetadata": "Core adds title properties, an empty schema, document views and new sibling sequences on import; exact bodies, parent mappings and remapped references were verified."
+    },
+    "priorDesignEdition": {
+      "sourceRevision": "48abdc16c15582ab8179499a91084da3566a46f5",
+      "archives": [
+        {
+          "path": "docs/nix/nix-architecture.nix",
+          "sha256": "86d5f999bb005f1c7af82d40cfd9d3ff2536fa574453f0f1fb5ba0f64604527a",
+          "bytes": 130946,
+          "itemCount": 39,
+          "rootId": "394eaa52-acb0-5570-af4a-894bce3ab6f3"
+        },
+        {
+          "path": "docs/nix/nix-reference.nix",
+          "sha256": "028e6b8ce5e4b6c4d78a00610006c7ea8d735b0b80e6d1e54c707b7dad6c8691",
+          "bytes": 1014165,
+          "itemCount": 119,
+          "rootId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9"
+        }
+      ],
+      "liveImportExport": {
+        "status": "passed",
+        "environment": "local development",
+        "workspaceId": "01a121d8-50ba-784d-8c1b-c526c1c56afd",
+        "apiOrigin": "http://localhost:5014",
+        "receipts": [
+          {
+            "kind": "architecture",
+            "status": "passed",
+            "submittedArchiveSha256": "86d5f999bb005f1c7af82d40cfd9d3ff2536fa574453f0f1fb5ba0f64604527a",
+            "nativeBodiesVerified": 39,
+            "propertiesVerified": 39,
+            "schemasVerified": 39,
+            "configuredViewsVerified": 5,
+            "originalSourcesVerified": 0,
+            "exportId": "01a1222b-f0a5-72eb-855e-9e492217d3f6",
+            "exportSha256": "84a8eabac8495a482f4cc436b5e4672f8a3cbd125aee0026dc4651c6d9ff1e1c",
+            "exportBytes": 128145,
+            "completedAt": "2026-10-09T19:37:48.005691+00:00",
+            "importedRootId": "01a1222b-188d-711d-a70b-608ab2b798db",
+            "loss": [],
+            "omissions": [],
+            "viewMembership": [
+              {
+                "view": "catalog",
+                "count": 38,
+                "groups": null
+              },
+              {
+                "view": "areas",
+                "count": 38,
+                "groups": {
+                  "Overview": 1,
+                  "Core": 6,
+                  "Clients": 6,
+                  "Collaboration": 3,
+                  "Workers": 10,
+                  "Infrastructure": 5,
+                  "Operations": 3,
+                  "Reference": 4
+                }
+              },
+              {
+                "view": "services",
+                "count": 18,
+                "groups": null
+              },
+              {
+                "view": "workflows",
+                "count": 14,
+                "groups": null
+              },
+              {
+                "view": "operations",
+                "count": 3,
+                "groups": null
+              }
+            ]
+          },
+          {
+            "kind": "reference",
+            "status": "passed",
+            "submittedArchiveSha256": "028e6b8ce5e4b6c4d78a00610006c7ea8d735b0b80e6d1e54c707b7dad6c8691",
+            "nativeBodiesVerified": 119,
+            "propertiesVerified": 119,
+            "schemasVerified": 119,
+            "configuredViewsVerified": 65,
+            "originalSourcesVerified": 59,
+            "exportId": "01a1222b-f76e-7897-88bd-b992db3ee95f",
+            "exportSha256": "6f60e0e67edb3b4aa2f05e0ad81a7f88ce0b5bbc3f84e38563e283b55bf9b7f3",
+            "exportBytes": 983496,
+            "completedAt": "2026-10-09T19:37:50.395407+00:00",
+            "importedRootId": "01a1222b-8102-754e-a3cc-9efe9756c0f2",
+            "loss": [],
+            "omissions": [],
+            "viewMembership": [
+              {
+                "view": "catalog",
+                "count": 59,
+                "groups": null
+              },
+              {
+                "view": "categories",
+                "count": 59,
+                "groups": {
+                  "Product": 3,
+                  "Architecture decision": 16,
+                  "Plan": 18,
+                  "Operations": 5,
+                  "Contributor guide": 7,
+                  "Historical record": 10
+                }
+              },
+              {
+                "view": "decisions",
+                "count": 16,
+                "groups": null
+              },
+              {
+                "view": "decision-status",
+                "count": 16,
+                "groups": {
+                  "Accepted": 9,
+                  "Proposed": 6,
+                  "Superseded": 1
+                }
+              },
+              {
+                "view": "plans",
+                "count": 18,
+                "groups": null
+              },
+              {
+                "view": "runbooks",
+                "count": 5,
+                "groups": null
+              }
+            ]
+          }
+        ],
+        "itemMetadata": "All submitted bodies, properties, effective/declared schemas, configured views and view row snapshots matched the re-export, with source IDs remapped and Core title properties added."
+      },
+      "visualReview": {
+        "status": "passed",
+        "environment": "local development",
+        "browserOrigin": "http://localhost:5180",
+        "checks": [
+          "All guides: 38 native child rows with editable area and topic",
+          "Service catalog: 18 service rows with compact communication and related components",
+          "By area: 38 guides grouped into eight area columns",
+          "Decision status: nine accepted, six proposed and one superseded original ADR",
+          "Reference note: document and Original source views, exact byte count and SHA256"
+        ],
+        "screenshots": [
+          "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-native-service-catalog.jpg",
+          "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-native-decision-board.jpg"
+        ]
+      }
+    },
+    "sourceAudit": {
+      "status": "passed",
+      "guideCount": 38,
+      "updatedGuides": 32,
+      "currentSourcePathsPresent": 392,
+      "nativeReferencesResolved": 192,
+      "recordedAdrStatuses": {
+        "Accepted": 9,
+        "Proposed": 6,
+        "Superseded": 1
+      },
+      "scope": "current main source, metadata and preserved originals; retirement integration suites and production operations not executed"
+    }
+  },
+  "migration": {
+    "status": "completed",
+    "retainedMarkdown": [
+      {
+        "sourcePath": "AGENTS.md",
+        "reason": "Contributor routing and invariants must be readable before tools or Nix start."
+      },
+      {
+        "sourcePath": "README.md",
+        "reason": "GitHub/project bootstrap and compact product direction; replaced with an essential entry point."
+      },
+      {
+        "sourcePath": "docs/README.md",
+        "reason": "Human and agent navigation into native archives while offline."
+      },
+      {
+        "sourcePath": "docs/agent-guides/architecture-and-security.md",
+        "reason": "Mandatory security/contributor routing before changes."
+      },
+      {
+        "sourcePath": "docs/agent-guides/backend.md",
+        "reason": "Mandatory backend contributor guide."
+      },
+      {
+        "sourcePath": "docs/agent-guides/frontend.md",
+        "reason": "Mandatory frontend contributor guide."
+      },
+      {
+        "sourcePath": "docs/agent-guides/workers.md",
+        "reason": "Mandatory worker contributor guide."
+      },
+      {
+        "sourcePath": "docs/agent-guides/workflow-and-validation.md",
+        "reason": "Mandatory validation and workflow instructions."
+      },
+      {
+        "sourcePath": "deploy/README.md",
+        "reason": "Release and emergency recovery instructions must remain readable while Nix is down."
+      },
+      {
+        "sourcePath": "deploy/backup/README.md",
+        "reason": "Offline local backup and credential/restore instructions."
+      },
+      {
+        "sourcePath": "deploy/backup/production.md",
+        "reason": "Offline production backup/restore and disaster-recovery procedure."
+      }
+    ],
+    "completedAt": "2026-10-09T19:16:13.828183+00:00",
+    "replacedMarkdownCount": 47,
+    "retainedMarkdownCount": 11,
+    "originalHashGate": "passed for all 59 snapshot sources before mutation",
+    "copiedArchiveIntegrity": "passed before deleting the 47 superseded Markdown files",
+    "locations": [
+      "primary checkout",
+      "feature/native-architecture-docs worktree"
+    ],
+    "remainingRepositoryMarkdownInventoryVerified": 11
+  },
+  "updatedAt": "2026-10-09T20:07:41.743Z",
+  "reader": {
+    "language": "Go",
+    "command": "go -C apps/go-workers run ./cmd/nix-docs",
+    "source": "apps/go-workers/cmd/nix-docs/main.go"
+  },
+  "views": {
+    "architecture": {
+      "default": "catalog",
+      "views": [
+        {
+          "id": "catalog",
+          "name": "All guides",
+          "kind": "list",
+          "columns": [
+            "title",
+            "area",
+            "topic"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "areas",
+          "name": "By area",
+          "kind": "board",
+          "columns": [
+            "title",
+            "topic",
+            "runtime"
+          ],
+          "groupBy": "area",
+          "groupOrder": [
+            "Overview",
+            "Core",
+            "Clients",
+            "Collaboration",
+            "Workers",
+            "Infrastructure",
+            "Operations",
+            "Reference"
+          ],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "services",
+          "name": "Service catalog",
+          "kind": "list",
+          "columns": [
+            "title",
+            "runtime",
+            "transports",
+            "depends_on"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "topic",
+              "operator": "equals",
+              "value": "Service"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "workflows",
+          "name": "Workflows",
+          "kind": "list",
+          "columns": [
+            "title",
+            "area",
+            "depends_on"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "topic",
+              "operator": "equals",
+              "value": "Workflow"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "operations",
+          "name": "Operations",
+          "kind": "list",
+          "columns": [
+            "title",
+            "topic"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "area",
+              "operator": "equals",
+              "value": "Operations"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        }
+      ]
+    },
+    "reference": {
+      "default": "catalog",
+      "views": [
+        {
+          "id": "catalog",
+          "name": "All references",
+          "kind": "list",
+          "columns": [
+            "title",
+            "category",
+            "decision_status",
+            "disposition"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "categories",
+          "name": "By category",
+          "kind": "board",
+          "columns": [
+            "title",
+            "decision_status"
+          ],
+          "groupBy": "category",
+          "groupOrder": [
+            "Product",
+            "Architecture decision",
+            "Plan",
+            "Operations",
+            "Contributor guide",
+            "Historical record"
+          ],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "decisions",
+          "name": "Decisions",
+          "kind": "list",
+          "columns": [
+            "title",
+            "decision_status"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "category",
+              "operator": "equals",
+              "value": "Architecture decision"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "decision-status",
+          "name": "Decision status",
+          "kind": "board",
+          "columns": [
+            "title"
+          ],
+          "groupBy": "decision_status",
+          "groupOrder": [
+            "Accepted",
+            "Proposed",
+            "Superseded"
+          ],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "category",
+              "operator": "equals",
+              "value": "Architecture decision"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "plans",
+          "name": "Plans and research",
+          "kind": "list",
+          "columns": [
+            "title",
+            "source_path"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "category",
+              "operator": "equals",
+              "value": "Plan"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        },
+        {
+          "id": "runbooks",
+          "name": "Runbooks",
+          "kind": "list",
+          "columns": [
+            "title",
+            "disposition"
+          ],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": "title",
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null,
+          "filters": [
+            {
+              "property": "category",
+              "operator": "equals",
+              "value": "Operations"
+            }
+          ],
+          "companionViewId": null,
+          "companionPlacement": null,
+          "interactiveForm": null
+        }
+      ]
+    },
+    "referenceSourceView": "original-source",
+    "schema": {
+      "architecture": [
+        {
+          "key": "area",
+          "label": "Area",
+          "type": "select",
+          "options": [
+            "Overview",
+            "Core",
+            "Clients",
+            "Collaboration",
+            "Workers",
+            "Infrastructure",
+            "Operations",
+            "Reference"
+          ],
+          "required": false
+        },
+        {
+          "key": "topic",
+          "label": "Topic",
+          "type": "select",
+          "options": [
+            "Service",
+            "Workflow",
+            "Model",
+            "Reference"
+          ],
+          "required": false
+        },
+        {
+          "key": "runtime",
+          "label": "Runtime",
+          "type": "select",
+          "options": [
+            "Browser",
+            "ASP.NET",
+            "Node.js",
+            "Go",
+            "PostgreSQL",
+            "RabbitMQ",
+            "S3",
+            "Containers",
+            "Cross-service",
+            "Offline"
+          ],
+          "required": false
+        },
+        {
+          "key": "transports",
+          "label": "Communication",
+          "type": "text",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "depends_on",
+          "label": "Related components",
+          "type": "text",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "source_paths",
+          "label": "Source paths",
+          "type": "long_text",
+          "options": [],
+          "required": false
+        }
+      ],
+      "reference": [
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "Product",
+            "Architecture decision",
+            "Plan",
+            "Operations",
+            "Contributor guide",
+            "Historical record"
+          ],
+          "required": false
+        },
+        {
+          "key": "decision_status",
+          "label": "Recorded decision status",
+          "type": "select",
+          "options": [
+            "Accepted",
+            "Proposed",
+            "Superseded"
+          ],
+          "required": false
+        },
+        {
+          "key": "recorded_status",
+          "label": "Original status text",
+          "type": "long_text",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "disposition",
+          "label": "Repository disposition",
+          "type": "select",
+          "options": [
+            "Migrated",
+            "Retained essential",
+            "Preserved proposal"
+          ],
+          "required": false
+        },
+        {
+          "key": "source_path",
+          "label": "Original path",
+          "type": "text",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "original_bytes",
+          "label": "Original bytes",
+          "type": "number",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "original_sha256",
+          "label": "Original SHA-256",
+          "type": "text",
+          "options": [],
+          "required": false
+        }
+      ]
+    }
+  },
+  "containers": [
+    {
+      "slug": "architecture",
+      "title": "Nix architecture handbook — e037eb02",
+      "itemId": "394eaa52-acb0-5570-af4a-894bce3ab6f3",
+      "archive": "docs/nix/nix-architecture.nix",
+      "localProofItemId": "01a12247-5982-75fd-a1bc-ccc06429be09"
+    },
+    {
+      "slug": "reference",
+      "title": "Nix repository reference — preserved snapshot",
+      "itemId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9",
+      "archive": "docs/nix/nix-reference.nix",
+      "localProofItemId": "01a12244-4dfc-70f3-af32-31d17a4d6ea5"
+    }
+  ],
+  "referenceSourceRevision": "48abdc16c15582ab8179499a91084da3566a46f5",
+  "currentDesign": {
+    "revision": "e037eb02c01ef1aa662a4d2b74b47843a535fd75",
+    "inspectedAt": "2026-10-09T20:03:41.477Z",
+    "workerRoles": [
+      "import",
+      "export",
+      "plugin-events",
+      "calendar",
+      "notify"
+    ],
+    "productionComposeServices": 17,
+    "search": "PostgreSQL ItemSearch",
+    "exportFormats": [
+      "nix",
+      "md",
+      "docx",
+      "pdf"
+    ],
+    "retired": [
+      "speech/recording/dictation/companion voice",
+      "OpenSearch/index worker and dispatch",
+      "Loki/Alloy/Grafana/socket proxy",
+      "unused TypeScript PDF/DOCX converter packages"
+    ],
+    "updatedGuideCount": 32,
+    "documentationFeatureSources": [
+      "apps/go-workers/cmd/nix-docs/main.go",
+      "apps/go-workers/internal/docsbrowser"
+    ],
+    "sourceScope": "main baseline plus documentation/TUI additions from feature/native-architecture-docs"
+  }
+}

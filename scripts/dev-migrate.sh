@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Apply pending EF Core migrations against the local dev database.
 #
-# The one-shot step from docs/dev-signing-in.md's cold-start sequence, as a
+# The one-shot step from the native docs/dev-signing-in.md note's cold-start sequence, as a
 # reusable script rather than a copy-pasted export-and-run line. EF Core
 # migrations no-op on an up-to-date schema, so this is safe to re-run.
 #
