@@ -113,6 +113,19 @@ public sealed class PropertySchemaRulesTests
         Assert.Null(PropertySchemaRules.Refuse(schema));
     }
 
+    [Theory]
+    [InlineData("$type")]
+    [InlineData("$custom")]
+    public void A_key_in_the_reserved_dollar_space_is_refused(string key)
+    {
+        // The '$' prefix spells the structural query fields ($type, $inside, ...) and the server's
+        // own keys; a property spelled that way could never be filtered on as itself.
+        var reason = PropertySchemaRules.Refuse(SchemaOf(Property(key, PropertyType.Text, "Kind")));
+
+        Assert.NotNull(reason);
+        Assert.Contains("reserved", reason, StringComparison.Ordinal);
+    }
+
     private static PropertySchema SchemaOf(params PropertyDefinition[] properties) =>
         new() { Properties = [.. properties], Inherit = true };
 

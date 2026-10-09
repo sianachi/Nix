@@ -129,6 +129,14 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }
 
+        // Any other '$' key: reserved for the server and the structural query fields. A create
+        // supplying null for one sets nothing, so only a value is refused.
+        if (properties?.FirstOrDefault(pair => pair.Value is not null
+                && ReservedPropertyKeys.IsRefused(pair.Key, command.HabitWrite, command.CalendarWrite, command.FinanceWrite)) is { Key: { } reserved })
+        {
+            return Result.Failure<Item>(ReservedPropertyKeys.Refusal(reserved));
+        }
+
         if (string.IsNullOrWhiteSpace(type))
         {
             return Result.Failure<Item>(ItemErrors.NotFound("An item type is required."));
