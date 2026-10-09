@@ -45,7 +45,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
             var conflict = await dispatcher.SendAsync<SavePetSettings, PetSettingsResponse>(new(0, saved.Settings), Cancellation);
             Assert.True(conflict.IsFailure);
             Assert.Equal("pets.settings_conflict", conflict.Error.Code);
-            var updated = await dispatcher.SendAsync<SavePetSettings, PetSettingsResponse>(new(1, saved.Settings with { Narration = true }), Cancellation);
+            var updated = await dispatcher.SendAsync<SavePetSettings, PetSettingsResponse>(new(1, saved.Settings with { Motion = "reduced" }), Cancellation);
             Assert.True(updated.IsSuccess);
             Assert.Equal(2, updated.Value.Revision);
             await work.CommitAsync(Cancellation);
@@ -92,7 +92,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
         await using (work.ConfigureAwait(false))
         {
             var id = Guid.NewGuid();
-            var settings = new PetSettings(false, id, "system", false, [new(id, "Owl", "owl", "calm", "balanced", "")]);
+            var settings = new PetSettings(false, id, "system", [new(id, "Owl", "owl", "calm", "balanced", "")]);
             Result<PetSettingsResponse> saved = await work.Resolve<NixDispatcher>()
                 .SendAsync<SavePetSettings, PetSettingsResponse>(new(0, settings), Cancellation);
             Assert.True(saved.IsSuccess);

@@ -51,30 +51,23 @@ rabbitmqctl await_startup
 : "${NIX_RABBITMQ_API_PASSWORD:?set NIX_RABBITMQ_API_PASSWORD}"
 : "${NIX_RABBITMQ_IMPORT_PASSWORD:?set NIX_RABBITMQ_IMPORT_PASSWORD}"
 : "${NIX_RABBITMQ_EXPORT_PASSWORD:?set NIX_RABBITMQ_EXPORT_PASSWORD}"
-: "${NIX_RABBITMQ_INDEX_PASSWORD:?set NIX_RABBITMQ_INDEX_PASSWORD}"
 : "${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}"
 : "${NIX_RABBITMQ_CALENDAR_PASSWORD:?set NIX_RABBITMQ_CALENDAR_PASSWORD}"
 : "${NIX_RABBITMQ_NOTIFY_PASSWORD:?set NIX_RABBITMQ_NOTIFY_PASSWORD}"
 
 if [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_INDEX_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_INDEX_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_PLUGIN_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_API_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_IMPORT_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_EXPORT_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
-  || [ "$NIX_RABBITMQ_INDEX_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_PLUGIN_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
   || [ "$NIX_RABBITMQ_CALENDAR_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ]; then
   echo "RabbitMQ service passwords must be distinct." >&2
@@ -105,6 +98,13 @@ delete_user() {
 
 rabbitmqctl import_definitions /etc/rabbitmq/definitions.json
 
+# Definition imports retain old bindings; stop feeding the retired queue without deleting history.
+rabbitmqctl eval '
+Source = rabbit_misc:r(<<"/nix">>, exchange, <<"nix.workspace.v1">>),
+Destination = rabbit_misc:r(<<"/nix">>, queue, <<"nix.worker.index.v1">>),
+lists:foreach(fun(Binding) -> ok = rabbit_binding:remove(Binding, <<"nix-retirement">>) end,
+              rabbit_binding:list_for_source_and_destination(Source, Destination)).'
+
 readonly no_resources='^$'
 readonly generated_queue='^amq\.gen-[A-Za-z0-9_-]+$'
 
@@ -114,7 +114,7 @@ rabbitmqctl set_permissions --vhost /nix nix-api \
   '^(amq\.gen-[A-Za-z0-9_-]+|nix\.commands\.v1|nix\.workspace\.v1)$' \
   '^(amq\.gen-[A-Za-z0-9_-]+|nix\.api\.results\.v1|nix\.capabilities\.v1)$'
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.commands.v1 \
-  '^(import|template|file|object|export|calendar|notify|transcribe)\..+$' "$no_resources"
+  '^(import|template|file|object|export|calendar|notify)\..+$' "$no_resources"
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.workspace.v1 \
   '^.+$' "$no_resources"
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.capabilities.v1 \
@@ -134,10 +134,6 @@ rabbitmqctl set_topic_permissions --vhost /nix nix-export nix.results.v1 \
 rabbitmqctl set_topic_permissions --vhost /nix nix-export nix.capabilities.v1 \
   '^worker\.export$' "$no_resources"
 
-ensure_user nix-index "$NIX_RABBITMQ_INDEX_PASSWORD"
-rabbitmqctl set_permissions --vhost /nix nix-index "$no_resources" \
-  "$no_resources" '^nix\.worker\.index\.v1$'
-
 ensure_user nix-plugin "$NIX_RABBITMQ_PLUGIN_PASSWORD"
 rabbitmqctl set_permissions --vhost /nix nix-plugin "$no_resources" \
   "$no_resources" '^nix\.worker\.plugin-events\.v1$'
@@ -153,46 +149,22 @@ rabbitmqctl set_permissions --vhost /nix nix-notify "$no_resources" \
 rabbitmqctl set_topic_permissions --vhost /nix nix-notify nix.results.v1 \
   '^job\.result$' "$no_resources"
 
-# The speech role is optional: a deployment without it sets no password, and then has no account.
-# Its queue is declared either way, so recordings sent for transcription wait until the role runs.
-if [ -n "${NIX_RABBITMQ_SPEECH_PASSWORD:-}" ]; then
-  if [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_API_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_SPEECH_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ]; then
-    echo "The speech worker password must be distinct from service passwords." >&2
-    exit 1
-  fi
-  ensure_user nix-speech "$NIX_RABBITMQ_SPEECH_PASSWORD"
-  rabbitmqctl set_permissions --vhost /nix nix-speech "$no_resources" \
-    '^nix\.results\.v1$' '^nix\.worker\.transcribe\.v1$'
-  rabbitmqctl set_topic_permissions --vhost /nix nix-speech nix.results.v1 \
-    '^job\.result$' "$no_resources"
-else
-  delete_user nix-speech
-fi
-
 # The all-in-one local binary needs the union of worker permissions. Production never sets this
 # value: its role-specific deployments use the dedicated accounts above.
 if [ -n "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}" ]; then
   if [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_API_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "${NIX_RABBITMQ_SPEECH_PASSWORD:-}" ]; then
+    || [ "$NIX_RABBITMQ_DEV_WORKER_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ]; then
     echo "The development worker password must be distinct from service passwords." >&2
     exit 1
   fi
   ensure_user nix-worker-dev "$NIX_RABBITMQ_DEV_WORKER_PASSWORD"
   rabbitmqctl set_permissions --vhost /nix nix-worker-dev "$no_resources" \
     '^(nix\.results\.v1|nix\.capabilities\.v1)$' \
-    '^nix\.worker\.(import|export|index|plugin-events|calendar|notify|transcribe)\.v1$'
+    '^nix\.worker\.(import|export|plugin-events|calendar|notify)\.v1$'
   rabbitmqctl set_topic_permissions --vhost /nix nix-worker-dev nix.results.v1 \
     '^job\.result$' "$no_resources"
   rabbitmqctl set_topic_permissions --vhost /nix nix-worker-dev nix.capabilities.v1 \
@@ -207,11 +179,9 @@ if [ -n "${NIX_RABBITMQ_ADMIN_PASSWORD:-}" ]; then
   if [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_API_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_INDEX_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ] \
-    || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "${NIX_RABBITMQ_SPEECH_PASSWORD:-}" ] \
     || [ "$NIX_RABBITMQ_ADMIN_PASSWORD" = "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}" ]; then
     echo "The development administrator password must be distinct from service passwords." >&2
     exit 1
@@ -227,6 +197,8 @@ fi
 # service users and permissions are ready. rabbitmqctl remains the local administrative path.
 delete_user guest
 delete_user nix
+delete_user nix-speech
+delete_user nix-index
 touch "$ready_marker"
 
 wait "$broker_pid"

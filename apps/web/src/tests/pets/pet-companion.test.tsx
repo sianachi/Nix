@@ -18,7 +18,6 @@ vi.mock('../../pets/use-pet-settings', () => ({
         enabled: true,
         activePetId: '44444444-4444-4444-8444-444444444444',
         motion: 'reduced',
-        narration: false,
         profiles: [
           {
             id: '44444444-4444-4444-8444-444444444444',
@@ -416,7 +415,8 @@ describe('companion workflow', () => {
     const log = within(screen.getByRole('log', { name: 'Conversation messages' }));
     expect(log.queryByText('You')).not.toBeInTheDocument();
     expect(log.queryByText('Cat')).not.toBeInTheDocument();
-    expect(log.queryByRole('button', { name: 'Read aloud' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Dictate' })).not.toBeInTheDocument();
+    expect(log.queryByRole('button', { name: 'Read this reply aloud' })).not.toBeInTheDocument();
   });
 
   it('approval state derives only from pending tool calls', async () => {

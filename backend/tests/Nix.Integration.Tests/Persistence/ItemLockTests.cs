@@ -1,6 +1,4 @@
 using System.Globalization;
-using System.Text;
-using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
 using Nix.Abstractions.Files;
 using Nix.Domain.Items;
@@ -15,7 +13,6 @@ using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
 using Nix.Persistence;
 using Nix.Persistence.Templates;
-using Nix.Persistence.Workers;
 
 namespace Nix.Integration.Tests.Persistence;
 
@@ -264,12 +261,9 @@ public sealed class ItemLockTests(NixPostgresFixture fixture) : IAsyncLifetime
         Assert.Empty(await BacklinksAsync());
     }
 
-    /// <summary>
-    /// The derived index is fed by readers that run with the service secret and no principal, so the
-    /// lock has to be applied inside them - and locking has to re-index the item to drop the text.
-    /// </summary>
+    /// <summary>Lock changes notify consumers of the shared workspace event stream.</summary>
     [Fact]
-    public async Task The_search_index_feed_carries_no_body_or_links_for_a_locked_item_and_locking_reindexes_it()
+    public async Task Locking_an_item_emits_a_workspace_change()
     {
         await ExecuteAsMigratorAsync(
             $"UPDATE item_search SET body_text = 'alpha note body' WHERE item_id = {Literal(M0SchemaSeed.Alpha.ItemId)}");
@@ -285,22 +279,6 @@ public sealed class ItemLockTests(NixPostgresFixture fixture) : IAsyncLifetime
                 transaction: null,
                 $"SELECT count(*) FROM worker_outbox_event WHERE kind = 'item.changed' AND item_id = {Literal(M0SchemaSeed.Alpha.ItemId)}");
             Assert.True(queued >= 1);
-        }
-
-        await using var scope = fixture.Application.CreateUnscopedScope();
-        var store = scope.ServiceProvider.GetRequiredService<SearchIndexDispatchStore>();
-
-        var metadata = await store.GetMetadataAsync(M0SchemaSeed.Alpha.TenantId, M0SchemaSeed.Alpha.ItemId, Cancellation);
-        Assert.NotNull(metadata);
-        Assert.Empty(metadata.Links);
-
-        var body = await store.OpenBodyAsync(M0SchemaSeed.Alpha.TenantId, M0SchemaSeed.Alpha.ItemId, Cancellation);
-        Assert.NotNull(body);
-        await using (body.ConfigureAwait(false))
-        {
-            using var destination = new MemoryStream();
-            await body.CopyToAsync(destination, Cancellation);
-            Assert.Equal(string.Empty, Encoding.UTF8.GetString(destination.ToArray()));
         }
     }
 

@@ -6,27 +6,15 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
-	"mime"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/exporter"
 	"github.com/sianachi/Nix/apps/go-workers/internal/importer"
-	"github.com/sianachi/Nix/apps/go-workers/internal/index"
-	"github.com/sianachi/Nix/apps/go-workers/internal/indexer"
 	"github.com/sianachi/Nix/apps/go-workers/internal/role"
 	"github.com/sianachi/Nix/apps/go-workers/internal/stream"
-	"github.com/sianachi/Nix/apps/go-workers/internal/workerapi"
 )
-
-type IndexControl interface {
-	EnqueueIndexRebuild(context.Context, workerapi.IndexRebuildRequest) (*workerapi.IndexRebuildPage, error)
-	GetIndexStatus(context.Context) (*workerapi.IndexQueueStatus, error)
-}
 
 type Dependencies struct {
 	Logger         *slog.Logger
@@ -34,22 +22,13 @@ type Dependencies struct {
 	MaxInputSize   int64
 	MaxRecords     int
 	MaxLineBytes   int
-	MaxTokens      int
 	RequestTimeout time.Duration
-	Index          *index.Index
-	IndexControl   IndexControl
-	IndexHealth    func() indexer.Health
 	Ready          func() bool
 	Companion      http.Handler
-	// Speech serves /speech/v1/ for the speech role. It is the one handler here a browser
-	// reaches, and it authenticates each request itself with a capability Core issued, so it is
-	// deliberately not behind the internal secret.
-	Speech http.Handler
 }
 
 type Server struct {
-	deps  Dependencies
-	index *index.Index
+	deps Dependencies
 }
 
 func New(deps Dependencies) http.Handler {
@@ -57,17 +36,10 @@ func New(deps Dependencies) http.Handler {
 }
 
 func NewForRole(service role.Service, deps Dependencies) http.Handler {
-	searchIndex := deps.Index
-	if searchIndex == nil {
-		searchIndex = index.New(deps.MaxTokens, deps.MaxRecords)
-	}
-	server := &Server{deps: deps, index: searchIndex}
+	server := &Server{deps: deps}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", server.health)
 	mux.HandleFunc("GET /readyz", server.ready)
-	if deps.Speech != nil {
-		mux.Handle("/speech/v1/", deps.Speech)
-	}
 	if deps.Companion != nil {
 		mux.Handle("POST /v1/companion", server.requireInternal(deps.Companion))
 	}
@@ -78,14 +50,6 @@ func NewForRole(service role.Service, deps Dependencies) http.Handler {
 	if service == role.All || service == role.Export {
 		mux.Handle("POST /v1/export/ndjson", server.requireInternal(http.HandlerFunc(server.exportNDJSON)))
 		mux.Handle("POST /v1/export/document", server.requireInternal(http.HandlerFunc(server.exportDocument)))
-	}
-	if service == role.All || service == role.Index {
-		mux.Handle("POST /v1/index/ndjson", server.requireInternal(http.HandlerFunc(server.indexNDJSON)))
-		mux.Handle("POST /v1/index/rebuild", server.requireInternal(http.HandlerFunc(server.rebuildIndex)))
-		mux.Handle("POST /v1/index/restore", server.requireInternal(http.HandlerFunc(server.restoreIndex)))
-		mux.Handle("GET /v1/index/snapshot", server.requireInternal(http.HandlerFunc(server.snapshot)))
-		mux.Handle("GET /v1/index/status", server.requireInternal(http.HandlerFunc(server.indexStatus)))
-		mux.Handle("GET /v1/search", server.requireInternal(http.HandlerFunc(server.search)))
 	}
 	timeout := deps.RequestTimeout
 	if timeout <= 0 {
@@ -203,137 +167,6 @@ func (s *Server) exportDocument(response http.ResponseWriter, request *http.Requ
 	_, _ = response.Write(output.Bytes())
 }
 
-func (s *Server) indexNDJSON(response http.ResponseWriter, request *http.Request) {
-	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
-	summary, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
-		return s.index.Put(record)
-	})
-	if err != nil {
-		if errors.Is(err, index.ErrCapacityExceeded) {
-			writeJSON(response, http.StatusInsufficientStorage, map[string]string{"code": "index_capacity_exceeded", "detail": err.Error()})
-			return
-		}
-		writeStreamError(response, err)
-		return
-	}
-	writeJSON(response, http.StatusAccepted, map[string]any{"status": "indexed", "summary": summary, "indexed": s.index.Len()})
-}
-
-func (s *Server) rebuildIndex(response http.ResponseWriter, request *http.Request) {
-	if isJSONRequest(request) {
-		s.enqueueRebuildPage(response, request)
-		return
-	}
-	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
-	records := make([]stream.Record, 0)
-	if _, err := stream.ReadRecords(request.Body, s.limits(), func(record stream.Record) error {
-		records = append(records, record)
-		return nil
-	}); err != nil {
-		writeStreamError(response, err)
-		return
-	}
-	if err := s.index.Replace(records); err != nil {
-		if errors.Is(err, index.ErrCapacityExceeded) {
-			writeJSON(response, http.StatusInsufficientStorage, map[string]string{"code": "index_capacity_exceeded", "detail": err.Error()})
-			return
-		}
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": err.Error()})
-		return
-	}
-	writeJSON(response, http.StatusAccepted, map[string]any{"status": "rebuilt", "indexed": s.index.Len()})
-}
-
-func (s *Server) enqueueRebuildPage(response http.ResponseWriter, request *http.Request) {
-	if s.deps.IndexControl == nil {
-		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "index_control_unavailable", "detail": "Durable index rebuild is not configured."})
-		return
-	}
-	request.Body = http.MaxBytesReader(response, request.Body, 64<<10)
-	var rebuild workerapi.IndexRebuildRequest
-	decoder := json.NewDecoder(request.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&rebuild); err != nil {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_rebuild_invalid", "detail": "The rebuild cursor is not valid JSON."})
-		return
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_rebuild_invalid", "detail": "The rebuild request must contain one JSON object."})
-		return
-	}
-	if (rebuild.AfterTenantID == nil) != (rebuild.AfterItemID == nil) || rebuild.Limit != nil && (*rebuild.Limit < 1 || *rebuild.Limit > 1000) || rebuild.AfterTenantID != nil && !canonicalUUID(*rebuild.AfterTenantID) || rebuild.AfterItemID != nil && !canonicalUUID(*rebuild.AfterItemID) || rebuild.UpdatedSince != nil && rebuild.UpdatedSince.IsZero() {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_rebuild_invalid", "detail": "The rebuild cursor and limit are invalid."})
-		return
-	}
-	page, err := s.deps.IndexControl.EnqueueIndexRebuild(request.Context(), rebuild)
-	if err != nil || page == nil {
-		writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "index_rebuild_unavailable", "detail": "The durable rebuild page could not be enqueued."})
-		return
-	}
-	writeJSON(response, http.StatusAccepted, map[string]any{
-		"status": "page_enqueued", "enqueued": page.Enqueued, "nextTenantId": page.NextTenantID,
-		"nextItemId": page.NextItemID, "hasMore": page.HasMore,
-	})
-}
-
-func (s *Server) indexStatus(response http.ResponseWriter, request *http.Request) {
-	var durable *workerapi.IndexQueueStatus
-	if s.deps.IndexControl != nil {
-		var err error
-		durable, err = s.deps.IndexControl.GetIndexStatus(request.Context())
-		if err != nil {
-			writeJSON(response, http.StatusServiceUnavailable, map[string]string{"code": "index_status_unavailable", "detail": "The durable index queue status is unavailable."})
-			return
-		}
-	}
-	var consumer any
-	if s.deps.IndexHealth != nil {
-		consumer = s.deps.IndexHealth()
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"durable": durable, "consumer": consumer})
-}
-
-func (s *Server) snapshot(response http.ResponseWriter, _ *http.Request) {
-	writeJSON(response, http.StatusOK, s.index.Snapshot())
-}
-
-func (s *Server) restoreIndex(response http.ResponseWriter, request *http.Request) {
-	request.Body = http.MaxBytesReader(response, request.Body, s.deps.MaxInputSize)
-	var snapshot index.Snapshot
-	if err := json.NewDecoder(request.Body).Decode(&snapshot); err != nil {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": "The index snapshot is not valid JSON."})
-		return
-	}
-	if snapshot.Version != 1 {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": "The index snapshot version is unsupported."})
-		return
-	}
-	if err := s.index.Replace(snapshot.Records); err != nil {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "index_invalid", "detail": err.Error()})
-		return
-	}
-	writeJSON(response, http.StatusAccepted, map[string]any{"status": "restored", "indexed": s.index.Len()})
-}
-
-func (s *Server) search(response http.ResponseWriter, request *http.Request) {
-	query := request.URL.Query().Get("q")
-	limit := 20
-	if value := request.URL.Query().Get("limit"); value != "" {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			writeJSON(response, http.StatusBadRequest, map[string]string{"code": "search_invalid", "detail": "limit must be an integer between 1 and 100."})
-			return
-		}
-		limit = parsed
-	}
-	if query == "" || len(query) > s.deps.MaxLineBytes || limit < 1 || limit > 100 {
-		writeJSON(response, http.StatusBadRequest, map[string]string{"code": "search_invalid", "detail": "q is required and limit must be between 1 and 100."})
-		return
-	}
-	writeJSON(response, http.StatusOK, map[string]any{"query": query, "results": s.index.Search(query, limit)})
-}
-
 func (s *Server) limits() stream.Limits {
 	return stream.Limits{MaxBytes: s.deps.MaxInputSize, MaxLine: s.deps.MaxLineBytes, MaxRecords: s.deps.MaxRecords}
 }
@@ -358,24 +191,4 @@ func requestTimeout(next http.Handler, timeout time.Duration) http.Handler {
 		defer cancel()
 		next.ServeHTTP(response, request.WithContext(requestContext))
 	})
-}
-
-func isJSONRequest(request *http.Request) bool {
-	mediaType, _, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	return err == nil && strings.EqualFold(mediaType, "application/json")
-}
-
-func canonicalUUID(value string) bool {
-	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
-		return false
-	}
-	for position, character := range value {
-		if position == 8 || position == 13 || position == 18 || position == 23 {
-			continue
-		}
-		if character < '0' || character > '9' && character < 'a' || character > 'f' {
-			return false
-		}
-	}
-	return value != "00000000-0000-0000-0000-000000000000"
 }

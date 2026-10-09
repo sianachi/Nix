@@ -128,47 +128,6 @@ public sealed class ItemSearch : IItemSearch
     }
 
     /// <summary>
-    /// The readable items among a derived index's ranked candidates, minus anything under a lock
-    /// this credential has not opened: what <see cref="FindAsync"/>'s title arm would have let
-    /// through.
-    /// </summary>
-    /// <param name="itemIds">The candidates, at most a search page.</param>
-    /// <param name="readableWorkspaces">Where the caller is allowed to look.</param>
-    /// <param name="cancellationToken">Cancels the lookup.</param>
-    /// <returns>A digest per surviving candidate, in no particular order.</returns>
-    /// <remarks>
-    /// Not on <see cref="IItemSearch"/>: it exists for the OpenSearch adapter, which ranks in an
-    /// index that knows nothing of locks. <see cref="ResolveAsync"/> stays a read by name, which a
-    /// lock does not hide (ADR-0056).
-    /// </remarks>
-    internal async ValueTask<IReadOnlyList<ItemDigest>> ResolveSearchCandidatesAsync(
-        IReadOnlyList<ItemId> itemIds,
-        IReadOnlyList<WorkspaceId> readableWorkspaces,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(itemIds);
-        ArgumentNullException.ThrowIfNull(readableWorkspaces);
-
-        if (itemIds.Count == 0 || readableWorkspaces.Count == 0)
-        {
-            return [];
-        }
-
-        var rows = _sql.QueryAsync<ItemDigest, DigestMapper>(
-            SearchSql.SearchCandidatesById,
-            default,
-            [
-                Uuid("tenant_id", Tenant.Value),
-                ItemIdArray("item_ids", itemIds),
-                UuidArray("workspace_ids", readableWorkspaces),
-                await ClosedLocksAsync(cancellationToken).ConfigureAwait(false),
-            ],
-            cancellationToken);
-
-        return await CollectAsync(rows, itemIds.Count, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
     /// The most title matches the mention statement probes for locks and visibility before
     /// ranking.
     /// </summary>

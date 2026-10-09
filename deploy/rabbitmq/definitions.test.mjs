@@ -13,7 +13,6 @@ test('every worker command family is routed to its durable queue', () => {
     ['nix.worker.export.v1', ['export.#']],
     ['nix.worker.calendar.v1', ['calendar.#']],
     ['nix.worker.notify.v1', ['notify.#']],
-    ['nix.worker.transcribe.v1', ['transcribe.#']],
   ]);
 
   for (const [queue, routingKeys] of expected) {
@@ -32,7 +31,7 @@ test('every worker command family is routed to its durable queue', () => {
 test('the API publisher may emit every command family bound by the topology', () => {
   assert.match(
     bootstrap,
-    /\^\(import\|template\|file\|object\|export\|calendar\|notify\|transcribe\)\\\.\.\+\$/,
+    /\^\(import\|template\|file\|object\|export\|calendar\|notify\)\\\.\.\+\$/,
   );
 });
 
@@ -40,11 +39,9 @@ test('worker queues retain commands and dead-letter refused deliveries', () => {
   for (const name of [
     'nix.worker.import.v1',
     'nix.worker.export.v1',
-    'nix.worker.index.v1',
     'nix.worker.plugin-events.v1',
     'nix.worker.calendar.v1',
     'nix.worker.notify.v1',
-    'nix.worker.transcribe.v1',
     'nix.api.results.v1',
   ]) {
     const queue = definitions.queues.find((candidate) => candidate.name === name);
@@ -75,15 +72,9 @@ test('authoritative queues cannot lose work to the quorum default delivery limit
     'nix.worker.plugin-events.v1',
     'nix.worker.calendar.v1',
     'nix.worker.notify.v1',
-    'nix.worker.transcribe.v1',
   ]) {
     assert.match(name, new RegExp(policy.pattern, 'u'), `${name} is protected`);
   }
-  assert.doesNotMatch(
-    'nix.worker.index.v1',
-    new RegExp(policy.pattern, 'u'),
-    'the rebuildable index queue keeps its bounded poison-message policy',
-  );
   assert.doesNotMatch(
     'nix.api.results.v1',
     new RegExp(policy.pattern, 'u'),
@@ -91,8 +82,8 @@ test('authoritative queues cannot lose work to the quorum default delivery limit
   );
 });
 
-test('rebuildable events and poison results have bounded dead-letter paths', () => {
-  for (const name of ['nix.worker.index.v1', 'nix.api.results.v1']) {
+test('poison results have bounded dead-letter paths', () => {
+  for (const name of ['nix.api.results.v1']) {
     const queue = definitions.queues.find((candidate) => candidate.name === name);
     assert.ok(queue, `${name} is declared`);
     assert.equal(queue.arguments['x-delivery-limit'], 5, `${name} bounds redelivery`);
@@ -128,21 +119,14 @@ test('broker retry delays are not duplicated outside the durable Postgres schedu
   );
 });
 
-test('a long recording is not taken back from the worker that is transcribing it', () => {
-  // The broker reclaims a delivery left unacknowledged for an hour. One recording is one
-  // delivery, and on the processor fallback a long meeting takes longer than that.
-  const queue = definitions.queues.find(
-    (candidate) => candidate.name === 'nix.worker.transcribe.v1',
-  );
-  assert.ok(queue, 'the transcribe queue is declared');
-  assert.ok(queue.arguments['x-consumer-timeout'] >= 4 * 60 * 60 * 1000);
-});
-
-test('the speech worker may consume only its own queue and publish only results', () => {
-  // And has no account at all where the role is not deployed.
-  assert.match(bootstrap, /else\n {2}delete_user nix-speech\nfi/);
-  assert.match(
-    bootstrap,
-    /set_permissions --vhost \/nix nix-speech "\$no_resources" \\\n {4}'\^nix\\\.results\\\.v1\$' '\^nix\\\.worker\\\.transcribe\\\.v1\$'/,
-  );
+test('index retirement preserves plugin events and disables the old broker principal', () => {
+  assert.ok(definitions.exchanges.some((exchange) => exchange.name === 'nix.workspace.v1'));
+  assert.ok(definitions.bindings.some((binding) =>
+    binding.source === 'nix.workspace.v1' && binding.destination === 'nix.worker.plugin-events.v1'));
+  assert.equal(definitions.queues.some((queue) => queue.name === 'nix.worker.index.v1'), false);
+  assert.equal(definitions.bindings.some((binding) => binding.destination === 'nix.worker.index.v1'), false);
+  assert.match(bootstrap, /delete_user nix-index/);
+  assert.doesNotMatch(bootstrap, /ensure_user nix-index|NIX_RABBITMQ_INDEX_PASSWORD/);
+  assert.match(bootstrap, /rabbit_binding:remove/);
+  assert.doesNotMatch(bootstrap, /delete_queue|purge_queue/);
 });

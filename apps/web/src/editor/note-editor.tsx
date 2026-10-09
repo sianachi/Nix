@@ -46,7 +46,6 @@ import { useSessionStore } from '../auth/session-store';
 import { BubbleMenu } from './bubble-menu';
 import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
-import { useNoteSpeech } from './use-note-speech';
 import { announce } from '../a11y/announcer';
 import { playRecordingFrom } from '../audio/play-from';
 import { parseAudioTimestamp } from '../lib/audio-timestamp-link';
@@ -749,7 +748,6 @@ export function NoteEditor({
   // State rather than a ref, so the overlay renders once the box exists rather than one render late.
   const [surface, setSurface] = useState<HTMLDivElement | null>(null);
   const inlineAi = useInlineAi({ editor, itemId, workspaceId });
-  const speech = useNoteSpeech(editor, client, itemId);
 
   const activeVimMode = useEditorState({
     editor,
@@ -1025,7 +1023,6 @@ export function NoteEditor({
                 editor.view.focus();
               }
             }}
-            speech={speech.toolbar}
           />
           <PresenceList awareness={awareness} />
         </div>
@@ -1055,18 +1052,6 @@ export function NoteEditor({
             )}
 
             <PendingReferenceNotice itemId={itemId} editor={editor} />
-            {speech.status === null ? null : (
-              <Text
-                variant="caption"
-                as="p"
-                tone="muted"
-                role="status"
-                className="shrink-0 px-8 py-1.5"
-              >
-                {speech.status}
-              </Text>
-            )}
-
             <PaneViewport
               scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
               className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
@@ -1339,7 +1324,6 @@ export function NoteEditor({
             draftState={draftState}
             stale={stale}
             refusal={refusal}
-            error={speech.error}
             paused={addressRequest !== null || itemRequest !== null}
             reloadRequired={noticeCode === 'schema_version_mismatch'}
           />

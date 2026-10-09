@@ -1,12 +1,8 @@
 /**
  * Walking a document body, once, for every format that has to draw one.
  *
- * **This shares the dispatcher, not the target model.** pdfmake wants a recursive content tree;
- * Open XML wants a flat run of paragraphs where nesting is a numbering-level reference. An emitter
- * abstraction over both would be a lowest common denominator each mapper fights, and it would make
- * a loss one format has and the other does not - columns, which OOXML cannot express inline -
- * impossible to state. What is genuinely common is *exhaustiveness* and the vocabulary for what
- * could not be carried, and that is all this file holds.
+ * The dispatcher shares exhaustive node handling and loss reporting between Markdown mapping
+ * and view previews. Each caller keeps its own output model.
  *
  * **The handler map is a mapped type, so a missing node is a compile error.** That, plus the test
  * asserting {@link PROSE_NODES} equals the schema's own node set, is what makes a new block

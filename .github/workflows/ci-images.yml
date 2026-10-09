@@ -1,9 +1,7 @@
 # Multi-architecture release images, published to GitHub Container Registry.
 #
 # Builds the six images of deploy/docker/build-and-push.sh (api, migrator,
-# collab, worker, web, release-tools) and the speech role's processor image
-# (speech-worker) for linux/amd64 and linux/arm64. The speech role's Jetson image
-# (speech-worker-l4t) is built for linux/arm64 alone, by its own job below. Each
+# collab, worker, web, release-tools) for linux/amd64 and linux/arm64. Each
 # architecture builds on its own native runner rather than under QEMU emulation, which is several
 # times slower for the .NET and Go compiles. The per-architecture digests are
 # then stitched into one multi-arch manifest per image, so a plain `docker pull`
@@ -15,8 +13,7 @@
 # release can deploy any SHA. A manual dispatch rebuilds everything.
 #
 # Build layers are cached in GHCR (a buildcache-<arch> tag per image), not in the
-# Actions cache: the Jetson base alone is several gigabytes, and the 10 GB Actions
-# cache limit would evict the pnpm, NuGet and Go caches the test workflows rely on.
+# Actions cache, so image layers do not evict the pnpm, NuGet and Go caches.
 #
 # Published as ghcr.io/<owner>/nix/<image>:<full commit SHA>. There is
 # deliberately no "latest": a floating tag with imagePullPolicy IfNotPresent
@@ -60,7 +57,6 @@ jobs:
       build: ${{ steps.plan.outputs.build }}
       publish: ${{ steps.plan.outputs.publish }}
       retag: ${{ steps.plan.outputs.retag }}
-      l4t: ${{ steps.plan.outputs.l4t }}
     steps:
       - uses: actions/checkout@v5
 
@@ -134,25 +130,20 @@ jobs:
             plan migrator deploy/docker/backend.Dockerfile migrator Nix.slnx backend/
             plan collab deploy/docker/node.Dockerfile collab $node_root deploy/template-sync/ apps/collab/ apps/web/package.json
             plan worker deploy/docker/go-workers.Dockerfile '' apps/go-workers/
-            plan speech-worker deploy/docker/speech-worker.Dockerfile '' apps/go-workers/
             plan web deploy/docker/web.Dockerfile web $node_root apps/web/ apps/collab/package.json
             plan release-tools deploy/docker/release-tools.Dockerfile release-tools $node_root deploy/template-sync/ \
               apps/cli/ apps/web/package.json apps/collab/package.json deploy/compose/smoke.mjs deploy/compose/nixctl.sh \
               deploy/compose/verify-artifact.py deploy/docker/release-tools-entrypoint.sh
           }
 
-          l4t=$(decide speech-worker-l4t deploy/docker/speech-worker.l4t.Dockerfile apps/go-workers/)
-          if [ "$l4t" = retag ]; then retag=$(jq -c '. + ["speech-worker-l4t"]' <<< "$retag"); fi
-
           {
             echo "build=$build"
             echo "publish=$publish"
             echo "retag=$retag"
-            echo "l4t=$l4t"
           } >> "$GITHUB_OUTPUT"
           {
             echo "### Image plan"
-            echo "- Rebuild: $(jq -r 'join(", ")' <<< "$publish") $([ "$l4t" = build ] && echo '(and speech-worker-l4t)')"
+            echo "- Rebuild: $(jq -r 'join(", ")' <<< "$publish")"
             echo "- Carried forward from \`${BEFORE:-none}\`: $(jq -r 'join(", ")' <<< "$retag")"
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -255,53 +246,6 @@ jobs:
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf "$IMAGE@sha256:%s " *)
-
-      - name: Inspect
-        run: docker buildx imagetools inspect "$IMAGE:${{ github.sha }}"
-
-  # The speech role's Jetson image: whisper.cpp built against CUDA on NVIDIA's L4T base images,
-  # which exist for linux/arm64 only, so there is nothing to stitch and the tag is pushed here.
-  # Not needed by the publish job above and not allowed to fail it. A deployment without the
-  # speech profile never pulls this image; one with it is refused by release.sh, before anything
-  # stops, if this job did not publish the commit's image.
-  speech-l4t:
-    name: Build speech-worker-l4t (arm64)
-    needs: plan
-    if: needs.plan.outputs.l4t == 'build'
-    runs-on: ubuntu-24.04-arm
-    # A cold build compiles whisper.cpp against CUDA and takes about half an hour.
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Image name
-        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/nix/speech-worker-l4t" >> "$GITHUB_ENV"
-
-      # The L4T build image is several gigabytes; make room for it on the runner.
-      - name: Free disk space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-
-      - uses: docker/setup-buildx-action@v4
-
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: deploy/docker/speech-worker.l4t.Dockerfile
-          platforms: linux/arm64
-          push: true
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-arm64
-          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-arm64,mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Inspect
         run: docker buildx imagetools inspect "$IMAGE:${{ github.sha }}"

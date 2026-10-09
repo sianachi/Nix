@@ -11,7 +11,7 @@ public sealed class PetSettingsTests
 {
     private static readonly Guid PetId = new("33333333-3333-4333-8333-333333333333");
     private static PetProfile Owl => new(PetId, "Nix", "owl", "playful", "balanced", "Explain clearly.");
-    private static PetSettings Settings => new(false, PetId, "system", false, [Owl]);
+    private static PetSettings Settings => new(false, PetId, "system", [Owl]);
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
     [Fact]
@@ -56,6 +56,29 @@ public sealed class PetSettingsTests
     }
 
     [Fact]
+    public async Task Stored_settings_with_retired_narration_still_load()
+    {
+        var session = new ScopedNixSessionContextAccessor();
+        var context = new NixSessionContext(TenantId.Create(), null, PrincipalId.Create());
+        session.Set(context);
+        var store = new MemoryStore();
+        await store.SaveAsync(new PetPreferences
+        {
+            TenantId = context.TenantId,
+            PrincipalId = context.PrincipalId,
+            SettingsJson = """{"enabled":false,"activePetId":null,"motion":"reduced","narration":true,"profiles":[],"inlineWriting":true}""",
+            Revision = 1,
+        }, 0, Cancellation);
+
+        var read = await new GetPetSettingsHandler(store, session).HandleAsync(new(), Cancellation);
+
+        Assert.Equal(1, read.Revision);
+        Assert.Equal("reduced", read.Settings.Motion);
+        Assert.True(read.Settings.InlineWriting);
+        Assert.Empty(read.Settings.Profiles);
+    }
+
+    [Fact]
     public async Task A_stale_save_does_not_overwrite_another_devices_edit()
     {
         var session = new ScopedNixSessionContextAccessor();
@@ -63,13 +86,13 @@ public sealed class PetSettingsTests
         var store = new MemoryStore();
         var handler = new SavePetSettingsHandler(store, session);
         var first = await handler.HandleAsync(new(0, Settings), Cancellation);
-        var second = await handler.HandleAsync(new(0, Settings with { Narration = true }), Cancellation);
+        var second = await handler.HandleAsync(new(0, Settings with { Motion = "reduced" }), Cancellation);
         Assert.True(first.IsSuccess);
         Assert.Equal(1, first.Value.Revision);
         Assert.True(second.IsFailure);
         Assert.Equal("pets.settings_conflict", second.Error.Code);
         var read = await new GetPetSettingsHandler(store, session).HandleAsync(new(), Cancellation);
-        Assert.False(read.Settings.Narration);
+        Assert.Equal("system", read.Settings.Motion);
     }
 
     private sealed class MemoryStore : IPetPreferencesStore

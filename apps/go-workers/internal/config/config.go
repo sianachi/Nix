@@ -23,15 +23,12 @@ type Settings struct {
 	MaxInputBytes           int64
 	MaxLineBytes            int
 	MaxRecords              int
-	MaxTokens               int
 	RequestTimeout          time.Duration
 	InternalAPIURL          string
 	CollaborationURL        string
 	PollInterval            time.Duration
 	WorkerID                string
 	MaxConcurrency          int
-	OpenSearchURL           string
-	OpenSearchIndex         string
 	RabbitMQURL             string
 	WorkerRoles             string
 	LeaseDuration           time.Duration
@@ -46,19 +43,6 @@ type Settings struct {
 	CalendarMicrosoftOrigin string
 	PushVAPIDPrivateKey     []byte
 	PushVAPIDSubject        string
-	// The speech role's binaries and models (ADR-0059). Paths, not downloads: models are mounted
-	// from a volume and never fetched by the worker.
-	SpeechWhisperServer     string
-	SpeechWhisperModel      string
-	SpeechWhisperVADModel   string
-	SpeechWhisperThreads    int
-	SpeechWhisperGPU        bool
-	SpeechFFmpeg            string
-	SpeechFFprobe           string
-	SpeechPiper             string
-	SpeechVoicesDir         string
-	SpeechVoices            string
-	SpeechTranscribeTimeout time.Duration
 }
 
 func Load(getenv func(string) string) (Settings, error) {
@@ -73,10 +57,6 @@ func Load(getenv func(string) string) (Settings, error) {
 	maxRecords, err := parseInt(getenv("NIX_WORKER_MAX_RECORDS"), 100_000)
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_RECORDS: %w", err)
-	}
-	maxTokens, err := parseInt(getenv("NIX_WORKER_MAX_TOKENS_PER_RECORD"), 20_000)
-	if err != nil {
-		return Settings{}, fmt.Errorf("NIX_WORKER_MAX_TOKENS_PER_RECORD: %w", err)
 	}
 	requestTimeoutSeconds, err := parseInt(getenv("NIX_WORKER_REQUEST_TIMEOUT_SECONDS"), 60)
 	if err != nil {
@@ -126,14 +106,6 @@ func Load(getenv func(string) string) (Settings, error) {
 	if err != nil {
 		return Settings{}, fmt.Errorf("NIX_PUSH_VAPID_PRIVATE_KEY: %w", err)
 	}
-	speechThreads, err := parseInt(getenv("NIX_SPEECH_WHISPER_THREADS"), 3)
-	if err != nil {
-		return Settings{}, fmt.Errorf("NIX_SPEECH_WHISPER_THREADS: %w", err)
-	}
-	speechTranscribeSeconds, err := parseInt(getenv("NIX_SPEECH_TRANSCRIBE_TIMEOUT_SECONDS"), 4*60*60)
-	if err != nil {
-		return Settings{}, fmt.Errorf("NIX_SPEECH_TRANSCRIBE_TIMEOUT_SECONDS: %w", err)
-	}
 	settings := Settings{
 		CompanionDataDir:        getenv("NIX_COMPANION_DATA_DIR"),
 		CompanionBinary:         valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
@@ -146,17 +118,14 @@ func Load(getenv func(string) string) (Settings, error) {
 		MaxInputBytes:           maxInputBytes,
 		MaxLineBytes:            maxLineBytes,
 		MaxRecords:              maxRecords,
-		MaxTokens:               maxTokens,
 		RequestTimeout:          time.Duration(requestTimeoutSeconds) * time.Second,
 		InternalAPIURL:          strings.TrimRight(getenv("NIX_WORKER_API_URL"), "/"),
 		CollaborationURL:        strings.TrimRight(getenv("NIX_WORKER_COLLAB_URL"), "/"),
 		PollInterval:            time.Duration(pollSeconds) * time.Second,
 		WorkerID:                valueOr(getenv("NIX_WORKER_ID"), "go-worker"),
 		MaxConcurrency:          maxConcurrency,
-		OpenSearchURL:           strings.TrimRight(getenv("NIX_OPENSEARCH_URL"), "/"),
-		OpenSearchIndex:         valueOr(getenv("NIX_OPENSEARCH_INDEX"), "nix-items"),
 		RabbitMQURL:             getenv("NIX_RABBITMQ_URL"),
-		WorkerRoles:             valueOr(getenv("NIX_WORKER_ROLES"), "import,export,index,plugin-events"),
+		WorkerRoles:             valueOr(getenv("NIX_WORKER_ROLES"), "import,export,plugin-events"),
 		LeaseDuration:           time.Duration(leaseSeconds) * time.Second,
 		RenewInterval:           time.Duration(renewSeconds) * time.Second,
 		MaxMessageBytes:         maxMessageBytes,
@@ -169,19 +138,8 @@ func Load(getenv func(string) string) (Settings, error) {
 		CalendarMicrosoftOrigin: valueOr(getenv("NIX_CALENDAR_MICROSOFT_ORIGIN"), "https://graph.microsoft.com"),
 		PushVAPIDPrivateKey:     pushVAPIDPrivateKey,
 		PushVAPIDSubject:        getenv("NIX_PUSH_VAPID_SUBJECT"),
-		SpeechWhisperServer:     valueOr(getenv("NIX_SPEECH_WHISPER_SERVER"), "whisper-server"),
-		SpeechWhisperModel:      getenv("NIX_SPEECH_WHISPER_MODEL"),
-		SpeechWhisperVADModel:   getenv("NIX_SPEECH_WHISPER_VAD_MODEL"),
-		SpeechWhisperThreads:    speechThreads,
-		SpeechWhisperGPU:        getenv("NIX_SPEECH_WHISPER_GPU") == "true" || getenv("NIX_SPEECH_WHISPER_GPU") == "1",
-		SpeechFFmpeg:            valueOr(getenv("NIX_SPEECH_FFMPEG"), "ffmpeg"),
-		SpeechFFprobe:           valueOr(getenv("NIX_SPEECH_FFPROBE"), "ffprobe"),
-		SpeechPiper:             valueOr(getenv("NIX_SPEECH_PIPER"), "piper"),
-		SpeechVoicesDir:         getenv("NIX_SPEECH_VOICES_DIR"),
-		SpeechVoices:            getenv("NIX_SPEECH_VOICES"),
-		SpeechTranscribeTimeout: time.Duration(speechTranscribeSeconds) * time.Second,
 	}
-	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.MaxTokens <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 || settings.PluginMaxModuleBytes <= 0 || settings.PluginMaxModuleBytes > 32<<20 || settings.PluginMemoryPages <= 0 || settings.PluginMemoryPages > 4096 || settings.PluginTimeout <= 0 || settings.PluginTimeout > 5*time.Second || settings.PluginMaxHostCalls <= 0 || settings.PluginMaxHostCalls > 256 {
+	if settings.MaxInputBytes <= 0 || settings.MaxLineBytes <= 0 || settings.MaxRecords <= 0 || settings.RequestTimeout <= 0 || settings.PollInterval <= 0 || settings.MaxConcurrency <= 0 || settings.MaxConcurrency > 100 || settings.LeaseDuration < 5*time.Second || settings.LeaseDuration > 300*time.Second || settings.RenewInterval <= 0 || settings.RenewInterval >= settings.LeaseDuration || settings.MaxMessageBytes <= 0 || settings.MaxMessageBytes > 64*1024 || settings.PluginMaxModuleBytes <= 0 || settings.PluginMaxModuleBytes > 32<<20 || settings.PluginMemoryPages <= 0 || settings.PluginMemoryPages > 4096 || settings.PluginTimeout <= 0 || settings.PluginTimeout > 5*time.Second || settings.PluginMaxHostCalls <= 0 || settings.PluginMaxHostCalls > 256 {
 		return Settings{}, fmt.Errorf("worker limits and timeout must be positive")
 	}
 	return settings, nil

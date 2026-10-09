@@ -279,7 +279,7 @@ public sealed class PetWorkerClientModeTests
     private sealed class FakeGetPetSettingsHandler : IQueryHandler<GetPetSettings, PetSettingsResponse>
     {
         public ValueTask<PetSettingsResponse> HandleAsync(GetPetSettings query, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new PetSettingsResponse(0, new(true, PetGuid, "system", false,
+            ValueTask.FromResult(new PetSettingsResponse(0, new(true, PetGuid, "system",
                 [new(PetGuid, "Nix", "owl", "playful", "balanced", "Explain clearly.")])));
     }
 

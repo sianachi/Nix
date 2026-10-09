@@ -375,13 +375,6 @@ export * as recurrence from './resources/recurrence.js';
 export * as files from './resources/files.js';
 export * as imports from './resources/imports.js';
 export * as operations from './resources/operations.js';
-export * as speech from './resources/speech.js';
-export type {
-  SpeechCapability,
-  SpeechPurpose,
-  Transcription,
-  TranscriptionSpeakers,
-} from './schemas/speech.js';
 export * as exports from './resources/exports.js';
 export * as plugins from './resources/plugins.js';
 export type {

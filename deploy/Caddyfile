@@ -45,16 +45,6 @@
 		reverse_proxy localhost:8100
 	}
 
-	# The speech role's browser routes (ADR-0059): voices and dictation. The only worker routes
-	# the edge reaches, and only this prefix: the path is passed through whole, and the worker
-	# answers nothing under it without a capability Core issued. Where the role is not deployed
-	# this is a 502, which the app reads as "speech is unavailable".
-	handle /speech/* {
-		reverse_proxy localhost:8303 {
-			flush_interval -1
-		}
-	}
-
 	# Everything else is the single-page app: real files as themselves, any other path falls
 	# back to index.html so client-side routes survive a refresh.
 	handle {
@@ -80,7 +70,7 @@
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Permissions-Policy "camera=(), microphone=(self), geolocation=()"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 
 		# Enable once the site is served exclusively over HTTPS on its final hostname - HSTS on a
 		# host that still answers plain HTTP locks browsers out for the max-age.

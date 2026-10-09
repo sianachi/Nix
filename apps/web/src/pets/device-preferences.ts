@@ -90,7 +90,7 @@ export function writeConversationModel(
   }
 }
 
-type DevicePreferenceKey = 'voice' | 'placement' | 'surface' | 'inlineContext';
+type DevicePreferenceKey = 'placement' | 'surface' | 'inlineContext';
 
 export function readDevicePreference(key: DevicePreferenceKey): string {
   try {

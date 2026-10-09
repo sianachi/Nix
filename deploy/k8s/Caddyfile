@@ -31,16 +31,6 @@
 		reverse_proxy nix-collab:8100
 	}
 
-	# The speech role's browser routes (ADR-0059): voices and dictation. The only worker routes
-	# the edge reaches, and only this prefix: the path is passed through whole, and the worker
-	# answers nothing under it without a capability Core issued. Where the role is not deployed
-	# this is a 502, which the app reads as "speech is unavailable".
-	handle /speech/* {
-		reverse_proxy nix-speech-worker:8301 {
-			flush_interval -1
-		}
-	}
-
 	handle {
 		try_files {path} /index.html
 		file_server
@@ -51,7 +41,7 @@
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Permissions-Policy "camera=(), microphone=(self), geolocation=()"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 }

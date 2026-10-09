@@ -257,58 +257,6 @@ public static class SearchSql
         """;
 
     /// <summary>
-    /// The ranked candidates a derived search index returned, re-read from <c>item</c>: the
-    /// readable ones, with their current titles, minus anything under a closed lock.
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <see cref="ReadableItemsById"/> with the title rule of <see cref="MatchingItems"/> added
-    /// (ADR-0056). The OpenSearch adapter ranks in a derived index that knows nothing about who has
-    /// opened which lock, so this is where its candidates meet the same answer the Postgres title
-    /// arm gives. It is a separate statement rather than a flag on the reference read because the
-    /// two questions differ: resolving a reference a readable document already holds is a read of a
-    /// named item, like the item read, and a lock does not hide an item from being read by name.
-    /// </para>
-    /// <para>
-    /// Index dependencies: as <see cref="ReadableItemsById"/>, plus the closure primary key for
-    /// the lock probe, which folds away at plan time when this credential has no closed lock.
-    /// </para>
-    /// </remarks>
-    public const string SearchCandidatesById = $$"""
-        SELECT item.id,
-               item.workspace_id,
-               item.type,
-               item.properties ->> 'title' AS title,
-               item.parent_id,
-               item.last_modified_at
-        FROM item
-        WHERE item.tenant_id = @tenant_id
-          AND item.id = ANY(@item_ids)
-          AND item.workspace_id = ANY(@workspace_ids)
-          AND item.lifecycle_state = 'active'
-          AND item.template_id IS NULL
-          AND {{ItemLockSql.ItemIsNotUnderClosedLock}}
-          AND NOT EXISTS (
-              SELECT 1
-              FROM item_closure AS visibility_edge
-              LEFT JOIN LATERAL (
-                  SELECT visibility_ancestor.template_id,
-                         visibility_ancestor.lifecycle_state
-                  FROM item AS visibility_ancestor
-                  WHERE visibility_ancestor.tenant_id = @tenant_id
-                    AND visibility_ancestor.id = visibility_edge.ancestor_id
-                  LIMIT 1
-              ) AS stored_ancestor ON TRUE
-              WHERE visibility_edge.tenant_id = @tenant_id
-                AND visibility_edge.descendant_id = item.id
-                AND visibility_edge.depth > 0
-                AND (stored_ancestor.template_id IS NOT NULL
-                     OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
-              OFFSET 0
-          )
-        """;
-
-    /// <summary>
     /// The items whose documents refer to a given item, most-referring first.
     /// </summary>
     /// <remarks>

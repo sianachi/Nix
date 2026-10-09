@@ -5,16 +5,8 @@
  * its document body, and its descendants, in one zip. ADR-0017 is the format's decision record and
  * this package is its only writer.
  *
- * **The item bundle outlives this one format.** Markdown, PDF and DOCX are lossy mappings of the
- * same bundle, and the reason they share it is so the block set has one place to be read rather
- * than four that drift. The exhaustive node visitor those mappers need now lives here too - it was
- * held back until it had a real first user rather than being guessed at, and `packages/pdf-export`
- * and `packages/docx-export` are that user.
- *
- * Three things a converter gets from this package and nowhere else: the bundle it reads
- * (`manifest.js`), the walk that guarantees it handled every block (`visit.js`), and the vocabulary
- * for what it could not carry (`loss.js`). `converter.js` is the interface a host runs it through,
- * shaped so MVP-9's plugin seam can adopt it unchanged.
+ * The shared item bundle, document visitor and loss vocabulary also support Markdown mapping
+ * and view previews. PDF and DOCX conversion belongs to the Go export worker.
  */
 
 export { archiveFileName, exportFileName, writeArchive } from './archive.js';

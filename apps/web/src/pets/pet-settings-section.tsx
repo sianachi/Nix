@@ -137,16 +137,6 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
           />
           <Text>Show companion in my workspaces</Text>
         </label>
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={draft.narration}
-            onChange={(event) => {
-              change({ ...draft, narration: event.currentTarget.checked });
-            }}
-          />
-          <Text>Read a reply aloud when you dictated the message to the companion</Text>
-        </label>
         <div className="flex flex-col gap-1">
           <label className="flex items-center gap-2">
             <input

@@ -13,7 +13,6 @@ const settings = {
   enabled: false,
   activePetId: pet.id,
   motion: 'system',
-  narration: false,
   profiles: [pet],
 };
 

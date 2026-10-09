@@ -20,7 +20,7 @@ manifest=/srv/nix-release-new/deploy/compose.prod.yml
 drift() { bash "$root/deploy/compose/drift.sh" docker compose -p nix --env-file /private/env -f "$manifest"; }
 fail() { echo "drift.test: $*" >&2; exit 1; }
 running() { printf '%s|%s|%s\n' "$1" "$2" "$3"; } # service hash config-files
-printf '%s\n' 'postgres 1' 'rabbitmq 2' 'nix-api 3-new' 'nix-opensearch 4' 'nix-versitygw 5' > "$fixture/desired"
+printf '%s\n' 'postgres 1' 'rabbitmq 2' 'nix-api 3-new' 'nix-versitygw 5' > "$fixture/desired"
 
 # 1. Nothing running: every service is created, no refusal.
 : > "$fixture/ids"
@@ -48,6 +48,7 @@ grep -q 'will recreate: rabbitmq nix-api ' "$fixture/out" || fail 'rabbitmq recr
 grep -q 'rabbitmq will be recreated after writers stop' "$fixture/out" || fail 'rabbitmq restart not named'
 if grep -q 'refusing' "$fixture/out"; then fail 'refused rabbitmq'; fi
 grep -q 'left alone): legacy-media' "$fixture/out" || fail 'orphan not listed'
+grep -q 'nix-opensearch' "$fixture/out" || fail 'retired OpenSearch orphan not listed'
 
 # 3b. An application-only recreate is listed but not refused.
 { running postgres 1 "$manifest"; running rabbitmq 2 "$manifest"; running nix-api 3 "$manifest"

@@ -56,7 +56,6 @@ export const Settings = {
           enabled: true,
           activePetId: '44444444-4444-4444-8444-444444444444',
           motion: 'reduced',
-          narration: false,
           profiles: [
             {
               id: '44444444-4444-4444-8444-444444444444',
@@ -748,7 +747,6 @@ const phoneSettings = {
     enabled: true,
     activePetId: '44444444-4444-4444-8444-444444444444',
     motion: 'reduced' as const,
-    narration: false,
     profiles: [
       {
         id: '44444444-4444-4444-8444-444444444444',
@@ -1266,8 +1264,7 @@ const streamingReplyConnection = petConnectionSchema.parse({
   ],
 });
 
-/** The still-streaming reply (id contains `:draft:`) shows the motion-safe caret in place of a
- * read-aloud action, and the header status reads "Writing" rather than "Thinking". */
+/** A still-streaming reply shows the motion-safe caret and a "Writing" status. */
 export const StreamingReply = {
   render: (): ReactElement => (
     <DesktopFrame connection={streamingReplyConnection}>
