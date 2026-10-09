@@ -491,6 +491,34 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task The_series_joins_keep_empty_text_and_unset_values_distinct()
+    {
+        await SetPropertiesAsync(VisibleChild, """{"title":"unset","status":"Todo","done":"2026-03-04"}""");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00030"),
+            """{"title":"empty","status":"Todo","done":"2026-03-04","owner":""}""");
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var aggregates = work.Resolve<IChildAggregates>();
+            var workspace = WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId);
+            var parent = ItemId.From(VisibleContainer);
+            var categories = await aggregates.BucketBySeriesAsync(workspace, parent, "status", "owner", null, 6, 10, 100, Cancellation);
+            var days = await aggregates.BucketByDayAsync(workspace, parent, "done", "owner", null, null, null, 6, 100, Cancellation);
+
+            Assert.Equal(2, categories.SeriesValues);
+            Assert.Equal(2, days.SeriesValues);
+            foreach (var cells in new[] { categories.Cells, days.Cells })
+            {
+                Assert.Equal(2, cells.Count);
+                Assert.Contains(cells, cell => cell.Series is null && cell.Children == 1 && !cell.Other);
+                Assert.Contains(cells, cell => cell.Series is { Length: 0 } && cell.Children == 1 && !cell.Other);
+            }
+        }
+    }
+
     private async Task AddChildrenAsync(Guid parent, int count, string properties)
     {
         var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
