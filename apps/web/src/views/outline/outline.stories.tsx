@@ -1,4 +1,7 @@
 import { useRef, useState, type ReactNode } from 'react';
+import { within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
+import { NixApiError } from '@nix/api-client';
 import { MemoryRouter } from 'react-router';
 
 import type { Item, View } from '../core/container-model';
@@ -48,7 +51,15 @@ function childrenIn(items: readonly Item[], parentId: string | null): Item[] {
 }
 
 /** An outline over an in-memory tree: moves and adds land in place, as Core would order them. */
-function Example({ empty = false }: { readonly empty?: boolean }): ReactNode {
+function Example({
+  empty = false,
+  refuseMoves = false,
+  lockedIds = [],
+}: {
+  readonly empty?: boolean;
+  readonly refuseMoves?: boolean;
+  readonly lockedIds?: readonly string[];
+}): ReactNode {
   const [items, setItems] = useState<readonly Item[]>(empty ? [] : START);
   const latest = useRef(items);
   const commit = (next: readonly Item[]): void => {
@@ -58,7 +69,12 @@ function Example({ empty = false }: { readonly empty?: boolean }): ReactNode {
   const childrenOf = (parentId: string | null): Item[] => childrenIn(latest.current, parentId);
 
   const source: OutlineSource = {
-    list: (parentId) => Promise.resolve(childrenOf(parentId)),
+    list: (parentId) =>
+      parentId !== null && lockedIds.includes(parentId)
+        ? Promise.reject(
+            new NixApiError({ kind: 'http', code: 'items.locked', status: 423, message: 'Locked' }),
+          )
+        : Promise.resolve(childrenOf(parentId)),
     create: (parentId, title) => {
       const item = {
         ...storyItem(`n-${String(latest.current.length)}`, title, latest.current.length + 1),
@@ -68,6 +84,17 @@ function Example({ empty = false }: { readonly empty?: boolean }): ReactNode {
       return Promise.resolve(item);
     },
     move: (itemId, _from, parentId, afterId) => {
+      if (refuseMoves) {
+        return Promise.reject(
+          new NixApiError({
+            kind: 'http',
+            code: 'items.children_protected',
+            status: 409,
+            message: 'Refused',
+            detail: 'That item does not accept new children.',
+          }),
+        );
+      }
       const siblings = childrenOf(parentId).filter((item) => item.id !== itemId);
       const at = afterId === null ? 0 : siblings.findIndex((item) => item.id === afterId) + 1;
       const order = [...siblings.slice(0, at), { id: itemId }, ...siblings.slice(at)].map(
@@ -98,5 +125,34 @@ function Example({ empty = false }: { readonly empty?: boolean }): ReactNode {
 
 export const Plans = { render: (): ReactNode => <Example /> };
 export const Empty = { render: (): ReactNode => <Example empty /> };
+/** The new-item field open below the first row, as Enter leaves it. */
+export const DraftOpen = {
+  render: (): ReactNode => <Example />,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('button', { name: 'Add item' }));
+  },
+};
+/** A refused indent, said under the row it was about. */
+export const RefusalNote = {
+  render: (): ReactNode => <Example refuseMoves />,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    canvas.getAllByRole('treeitem')[1]?.focus();
+    await userEvent.keyboard('{Tab}');
+  },
+};
+/** A locked branch: opening it says so and marks the row locked. */
+export const LockedRow = {
+  render: (): ReactNode => <Example lockedIds={['a']} />,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    canvas.getAllByRole('treeitem')[0]?.focus();
+    await userEvent.keyboard('{ArrowRight}');
+  },
+};
 export const DarkPlans = { ...Plans, globals: { ground: 'dark' } };
+export const DarkDraftOpen = { ...DraftOpen, globals: { ground: 'dark' } };
+export const DarkRefusalNote = { ...RefusalNote, globals: { ground: 'dark' } };
+export const DarkLockedRow = { ...LockedRow, globals: { ground: 'dark' } };
 export const DarkEmpty = { ...Empty, globals: { ground: 'dark' } };

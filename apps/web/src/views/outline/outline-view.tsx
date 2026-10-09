@@ -4,17 +4,19 @@ import {
   ArrowUp,
   ChevronDown,
   ChevronRight,
+  ExternalLink,
   IndentDecrease,
   IndentIncrease,
   Lock,
   Plus,
 } from 'lucide-react';
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { EmptyPanel } from '../../components/states/status-panels';
 import { sortItems, type Item, type View } from '../core/container-model';
 import type { ContainerData } from '../core/use-container';
-import { resolveLoadState } from '../core/view-chrome';
+import { onItemChildrenChanged } from '../../lib/item-children-changed';
+import { ContainerNotices, resolveLoadState } from '../core/view-chrome';
 import {
   describeOutlineRefusal,
   isLockedRead,
@@ -107,6 +109,34 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
     }
   });
 
+  // Somebody else's edit - the sidebar, another tab of this app, a pet - can change a level this
+  // outline has already read. Each opened level is re-read when its children are said to change;
+  // the top level is the container's own and reloads itself.
+  const nestedRef = useRef(nested);
+  useEffect(() => {
+    nestedRef.current = nested;
+  }, [nested]);
+  useEffect(
+    () =>
+      onItemChildrenChanged((detail) => {
+        const parents =
+          detail.parentId === null ? [...nestedRef.current.keys()] : [detail.parentId];
+        for (const parentId of parents) {
+          if (!nestedRef.current.has(parentId)) continue;
+          void source
+            .list(parentId)
+            .then((children) => {
+              setNested((current) =>
+                new Map(current).set(parentId, sortItems(children, null, false)),
+              );
+            })
+            .catch(() => undefined);
+        }
+      }),
+    [source],
+  );
+  const captionId = useId();
+
   const loadState = resolveLoadState(container, 'this outline');
   if (loadState !== null) return loadState;
 
@@ -177,15 +207,28 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
     row: OutlineRow,
     parentId: string | null,
     afterId: string | null,
-  ): Promise<void> {
+  ): Promise<boolean> {
     setNote(null);
     setBusy(true);
     try {
-      await source.move(row.item.id, row.parentId, parentId, afterId);
+      try {
+        await source.move(row.item.id, row.parentId, parentId, afterId);
+      } catch (reason) {
+        setNote({ itemId: row.item.id, text: describeOutlineRefusal(reason) });
+        return false;
+      }
       pendingFocus.current = row.item.id;
-      await Promise.all([...new Set([row.parentId, parentId])].map((parent) => refresh(parent)));
-    } catch (reason) {
-      setNote({ itemId: row.item.id, text: describeOutlineRefusal(reason) });
+      // The move happened; a failed re-read is a different sentence from a refused move, because
+      // retrying the move would move it again.
+      try {
+        await Promise.all([...new Set([row.parentId, parentId])].map((parent) => refresh(parent)));
+      } catch {
+        setNote({
+          itemId: row.item.id,
+          text: 'Moved, but this outline could not be re-read. Reload the page to see where it is now.',
+        });
+      }
+      return true;
     } finally {
       setBusy(false);
     }
@@ -216,8 +259,9 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
       }
     }
     const last = children?.[children.length - 1];
-    await move(row, above.id, last?.id ?? null);
-    setExpanded((current) => new Set(current).add(above.id));
+    if (await move(row, above.id, last?.id ?? null)) {
+      setExpanded((current) => new Set(current).add(above.id));
+    }
   }
 
   async function outdent(row: OutlineRow): Promise<void> {
@@ -228,6 +272,10 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
     const parentRow = rows.find((candidate) => candidate.item.id === row.parentId);
     if (parentRow === undefined) return;
     await move(row, parentRow.parentId, parentRow.item.id);
+  }
+
+  function openItem(row: OutlineRow | null): void {
+    if (row !== null) onOpen(row.item.id);
   }
 
   async function reorder(row: OutlineRow, by: -1 | 1): Promise<void> {
@@ -245,21 +293,35 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
   /** Makes a sibling from the draft field, then keeps the field open after it for the next one. */
   async function add(title: string, at: Draft): Promise<string | null> {
     setNote(null);
+    let created: Item;
     try {
-      const created = await source.create(at.parentId, title);
-      const siblings = childrenOf(at.parentId);
-      const last = siblings[siblings.length - 1];
-      // A create lands last among its siblings; only a sibling added mid-list needs a move.
-      if (at.afterId !== null && at.afterId !== last?.id) {
-        await source.move(created.id, at.parentId, at.parentId, at.afterId);
-      }
-      await refresh(at.parentId);
-      setDraft({ ...at, afterId: created.id });
-      setFocusedId(created.id);
-      return null;
+      created = await source.create(at.parentId, title);
     } catch (reason) {
+      // Nothing was made, so the name goes back into the field for another go.
       return describeOutlineRefusal(reason);
     }
+    // From here the item exists. Whatever else fails, the draft moves past it and the name is not
+    // put back, so a retry can never make it twice.
+    const siblings = childrenOf(at.parentId);
+    const last = siblings[siblings.length - 1];
+    let placementRefused: string | null = null;
+    // A create lands last among its siblings; only a sibling added mid-list needs a move.
+    if (at.afterId !== null && at.afterId !== last?.id) {
+      try {
+        await source.move(created.id, at.parentId, at.parentId, at.afterId);
+      } catch (reason) {
+        placementRefused = `Added at the end instead: ${describeOutlineRefusal(reason)}`;
+      }
+    }
+    try {
+      await refresh(at.parentId);
+    } catch {
+      placementRefused ??= 'Added, but this outline could not be re-read. Reload to see it.';
+    }
+    setDraft({ ...at, afterId: created.id });
+    setFocusedId(created.id);
+    if (placementRefused !== null) setNote({ itemId: created.id, text: placementRefused });
+    return null;
   }
 
   function focusRow(id: string | undefined): void {
@@ -284,9 +346,31 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
     }
     releaseTab.current = false;
 
+    // The sidebar tree's bindings work here too, so the hands that move rows there move them here.
+    if (event.altKey && !modifier) {
+      const action: Record<string, (() => void) | undefined> = {
+        ArrowUp: () => void reorder(row, -1),
+        ArrowDown: () => void reorder(row, 1),
+        ArrowRight: () => void indent(row),
+        ArrowLeft: () => void outdent(row),
+        Enter: () => {
+          onOpen(row.item.id);
+        },
+      };
+      const run = action[event.key];
+      if (run !== undefined) {
+        event.preventDefault();
+        if (!busy || event.key === 'Enter') run();
+        return;
+      }
+    }
+
     switch (event.key) {
       case 'Escape':
-        // The way out: the next Tab leaves the tree instead of indenting.
+        // The way out: the next Tab leaves the tree instead of indenting. Claimed, so the same
+        // press does not also leave Zen mode or close whatever the outline sits in.
+        event.preventDefault();
+        event.stopPropagation();
         releaseTab.current = true;
         return;
       case 'ArrowDown':
@@ -376,9 +460,14 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
+      <ContainerNotices container={container} subject="this outline" />
+
       <OutlineToolbar
         row={activeRow}
         busy={busy}
+        onOpen={() => {
+          openItem(activeRow);
+        }}
         onAdd={() => {
           if (activeRow === null) {
             setDraft({ parentId: rootId, afterId: null, level: 1 });
@@ -404,10 +493,16 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
         }}
       />
 
-      <Text as="p" variant="caption" tone="muted">
-        Enter adds an item below. Tab and Shift+Tab indent and outdent. Ctrl or Cmd with Up and Down
-        reorders, and with Enter opens. Escape, then Tab, leaves the outline.
-      </Text>
+      <div id={captionId}>
+        <Text as="p" variant="caption" tone="muted" className="pointer-coarse:hidden">
+          Enter adds an item below. Tab and Shift+Tab, or Alt with Right and Left, indent and
+          outdent. Ctrl or Cmd with Up and Down reorders, and with Enter opens. Escape, then Tab,
+          leaves the outline.
+        </Text>
+        <Text as="p" variant="caption" tone="muted" className="hidden pointer-coarse:block">
+          Tap a row to choose it, then use the buttons above to add, indent, move or open it.
+        </Text>
+      </div>
 
       {rows.length === 0 && draft === null ? (
         <EmptyPanel
@@ -425,13 +520,21 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
           }
         />
       ) : (
-        <div role="tree" aria-label={view.name} aria-busy={busy} className="flex flex-col">
+        <div
+          role="tree"
+          aria-label={view.name}
+          aria-describedby={captionId}
+          aria-busy={busy}
+          className="flex flex-col"
+        >
           {draft !== null && draft.afterId === null ? draftField : null}
           {rows.map((row, position) => {
             const id = row.item.id;
             const isOpen = expanded.has(id);
+            // The top level of a truncated container is a sample, so its size is not claimed.
+            const sizeKnown = !(row.level === 1 && container.truncated);
             return (
-              <div key={id} className="flex flex-col">
+              <div key={id} role="none" className="flex flex-col">
                 <div
                   ref={(element) => {
                     if (element === null) rowRefs.current.delete(id);
@@ -439,7 +542,7 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                   }}
                   role="treeitem"
                   aria-level={row.level}
-                  aria-setsize={row.siblings.length}
+                  aria-setsize={sizeKnown ? row.siblings.length : -1}
                   aria-posinset={row.index + 1}
                   aria-selected={id === activeId}
                   {...(row.item.hasChildren ? { 'aria-expanded': isOpen } : {})}
@@ -454,7 +557,7 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                     onOpen(id);
                   }}
                   className={cn(
-                    'flex min-h-(--control-sm) items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
+                    'flex min-h-(--control-sm) flex-wrap items-center gap-1 rounded-sm py-1 pointer-coarse:min-h-(--control-lg)',
                     id === activeId ? 'bg-foreground/7' : '',
                     focusRing,
                   )}
@@ -469,7 +572,7 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                       if (isOpen) close(row.item);
                       else void open(row.item);
                     }}
-                    className="inline-flex size-(--control-sm) shrink-0 items-center justify-center text-muted"
+                    className="inline-flex size-(--control-sm) shrink-0 items-center justify-center text-muted pointer-coarse:size-(--control-lg)"
                   >
                     {row.item.hasChildren ? (
                       <Icon icon={isOpen ? ChevronDown : ChevronRight} size="sm" />
@@ -478,18 +581,31 @@ export function OutlineTree(props: OutlineTreeProps): ReactNode {
                   <Text as="span" variant="body" className="min-w-0 flex-1">
                     {titleOf(row.item)}
                   </Text>
-                  {locked.has(id) ? <Icon icon={Lock} size="sm" className="text-muted" /> : null}
+                  {locked.has(id) ? (
+                    <>
+                      <Icon icon={Lock} size="sm" className="text-muted" />
+                      <span className="sr-only">, locked</span>
+                    </>
+                  ) : null}
                   {loading.has(id) ? (
                     <Text as="span" variant="caption" tone="muted">
                       Loading
                     </Text>
                   ) : null}
+                  {/* Inside the row it is about, so the tree owns only rows and the new-item
+                      group, and a screen reader hears the note as part of the row. */}
+                  {note !== null && note.itemId === id ? (
+                    <Text
+                      as="span"
+                      variant="caption"
+                      tone="accent"
+                      role="alert"
+                      className="basis-full"
+                    >
+                      {note.text}
+                    </Text>
+                  ) : null}
                 </div>
-                {note !== null && note.itemId === id ? (
-                  <Text as="p" variant="caption" tone="accent" role="alert">
-                    {note.text}
-                  </Text>
-                ) : null}
                 {position === draftAnchor ? draftField : null}
               </div>
             );
@@ -514,6 +630,7 @@ function without(set: ReadonlySet<string>, value: string): ReadonlySet<string> {
 interface OutlineToolbarProps {
   readonly row: OutlineRow | null;
   readonly busy: boolean;
+  readonly onOpen: () => void;
   readonly onAdd: () => void;
   readonly onIndent: () => void;
   readonly onOutdent: () => void;
@@ -523,11 +640,15 @@ interface OutlineToolbarProps {
 
 /** The structural edits as buttons, acting on the row last focused - a phone has no Tab key. */
 function OutlineToolbar(props: OutlineToolbarProps): ReactNode {
-  const { row, busy, onAdd, onIndent, onOutdent, onUp, onDown } = props;
+  const { row, busy, onOpen, onAdd, onIndent, onOutdent, onUp, onDown } = props;
   const name = row === null ? '' : ` "${titleOf(row.item)}"`;
   const disabled = row === null || busy;
   return (
     <div role="group" aria-label="Outline actions" className="flex flex-wrap items-center gap-1">
+      <Button variant="ghost" onClick={onOpen} disabled={row === null}>
+        <Icon icon={ExternalLink} size="sm" />
+        Open
+      </Button>
       <Button variant="ghost" onClick={onAdd} disabled={busy}>
         <Icon icon={Plus} size="sm" />
         Add item
@@ -544,6 +665,10 @@ function OutlineToolbar(props: OutlineToolbarProps): ReactNode {
       <Button variant="icon" aria-label={`Move${name} down`} onClick={onDown} disabled={disabled}>
         <Icon icon={ArrowDown} size="sm" />
       </Button>
+      {/* Which row the buttons act on, said where they are: the highlight alone is easy to lose. */}
+      <Text as="span" variant="caption" tone="muted" truncate className="min-w-0">
+        {busy ? 'Saving…' : row === null ? 'No row chosen' : `Acting on “${titleOf(row.item)}”`}
+      </Text>
     </div>
   );
 }
@@ -570,43 +695,46 @@ function DraftField({
   }, []);
 
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        const named = title.trim();
-        if (named.length === 0) return;
-        setTitle('');
-        setRefusal(null);
-        void onSubmit(named).then((reason) => {
-          if (reason !== null) {
-            setRefusal(reason);
-            setTitle(named);
-          }
-        });
-      }}
-      className="flex flex-col gap-1 py-1"
-      style={{ paddingInlineStart: `${String((level - 1) * 1.5 + 2)}rem` }} // design-token-exempt: indentation grows with the tree's depth, which is data rather than a design value
-    >
-      <Input
-        ref={fieldRef}
-        aria-label="New item"
-        placeholder="Name the new item"
-        value={title}
-        onChange={(event) => {
-          setTitle(event.target.value);
+    // A group, which a tree may own, so the field can sit among the rows it adds to.
+    <div role="group" aria-label="New item">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const named = title.trim();
+          if (named.length === 0) return;
+          setTitle('');
+          setRefusal(null);
+          void onSubmit(named).then((reason) => {
+            if (reason !== null) {
+              setRefusal(reason);
+              setTitle(named);
+            }
+          });
         }}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
-      />
-      {refusal === null ? null : (
-        <Text as="p" variant="caption" tone="accent" role="alert">
-          {refusal}
-        </Text>
-      )}
-    </form>
+        className="flex flex-col gap-1 py-1"
+        style={{ paddingInlineStart: `${String((level - 1) * 1.5 + 2)}rem` }} // design-token-exempt: indentation grows with the tree's depth, which is data rather than a design value
+      >
+        <Input
+          ref={fieldRef}
+          aria-label="New item"
+          placeholder="Name the new item"
+          value={title}
+          onChange={(event) => {
+            setTitle(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              onCancel();
+            }
+          }}
+        />
+        {refusal === null ? null : (
+          <Text as="p" variant="caption" tone="accent" role="alert">
+            {refusal}
+          </Text>
+        )}
+      </form>
+    </div>
   );
 }
