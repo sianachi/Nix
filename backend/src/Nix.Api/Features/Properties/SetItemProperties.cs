@@ -111,6 +111,11 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
             return Result.Failure<Item>(SchedulingReservedProperties.Error);
         }
 
+        if (FirstKeySet(changes, name => ReservedPropertyKeys.IsRefused(name, command.HabitWrite, command.CalendarWrite, command.FinanceWrite)) is { } reserved)
+        {
+            return Result.Failure<Item>(ReservedPropertyKeys.Refusal(reserved));
+        }
+
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
@@ -202,6 +207,33 @@ public sealed class SetItemPropertiesHandler : ICommandHandler<SetItemProperties
 
     private static bool ContainsReservedFinanceKey(string changes) =>
         ContainsKeyMatching(changes, name => name.StartsWith("$fin_", StringComparison.Ordinal));
+
+    /// <summary>The first key the change document sets (to anything but null) that matches, or null.</summary>
+    private static string? FirstKeySet(string changes, Func<string, bool> matches)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(changes);
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind != System.Text.Json.JsonValueKind.Null && matches(property.Name))
+                {
+                    return property.Name;
+                }
+            }
+
+            return null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null; // The ordinary JSON validator below returns the established error.
+        }
+    }
 
     private static bool ContainsKeyMatching(string changes, Func<string, bool> matches)
     {

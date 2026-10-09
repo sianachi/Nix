@@ -18,6 +18,13 @@ public static class PropertySchemaRules
                 return "Every property needs a key.";
             }
 
+            // The '$' space belongs to the structural query fields ($type, $inside, ...), so a
+            // property spelled that way could never be filtered on as itself.
+            if (property.Key[0] == Nix.Domain.Views.QueryFields.Prefix)
+            {
+                return $"'{property.Key}' starts with '{Nix.Domain.Views.QueryFields.Prefix}', which is reserved for query fields such as $type; choose another key.";
+            }
+
             if (!keys.Add(property.Key))
             {
                 return $"'{property.Key}' is declared more than once; a property cannot mean two things.";
