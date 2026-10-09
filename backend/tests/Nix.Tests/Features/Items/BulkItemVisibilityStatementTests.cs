@@ -50,6 +50,18 @@ public sealed class BulkItemVisibilityStatementTests
             1,
             ParentAndAbove
         },
+        {
+            nameof(RollupSql.BucketChildrenByPropertyAndSeries),
+            RollupSql.BucketChildrenByPropertyAndSeries,
+            1,
+            ParentAndAbove
+        },
+        {
+            nameof(RollupSql.BucketChildrenByDay),
+            RollupSql.BucketChildrenByDay,
+            1,
+            ParentAndAbove
+        },
     };
 
     /// <summary>The bound for a statement anchored on the row it returns.</summary>

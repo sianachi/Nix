@@ -608,7 +608,12 @@ public sealed record ViewDefinition(
 
     // Last and defaulted, like every field added since the record was cut. For a matrix: the select
     // or checkbox property whose values become its rows; its columns are GroupBy, the board's own.
-    string? RowBy = null)
+    string? RowBy = null,
+
+    // Last and defaulted like every field added since the record was cut. For a chart: its type,
+    // time axis, series and window (ChartOptions). Null draws what every chart stored before the
+    // field existed drew - horizontal bars of categories - and every other kind stores and ignores it.
+    ChartOptions? Chart = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

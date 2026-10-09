@@ -230,6 +230,217 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
         }
     }
 
+    [Fact]
+    public async Task Another_tenant_cannot_split_or_date_bucket_a_container_it_names_by_id()
+    {
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var aggregates = work.Resolve<IChildAggregates>();
+
+            var series = await aggregates.BucketBySeriesAsync(
+                WorkspaceId.From(M0SchemaSeed.Beta.WorkspaceId),
+                ItemId.From(BetaContainer),
+                "status",
+                "title",
+                measureKey: "estimate",
+                bucketLimit: 10,
+                cellLimit: 100,
+                Cancellation);
+            var days = await aggregates.BucketByDayAsync(
+                WorkspaceId.From(M0SchemaSeed.Beta.WorkspaceId),
+                ItemId.From(BetaContainer),
+                "status",
+                splitKey: null,
+                measureKey: null,
+                firstDay: null,
+                lastDay: null,
+                cellLimit: 100,
+                Cancellation);
+
+            Assert.Empty(series.Cells);
+            Assert.Equal(0, series.Children);
+            Assert.Empty(days.Cells);
+            Assert.Equal(0, days.Children);
+        }
+    }
+
+    [Theory]
+    [InlineData("deleted", false)]
+    [InlineData("active", true)]
+    public async Task A_container_below_a_non_visible_ancestor_splits_and_dates_to_nothing(
+        string ancestorLifecycle,
+        bool templateOwned)
+    {
+        await SetAncestorBoundaryAsync(ancestorLifecycle, templateOwned);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var aggregates = work.Resolve<IChildAggregates>();
+            var workspace = WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId);
+
+            var hiddenSeries = await aggregates.BucketBySeriesAsync(
+                workspace, ItemId.From(HiddenContainer), "status", "title", null, 10, 100, Cancellation);
+            var hiddenDays = await aggregates.BucketByDayAsync(
+                workspace, ItemId.From(HiddenContainer), "status", null, null, null, null, 100, Cancellation);
+
+            Assert.Empty(hiddenSeries.Cells);
+            Assert.Empty(hiddenDays.Cells);
+
+            // The visible container answers both, so the emptiness above is a refusal.
+            var visibleSeries = await aggregates.BucketBySeriesAsync(
+                workspace, ItemId.From(VisibleContainer), "status", "title", null, 10, 100, Cancellation);
+            var visibleDays = await aggregates.BucketByDayAsync(
+                workspace, ItemId.From(VisibleContainer), "status", null, null, null, null, 100, Cancellation);
+
+            Assert.Equal(1, visibleSeries.Children);
+            Assert.Equal(1, visibleDays.Children);
+        }
+    }
+
+    [Fact]
+    public async Task The_day_read_counts_only_visible_children_and_places_each_on_its_own_day()
+    {
+        // A dated child, a timestamp written late in the evening in its own zone, an undated one,
+        // one outside the window, and two that must never be counted: deleted, and template-owned.
+        await SetPropertiesAsync(
+            VisibleChild,
+            "{\"title\":\"a\",\"estimate\":7,\"status\":\"Todo\",\"done\":\"2026-03-04\",\"owner\":\"Ada\"}");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00010"),
+            "{\"title\":\"b\",\"estimate\":2,\"done\":\"2026-03-04T23:30:00+01:00[Europe/Paris]\"}");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00011"),
+            "{\"title\":\"c\",\"done\":\"soon\"}");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00012"),
+            "{\"title\":\"d\",\"done\":\"2025-12-31\"}");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00013"),
+            "{\"title\":\"e\",\"done\":\"2026-03-04\"}",
+            lifecycle: "deleted");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00014"),
+            "{\"title\":\"f\",\"done\":\"2026-03-04\"}",
+            templateOwned: true);
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var read = await work.Resolve<IChildAggregates>().BucketByDayAsync(
+                WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId),
+                ItemId.From(VisibleContainer),
+                "done",
+                splitKey: "owner",
+                measureKey: "estimate",
+                firstDay: new DateOnly(2026, 1, 1),
+                lastDay: new DateOnly(2026, 12, 31),
+                cellLimit: 100,
+                Cancellation);
+
+            Assert.False(read.CellsCut);
+
+            // Undated first, counted whatever the window; then the one dated day, split by owner.
+            Assert.Collection(
+                read.Cells,
+                undated =>
+                {
+                    Assert.Null(undated.Bucket);
+                    Assert.Equal(1, undated.Children);
+                },
+                ada =>
+                {
+                    Assert.Equal("2026-03-04", ada.Bucket);
+                    Assert.Equal("Ada", ada.Series);
+                    Assert.Equal(1, ada.Children);
+                    Assert.Equal(7m, ada.Total);
+                },
+                nobody =>
+                {
+                    Assert.Equal("2026-03-04", nobody.Bucket);
+                    Assert.Null(nobody.Series);
+                    Assert.Equal(1, nobody.Children);
+                    Assert.Equal(2m, nobody.Total);
+                });
+
+            // The deleted and template-owned children, and the one outside the window, are nowhere.
+            Assert.Equal(3, read.Children);
+        }
+    }
+
+    [Fact]
+    public async Task The_series_read_returns_whole_buckets_and_never_counts_a_deleted_child()
+    {
+        await AddChildAsync(new Guid("201100f0-1111-4111-8111-201100f00020"), "{\"title\":\"b\",\"status\":\"Todo\",\"owner\":\"Ada\"}");
+        await AddChildAsync(new Guid("201100f0-1111-4111-8111-201100f00021"), "{\"title\":\"c\",\"status\":\"Done\",\"owner\":\"Ada\"}");
+        await AddChildAsync(
+            new Guid("201100f0-1111-4111-8111-201100f00022"),
+            "{\"title\":\"d\",\"status\":\"Done\",\"owner\":\"Bo\"}",
+            lifecycle: "deleted");
+
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var read = await work.Resolve<IChildAggregates>().BucketBySeriesAsync(
+                WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId),
+                ItemId.From(VisibleContainer),
+                "status",
+                "owner",
+                measureKey: null,
+                bucketLimit: 1,
+                cellLimit: 100,
+                Cancellation);
+
+            // Todo holds two children (the seeded one with no owner, and Ada's), Done holds one, so
+            // Todo is the one bucket that fits - with both of its series.
+            Assert.Equal(2, read.DistinctBuckets);
+            Assert.Equal(3, read.Children);
+            Assert.All(read.Cells, cell => Assert.Equal("Todo", cell.Bucket));
+            Assert.Collection(
+                read.Cells,
+                ada => Assert.Equal("Ada", ada.Series),
+                nobody => Assert.Null(nobody.Series));
+        }
+    }
+
+    private async Task AddChildAsync(
+        Guid id,
+        string properties,
+        string lifecycle = "active",
+        bool templateOwned = false)
+    {
+        var tenant = Literal(M0SchemaSeed.Alpha.TenantId);
+        var workspace = Literal(M0SchemaSeed.Alpha.WorkspaceId);
+        var principal = Literal(M0SchemaSeed.Alpha.PrincipalId);
+        var template = templateOwned ? Literal(M0SchemaSeed.Alpha.TemplateId) : "NULL";
+        var source = templateOwned ? Literal(VisibleChild) : "NULL";
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await RawSql.ExecuteAsync(
+                connection,
+                transaction: null,
+                $$"""
+                  INSERT INTO item
+                      (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                       lifecycle_state, purge_after, created_by, last_modified_by, created_at,
+                       last_modified_at, template_id, template_source_id)
+                  VALUES
+                      ({{Literal(id)}}, {{tenant}}, {{workspace}}, 'note', {{Literal(VisibleContainer)}},
+                       (SELECT coalesce(max(seq), 0) + 1 FROM item),
+                       '{{properties}}'::jsonb, '{{lifecycle}}', NULL, {{principal}}, {{principal}},
+                       now(), now(), {{template}}, {{source}});
+
+                  INSERT INTO item_closure (descendant_id, ancestor_id, tenant_id, workspace_id, depth)
+                  VALUES
+                      ({{Literal(id)}}, {{Literal(id)}}, {{tenant}}, {{workspace}}, 0),
+                      ({{Literal(id)}}, {{Literal(VisibleContainer)}}, {{tenant}}, {{workspace}}, 1);
+                  """);
+        }
+    }
+
     private async Task SetPropertiesAsync(Guid id, string properties)
     {
         var connection = await _fixture.OpenMigratorConnectionAsync();

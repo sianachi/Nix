@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Globalization;
 using Nix.Abstractions;
 using Nix.Domain.Items;
 using Nix.Domain.Properties;
@@ -170,6 +171,111 @@ public sealed class ChildAggregateReader : IChildAggregates
         return new ChildBuckets(buckets, distinct, children);
     }
 
+    /// <inheritdoc />
+    public async ValueTask<ChildCells> BucketBySeriesAsync(
+        WorkspaceId workspaceId,
+        ItemId parent,
+        string groupKey,
+        string splitKey,
+        string? measureKey,
+        int bucketLimit,
+        int cellLimit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(groupKey);
+        ArgumentException.ThrowIfNullOrEmpty(splitKey);
+
+        var buckets = Math.Clamp(bucketLimit, 1, MaximumBuckets);
+        var cells = Math.Clamp(cellLimit, 1, MaximumCells);
+
+        var read = new List<ChildCell>(Math.Min(cells, 64));
+        long distinct = 0;
+        long children = 0;
+        long kept = 0;
+
+        var rows = _sql.QueryAsync<SeriesCellRow, SeriesCellRowMapper>(
+            RollupSql.BucketChildrenByPropertyAndSeries,
+            default,
+            [
+                Uuid("tenant_id", Tenant.Value),
+                Uuid("workspace_id", workspaceId.Value),
+                Uuid("parent_id", parent.Value),
+                Text("group_key", groupKey),
+                Text("split_key", splitKey),
+
+                // Null rather than the group key, for the reason BucketAsync gives.
+                NullableText("measure_key", measureKey),
+                Int("bucket_limit", buckets),
+                Int("cell_limit", cells),
+            ],
+            cancellationToken);
+
+        await foreach (var row in rows.ConfigureAwait(false))
+        {
+            distinct = row.Buckets;
+            kept = row.KeptCells;
+            children = row.AllChildren;
+            read.Add(new ChildCell(row.Bucket, row.Series, row.Children, measureKey is null ? null : row.Total));
+        }
+
+        return new ChildCells(read, children, distinct, kept > read.Count);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask<ChildCells> BucketByDayAsync(
+        WorkspaceId workspaceId,
+        ItemId parent,
+        string dateKey,
+        string? splitKey,
+        string? measureKey,
+        DateOnly? firstDay,
+        DateOnly? lastDay,
+        int cellLimit,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(dateKey);
+
+        var cells = Math.Clamp(cellLimit, 1, MaximumCells);
+
+        var read = new List<ChildCell>(Math.Min(cells, 64));
+        long children = 0;
+        long total = 0;
+
+        var rows = _sql.QueryAsync<DayCellRow, DayCellRowMapper>(
+            RollupSql.BucketChildrenByDay,
+            default,
+            [
+                Uuid("tenant_id", Tenant.Value),
+                Uuid("workspace_id", workspaceId.Value),
+                Uuid("parent_id", parent.Value),
+                Text("group_key", dateKey),
+                NullableText("split_key", splitKey),
+                NullableText("measure_key", measureKey),
+                NullableText("from_day", firstDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                NullableText("to_day", lastDay?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
+                Int("cell_limit", cells),
+            ],
+            cancellationToken);
+
+        await foreach (var row in rows.ConfigureAwait(false))
+        {
+            total = row.Cells;
+            children = row.AllChildren;
+            read.Add(new ChildCell(row.Bucket, row.Series, row.Children, measureKey is null ? null : row.Total));
+        }
+
+        return new ChildCells(read, children, DistinctBuckets: null, total > read.Count);
+    }
+
+    /// <summary>The most cells a series or day read will return, whatever was asked for.</summary>
+    /// <remarks>
+    /// A row is a few dozen bytes, so this bounds a response's memory near half a megabyte. It is
+    /// generous on purpose - a year of days split twelve ways is under five thousand - and only a
+    /// container with decades of daily entries and no window ever meets it, in which case the reader
+    /// says it was cut and the oldest periods are the ones left out.
+    /// </remarks>
+    public const int MaximumCells = 10_000;
+
     /// <summary>
     /// Frozen rather than an empty <c>Dictionary</c>: published behind a read-only interface, a
     /// mutable static can be downcast and filled by anybody who takes the shortcut once.
@@ -222,6 +328,60 @@ public sealed class ChildAggregateReader : IChildAggregates
 
         private static decimal? NullableDecimal(NpgsqlDataReader reader, int ordinal) =>
             reader.IsDBNull(ordinal) ? null : reader.GetDecimal(ordinal);
+    }
+
+    private readonly record struct SeriesCellRow(
+        string? Bucket,
+        string? Series,
+        long Children,
+        decimal? Total,
+        long Buckets,
+        long KeptCells,
+        long AllChildren);
+
+    /// <summary>Reads one (bucket, series) cell.</summary>
+    private readonly struct SeriesCellRowMapper : INixRowMapper<SeriesCellRow>
+    {
+        /// <inheritdoc />
+        public SeriesCellRow Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+
+            return new SeriesCellRow(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.GetInt64(2),
+                reader.IsDBNull(3) ? null : reader.GetDecimal(3),
+                reader.GetInt64(4),
+                reader.GetInt64(5),
+                reader.GetInt64(6));
+        }
+    }
+
+    private readonly record struct DayCellRow(
+        string? Bucket,
+        string? Series,
+        long Children,
+        decimal? Total,
+        long Cells,
+        long AllChildren);
+
+    /// <summary>Reads one (day, series) cell.</summary>
+    private readonly struct DayCellRowMapper : INixRowMapper<DayCellRow>
+    {
+        /// <inheritdoc />
+        public DayCellRow Map(NpgsqlDataReader reader)
+        {
+            ArgumentNullException.ThrowIfNull(reader);
+
+            return new DayCellRow(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
+                reader.GetInt64(2),
+                reader.IsDBNull(3) ? null : reader.GetDecimal(3),
+                reader.GetInt64(4),
+                reader.GetInt64(5));
+        }
     }
 
     private readonly record struct BucketRow(

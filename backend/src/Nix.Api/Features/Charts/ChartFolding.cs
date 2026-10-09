@@ -1,0 +1,423 @@
+using System.Globalization;
+using Nix.Abstractions;
+using Nix.Domain.Views;
+
+namespace Nix.Features.Charts;
+
+/// <summary>One series' share of one bucket.</summary>
+/// <param name="Children">How many children of the bucket carry this series' value.</param>
+/// <param name="Total">Their measured total, or <see langword="null"/> when counting or when none carried a number.</param>
+public sealed record ChartCell(long Children, decimal? Total);
+
+/// <summary>One bucket of a drawn chart: a category, or a period on a time axis.</summary>
+/// <param name="Value">
+/// The category's value, the period's start date as <c>yyyy-MM-dd</c>, or <see langword="null"/> for
+/// the children with no value in a chart of categories.
+/// </param>
+/// <param name="Children">How many children fall in the bucket.</param>
+/// <param name="Total">Their measured total, or <see langword="null"/>.</param>
+/// <param name="Cells">One entry per series, in series order; empty when the chart is not split.</param>
+public sealed record ChartBucket(string? Value, long Children, decimal? Total, IReadOnlyList<ChartCell> Cells);
+
+/// <summary>One series of a split chart.</summary>
+/// <param name="Value">The splitting property's value, or <see langword="null"/> for children with none.</param>
+/// <param name="Other">Whether this is the series every value past the cap was folded into.</param>
+/// <param name="Children">How many drawn children carry it.</param>
+/// <param name="Total">Their measured total, or <see langword="null"/>.</param>
+public sealed record ChartSeries(string? Value, bool Other, long Children, decimal? Total);
+
+/// <summary>What a chart view drew, over every child rather than over a loaded page.</summary>
+/// <param name="GroupBy">The property the buckets are values (or dates) of.</param>
+/// <param name="Measure">What each bucket measures.</param>
+/// <param name="MeasureProperty">The property being totalled, when the measure is a total.</param>
+/// <param name="Kind">The chart type the view draws.</param>
+/// <param name="Period">The time axis's period, or <see langword="null"/> for a chart of categories.</param>
+/// <param name="SplitBy">The property the series are values of, or <see langword="null"/>.</param>
+/// <param name="From">The first day the time axis covers, or <see langword="null"/>.</param>
+/// <param name="To">The last day the time axis covers, or <see langword="null"/>.</param>
+/// <param name="Buckets">The buckets drawn: largest first for categories, earliest first for periods.</param>
+/// <param name="Series">The series, largest first, any "Other" last; empty when not split.</param>
+/// <param name="Children">Every child summarised, including any in buckets left out.</param>
+/// <param name="DistinctValues">How many buckets exist - categories, or periods in the axis's range.</param>
+/// <param name="Unplaced">Children a time axis could not place because they have no date; zero otherwise.</param>
+/// <param name="OtherSeries">How many series values were folded into "Other".</param>
+/// <param name="Truncated">Whether buckets exist that were not drawn.</param>
+public sealed record ItemChart(
+    string GroupBy,
+    string Measure,
+    string? MeasureProperty,
+    string Kind,
+    string? Period,
+    string? SplitBy,
+    DateOnly? From,
+    DateOnly? To,
+    IReadOnlyList<ChartBucket> Buckets,
+    IReadOnlyList<ChartSeries> Series,
+    long Children,
+    long DistinctValues,
+    long Unplaced,
+    long OtherSeries,
+    bool Truncated);
+
+/// <summary>What a chart's buckets, series and axis came out as, before the view's labels are attached.</summary>
+/// <param name="Buckets">The buckets drawn.</param>
+/// <param name="Series">The series, empty when not split.</param>
+/// <param name="Children">Every child summarised.</param>
+/// <param name="DistinctValues">How many buckets exist.</param>
+/// <param name="Unplaced">Children a time axis could not place.</param>
+/// <param name="OtherSeries">How many series values were folded into "Other".</param>
+/// <param name="Truncated">Whether buckets exist that were not drawn.</param>
+/// <param name="From">The first day a time axis covers.</param>
+/// <param name="To">The last day a time axis covers.</param>
+public sealed record FoldedChart(
+    IReadOnlyList<ChartBucket> Buckets,
+    IReadOnlyList<ChartSeries> Series,
+    long Children,
+    long DistinctValues,
+    long Unplaced,
+    long OtherSeries,
+    bool Truncated,
+    DateOnly? From = null,
+    DateOnly? To = null);
+
+/// <summary>
+/// Turns the rows a chart read returns into the buckets and series a chart draws.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Pure, so every rule about honesty is a unit test.</b> The reads return cells; what a chart may
+/// claim from them - which series fit, which periods are empty rather than unknown, which bucket the
+/// ceiling cut short - is decided here, with no database in the way of testing it.
+/// </para>
+/// <para>
+/// <b>Series are capped at <see cref="MaximumSeries"/>; the rest become one "Other".</b> A chart of
+/// forty colours is a chart nobody can match to its legend. Series are ranked by how many children
+/// carry them, and the response says how many values the "Other" series stands for, so it is never
+/// mistaken for a value somebody chose.
+/// </para>
+/// </remarks>
+public static class ChartFolding
+{
+    /// <summary>The most series a split chart draws before folding the rest into "Other".</summary>
+    public const int MaximumSeries = 12;
+
+    /// <summary>A chart of categories with one series: the shape every chart had before series existed.</summary>
+    /// <param name="read">What the bucket read returned.</param>
+    /// <returns>The folded chart.</returns>
+    public static FoldedChart Categories(ChildBuckets read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+
+        var buckets = new List<ChartBucket>(read.Buckets.Count);
+        foreach (var bucket in read.Buckets)
+        {
+            buckets.Add(new ChartBucket(bucket.Value, bucket.Children, bucket.Total, []));
+        }
+
+        return new FoldedChart(
+            buckets,
+            [],
+            read.Children,
+            read.DistinctValues,
+            Unplaced: 0,
+            OtherSeries: 0,
+            read.DistinctValues > buckets.Count);
+    }
+
+    /// <summary>A chart of categories split into series.</summary>
+    /// <param name="read">
+    /// What the series read returned: cells ordered by bucket size, each bucket's cells together.
+    /// </param>
+    /// <returns>The folded chart.</returns>
+    public static FoldedChart CategoriesBySeries(ChildCells read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+
+        // Cells arrive bucket by bucket. When the cell ceiling cut the read, the last bucket may be
+        // missing some of its series, and a bar drawn from part of its cells is a shorter bar than
+        // the truth - so it is left out and counted as truncated rather than drawn short.
+        var groups = new List<(string? Value, List<ChildCell> Cells)>();
+        foreach (var cell in read.Cells)
+        {
+            if (groups.Count == 0 || !string.Equals(groups[^1].Value, cell.Bucket, StringComparison.Ordinal))
+            {
+                groups.Add((cell.Bucket, []));
+            }
+
+            groups[^1].Cells.Add(cell);
+        }
+
+        if (read.CellsCut && groups.Count > 0)
+        {
+            groups.RemoveAt(groups.Count - 1);
+        }
+
+        var drawn = new List<ChildCell>();
+        foreach (var group in groups)
+        {
+            drawn.AddRange(group.Cells);
+        }
+
+        var series = PickSeries(drawn);
+
+        var buckets = new List<ChartBucket>(groups.Count);
+        foreach (var group in groups)
+        {
+            buckets.Add(Bucket(group.Value, group.Cells, series));
+        }
+
+        var distinct = read.DistinctBuckets ?? buckets.Count;
+
+        return new FoldedChart(
+            buckets,
+            series.Series,
+            read.Children,
+            distinct,
+            Unplaced: 0,
+            series.OtherValues,
+            read.CellsCut || distinct > buckets.Count);
+    }
+
+    /// <summary>A chart along a time axis, its days folded into periods and its empty periods filled.</summary>
+    /// <param name="read">What the day read returned: undated cells first, then latest day first.</param>
+    /// <param name="period">The period each bucket spans.</param>
+    /// <param name="first">The window's first day, or <see langword="null"/> to start at the earliest data.</param>
+    /// <param name="last">The window's last day, or <see langword="null"/> to end at the latest data.</param>
+    /// <param name="split">Whether the read was split into series.</param>
+    /// <returns>The folded chart.</returns>
+    /// <remarks>
+    /// <b>Zero only where zero is known.</b> A period inside the window with no children is a real
+    /// zero and is drawn as one, so a line has no gaps. A period the cell ceiling stopped the read
+    /// before reaching is not a zero - nothing is known about it - so the axis starts after it and
+    /// the chart says it was truncated.
+    /// </remarks>
+    public static FoldedChart Days(
+        ChildCells read,
+        ChartPeriod period,
+        DateOnly? first,
+        DateOnly? last,
+        bool split)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+
+        long unplaced = 0;
+        var dated = new List<(DateOnly Start, ChildCell Cell)>(read.Cells.Count);
+        foreach (var cell in read.Cells)
+        {
+            if (ChartPeriods.TryReadDate(cell.Bucket, out var day))
+            {
+                dated.Add((ChartPeriods.Start(day, period), cell));
+            }
+            else
+            {
+                unplaced += cell.Children;
+            }
+        }
+
+        var truncated = false;
+        DateOnly? earliestKnown = null;
+        if (read.CellsCut && dated.Count > 0)
+        {
+            // Latest day first, so the earliest period read is the one the ceiling may have cut.
+            var cut = dated[^1].Start;
+            dated.RemoveAll(entry => entry.Start == cut);
+            earliestKnown = ChartPeriods.Add(cut, period, 1);
+            truncated = true;
+        }
+
+        DateOnly? dataFirst = null;
+        DateOnly? dataLast = null;
+        foreach (var (start, _) in dated)
+        {
+            dataFirst = dataFirst is { } low && low <= start ? low : start;
+            dataLast = dataLast is { } high && high >= start ? high : start;
+        }
+
+        var rangeFirst = first is { } from ? ChartPeriods.Start(from, period) : dataFirst;
+        var rangeLast = last is { } to ? ChartPeriods.Start(to, period) : dataLast;
+        if (earliestKnown is { } known && rangeFirst is { } start0 && start0 < known)
+        {
+            rangeFirst = known;
+        }
+
+        var children = read.Children - unplaced;
+
+        if (rangeFirst is not { } rangeStart || rangeLast is not { } rangeEnd || rangeEnd < rangeStart)
+        {
+            return new FoldedChart([], [], children, 0, unplaced, 0, truncated);
+        }
+
+        var whole = new PeriodRange(rangeStart, rangeEnd, period);
+        var range = ChartPeriods.KeepLatest(whole, ChartOptions.MaximumPeriods);
+        truncated |= range.Count < whole.Count;
+
+        var byPeriod = new Dictionary<DateOnly, List<ChildCell>>();
+        var drawn = new List<ChildCell>(dated.Count);
+        foreach (var (start, cell) in dated)
+        {
+            if (start < range.First || start > range.Last)
+            {
+                continue;
+            }
+
+            if (!byPeriod.TryGetValue(start, out var cells))
+            {
+                cells = [];
+                byPeriod[start] = cells;
+            }
+
+            cells.Add(cell);
+            drawn.Add(cell);
+        }
+
+        var series = split ? PickSeries(drawn) : SeriesPick.None;
+
+        var buckets = new List<ChartBucket>(range.Count);
+        foreach (var start in ChartPeriods.Enumerate(range))
+        {
+            var value = start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            buckets.Add(Bucket(value, byPeriod.TryGetValue(start, out var cells) ? cells : [], series));
+        }
+
+        return new FoldedChart(
+            buckets,
+            series.Series,
+            children,
+            whole.Count,
+            unplaced,
+            series.OtherValues,
+            truncated,
+            range.First,
+            range.End);
+    }
+
+    private static ChartBucket Bucket(string? value, IReadOnlyList<ChildCell> cells, SeriesPick series)
+    {
+        long children = 0;
+        var total = default(TotalAccumulator);
+        var columns = series.Series.Count == 0 ? null : new (long Children, TotalAccumulator Total)[series.Series.Count];
+
+        foreach (var cell in cells)
+        {
+            children += cell.Children;
+            total.Add(cell.Total);
+
+            if (columns is not null)
+            {
+                var column = series.ColumnOf(cell.Series);
+                columns[column].Children += cell.Children;
+                columns[column].Total.Add(cell.Total);
+            }
+        }
+
+        IReadOnlyList<ChartCell> split = columns is null
+            ? []
+            : [.. columns.Select(column => new ChartCell(column.Children, column.Total.Value))];
+
+        return new ChartBucket(value, children, total.Value, split);
+    }
+
+    /// <summary>Ranks the series values across the drawn cells and keeps the largest.</summary>
+    private static SeriesPick PickSeries(IReadOnlyList<ChildCell> cells)
+    {
+        var totals = new Dictionary<SeriesKey, (long Children, TotalAccumulator Total)>();
+        foreach (var cell in cells)
+        {
+            var key = new SeriesKey(cell.Series);
+            totals.TryGetValue(key, out var entry);
+            entry.Children += cell.Children;
+            entry.Total.Add(cell.Total);
+            totals[key] = entry;
+        }
+
+        // Largest first, then by value so equal series always come out in the same order; the
+        // children with no value sort after every named series of their size.
+        var ranked = totals
+            .OrderByDescending(pair => pair.Value.Children)
+            .ThenBy(pair => pair.Key.Value is null ? 1 : 0)
+            .ThenBy(pair => pair.Key.Value, StringComparer.Ordinal)
+            .ToList();
+
+        var series = new List<ChartSeries>(Math.Min(ranked.Count, MaximumSeries + 1));
+        var columns = new Dictionary<SeriesKey, int>(ranked.Count);
+        long otherChildren = 0;
+        var otherTotal = default(TotalAccumulator);
+        var otherValues = 0;
+
+        foreach (var (key, entry) in ranked)
+        {
+            if (series.Count < MaximumSeries)
+            {
+                columns[key] = series.Count;
+                series.Add(new ChartSeries(key.Value, Other: false, entry.Children, entry.Total.Value));
+                continue;
+            }
+
+            otherValues++;
+            otherChildren += entry.Children;
+            otherTotal.Add(entry.Total.Value);
+        }
+
+        var otherColumn = -1;
+        if (otherValues > 0)
+        {
+            otherColumn = series.Count;
+            series.Add(new ChartSeries(null, Other: true, otherChildren, otherTotal.Value));
+        }
+
+        return new SeriesPick(series, columns, otherColumn, otherValues);
+    }
+
+    /// <summary>A series value as a dictionary key, the children with no value included.</summary>
+    private readonly record struct SeriesKey(string? Value);
+
+    /// <summary>The series chosen for a chart, and which column each value is drawn in.</summary>
+    private sealed record SeriesPick(
+        IReadOnlyList<ChartSeries> Series,
+        IReadOnlyDictionary<SeriesKey, int> Columns,
+        int OtherColumn,
+        int OtherValues)
+    {
+        public static SeriesPick None { get; } = new([], new Dictionary<SeriesKey, int>(), -1, 0);
+
+        public int ColumnOf(string? value) =>
+            Columns.TryGetValue(new SeriesKey(value), out var column) ? column : OtherColumn;
+    }
+
+    /// <summary>
+    /// A running total that knows the difference between nothing to add, a sum, and a sum too large
+    /// to represent.
+    /// </summary>
+    /// <remarks>
+    /// Each cell's total is bounded by the statement, but thousands of them added together are not,
+    /// and <see cref="decimal"/> throws where Postgres's numeric would not. A total that overflows is
+    /// reported as unknown - the posture the statement already takes for one value too large - rather
+    /// than failing the whole chart over one figure.
+    /// </remarks>
+    private struct TotalAccumulator
+    {
+        private decimal _sum;
+        private bool _any;
+        private bool _overflowed;
+
+        public readonly decimal? Value => _any && !_overflowed ? _sum : null;
+
+        public void Add(decimal? value)
+        {
+            if (value is not { } number || _overflowed)
+            {
+                return;
+            }
+
+            try
+            {
+                _sum = checked(_sum + number);
+                _any = true;
+            }
+            catch (OverflowException)
+            {
+                _overflowed = true;
+            }
+        }
+    }
+}
