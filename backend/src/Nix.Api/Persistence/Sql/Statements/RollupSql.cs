@@ -299,6 +299,12 @@ public static class RollupSql
     /// Cost scales with the container's children: every child is read once, through the parent
     /// index, whatever the limits are. The limits bound the work after that and the payload.
     /// </para>
+    /// <para>
+    /// Match null series through two equality keys: coalesced text and a separate null flag.
+    /// Postgres cannot hash an IS NOT DISTINCT FROM join, which otherwise compares every child
+    /// with every ranked series on a high-cardinality split. The null flag keeps an unset series
+    /// distinct from an empty string while allowing a hash join.
+    /// </para>
     /// </remarks>
     public static readonly string BucketChildrenByPropertyAndSeries = $"""
         WITH cell AS (
@@ -346,7 +352,8 @@ public static class RollupSql
                    sum(count(*)) OVER ()::bigint AS all_children
             FROM cell
             JOIN series_ranked AS ranked_series
-              ON ranked_series.series IS NOT DISTINCT FROM cell.series
+              ON coalesce(ranked_series.series, '') = coalesce(cell.series, '')
+             AND (ranked_series.series IS NULL) = (cell.series IS NULL)
             GROUP BY 1, 2, 3
         ),
         ranked AS (
@@ -408,11 +415,11 @@ public static class RollupSql
     /// knows the earliest day it holds may be incomplete.
     /// </para>
     /// </remarks>
-    public static readonly string BucketChildrenByDay = $"""
+    public static readonly string BucketChildrenByDay = $$"""
         WITH placed AS (
             SELECT CASE WHEN pg_input_is_valid(prefix.day, 'date') THEN prefix.day END AS day,
                    c.properties ->> @split_key AS series,
-                   {ChartNumber} AS measure
+                   {{ChartNumber}} AS measure
             FROM item AS c
             CROSS JOIN LATERAL (
                 SELECT substring(c.properties ->> @group_key from '^[0-9]{4}-[0-9]{2}-[0-9]{2}')
@@ -466,7 +473,7 @@ public static class RollupSql
                coalesce(ranked_series.series_rank > @series_limit, false) AS other,
                windowed.outside,
                count(*) AS children,
-               round({NumberSql.CappedSum("windowed.measure")}, 6) AS total,
+               round({{NumberSql.CappedSum("windowed.measure")}}, 6) AS total,
                count(*) OVER () AS cells,
                sum(count(*)) OVER ()::bigint AS all_children,
                (SELECT count(*) FROM series_ranked) AS series_count
@@ -474,7 +481,8 @@ public static class RollupSql
         LEFT JOIN series_ranked AS ranked_series
           ON windowed.day IS NOT NULL
          AND NOT windowed.outside
-         AND ranked_series.series IS NOT DISTINCT FROM windowed.series
+         AND coalesce(ranked_series.series, '') = coalesce(windowed.series, '')
+         AND (ranked_series.series IS NULL) = (windowed.series IS NULL)
         GROUP BY 1, 2, 3, 4
         ORDER BY 1 DESC NULLS FIRST, 3, 2 ASC NULLS LAST
         LIMIT @cell_limit

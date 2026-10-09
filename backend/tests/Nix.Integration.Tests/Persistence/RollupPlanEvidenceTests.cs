@@ -292,6 +292,9 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
         _output.WriteLine(plan);
 
         AssertReachedThroughParentIndex(plan);
+        // A split with one distinct value per child must match the ranks in one pass rather
+        // than comparing every child with every series. This is the production runtime plan.
+        Assert.Contains("Hash Cond:", plan, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -553,6 +556,11 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
                 ({{Literal(BigContainer)}}, {{alphaTenant}}, {{alphaWorkspace}}, 'note',
                  {{Literal(BigRoot)}}, 299999, '{"title":"Large container"}'::jsonb, 'active', NULL,
                  {{alphaPrincipal}}, {{alphaPrincipal}}, now(), now());
+
+            -- The new parent follows 125k rows. Refresh the cached foreign-key lookup plans
+            -- before inserting its children: a plan chosen for the initially empty table can
+            -- otherwise scan those rows for every child to find the parent near the end.
+            ANALYZE item;
 
             INSERT INTO item
                 (id, tenant_id, workspace_id, type, parent_id, seq, properties,
