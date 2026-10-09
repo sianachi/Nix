@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 namespace Nix.Persistence;
 
 /// <summary>
-/// The physical table names of the M0 schema, and which of them are tenant-scoped.
+/// The physical table names of the schema and their explicit security classification.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -13,9 +13,11 @@ namespace Nix.Persistence;
 /// unprotected because the test's copy of the name no longer matches anything.
 /// </para>
 /// <para>
-/// <see cref="TenantScoped"/> is the list the isolation tests iterate. A new table that holds
-/// customer data belongs in it; a new table that does not is the rare exception and should be
-/// argued for, because "every row carries a tenant" is what makes the policies uniform.
+/// <see cref="TenantScoped"/> is the list the tenant isolation tests iterate. Customer state belongs
+/// in it. <see cref="CapabilityOnly"/> is the narrow pre-authentication exception: anonymous login
+/// challenges have no tenant until a person approves them, so only exact secret-hash functions can
+/// reach these tables. They have forced RLS, no ordinary policies and no runtime or PUBLIC DML.
+/// An exhaustive database test checks both classes; a new table cannot silently escape scrutiny.
 /// </para>
 /// </remarks>
 public static class NixTables
@@ -34,6 +36,12 @@ public static class NixTables
 
     /// <summary>Core-owned browser sessions.</summary>
     public const string BrowserSession = "browser_session";
+
+    /// <summary>Anonymous, single-use browser approval challenges, accessed only by exact secret hashes.</summary>
+    public const string CliLoginPairing = "cli_login_pairing";
+
+    /// <summary>CLI-to-browser revocation links, accessed only inside session capability functions.</summary>
+    public const string CliSessionLink = "cli_session_link";
 
     /// <summary>Identities provisioned from an issuer.</summary>
     public const string Principal = "principal";
@@ -248,6 +256,15 @@ public static class NixTables
         PluginInvocation,
     ];
 
+    /// <summary>Pre-authentication capability state with no direct application, collaboration or PUBLIC access.</summary>
+    /// <remarks>
+    /// Pairings begin anonymously. The child revocation marker remains capability-only so an
+    /// ambient tenant cannot read, rewrite or erase the evidence connecting a CLI to its approving
+    /// browser. Exact security-definer functions derive identity from a standing source session;
+    /// they never accept a caller-supplied tenant or principal. Both tables force RLS with no policies.
+    /// </remarks>
+    public static ImmutableArray<string> CapabilityOnly { get; } = [CliLoginPairing, CliSessionLink];
+
     /// <summary>
     /// Read and write, sorted the way <c>information_schema.table_privileges</c> reports them.
     /// </summary>
@@ -296,6 +313,8 @@ public static class NixTables
             [Workspace] = FullDml,
             [IdentityProvider] = FullDml,
             [BrowserSession] = ["INSERT", "SELECT", "UPDATE"],
+            [CliLoginPairing] = [],
+            [CliSessionLink] = [],
             [Principal] = FullDml,
             [PrincipalGroup] = FullDml,
             [GroupMembership] = FullDml,

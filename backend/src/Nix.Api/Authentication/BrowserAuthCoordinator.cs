@@ -252,6 +252,7 @@ public sealed class BrowserAuthCoordinator
         string? cookie,
         CancellationToken cancellationToken) =>
         string.IsNullOrWhiteSpace(cookie) || cookie.Length > 128
+            || !cookie.StartsWith(BrowserSessionSecret.Prefix, StringComparison.Ordinal)
             ? ValueTask.FromResult<AuthenticatedBrowserSession?>(null)
             : _sessions.FindByTokenHashAsync(BrowserSessionSecret.Hash(cookie), cancellationToken);
 

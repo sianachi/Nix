@@ -220,6 +220,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<ImportFinanceStatement, FinanceImportResponse>, FinanceLedgerHandler>();
         services.AddScoped<IIdentityDirectory, IdentityDirectory>();
         services.AddScoped<IBrowserSessions, BrowserSessionStore>();
+        services.AddScoped<ICliLoginSessions, CliLoginSessionStore>();
         services.AddScoped<PersonalWorkspaceProvisioner>();
         services.AddScoped<IPersonalWorkspaceProvisioner>(provider => provider.GetRequiredService<PersonalWorkspaceProvisioner>());
         services.AddScoped<IPrincipalDirectory, PrincipalDirectory>();

@@ -73,6 +73,31 @@ describe('pet --after validation', () => {
   });
 });
 
+describe('auth login flag collection', () => {
+  it('defaults to browser login and accepts a manual approval URL', async () => {
+    const authModule = await import('./commands/auth.ts');
+    const spy = vi.spyOn(authModule, 'login').mockImplementation(() => Promise.resolve());
+    try {
+      const program = buildProgram();
+      overrideExitRecursively(program);
+      await program.parseAsync(
+        ['auth', 'login', '--api-url', 'http://localhost:5173', '--no-browser'],
+        { from: 'user' },
+      );
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          apiUrl: 'http://localhost:5173',
+          browser: false,
+          token: undefined,
+        }),
+        expect.anything(),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe('automations create flag collection', () => {
   it('collects repeatable flags and leaves unused ones absent', async () => {
     const automationsModule = await import('./commands/automations.ts');

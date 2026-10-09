@@ -204,9 +204,9 @@ export function buildProgram(): Command {
   const pet = program
     .command('pet <operation>')
     .description(
-      'Inspect or drive companions. Runtime calls require an interactive NIX_SESSION_TOKEN and --api-url; PAT permissions are not expanded.',
+      'Inspect or drive companions. Sign in with nixctl auth login for runtime calls; PAT permissions are not expanded.',
     )
-    .option('--api-url <url>', 'Core origin for a short-lived interactive session token')
+    .option('--api-url <url>', 'Core origin when supplying an interactive bearer token')
     .option('--workspace <id>', 'workspace identity')
     .option('--pet <id>', 'saved pet identity')
     .option('--message <text>', 'message to send')
@@ -308,9 +308,11 @@ export function buildProgram(): Command {
 
   auth
     .command('login')
-    .description('Store a personal access token after proving it mints a session.')
+    .description('Approve a renewable CLI session in your browser, or store an explicit PAT.')
     .requiredOption('--api-url <url>', "Core's base URL, e.g. http://localhost:5014")
-    .requiredOption('--token <token>', 'a personal access token, nixpat_...')
+    .option('--token <token>', 'use a personal access token instead of browser login, nixpat_...')
+    .option('--browser-url <url>', 'trusted Nix web origin when it differs from Core')
+    .option('--no-browser', 'print the approval URL without opening a browser')
     .option('--collab-url <url>', 'the collaboration service URL (defaults from the API URL)')
     .option('--media-url <url>', 'legacy media URL retained in the profile for compatibility')
     .option('--no-default', 'store the profile without making it the default')
@@ -321,6 +323,8 @@ export function buildProgram(): Command {
           {
             apiUrl: options.apiUrl,
             token: options.token,
+            browserUrl: options.browserUrl,
+            browser: options.browser,
             profileName: flags.profile ?? 'default',
             collabUrl: options.collabUrl,
             mediaUrl: options.mediaUrl,
@@ -341,7 +345,7 @@ export function buildProgram(): Command {
 
   auth
     .command('logout')
-    .description('Remove a profile from this machine.')
+    .description('Revoke a browser-approved CLI session and remove its local profile.')
     .action(async (_options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => logout(flags.profile, outputOptions(flags.json)));
@@ -2785,7 +2789,9 @@ interface RunCliOptions {
 
 interface LoginOptions {
   readonly apiUrl: string;
-  readonly token: string;
+  readonly token?: string;
+  readonly browserUrl?: string;
+  readonly browser?: boolean;
   readonly collabUrl?: string;
   readonly mediaUrl?: string;
   /** commander sets this false when `--no-default` is passed. */

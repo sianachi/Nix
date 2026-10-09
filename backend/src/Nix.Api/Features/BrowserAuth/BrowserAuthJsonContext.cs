@@ -6,4 +6,10 @@ namespace Nix.Features.BrowserAuth;
 [JsonSerializable(typeof(BrowserSessionResponse))]
 [JsonSerializable(typeof(BrowserProfileResponse))]
 [JsonSerializable(typeof(BrowserTokenResponse))]
+[JsonSerializable(typeof(CliLoginStartRequest))]
+[JsonSerializable(typeof(CliLoginStartResponse))]
+[JsonSerializable(typeof(CliLoginPollRequest))]
+[JsonSerializable(typeof(CliLoginPollResponse))]
+[JsonSerializable(typeof(CliLoginTokenRequest))]
+[JsonSerializable(typeof(CliLoginTokenResponse))]
 internal sealed partial class BrowserAuthJsonContext : JsonSerializerContext;

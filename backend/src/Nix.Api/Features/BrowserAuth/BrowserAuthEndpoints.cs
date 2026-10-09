@@ -294,7 +294,7 @@ internal static class BrowserAuthEndpoints
 }
 
 /// <summary>The browser's non-secret authenticated profile.</summary>
-internal sealed record BrowserProfileResponse(string Subject, string Name);
+public sealed record BrowserProfileResponse(string Subject, string Name);
 
 /// <summary>The result of restoring the HttpOnly browser session.</summary>
 internal sealed record BrowserSessionResponse(
