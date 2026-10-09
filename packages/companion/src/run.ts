@@ -36,6 +36,7 @@ import { planBuild } from './blueprint/plan.js';
 import { executeBuild } from './blueprint/build.js';
 import { saveAsTemplate } from './templates/save.js';
 import { listedItems } from './read/list-items.js';
+import { anyUnderLock } from './read/locks.js';
 import { calendarRange, readCalendar } from './read/calendar.js';
 import {
   completedFlag,
@@ -59,6 +60,10 @@ export interface WorkspaceToolOutcome {
   text: string;
   readOnly: boolean;
   touchedParents: (string | null)[];
+  /** Whether this read returned anything from an item under a lock (its own or an ancestor's).
+   * The web gate holds every later write in the same turn for the owner when it is true; writes
+   * always report false. */
+  lockedContent: boolean;
 }
 
 /** Execute only after the caller claims and approves this exact tool request. */
@@ -77,11 +82,18 @@ export async function runWorkspaceTool(
     throw new WorkspaceToolRefusal('This operation is only available in Design mode.');
   const requestOptions = { signal, forceRefresh: true };
   let result: unknown;
+  // The items a read returned content from, checked for a covering lock once the read is done.
+  let contentSources: (string | null | undefined)[] = [];
   const check = (id: string) => checkItem(ports, workspaceId, id, signal);
   const rawSpec: unknown = args.specJson.trim() ? JSON.parse(args.specJson) : {};
   if (args.operation === 'validate_blueprint') {
     const report = validateBlueprint(rawSpec, { inheritedFields: [], today: '' });
-    return { text: JSON.stringify(report), readOnly: true, touchedParents: [] };
+    return {
+      text: JSON.stringify(report),
+      readOnly: true,
+      touchedParents: [],
+      lockedContent: false,
+    };
   }
   if (args.operation === 'build_blueprint') {
     const context = await loadPreviewContext(ports, workspaceId, args, signal);
@@ -111,6 +123,7 @@ export async function runWorkspaceTool(
       text: JSON.stringify(result),
       readOnly: false,
       touchedParents: [args.parentId || null],
+      lockedContent: false,
     };
   }
   // Scope guards supplement, never replace, permission checks in Core and collab. Check every
@@ -299,10 +312,13 @@ export async function runWorkspaceTool(
         ? (await client.query(structure.effectiveSchema(args.parentId), requestOptions)).properties
         : [];
       result = listedItems(children, fields, truncated);
+      contentSources = [args.parentId];
       break;
     }
     case 'read_calendar': {
-      result = await readCalendar(ports, workspaceId, calendarRange(args.specJson), signal);
+      const calendar = await readCalendar(ports, workspaceId, calendarRange(args.specJson), signal);
+      result = calendar.read;
+      contentSources = calendar.containerIds;
       break;
     }
     case 'complete_task': {
@@ -324,6 +340,7 @@ export async function runWorkspaceTool(
       if (!args.query.trim()) throw new Error('A search query is required.');
       if (z.uuid().safeParse(args.query.trim()).success) {
         const item = await check(args.query.trim());
+        contentSources = [item.parentId];
         result = {
           results: [
             { id: item.id, workspaceId: item.workspaceId, title: item.title, type: item.type },
@@ -333,10 +350,9 @@ export async function runWorkspaceTool(
         break;
       }
       const found = await client.query(search.searchItems(args.query, 50), requestOptions);
-      result = {
-        results: found.results.filter((item) => item.workspaceId === workspaceId),
-        truncated: found.truncated,
-      };
+      const hits = found.results.filter((item) => item.workspaceId === workspaceId);
+      contentSources = hits.map((hit) => hit.parentId);
+      result = { results: hits, truncated: found.truncated };
       break;
     }
     case 'create_note': {
@@ -363,6 +379,7 @@ export async function runWorkspaceTool(
             }),
             readOnly: false,
             touchedParents: [args.parentId || null],
+            lockedContent: false,
           };
         }
       }
@@ -425,9 +442,11 @@ export async function runWorkspaceTool(
       switch (args.operation) {
         case 'read_item':
           result = item;
+          contentSources = [item.id];
           break;
         case 'read_structure':
           result = await readStructure(ports, workspaceId, item.id, signal);
+          contentSources = [item.id];
           break;
         case 'read_note':
         case 'append_note':
@@ -436,6 +455,7 @@ export async function runWorkspaceTool(
             args.operation === 'read_note'
               ? await bodies.read(item.id, signal)
               : await bodies.append(item.id, args.markdown, signal);
+          if (args.operation === 'read_note') contentSources = [item.id];
           break;
         case 'replace_section':
         case 'replace_passage': {
@@ -485,12 +505,15 @@ export async function runWorkspaceTool(
     }
   }
   const text = JSON.stringify(result);
+  const readOnly = READ_ONLY_OPERATIONS.has(args.operation);
+  const lockedContent = readOnly && (await anyUnderLock(ports, contentSources, signal));
   return {
+    lockedContent,
     text:
       text.length <= 16000
         ? text
         : JSON.stringify({ truncated: true, preview: text.slice(0, 15000) }),
-    readOnly: READ_ONLY_OPERATIONS.has(args.operation),
+    readOnly,
     touchedParents: [
       'create_note',
       'move_item',

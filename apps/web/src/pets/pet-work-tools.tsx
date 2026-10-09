@@ -21,6 +21,8 @@ import { readReadWithoutAsking, type PetConversationMode } from './device-prefer
 interface PreparedPreview {
   model: PreviewModel;
   fingerprint: StructureFingerprint;
+  /** The write completes one occurrence of a repeating task, which Core cannot reopen. */
+  taskOccurrence: boolean;
 }
 
 interface ToolPreviewState {
@@ -44,10 +46,18 @@ const DECLINED_BY_USER = 'Declined by the user. Do not retry this change unless 
  * `writeTextItems` lists only bodies, specs and property values. A note body edit also passes the
  * edited block as it will read afterwards (`model.bodyEdit.after`): the find and replace text can
  * join with what is already there into a link neither holds alone. An edit that would drop
- * formatting Markdown cannot carry always waits, so the owner sees the loss before it happens. */
-function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel): boolean {
+ * formatting Markdown cannot carry always waits, so the owner sees the loss before it happens,
+ * and so does completing an occurrence of a repeating task (`taskOccurrence`), which cannot be
+ * undone. */
+function writeMayRunWithoutAsking(
+  args: WorkspaceToolArgs,
+  model?: PreviewModel,
+  taskOccurrence = false,
+): boolean {
   return (
     canApplyWithoutAsking(args.operation) &&
+    // Completing an occurrence of a repeating task cannot be undone (Core has no reopen).
+    !taskOccurrence &&
     // A body edit's stored text is only known once its preview has placed it.
     (!BODY_EDIT_OPERATIONS.has(args.operation) || model?.bodyEdit !== undefined) &&
     model?.bodyEdit?.losesFormatting !== true &&
@@ -64,11 +74,25 @@ function writeMayRunWithoutAsking(args: WorkspaceToolArgs, model?: PreviewModel)
 const WAITS_FOR_FORMATTING =
   'This one waits for you: approving it removes formatting this edit can’t keep (see below).';
 const WAITS_FOR_LINK = 'This one waits for you: it adds a link to another site.';
+const HELD_AFTER_LOCKED_READ = 'This one waits for you: it follows a read of locked content.';
+const HELD_FOR_OCCURRENCE =
+  "This one waits for you: completing a repeating task's occurrence cannot be undone.";
+
+/** The receipt key marking a read that returned content from under a lock. Stored like every
+ * other receipt, so reopening the panel mid-turn keeps the turn's writes waiting. */
+function lockedReadKey(decisionKey: string): string {
+  return `locked-read:${decisionKey}`;
+}
 
 /** Why a write the owner's switch would otherwise run is waiting anyway, in the owner's words,
  * when that is something the preview shows: formatting a body edit drops, or a link to another
  * host in what it would store. */
-function waitsForOwnerBecause(args: WorkspaceToolArgs, model: PreviewModel): string | undefined {
+function waitsForOwnerBecause(
+  args: WorkspaceToolArgs,
+  model: PreviewModel,
+  taskOccurrence = false,
+): string | undefined {
+  if (taskOccurrence) return HELD_FOR_OCCURRENCE;
   if (model.bodyEdit?.losesFormatting) return WAITS_FOR_FORMATTING;
   if (
     hasExternalLink([
@@ -307,6 +331,11 @@ export function PetWorkTools({
   // The owner's sentence for an approved write refused before it changed anything. Kept in
   // memory only: receipts in session storage hold outcomes, never document text.
   const [ownerReasons, setOwnerReasons] = useState<Record<string, string>>({});
+  // Reads in this turn that returned content from under a lock. The pet's reads carry the owner's
+  // unlocks, so once one did, no write in the same turn applies without asking: injected text
+  // could otherwise copy what it read out to somewhere unlocked. The worker starts every turn
+  // with an empty tool list, so `runtime.tools` is exactly the current turn.
+  const [lockedReads, setLockedReads] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const changed = () => {
@@ -325,6 +354,12 @@ export function PetWorkTools({
     return applyWithoutAsking && !applyExemptToolIds.includes(tool.id);
   }
 
+  const turnReadLockedContent = (runtime.tools ?? []).some(
+    (tool) =>
+      lockedReads[tool.id] === true ||
+      readActionReceipt(lockedReadKey(decisionKey(tool))) === 'locked',
+  );
+
   const needsDecision = (runtime.tools ?? [])
     .filter((tool) => {
       if (tool.status !== 'pending') return false;
@@ -342,7 +377,8 @@ export function PetWorkTools({
       return !(
         appliesWithoutAsking(tool) &&
         writeMayRunWithoutAsking(parsed.data) &&
-        !previewFailed[tool.id]
+        !previewFailed[tool.id] &&
+        !turnReadLockedContent
       );
     })
     .map((tool) => tool.id);
@@ -436,6 +472,10 @@ export function PetWorkTools({
           );
           toolResult = outcome.text;
           toolSuccess = true;
+          if (outcome.lockedContent) {
+            writeActionReceipt(lockedReadKey(key), 'locked');
+            setLockedReads((old) => ({ ...old, [tool.id]: true }));
+          }
           if (args.operation === 'build_blueprint') {
             const build = buildOutcome(outcome.text);
             if (build?.complete) setBuildLedgers((old) => ({ ...old, [mode]: build.ledger }));
@@ -538,6 +578,7 @@ export function PetWorkTools({
           busy={busy}
           readWithoutAsking={readWithoutAsking}
           applyWithoutAsking={appliesWithoutAsking(tool)}
+          followsLockedRead={turnReadLockedContent}
           progress={progress[tool.id]}
           onBuildProgress={(message) => {
             setProgress((old) => ({ ...old, [tool.id]: message }));
@@ -1054,6 +1095,7 @@ function PetWorkToolCard({
   onBuildProgress,
   onProblemsChange,
   onPreviewFailedChange,
+  followsLockedRead,
   submitted,
   ownerReason,
   onResolve,
@@ -1076,6 +1118,8 @@ function PetWorkToolCard({
    * once a loaded preview shows a note body edit whose resulting text links to another host,
    * which only the preview can tell (`writeMayRunWithoutAsking` with the model). */
   readonly onPreviewFailedChange: (failed: boolean) => void;
+  /** A read earlier in this turn returned content from under a lock. */
+  readonly followsLockedRead: boolean;
   readonly submitted?: string;
   readonly onResolve: Resolver;
 }): ReactElement {
@@ -1142,7 +1186,11 @@ function PetWorkToolCard({
           setState({
             loading: false,
             arguments: tool.arguments,
-            prepared: { model, fingerprint: context.fingerprint },
+            prepared: {
+              model,
+              fingerprint: context.fingerprint,
+              taskOccurrence: context.taskCompletion?.kind === 'occurrence',
+            },
           });
       } catch {
         if (!controller.signal.aborted)
@@ -1186,15 +1234,20 @@ function PetWorkToolCard({
     })();
   }, [hasProblems, busy, tool, problemResult, onResolve]);
 
+  // Completing an occurrence of a repeating task cannot be undone, so it never runs unattended.
+  const taskOccurrence = currentPreview && (state.prepared?.taskOccurrence ?? false);
   const previewFailed =
     !isReadOp &&
     currentPreview &&
     !state.loading &&
     (Boolean(state.error) ||
-      (args !== undefined && model !== undefined && !writeMayRunWithoutAsking(args, model)));
+      (args !== undefined &&
+        model !== undefined &&
+        !writeMayRunWithoutAsking(args, model, taskOccurrence)));
   useEffect(() => {
     onPreviewFailedChange(previewFailed);
   }, [previewFailed, onPreviewFailedChange]);
+
 
   // Lane F: with the owner's switch on, a clean write runs exactly as a click on "Approve
   // request" would - same fence, same build progress, same single-flight lock in `resolve` -
@@ -1204,12 +1257,13 @@ function PetWorkToolCard({
     applyWithoutAsking &&
     !isReadOp &&
     args !== undefined &&
+    !followsLockedRead &&
     tool.status === 'pending' &&
     !submitted &&
     currentPreview &&
     !state.loading &&
     model !== undefined &&
-    writeMayRunWithoutAsking(args, model) &&
+    writeMayRunWithoutAsking(args, model, taskOccurrence) &&
     problems.length === 0 &&
     !state.error;
   useEffect(() => {
@@ -1309,15 +1363,15 @@ function PetWorkToolCard({
         () => !(model?.bodyEdit && BODY_EDIT_OPERATIONS.has(args.operation)),
       )
     : [];
-  // With the switch on, a clean write that waits anyway says why, above the buttons.
+  // With the switch on, a clean write that waits anyway says why, above the buttons. A read of
+  // locked content holds every write, previewed yet or not, so it is said first.
   const waitReason =
-    applyWithoutAsking &&
-    args !== undefined &&
-    model !== undefined &&
-    tool.status === 'pending' &&
-    !submitted &&
-    problems.length === 0
-      ? waitsForOwnerBecause(args, model)
+    applyWithoutAsking && args !== undefined && tool.status === 'pending' && !submitted
+      ? followsLockedRead
+        ? HELD_AFTER_LOCKED_READ
+        : model !== undefined && problems.length === 0
+          ? waitsForOwnerBecause(args, model, taskOccurrence)
+          : undefined
       : undefined;
   const isCompactWrite =
     args !== undefined && (tool.status !== 'pending' || Boolean(submitted) || problems.length > 0);

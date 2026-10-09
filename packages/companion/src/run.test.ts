@@ -1517,7 +1517,7 @@ describe('reading values, the calendar, and completing tasks', () => {
     });
   });
 
-  it('completes the next upcoming occurrence when nothing is open up to today', async () => {
+  it('refuses a future occurrence, naming its date, when nothing is open up to today', async () => {
     const { ports, execute, signal } = taskSetup({
       properties: { due_date: '2026-09-01' },
       calendar: calendarResponse([
@@ -1525,13 +1525,68 @@ describe('reading values, the calendar, and completing tasks', () => {
         entry({ value: '2026-10-02', generated: true, completed: false }),
       ]),
     });
-    await runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
-      fence: `task:occurrence:${itemId}:2026-10-02`,
+    await expect(
+      runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
+        fence: `task:occurrence:${itemId}:2026-10-02`,
+      }),
+    ).rejects.toThrow('next occurrence is on 2026-10-02');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('looks a year back for occurrences so a yearly task is still recognised', async () => {
+    const { ports, query, signal } = taskSetup({
+      properties: { due_date: '2025-10-01' },
+      calendar: calendarResponse([
+        entry({ value: '2025-10-01', generated: true, completed: false }),
+      ]),
     });
-    expect(execute).toHaveBeenCalledWith(
-      expect.objectContaining({ body: { occurredOn: '2026-10-02' } }),
+    const context = await loadPreviewContext(
+      ports,
+      workspace,
+      workspaceToolSchema.parse(JSON.parse(completeArgs(true))),
+      signal,
+    );
+    expect(context.fingerprint).toBe(`task:occurrence:${itemId}:2025-10-01`);
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: `/api/v1/workspaces/${workspace}/calendar?from=2025-09-24&to=2026-10-26`,
+      }),
       expect.anything(),
     );
+  });
+
+  it('refuses rather than set the series flag when the calendar read was cut short', async () => {
+    const { ports, execute, signal } = taskSetup({
+      properties: { due_date: '2026-09-01' },
+      calendar: calendarResponse([], { seriesTruncated: true }),
+    });
+    await expect(
+      runWorkspaceTool(ports, workspace, completeArgs(true), signal, {
+        fence: `task:property:${itemId}:completion:true`,
+      }),
+    ).rejects.toThrow('could not confirm whether');
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('refuses a task under a lock that is closed to this credential', async () => {
+    const fake = taskSetup({ properties: { completion: false } });
+    const base = fake.query.getMockImplementation() as (endpoint: { operation: string }) => unknown;
+    fake.query.mockImplementation((endpoint: { operation: string }) =>
+      endpoint.operation === 'locks.get'
+        ? Promise.resolve({
+            locked: true,
+            unlockedUntil: null,
+            lockItemId: itemId,
+            selfLocked: true,
+          })
+        : base(endpoint),
+    );
+    await expect(
+      runWorkspaceTool(fake.ports, workspace, completeArgs(true), fake.signal, {
+        fence: `task:property:${itemId}:completion:true`,
+      }),
+    ).rejects.toThrow('lock that is closed');
+    expect(fake.execute).not.toHaveBeenCalled();
   });
 
   it('refuses to reopen an occurrence of a repeating task', async () => {
@@ -1594,6 +1649,102 @@ describe('reading values, the calendar, and completing tasks', () => {
       'changed since you approved',
     );
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [true, true],
+    [false, false],
+  ])(
+    'reports a read of a note under a lock (locked: %s) as locked content: %s',
+    async (locked, expected) => {
+      const fake = setup();
+      fake.query.mockImplementation((endpoint: { operation: string }) =>
+        Promise.resolve(
+          endpoint.operation === 'locks.get'
+            ? {
+                locked,
+                unlockedUntil: locked ? '2026-09-25T10:00:00+00:00' : null,
+                lockItemId: locked ? containerId : null,
+                selfLocked: false,
+              }
+            : {
+                id: itemId,
+                workspaceId: workspace,
+                parentId: containerId,
+                title: 'Plan',
+                type: 'note',
+              },
+        ),
+      );
+      fake.bodies.read.mockResolvedValue({ markdown: 'secret' });
+      const outcome = await runWorkspaceTool(
+        fake.ports,
+        workspace,
+        input('read_note', { itemId }),
+        fake.signal,
+      );
+      expect(outcome.lockedContent).toBe(expected);
+      expect(fake.query).toHaveBeenCalledWith(
+        expect.objectContaining({ operation: 'locks.get', path: `/api/v1/items/${itemId}/lock` }),
+        expect.objectContaining({ forceRefresh: true }),
+      );
+    },
+  );
+
+  it('treats an unreadable lock state as locked, and never flags a write', async () => {
+    const fake = setup();
+    fake.query.mockImplementation((endpoint: { operation: string }) =>
+      endpoint.operation === 'locks.get'
+        ? Promise.reject(new Error('offline'))
+        : Promise.resolve({
+            id: itemId,
+            workspaceId: workspace,
+            parentId: null,
+            title: 'Plan',
+            type: 'note',
+          }),
+    );
+    const read = await runWorkspaceTool(
+      fake.ports,
+      workspace,
+      input('read_item', { itemId }),
+      fake.signal,
+    );
+    expect(read.lockedContent).toBe(true);
+    const write = await runWorkspaceTool(
+      fake.ports,
+      workspace,
+      input('rename_item', { itemId, title: 'New' }),
+      fake.signal,
+    );
+    expect(write.lockedContent).toBe(false);
+  });
+
+  it('checks the containers a calendar read returned rows from', async () => {
+    const { ports, query, signal } = setup();
+    query.mockImplementation((endpoint: { operation: string }) =>
+      Promise.resolve(
+        endpoint.operation === 'locks.get'
+          ? {
+              locked: true,
+              unlockedUntil: '2026-09-25T10:00:00+00:00',
+              lockItemId: containerId,
+              selfLocked: true,
+            }
+          : calendarResponse([entry({})]),
+      ),
+    );
+    const outcome = await runWorkspaceTool(
+      ports,
+      workspace,
+      input('read_calendar', { specJson: '{"from":"2026-09-21","to":"2026-09-27"}' }),
+      signal,
+    );
+    expect(outcome.lockedContent).toBe(true);
+    expect(query).toHaveBeenCalledWith(
+      expect.objectContaining({ path: `/api/v1/items/${containerId}/lock` }),
+      expect.anything(),
+    );
   });
 
   it('rejects complete_task without a boolean completed flag at the argument boundary', () => {

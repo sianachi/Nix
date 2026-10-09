@@ -1,12 +1,15 @@
-import { recurrence, structure, workspaceCalendar } from '@nix/api-client';
+import { locks, recurrence, structure, workspaceCalendar } from '@nix/api-client';
 import type { CompanionPorts } from '../ports.js';
 import { checkItem } from '../guards.js';
 import { WorkspaceToolRefusal } from '../tool-args.js';
 
-/** How far either side of today a repeating task's occurrences are looked for. A repeating task
- * is recognised by the series the workspace calendar draws for it, the same series the calendar
- * view completes occurrences from; Core's item read does not carry the rule itself. */
-export const OCCURRENCE_WINDOW_DAYS = 31;
+/** How far back and forward from today a repeating task's occurrences are looked for. A
+ * repeating task is recognised by the series the workspace calendar draws for it, the same series
+ * the calendar view completes occurrences from; Core's item read does not carry the rule itself.
+ * A year back means even a yearly series shows at least one occurrence; together the window stays
+ * inside the calendar's 400-day limit. */
+export const OCCURRENCE_LOOKBACK_DAYS = 366;
+export const OCCURRENCE_LOOKAHEAD_DAYS = 31;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -71,14 +74,18 @@ const UNPLACEABLE_REASONS: Record<string, string> = {
 };
 
 /**
- * Decides how to complete (or reopen) one task. Refuses, before anything is written, an item
- * whose schema has no completion field - naming `nix_add_fields` as the way to add one - and a
- * repeating task the pet cannot route through the series the way the calendar does.
+ * Decides how to complete (or reopen) one task. Refuses, before anything is written:
+ * - an item whose schema has no completion field, naming `nix_add_fields` as the way to add one;
+ * - an item under a lock that is closed to this credential;
+ * - a dated item whose repeat status cannot be confirmed (the calendar read was cut short, or the
+ *   series cannot be drawn), rather than falling back to the series-wide completion flag;
+ * - reopening an occurrence, which has no Core operation;
+ * - an occurrence after today: completing ahead cannot be undone, and repeated calls would walk
+ *   the series into the future.
  *
- * A repeating task completes the earliest open occurrence on or before today, else the next one
- * after it, through Core's recurrence completion (`recurrence.completeOccurrence`), so the series
- * moves on exactly as when the owner ticks it in the calendar. Reopening an occurrence has no Core
- * operation, so it is refused rather than approximated.
+ * A repeating task completes its earliest open occurrence on or before today through Core's
+ * recurrence completion (`recurrence.completeOccurrence`), so the series moves on exactly as when
+ * the owner ticks it in the calendar.
  */
 export async function planTaskCompletion(
   ports: CompanionPorts,
@@ -95,6 +102,11 @@ export async function planTaskCompletion(
     throw new WorkspaceToolRefusal(
       `“${item.title}” has no completion field, so it cannot be marked done. Add a completion field to its container with nix_add_fields first, then try again.`,
     );
+  const lock = await ports.core.query(locks.getItemLock(item.id), requestOptions);
+  if (lock.locked && lock.unlockedUntil === null)
+    throw new WorkspaceToolRefusal(
+      `“${item.title}” is under a lock that is closed. The owner must unlock it in Nix first. Nothing was changed.`,
+    );
 
   const dueField = schema.properties.find((property) => property.type === 'due_date');
   const due = dueField === undefined ? undefined : item.properties[dueField.key];
@@ -102,12 +114,10 @@ export async function planTaskCompletion(
   // calendar (or Core's completion) could act on: there is nothing to look up.
   if (typeof due === 'string' && due.trim()) {
     const today = ports.clock.today();
+    const from = shiftDay(today, -OCCURRENCE_LOOKBACK_DAYS);
+    const to = shiftDay(today, OCCURRENCE_LOOKAHEAD_DAYS);
     const calendar = await ports.core.query(
-      workspaceCalendar.workspaceCalendar(
-        workspaceId,
-        shiftDay(today, -OCCURRENCE_WINDOW_DAYS),
-        shiftDay(today, OCCURRENCE_WINDOW_DAYS),
-      ),
+      workspaceCalendar.workspaceCalendar(workspaceId, from, to),
       requestOptions,
     );
     const unplaceable = calendar.unplaceable.find((entry) => entry.itemId === item.id);
@@ -119,19 +129,25 @@ export async function planTaskCompletion(
       throw new WorkspaceToolRefusal(
         `“${item.title}” repeats, but its occurrences cannot be read because ${UNPLACEABLE_REASONS[unplaceable.reason] ?? 'its series cannot be drawn'}. Nothing was changed.`,
       );
+    if (occurrences.length === 0 && (calendar.entriesTruncated || calendar.seriesTruncated))
+      throw new WorkspaceToolRefusal(
+        `Nix could not confirm whether “${item.title}” repeats: its calendar holds more than one read returns. Mark it done in Nix. Nothing was changed.`,
+      );
     if (occurrences.length > 0) {
       if (!completed)
         throw new WorkspaceToolRefusal(
           `“${item.title}” repeats, and reopening one of its occurrences is not something the pet can do. Nothing was changed.`,
         );
       const open = occurrences.filter((occurrence) => !occurrence.completed);
-      const target =
-        open.find((occurrence) => occurrence.day <= today) ??
-        open.find((occurrence) => occurrence.day > today);
-      if (target === undefined)
+      const target = open.find((occurrence) => occurrence.day <= today);
+      if (target === undefined) {
+        const next = open.find((occurrence) => occurrence.day > today);
         throw new WorkspaceToolRefusal(
-          `Every occurrence of “${item.title}” from ${shiftDay(today, -OCCURRENCE_WINDOW_DAYS)} to ${shiftDay(today, OCCURRENCE_WINDOW_DAYS)} is already done. Nothing was changed.`,
+          next === undefined
+            ? `Every occurrence of “${item.title}” from ${from} to ${to} is already done. Nothing was changed.`
+            : `“${item.title}” has nothing open up to today; its next occurrence is on ${next.day}. Completing a future occurrence cannot be undone, so the pet does not do it. Nothing was changed.`,
         );
+      }
       return { kind: 'occurrence', itemId: item.id, title: item.title, occurredOn: target.day };
     }
   }

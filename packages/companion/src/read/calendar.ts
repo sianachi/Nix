@@ -67,7 +67,7 @@ export async function readCalendar(
   workspaceId: string,
   range: CalendarRange,
   signal: AbortSignal,
-): Promise<CalendarRead> {
+): Promise<{ read: CalendarRead; containerIds: string[] }> {
   const calendar = await ports.core.query(
     workspaceCalendar.workspaceCalendar(workspaceId, range.from, range.to),
     { signal, forceRefresh: true },
@@ -93,5 +93,10 @@ export async function readCalendar(
   };
   if (calendar.unplaceable.length > 0) result.unplaceable = calendar.unplaceable.length;
   if (result.truncated) result.hint = 'More entries exist. Read a shorter range for the rest.';
-  return result;
+  // The containers the returned rows came from, so the caller can tell whether any sits under a
+  // lock (`anyUnderLock`); never part of what the model reads.
+  const containerIds = calendar.entries
+    .slice(0, CALENDAR_MAX_ROWS)
+    .map((entry) => entry.containerId);
+  return { read: result, containerIds };
 }
