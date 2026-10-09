@@ -59,11 +59,12 @@ interface HarnessOptions {
   readonly refuseWrite?: string;
   readonly refuseCreate?: string;
   readonly onCreate?: (title: string) => void;
+  readonly lines?: readonly Item[];
 }
 
 /** A checklist over an in-memory container whose writes land optimistically, like `useContainer`. */
 function Harness(options: HarnessOptions): ReactNode {
-  const [children, setChildren] = useState<readonly Item[]>(LINES);
+  const [children, setChildren] = useState<readonly Item[]>(options.lines ?? LINES);
   const container = aContainer({
     schema: options.schema ?? schemaOf(DONE, WHERE),
     children,
@@ -186,5 +187,31 @@ describe('ChecklistView', () => {
 
     expect(screen.getByText('This checklist has nothing to tick')).toBeInTheDocument();
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+  });
+
+  it('keeps focus in the add field across the first line of an empty checklist', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness lines={[]} />);
+
+    expect(screen.getByText(/Nothing on this checklist yet/)).toBeInTheDocument();
+    const field = screen.getByRole('textbox', { name: 'Add a line' });
+    await user.click(field);
+    await user.type(field, 'Butter{Enter}');
+
+    expect(await screen.findByRole('checkbox', { name: 'Butter' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Add a line' })).toHaveFocus();
+  });
+
+  it('moves focus to the next visible line when a ticked line is hidden', async () => {
+    const user = userEvent.setup();
+    renderAt(<Harness />);
+
+    await user.click(screen.getByRole('button', { name: 'Hide done' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Bread' }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('checkbox', { name: 'Bread' })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('checkbox', { name: 'Eggs' })).toHaveFocus();
   });
 });

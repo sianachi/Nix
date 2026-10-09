@@ -5,7 +5,7 @@ import {
   type PropertyDefinition,
   type PropertyValue,
 } from './container-model';
-import { canSectionBy, TYPE_GROUP_KEY } from './property-types';
+import { canSectionBy, propertyTypeWord, TYPE_GROUP_KEY } from './property-types';
 
 /**
  * One way of sorting a container's children into a small, closed set of groups: the sections of a
@@ -196,10 +196,10 @@ export function describeAxisProblem(
 ): string {
   switch (resolution.kind) {
     case 'unset':
-      return `Nothing says which property its ${role} come from.`;
+      return `Choose a property for its ${role} in this view's settings.`;
     case 'missing':
-      return `Its ${role} come from "${resolution.key}", which is not a property here any more.`;
+      return `Its ${role} came from a property that is no longer here. Choose another in this view's settings.`;
     case 'wrongType':
-      return `Its ${role} come from "${resolution.property.label}", a ${resolution.property.type} property; only a select or a checkbox can make ${role}.`;
+      return `Its ${role} come from "${resolution.property.label}", a ${propertyTypeWord(resolution.property.type)} property; only a select or a checkbox can make ${role}.`;
   }
 }

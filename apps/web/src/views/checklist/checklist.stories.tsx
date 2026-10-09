@@ -89,3 +89,5 @@ export const TicksRefused = {
 export const NothingToTick = { render: (): ReactNode => <Example properties={[AISLE]} /> };
 export const DarkShopping = { ...Shopping, globals: { ground: 'dark' } };
 export const DarkNothingToTick = { ...NothingToTick, globals: { ground: 'dark' } };
+export const Phone = { ...Shopping, parameters: { viewport: { defaultViewport: 'mobile1' } } };
+export const DarkPhone = { ...Phone, globals: { ground: 'dark' } };

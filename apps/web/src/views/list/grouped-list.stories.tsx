@@ -73,3 +73,5 @@ export const GroupingGone = {
 };
 export const DarkBySelect = { ...BySelect, globals: { ground: 'dark' } };
 export const DarkSectionFolded = { ...SectionFolded, globals: { ground: 'dark' } };
+export const Phone = { ...BySelect, parameters: { viewport: { defaultViewport: 'mobile1' } } };
+export const DarkPhone = { ...Phone, globals: { ground: 'dark' } };
