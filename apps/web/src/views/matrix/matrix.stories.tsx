@@ -52,10 +52,19 @@ const VIEW: View = {
   filters: [],
 };
 
-function Example({ view = VIEW }: { readonly view?: View }): ReactNode {
-  const [children, setChildren] = useState<readonly Item[]>(CARDS);
+function Example({
+  view = VIEW,
+  refuse,
+  cards = CARDS,
+}: {
+  readonly view?: View;
+  readonly refuse?: string;
+  readonly cards?: readonly Item[];
+}): ReactNode {
+  const [children, setChildren] = useState<readonly Item[]>(cards);
   const container = storyContainer(children, [URGENCY, IMPORTANCE], {
     setProperties: (itemId, values) => {
+      if (refuse !== undefined) return Promise.resolve(refuse);
       setChildren((current) =>
         current.map((entry) =>
           entry.id === itemId
@@ -75,5 +84,17 @@ function Example({ view = VIEW }: { readonly view?: View }): ReactNode {
 
 export const Priorities = { render: (): ReactNode => <Example /> };
 export const NoRows = { render: (): ReactNode => <Example view={{ ...VIEW, rowBy: null }} /> };
+/** Use a card's "Move to…" menu: the write is refused and the card stays where it was. */
+export const MoveRefused = {
+  render: (): ReactNode => <Example refuse="This item is read-only." />,
+};
+/** Two cards only, so most cells are empty: press "Show empty rows and columns". */
+export const MostlyEmpty = {
+  render: (): ReactNode => <Example cards={CARDS.slice(0, 2)} />,
+};
+export const Phone = { ...Priorities, parameters: { viewport: { defaultViewport: 'mobile1' } } };
+export const DarkMoveRefused = { ...MoveRefused, globals: { ground: 'dark' } };
+export const DarkMostlyEmpty = { ...MostlyEmpty, globals: { ground: 'dark' } };
+export const DarkPhone = { ...Phone, globals: { ground: 'dark' } };
 export const DarkPriorities = { ...Priorities, globals: { ground: 'dark' } };
 export const DarkNoRows = { ...NoRows, globals: { ground: 'dark' } };

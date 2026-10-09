@@ -1,5 +1,6 @@
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
@@ -108,10 +109,8 @@ describe('MatrixView', () => {
     const setProperties = vi.fn(() => Promise.resolve(null));
     renderMatrix({}, { setProperties });
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Move Answer mail to' }),
-      'Important, Later',
-    );
+    await user.click(screen.getByRole('button', { name: 'Move Answer mail to' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Important, Later' }));
 
     expect(setProperties).toHaveBeenCalledTimes(1);
     expect(setProperties).toHaveBeenCalledWith('mail', { important: true, urgency: 'Later' });
@@ -136,10 +135,8 @@ describe('MatrixView', () => {
     const user = userEvent.setup();
     renderMatrix({}, { setProperties: () => Promise.resolve('This item is read-only.') });
 
-    await user.selectOptions(
-      screen.getByRole('combobox', { name: 'Move Answer mail to' }),
-      'Important, Later',
-    );
+    await user.click(screen.getByRole('button', { name: 'Move Answer mail to' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Important, Later' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('This item is read-only.');
   });
@@ -169,5 +166,49 @@ describe('MatrixView', () => {
     renderMatrix({ rowBy: 'urgency' });
 
     expect(screen.getByText('This matrix uses one property for both axes')).toBeInTheDocument();
+  });
+
+  it('puts focus back on the moved card once it lands in its new cell', async () => {
+    const user = userEvent.setup();
+    function Moving(): ReactNode {
+      const [children, setChildren] = useState<readonly Item[]>(CARDS);
+      return (
+        <MatrixView
+          container={aContainer({
+            schema: SCHEMA,
+            children,
+            setProperties: (itemId, values) => {
+              setChildren((current) =>
+                current.map((entry) =>
+                  entry.id === itemId
+                    ? { ...entry, properties: { ...entry.properties, ...values } }
+                    : entry,
+                ),
+              );
+              return Promise.resolve(null);
+            },
+          })}
+          view={aView({ kind: 'matrix', groupBy: 'urgency', rowBy: 'important', columns: [] })}
+          onOpen={vi.fn()}
+        />
+      );
+    }
+    renderAt(<Moving />);
+
+    await user.click(screen.getByRole('button', { name: 'Move Answer mail to' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Important, Later' }));
+
+    const cell = screen.getByRole('list', { name: 'Important, Later cards' });
+    await waitFor(() => {
+      expect(within(cell).getByRole('button', { name: 'Answer mail' })).toHaveFocus();
+    });
+  });
+
+  it('offers a create control in each cell that fills in both of its values', () => {
+    renderMatrix();
+
+    expect(
+      screen.getByRole('button', { name: 'Add an item to Important, Urgent' }),
+    ).toBeInTheDocument();
   });
 });
