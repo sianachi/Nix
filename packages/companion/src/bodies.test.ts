@@ -243,9 +243,12 @@ describe('replacing a section', () => {
       element.toJSON().includes('Total is'),
     );
     note.fragment.delete(budget, 1);
-    await expect(note.bodies.applyEdit(itemId, change, plan.fingerprint, signal)).rejects.toThrow(
-      'The note changed since you approved this.',
-    );
+    await expect(
+      note.bodies.applyEdit(itemId, change, plan.fingerprint, signal),
+    ).rejects.toMatchObject({
+      message: 'The note changed since you approved this. Read it again before editing.',
+      ownerMessage: 'The note changed after you approved this, so nothing was edited.',
+    });
     expect(note.execute).not.toHaveBeenCalled();
     note.original.destroy();
   });
@@ -271,7 +274,14 @@ describe('replacing a passage', () => {
       find: 'Shirts',
       replace: 'T-shirts',
     });
-    expect(plan).toMatchObject({ before: 'Shirts', after: 'T-shirts' });
+    expect(plan).toMatchObject({
+      scope: 'list item',
+      before: 'Shirts',
+      after: 'T-shirts',
+      // "S" became "T-s": the round trip keeps the rest, so only that run is marked.
+      beforeRange: { start: 0, end: 1 },
+      afterRange: { start: 0, end: 3 },
+    });
     expect(result).toMatchObject({ replaced: true, blocksRemoved: 1, blocksAdded: 1 });
     expect(note.markdown()).toContain('- Clothes\n\n  - Socks\n  - T-shirts');
     const after = new Set(elementIds(note.fragment));
@@ -389,6 +399,41 @@ describe('replacing a passage', () => {
       new AbortController().signal,
     );
     expect(plan.losses.map((loss) => loss.kind)).toContain('alignment-dropped');
+    note.original.destroy();
+  });
+
+  it('names the block a passage sits in', async () => {
+    const note = noteFromMarkdown(TRIP);
+    const signal = new AbortController().signal;
+    const scopeOf = async (find: string) =>
+      (await note.bodies.planEdit(itemId, { kind: 'passage', find, replace: 'x' }, signal)).scope;
+    expect(await scopeOf('Intro with')).toBe('paragraph');
+    expect(await scopeOf('Extras')).toBe('heading');
+    expect(await scopeOf('pack --all')).toBe('code block');
+    expect(await scopeOf('Count')).toBe('table cell');
+    expect(await scopeOf('Passport')).toBe('list item');
+    note.original.destroy();
+  });
+
+  it('gives every refusal an owner sentence with no tool names', async () => {
+    const note = noteFromMarkdown('# Week 1\n\n## Notes\n\nOne.\n\n# Week 2\n\n## Notes\n\nOne.');
+    const signal = new AbortController().signal;
+    const changes: BodyEdit[] = [
+      { kind: 'section', heading: 'Missing', markdown: 'x' },
+      { kind: 'section', heading: 'Notes', markdown: 'x' },
+      { kind: 'section', heading: 'Week 1', markdown: ' ' },
+      { kind: 'passage', find: 'absent', replace: 'x' },
+      { kind: 'passage', find: 'One.', replace: 'x' },
+    ];
+    for (const change of changes) {
+      const refusal = await note.bodies
+        .planEdit(itemId, change, signal)
+        .catch((error: unknown) => error);
+      expect(refusal).toBeInstanceOf(WorkspaceToolRefusal);
+      const owner = (refusal as WorkspaceToolRefusal).ownerMessage ?? '';
+      expect(owner).toMatch(/nothing was edited|Nothing was edited/);
+      expect(owner).not.toMatch(/nix_/);
+    }
     note.original.destroy();
   });
 });

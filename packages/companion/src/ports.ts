@@ -1,5 +1,6 @@
 import type { NixClient } from '@nix/api-client';
 import type { MarkdownImportScan, MarkdownLoss } from '@nix/markdown';
+import type { PreviewBodyEditScope, PreviewTextRange } from '@nix/structure-spec';
 
 /** `runWorkspaceTool` never reads the wall clock directly, so a fixed fake can
  * stand in for it in tests. (`CompanionBodies.append` still calls
@@ -24,6 +25,11 @@ export type BodyEdit =
 
 /** What an edit would do, computed from the note as it is now and without writing anything. */
 export interface BodyEditPlan {
+  /** A section, or the kind of block a passage sits in. */
+  scope: PreviewBodyEditScope;
+  /** For a passage: what changes in `before` and what replaces it in `after`. */
+  beforeRange?: PreviewTextRange;
+  afterRange?: PreviewTextRange;
   /** The edited blocks as Markdown now. For a section whose heading is kept, includes it. */
   before: string;
   /** The same blocks as Markdown after the edit. */
