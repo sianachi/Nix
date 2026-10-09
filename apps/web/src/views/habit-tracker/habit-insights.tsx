@@ -2,7 +2,7 @@ import type { HabitTracker } from '@nix/api-client';
 import { Button, Field, Input, Select, Text } from '@nix/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ErrorPanel, LoadingPanel } from '../../components/states/status-panels';
-import { formatShortDate } from '../../lib/date-format';
+import { formatCalendarDay, formatShortDate } from '../../lib/date-format';
 import { YearGrid } from '../chart/year-grid';
 import {
   HabitConsistency,
@@ -231,14 +231,17 @@ export function HabitInsights({
                 Year at a glance
               </Text>
               <Text variant="bodySmall" tone="muted">
-                {yearFrom} to {today}. Darker days recorded more; empty days recorded nothing.
+                {formatCalendarDay(yearFrom) ?? yearFrom} to {formatCalendarDay(today) ?? today}.
+                Stronger days recorded more; empty days recorded nothing.
               </Text>
             </div>
             {year.status === 'loading' ? <LoadingPanel label="the year" /> : null}
             {year.status === 'error' ? (
-              <Text variant="bodySmall" tone="muted">
-                The year could not be loaded. {year.error ?? ''}
-              </Text>
+              <ErrorPanel
+                title="The year could not be loaded"
+                detail={year.error ?? 'Try again.'}
+                action={<Button onClick={year.reload}>Try again</Button>}
+              />
             ) : null}
             {year.status !== 'loading' && year.status !== 'error' ? (
               <YearGrid

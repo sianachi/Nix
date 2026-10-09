@@ -248,7 +248,14 @@ export const Today = {
     </ApiClientOverrideProvider>
   ),
 };
-function InsightsStory({ empty = false }: { readonly empty?: boolean }): ReactElement {
+function InsightsStory({
+  empty = false,
+  year,
+}: {
+  readonly empty?: boolean;
+  /** Holds back or refuses only the year grid's own read, so its loading and error states show. */
+  readonly year?: 'loading' | 'error';
+}): ReactElement {
   const habits = [
     { id: WATER, title: 'Drink water', tracker: storyTracker(WATER, undefined, undefined, empty) },
   ];
@@ -256,21 +263,33 @@ function InsightsStory({ empty = false }: { readonly empty?: boolean }): ReactEl
   return (
     <ApiClientOverrideProvider
       client={
-        empty
+        year !== undefined
           ? {
               ...client,
               query<T>(endpoint: QueryEndpoint<T>): Promise<T> {
-                return Promise.resolve(
-                  storyTracker(
-                    WATER,
-                    typeof endpoint.query?.from === 'string' ? endpoint.query.from : today,
-                    typeof endpoint.query?.to === 'string' ? endpoint.query.to : today,
-                    true,
-                  ) as T,
-                );
+                if (endpoint.query?.from === shiftHabitDay(today, -365)) {
+                  return year === 'loading'
+                    ? new Promise<T>(() => undefined)
+                    : Promise.reject(new Error('The year could not be read.'));
+                }
+                return client.query(endpoint);
               },
             }
-          : client
+          : empty
+            ? {
+                ...client,
+                query<T>(endpoint: QueryEndpoint<T>): Promise<T> {
+                  return Promise.resolve(
+                    storyTracker(
+                      WATER,
+                      typeof endpoint.query?.from === 'string' ? endpoint.query.from : today,
+                      typeof endpoint.query?.to === 'string' ? endpoint.query.to : today,
+                      true,
+                    ) as T,
+                  );
+                },
+              }
+            : client
       }
     >
       <Stage>
@@ -293,4 +312,8 @@ function InsightsStory({ empty = false }: { readonly empty?: boolean }): ReactEl
 }
 export const Insights = { render: (): ReactElement => <InsightsStory /> };
 export const InsightsDark = { ...Insights, globals: { ground: 'dark' } };
+export const InsightsYearLoading = { render: (): ReactElement => <InsightsStory year="loading" /> };
+export const InsightsYearLoadingDark = { ...InsightsYearLoading, globals: { ground: 'dark' } };
+export const InsightsYearError = { render: (): ReactElement => <InsightsStory year="error" /> };
+export const InsightsYearErrorDark = { ...InsightsYearError, globals: { ground: 'dark' } };
 export const NoRecordedAmounts = { render: (): ReactElement => <InsightsStory empty /> };
