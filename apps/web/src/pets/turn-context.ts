@@ -1,4 +1,4 @@
-import { items, type NixClient, type pets } from '@nix/api-client';
+import { items, locks, type NixClient, type pets } from '@nix/api-client';
 import { localTimeZone } from '../lib/date-format';
 
 /** The most containers a conversation's first message describes; Core and the worker refuse more. */
@@ -96,15 +96,24 @@ export async function buildWorkspaceMap(
   try {
     const roots = await firstPage(client, workspaceId, undefined, bounded);
     // One container that refuses its listing (a closed lock, say) costs only its own branch.
+    // A container under any lock, opened by this session or not, is never expanded: the map
+    // reaches the prompt as a conversation starts, which is when the thread's locked-read hold is
+    // cleared, so titles from inside a lock would arrive without it (ADR-0050 Amendment 3). A lock
+    // state that cannot be read counts as locked.
     const settled = await Promise.allSettled(
       roots
         .filter((root) => root.hasChildren)
         .slice(0, EXPANDED_ROOTS)
-        .map(async (root) =>
-          (await firstPage(client, workspaceId, root.id, bounded)).filter(
+        .map(async (root) => {
+          const lock = await client.query(locks.getItemLock(root.id), {
+            signal: bounded,
+            forceRefresh: true,
+          });
+          if (lock.locked) return [];
+          return (await firstPage(client, workspaceId, root.id, bounded)).filter(
             (child) => child.hasChildren,
-          ),
-        ),
+          );
+        }),
     );
     const seconds = settled.flatMap((branch) =>
       branch.status === 'fulfilled' ? branch.value : [],

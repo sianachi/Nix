@@ -26,9 +26,19 @@ function item(n: number, hasChildren: boolean, parentId: string | null = null) {
 
 /** A client whose listing answers from `tree` (keyed by parent id, '' for the root) and whose
  * cache holds view summaries for the ids in `cachedViews`. */
+/** Answers lock reads: unlocked unless the id is in `locked`, refused when it is in `failing`. */
+function lockQuery(locked: readonly string[] = [], failing: readonly string[] = []) {
+  return vi.fn((endpoint: { path: string }) => {
+    const itemId = endpoint.path.split('/')[4] ?? '';
+    if (failing.includes(itemId)) return Promise.reject(new Error('lock read failed'));
+    return Promise.resolve({ locked: locked.includes(itemId), unlockedUntil: null });
+  });
+}
+
 function fakeClient(
   tree: Record<string, unknown[]>,
   cachedViews: Record<string, string[]> = {},
+  query: ReturnType<typeof vi.fn> = lockQuery(),
 ): { client: NixClient; paginate: ReturnType<typeof vi.fn> } {
   const paginate = vi.fn(async function* (endpoint: { query: { parentId?: string } }) {
     await Promise.resolve();
@@ -40,7 +50,7 @@ function fakeClient(
       ? undefined
       : { data: { views: kinds.map((kind) => ({ kind })) }, storedAt: 0, stale: false };
   });
-  return { client: { paginate, cache: { peek } } as unknown as NixClient, paginate };
+  return { client: { paginate, query, cache: { peek } } as unknown as NixClient, paginate };
 }
 
 describe('ownerTurnContext', () => {
@@ -89,9 +99,30 @@ describe('buildWorkspaceMap', () => {
       if (parent === undefined) yield* [item(1, true), item(2, true)];
       else if (parent === id(2)) yield item(3, true, id(2));
     });
-    const client = { paginate, cache: { peek: vi.fn() } } as unknown as NixClient;
+    const client = {
+      paginate,
+      query: lockQuery(),
+      cache: { peek: vi.fn() },
+    } as unknown as NixClient;
     const map = await buildWorkspaceMap(client, WORKSPACE_ID, new AbortController().signal);
     expect(map?.map((entry) => entry.id)).toEqual([id(1), id(2), id(3)]);
+  });
+
+  it('never lists what sits under a lock, opened or not, and skips a root whose lock cannot be read', async () => {
+    const tree = {
+      '': [item(1, true), item(2, true), item(3, true)],
+      [id(1)]: [item(11, true, id(1))],
+      [id(2)]: [item(12, true, id(2))],
+      [id(3)]: [item(13, true, id(3))],
+    };
+    const { client, paginate } = fakeClient(tree, {}, lockQuery([id(1)], [id(3)]));
+    const map = await buildWorkspaceMap(client, WORKSPACE_ID, new AbortController().signal);
+    expect(map?.map((entry) => entry.id)).toEqual([id(1), id(2), id(3), id(12)]);
+    const listed = paginate.mock.calls.map(
+      ([endpoint]) => (endpoint as { query: { parentId?: string } }).query.parentId,
+    );
+    expect(listed).not.toContain(id(1));
+    expect(listed).not.toContain(id(3));
   });
 
   it('shortens titles and types to the shared limits counted in UTF-16 units', async () => {
@@ -113,7 +144,11 @@ describe('buildWorkspaceMap', () => {
       yield* [];
       throw new Error('offline');
     });
-    const client = { paginate, cache: { peek: vi.fn() } } as unknown as NixClient;
+    const client = {
+      paginate,
+      query: lockQuery(),
+      cache: { peek: vi.fn() },
+    } as unknown as NixClient;
     await expect(
       buildWorkspaceMap(client, WORKSPACE_ID, new AbortController().signal),
     ).resolves.toBeUndefined();
