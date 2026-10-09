@@ -142,6 +142,9 @@ public static class RollupSql
     /// <summary>A child's value for the key being folded, read through the shared guard.</summary>
     private static readonly string ChildNumber = NumberSql.Bounded("c.properties", "k.key");
 
+    /// <summary>A chart's measure, read through the same guard as queries and child folds.</summary>
+    private static readonly string ChartNumber = NumberSql.Bounded("c.properties", "@measure_key");
+
     /// <summary>
     /// Every reduction of every named property, over the children of each of the given parents.
     /// </summary>
@@ -223,6 +226,10 @@ public static class RollupSql
     /// and a chart that hid it would misreport every proportion on it.
     /// </para>
     /// <para>
+    /// Totals use six decimal places, as workspace query aggregates do, so even a stored number
+    /// with a scale beyond <see cref="decimal"/> can be read after folding.
+    /// </para>
+    /// <para>
     /// <b>Ordered and bounded here rather than by the caller.</b> A grouping property whose values
     /// are not a declared list can produce a bucket per child; the limit is what stops a chart
     /// request over a free-text column from returning a row per item. The caller is told the total
@@ -230,15 +237,10 @@ public static class RollupSql
     /// quietly drawing the top few as if they were all of them.
     /// </para>
     /// </remarks>
-    public const string BucketChildrenByProperty = """
+    public static readonly string BucketChildrenByProperty = $"""
         SELECT c.properties ->> @group_key AS bucket,
                count(*) AS children,
-               CASE WHEN abs(sum(CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
-                                       AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
-                                      THEN (c.properties ->> @measure_key)::numeric END)) <= 1e28
-                    THEN sum(CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
-                                   AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
-                                  THEN (c.properties ->> @measure_key)::numeric END) END AS total,
+               round({NumberSql.CappedSum(ChartNumber)}, 6) AS total,
                count(*) OVER () AS buckets,
                sum(count(*)) OVER () AS all_children
         FROM item AS c
@@ -298,13 +300,11 @@ public static class RollupSql
     /// index, whatever the limits are. The limits bound the work after that and the payload.
     /// </para>
     /// </remarks>
-    public const string BucketChildrenByPropertyAndSeries = """
+    public static readonly string BucketChildrenByPropertyAndSeries = $"""
         WITH cell AS (
             SELECT c.properties ->> @group_key AS bucket,
                    c.properties ->> @split_key AS series,
-                   CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
-                         AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
-                        THEN (c.properties ->> @measure_key)::numeric END AS measure
+                   {ChartNumber} AS measure
             FROM item AS c
             WHERE c.tenant_id = @tenant_id
               AND c.workspace_id = @workspace_id
@@ -341,7 +341,7 @@ public static class RollupSql
                    CASE WHEN ranked_series.series_rank > @series_limit THEN NULL ELSE cell.series END AS series,
                    ranked_series.series_rank > @series_limit AS other,
                    count(*) AS children,
-                   CASE WHEN abs(sum(cell.measure)) <= 1e28 THEN sum(cell.measure) END AS total,
+                   round({NumberSql.CappedSum("cell.measure")}, 6) AS total,
                    sum(count(*)) OVER (PARTITION BY cell.bucket)::bigint AS bucket_children,
                    sum(count(*)) OVER ()::bigint AS all_children
             FROM cell
@@ -408,13 +408,11 @@ public static class RollupSql
     /// knows the earliest day it holds may be incomplete.
     /// </para>
     /// </remarks>
-    public const string BucketChildrenByDay = """
+    public static readonly string BucketChildrenByDay = $"""
         WITH placed AS (
             SELECT CASE WHEN pg_input_is_valid(prefix.day, 'date') THEN prefix.day END AS day,
                    c.properties ->> @split_key AS series,
-                   CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
-                         AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
-                        THEN (c.properties ->> @measure_key)::numeric END AS measure
+                   {ChartNumber} AS measure
             FROM item AS c
             CROSS JOIN LATERAL (
                 SELECT substring(c.properties ->> @group_key from '^[0-9]{4}-[0-9]{2}-[0-9]{2}')
@@ -468,7 +466,7 @@ public static class RollupSql
                coalesce(ranked_series.series_rank > @series_limit, false) AS other,
                windowed.outside,
                count(*) AS children,
-               CASE WHEN abs(sum(windowed.measure)) <= 1e28 THEN sum(windowed.measure) END AS total,
+               round({NumberSql.CappedSum("windowed.measure")}, 6) AS total,
                count(*) OVER () AS cells,
                sum(count(*)) OVER ()::bigint AS all_children,
                (SELECT count(*) FROM series_ranked) AS series_count

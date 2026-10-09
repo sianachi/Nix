@@ -7,7 +7,7 @@
       "properties": {
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit/empty to use the workspace root."
+          "description": "Parent UUID; omit/empty for root."
         }
       },
       "required": [],
@@ -90,7 +90,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit/empty to use the workspace root."
+          "description": "Parent UUID; omit/empty for root."
         }
       },
       "required": ["title", "markdown"],
@@ -193,7 +193,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit/empty to use the workspace root."
+          "description": "Parent UUID; omit/empty for root."
         }
       },
       "required": ["itemId", "parentId"],
@@ -312,7 +312,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Like \"due_date\". Leave unset to derive it from label."
+                    "description": "Omit to derive from label."
                   },
                   "type": {
                     "type": "string",
@@ -411,7 +411,7 @@
                   },
                   "groupBy": {
                     "type": "string",
-                    "description": "Board: select. Chart: select or date. List: select, checkbox or $type."
+                    "description": "See view rules."
                   },
                   "groupOrder": {
                     "type": "array",
@@ -693,7 +693,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit/empty to use the workspace root."
+          "description": "Parent UUID; omit/empty for root."
         }
       },
       "required": ["title", "spec"],
@@ -723,7 +723,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Like \"due_date\". Leave unset to derive it from label."
+                    "description": "Omit to derive from label."
                   },
                   "type": {
                     "type": "string",
@@ -823,7 +823,7 @@
                   },
                   "groupBy": {
                     "type": "string",
-                    "description": "Board: select. Chart: select or date. List: select, checkbox or $type."
+                    "description": "See view rules."
                   },
                   "groupOrder": {
                     "type": "array",
@@ -1287,7 +1287,7 @@
                       },
                       "key": {
                         "type": "string",
-                        "description": "Like \"due_date\". Leave unset to derive it from label."
+                        "description": "Omit to derive from label."
                       },
                       "type": {
                         "type": "string",
@@ -1389,7 +1389,7 @@
                       },
                       "groupBy": {
                         "type": "string",
-                        "description": "Board: select. Chart: select or date. List: select, checkbox or $type."
+                        "description": "See view rules."
                       },
                       "groupOrder": {
                         "type": "array",
@@ -1623,7 +1623,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Like \"due_date\". Leave unset to derive it from label."
+                    "description": "Omit to derive from label."
                   },
                   "type": {
                     "type": "string",
@@ -1882,7 +1882,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Like \"due_date\". Leave unset to derive it from label."
+                    "description": "Omit to derive from label."
                   },
                   "type": {
                     "type": "string",
@@ -2039,7 +2039,7 @@
         },
         "parentId": {
           "type": "string",
-          "description": "The parent item UUID, or omit/empty to use the workspace root."
+          "description": "Parent UUID; omit/empty for root."
         },
         "spec": {
           "type": "object",
@@ -2161,7 +2161,7 @@
                       },
                       "key": {
                         "type": "string",
-                        "description": "Like \"due_date\". Leave unset to derive it from label."
+                        "description": "Omit to derive from label."
                       },
                       "type": {
                         "type": "string",
@@ -2263,7 +2263,7 @@
                       },
                       "groupBy": {
                         "type": "string",
-                        "description": "Board: select. Chart: select or date. List: select, checkbox or $type."
+                        "description": "See view rules."
                       },
                       "groupOrder": {
                         "type": "array",

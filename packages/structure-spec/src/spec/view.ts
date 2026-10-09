@@ -96,11 +96,7 @@ export const viewSpecSchema = z
     kind: z.enum(VIEW_KINDS),
     name: z.string().min(1).max(60).optional(),
     columns: z.array(z.string().min(1)).max(30).optional(),
-    groupBy: z
-      .string()
-      .min(1)
-      .describe('Board: select. Chart: select or date. List: select, checkbox or $type.')
-      .optional(),
+    groupBy: z.string().min(1).describe('See view rules.').optional(),
     groupOrder: z.array(z.string().min(1)).optional(),
     date: z.string().min(1).optional(),
     endDate: z.string().min(1).optional(),

@@ -204,6 +204,36 @@ public sealed class RollupAuthorizationTests : IAsyncLifetime
         }
     }
 
+    [Theory]
+    [InlineData("\"123\"")]
+    [InlineData("\"soon\"")]
+    [InlineData("\"\\u2003123\"")]
+    [InlineData("1e308")]
+    [InlineData("1e-1000")]
+    public async Task Every_chart_read_skips_unusable_measures_without_losing_children(string estimate)
+    {
+        await SetPropertiesAsync(VisibleChild,
+            $$"""{"title":"Unusable","status":"Todo","owner":"Ada","done":"2026-03-04","estimate":{{estimate}}}""");
+        await AddChildAsync(new Guid("201100f0-1111-4111-8111-201100f00030"),
+            """{"title":"Valid","status":"Todo","owner":"Ada","done":"2026-03-04","estimate":7}""");
+
+        await using var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var reader = work.Resolve<IChildAggregates>();
+        var workspace = WorkspaceId.From(M0SchemaSeed.Alpha.WorkspaceId);
+        var parent = ItemId.From(VisibleContainer);
+        var buckets = await reader.BucketAsync(workspace, parent, "status", "estimate", 10, Cancellation);
+        var series = await reader.BucketBySeriesAsync(workspace, parent, "status", "owner", "estimate", 6, 10, 100, Cancellation);
+        var days = await reader.BucketByDayAsync(workspace, parent, "done", "owner", "estimate",
+            new DateOnly(2026, 1, 1), new DateOnly(2026, 12, 31), 6, 100, Cancellation);
+
+        Assert.Equal(2, buckets.Children);
+        Assert.Equal(7m, Assert.Single(buckets.Buckets).Total);
+        Assert.Equal(2, series.Children);
+        Assert.Equal(7m, Assert.Single(series.Cells).Total);
+        Assert.Equal(2, days.Children);
+        Assert.Equal(7m, Assert.Single(days.Cells).Total);
+    }
+
     [Fact]
     public async Task An_ordinary_large_total_is_still_answered()
     {
