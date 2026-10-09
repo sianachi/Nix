@@ -47,7 +47,8 @@ internal static class ViewMapping
             view.HabitWidgets.IsDefaultOrEmpty ? [] : [.. view.HabitWidgets.Select(widget => new HabitWidgetContract(widget.Id, widget.Kind, widget.HabitId, widget.From, widget.To))],
             view.Layout,
             view.DoneProperty,
-            view.RowBy);
+            view.RowBy,
+            ToContract(view.Chart));
     }
 
     /// <summary>
@@ -132,7 +133,8 @@ internal static class ViewMapping
                         ? []
                         : [.. view.Aggregates.Select(aggregate => new ViewAggregate(aggregate.Property, aggregate.Function))],
                     view.DoneProperty,
-                    view.RowBy)));
+                    view.RowBy,
+                    ToDomain(view.Chart))));
         }
 
         views = mapped.ToImmutable();
@@ -164,6 +166,40 @@ internal static class ViewMapping
         }
 
         return null;
+    }
+
+    private static ChartOptionsContract? ToContract(ChartOptions? chart) =>
+        chart is null
+            ? null
+            : new ChartOptionsContract(
+                chart.Kind,
+                chart.Period,
+                chart.SplitBy,
+                chart.LastPeriods,
+                chart.From,
+                chart.To,
+                chart.Cumulative,
+                chart.RollingAverage);
+
+    /// <summary>Reads requested chart options; an all-default object stores as none.</summary>
+    private static ChartOptions? ToDomain(ChartOptionsContract? chart)
+    {
+        if (chart is null)
+        {
+            return null;
+        }
+
+        var options = new ChartOptions(
+            chart.Kind,
+            chart.Period,
+            chart.SplitBy,
+            chart.LastPeriods,
+            chart.From,
+            chart.To,
+            chart.Cumulative ?? false,
+            chart.RollingAverage ?? false);
+
+        return options.IsEmpty ? null : options;
     }
 
     private static InteractiveFormContract? ToContract(InteractiveFormDefinition? form) =>

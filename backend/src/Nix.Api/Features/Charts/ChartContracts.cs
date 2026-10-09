@@ -14,7 +14,30 @@ namespace Nix.Features.Charts;
 /// mostly a container of unset things, and a chart that dropped them would draw the other half as
 /// though it were the whole - misreporting every proportion on it.
 /// </remarks>
-internal sealed record ChartBucketResponse(string? Value, long Children, decimal? Total);
+/// <param name="Cells">
+/// One entry per series, aligned with the response's <c>series</c>; empty when the chart is not
+/// split. The cells add up to the bucket.
+/// </param>
+internal sealed record ChartBucketResponse(
+    string? Value,
+    long Children,
+    decimal? Total,
+    IReadOnlyList<ChartCellResponse> Cells);
+
+/// <summary>One series' share of one bucket.</summary>
+/// <param name="Children">How many of the bucket's children carry the series' value.</param>
+/// <param name="Total">Their measured total, or <see langword="null"/>.</param>
+internal sealed record ChartCellResponse(long Children, decimal? Total);
+
+/// <summary>One series of a split chart.</summary>
+/// <param name="Value">
+/// The splitting property's value, or <see langword="null"/> for the children with none - and for
+/// the "Other" series, which <paramref name="Other"/> tells apart.
+/// </param>
+/// <param name="Other">Whether this series stands for every value past the twelfth.</param>
+/// <param name="Children">How many drawn children carry it.</param>
+/// <param name="Total">Their measured total, or <see langword="null"/>.</param>
+internal sealed record ChartSeriesResponse(string? Value, bool Other, long Children, decimal? Total);
 
 /// <summary>
 /// A chart's data, and what it could not fit.
@@ -24,13 +47,27 @@ internal sealed record ChartBucketResponse(string? Value, long Children, decimal
 /// <param name="GroupBy">The property the buckets are values of.</param>
 /// <param name="Measure">What each bar measures: <c>count</c> or <c>sum</c>.</param>
 /// <param name="MeasureProperty">The property being totalled, when the measure is a total.</param>
-/// <param name="Buckets">The buckets that fit, largest first.</param>
+/// <param name="Buckets">
+/// The buckets that fit: largest first for a chart of categories, earliest first - every period of
+/// the axis, empty ones as zero - for a chart with a time axis.
+/// </param>
 /// <param name="Children">
 /// How many children were summarised in total, across every bucket including any left out.
 /// </param>
 /// <param name="DistinctValues">
 /// How many distinct values the grouping property takes across those children, whether or not each
 /// one fitted.
+/// </param>
+/// <param name="ChartKind">The type the view draws: <c>bar</c>, <c>column</c>, <c>pie</c>, <c>line</c>, <c>area</c> or <c>year</c>.</param>
+/// <param name="Period">The time axis's period, or <see langword="null"/> for a chart of categories.</param>
+/// <param name="SplitBy">The property the series are values of, or <see langword="null"/>.</param>
+/// <param name="From">The first day a time axis covers, or <see langword="null"/>.</param>
+/// <param name="To">The last day a time axis covers, or <see langword="null"/>.</param>
+/// <param name="Series">The series, largest first and any "Other" last; empty when not split.</param>
+/// <param name="OtherSeries">How many series values were folded into the "Other" series.</param>
+/// <param name="Unplaced">
+/// Children a time axis could not place because the grouping property holds no date for them.
+/// Counted rather than dropped, so a chart never quietly shrinks; always zero for categories.
 /// </param>
 /// <param name="Truncated">
 /// Whether more buckets exist than were returned. Carried rather than left for a client to infer
@@ -59,4 +96,12 @@ internal sealed record ChartResponse(
     IReadOnlyList<ChartBucketResponse> Buckets,
     long Children,
     long DistinctValues,
-    bool Truncated);
+    bool Truncated,
+    string ChartKind,
+    string? Period,
+    string? SplitBy,
+    DateOnly? From,
+    DateOnly? To,
+    IReadOnlyList<ChartSeriesResponse> Series,
+    long OtherSeries,
+    long Unplaced);

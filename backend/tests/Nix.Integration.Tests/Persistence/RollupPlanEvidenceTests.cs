@@ -196,6 +196,54 @@ public sealed class RollupPlanEvidenceTests : IAsyncLifetime
         Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(nameof(RollupSql.BucketChildrenByPropertyAndSeries))]
+    [InlineData(nameof(RollupSql.BucketChildrenByDay))]
+    public async Task The_chart_cell_reads_reach_one_container_children_through_the_parent_index(string name)
+    {
+        var parents = await PageOfContainerIdsAsync();
+        var bySeries = name == nameof(RollupSql.BucketChildrenByPropertyAndSeries);
+
+        var plan = await ExplainAsRuntimeRoleAsync(
+            bySeries ? RollupSql.BucketChildrenByPropertyAndSeries : RollupSql.BucketChildrenByDay,
+            bySeries
+                ?
+                [
+                    Uuid("tenant_id", M0SchemaSeed.Alpha.TenantId),
+                    Uuid("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
+                    Uuid("parent_id", parents[0]),
+                    Text("group_key", "status"),
+                    Text("split_key", "title"),
+                    Text("measure_key", "estimate"),
+                    Int("bucket_limit", 100),
+                    Int("cell_limit", 10_000),
+                ]
+                :
+                [
+                    Uuid("tenant_id", M0SchemaSeed.Alpha.TenantId),
+                    Uuid("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
+                    Uuid("parent_id", parents[0]),
+                    Text("group_key", "title"),
+                    Text("split_key", "status"),
+                    Text("measure_key", "estimate"),
+                    Text("from_day", "2026-01-01"),
+                    Text("to_day", "2026-12-31"),
+                    Int("cell_limit", 10_000),
+                ]);
+
+        _output.WriteLine(
+            "{0}, one container of ~{1} children out of {2} in the workspace, runtime role:",
+            name,
+            AlphaChildren / Containers,
+            AlphaChildren);
+        _output.WriteLine(plan);
+
+        Assert.Contains("Index Scan using \"IX_item_tenant_id_parent_id\"", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on item c", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Parallel Seq Scan", plan, StringComparison.Ordinal);
+        Assert.Contains("nix.tenant_id", plan, StringComparison.Ordinal);
+    }
+
     private readonly record struct FoldRow(long Children, long Present, long Numbers);
 
     private async Task<List<FoldRow>> FoldAsRuntimeRoleAsync(Guid[] parents, string[] keys)

@@ -269,4 +269,170 @@ public static class RollupSql
         ORDER BY count(*) DESC, bucket ASC NULLS LAST
         LIMIT @limit
         """;
+
+    /// <summary>
+    /// The children of one item, bucketed by one property's value and split by a second, counted
+    /// and summed per (bucket, series) cell.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What a chart split into series draws (plan 2.3): spend per category by month, completed per
+    /// status by project. The same children, the same visibility rule and the same bounded total as
+    /// <see cref="BucketChildrenByProperty"/>; a missing value is its own bucket and its own series,
+    /// for the reason that statement gives.
+    /// </para>
+    /// <para>
+    /// <b>Bounded by bucket, not by cell.</b> Buckets are ranked by how many children they hold, and
+    /// only the largest <c>@bucket_limit</c> are returned whole, with every series cell they have - a
+    /// limit on rows alone would cut a bucket part-way through its series and draw the remainder as a
+    /// smaller bar. <c>buckets</c> carries how many buckets exist so the caller can say how many it
+    /// left out; <c>kept_cells</c> is counted after the bucket filter and before <c>@cell_limit</c>,
+    /// so a caller can tell a read the cell ceiling cut short from one it did not.
+    /// </para>
+    /// </remarks>
+    public const string BucketChildrenByPropertyAndSeries = """
+        SELECT counted.bucket,
+               counted.series,
+               counted.children,
+               counted.total,
+               counted.buckets,
+               count(*) OVER () AS kept_cells,
+               counted.all_children
+        FROM (
+            SELECT ranked.bucket,
+                   ranked.series,
+                   ranked.children,
+                   ranked.total,
+                   ranked.all_children,
+                   ranked.bucket_rank,
+                   max(ranked.bucket_rank) OVER () AS buckets
+            FROM (
+                SELECT cell.bucket,
+                       cell.series,
+                       cell.children,
+                       cell.total,
+                       cell.all_children,
+                       dense_rank() OVER (
+                           ORDER BY cell.bucket_children DESC, cell.bucket ASC NULLS LAST) AS bucket_rank
+                FROM (
+                    SELECT c.properties ->> @group_key AS bucket,
+                           c.properties ->> @split_key AS series,
+                           count(*) AS children,
+                           CASE WHEN abs(sum(CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
+                                                   AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
+                                                  THEN (c.properties ->> @measure_key)::numeric END)) <= 1e28
+                                THEN sum(CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
+                                               AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
+                                              THEN (c.properties ->> @measure_key)::numeric END) END AS total,
+                           sum(count(*)) OVER (PARTITION BY c.properties ->> @group_key)::bigint
+                               AS bucket_children,
+                           sum(count(*)) OVER ()::bigint AS all_children
+                    FROM item AS c
+                    WHERE c.tenant_id = @tenant_id
+                      AND c.workspace_id = @workspace_id
+                      AND c.parent_id = @parent_id
+                      AND c.lifecycle_state = 'active'
+                      AND c.template_id IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM item_closure AS visibility_edge
+                          LEFT JOIN LATERAL (
+                              SELECT visibility_ancestor.template_id,
+                                     visibility_ancestor.lifecycle_state
+                              FROM item AS visibility_ancestor
+                              WHERE visibility_ancestor.tenant_id = @tenant_id
+                                AND visibility_ancestor.id = visibility_edge.ancestor_id
+                              LIMIT 1
+                          ) AS stored_ancestor ON TRUE
+                          WHERE visibility_edge.tenant_id = @tenant_id
+                            AND visibility_edge.descendant_id = @parent_id
+                            AND visibility_edge.depth >= 0
+                            AND (stored_ancestor.template_id IS NOT NULL
+                                 OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
+                          OFFSET 0
+                      )
+                    GROUP BY c.properties ->> @group_key, c.properties ->> @split_key
+                ) AS cell
+            ) AS ranked
+        ) AS counted
+        WHERE counted.bucket_rank <= @bucket_limit
+        ORDER BY counted.bucket_rank, counted.series ASC NULLS LAST
+        LIMIT @cell_limit
+        """;
+
+    /// <summary>
+    /// The children of one item, bucketed by the day a date property names, optionally split by a
+    /// second property, counted and summed per (day, series) cell.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// What a chart on a time axis draws (plan 2.2). Days rather than periods, deliberately: the
+    /// period arithmetic - which week a day is in - lives once in <c>ChartPeriods</c>, which folds
+    /// these rows, so the database and the application cannot disagree about where a week starts.
+    /// The day is the value's first ten characters: a date is <c>yyyy-MM-dd</c> already, and a
+    /// stored timestamp's date part is the local day it was written on, which is the day the person
+    /// meant. Anything not shaped like a date is collected under a null day and reported as
+    /// unplaced rather than dropped - a chart that silently lost every undated item would
+    /// misreport its own total.
+    /// </para>
+    /// <para>
+    /// <b>The window is applied here</b> so a rolling year over a decade of entries reads a year of
+    /// rows. Compared as text under the C collation, where same-length ISO dates sort as dates.
+    /// Undated children are counted whatever the window, because they are in no period at all.
+    /// </para>
+    /// <para>
+    /// <b>Newest first and bounded.</b> A time axis keeps its most recent periods when it cannot
+    /// keep them all, so the rows are ordered latest day first (undated first of all) and cut at
+    /// <c>@cell_limit</c>; <c>cells</c> says how many there were, so the caller knows the earliest
+    /// day it holds may be incomplete and can drop it rather than draw it short.
+    /// </para>
+    /// </remarks>
+    public const string BucketChildrenByDay = """
+        SELECT placed.day AS bucket,
+               placed.series,
+               count(*) AS children,
+               CASE WHEN abs(sum(CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
+                                       AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
+                                      THEN (c.properties ->> @measure_key)::numeric END)) <= 1e28
+                    THEN sum(CASE WHEN jsonb_typeof(c.properties -> @measure_key) = 'number'
+                                   AND abs((c.properties ->> @measure_key)::numeric) <= 1e15
+                                  THEN (c.properties ->> @measure_key)::numeric END) END AS total,
+               count(*) OVER () AS cells,
+               sum(count(*)) OVER ()::bigint AS all_children
+        FROM item AS c
+        CROSS JOIN LATERAL (
+            SELECT CASE WHEN c.properties ->> @group_key ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                        THEN left(c.properties ->> @group_key, 10) COLLATE "C" END AS day,
+                   c.properties ->> @split_key AS series
+        ) AS placed
+        WHERE c.tenant_id = @tenant_id
+          AND c.workspace_id = @workspace_id
+          AND c.parent_id = @parent_id
+          AND c.lifecycle_state = 'active'
+          AND c.template_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM item_closure AS visibility_edge
+              LEFT JOIN LATERAL (
+                  SELECT visibility_ancestor.template_id,
+                         visibility_ancestor.lifecycle_state
+                  FROM item AS visibility_ancestor
+                  WHERE visibility_ancestor.tenant_id = @tenant_id
+                    AND visibility_ancestor.id = visibility_edge.ancestor_id
+                  LIMIT 1
+              ) AS stored_ancestor ON TRUE
+              WHERE visibility_edge.tenant_id = @tenant_id
+                AND visibility_edge.descendant_id = @parent_id
+                AND visibility_edge.depth >= 0
+                AND (stored_ancestor.template_id IS NOT NULL
+                     OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
+              OFFSET 0
+          )
+          AND (placed.day IS NULL
+               OR ((@from_day::text IS NULL OR placed.day >= @from_day::text COLLATE "C")
+                   AND (@to_day::text IS NULL OR placed.day <= @to_day::text COLLATE "C")))
+        GROUP BY placed.day, placed.series
+        ORDER BY placed.day DESC NULLS FIRST, placed.series ASC NULLS LAST
+        LIMIT @cell_limit
+        """;
 }

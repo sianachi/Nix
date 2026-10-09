@@ -190,5 +190,28 @@ public sealed class ItemRollupsTests
             int limit,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(new ChildBuckets([], 0, 0));
+
+        public ValueTask<ChildCells> BucketBySeriesAsync(
+            WorkspaceId workspaceId,
+            ItemId parent,
+            string groupKey,
+            string splitKey,
+            string? measureKey,
+            int bucketLimit,
+            int cellLimit,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new ChildCells([], 0, 0, CellsCut: false));
+
+        public ValueTask<ChildCells> BucketByDayAsync(
+            WorkspaceId workspaceId,
+            ItemId parent,
+            string dateKey,
+            string? splitKey,
+            string? measureKey,
+            DateOnly? firstDay,
+            DateOnly? lastDay,
+            int cellLimit,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new ChildCells([], 0, null, CellsCut: false));
     }
 }

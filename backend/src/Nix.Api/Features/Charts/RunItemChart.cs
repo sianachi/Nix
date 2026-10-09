@@ -9,17 +9,6 @@ using Nix.Messaging;
 
 namespace Nix.Features.Charts;
 
-/// <summary>What a chart view drew, over every child rather than over a loaded page.</summary>
-/// <param name="GroupBy">The property the buckets are values of.</param>
-/// <param name="Measure">What each bar measures.</param>
-/// <param name="MeasureProperty">The property being totalled, when the measure is a total.</param>
-/// <param name="Buckets">The buckets that fit, largest first.</param>
-public sealed record ItemChart(
-    string GroupBy,
-    string Measure,
-    string? MeasureProperty,
-    ChildBuckets Buckets);
-
 /// <summary>Summarises a container's children the way one of its chart views says to.</summary>
 /// <param name="ItemId">The container.</param>
 /// <param name="ViewId">Which of its views to draw.</param>
@@ -53,31 +42,40 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
     /// </remarks>
     public const int MaximumBuckets = 100;
 
+    /// <summary>The most cells a split or dated chart reads before saying it was cut short.</summary>
+    /// <remarks>The reader clamps to its own ceiling as well; see <c>ChildAggregateReader.MaximumCells</c>.</remarks>
+    public const int MaximumCells = 10_000;
+
     private readonly IItemTree _tree;
     private readonly IPermissionResolver _permissions;
     private readonly IChildAggregates _aggregates;
     private readonly IItemLocks _locks;
+    private readonly TimeProvider _clock;
 
     /// <summary>Initializes a new instance of the <see cref="RunItemChartHandler"/> class.</summary>
     /// <param name="tree">Item storage.</param>
     /// <param name="permissions">Decides what the caller may read.</param>
     /// <param name="aggregates">Buckets the children.</param>
     /// <param name="locks">Withholds a locked container's children until it is opened.</param>
+    /// <param name="clock">Says which period is the current one, for a rolling window.</param>
     public RunItemChartHandler(
         IItemTree tree,
         IPermissionResolver permissions,
         IChildAggregates aggregates,
-        IItemLocks locks)
+        IItemLocks locks,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(tree);
         ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(aggregates);
         ArgumentNullException.ThrowIfNull(locks);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _tree = tree;
         _permissions = permissions;
         _aggregates = aggregates;
         _locks = locks;
+        _clock = clock;
     }
 
     /// <summary>Draws the chart.</summary>
@@ -150,17 +148,128 @@ public sealed class RunItemChartHandler : IQueryHandler<RunItemChart, Result<Ite
                 ChartErrors.NotConfigured($"'{chart.Name}' totals a property, so it needs one to total."));
         }
 
-        var buckets = await _aggregates
-            .BucketAsync(
-                item.WorkspaceId,
-                itemId,
-                chart.GroupBy,
-                measureProperty,
-                MaximumBuckets,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var options = chart.Chart ?? ChartOptions.Default;
+        var splitBy = options.SplitBy is { Length: > 0 } split ? split : null;
+        var kind = options.Kind is { } chosen && ChartKinds.IsValid(chosen) ? chosen : ChartKinds.Bar;
 
-        return Result.Success(new ItemChart(chart.GroupBy, measure, measureProperty, buckets));
+        FoldedChart folded;
+        string? period = null;
+        if (ChartPeriods.TryParse(options.Period, out var axis))
+        {
+            // A year grid is a grid of days whatever else was stored; the write path insists on it,
+            // and this holds the line for any other writer.
+            if (kind == ChartKinds.Year)
+            {
+                axis = ChartPeriod.Day;
+            }
+
+            period = ChartPeriods.ToText(axis);
+            var (first, last) = Window(options, axis, kind);
+
+            var cells = await _aggregates
+                .BucketByDayAsync(
+                    item.WorkspaceId,
+                    itemId,
+                    chart.GroupBy,
+                    splitBy,
+                    measureProperty,
+                    first is { } from ? ChartPeriods.Start(from, axis) : null,
+                    last is { } to ? ChartPeriods.End(ChartPeriods.Start(to, axis), axis) : null,
+                    MaximumCells,
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            folded = ChartFolding.Days(cells, axis, first, last, splitBy is not null);
+        }
+        else
+        {
+            // A chart of categories cannot be a line or a grid of days; the write path refuses the
+            // pairing and this draws any such stored view as the bars it would otherwise have been.
+            if (ChartKinds.NeedsTimeAxis(kind))
+            {
+                kind = ChartKinds.Bar;
+            }
+
+            if (splitBy is not null)
+            {
+                var cells = await _aggregates
+                    .BucketBySeriesAsync(
+                        item.WorkspaceId,
+                        itemId,
+                        chart.GroupBy,
+                        splitBy,
+                        measureProperty,
+                        MaximumBuckets,
+                        MaximumCells,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                folded = ChartFolding.CategoriesBySeries(cells);
+            }
+            else
+            {
+                var buckets = await _aggregates
+                    .BucketAsync(
+                        item.WorkspaceId,
+                        itemId,
+                        chart.GroupBy,
+                        measureProperty,
+                        MaximumBuckets,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                folded = ChartFolding.Categories(buckets);
+            }
+        }
+
+        return Result.Success(new ItemChart(
+            chart.GroupBy,
+            measure,
+            measureProperty,
+            kind,
+            period,
+            splitBy,
+            folded.From,
+            folded.To,
+            folded.Buckets,
+            folded.Series,
+            folded.Children,
+            folded.DistinctValues,
+            folded.Unplaced,
+            folded.OtherSeries,
+            folded.Truncated));
+    }
+
+    /// <summary>The days a time axis's window runs between, either end open.</summary>
+    /// <remarks>
+    /// "Today" is the server's UTC date. A chart has no reader's zone to ask - it is one stored view
+    /// drawn the same for everybody who opens it - and the cost is that for a few hours either side
+    /// of midnight a rolling window's current period may be the reader's yesterday or tomorrow.
+    /// </remarks>
+    private (DateOnly? First, DateOnly? Last) Window(ChartOptions options, ChartPeriod axis, string kind)
+    {
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+
+        if (options.LastPeriods is { } count)
+        {
+            var range = ChartPeriods.Last(today, axis, Math.Clamp(count, 1, ChartOptions.MaximumPeriods));
+            return (range.First, range.Last);
+        }
+
+        if (options.From is not null || options.To is not null)
+        {
+            return (options.From, options.To);
+        }
+
+        if (kind == ChartKinds.Year)
+        {
+            // Fifty-three whole weeks ending with this one: the shape of every contribution grid,
+            // and exactly MaximumPeriods days.
+            var monday = ChartPeriods.Start(today, ChartPeriod.Week);
+            return (monday.AddDays(-52 * 7), monday.AddDays(6));
+        }
+
+        return (null, null);
     }
 }
 
@@ -208,12 +317,27 @@ internal static class RunItemChartEndpoint
                     chart.Measure,
                     chart.MeasureProperty,
                     [
-                        .. chart.Buckets.Buckets.Select(bucket =>
-                            new ChartBucketResponse(bucket.Value, bucket.Children, bucket.Total)),
+                        .. chart.Buckets.Select(bucket =>
+                            new ChartBucketResponse(
+                                bucket.Value,
+                                bucket.Children,
+                                bucket.Total,
+                                [.. bucket.Cells.Select(cell => new ChartCellResponse(cell.Children, cell.Total))])),
                     ],
-                    chart.Buckets.Children,
-                    chart.Buckets.DistinctValues,
-                    chart.Buckets.DistinctValues > chart.Buckets.Buckets.Count)),
+                    chart.Children,
+                    chart.DistinctValues,
+                    chart.Truncated,
+                    chart.Kind,
+                    chart.Period,
+                    chart.SplitBy,
+                    chart.From,
+                    chart.To,
+                    [
+                        .. chart.Series.Select(series =>
+                            new ChartSeriesResponse(series.Value, series.Other, series.Children, series.Total)),
+                    ],
+                    chart.OtherSeries,
+                    chart.Unplaced)),
             error => TypedResults.Problem(ChartEndpoints.Problem(httpContext, error)));
     }
 }

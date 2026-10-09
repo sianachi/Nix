@@ -387,6 +387,11 @@ public static class ViewDefinitionsJson
                 entry[AggregatesKey] = aggregates;
             }
 
+            if (ChartOptionsJson.Write(view.Chart) is { } chart)
+            {
+                entry[ChartOptionsJson.Key] = chart;
+            }
+
             stored.Add(entry);
         }
 
@@ -486,7 +491,8 @@ public static class ViewDefinitionsJson
             ReadGroupLimits(view[GroupLimitsKey]),
             ReadAggregates(view[AggregatesKey]),
             ReadString(view[DonePropertyKey]),
-            ReadString(view[RowByKey])));
+            ReadString(view[RowByKey]),
+            ChartOptionsJson.Read(view[ChartOptionsJson.Key])));
     }
 
     /// <summary>

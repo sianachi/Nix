@@ -44,6 +44,39 @@ public sealed record ChildBuckets(
     long DistinctValues,
     long Children);
 
+/// <summary>One cell of a chart split into series, or of a time axis: a bucket, a series, and what they hold.</summary>
+/// <param name="Bucket">
+/// The grouping property's value as text - for a time axis, the <c>yyyy-MM-dd</c> day it names - or
+/// <see langword="null"/> for the children that have none.
+/// </param>
+/// <param name="Series">
+/// The splitting property's value as text, or <see langword="null"/> for the children that have none
+/// and for every cell of a read that was not split.
+/// </param>
+/// <param name="Children">How many children fell in this cell.</param>
+/// <param name="Total">
+/// The measured property's total across them, or <see langword="null"/> when no measure was asked for
+/// or none of them carried a number.
+/// </param>
+public sealed record ChildCell(string? Bucket, string? Series, long Children, decimal? Total);
+
+/// <summary>A cell read's rows, and enough to say honestly what it left out.</summary>
+/// <param name="Cells">The cells, in the order the read defines.</param>
+/// <param name="Children">How many children the read counted, including any in cells left out.</param>
+/// <param name="DistinctBuckets">
+/// How many distinct buckets exist, whether or not each was returned; <see langword="null"/> for a
+/// day read, whose caller folds days into periods and counts those instead.
+/// </param>
+/// <param name="CellsCut">
+/// Whether the cell ceiling stopped the read before every cell it would otherwise have returned, so
+/// the last bucket (or, for a day read, the earliest day) may be incomplete.
+/// </param>
+public sealed record ChildCells(
+    IReadOnlyList<ChildCell> Cells,
+    long Children,
+    long? DistinctBuckets,
+    bool CellsCut);
+
 /// <summary>
 /// Folds an item's children: what a rollup property reduces, and what a chart groups.
 /// </summary>
@@ -105,5 +138,56 @@ public interface IChildAggregates
         string groupKey,
         string? measureKey,
         int limit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Buckets one item's children by a property's value and splits each bucket by a second
+    /// property, counting and summing per cell.
+    /// </summary>
+    /// <param name="workspaceId">The workspace the item lives in.</param>
+    /// <param name="parent">The item whose children are grouped.</param>
+    /// <param name="groupKey">The property whose values become buckets.</param>
+    /// <param name="splitKey">The property whose values become series.</param>
+    /// <param name="measureKey">The numeric property to total, or <see langword="null"/> to count only.</param>
+    /// <param name="bucketLimit">The most buckets to return, largest first, each with all its cells.</param>
+    /// <param name="cellLimit">The most cells to return in all.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The cells, ordered by bucket size and then series, and the totals that say what did not fit.</returns>
+    public ValueTask<ChildCells> BucketBySeriesAsync(
+        WorkspaceId workspaceId,
+        ItemId parent,
+        string groupKey,
+        string splitKey,
+        string? measureKey,
+        int bucketLimit,
+        int cellLimit,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Buckets one item's children by the day a date property names, optionally split by a second
+    /// property, counting and summing per cell.
+    /// </summary>
+    /// <param name="workspaceId">The workspace the item lives in.</param>
+    /// <param name="parent">The item whose children are grouped.</param>
+    /// <param name="dateKey">The date-shaped property whose day becomes the bucket.</param>
+    /// <param name="splitKey">The property whose values become series, or <see langword="null"/>.</param>
+    /// <param name="measureKey">The numeric property to total, or <see langword="null"/> to count only.</param>
+    /// <param name="firstDay">The earliest day to count, or <see langword="null"/> for no lower bound.</param>
+    /// <param name="lastDay">The latest day to count, or <see langword="null"/> for no upper bound.</param>
+    /// <param name="cellLimit">The most cells to return.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>
+    /// The cells, undated first and then latest day first, and the totals that say what did not fit.
+    /// Undated children - no value, or one not shaped like a date - are counted whatever the window.
+    /// </returns>
+    public ValueTask<ChildCells> BucketByDayAsync(
+        WorkspaceId workspaceId,
+        ItemId parent,
+        string dateKey,
+        string? splitKey,
+        string? measureKey,
+        DateOnly? firstDay,
+        DateOnly? lastDay,
+        int cellLimit,
         CancellationToken cancellationToken);
 }

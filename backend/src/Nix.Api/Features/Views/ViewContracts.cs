@@ -106,7 +106,8 @@ internal sealed record ViewResponse(
     IReadOnlyList<HabitWidgetContract>? HabitWidgets = null,
     string? Layout = null,
     string? DoneProperty = null,
-    string? RowBy = null);
+    string? RowBy = null,
+    ChartOptionsContract? Chart = null);
 
 /// <summary>One key a view orders by; the first is mirrored into <c>sortBy</c>.</summary>
 /// <param name="Property">The property key, or <c>title</c>.</param>
@@ -304,7 +305,43 @@ internal sealed record ViewRequest(
     IReadOnlyList<ViewGroupLimitContract>? GroupLimits = null,
     IReadOnlyList<ViewAggregateContract>? Aggregates = null,
     string? DoneProperty = null,
-    string? RowBy = null);
+    string? RowBy = null,
+    ChartOptionsContract? Chart = null);
 
 /// <summary>A configured embedded habit chart.</summary>
 internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);
+
+/// <summary>A chart view's type, time axis, series and window.</summary>
+/// <param name="Kind">
+/// <c>bar</c>, <c>column</c>, <c>pie</c>, <c>line</c>, <c>area</c> or <c>year</c>. Null means
+/// <c>bar</c>, which is what every chart stored before this field existed draws. Line, area and year
+/// need a period; year needs <c>day</c>.
+/// </param>
+/// <param name="Period">
+/// <c>day</c>, <c>week</c>, <c>month</c>, <c>quarter</c> or <c>year</c> to put the chart on a time
+/// axis, grouping by the date the view's <c>groupBy</c> property holds. Weeks start on Monday. Null
+/// for a chart of categories.
+/// </param>
+/// <param name="SplitBy">
+/// A property with few values (a single choice or a yes/no) whose values split each bucket into series. At most 12 series are
+/// drawn; the rest are folded into one "Other" series and the response says so.
+/// </param>
+/// <param name="LastPeriods">
+/// A rolling window of the most recent 1 to 371 periods, the current one included. Needs a period;
+/// exclusive with <c>from</c> and <c>to</c>.
+/// </param>
+/// <param name="From">A fixed window's first day; the window snaps back to the start of its period.</param>
+/// <param name="To">A fixed window's last day; the window snaps forward to the end of its period.</param>
+/// <param name="Cumulative">Line and area: draw the running total. Computed by the renderer.</param>
+/// <param name="RollingAverage">
+/// Line and area: add the trailing seven-period average. Computed by the renderer.
+/// </param>
+internal sealed record ChartOptionsContract(
+    string? Kind = null,
+    string? Period = null,
+    string? SplitBy = null,
+    int? LastPeriods = null,
+    DateOnly? From = null,
+    DateOnly? To = null,
+    bool? Cumulative = null,
+    bool? RollingAverage = null);

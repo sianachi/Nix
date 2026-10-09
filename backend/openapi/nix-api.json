@@ -11702,7 +11702,8 @@
         "required": [
           "value",
           "children",
-          "total"
+          "total",
+          "cells"
         ],
         "type": "object",
         "properties": {
@@ -11728,6 +11729,96 @@
               "string"
             ],
             "format": "double"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChartCellResponse"
+            }
+          }
+        }
+      },
+      "ChartCellResponse": {
+        "required": [
+          "children",
+          "total"
+        ],
+        "type": "object",
+        "properties": {
+          "children": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "ChartOptionsContract": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "period": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "splitBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastPeriods": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "cumulative": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "rollingAverage": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -11741,7 +11832,15 @@
           "buckets",
           "children",
           "distinctValues",
-          "truncated"
+          "truncated",
+          "chartKind",
+          "period",
+          "splitBy",
+          "from",
+          "to",
+          "series",
+          "otherSeries",
+          "unplaced"
         ],
         "type": "object",
         "properties": {
@@ -11788,6 +11887,94 @@
           },
           "truncated": {
             "type": "boolean"
+          },
+          "chartKind": {
+            "type": "string"
+          },
+          "period": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "splitBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "from": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "to": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChartSeriesResponse"
+            }
+          },
+          "otherSeries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "unplaced": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "ChartSeriesResponse": {
+        "required": [
+          "value",
+          "other",
+          "children",
+          "total"
+        ],
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "other": {
+            "type": "boolean"
+          },
+          "children": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
           }
         }
       },
@@ -19636,6 +19823,16 @@
               "null",
               "string"
             ]
+          },
+          "chart": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChartOptionsContract"
+              }
+            ]
           }
         }
       },
@@ -19822,6 +20019,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "chart": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ChartOptionsContract"
+              }
             ]
           }
         }

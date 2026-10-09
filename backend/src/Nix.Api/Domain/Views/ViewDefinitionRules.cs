@@ -88,6 +88,11 @@ public static class ViewDefinitionRules
                 return $"'{view.Name}' totals a property, so it needs one to total.";
             }
 
+            if (view.Chart?.Refuse() is { } chart)
+            {
+                return $"'{view.Name}': {chart}.";
+            }
+
             if (view.CardSize is { } size && !GalleryCardSizes.IsValid(size))
             {
                 return $"'{view.Name}': '{size}' is not a card size; "

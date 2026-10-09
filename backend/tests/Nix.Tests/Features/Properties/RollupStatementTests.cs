@@ -119,4 +119,50 @@ public sealed class RollupStatementTests
             RollupSql.BucketChildrenByProperty,
             StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData(nameof(RollupSql.BucketChildrenByPropertyAndSeries))]
+    [InlineData(nameof(RollupSql.BucketChildrenByDay))]
+    public void The_chart_cell_reads_count_only_what_the_bucket_read_counts(string name)
+    {
+        // The same children as the plain chart and the list beside it: one tenant, one workspace,
+        // one parent, active and not template-owned. A series or a time axis is a different way of
+        // cutting the same rows, never a wider set of them.
+        var sql = CellStatement(name);
+
+        Assert.Contains("c.tenant_id = @tenant_id", sql, StringComparison.Ordinal);
+        Assert.Contains("c.workspace_id = @workspace_id", sql, StringComparison.Ordinal);
+        Assert.Contains("c.parent_id = @parent_id", sql, StringComparison.Ordinal);
+        Assert.Contains("c.lifecycle_state = 'active'", sql, StringComparison.Ordinal);
+        Assert.Contains("c.template_id IS NULL", sql, StringComparison.Ordinal);
+        Assert.Contains("LIMIT @cell_limit", sql, StringComparison.Ordinal);
+        Assert.DoesNotContain('?', sql);
+    }
+
+    [Fact]
+    public void The_series_read_returns_whole_buckets_largest_first()
+    {
+        var sql = RollupSql.BucketChildrenByPropertyAndSeries;
+
+        Assert.Contains("WHERE counted.bucket_rank <= @bucket_limit", sql, StringComparison.Ordinal);
+        Assert.Contains("ORDER BY counted.bucket_rank", sql, StringComparison.Ordinal);
+        Assert.Contains("max(ranked.bucket_rank) OVER () AS buckets", sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_day_read_keeps_undated_children_and_reads_latest_first()
+    {
+        var sql = RollupSql.BucketChildrenByDay;
+
+        Assert.Contains("placed.day IS NULL", sql, StringComparison.Ordinal);
+        Assert.Contains("ORDER BY placed.day DESC NULLS FIRST", sql, StringComparison.Ordinal);
+        Assert.Contains("count(*) OVER () AS cells", sql, StringComparison.Ordinal);
+    }
+
+    private static string CellStatement(string name) => name switch
+    {
+        nameof(RollupSql.BucketChildrenByPropertyAndSeries) => RollupSql.BucketChildrenByPropertyAndSeries,
+        nameof(RollupSql.BucketChildrenByDay) => RollupSql.BucketChildrenByDay,
+        _ => throw new ArgumentOutOfRangeException(nameof(name), name, null),
+    };
 }
