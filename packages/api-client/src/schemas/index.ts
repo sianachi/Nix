@@ -80,9 +80,11 @@ export {
   containerViewConfigurationsSchema,
   containerViewsSchema,
   viewSummarySchema,
+  viewConfigurationSchema,
   type ContainerViewConfigurations,
   type ContainerViews,
   type ViewSummary,
+  type ViewConfiguration,
 } from './views.js';
 export {
   effectiveSchemaSchema,

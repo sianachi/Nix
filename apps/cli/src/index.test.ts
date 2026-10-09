@@ -29,6 +29,32 @@ vi.mock('./commands/pets.ts', async () => {
 // calls the stub instead of driving a real session and network request.
 const { buildProgram } = await import('./index.ts');
 
+describe('public health command', () => {
+  it('passes an explicit Core origin to the anonymous health probe', async () => {
+    const healthModule = await import('./commands/health.ts');
+    const spy = vi.spyOn(healthModule, 'readHealth').mockResolvedValue();
+    try {
+      const program = buildProgram();
+      overrideExitRecursively(program);
+      await program.parseAsync(['--json', 'health', '--api-url', 'http://localhost:5014'], {
+        from: 'user',
+      });
+      expect(spy).toHaveBeenCalledWith(
+        'http://localhost:5014',
+        expect.objectContaining({ json: true }),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('requires an explicit origin before making a request', async () => {
+    const program = buildProgram();
+    overrideExitRecursively(program);
+    await expect(program.parseAsync(['health'], { from: 'user' })).rejects.toThrow(/--api-url/);
+  });
+});
+
 describe('pet --after validation', () => {
   afterEach(() => {
     petCommand.mockClear();

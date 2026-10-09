@@ -271,6 +271,12 @@ const developmentBrowserPolicy = browserPolicy.replace(
 );
 
 export default defineConfig({
+  optimizeDeps: {
+    // Canvas loads lazily. Optimize its React dependency with the initial application graph:
+    // re-optimizing on first open changes shared module URLs, and hmr: false cannot reload the
+    // mounted application to replace its existing React and Yjs instances.
+    include: ['@excalidraw/excalidraw'],
+  },
   // Excalidraw's published bundle imports roughjs without its file extension. Vite's browser
   // resolver accepts that path, while Node 25 (used by Vitest) does not.
   resolve: {

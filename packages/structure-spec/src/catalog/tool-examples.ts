@@ -38,6 +38,7 @@ export const TOOL_EXAMPLES: Readonly<
   read_item: { itemId: EXAMPLE_ITEM_ID },
   read_note: { itemId: EXAMPLE_ITEM_ID },
   read_structure: { itemId: EXAMPLE_ITEM_ID },
+  read_view: { itemId: EXAMPLE_ITEM_ID, query: { viewId: 'list-1', pageSize: 10 } },
   create_note: { title: 'Plan', markdown: 'Notes go here.' },
   append_note: { itemId: EXAMPLE_ITEM_ID, markdown: 'More notes.' },
   replace_section: {
@@ -62,6 +63,10 @@ export const TOOL_EXAMPLES: Readonly<
   add_view: {
     itemId: EXAMPLE_ITEM_ID,
     spec: { views: [{ kind: 'board', groupBy: 'status' }] },
+  },
+  update_view: {
+    itemId: EXAMPLE_ITEM_ID,
+    spec: { viewId: 'list-1', patch: { name: 'By priority' } },
   },
   create_entries: {
     parentId: EXAMPLE_ITEM_ID,
@@ -145,8 +150,12 @@ export function flattenToolExample(
       case 'parentId':
       case 'title':
       case 'markdown':
-      case 'query':
         flat[key] = String(value);
+        break;
+      case 'query':
+        if (typeof value !== 'object' && typeof value !== 'string')
+          throw new Error('query must be text or an object.');
+        flat.query = typeof value === 'object' ? JSON.stringify(value) : value;
         break;
       case 'templateId':
         flat.itemId = String(value);

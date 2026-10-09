@@ -273,6 +273,80 @@ function item(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 }
 
 describe('pet tools run', () => {
+  it.each([true, false])(
+    'rechecks the claimed read hold for automatic approval=%s and preserves manual approval',
+    async (automatic) => {
+      const itemId = String(item().id);
+      const argumentsText = JSON.stringify({
+        operation: 'rename_item',
+        itemId,
+        parentId: '',
+        title: 'Reviewed name',
+        markdown: '',
+        query: '',
+        propertiesJson: '',
+        specJson: '',
+      });
+      const tool = pendingTool({ arguments: argumentsText });
+      const calls: string[] = [];
+      const results: Record<string, unknown>[] = [];
+      const writes: unknown[] = [];
+      server.use(
+        http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
+          const body = (await request.json()) as Record<string, unknown>;
+          calls.push(String(body.operation));
+          if (body.operation === 'read')
+            return HttpResponse.json({
+              ...runtimeResponse([tool]),
+              lockedRead: false,
+            });
+          if (body.operation === 'tool_claim')
+            return HttpResponse.json({
+              ...runtimeResponse([{ ...tool, status: 'claimed', claimId: body.requestId }]),
+              lockedRead: true,
+            });
+          results.push(body);
+          return HttpResponse.json({
+            ...runtimeResponse([
+              {
+                ...tool,
+                status: body.toolSuccess ? 'completed' : 'failed',
+                result: body.toolResult,
+              },
+            ]),
+            lockedRead: true,
+          });
+        }),
+        http.get(`${CORE}/api/v1/items/${itemId}`, () => HttpResponse.json(item())),
+        http.patch(`${CORE}/api/v1/items/${itemId}`, async ({ request }) => {
+          writes.push(await request.json());
+          return HttpResponse.json(item({ title: 'Reviewed name' }));
+        }),
+      );
+      const session = openSession({
+        profile: { apiUrl: CORE, token: 'pat' },
+        bearerToken: 'session',
+      });
+      await executePetToolRun(
+        session,
+        WORKSPACE,
+        PET,
+        TOOL,
+        'approve',
+        'chat',
+        automatic ? { arguments: argumentsText } : undefined,
+      );
+      expect(calls).toEqual(['read', 'tool_claim', 'tool_result']);
+      expect(writes).toHaveLength(automatic ? 0 : 1);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.toolSuccess).toBe(!automatic);
+      if (automatic)
+        expect(results[0]?.toolResult).toBe(
+          "Earlier reads need the owner's review before changes. No action ran. Do not retry without approval.",
+        );
+    },
+  );
+
   it('keeps the eval-approved fingerprint instead of approving a fresh structure snapshot', async () => {
     const itemId = String(item().id);
     const argumentsText = JSON.stringify({

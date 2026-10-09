@@ -19,10 +19,10 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// toolVersion 5: nix_workspace's single flat-argument tool was replaced by one typed
-// nix_<operation> tool per operation (L1.1); a conversation on the old tool version starts a
-// fresh thread the next time it sends (see send() below).
-const toolVersion = 5
+// toolVersion 7 makes capability limits explicit and keeps broad requests within the turn budget.
+// Older provider threads restart on their next send to receive the current catalog and rules;
+// visible conversation history and its protected-read hold are retained.
+const toolVersion = 7
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -98,8 +98,8 @@ type Response struct {
 	History         []HistoryEntry `json:"history"`
 	// Revision lets a watcher tell whether anything changed since it last looked.
 	Revision int64 `json:"revision"`
-	// LockedRead says the model's current thread holds a tool result read from under a lock. The
-	// web client holds every write for the owner while it is set, whichever tab or turn it is in.
+	// LockedRead says this conversation has received a protected tool result. The web client
+	// holds every later write for the owner until an explicit conversation reset.
 	LockedRead bool `json:"lockedRead"`
 }
 
@@ -114,9 +114,9 @@ type conversation struct {
 	Messages        []Message  `json:"messages"`
 	WorkspaceAccess bool       `json:"-"`
 	Tools           []ToolCall `json:"tools"`
-	// LockedRead is set once a tool result read from under a lock reaches this thread, and stays
-	// set for as long as the thread does: the model can still quote that result in any later
-	// turn. Only a new thread (a reset, a tool-version bump, a first message) clears it.
+	// LockedRead is set once a protected tool result reaches this conversation. Later turns
+	// may quote that result, including visible history after an internal provider-thread restart.
+	// Only an explicit conversation reset clears it; tool-version changes preserve it.
 	LockedRead bool `json:"lockedRead,omitempty"`
 	// Revision is never persisted: every load (fresh or restored) gets a new one, monotonic
 	// across worker restarts because it is seeded from the clock rather than a counter.
@@ -739,10 +739,8 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	if c.ThreadID != "" && c.ToolVersion != 0 && c.ToolVersion != toolVersion {
 		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":tools", Role: "system", Text: "Your pet was updated and starts a fresh conversation."})
 	}
-	if method == "thread/start" {
-		// A new thread holds nothing the previous one read.
-		c.LockedRead = false
-	}
+	// Internal provider-thread replacement keeps the visible conversation and its read hold.
+	// Only an explicit conversation reset clears LockedRead.
 	c.ThreadID = thread
 	c.ToolVersion = toolVersion
 	c.RequestID = r.RequestID
@@ -910,7 +908,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			}
 		}
 		if method == "item/completed" && p.Item.Type == "agentMessage" && p.Item.Phase != "commentary" {
-			// The final answer is plain text (L2.2). toolVersion 5 (const above) forces a
+			// The final answer is plain text (L2.2). toolVersion 5 and later force a
 			// fresh thread on every conversation that predates this, so a provider reply can
 			// never carry the retired {"answer": string} envelope here; a genuine JSON reply
 			// (the model answering a JSON-shaped question, say) is used exactly as written,

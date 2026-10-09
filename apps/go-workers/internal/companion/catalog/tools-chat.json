@@ -61,7 +61,7 @@
   },
   {
     "name": "nix_read_structure",
-    "description": "Read an item's declared and effective fields, its views and its child count. Call this before proposing any structure change. Read-only.",
+    "description": "Read an item's effective and declared fields, complete view configuration, default and companion views, renderability and child count. Start an existing-view review here. Read-only.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -71,6 +71,36 @@
         }
       },
       "required": ["itemId"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_read_view",
+    "description": "Read at most 25 permission-filtered results for one saved view. Read nix_read_structure first for its exact viewId. Returns configuration, counts, truncation and display limitations; a sample cannot prove the whole view. Read-only.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "query": {
+          "type": "object",
+          "properties": {
+            "viewId": {
+              "type": "string",
+              "description": "The exact saved view id, from nix_read_structure."
+            },
+            "pageSize": {
+              "type": "integer",
+              "description": "Maximum rows, 1 to 25; default 25."
+            }
+          },
+          "required": ["viewId"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "query"],
       "additionalProperties": false
     }
   },
@@ -273,7 +303,7 @@
   },
   {
     "name": "nix_create_structured",
-    "description": "Create a new item with a recipe, fields and views, under parentId (omit for the workspace root). Shown for approval before it runs.",
+    "description": "Create a new item with a recipe, fields and up to 6 views per call, under parentId (omit for the workspace root). Items support at most 12 views total. Shown for approval before it runs. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -312,7 +342,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Omit to derive from label."
+                    "description": "Task key = type; else omit."
                   },
                   "type": {
                     "type": "string",
@@ -702,7 +732,7 @@
   },
   {
     "name": "nix_add_view",
-    "description": "Add fields and views to an item's existing schema. Never removes or retypes a field, never deletes an existing view.",
+    "description": "Add fields and up to 4 views per call to an item's existing schema, within its 12-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -723,7 +753,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Omit to derive from label."
+                    "description": "Task key = type; else omit."
                   },
                   "type": {
                     "type": "string",
@@ -1186,7 +1216,7 @@
   },
   {
     "name": "nix_add_fields",
-    "description": "Add up to 20 new fields to an item's existing schema. Never removes or retypes an existing field.",
+    "description": "Add up to 20 new fields to an item's existing schema. Never removes or retypes an existing field. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1208,7 +1238,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Omit to derive from label."
+                    "description": "Task key = type; else omit."
                   },
                   "type": {
                     "type": "string",
@@ -1283,7 +1313,7 @@
   },
   {
     "name": "nix_edit_form",
-    "description": "Replace one existing interactive form view, optionally adding new fields to the item at the same time.",
+    "description": "Replace one existing interactive form view, optionally adding new fields to the item at the same time. Task fields use their type as the key: due_date, start_date, completion, priority, estimate, reminder; omit key or set it to that type, with any label.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -1467,7 +1497,7 @@
                   },
                   "key": {
                     "type": "string",
-                    "description": "Omit to derive from label."
+                    "description": "Task key = type; else omit."
                   },
                   "type": {
                     "type": "string",
@@ -1533,6 +1563,343 @@
             }
           },
           "required": ["viewId", "form"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["itemId", "spec"],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "nix_update_view",
+    "description": "Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "string",
+          "description": "The exact item UUID. Discover it with nix_list_items or nix_search first if not already known."
+        },
+        "spec": {
+          "type": "object",
+          "properties": {
+            "viewId": {
+              "type": "string"
+            },
+            "patch": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "groupBy": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "groupOrder": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "dateProperty": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "endDateProperty": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sortBy": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "sortDescending": {
+                  "type": "boolean"
+                },
+                "mode": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["day", "week", "month", "quarter"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "coverProperty": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cardSize": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["small", "medium", "large"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "layout": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["list", "grid"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "filters": {
+                  "type": "array",
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "property": {
+                            "type": "string"
+                          },
+                          "operator": {
+                            "type": "string",
+                            "enum": [
+                              "equals",
+                              "not-equals",
+                              "on",
+                              "before",
+                              "on-or-after",
+                              "within-next",
+                              "within-last",
+                              "contains",
+                              "not-contains",
+                              "greater-than",
+                              "less-than",
+                              "is-empty",
+                              "is-not-empty"
+                            ]
+                          },
+                          "value": {
+                            "type": "string"
+                          }
+                        },
+                        "required": ["property", "operator", "value"],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "any": {
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "property": {
+                                  "type": "string"
+                                },
+                                "operator": {
+                                  "type": "string",
+                                  "enum": [
+                                    "equals",
+                                    "not-equals",
+                                    "on",
+                                    "before",
+                                    "on-or-after",
+                                    "within-next",
+                                    "within-last",
+                                    "contains",
+                                    "not-contains",
+                                    "greater-than",
+                                    "less-than",
+                                    "is-empty",
+                                    "is-not-empty"
+                                  ]
+                                },
+                                "value": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["property", "operator", "value"],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": ["any"],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "measure": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": ["count", "sum"]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "measureProperty": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "chart": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["bar", "column", "pie", "line", "area", "year"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "period": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["day", "week", "month", "quarter", "year"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "splitBy": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastPeriods": {
+                          "anyOf": [
+                            {
+                              "type": "integer"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "from": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "to": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "cumulative": {
+                          "type": ["boolean", "null"]
+                        },
+                        "rollingAverage": {
+                          "type": ["boolean", "null"]
+                        },
+                        "stacked": {
+                          "type": ["boolean", "null"]
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "doneProperty": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "rowBy": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["viewId", "patch"],
           "additionalProperties": false
         }
       },

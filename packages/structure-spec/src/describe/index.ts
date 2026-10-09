@@ -10,3 +10,4 @@ export type { DescribeContext } from './steps.js';
 export { describeAddFields, describeEditForm, describeRecurrence } from './edits.js';
 export { describeBlueprint } from './blueprint.js';
 export type { DescribeBlueprintContext } from './blueprint.js';
+export { describeUpdateView } from './update-view.js';

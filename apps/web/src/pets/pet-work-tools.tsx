@@ -77,10 +77,9 @@ const WAITS_FOR_FORMATTING =
   'This one waits for you: approving it removes formatting this edit can’t keep (see below).';
 const WAITS_FOR_LINK = 'This one waits for you: it adds a link to another site.';
 const HELD_AFTER_LOCKED_READ =
-  'This one waits for you: earlier in this conversation it read locked content.';
+  'This one waits for you: earlier reads need your review before changes.';
 const HELD_FOR_OCCURRENCE =
   "This one waits for you: completing a repeating task's occurrence cannot be undone.";
-
 
 /** Why a write the owner's switch would otherwise run is waiting anyway, in the owner's words,
  * when that is something the preview shows: formatting a body edit drops, or a link to another
@@ -172,6 +171,8 @@ function readPhrase(args: WorkspaceToolArgs): ReadPhrase {
       return { base: 'Read an item', progressive: 'Reading an item', past: 'Read an item' };
     case 'read_note':
       return { base: 'Read a note', progressive: 'Reading a note', past: 'Read a note' };
+    case 'read_view':
+      return { base: 'Read a view', progressive: 'Reading a view', past: 'Read a view' };
     case 'read_structure':
       return {
         base: "Read an item's structure",
@@ -421,21 +422,44 @@ export function PetWorkTools({
     const signal = AbortSignal.timeout(90000);
     try {
       // Claim on the server BEFORE any write. A lost claim response must never lead to execution.
-      const claimed = await client.execute(
-        pets.runtime({
-          operation: 'tool_claim',
-          workspaceId,
-          petId,
-          mode,
-          toolId: tool.id,
-          requestId,
-        }),
-        { signal },
-      );
+      let claimed: PetConnection;
+      try {
+        claimed = await client.execute(
+          pets.runtime({
+            operation: 'tool_claim',
+            workspaceId,
+            petId,
+            mode,
+            toolId: tool.id,
+            requestId,
+          }),
+          { signal },
+        );
+        const receipt = claimed.tools?.find((value) => value.id === tool.id);
+        if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
+          throw new Error('Tool was claimed elsewhere.');
+      } catch (cause) {
+        // Another tab or a CLI executor can settle the tool after this panel saw it pending.
+        // Reconcile the exact tool once; observing a claim never gives this caller its ownership.
+        const observed = await client.execute(
+          pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+          { signal },
+        );
+        const receipt = observed.tools?.find((value) => value.id === tool.id);
+        const foreignClaim =
+          receipt?.status === 'claimed' && receipt.claimId !== '' && receipt.claimId !== requestId;
+        const terminal =
+          receipt?.status === 'completed' ||
+          receipt?.status === 'failed' ||
+          receipt?.status === 'interrupted';
+        if (!foreignClaim && !terminal) throw cause;
+        onChange(observed);
+        const outcome = foreignClaim ? 'Running in another session.' : 'Already settled.';
+        writeActionReceipt(key, outcome);
+        setDecisions((old) => ({ ...old, [key]: outcome }));
+        return true;
+      }
       onChange(claimed);
-      const receipt = claimed.tools?.find((value) => value.id === tool.id);
-      if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
-        throw new Error('Tool was claimed elsewhere.');
       let toolResult = refusalResult ?? DECLINED_BY_USER;
       let toolSuccess = false;
       let notRun: string | undefined;
@@ -948,6 +972,8 @@ const WRITE_TEXT_SPEC_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = 
 
 /** Every piece of text a pending write would store, for the section that shows it in full before
  * Approve (security fix S1). */
+// View refinements show every changed string in the complete before/after structure preview.
+// Selection identities and field keys are not additional text the change writes.
 function writeTextItems(args: WorkspaceToolArgs): WriteTextItem[] {
   const out: WriteTextItem[] = [];
   if (WRITE_TEXT_SPEC_OPERATIONS.has(args.operation) && args.specJson.trim()) {
@@ -1253,7 +1279,6 @@ function PetWorkToolCard({
   useEffect(() => {
     onPreviewFailedChange(previewFailed);
   }, [previewFailed, onPreviewFailedChange]);
-
 
   // Lane F: with the owner's switch on, a clean write runs exactly as a click on "Approve
   // request" would - same fence, same build progress, same single-flight lock in `resolve` -

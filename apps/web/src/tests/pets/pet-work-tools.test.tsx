@@ -11,6 +11,7 @@ import * as Y from 'yjs';
 import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
+import * as actionReceipts from '../../pets/action-receipts';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn(), invalidate: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
@@ -65,6 +66,11 @@ async function approveRequest() {
     expect(button).toBeEnabled();
   });
   await userEvent.click(button);
+}
+function requestOperations(): string[] {
+  return client.execute.mock.calls.map(
+    ([endpoint]) => (endpoint as { body: { operation: string } }).body.operation,
+  );
 }
 describe('companion work approvals', () => {
   beforeEach(() => {
@@ -145,10 +151,181 @@ describe('companion work approvals', () => {
     expect(client.execute).not.toHaveBeenCalled();
     await approveRequest();
     await screen.findByRole('alert');
-    expect(client.execute).toHaveBeenCalledTimes(1);
+    expect(client.execute).toHaveBeenCalledTimes(2);
     expect(client.execute.mock.calls[0]?.[0]).toMatchObject({ body: { operation: 'tool_claim' } });
+    expect(client.execute.mock.calls[1]?.[0]).toMatchObject({ body: { operation: 'read' } });
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
+
+  it.each(['claimed', 'completed', 'failed', 'interrupted'] as const)(
+    'reconciles a refused claim with authoritative %s status without executing or reporting a failure',
+    async (status) => {
+      const observed = {
+        ...runtime,
+        revision: 2,
+        tools: runtime.tools?.map((tool) => ({ ...tool, status, claimId: 'another-session' })),
+      };
+      const onChange = vi.fn();
+      client.execute.mockImplementation((endpoint: { body: { operation: string } }) =>
+        endpoint.body.operation === 'read'
+          ? Promise.resolve(observed)
+          : Promise.reject(new Error('tool already claimed')),
+      );
+      render(
+        <PetWorkTools
+          client={client as unknown as NixClient}
+          runtime={runtime}
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          petId="22222222-2222-4222-8222-222222222222"
+          onChange={onChange}
+        />,
+      );
+      await approveRequest();
+      await waitFor(() => {
+        expect(onChange).toHaveBeenCalledExactlyOnceWith(observed);
+      });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(requestOperations()).toEqual(['tool_claim', 'read']);
+      expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(['pending', 'own-claim', 'missing'] as const)(
+    'keeps the uncertainty warning when reconciliation finds %s',
+    async (observation) => {
+      let requestId = '';
+      client.execute.mockImplementation(
+        (endpoint: { body: { operation: string; requestId?: string } }) => {
+          if (endpoint.body.operation === 'tool_claim') {
+            requestId = endpoint.body.requestId ?? '';
+            return Promise.reject(new Error('lost claim response'));
+          }
+          return Promise.resolve({
+            ...runtime,
+            tools:
+              observation === 'missing'
+                ? []
+                : runtime.tools?.map((tool) => ({
+                    ...tool,
+                    status: observation === 'own-claim' ? 'claimed' : 'pending',
+                    claimId: observation === 'own-claim' ? requestId : '',
+                  })),
+          });
+        },
+      );
+      show();
+      await approveRequest();
+      expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't confirm this change");
+      expect(runWorkspaceToolSpy).not.toHaveBeenCalled();
+      expect(requestOperations()).toEqual(['tool_claim', 'read']);
+    },
+  );
+
+  it.each(['search', 'create_note'] as const)(
+    'two independently mounted sessions contend for %s but execute once without a false failure alert',
+    async (operation) => {
+      // Separate tabs cannot read each other's action receipts. Each mounted panel still
+      // retains its own decision state; only the server arbitrates ownership between them.
+      const storage = vi.spyOn(actionReceipts, 'readActionReceipt').mockReturnValue('');
+      try {
+        const pending = petConnectionSchema.parse({
+          ...runtime,
+          tools: runtime.tools?.map((tool) => ({
+            ...tool,
+            arguments: JSON.stringify({
+              ...JSON.parse(tool.arguments),
+              operation,
+              query: operation === 'search' ? 'Plan' : '',
+            }),
+          })),
+        });
+        let observed = pending;
+        client.execute.mockImplementation(
+          (endpoint: { body: { operation: string; requestId?: string } }) => {
+            if (endpoint.body.operation === 'read') return Promise.resolve(observed);
+            if (
+              endpoint.body.operation === 'tool_claim' &&
+              observed.tools?.[0]?.status !== 'pending'
+            )
+              return Promise.reject(new Error('tool already claimed'));
+            observed = {
+              ...observed,
+              revision: observed.revision + 1,
+              tools: (observed.tools ?? []).map((tool) => ({
+                ...tool,
+                status: endpoint.body.operation === 'tool_claim' ? 'claimed' : 'completed',
+                claimId: endpoint.body.requestId ?? '',
+              })),
+            };
+            return Promise.resolve(observed);
+          },
+        );
+        let finish: (() => void) | undefined;
+        runWorkspaceToolSpy.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finish = () => {
+                resolve({ text: 'ok', readOnly: operation === 'search', touchedParents: [] });
+              };
+            }),
+        );
+        function Session(): ReactElement {
+          const [snapshot, setSnapshot] = useState(pending);
+          return (
+            <PetWorkTools
+              client={client as unknown as NixClient}
+              runtime={snapshot}
+              workspaceId="11111111-1111-4111-8111-111111111111"
+              petId="22222222-2222-4222-8222-222222222222"
+              onChange={setSnapshot}
+            />
+          );
+        }
+        render(
+          <>
+            <Session />
+            <Session />
+          </>,
+          { wrapper: MemoryRouter },
+        );
+        if (operation === 'create_note') {
+          const approvals = screen.getAllByRole('button', { name: 'Approve request' });
+          await waitFor(() => {
+            expect(approvals.every((button) => !button.hasAttribute('disabled'))).toBe(true);
+          });
+          const [first, second] = approvals;
+          if (first === undefined || second === undefined)
+            throw new Error('Both sessions must show an approval.');
+          await userEvent.click(first);
+          await userEvent.click(second);
+        }
+        await waitFor(() => {
+          expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+        });
+        await waitFor(() => {
+          expect(requestOperations().filter((operation) => operation === 'read')).toHaveLength(1);
+        });
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+        expect(requestOperations().filter((operation) => operation === 'tool_result')).toHaveLength(
+          0,
+        );
+        finish?.();
+        await waitFor(() => {
+          expect(
+            requestOperations().filter((operation) => operation === 'tool_result'),
+          ).toHaveLength(1);
+        });
+        expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
+        expect(requestOperations().filter((operation) => operation === 'tool_claim')).toHaveLength(
+          2,
+        );
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+      } finally {
+        storage.mockRestore();
+      }
+    },
+  );
   it('shows a "Declined" receipt once a plain decline\'s tool_result succeeds', async () => {
     // The server snapshot deliberately stays `pending` here (a stale or slow-to-settle round
     // trip) so the only source of the "Declined" text is the receipt L4 adds after the
@@ -322,7 +499,7 @@ describe('companion work approvals', () => {
     show();
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
     expect(screen.getByText('Approval submitted. Waiting for confirmation.')).toBeVisible();
-    expect(client.execute).toHaveBeenCalledTimes(1);
+    expect(requestOperations()).toEqual(['tool_claim', 'read']);
   });
   it('returns a declined result without performing a Nix mutation', async () => {
     const changed = vi.fn();
@@ -461,7 +638,12 @@ describe('companion work approvals', () => {
       '11111111-1111-4111-8111-111111111111',
       expect.any(String),
       expect.anything(),
-      { toolId: 'tool-1', claimId: claimRequestId, mode: 'chat', fence: '|' },
+      {
+        toolId: 'tool-1',
+        claimId: claimRequestId,
+        mode: 'chat',
+        fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
+      },
     );
     unsubscribe();
   });
@@ -592,7 +774,10 @@ describe('companion work approvals', () => {
     await waitFor(() => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
-    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ mode: 'consult', fence: '|' });
+    expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+      mode: 'consult',
+      fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
+    });
     expect(client.execute.mock.calls[0]?.[0]).toMatchObject({
       body: { mode: 'consult', operation: 'tool_claim' },
     });
@@ -1367,7 +1552,9 @@ describe('companion work approvals', () => {
       expect(client.execute.mock.calls[0]?.[0]).toMatchObject({
         body: { operation: 'tool_claim' },
       });
-      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({ fence: '|' });
+      expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
+        fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
+      });
       expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
         body: { operation: 'tool_result', toolSuccess: true },
       });
@@ -1396,8 +1583,7 @@ describe('companion work approvals', () => {
       expect(await screen.findByText('Done without asking')).toBeVisible();
     });
 
-    const lockedNote =
-      'This one waits for you: earlier in this conversation it read locked content.';
+    const lockedNote = 'This one waits for you: earlier reads need your review before changes.';
     const claimedTools = () =>
       client.execute.mock.calls
         .map((call) => (call[0] as { body?: { operation?: string; toolId?: string } }).body)
@@ -1424,13 +1610,22 @@ describe('companion work approvals', () => {
             propertiesJson: '',
           }),
         };
-        const write = { ...(runtime.tools ?? [])[0], id: 'write-1', arguments: structuredArguments };
+        const write = {
+          ...(runtime.tools ?? [])[0],
+          id: 'write-1',
+          arguments: structuredArguments,
+        };
         const turn = { ...runtime, tools: [read, write] } as typeof runtime;
         // The worker marks the conversation from the tool result's own flag; this stands in for it.
         let marked = false;
         client.execute.mockImplementation(
           (endpoint: {
-            body: { operation: string; requestId: string; toolId: string; toolLockedContent?: boolean };
+            body: {
+              operation: string;
+              requestId: string;
+              toolId: string;
+              toolLockedContent?: boolean;
+            };
           }) => {
             if (endpoint.body.toolLockedContent === true) marked = true;
             return Promise.resolve({
@@ -1607,7 +1802,9 @@ describe('companion work approvals', () => {
           "This one waits for you: completing a repeating task's occurrence cannot be undone.",
         ),
       ).toBeVisible();
-      expect(screen.getByText(/occurrence of the repeating task “Water plants” done/)).toBeVisible();
+      expect(
+        screen.getByText(/occurrence of the repeating task “Water plants” done/),
+      ).toBeVisible();
       await waitFor(() => {
         expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);
       });
@@ -1643,11 +1840,11 @@ describe('companion work approvals', () => {
       expect(runWorkspaceToolSpy).toHaveBeenCalledTimes(2);
       expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
         toolId: 'tool-1',
-        fence: '|',
+        fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
       });
       expect(runWorkspaceToolSpy.mock.calls[1]?.[4]).toMatchObject({
         toolId: 'tool-2',
-        fence: '|',
+        fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
       });
     });
 
@@ -1999,9 +2196,7 @@ describe('companion work approvals', () => {
       // The preview is clean and loads, yet the edit waits and says why.
       expect(await screen.findByRole('region', { name: /^Text after this change/ })).toBeVisible();
       expect(
-        screen.getByText(
-          'This one waits for you: earlier in this conversation it read locked content.',
-        ),
+        screen.getByText('This one waits for you: earlier reads need your review before changes.'),
       ).toBeVisible();
       await waitFor(() => {
         expect(onNeedsDecisionChange).toHaveBeenLastCalledWith(['tool-1']);

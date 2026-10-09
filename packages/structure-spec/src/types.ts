@@ -157,6 +157,10 @@ export interface StructureView {
   cardSize: string | null;
   layout: string | null;
   filters: StructureFilterEntry[];
+  sorts?: { property: string; descending: boolean }[];
+  collapsedGroups?: string[];
+  groupLimits?: { group: string; limit: number }[];
+  aggregates?: { property: string; function: string }[];
   habitWidgets?: StructureHabitWidget[];
   measure?: string | null;
   measureProperty?: string | null;

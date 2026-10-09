@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createFakePorts } from './testing/fake-ports.js';
 import { runWorkspaceTool } from './run.js';
+import { structureFingerprint } from './guards.js';
 import { loadPreviewContext } from './context.js';
 import { readStructure } from './structure/read-structure.js';
 import { WorkspaceToolRefusal, workspaceToolSchema } from './tool-args.js';
@@ -26,7 +27,7 @@ function setup() {
       endpoint.operation === 'schema.get'
         ? { properties: [], declared: [], inherit: true }
         : endpoint.operation === 'views.getConfigurations' || endpoint.operation === 'views.get'
-          ? { views: [], unrenderable: [], default: 'document' }
+          ? { views: [], unrenderable: [], default: 'document', hideDocument: false }
           : { id: itemId, workspaceId: workspace, parentId: null, title: 'Plan', type: 'note' },
     ),
   );
@@ -38,7 +39,7 @@ function setup() {
   return fake;
 }
 describe('workspace-scoped companion tools', () => {
-  it.each(['list_views', 'query_view', 'create_view', 'update_view', 'delete_view'])(
+  it.each(['list_views', 'query_view', 'create_view', 'delete_view'])(
     'refuses unsupported view operation %s without pretending it was executed',
     async (operation) => {
       const { ports, query, execute, bodies, signal } = setup();
@@ -578,7 +579,7 @@ describe('workspace-scoped companion tools', () => {
         specJson: '{"recipe":"board","fields":[]}',
       }),
       signal,
-      { fence: '|' },
+      { fence: structureFingerprint({ declared: [] }, []) },
     );
     expect(JSON.parse(outcome.text)).toMatchObject({ id: itemId, created: true });
     expect(execute).toHaveBeenCalledOnce();
@@ -610,7 +611,18 @@ describe('workspace-scoped companion tools', () => {
       workspace,
       input('add_view', { itemId, specJson: '{"views":[{"kind":"list"}]}' }),
       signal,
-      { fence: '|' },
+      {
+        fence: structureFingerprint(
+          {
+            declared: [],
+            effective: [],
+            inherit: true,
+            defaultViewId: 'document',
+            hideDocument: false,
+          },
+          [],
+        ),
+      },
     );
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
@@ -630,7 +642,18 @@ describe('workspace-scoped companion tools', () => {
         specJson: '{"fields":[{"key":"status","label":"Status","type":"text"}]}',
       }),
       signal,
-      { fence: '|' },
+      {
+        fence: structureFingerprint(
+          {
+            declared: [],
+            effective: [],
+            inherit: true,
+            defaultViewId: 'document',
+            hideDocument: false,
+          },
+          [],
+        ),
+      },
     );
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
@@ -658,7 +681,18 @@ describe('workspace-scoped companion tools', () => {
         workspace,
         input('add_fields', { itemId, specJson: JSON.stringify({ fields }) }),
         signal,
-        { fence: '|' },
+        {
+          fence: structureFingerprint(
+            {
+              declared: [],
+              effective: [],
+              inherit: true,
+              defaultViewId: 'document',
+              hideDocument: false,
+            },
+            [],
+          ),
+        },
       );
       const endpoint = execute.mock.calls[0]?.[0] as
         | { operation: string; body?: { properties?: { key: string }[]; views?: unknown[] } }
@@ -723,7 +757,18 @@ describe('workspace-scoped companion tools', () => {
         specJson: '{"frequency":"weekly","interval":1,"weekdays":[1,3],"until":"2027-04-02"}',
       }),
       signal,
-      { fence: 'due_date:due_date|' },
+      {
+        fence: (
+          await loadPreviewContext(
+            ports,
+            workspace,
+            workspaceToolSchema.parse(
+              JSON.parse(input('set_recurrence', { itemId, specJson: '{}' })),
+            ),
+            signal,
+          )
+        ).fingerprint,
+      },
     );
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
@@ -817,7 +862,16 @@ describe('workspace-scoped companion tools', () => {
         }),
       }),
       signal,
-      { fence: 'status:text|form:interactive_form,responses:list' },
+      {
+        fence: (
+          await loadPreviewContext(
+            ports,
+            workspace,
+            workspaceToolSchema.parse(JSON.parse(input('edit_form', { itemId, specJson: '{}' }))),
+            signal,
+          )
+        ).fingerprint,
+      },
     );
     expect(execute).toHaveBeenCalledOnce();
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
@@ -957,7 +1011,7 @@ describe('workspace-scoped companion tools', () => {
         specJson: '{"entries":[{"title":"First"},{"title":"Second"},{"title":"Third"}]}',
       }),
       signal,
-      { fence: '|' },
+      { fence: structureFingerprint({ declared: [] }, []) },
     );
     expect(JSON.parse(outcome.text)).toMatchObject({
       created: [{ index: 0, id: '33333333-3333-4333-8333-333333333333' }],
@@ -986,7 +1040,7 @@ describe('workspace-scoped companion tools', () => {
         specJson: '{"entries":[{"title":"First","markdown":"body"}]}',
       }),
       signal,
-      { fence: '|' },
+      { fence: structureFingerprint({ declared: [] }, []) },
     );
     expect(JSON.parse(outcome.text)).toMatchObject({
       created: [{ index: 0, id: '33333333-3333-4333-8333-333333333333' }],

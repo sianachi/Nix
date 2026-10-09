@@ -70,6 +70,47 @@ func TestReadAfterWriteRequiresFreshResult(t *testing.T) {
 	}
 }
 
+func TestToolBudgetReturnsAnExplicitResultWithoutAnotherApproval(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		args string
+	}{
+		{"nix_read_note", `{"itemId":"11111111-1111-4111-8111-111111111111"}`},
+		{"nix_create_note", `{"title":"Beyond the budget","markdown":"Do not create"}`},
+	} {
+		t.Run(tc.tool, func(t *testing.T) {
+			peer := &toolPeer{}
+			c := &conversation{ThreadID: "thread", State: "thinking", WorkspaceAccess: true}
+			for i := 0; i < maxToolCallsPerTurn; i++ {
+				c.Tools = append(c.Tools, ToolCall{
+					ID: fmt.Sprintf("seed-%d", i), Arguments: fmt.Sprintf(`{"operation":"create_note","title":"Seed %d"}`, i),
+					Status: "completed", Result: "Already created",
+				})
+			}
+			a := &account{transport: peer, home: t.TempDir(), conversations: map[string]*conversation{"x": c}}
+			raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":%q,"callId":"exhausted","arguments":%s}`, tc.tool, tc.args))
+			if !a.toolRequest(json.RawMessage(`21`), "item/tool/call", raw) {
+				t.Fatal("budget refusal fell through to a generic transport error")
+			}
+			if len(c.Tools) != maxToolCallsPerTurn || len(peer.replies) != 1 {
+				t.Fatal("exhausted request created another approval or lost its response")
+			}
+			encoded, err := json.Marshal(peer.replies[0])
+			if err != nil || !strings.Contains(string(encoded), `"success":false`) || !strings.Contains(string(encoded), "limit of 20 tool calls") || !strings.Contains(string(encoded), "No action ran") {
+				t.Fatalf("budget result omitted the failure and recovery: %s", encoded)
+			}
+			if err := a.resolveTool("x", Request{Operation: "tool_claim", ToolID: "exhausted", RequestID: "claim"}); err == nil {
+				t.Fatal("budget-refused action remained claimable")
+			}
+			// An already completed write still receives its original result at the limit.
+			duplicate := json.RawMessage(`{"threadId":"thread","tool":"nix_create_note","callId":"duplicate","arguments":{"title":"Seed 0"}}`)
+			if !a.toolRequest(json.RawMessage(`22`), "item/tool/call", duplicate) || len(peer.replies) != 2 || len(c.Tools) != maxToolCallsPerTurn {
+				t.Fatal("budget prevented replay of an existing receipt")
+			}
+		})
+	}
+}
+
 func TestToolIdentityPreservesPayloadAndNormalizesObjectKeys(t *testing.T) {
 	one, _ := toolIdentity(`{"operation":"set_properties","propertiesJson":"{\"a\":1,\"b\":2}"}`)
 	two, _ := toolIdentity(`{"propertiesJson":"{\"b\":2, \"a\":1}","operation":"set_properties"}`)
@@ -298,7 +339,14 @@ func TestFlattenToolCallMatchesTSReferenceFixture(t *testing.T) {
 // exactly, since flattenToolCall never reorders or reformats them.
 func flatArgsEqual(a, b flatToolArgs) bool {
 	if a.Operation != b.Operation || a.ItemID != b.ItemID || a.ParentID != b.ParentID ||
-		a.Title != b.Title || a.Markdown != b.Markdown || a.Query != b.Query {
+		a.Title != b.Title || a.Markdown != b.Markdown {
+		return false
+	}
+	if a.Operation == "read_view" {
+		if !jsonEqual(a.Query, b.Query) {
+			return false
+		}
+	} else if a.Query != b.Query {
 		return false
 	}
 	return jsonEqual(a.PropertiesJSON, b.PropertiesJSON) && jsonEqual(a.SpecJSON, b.SpecJSON)
@@ -591,7 +639,7 @@ func TestRefusalMessagesUseTypedVocabulary(t *testing.T) {
 func TestToolIdentityReadOnlyOperationsArePinned(t *testing.T) {
 	want := map[string]bool{
 		"list_items": true, "search": true, "read_item": true, "read_note": true,
-		"read_structure": true, "list_templates": true, "read_template": true, "validate_blueprint": true,
+		"read_structure": true, "read_view": true, "list_templates": true, "read_template": true, "validate_blueprint": true,
 		"read_calendar": true,
 	}
 	for operation := range want {
@@ -900,9 +948,9 @@ func TestLockedReadIsHeldForTheWholeThread(t *testing.T) {
 	}
 }
 
-// TestNewThreadClearsTheLockedRead covers the other thread replacement: a conversation whose
-// thread is dropped (here a tool-version bump) starts again unmarked.
-func TestNewThreadClearsTheLockedRead(t *testing.T) {
+// TestProviderThreadReplacementKeepsTheReadHold ensures internal tool updates cannot clear
+// the approval hold of a visible conversation that read protected or aggregate evidence.
+func TestProviderThreadReplacementKeepsTheReadHold(t *testing.T) {
 	a := &account{transport: &fakeTransport{}, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
@@ -910,8 +958,8 @@ func TestNewThreadClearsTheLockedRead(t *testing.T) {
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	if a.snapshot(key).LockedRead {
-		t.Fatal("a replaced thread kept the previous thread's mark")
+	if !a.snapshot(key).LockedRead {
+		t.Fatal("a replaced provider thread cleared the visible conversation read hold")
 	}
 }
 
@@ -926,5 +974,22 @@ func TestToolResultLimitCountsUTF16Units(t *testing.T) {
 	r.ToolResult = strings.Repeat("é", 32001)
 	if validRequest(r) {
 		t.Fatal("a result over 32000 units was accepted")
+	}
+}
+
+func TestReadViewIdentityNormalizesOnlyViewQueryObjects(t *testing.T) {
+	one, readOnly := toolIdentity(`{"operation":"read_view","itemId":"11111111-1111-4111-8111-111111111111","query":"{\"viewId\":\"list\",\"pageSize\":2}"}`)
+	two, _ := toolIdentity(`{"operation":"read_view","itemId":"11111111-1111-4111-8111-111111111111","query":"{\"pageSize\":2,\"viewId\":\"list\"}"}`)
+	if !readOnly || one != two {
+		t.Fatal("equivalent view query has a different read identity")
+	}
+	changed, _ := toolIdentity(`{"operation":"read_view","itemId":"11111111-1111-4111-8111-111111111111","query":"{\"viewId\":\"list\",\"pageSize\":1}"}`)
+	if one == changed {
+		t.Fatal("changed view sample reused the same identity")
+	}
+	searchOne, _ := toolIdentity(`{"operation":"search","query":"{\"a\":1,\"b\":2}"}`)
+	searchTwo, _ := toolIdentity(`{"operation":"search","query":"{\"b\":2,\"a\":1}"}`)
+	if searchOne == searchTwo {
+		t.Fatal("search text was incorrectly normalized as a view query")
 	}
 }

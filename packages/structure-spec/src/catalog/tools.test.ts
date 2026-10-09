@@ -12,11 +12,12 @@ import {
   saveSpecSchema,
   structuredSpecSchema,
   viewSetupSpecSchema,
+  updateViewSpecSchema,
 } from '../spec/index.js';
 import { validateBlueprint } from '../blueprint/validate.js';
 import { validateSpec } from '../validate/spec.js';
 import { buildPetTools, normalizeForCodex } from './tools.js';
-import { CONSULT_ONLY_OPERATION_NAMES, WORKSPACE_OPERATIONS } from './tables.js';
+import { CONSULT_ONLY_OPERATION_NAMES, WORKSPACE_OPERATIONS, LIMITS } from './tables.js';
 import { flattenToolExample, TOOL_EXAMPLES } from './tool-examples.js';
 
 /**
@@ -30,6 +31,55 @@ function toolNames(mode: 'chat' | 'consult'): string[] {
 }
 
 describe('buildPetTools', () => {
+  it('keeps per-call and total capacity guidance after provider schema normalization', () => {
+    const tools = new Map(buildPetTools('consult').map((tool) => [tool.name, tool]));
+    expect(tools.get('nix_create_structured')?.description).toContain('up to 6 views per call');
+    expect(tools.get('nix_create_structured')?.description).toContain('at most 12 views total');
+    expect(tools.get('nix_add_view')?.description).toContain('up to 4 views per call');
+    expect(tools.get('nix_add_view')?.description).toContain('12-view total limit');
+    expect(tools.get('nix_add_view')?.description).toContain('viewCapacity');
+    for (const operation of [
+      'create_structured',
+      'add_view',
+      'add_fields',
+      'edit_form',
+      'validate_blueprint',
+      'build_blueprint',
+    ]) {
+      expect(tools.get(`nix_${operation}`)?.description).toContain(
+        'due_date, start_date, completion, priority, estimate, reminder',
+      );
+      expect(tools.get(`nix_${operation}`)?.description).toContain(
+        'omit key or set it to that type',
+      );
+    }
+    for (const operation of ['validate_blueprint', 'build_blueprint']) {
+      expect(tools.get(`nix_${operation}`)?.description).toContain('child node.habit');
+      expect(tools.get(`nix_${operation}`)?.description).toContain('no column mappings');
+    }
+    const views = (count: number) => Array.from({ length: count }, () => ({ kind: 'list' }));
+    expect(
+      structuredSpecSchema.safeParse({
+        recipe: 'list',
+        fields: [],
+        views: views(LIMITS.viewsPerNode),
+      }).success,
+    ).toBe(true);
+    expect(
+      structuredSpecSchema.safeParse({
+        recipe: 'list',
+        fields: [],
+        views: views(LIMITS.viewsPerNode + 1),
+      }).success,
+    ).toBe(false);
+    expect(viewSetupSpecSchema.safeParse({ views: views(LIMITS.viewsPerAddView) }).success).toBe(
+      true,
+    );
+    expect(
+      viewSetupSpecSchema.safeParse({ views: views(LIMITS.viewsPerAddView + 1) }).success,
+    ).toBe(false);
+  });
+
   it('names every tool nix_<operation>, offering every operation in consult and omitting the three consult-only ones in chat', () => {
     const consultOnly = new Set<string>(CONSULT_ONLY_OPERATION_NAMES);
     const chatOperations = WORKSPACE_OPERATIONS.filter((operation) => !consultOnly.has(operation));
@@ -85,6 +135,7 @@ describe('buildPetTools', () => {
     const bySpecSchema: [string, string, z.ZodType][] = [
       ['create_structured', 'spec', structuredSpecSchema],
       ['add_view', 'spec', viewSetupSpecSchema],
+      ['update_view', 'spec', updateViewSpecSchema],
       ['create_entries', 'spec', entriesSpecSchema],
       ['add_fields', 'spec', fieldsSpecSchema],
       ['edit_form', 'spec', formEditSpecSchema],

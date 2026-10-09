@@ -10,6 +10,7 @@ import {
   valueShapeOf,
 } from '../vocabulary/property-types.js';
 import { STRUCTURED_RECIPES } from '../vocabulary/recipes.js';
+import { TASK_SEMANTIC_FIELD_TYPES } from '../spec/field.js';
 import { SMART_LISTS } from '../vocabulary/smart-lists.js';
 import {
   FORM_RULES,
@@ -190,7 +191,7 @@ function viewKindLine(kind: CatalogViewKind): string {
 
 /**
  * The chat-mode catalog text: field types, view kinds and their requirements, recipes and the
- * never-ops, at most 3000 characters. Chat pets do additive edits to existing structure and never
+ * never-ops, at most 3000 characters. Chat pets review and refine existing structure and never
  * design a system from scratch, so they need the vocabulary but not formulas, forms, recurrence,
  * habits or the blueprint schema.
  */
@@ -208,11 +209,27 @@ function renderShared(catalog: Catalog, recipeDetail: boolean): string {
   const lines: string[] = [];
   lines.push('Section: Structure operations');
   lines.push(catalog.structureOperations.chat.join(', '));
+  lines.push(
+    `Per call: create_structured ${String(catalog.limits.viewsPerNode)} views, add_view ${String(catalog.limits.viewsPerAddView)}; ${String(catalog.limits.viewsPerContainer)} total per item. Read structure for remaining capacity.`,
+  );
+  lines.push('');
+  lines.push('Section: View review');
+  lines.push(
+    'Read configuration with nix_read_structure and bounded results with nix_read_view. Reviews only read; requested refinements use nix_update_view, then read back.',
+  );
   lines.push('');
   lines.push('Section: Property types');
-  lines.push(catalog.propertyTypes.map((type) => `${type.type} (${type.label})`).join(', '));
+  lines.push(
+    catalog.propertyTypes
+      .map((type) => (recipeDetail ? `${type.type} (${type.label})` : type.type))
+      .join(', '),
+  );
+  lines.push(
+    `Task field keys equal their type: ${TASK_SEMANTIC_FIELD_TYPES.join(', ')}. Labels stay free.`,
+  );
   lines.push('');
   lines.push('Section: View kinds');
+  lines.push('Columns may include title; it is an item-title marker, never a form field.');
   for (const kind of catalog.viewKinds) {
     lines.push(viewKindLine(kind));
   }
@@ -286,7 +303,7 @@ export function renderConsult(catalog: Catalog, patterns: string): string {
 
   lines.push('Section: Habits');
   lines.push(
-    `Frequencies: ${catalog.habit.frequencies.join(', ')}. A habit node must be a child of a node with a habit_tracker view.`,
+    `Frequencies: ${catalog.habit.frequencies.join(', ')}. Configure child node.habit with frequency, weekdays, target and unit; its parent needs a habit_tracker view. The view has no column mappings.`,
   );
   lines.push('');
 

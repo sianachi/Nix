@@ -370,30 +370,32 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 // The Phase D tool version bump (consult mode, validate_blueprint, build_blueprint,
 // save_as_template) must restart any thread that still carries the old schema.
 // TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
-// relative to toolVersion; this pins the constant itself to 5 (L1: nix_workspace's single
-// flat-argument tool replaced by one typed nix_<operation> tool per operation), so a future bump
+// relative to toolVersion; this pins the constant to 7 for explicit capability and turn limits, so a future bump
 // that forgets to change it would not silently pass either test.
-func TestToolVersionFiveRestartsThreads(t *testing.T) {
-	if toolVersion != 5 {
-		t.Fatalf("L1 expects toolVersion 5, got %d", toolVersion)
+func TestToolVersionSevenRestartsThreads(t *testing.T) {
+	if toolVersion != 7 {
+		t.Fatalf("capability limits expect toolVersion 7, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	a.conversations[key] = &conversation{ToolVersion: 4, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi"}}}
+	a.conversations[key] = &conversation{ToolVersion: 6, LockedRead: true, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi"}}}
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 4 conversation should start a fresh thread on the version 5 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 5 conversation should start a fresh thread on the version 6 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
-	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 5 bump: %+v", got.Messages)
+	if !got.LockedRead {
+		t.Fatal("tool migration cleared the visible conversation read hold")
 	}
-	if a.conversations[key].ToolVersion != 5 {
-		t.Fatalf("conversation not recorded at tool version 5: %d", a.conversations[key].ToolVersion)
+	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
+		t.Fatalf("no system notice appended on the version 7 bump: %+v", got.Messages)
+	}
+	if a.conversations[key].ToolVersion != 7 {
+		t.Fatalf("conversation not recorded at tool version 7: %d", a.conversations[key].ToolVersion)
 	}
 }
 

@@ -1,3 +1,4 @@
+import { LIMITS } from '../catalog/tables.js';
 import type {
   StructureFilter,
   StructureFilterEntry,
@@ -20,7 +21,7 @@ import {
 import { isRealCalendarDay } from './values.js';
 
 /** `ViewDefinitionsJson.MaximumViews` (`backend/src/Nix.Api/Domain/Views/ViewDefinitionsJson.cs:79`). */
-const MAXIMUM_VIEWS = 12;
+const MAXIMUM_VIEWS = LIMITS.viewsPerContainer;
 /** `ViewDefinitionsJson.DocumentView` - reserved for an item's own body, never a stored view. */
 const RESERVED_VIEW_ID = 'document';
 const CARD_SIZES: ReadonlySet<string> = new Set(['small', 'medium', 'large']);

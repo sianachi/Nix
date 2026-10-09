@@ -12,3 +12,5 @@ export { compileAddView, compileCreateStructured, compileEntries } from './opera
 export type { AddViewContext, CreateStructuredContext, EntriesContext } from './operations.js';
 export { compileAddFields, compileEditForm, compileRecurrence } from './edits.js';
 export type { AddFieldsContext, CompileRecurrenceContext, EditFormContext } from './edits.js';
+export { compileUpdateView } from './update-view.js';
+export type { UpdateViewContext } from './update-view.js';

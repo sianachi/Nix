@@ -1119,7 +1119,7 @@ export interface paths {
     get: operations['GetContainerViews'];
     /**
      * Replace the views a container offers
-     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist', 'outline', 'matrix' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from, a matrix needs a property for its columns and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag.
+     * @description A whole-set replacement, because the order is part of what is being edited. A view's kind is one of 'list', 'habit_tracker', 'board', 'calendar', 'gallery', 'timeline', 'sheet', 'form', 'query', 'interactive_form', 'drive', 'finance', 'checklist', 'outline', 'matrix' or 'chart'. What a kind must name is checked here (a board needs a property to group by, a calendar needs a date property, a timeline needs a date to start from, a matrix needs a property for its columns and a chart needs a property to group by), but whether that property exists is not: a view may be configured before the property is declared, and the read path reports the mismatch instead. Fails with 'views.invalid' when a view is not storable. 'hideDocument' hides the document tab and nothing else: it is not an access control, and the body stays readable everywhere it already was. Absent leaves the stored flag as it is; true makes the first view open when the default was the document, and fails with 'views.document_cannot_be_hidden' when there are no views or the default explicitly names the document. Replacing the set with no views clears the flag. An optional expectedVersion from the views read atomically rejects stale replacements with views.version_conflict (409); absent preserves legacy unconditional replacement.
      */
     put: operations['SetContainerViews'];
     post?: never;
@@ -3036,6 +3036,7 @@ export interface components {
       unrenderable: string[];
       default: string;
       hideDocument: boolean;
+      version: string;
     };
     CreateAccessTokenRequest: {
       name: null | string;
@@ -4432,6 +4433,7 @@ export interface components {
       views: components['schemas']['ViewRequest'][];
       default: null | string;
       hideDocument?: null | boolean;
+      expectedVersion?: null | string;
     };
     ShelfResponse: {
       items: components['schemas']['KeptItemResponse'][];

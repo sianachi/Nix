@@ -3,10 +3,7 @@ import type { StructureProperty, StructureView } from '@nix/structure-spec';
 import type { CompanionPorts } from './ports.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
 
-/** A hash of the structure a preview was rendered against: sorted `key:type` pairs for the
- * declared fields, then `|`, then `id:kind` pairs for the views, in view order. Two calls that
- * see the same declared schema and the same views produce the same fingerprint; any change to
- * either changes it. */
+/** A stable serialization of all configuration that can affect an approved structure change. */
 export type StructureFingerprint = string;
 
 /** Reads an item and refuses it outside this workspace. Scope guards supplement, never
@@ -27,13 +24,25 @@ export async function checkItem(
 /** Fingerprints a structure so `run.ts` can refuse a write whose preview no longer matches what
  * it would execute against (architecture 1.2's fingerprint fence). */
 export function structureFingerprint(
-  schema: { declared: readonly StructureProperty[] },
+  schema: {
+    declared: readonly StructureProperty[];
+    effective?: readonly StructureProperty[];
+    inherit?: boolean;
+    defaultViewId?: string;
+    hideDocument?: boolean;
+    version?: string;
+  },
   views: readonly StructureView[],
 ): StructureFingerprint {
-  const fields = schema.declared
-    .map((property) => `${property.key}:${property.type}`)
-    .sort()
-    .join(',');
-  const viewParts = views.map((view) => `${view.id}:${view.kind}`).join(',');
-  return `${fields}|${viewParts}`;
+  const stable = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value !== null && typeof value === 'object')
+      return Object.fromEntries(
+        Object.entries(value)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([key, entry]) => [key, stable(entry)]),
+      );
+    return value;
+  };
+  return JSON.stringify(stable({ schema, views }));
 }

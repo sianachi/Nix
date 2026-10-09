@@ -461,15 +461,24 @@ export const ContainerViewsSchema = z.object({
    * response from a server that predates the field still reads as "shown".
    */
   hideDocument: z.boolean().default(false),
+  /** Older servers have no conditional-write version. */
+  version: z.string().nullable().default(null),
 });
 
 /** What the `default` field says when the item opens on its own body rather than on a view. */
 export const DOCUMENT_VIEW = 'document';
 
 type ParsedContainerViews = z.infer<typeof ContainerViewsSchema>;
-export type ContainerViews = Omit<ParsedContainerViews, 'views'> & { readonly views: View[] };
+export type ContainerViews = Omit<ParsedContainerViews, 'views' | 'version'> & {
+  readonly views: View[];
+  readonly version?: string | null;
+};
 
-const _containerViewsContract = ContainerViewsSchema satisfies z.ZodType<ContainerViewsContract>;
+type ContainerViewsReadContract = Omit<ContainerViewsContract, 'version'> & {
+  version: ContainerViewsContract['version'] | null;
+};
+const _containerViewsContract =
+  ContainerViewsSchema satisfies z.ZodType<ContainerViewsReadContract>;
 void _containerViewsContract;
 
 /** A property value as it arrives: anything JSON can carry. */

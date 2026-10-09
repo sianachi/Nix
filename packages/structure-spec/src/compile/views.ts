@@ -1,4 +1,4 @@
-import type { ViewSpec } from '../spec/view.js';
+import { isTitleColumnReference, type ViewSpec } from '../spec/view.js';
 import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { findSmartList } from '../vocabulary/smart-lists.js';
 import type {
@@ -162,7 +162,9 @@ export function compileView(
     // none by default rather than every property the schema has.
     columns:
       spec.columns !== undefined
-        ? spec.columns.map((ref) => resolveKey(ref, effective, addedKeys))
+        ? spec.columns.map((ref) =>
+            isTitleColumnReference(spec.kind, ref) ? ref : resolveKey(ref, effective, addedKeys),
+          )
         : spec.kind === 'checklist'
           ? []
           : ['title', ...effective.map((property) => property.key)],

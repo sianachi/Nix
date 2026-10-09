@@ -216,11 +216,13 @@ internal sealed record InteractiveFormContract(
 /// an empty board, which is indistinguishable from an item with nothing in it and sends somebody looking for
 /// missing items instead of a missing property.
 /// </remarks>
+/// <param name="Version">Opaque version of all stored view settings, for a conditional replacement.</param>
 internal sealed record ContainerViewsResponse(
     IReadOnlyList<ViewResponse> Views,
     IReadOnlyList<string> Unrenderable,
     string Default,
-    bool HideDocument);
+    bool HideDocument,
+    string Version);
 
 /// <summary>
 /// Replaces every view a container offers.
@@ -242,10 +244,12 @@ internal sealed record ContainerViewsResponse(
 /// A whole-set replacement because the order is part of what is being edited, and reordering
 /// through per-view endpoints is a sequence of writes that can half-apply.
 /// </remarks>
+/// <param name="ExpectedVersion">Version from the views read; absent leaves legacy writes unconditional.</param>
 internal sealed record SetViewsRequest(
     IReadOnlyList<ViewRequest> Views,
     string? Default,
-    bool? HideDocument = null);
+    bool? HideDocument = null,
+    string? ExpectedVersion = null);
 
 /// <summary>One view being configured. Mirrors <see cref="ViewResponse"/>.</summary>
 /// <param name="Id">Stable across renames.</param>

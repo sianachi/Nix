@@ -14,6 +14,7 @@
 
 import { Command, InvalidArgumentError } from 'commander';
 import { login, logout, status } from './commands/auth.ts';
+import { readHealth } from './commands/health.ts';
 import {
   changeWorkspaceMemberRole,
   acceptWorkspaceInvitation,
@@ -198,6 +199,15 @@ export function buildProgram(): Command {
       // Usage and option errors are diagnostics, so they belong on stderr with the results kept
       // clean on stdout.
       writeErr: (text) => process.stderr.write(text),
+    });
+
+  program
+    .command('health')
+    .description('Check public Core HTTP liveness and service identity without signing in.')
+    .requiredOption('--api-url <url>', "Core's origin, e.g. http://localhost:5014")
+    .action(async (options: { apiUrl: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => readHealth(options.apiUrl, outputOptions(flags.json)));
     });
 
   const auth = program.command('auth').description('Sign in, check who you are, and sign out.');

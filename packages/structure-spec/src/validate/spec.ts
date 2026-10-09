@@ -1,5 +1,7 @@
 import type { z } from 'zod';
 
+import { LIMITS } from '../catalog/tables.js';
+
 import type { StructureProperty, StructureView } from '../types.js';
 import type { FieldSpec } from '../spec/field.js';
 import { fieldsSpecSchema, formEditSpecSchema, recurrenceSpecSchema } from '../spec/edits.js';
@@ -11,7 +13,7 @@ import {
   viewSetupSpecSchema,
 } from '../spec/operations.js';
 import type { FieldRefResolution } from '../spec/refs.js';
-import type { ViewSpec } from '../spec/view.js';
+import { isTitleColumnReference, type ViewSpec } from '../spec/view.js';
 import { mergeProperties } from '../vocabulary/merge-properties.js';
 import { TYPE_GROUP_KEY } from '../vocabulary/property-types.js';
 import { compileFields } from '../compile/fields.js';
@@ -21,10 +23,12 @@ import { refuseSchema } from './schema-rules.js';
 import { refuseViews } from './view-rules.js';
 import { validateValue } from './values.js';
 import type { Problem, ValidationContext, ValidationReport } from './report.js';
+import { validateUpdateView } from './update-view.js';
 
 export type SpecOperation =
   | 'create_structured'
   | 'add_view'
+  | 'update_view'
   | 'create_entries'
   | 'apply_template'
   | 'add_fields'
@@ -227,7 +231,7 @@ function compileViews(
     check(spec.splitBy, 'splitBy');
     check(spec.sortBy, 'sortBy');
     spec.columns?.forEach((ref, columnIndex) => {
-      check(ref, `columns[${String(columnIndex)}]`);
+      if (!isTitleColumnReference(spec.kind, ref)) check(ref, `columns[${String(columnIndex)}]`);
     });
     spec.filters?.forEach((filter, filterIndex) => {
       // Structural fields ($type, ...) are not field references; view-rules polices them.
@@ -336,6 +340,15 @@ function validateAddView(raw: unknown, context: ValidationContext): ValidationRe
   }
   const spec = parsed.data;
   const problems: Problem[] = [];
+  const existingViewCount = context.existing?.views.length ?? 0;
+  const remainingViews = Math.max(0, LIMITS.viewsPerContainer - existingViewCount);
+  if (spec.views.length > remainingViews) {
+    problems.push({
+      path: 'views',
+      code: 'view-capacity',
+      message: `This item has ${String(existingViewCount)} views and room for ${String(remainingViews)} more (${String(LIMITS.viewsPerContainer)} total). Adding ${String(spec.views.length)} would create ${String(existingViewCount + spec.views.length)}; request at most ${String(remainingViews)}.`,
+    });
+  }
 
   const priorDeclared = context.existing?.declared ?? [];
   const priorEffective = mergeProperties(context.inheritedFields, priorDeclared);
@@ -519,6 +532,8 @@ export function validateSpec(
       return validateCreateStructured(spec, context);
     case 'add_view':
       return validateAddView(spec, context);
+    case 'update_view':
+      return validateUpdateView(spec, context);
     case 'create_entries':
       return validateCreateEntries(spec, context);
     case 'apply_template':

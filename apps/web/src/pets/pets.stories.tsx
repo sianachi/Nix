@@ -21,6 +21,7 @@ import * as Y from 'yjs';
 import { prosemirrorJSONToYXmlFragment } from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
+import { within } from '@testing-library/dom';
 
 export default { title: 'Nix/Companions', parameters: { layout: 'padded' } };
 
@@ -239,6 +240,165 @@ export const StructureApproval = {
   render: (): ReactElement => <PetStructurePreview model={structurePreviewModel} />,
 };
 export const DarkStructureApproval = { ...StructureApproval, globals: { ground: 'dark' } };
+
+const reviewWorkspaceId = '11111111-1111-4111-8111-111111111111';
+const reviewItemId = '33333333-3333-4333-8333-333333333333';
+const reviewProperties = [
+  { key: 'status', label: 'Status', type: 'select', options: ['New', 'Done'], required: false },
+  {
+    key: 'category',
+    label: 'Category',
+    type: 'select',
+    options: ['Work', 'Home'],
+    required: false,
+  },
+];
+const reviewView = {
+  id: 'list',
+  name: 'All work',
+  kind: 'list',
+  columns: ['title', 'status'],
+  groupBy: 'status',
+  groupOrder: ['New', 'Done'],
+  dateProperty: null,
+  endDateProperty: null,
+  sortBy: null,
+  sortDescending: false,
+  mode: null,
+  coverProperty: null,
+  cardSize: null,
+  layout: null,
+  filters: [],
+};
+const reviewStoryClient = {
+  query: (endpoint: { operation: string }): Promise<unknown> => {
+    if (endpoint.operation === 'items.get')
+      return Promise.resolve({
+        id: reviewItemId,
+        workspaceId: reviewWorkspaceId,
+        parentId: null,
+        title: 'Projects',
+        type: 'note',
+        properties: {},
+      });
+    if (endpoint.operation === 'schema.get')
+      return Promise.resolve({
+        properties: reviewProperties,
+        declared: reviewProperties,
+        inherit: true,
+      });
+    if (endpoint.operation === 'views.getConfigurations')
+      return Promise.resolve({
+        views: [reviewView],
+        unrenderable: [],
+        default: 'list',
+        hideDocument: false,
+        version: 'a'.repeat(64),
+      });
+    return Promise.reject(new Error(`Unexpected preview read: ${endpoint.operation}`));
+  },
+  execute: () => Promise.reject(new Error('This review story does not write.')),
+  invalidate: () => undefined,
+} as unknown as NixClient;
+
+/** Changing an existing view always waits for a decision, including with the switch enabled. */
+export const ViewUpdateApproval = {
+  render: (): ReactElement => (
+    <MemoryRouter>
+      <PetWorkTools
+        client={reviewStoryClient}
+        workspaceId={reviewWorkspaceId}
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={() => undefined}
+        applyWithoutAsking
+        runtime={petConnectionSchema.parse({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: '',
+          canConnect: false,
+          tools: [
+            {
+              id: 'view-update-review',
+              arguments: JSON.stringify({
+                operation: 'update_view',
+                itemId: reviewItemId,
+                parentId: '',
+                title: '',
+                markdown: '',
+                query: '',
+                propertiesJson: '',
+                specJson: JSON.stringify({ viewId: 'list', patch: { groupBy: 'category' } }),
+              }),
+              status: 'pending',
+              result: '',
+              claimId: '',
+            },
+          ],
+        })}
+      />
+    </MemoryRouter>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await canvas.findByText('Before: Status (status)', {}, { timeout: 10_000 });
+    await canvas.findByText('After: Category (category)');
+    if (!canvas.getByRole('button', { name: 'Approve request' }).isConnected)
+      throw new Error('A view change must wait for approval.');
+    canvas.getByRole('heading', { name: 'Approve this change?' });
+    if (canvas.queryByRole('region', { name: 'View id' }) !== null)
+      throw new Error('A view selector is not text being changed.');
+  },
+};
+export const DarkViewUpdateApproval = { ...ViewUpdateApproval, globals: { ground: 'dark' } };
+
+/** A completed read stays a compact activity entry; partial evidence is visible in its details. */
+export const ViewReadActivity = {
+  render: (): ReactElement => (
+    <MemoryRouter>
+      <PetWorkTools
+        client={reviewStoryClient}
+        workspaceId={reviewWorkspaceId}
+        petId="22222222-2222-4222-8222-222222222222"
+        onChange={() => undefined}
+        runtime={petConnectionSchema.parse({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: '',
+          canConnect: false,
+          tools: [
+            {
+              id: 'view-read-review',
+              arguments: JSON.stringify({
+                operation: 'read_view',
+                itemId: reviewItemId,
+                parentId: '',
+                title: '',
+                markdown: '',
+                query: JSON.stringify({ viewId: 'list', pageSize: 5 }),
+                propertiesJson: '',
+                specJson: '',
+              }),
+              status: 'completed',
+              result:
+                'Read All work in Projects. Returned 5 of 18 matching items. This sample does not reproduce temporary browser filters or personally hidden items.',
+              claimId: 'read-claim',
+            },
+          ],
+        })}
+      />
+    </MemoryRouter>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await canvas.findByText('Read a view');
+    canvas.getByText('Result details').click();
+    canvas.getByText(/Returned 5 of 18 matching items/);
+    canvas.getByText(/does not reproduce temporary browser filters or personally hidden items/);
+    if (canvas.queryByRole('button', { name: 'Approve request' }) !== null)
+      throw new Error('A completed read does not need an approval card.');
+  },
+};
+export const DarkViewReadActivity = { ...ViewReadActivity, globals: { ground: 'dark' } };
 
 const entriesPreviewModel: PreviewModel = {
   ...structurePreviewModel,
@@ -529,6 +689,25 @@ export const ResultLinks = {
   ),
 };
 export const DarkResultLinks = { ...ResultLinks, globals: { ground: 'dark' } };
+
+export const MarkdownReply = {
+  render: (): ReactElement => (
+    <MemoryRouter>
+      <div className="max-w-prose space-y-3 rounded-lg border border-divider bg-background p-3">
+        <Text variant="note" tone="muted">
+          Pip
+        </Text>
+        <PetMessageText
+          workspaceId="11111111-1111-4111-8111-111111111111"
+          text={
+            'Nix supports these views:\n\n- **List** — rows, optionally grouped into sections\n- **Board** — cards grouped by a select field\n- **Calendar** — items arranged by date\n- **Checklist** — tickable items with progress\n\n### Next steps\n\n1. Open a container.\n2. Choose its view.\n\n> Workspace access is off, so I can’t check which views you already have configured.\n\nUse `view.kind` to describe a view.\n\n| View | Use |\n| --- | --- |\n| List | Rows |\n| Board | Cards |'
+          }
+        />
+      </div>
+    </MemoryRouter>
+  ),
+};
+export const DarkMarkdownReply = { ...MarkdownReply, globals: { ground: 'dark' } };
 
 const PHONE_WORKSPACE = '55555555-5555-4555-8555-555555555555';
 
@@ -968,6 +1147,40 @@ export const EmptyDesign = {
 };
 export const DarkEmptyDesign = { ...EmptyDesign, globals: { ground: 'dark' } };
 
+const markdownConversationConnection = petConnectionSchema.parse({
+  provider: 'chatgpt',
+  status: 'connected',
+  reason: 'Connected',
+  canConnect: false,
+  state: 'success',
+  messages: [
+    { id: 'markdown-question', role: 'user', text: 'Which views should I use?' },
+    {
+      id: 'markdown-answer',
+      role: 'assistant',
+      text: '### Next steps\n\n1. Open a container.\n2. Choose its view.\n\n##### Review options\n\nUse **List** for rows or **Board** for cards.\n\n#### Check limits\n\nWorkspace access is off, so I can’t check your configured views.\n\n## Keep changes in review\n\nThe approval card shows each change before it runs.',
+    },
+  ],
+});
+
+/** Source headings are normalized beneath the actual conversation h2, including skipped depths. */
+export const MarkdownConversation = {
+  render: (): ReactElement => (
+    <DesktopFrame connection={markdownConversationConnection}>
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    await canvas.findByRole('heading', { name: 'Pip', level: 2 }, { timeout: 10_000 });
+    await canvas.findByRole('heading', { name: 'Next steps', level: 3 });
+    canvas.getByRole('heading', { name: 'Review options', level: 4 });
+    canvas.getByRole('heading', { name: 'Check limits', level: 4 });
+    canvas.getByRole('heading', { name: 'Keep changes in review', level: 3 });
+  },
+};
+export const DarkMarkdownConversation = { ...MarkdownConversation, globals: { ground: 'dark' } };
+
 const STREAM_TOOL_ID = '66666666-6666-4666-8666-666666666666';
 const streamedTurnConnection = petConnectionSchema.parse({
   provider: 'chatgpt',
@@ -1069,9 +1282,7 @@ const launcherBadgeConnection = petConnectionSchema.parse({
   status: 'connected',
   reason: 'Connected',
   canConnect: false,
-  messages: [
-    { id: 'badge-user-1', role: 'user', text: 'Create a note called Weekly plan.' },
-  ],
+  messages: [{ id: 'badge-user-1', role: 'user', text: 'Create a note called Weekly plan.' }],
   tools: [
     {
       id: 'badge-tool-1',

@@ -5,6 +5,7 @@ import { propertyTypeWord } from '../vocabulary/property-types.js';
 import type { Problem } from '../validate/report.js';
 import type { PreviewModel, PreviewNode } from './model.js';
 import { describeAddFields, describeEditForm, describeRecurrence } from './edits.js';
+import { describeUpdateView } from './update-view.js';
 
 /**
  * What a `Step[]` is described against: where the plan lands, the schema and views already there
@@ -180,6 +181,14 @@ export function describeStep(step: Step, context: DescribeContext): PreviewNode 
       };
     }
     case 'replaceViewSetup': {
+      if (step.viewUpdate)
+        return (
+          describeUpdateView(step, context).tree[0] ?? {
+            label: 'Update view',
+            detail: [],
+            children: [],
+          }
+        );
       return {
         label: `Replace the ${step.viewId} view`,
         detail: step.schema.properties.map(fieldDescriptor),
@@ -466,7 +475,9 @@ export function describeSteps(steps: readonly Step[], context: DescribeContext):
       : describeAppendView(single, context);
   }
   if (single !== null && single.kind === 'replaceViewSetup') {
-    return describeEditForm(single, context);
+    return single.viewUpdate
+      ? describeUpdateView(single, context)
+      : describeEditForm(single, context);
   }
   if (single !== null && single.kind === 'setRecurrence') {
     return describeRecurrence(single, context);

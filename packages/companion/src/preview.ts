@@ -4,6 +4,7 @@ import {
   compileAddFields,
   compileCreateStructured,
   compileEditForm,
+  compileUpdateView,
   compileEntries,
   compileRecurrence,
   describeSteps,
@@ -14,6 +15,7 @@ import {
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
+  updateViewSpecSchema,
   blueprintSchema,
   validateBlueprint,
   describeBlueprint,
@@ -41,6 +43,7 @@ export type PreviewToolArgs = Omit<WorkspaceToolArgs, 'operation'> & {
     | 'create_entries'
     | 'add_fields'
     | 'edit_form'
+    | 'update_view'
     | 'set_recurrence';
   specJson: string;
 };
@@ -51,6 +54,7 @@ type SpecOperation =
   | 'create_entries'
   | 'add_fields'
   | 'edit_form'
+  | 'update_view'
   | 'set_recurrence';
 
 /** The writes this executor never performs (architecture section 2.2's "never mapped to any operation" guard, restated for a person). Shown on every preview so approving one request never reads as approving more than the executor can do. */
@@ -108,6 +112,11 @@ function compileSpecSteps(
       };
       return compileAddFields(spec, { itemId: args.itemId, existing });
     }
+    case 'update_view': {
+      const spec = updateViewSpecSchema.parse(raw);
+      if (!context.existing) throw new Error('update_view preview context is missing.');
+      return compileUpdateView(spec, { itemId: args.itemId, existing: context.existing });
+    }
     case 'edit_form': {
       const spec = formEditSpecSchema.parse(raw);
       const existing = context.existing ?? {
@@ -158,6 +167,12 @@ function describeSpecOperation(
             declared: [...context.existing.declared],
             inherit: context.existing.inherit,
             views: [...context.existing.views],
+            ...(context.existing.defaultViewId === undefined
+              ? {}
+              : { defaultViewId: context.existing.defaultViewId }),
+            ...(context.existing.hideDocument === undefined
+              ? {}
+              : { hideDocument: context.existing.hideDocument }),
           },
         }
       : {}),
@@ -168,15 +183,17 @@ function describeSpecOperation(
     today: '',
   };
   const report = validateSpec(operation, raw, validationContext);
-  if (!report.ok) {
+  const problems = [...context.problems, ...report.problems];
+  const warnings = [...(context.warnings ?? []), ...report.warnings];
+  if (!report.ok || problems.length > 0) {
     return {
       headline: 'I cannot run this request as written.',
       destination: context.destination,
       counts: { ...emptyCounts(), views: report.stats.views, entries: report.stats.entries },
       tree: [],
       notes: [],
-      warnings: report.warnings,
-      problems: report.problems,
+      warnings,
+      problems,
       neverDoes: NEVER_DOES.slice(),
     };
   }
@@ -185,8 +202,8 @@ function describeSpecOperation(
   const describeContext: DescribeContext = {
     destination: context.destination,
     ...(context.existing ? { existing: context.existing } : {}),
-    problems: report.problems,
-    warnings: report.warnings,
+    problems,
+    warnings,
     // Security fix S1: this model only ever backs an approval card, so note and entry body text
     // is never cut short here - the owner must see everything a write would store before deciding.
     truncate: false,
@@ -232,6 +249,8 @@ function legacyHeadline(args: PreviewToolArgs): string {
       return 'I will read the linked item’s details and properties.';
     case 'read_note':
       return 'I will read the linked note’s content for context.';
+    case 'read_view':
+      return 'I will read a bounded sample and counts from the linked view, with its display limits.';
     case 'read_structure':
       return "I will read the linked item's fields, views and how many children it has.";
     case 'create_note':
@@ -267,6 +286,7 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'create_entries':
     case 'add_fields':
     case 'edit_form':
+    case 'update_view':
     case 'set_recurrence':
     case 'validate_blueprint':
     case 'build_blueprint':
@@ -414,6 +434,7 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
     case 'create_entries':
     case 'add_fields':
     case 'edit_form':
+    case 'update_view':
     case 'set_recurrence':
       return describeSpecOperation(args.operation, args, context);
     case 'replace_section':

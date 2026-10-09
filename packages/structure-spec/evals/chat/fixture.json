@@ -1,47 +1,94 @@
 {
   "version": 1,
   "title": "Chat eval fixture",
-  "summary": "A small life-OS: a task board, a reading log, habits and two notes. Dates use {today+N} tokens the harness substitutes before building.",
+  "summary": "Dedicated bounded fixtures for evidence-based view reviews and enabled chat capabilities: tasks, books, notes, calendars, boards, charts, computed field configuration, galleries, conditional intake forms and write readback. Dates use {today+N} tokens.",
   "root": {
     "id": "home",
     "title": "Eval home",
-    "views": [{ "kind": "list" }],
+    "views": [
+      {
+        "kind": "list"
+      }
+    ],
     "children": [
       {
         "id": "tasks",
         "title": "Tasks",
         "fields": [
-          { "label": "Status", "type": "select", "options": ["To do", "Doing", "Done"] },
-          { "label": "Due date", "type": "due_date" },
-          { "label": "Completion", "type": "completion" },
-          { "label": "Priority", "type": "priority" }
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Doing", "Done"]
+          },
+          {
+            "label": "Due date",
+            "type": "due_date"
+          },
+          {
+            "label": "Completion",
+            "type": "completion"
+          },
+          {
+            "label": "Priority",
+            "type": "priority"
+          }
         ],
-        "views": [{ "kind": "board", "groupBy": "status" }, { "kind": "list" }],
+        "views": [
+          {
+            "kind": "board",
+            "groupBy": "status"
+          }
+        ],
         "children": [
           {
             "id": "task-rent",
             "title": "Pay rent",
-            "values": { "status": "To do", "due_date": "{today-2}", "priority": 1 }
+            "values": {
+              "status": "To do",
+              "due_date": "{today-2}",
+              "priority": 1
+            },
+            "sample": true
           },
           {
             "id": "task-dentist",
             "title": "Call dentist",
-            "values": { "status": "To do", "due_date": "{today}", "priority": 2 }
+            "values": {
+              "status": "To do",
+              "due_date": "{today}",
+              "priority": 2
+            },
+            "sample": true
           },
           {
             "id": "task-report",
             "title": "Write report",
-            "values": { "status": "Doing", "due_date": "{today+3}", "priority": 2 }
+            "values": {
+              "status": "Doing",
+              "due_date": "{today+3}",
+              "priority": 2
+            },
+            "sample": true
           },
           {
             "id": "task-groceries",
             "title": "Buy groceries",
-            "values": { "status": "Done", "due_date": "{today-1}", "completion": true }
+            "values": {
+              "status": "Done",
+              "due_date": "{today-1}",
+              "completion": true
+            },
+            "sample": true
           },
           {
             "id": "task-review",
             "title": "Weekly review",
-            "values": { "status": "To do", "due_date": "{today+4}", "priority": 3 }
+            "values": {
+              "status": "To do",
+              "due_date": "{today+4}",
+              "priority": 3
+            },
+            "sample": true
           }
         ]
       },
@@ -49,27 +96,75 @@
         "id": "reading-log",
         "title": "Reading log",
         "fields": [
-          { "label": "Status", "type": "select", "options": ["To read", "Reading", "Done"] },
-          { "label": "Rating", "type": "number" },
-          { "label": "Finished", "type": "date" }
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["To read", "Reading", "Done"]
+          },
+          {
+            "label": "Rating",
+            "type": "number"
+          },
+          {
+            "label": "Finished",
+            "type": "date"
+          }
         ],
-        "views": [{ "kind": "sheet" }, { "kind": "board", "groupBy": "status" }],
+        "views": [
+          {
+            "kind": "sheet"
+          }
+        ],
         "children": [
           {
             "id": "book-hobbit",
             "title": "The Hobbit",
-            "values": { "status": "Done", "rating": 5, "finished": "{today-20}" }
+            "values": {
+              "status": "Done",
+              "rating": 5,
+              "finished": "{today-20}"
+            },
+            "sample": true
           },
-          { "id": "book-dune", "title": "Dune", "values": { "status": "Reading" } }
+          {
+            "id": "book-dune",
+            "title": "Dune",
+            "values": {
+              "status": "Reading"
+            },
+            "sample": true
+          }
         ]
       },
       {
         "id": "habits",
         "title": "Habits",
-        "views": [{ "kind": "habit_tracker" }],
+        "views": [
+          {
+            "kind": "habit_tracker"
+          }
+        ],
         "children": [
-          { "id": "habit-run", "title": "Run", "habit": { "frequency": "daily", "target": 5, "unit": "km" } },
-          { "id": "habit-read", "title": "Read", "habit": { "frequency": "daily", "target": 20, "unit": "minutes" } }
+          {
+            "id": "habit-run",
+            "title": "Run",
+            "habit": {
+              "frequency": "daily",
+              "target": 5,
+              "unit": "km"
+            },
+            "sample": true
+          },
+          {
+            "id": "habit-read",
+            "title": "Read",
+            "habit": {
+              "frequency": "daily",
+              "target": 20,
+              "unit": "minutes"
+            },
+            "sample": true
+          }
         ]
       },
       {
@@ -81,6 +176,494 @@
         "id": "books-note",
         "title": "Books to read",
         "markdown": "# Books to read\n\n- Piranesi\n- The Left Hand of Darkness\n- A Memory Called Empire\n"
+      },
+      {
+        "id": "review-calendar",
+        "title": "Project calendar review",
+        "fields": [
+          {
+            "label": "Start date",
+            "type": "date"
+          },
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Doing", "Done"]
+          }
+        ],
+        "views": [
+          {
+            "kind": "calendar",
+            "name": "Schedule",
+            "date": "start_date",
+            "default": true
+          },
+          {
+            "kind": "list",
+            "name": "All project work"
+          }
+        ],
+        "children": [
+          {
+            "id": "review-kickoff",
+            "title": "Project kickoff",
+            "values": {
+              "start_date": "{today+2}",
+              "status": "To do"
+            },
+            "sample": true
+          },
+          {
+            "id": "review-brief",
+            "title": "Approve project brief",
+            "values": {
+              "status": "To do"
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "review-config",
+        "title": "Launch calendar review",
+        "fields": [
+          {
+            "label": "Start date",
+            "type": "date"
+          },
+          {
+            "label": "Finished date",
+            "type": "date"
+          }
+        ],
+        "views": [
+          {
+            "kind": "calendar",
+            "name": "Launch schedule",
+            "date": "finished_date",
+            "default": true
+          },
+          {
+            "kind": "list",
+            "name": "Launch work"
+          }
+        ],
+        "children": [
+          {
+            "id": "review-launch",
+            "title": "Launch website",
+            "values": {
+              "start_date": "{today+5}"
+            },
+            "sample": true
+          },
+          {
+            "id": "review-rehearsal",
+            "title": "Launch rehearsal",
+            "values": {
+              "start_date": "{today+3}"
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "review-grouping",
+        "title": "Delivery board review",
+        "fields": [
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Doing", "Done"]
+          },
+          {
+            "label": "Team",
+            "type": "select",
+            "options": ["Studio", "Engineering"]
+          }
+        ],
+        "views": [
+          {
+            "kind": "board",
+            "name": "Work stages",
+            "groupBy": "team",
+            "default": true
+          }
+        ],
+        "children": [
+          {
+            "id": "review-design",
+            "title": "Design delivery brief",
+            "values": {
+              "status": "Doing",
+              "team": "Studio"
+            },
+            "sample": true
+          },
+          {
+            "id": "review-signin",
+            "title": "Build sign-in",
+            "values": {
+              "status": "To do",
+              "team": "Engineering"
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "review-chart",
+        "title": "Expense chart review",
+        "fields": [
+          {
+            "label": "Category",
+            "type": "select",
+            "options": ["Venue", "Food"]
+          },
+          {
+            "label": "Amount",
+            "type": "number"
+          }
+        ],
+        "views": [
+          {
+            "kind": "chart",
+            "name": "Spending by category",
+            "groupBy": "category",
+            "measure": "count",
+            "chartKind": "bar",
+            "default": true
+          },
+          {
+            "kind": "sheet",
+            "name": "Expense records",
+            "columns": ["category", "amount"]
+          }
+        ],
+        "children": [
+          {
+            "id": "review-venue",
+            "title": "Venue booking",
+            "values": {
+              "category": "Venue",
+              "amount": 300
+            },
+            "sample": true
+          },
+          {
+            "id": "review-food",
+            "title": "Team lunch",
+            "values": {
+              "category": "Food",
+              "amount": 120
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "review-correct",
+        "title": "Healthy delivery setup",
+        "fields": [
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["To do", "Doing", "Done"]
+          },
+          {
+            "label": "Start date",
+            "type": "date"
+          }
+        ],
+        "views": [
+          {
+            "kind": "board",
+            "name": "Delivery stages",
+            "groupBy": "status",
+            "default": true
+          },
+          {
+            "kind": "calendar",
+            "name": "Delivery dates",
+            "date": "start_date"
+          },
+          {
+            "kind": "query",
+            "name": "Open work",
+            "filters": [
+              {
+                "field": "status",
+                "op": "equals",
+                "value": "Done"
+              }
+            ]
+          }
+        ],
+        "children": [
+          {
+            "id": "review-plan",
+            "title": "Plan rollout",
+            "values": {
+              "status": "To do",
+              "start_date": "{today+2}"
+            },
+            "sample": true
+          },
+          {
+            "id": "review-verify",
+            "title": "Verify sign-in",
+            "values": {
+              "status": "Doing",
+              "start_date": "{today+3}"
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "capability-schema",
+        "title": "Computed budget lab",
+        "fields": [
+          {
+            "label": "Quantity",
+            "type": "number"
+          },
+          {
+            "label": "Unit cost",
+            "type": "number"
+          },
+          {
+            "label": "Subtotal",
+            "type": "formula",
+            "formula": "[quantity] * [unit_cost]"
+          },
+          {
+            "label": "Cost total",
+            "type": "rollup",
+            "rollup": {
+              "aggregate": "sum",
+              "source": "unit_cost"
+            }
+          },
+          {
+            "label": "Reminder",
+            "type": "reminder"
+          }
+        ],
+        "views": [
+          {
+            "kind": "sheet",
+            "name": "Budget inputs",
+            "columns": ["quantity", "unit_cost", "subtotal"]
+          }
+        ],
+        "children": [
+          {
+            "id": "budget-lamp",
+            "title": "Studio lamps",
+            "values": {
+              "quantity": 8,
+              "unit_cost": 15
+            },
+            "sample": true
+          },
+          {
+            "id": "budget-cable",
+            "title": "Display cables",
+            "values": {
+              "quantity": 2,
+              "unit_cost": 10
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "capability-gallery",
+        "title": "Gallery review lab",
+        "fields": [
+          {
+            "label": "Cover",
+            "type": "image"
+          },
+          {
+            "label": "Caption",
+            "type": "text"
+          },
+          {
+            "label": "Rating",
+            "type": "number"
+          },
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["Draft", "Ready"]
+          }
+        ],
+        "views": [
+          {
+            "kind": "gallery",
+            "name": "Reading cards",
+            "cover": "cover",
+            "cardSize": "medium",
+            "columns": ["caption", "rating"]
+          },
+          {
+            "kind": "sheet",
+            "name": "Card details",
+            "columns": ["caption", "rating"]
+          }
+        ],
+        "children": [
+          {
+            "id": "gallery-atlas",
+            "title": "Atlas of quiet places",
+            "values": {
+              "caption": "Maps and walks",
+              "rating": 4,
+              "status": "Ready"
+            },
+            "sample": true
+          },
+          {
+            "id": "gallery-light",
+            "title": "Letters about light",
+            "values": {
+              "caption": "Photographic essays",
+              "rating": 5,
+              "status": "Draft"
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "capability-intake",
+        "title": "Intake form lab",
+        "fields": [
+          {
+            "label": "Name",
+            "type": "text",
+            "required": true
+          },
+          {
+            "label": "Request type",
+            "type": "select",
+            "options": ["Support", "Proposal"]
+          },
+          {
+            "label": "Details",
+            "type": "long_text"
+          },
+          {
+            "label": "Urgent",
+            "type": "checkbox"
+          },
+          {
+            "label": "Amount",
+            "type": "number"
+          }
+        ],
+        "views": [
+          {
+            "kind": "form",
+            "name": "Quick intake",
+            "columns": ["name", "request_type", "details", "urgent"]
+          },
+          {
+            "kind": "interactive_form",
+            "name": "Guided intake",
+            "form": {
+              "pages": [
+                {
+                  "title": "Request",
+                  "blocks": [
+                    {
+                      "field": "Name",
+                      "required": true
+                    },
+                    {
+                      "field": "Request type",
+                      "required": true
+                    }
+                  ]
+                },
+                {
+                  "title": "Proposal details",
+                  "showWhen": [
+                    {
+                      "field": "Request type",
+                      "op": "equals",
+                      "value": "Proposal"
+                    }
+                  ],
+                  "blocks": [
+                    {
+                      "field": "Details",
+                      "required": true
+                    },
+                    {
+                      "field": "Amount"
+                    }
+                  ]
+                }
+              ],
+              "title": {
+                "from": "field",
+                "field": "Name"
+              },
+              "confirmation": {
+                "title": "Request received",
+                "message": "Your request is ready for review."
+              }
+            }
+          }
+        ],
+        "children": [
+          {
+            "id": "intake-support",
+            "title": "Printer support request",
+            "values": {
+              "name": "Fixture requestor",
+              "request_type": "Support",
+              "details": "The studio printer needs attention.",
+              "urgent": false
+            },
+            "sample": true
+          }
+        ]
+      },
+      {
+        "id": "capability-operations",
+        "title": "Tool operation lab",
+        "fields": [
+          {
+            "label": "Status",
+            "type": "select",
+            "options": ["Open", "Closed"]
+          },
+          {
+            "label": "Completion",
+            "type": "completion"
+          }
+        ],
+        "views": [
+          {
+            "kind": "list",
+            "name": "Operation records"
+          }
+        ],
+        "children": [
+          {
+            "id": "operation-rename",
+            "title": "Draft transport note",
+            "markdown": "## Context\n\nTransport planning draft.\n",
+            "values": {
+              "status": "Open"
+            },
+            "sample": true
+          }
+        ]
       }
     ]
   }

@@ -210,6 +210,24 @@ public interface IItemTree
         DateTimeOffset at,
         CancellationToken cancellationToken);
 
+    /// <summary>Atomically replaces views only while the observed row configuration still matches.</summary>
+    /// <param name="id">The item.</param>
+    /// <param name="workspaceId">The workspace whose write permission was checked.</param>
+    /// <param name="expectedViews">The exact previously read JSON, including SQL null.</param>
+    /// <param name="views">The replacement JSON.</param>
+    /// <param name="actor">Who modified it.</param>
+    /// <param name="at">When.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>False when any observed state changed. Unimplemented stores fail closed.</returns>
+    public ValueTask<bool> TryUpdateViewsAsync(
+        ItemId id,
+        WorkspaceId workspaceId,
+        string? expectedViews,
+        string? views,
+        Nix.Domain.Identity.PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken) => ValueTask.FromResult(false);
+
     /// <summary>Stamps an item as modified, without changing anything else about it.</summary>
     /// <param name="id">The item.</param>
     /// <param name="actor">Who modified it.</param>

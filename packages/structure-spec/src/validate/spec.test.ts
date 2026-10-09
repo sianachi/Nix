@@ -71,6 +71,47 @@ function interactiveFormView(id = 'form'): StructureView {
 }
 
 describe('validateSpec create_structured', () => {
+  it('keeps a built-in title column distinct from a property or interactive form field', () => {
+    const form = validateSpec(
+      'create_structured',
+      {
+        recipe: 'interactive-form',
+        fields: [],
+        views: [
+          {
+            kind: 'interactive_form',
+            form: { pages: [{ title: 'Details', blocks: [{ field: 'title' }] }] },
+          },
+        ],
+      },
+      context(),
+    );
+    expect(form.ok).toBe(false);
+    expect(form.problems.some((problem) => problem.path.endsWith('.field'))).toBe(true);
+    const gallery = validateSpec(
+      'create_structured',
+      {
+        recipe: 'gallery',
+        fields: [],
+        views: [{ kind: 'gallery', columns: ['title'], cover: 'title' }],
+      },
+      context(),
+    );
+    expect(gallery.problems).toContainEqual(expect.objectContaining({ path: 'views[0].cover' }));
+    const unknownColumn = validateSpec(
+      'create_structured',
+      {
+        recipe: 'gallery',
+        fields: [],
+        views: [{ kind: 'gallery', columns: ['missing'] }],
+      },
+      context(),
+    );
+    expect(unknownColumn.problems).toContainEqual(
+      expect.objectContaining({ path: 'views[0].columns[0]' }),
+    );
+  });
+
   it('accepts a well-formed structured spec', () => {
     const report = validateSpec(
       'create_structured',
@@ -345,6 +386,82 @@ describe('validateSpec create_structured', () => {
 });
 
 describe('validateSpec add_view', () => {
+  it.each([
+    [10, 4, false, 2],
+    [10, 2, true, 2],
+    [12, 1, false, 0],
+    [0, 4, true, 12],
+  ])(
+    'checks %i existing plus %i requested views before approval',
+    (existingCount, requestedCount, ok, remaining) => {
+      const result = validateSpec(
+        'add_view',
+        {
+          views: Array.from({ length: requestedCount }, (_, i) => ({
+            kind: 'list',
+            name: `New ${String(i)}`,
+          })),
+        },
+        context({
+          existing: {
+            declared: [],
+            views: Array.from({ length: existingCount }, (_, i) => ({
+              ...interactiveFormView(`existing-${String(i)}`),
+              kind: 'list',
+              interactiveForm: null,
+            })),
+          },
+        }),
+      );
+      expect(result.ok).toBe(ok);
+      if (!ok)
+        expect(result.problems).toContainEqual({
+          path: 'views',
+          code: 'view-capacity',
+          message: `This item has ${String(existingCount)} views and room for ${String(remaining)} more (12 total). Adding ${String(requestedCount)} would create ${String(existingCount + requestedCount)}; request at most ${String(remaining)}.`,
+        });
+    },
+  );
+
+  it('counts all requested views even when a new view also has an invalid field', () => {
+    const result = validateSpec(
+      'add_view',
+      {
+        views: [
+          { kind: 'board', groupBy: 'missing' },
+          { kind: 'list' },
+          { kind: 'list' },
+          { kind: 'list' },
+        ],
+      },
+      context({
+        existing: {
+          declared: [],
+          views: Array.from({ length: 10 }, (_, i) => interactiveFormView(`form-${String(i)}`)),
+        },
+      }),
+    );
+    const capacity = result.problems.find((problem) => problem.code === 'view-capacity');
+    expect(capacity?.message).toContain('Adding 4 would create 14');
+    expect(result.problems).toContainEqual(expect.objectContaining({ path: 'views[0].groupBy' }));
+  });
+
+  it('does not reject an additive repair because an existing view is unrenderable', () => {
+    const existing = {
+      ...interactiveFormView(),
+      kind: 'board',
+      groupBy: 'deleted',
+      interactiveForm: null,
+    };
+    expect(
+      validateSpec(
+        'add_view',
+        { views: [{ kind: 'list' }] },
+        context({ existing: { declared: [], views: [existing] } }),
+      ).ok,
+    ).toBe(true);
+  });
+
   it('refuses a new field whose key already exists in the effective schema', () => {
     const report = validateSpec(
       'add_view',

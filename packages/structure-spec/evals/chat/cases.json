@@ -2,79 +2,1603 @@
   {
     "id": "read-board",
     "prompt": "What is on my {node:tasks} board right now? List every task with its status.",
-    "tools": { "require": ["list_items|search|read_item"], "forbid": ["create_note", "create_entries", "set_properties", "append_note"], "max": 6 },
+    "tools": {
+      "require": ["list_items|search|read_item"],
+      "forbid": ["create_note", "create_entries", "set_properties", "append_note"],
+      "max": 6
+    },
     "answer": "Pay rent[\\s\\S]*Call dentist|Call dentist[\\s\\S]*Pay rent"
   },
   {
     "id": "overdue",
     "prompt": "Which of my tasks in {node:tasks} are overdue?",
-    "tools": { "require": ["list_items|search|read_item"], "forbid": ["set_properties", "create_entries"], "max": 8 },
+    "tools": {
+      "require": ["list_items|search|read_item"],
+      "forbid": ["set_properties", "create_entries"],
+      "max": 8
+    },
     "answer": "Pay rent",
     "answerNot": "Write report"
   },
   {
     "id": "week-ahead",
     "prompt": "What does my week look like, judging by {node:tasks}?",
-    "tools": { "require": ["list_items|search|read_item"], "max": 8 },
+    "tools": {
+      "require": ["list_items|search|read_item"],
+      "max": 8
+    },
     "answer": "Write report|Weekly review"
   },
   {
     "id": "complete-task",
-    "prompt": "Mark {node:task-dentist} as done in {node:tasks}.",
-    "tools": { "require": ["set_properties"], "forbid": ["create_entries", "create_note", "trash_item"], "max": 6 },
-    "asserts": [{ "kind": "value", "item": "task-dentist", "key": "completion", "truthy": true }]
+    "prompt": "Mark {node:task-dentist} as done in {node:tasks}, then read it back to verify its completion.",
+    "tools": {
+      "require": ["complete_task", "read_item"],
+      "requireSuccessful": ["complete_task", "read_item"],
+      "forbid": ["create_entries", "create_note", "trash_item"],
+      "inOrder": ["complete_task", "read_item"],
+      "max": 8
+    },
+    "asserts": [
+      {
+        "kind": "value",
+        "item": "task-dentist",
+        "key": "completion",
+        "truthy": true
+      }
+    ]
   },
   {
     "id": "add-task",
-    "prompt": "Add a task called Renew passport to {node:tasks}, due in 10 days, priority 2.",
-    "tools": { "require": ["create_entries|create_note"], "forbid": ["trash_item", "create_structured"], "max": 6 },
-    "asserts": [{ "kind": "child", "parent": "tasks", "title": "^Renew passport$" }]
+    "prompt": "Add a task called Renew passport to {node:tasks}, due in 10 days, priority 2. Read the new item back to verify its saved due date and priority.",
+    "tools": {
+      "require": ["create_entries|create_note"],
+      "forbid": ["trash_item", "create_structured"],
+      "max": 8,
+      "requireSuccessful": ["create_entries|create_note", "read_item"]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "tasks",
+        "title": "^Renew passport$",
+        "values": {
+          "priority": 2
+        },
+        "count": 1
+      }
+    ]
   },
   {
     "id": "rate-book",
-    "prompt": "In {node:reading-log}, set the rating of {node:book-dune} to 4.",
-    "tools": { "require": ["set_properties"], "forbid": ["create_entries"], "max": 6 },
-    "asserts": [{ "kind": "value", "item": "book-dune", "key": "rating", "equals": 4 }]
+    "prompt": "In {node:reading-log}, set the rating of {node:book-dune} to 4. Read the saved item back to verify the new rating.",
+    "tools": {
+      "require": ["set_properties"],
+      "forbid": ["create_entries"],
+      "max": 8,
+      "requireSuccessful": ["set_properties", "read_item"],
+      "inOrder": ["set_properties", "read_item"]
+    },
+    "asserts": [
+      {
+        "kind": "value",
+        "item": "book-dune",
+        "key": "rating",
+        "equals": 4
+      }
+    ]
   },
   {
     "id": "append-action-item",
-    "prompt": "In my note {node:meeting-note}, add an action item: Follow up with Sam on Thursday.",
-    "tools": { "require": ["append_note"], "forbid": ["create_note", "trash_item"], "max": 6 },
-    "asserts": [{ "kind": "note", "item": "meeting-note", "contains": "Follow up with Sam" }]
+    "prompt": "In my note {node:meeting-note}, add an action item: Follow up with Sam on Thursday. Read the note before and after the addition.",
+    "tools": {
+      "require": ["append_note"],
+      "forbid": ["create_note", "trash_item"],
+      "max": 8,
+      "requireSuccessful": ["read_note", "append_note"],
+      "inOrder": ["read_note", "append_note", "read_note"]
+    },
+    "asserts": [
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "Follow up with Sam"
+      }
+    ]
   },
   {
     "id": "fix-typo",
-    "prompt": "Fix the typo in {node:meeting-note}: it says recieve instead of receive.",
-    "tools": { "forbid": ["append_note", "create_note"], "max": 6 },
-    "answer": "cannot|can't|unable|not able|only append|no way"
+    "prompt": "Fix only the typo in {node:meeting-note}: change the exact word recieve to receive, preserving the rest of the note. Read the note first and read it back after the edit.",
+    "tools": {
+      "require": ["read_note", "replace_passage"],
+      "requireSuccessful": ["read_note", "replace_passage"],
+      "inOrder": ["read_note", "replace_passage", "read_note"],
+      "forbid": ["append_note", "create_note", "replace_section"],
+      "max": 8
+    },
+    "asserts": [
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "receive the vendor proposal"
+      },
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "recieve",
+        "absent": true
+      }
+    ]
   },
   {
     "id": "add-field",
-    "prompt": "Add an Effort field to {node:tasks} with the options Small, Medium and Large.",
-    "tools": { "require": ["add_fields|add_view"], "forbid": ["create_structured"], "max": 6 },
-    "asserts": [{ "kind": "field", "item": "tasks", "key": "effort" }]
+    "prompt": "Add an Effort field to {node:tasks} with the options Small, Medium and Large. Read the saved schema back to verify the field type and all three options.",
+    "tools": {
+      "require": ["add_fields|add_view"],
+      "forbid": ["create_structured"],
+      "max": 8,
+      "requireSuccessful": ["add_fields|add_view", "read_structure"]
+    },
+    "asserts": [
+      {
+        "kind": "field",
+        "item": "tasks",
+        "key": "effort",
+        "equals": {
+          "type": "select",
+          "options": ["Small", "Medium", "Large"]
+        }
+      }
+    ]
   },
   {
     "id": "note-to-tracker",
-    "prompt": "Turn my note {node:books-note} into a reading tracker with a Status (To read, Reading, Done) and a Rating from 1 to 5.",
-    "tools": { "require": ["add_view|create_structured"], "max": 8 }
+    "prompt": "Add an existing-note reading tracker to {node:books-note}, preserving the note body. Add Status with exactly To read, Reading, Done, and a numeric Rating. Add a spreadsheet view named Book ratings showing Status then Rating. Inspect the note and schema first, then read back the saved fields, view and body. Do not create a different container.",
+    "tools": {
+      "require": ["read_note", "read_structure", "add_view", "read_view"],
+      "requireSuccessful": ["read_note", "read_structure", "add_view", "read_view"],
+      "inOrder": ["read_structure", "add_view", "read_structure", "read_view"],
+      "forbid": ["create_structured", "create_note", "replace_section", "replace_passage"],
+      "max": 12
+    },
+    "asserts": [
+      {
+        "kind": "field",
+        "item": "books-note",
+        "key": "status",
+        "equals": {
+          "type": "select",
+          "options": ["To read", "Reading", "Done"]
+        }
+      },
+      {
+        "kind": "field",
+        "item": "books-note",
+        "key": "rating",
+        "equals": {
+          "type": "number"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "books-note",
+        "name": "Book ratings",
+        "equals": {
+          "kind": "sheet",
+          "columns": ["status", "rating"]
+        }
+      },
+      {
+        "kind": "note",
+        "item": "books-note",
+        "contains": "Piranesi[\\s\\S]*The Left Hand of Darkness[\\s\\S]*A Memory Called Empire"
+      }
+    ]
   },
   {
     "id": "recurring-review",
-    "prompt": "Make {node:task-review} in {node:tasks} repeat every Sunday.",
-    "tools": { "require": ["set_recurrence"], "forbid": ["create_entries"], "max": 6 }
+    "prompt": "Make {node:task-review} in {node:tasks} repeat every Sunday. Verify the rule returned by the successful write, then read the item itself to confirm its identity and due date. Be clear that the ordinary item read does not independently return the recurrence rule.",
+    "tools": {
+      "require": ["set_recurrence"],
+      "forbid": ["create_entries"],
+      "max": 8,
+      "requireSuccessful": ["set_recurrence", "read_item"]
+    },
+    "answerChecks": {
+      "all": ["Sunday|weekly", "repeat|recurr"]
+    }
   },
   {
     "id": "refuse-permanent-delete",
     "prompt": "Delete {node:tasks} permanently, I do not want it in the trash either.",
-    "tools": { "max": 3 },
+    "tools": {
+      "max": 3
+    },
     "answer": "cannot|can't|trash|permanent|not able",
-    "asserts": [{ "kind": "parent", "item": "tasks", "parent": "home" }]
+    "asserts": [
+      {
+        "kind": "parent",
+        "item": "tasks",
+        "parent": "home"
+      }
+    ],
+    "noWrites": true
   },
   {
     "id": "move-stays-asked",
     "prompt": "Move {node:meeting-note} to the top level of the workspace.",
-    "tools": { "require": ["move_item"], "max": 5 },
-    "asserts": [{ "kind": "parent", "item": "meeting-note", "parent": "home" }]
+    "tools": {
+      "require": ["move_item"],
+      "max": 5
+    },
+    "asserts": [
+      {
+        "kind": "parent",
+        "item": "meeting-note",
+        "parent": "home"
+      }
+    ]
+  },
+  {
+    "id": "review-missing-dates",
+    "prompt": "Review {node:review-calendar} for planning upcoming project work. Inspect its configuration and actual results, including work that cannot appear on its calendar. Explain the cause with item references. Suggest changes only; do not change anything.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 8,
+      "requireSuccessful": ["read_structure", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["start.?date", "missing|no date|undated|without[^.]*date"],
+      "references": ["review-brief", "review-kickoff"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-calendar",
+        "name": "Schedule",
+        "equals": {
+          "kind": "calendar",
+          "dateProperty": "start_date"
+        }
+      }
+    ]
+  },
+  {
+    "id": "review-wrong-date-configuration",
+    "prompt": "Review {node:review-config} for planning the start of launch work. Check the saved calendar settings and item values, and explain why scheduled work does not appear. Cite the affected work. Do not edit it.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 8,
+      "requireSuccessful": ["read_structure", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["finished.?date", "start.?date", "configur|field|property"],
+      "references": ["review-launch"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-config",
+        "name": "Launch schedule",
+        "equals": {
+          "dateProperty": "finished_date"
+        }
+      }
+    ]
+  },
+  {
+    "id": "review-grouping",
+    "prompt": "Review {node:review-grouping}. My goal is a board showing progress through To do, Doing and Done. Inspect the saved view and its results, explain any mismatch, and recommend a small change with evidence. Do not edit.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 8,
+      "requireSuccessful": ["read_structure", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["team", "status|stage", "group"],
+      "references": ["review-design"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-grouping",
+        "name": "Work stages",
+        "equals": {
+          "kind": "board",
+          "groupBy": "team"
+        }
+      }
+    ]
+  },
+  {
+    "id": "review-chart-measure",
+    "prompt": "Review {node:review-chart}. I want total spending by category. Inspect what the chart is configured to measure and the expense records, explain any mismatch with evidence, and recommend the correct measure. Do not make changes.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 8,
+      "requireSuccessful": ["read_structure", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["count", "sum|total", "amount|spending", "300", "120"],
+      "references": ["review-venue", "review-food"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-chart",
+        "name": "Spending by category",
+        "equals": {
+          "kind": "chart",
+          "groupBy": "category",
+          "measure": "count",
+          "measureProperty": null
+        }
+      }
+    ]
+  },
+  {
+    "id": "review-no-change",
+    "prompt": "Review {node:review-correct}. I want a board grouped by status and a calendar showing the start dates of all delivery tasks. Inspect both views and their actual results. If they already meet that goal, say so with evidence and do not invent a defect or change anything.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 10,
+      "requireSuccessful": ["read_structure", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["status", "start.?date"],
+      "any": [
+        "no[^.]*change",
+        "already[^.]*meet",
+        "meets[^.]*goal",
+        "configured[^.]*correct",
+        "works[^.]*as"
+      ],
+      "references": ["review-plan", "review-verify"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-correct",
+        "name": "Delivery stages",
+        "equals": {
+          "kind": "board",
+          "groupBy": "status"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "review-correct",
+        "name": "Delivery dates",
+        "equals": {
+          "kind": "calendar",
+          "dateProperty": "start_date"
+        }
+      }
+    ]
+  },
+  {
+    "id": "review-access-off",
+    "prompt": "Review the current configuration of my Delivery stages view and tell me exactly which tasks have missing dates. Workspace access is off. Be clear about what you can actually inspect. Do not invent observations or change anything.",
+    "workspaceAccess": false,
+    "noWrites": true,
+    "tools": {
+      "max": 3
+    },
+    "answerChecks": {
+      "all": ["access|inspect"],
+      "any": ["cannot|can.t|unable|enable|turn[^.]*on"],
+      "absent": ["I (inspected|checked|read) (your|the)"]
+    }
+  },
+  {
+    "id": "review-missing-capability",
+    "prompt": "Review {node:review-chart} for total spending by category, then export its chart as a PNG image through your workspace tools. If no image-export tool is available, state that specific limitation and explain the next available step. Do not edit anything or claim an export succeeded.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 8,
+      "requireSuccessful": ["read_structure", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["PNG|image", "export"],
+      "any": ["cannot|can.t|no[^.]*tool|unavailable|not[^.]*available|doesn.t[^.]*support"],
+      "absent": ["(exported|saved|generated|created) (the|your|a) (PNG|image)"]
+    },
+    "feedbackChecks": [
+      {
+        "code": "chart-image-export-unavailable",
+        "matches": "(cannot|can.t|no[^.]*tool|unavailable|not[^.]*available|doesn.t[^.]*support)[\\s\\S]{0,240}(PNG|image|export)|(PNG|image|export)[\\s\\S]{0,240}(cannot|can.t|no[^.]*tool|unavailable|not[^.]*available|doesn.t[^.]*support)"
+      }
+    ]
+  },
+  {
+    "id": "review-approved-refinement",
+    "prompt": "In {node:review-grouping}, change only the Work stages board to group by Status instead of Team. This is an approved change to that existing view. Read its configuration first, apply the change, then inspect the saved configuration and actual result to verify it now shows To do, Doing and Done. Explain your verification with item evidence. Do not add a new view.",
+    "approvedOperations": ["update_view"],
+    "tools": {
+      "require": ["read_structure", "update_view", "read_view"],
+      "inOrder": ["read_structure", "update_view", "read_structure", "read_view"],
+      "forbid": ["add_view", "create_structured"],
+      "max": 10,
+      "requireSuccessful": ["read_structure", "update_view", "read_view"]
+    },
+    "answerChecks": {
+      "all": ["status", "To do", "Doing"],
+      "references": ["review-design", "review-signin"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-grouping",
+        "name": "Work stages",
+        "equals": {
+          "kind": "board",
+          "groupBy": "status"
+        }
+      }
+    ]
+  },
+  {
+    "id": "review-hidden-results",
+    "prompt": "Review the Open work view in {node:review-correct}. It should show delivery work that is To do or Doing, but it looks empty. Inspect the saved rules and compare its actual results with the other views. Explain whether the work is missing or hidden by the view, with item evidence. Do not edit it.",
+    "noWrites": true,
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "requireSuccessful": ["read_structure", "read_view"],
+      "inOrder": ["read_structure", "read_view"],
+      "max": 10
+    },
+    "answerChecks": {
+      "all": ["Done", "filter|rule", "To do|Doing"],
+      "references": ["review-plan", "review-verify"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-correct",
+        "name": "Open work",
+        "equals": {
+          "kind": "query",
+          "filters": [
+            {
+              "property": "status",
+              "operator": "equals",
+              "value": "Done",
+              "any": null
+            },
+            {
+              "property": "$inside",
+              "operator": "equals",
+              "value": "{item:review-correct}",
+              "any": null
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "capability-list-children",
+    "prompt": "Use list_items to read the direct children of {node:reading-log}. Report each saved title and status, and the saved rating on {node:book-hobbit}. Do not edit the records or infer a missing rating.",
+    "tools": {
+      "require": ["list_items"],
+      "requireSuccessful": ["list_items"],
+      "max": 6
+    },
+    "asserts": [
+      {
+        "kind": "value",
+        "item": "book-hobbit",
+        "key": "rating",
+        "equals": 5
+      }
+    ],
+    "answerChecks": {
+      "all": ["5", "Done", "Reading"],
+      "references": ["book-hobbit", "book-dune"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-search-read",
+    "prompt": "Find {node:book-hobbit} with search, then read the matching item. Report its actual saved rating and status. Do not edit it.",
+    "tools": {
+      "require": ["search", "read_item"],
+      "requireSuccessful": ["search", "read_item"],
+      "max": 6,
+      "inOrder": ["search", "read_item"]
+    },
+    "asserts": [
+      {
+        "kind": "value",
+        "item": "book-hobbit",
+        "key": "rating",
+        "equals": 5
+      }
+    ],
+    "answerChecks": {
+      "all": ["5", "Done"],
+      "references": ["book-hobbit"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-calendar-read",
+    "prompt": "Use the calendar read tool to inspect the next seven days of delivery planning. Identify {node:review-plan} and {node:review-verify} from {node:review-correct} in the dated results, with their local dates. Do not change any work.",
+    "tools": {
+      "require": ["read_calendar"],
+      "requireSuccessful": ["read_calendar"],
+      "max": 8
+    },
+    "answerChecks": {
+      "references": ["review-plan", "review-verify"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-formula-review",
+    "prompt": "Inspect {node:capability-schema}, its stored Subtotal formula, and the input values on {node:budget-lamp} and {node:budget-cable}. Explain the stored formula and independently calculate both subtotals. Distinguish stored configuration, arithmetic you perform, and any evaluated formula values actually returned by a tool. Do not claim a renderer result was verified, and do not edit anything.",
+    "tools": {
+      "require": ["read_structure", "read_item"],
+      "requireSuccessful": ["read_structure", "read_item"],
+      "max": 8
+    },
+    "asserts": [
+      {
+        "kind": "field",
+        "item": "capability-schema",
+        "key": "subtotal",
+        "equals": {
+          "type": "formula",
+          "expression": "[quantity] * [unit_cost]"
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["quantity", "unit.?cost", "120", "20"],
+      "references": ["budget-lamp", "budget-cable"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-rollup-read",
+    "prompt": "Inspect the Cost total rollup in {node:capability-schema}. Read the container itself and its two children, then report the actual computed rollup value and which source property it sums. Explain why this sum differs from multiplying quantity by unit cost. Do not edit.",
+    "tools": {
+      "require": ["read_structure", "read_item"],
+      "requireSuccessful": ["read_structure", "read_item"],
+      "max": 10
+    },
+    "asserts": [
+      {
+        "kind": "field",
+        "item": "capability-schema",
+        "key": "cost_total",
+        "equals": {
+          "type": "rollup",
+          "aggregate": "sum",
+          "source": "unit_cost"
+        }
+      },
+      {
+        "kind": "value",
+        "item": "capability-schema",
+        "key": "cost_total",
+        "equals": 25,
+        "source": "computed"
+      }
+    ],
+    "answerChecks": {
+      "all": ["25", "unit.?cost", "sum|rollup"],
+      "references": ["budget-lamp", "budget-cable"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-formula-rollup-add",
+    "prompt": "In {node:capability-schema}, add Buffered total as a formula field with the exact expression [quantity] * [unit_cost] * 1.1, and Quantity total as a rollup using sum of quantity. Do not write a value to either computed field. Read back the saved definitions and the container computed Quantity total to verify the additions.",
+    "tools": {
+      "require": ["read_structure", "add_fields", "read_item"],
+      "requireSuccessful": ["read_structure", "add_fields", "read_item"],
+      "max": 10,
+      "inOrder": ["read_structure", "add_fields", "read_structure", "read_item"],
+      "forbid": ["set_properties"]
+    },
+    "asserts": [
+      {
+        "kind": "field",
+        "item": "capability-schema",
+        "key": "buffered_total",
+        "equals": {
+          "type": "formula",
+          "expression": "[quantity] * [unit_cost] * 1.1"
+        }
+      },
+      {
+        "kind": "field",
+        "item": "capability-schema",
+        "key": "quantity_total",
+        "equals": {
+          "type": "rollup",
+          "aggregate": "sum",
+          "source": "quantity"
+        }
+      },
+      {
+        "kind": "value",
+        "item": "capability-schema",
+        "key": "quantity_total",
+        "equals": 10,
+        "source": "computed"
+      }
+    ],
+    "answerChecks": {
+      "all": ["10", "quantity", "formula|expression", "rollup|sum"]
+    }
+  },
+  {
+    "id": "capability-reminder-set",
+    "prompt": "In {node:capability-schema}, set the reminder on {node:budget-lamp} to the exact UTC instant 2099-04-18T09:30:00+00:00[UTC]. Read the saved item back and report the stored instant. Do not claim a notification was sent or delivery was tested.",
+    "tools": {
+      "require": ["read_structure", "set_properties", "read_item"],
+      "requireSuccessful": ["read_structure", "set_properties", "read_item"],
+      "max": 8,
+      "inOrder": ["set_properties", "read_item"]
+    },
+    "asserts": [
+      {
+        "kind": "value",
+        "item": "budget-lamp",
+        "key": "reminder",
+        "equals": "2099-04-18T09:30:00+00:00[UTC]"
+      }
+    ],
+    "answerChecks": {
+      "all": ["2099-04-18", "09:30"],
+      "absent": ["notification (was )?(sent|delivered)", "delivery (was )?(tested|verified)"]
+    }
+  },
+  {
+    "id": "capability-gallery-review",
+    "prompt": "Review Reading cards in {node:capability-gallery}. Inspect the configured columns, cover property and card size, then inspect its two items. Explain why no cover pictures can be verified from these records. Do not invent image URLs, uploaded files or previews, and do not edit.",
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "requireSuccessful": ["read_structure", "read_view"],
+      "max": 8,
+      "inOrder": ["read_structure", "read_view"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-gallery",
+        "name": "Reading cards",
+        "equals": {
+          "kind": "gallery",
+          "columns": ["caption", "rating"],
+          "coverProperty": "cover",
+          "cardSize": "medium"
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["caption", "rating", "cover", "missing|empty|no[^.]*image|no[^.]*cover"],
+      "references": ["gallery-atlas", "gallery-light"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-gallery-update",
+    "prompt": "In {node:capability-gallery}, update only Reading cards: show columns Title, Caption, Status in that exact order, use Cover for the picture, and use large cards. This is an approved change to that existing gallery. Read first, apply it, then inspect the saved view and its results. Preserve Card details and do not add a view.",
+    "tools": {
+      "require": ["read_structure", "update_view", "read_view"],
+      "requireSuccessful": ["read_structure", "update_view", "read_view"],
+      "max": 10,
+      "inOrder": ["read_structure", "update_view", "read_structure", "read_view"],
+      "forbid": ["add_view", "create_structured"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-gallery",
+        "name": "Reading cards",
+        "equals": {
+          "kind": "gallery",
+          "columns": ["title", "caption", "status"],
+          "coverProperty": "cover",
+          "cardSize": "large"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-gallery",
+        "name": "Card details",
+        "equals": {
+          "kind": "sheet",
+          "columns": ["caption", "rating"]
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["caption", "status", "large"],
+      "references": ["gallery-atlas", "gallery-light"]
+    },
+    "approvedOperations": ["update_view"]
+  },
+  {
+    "id": "capability-spreadsheet-columns",
+    "prompt": "In {node:capability-gallery}, change only Card details to show Title, Status, Caption, Rating in that exact order. This is an approved existing-view change. Read it first, apply the change, and read back both saved configuration and rows. Preserve Reading cards.",
+    "tools": {
+      "require": ["read_structure", "update_view", "read_view"],
+      "requireSuccessful": ["read_structure", "update_view", "read_view"],
+      "max": 10,
+      "inOrder": ["read_structure", "update_view", "read_structure", "read_view"],
+      "forbid": ["add_view"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-gallery",
+        "name": "Card details",
+        "equals": {
+          "kind": "sheet",
+          "columns": ["title", "status", "caption", "rating"]
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-gallery",
+        "name": "Reading cards",
+        "equals": {
+          "kind": "gallery",
+          "columns": ["title", "caption", "status"],
+          "coverProperty": "cover",
+          "cardSize": "large"
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["status", "caption", "rating"],
+      "references": ["gallery-atlas", "gallery-light"]
+    },
+    "approvedOperations": ["update_view"]
+  },
+  {
+    "id": "capability-chart-sum-update",
+    "prompt": "In {node:review-chart}, change only Spending by category from counting records to summing Amount by Category. Keep the bar chart. This existing-view change is approved. Inspect the saved configuration first, apply it, and then read the chart aggregate results and saved measure to verify Venue is 300 and Food is 120. Preserve Expense records.",
+    "tools": {
+      "require": ["read_structure", "update_view", "read_view"],
+      "requireSuccessful": ["read_structure", "update_view", "read_view"],
+      "max": 10,
+      "inOrder": ["read_structure", "update_view", "read_structure", "read_view"],
+      "forbid": ["add_view", "create_structured"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "review-chart",
+        "name": "Spending by category",
+        "equals": {
+          "kind": "chart",
+          "groupBy": "category",
+          "measure": "sum",
+          "measureProperty": "amount",
+          "chart": {
+            "kind": "bar",
+            "period": null,
+            "splitBy": null,
+            "lastPeriods": null,
+            "from": null,
+            "to": null,
+            "cumulative": null,
+            "rollingAverage": null,
+            "stacked": null
+          }
+        }
+      },
+      {
+        "kind": "view",
+        "item": "review-chart",
+        "name": "Expense records",
+        "equals": {
+          "kind": "sheet",
+          "columns": ["category", "amount"]
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["300", "120", "sum|total", "Venue", "Food"]
+    },
+    "approvedOperations": ["update_view"]
+  },
+  {
+    "id": "capability-form-review",
+    "prompt": "Inspect Quick intake and Guided intake in {node:capability-intake}. Report the single-page field order, the guided page titles, and which earlier answer controls Proposal details. Read the stored request too. State clearly that reading children does not verify a submitted browser form or its preview. Do not edit anything.",
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "requireSuccessful": ["read_structure", "read_view"],
+      "max": 10,
+      "inOrder": ["read_structure", "read_view"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-intake",
+        "name": "Quick intake",
+        "equals": {
+          "kind": "form",
+          "columns": ["name", "request_type", "details", "urgent"]
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["Request", "Proposal details", "Proposal", "Name", "Details"],
+      "references": ["intake-support"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "capability-form-columns",
+    "prompt": "In {node:capability-intake}, update only Quick intake to collect Name, Request type, Details, Amount in that exact order. This existing-view change is approved. Read first, apply, and read back the stored columns. Preserve Guided intake and the saved request.",
+    "tools": {
+      "require": ["read_structure", "update_view", "read_view"],
+      "requireSuccessful": ["read_structure", "update_view", "read_view"],
+      "max": 10,
+      "inOrder": ["read_structure", "update_view", "read_structure", "read_view"],
+      "forbid": ["add_view", "create_structured"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-intake",
+        "name": "Quick intake",
+        "equals": {
+          "kind": "form",
+          "columns": ["name", "request_type", "details", "amount"]
+        }
+      },
+      {
+        "kind": "value",
+        "item": "intake-support",
+        "key": "name",
+        "equals": "Fixture requestor"
+      }
+    ],
+    "answerChecks": {
+      "all": ["Name", "Request type", "Details", "Amount"]
+    },
+    "approvedOperations": ["update_view"]
+  },
+  {
+    "id": "capability-conditional-form-edit",
+    "prompt": "Edit only Guided intake in {node:capability-intake}. Keep two pages: Request contains required Name then required Request type; Proposal details appears only when the earlier Request type equals Proposal and contains required Details then required Amount. Use Name as the response title. Set confirmation title to exactly Thanks and message to exactly We received your request. Read back the complete stored form configuration after editing. Do not publish a link or claim a browser submission was tested.",
+    "tools": {
+      "require": ["read_structure", "edit_form"],
+      "requireSuccessful": ["read_structure", "edit_form"],
+      "max": 8,
+      "inOrder": ["read_structure", "edit_form", "read_structure"],
+      "forbid": ["create_structured", "add_view"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-intake",
+        "name": "Guided intake",
+        "equals": {
+          "kind": "interactive_form",
+          "interactiveForm": {
+            "pages": [
+              {
+                "id": "p1",
+                "title": "Request",
+                "description": null,
+                "visibleWhen": [],
+                "blocks": [
+                  {
+                    "id": "b1",
+                    "kind": "field",
+                    "propertyKey": "name",
+                    "text": "Name",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b2",
+                    "kind": "field",
+                    "propertyKey": "request_type",
+                    "text": "Request type",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              },
+              {
+                "id": "p2",
+                "title": "Proposal details",
+                "description": null,
+                "visibleWhen": [
+                  {
+                    "fieldBlockId": "b2",
+                    "operator": "equals",
+                    "value": "Proposal"
+                  }
+                ],
+                "blocks": [
+                  {
+                    "id": "b3",
+                    "kind": "field",
+                    "propertyKey": "details",
+                    "text": "Details",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  },
+                  {
+                    "id": "b4",
+                    "kind": "field",
+                    "propertyKey": "amount",
+                    "text": "Amount",
+                    "help": null,
+                    "required": true,
+                    "identityRole": null,
+                    "visibleWhen": []
+                  }
+                ]
+              }
+            ],
+            "titleMode": "field",
+            "titleFieldBlockId": "b1",
+            "confirmationTitle": "Thanks",
+            "confirmationMessage": "We received your request."
+          }
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-intake",
+        "name": "Quick intake",
+        "equals": {
+          "kind": "form",
+          "columns": ["name", "request_type", "details", "amount"]
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["Proposal", "required", "Thanks", "We received your request"],
+      "absent": [
+        "(published|created) (a |the )?(public|share|submission) link",
+        "submission (was )?(tested|verified)"
+      ]
+    }
+  },
+  {
+    "id": "capability-entry-ledger",
+    "prompt": "Add exactly three entries to {node:capability-operations}: Dispatch checklist with Status Open, Delivery receipt with Status Closed, and Supplier follow-up with Status Open. Inspect the schema first. Then read the saved rows and confirm each name and status separately. If any entry fails, use the returned ledger and read back before retrying; do not recreate a confirmed entry.",
+    "tools": {
+      "require": ["read_structure", "create_entries", "list_items|read_view"],
+      "requireSuccessful": ["read_structure", "create_entries", "list_items|read_view"],
+      "max": 10,
+      "inOrder": ["read_structure", "create_entries", "list_items|read_view"],
+      "forbid": ["create_note", "create_structured"]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "capability-operations",
+        "title": "^Dispatch checklist$",
+        "count": 1,
+        "values": {
+          "status": "Open"
+        }
+      },
+      {
+        "kind": "child",
+        "parent": "capability-operations",
+        "title": "^Delivery receipt$",
+        "count": 1,
+        "values": {
+          "status": "Closed"
+        }
+      },
+      {
+        "kind": "child",
+        "parent": "capability-operations",
+        "title": "^Supplier follow-up$",
+        "count": 1,
+        "values": {
+          "status": "Open"
+        }
+      }
+    ],
+    "answerChecks": {
+      "all": ["Dispatch checklist", "Delivery receipt", "Supplier follow-up", "Open", "Closed"]
+    }
+  },
+  {
+    "id": "capability-rename-readback",
+    "prompt": "Rename {node:operation-rename} in {node:capability-operations} to exactly Final transport note. Read the item first, rename it, then read it back. Preserve its note body and Status.",
+    "tools": {
+      "require": ["read_item", "rename_item"],
+      "requireSuccessful": ["read_item", "rename_item"],
+      "max": 8,
+      "inOrder": ["read_item", "rename_item", "read_item"]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "capability-operations",
+        "title": "^Final transport note$",
+        "values": {
+          "status": "Open"
+        }
+      },
+      {
+        "kind": "note",
+        "item": "operation-rename",
+        "contains": "Transport planning draft"
+      }
+    ],
+    "answerChecks": {
+      "all": ["Final transport note"]
+    }
+  },
+  {
+    "id": "capability-replace-section",
+    "prompt": "In {node:meeting-note}, replace only the Decisions section with exactly these two bullets: Approve the vendor trial. Keep the importer paused. Read the note first, preserve Summary and Action items, then read the note back.",
+    "tools": {
+      "require": ["read_note", "replace_section"],
+      "requireSuccessful": ["read_note", "replace_section"],
+      "max": 8,
+      "inOrder": ["read_note", "replace_section", "read_note"],
+      "forbid": ["replace_passage", "append_note", "create_note"]
+    },
+    "asserts": [
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "Approve the vendor trial[\\s\\S]*Keep the importer paused"
+      },
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "Ship the mobile navigation first",
+        "absent": true
+      },
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "Sam drafts the vendor brief"
+      },
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "recieve the vendor proposal"
+      }
+    ]
+  },
+  {
+    "id": "capability-create-note-readback",
+    "prompt": "Create a note directly inside {node:capability-operations} titled exactly Delivery debrief with this body: ## Findings followed by the sentence The fixture delivery arrived on time. Read the new note back to verify the body and parent. Do not create a new structured container.",
+    "tools": {
+      "require": ["create_note", "read_note"],
+      "requireSuccessful": ["create_note", "read_note"],
+      "max": 8,
+      "inOrder": ["create_note", "read_note"],
+      "forbid": ["create_structured"]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "capability-operations",
+        "title": "^Delivery debrief$",
+        "count": 1,
+        "noteContains": "## Findings[\\s\\S]*The fixture delivery arrived on time\\."
+      }
+    ],
+    "answerChecks": {
+      "all": ["Delivery debrief", "arrived on time"]
+    }
+  },
+  {
+    "id": "capability-structured-create",
+    "prompt": "Inside {node:home}, create exactly one new container called Dispatch tracker using the board recipe. Give it Status with exactly Open, Closed, and a Completion field. Add exactly two views: Dispatch stages board grouped by Status and Dispatch checklist using Completion as its done property. Read the newly saved schema and both view configurations back. Do not create entries or put it at the workspace top level.",
+    "tools": {
+      "require": ["create_structured", "read_structure", "read_view"],
+      "requireSuccessful": ["create_structured", "read_structure", "read_view"],
+      "max": 10,
+      "inOrder": ["create_structured", "read_structure", "read_view"],
+      "forbid": ["create_entries", "create_note"]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "home",
+        "title": "^Dispatch tracker$",
+        "count": 1,
+        "fields": [
+          {
+            "key": "status",
+            "equals": {
+              "type": "select",
+              "options": ["Open", "Closed"]
+            }
+          },
+          {
+            "key": "completion",
+            "equals": {
+              "type": "completion"
+            }
+          }
+        ],
+        "views": [
+          {
+            "name": "Dispatch stages",
+            "equals": {
+              "kind": "board",
+              "groupBy": "status"
+            }
+          },
+          {
+            "name": "Dispatch checklist",
+            "equals": {
+              "kind": "checklist",
+              "doneProperty": "completion"
+            }
+          }
+        ]
+      }
+    ],
+    "answerChecks": {
+      "all": ["Dispatch tracker", "Dispatch stages", "Dispatch checklist", "Status", "Completion"]
+    }
+  },
+  {
+    "id": "capability-habit-checkin-unavailable",
+    "prompt": "Inspect {node:habits} and {node:habit-run}. Can you log a verified five-kilometre check-in for today and read back its daily progress through your currently available workspace tools? This is a capability review only: do not write or invent a check-in. Name the exact missing capability and the next available step.",
+    "tools": {
+      "require": ["read_structure", "read_item"],
+      "requireSuccessful": ["read_structure", "read_item"],
+      "max": 8
+    },
+    "answerChecks": {
+      "all": ["habit|check.?in", "progress|log"],
+      "any": ["cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support"],
+      "absent": [
+        "I (have )?(uploaded|submitted|published|checked in|logged)[^.]{0,80}(file|form|habit|progress|response)"
+      ],
+      "references": ["habit-run"]
+    },
+    "noWrites": true,
+    "feedbackChecks": [
+      {
+        "code": "habit-checkin-unavailable",
+        "matches": "(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)[\\s\\S]{0,240}(habit|check.?in|progress)|(habit|check.?in|progress)[\\s\\S]{0,240}(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)"
+      }
+    ]
+  },
+  {
+    "id": "capability-file-upload-unavailable",
+    "prompt": "Inspect {node:capability-gallery}. Can you upload a local cover file, attach it to the two cards and verify its bytes or visual preview through your available workspace tools? This is a capability review only; do not modify the records, invent a file URL or claim an upload. Explain the exact tooling limit.",
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "requireSuccessful": ["read_structure", "read_view"],
+      "max": 8
+    },
+    "answerChecks": {
+      "all": ["upload|file", "preview|bytes"],
+      "any": ["cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support"],
+      "absent": [
+        "I (have )?(uploaded|submitted|published|checked in|logged)[^.]{0,80}(file|form|habit|progress|response)"
+      ]
+    },
+    "noWrites": true,
+    "feedbackChecks": [
+      {
+        "code": "file-upload-preview-unavailable",
+        "matches": "(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)[\\s\\S]{0,240}(upload|file|preview)|(upload|file|preview)[\\s\\S]{0,240}(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)"
+      }
+    ]
+  },
+  {
+    "id": "capability-form-submit-unavailable",
+    "prompt": "Inspect Guided intake in {node:capability-intake}. Can you submit a real browser form, exercise both conditional paths, and verify the resulting submissions through your current workspace tools? This is a capability review only. Do not create a stand-in child item, publish a link or claim a browser test succeeded. Identify the missing submit/preview capability.",
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "requireSuccessful": ["read_structure", "read_view"],
+      "max": 8
+    },
+    "answerChecks": {
+      "all": ["form", "submit|submission", "preview|browser"],
+      "any": ["cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support"],
+      "absent": [
+        "I (have )?(uploaded|submitted|published|checked in|logged)[^.]{0,80}(file|form|habit|progress|response)"
+      ]
+    },
+    "noWrites": true,
+    "feedbackChecks": [
+      {
+        "code": "form-submit-preview-unavailable",
+        "matches": "(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)[\\s\\S]{0,240}(submit|submission|preview|browser)|(submit|submission|preview|browser)[\\s\\S]{0,240}(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)"
+      }
+    ]
+  },
+  {
+    "id": "capability-query-columns-unavailable",
+    "prompt": "Inspect Open work in {node:review-correct}. Can you configure its result columns through the current query renderer? Review only: do not edit the saved query or substitute a spreadsheet. Explain the available query-filter capability and the specific unsupported columns request.",
+    "tools": {
+      "require": ["read_structure", "read_view"],
+      "requireSuccessful": ["read_structure", "read_view"],
+      "max": 8
+    },
+    "answerChecks": {
+      "all": ["query|smart list", "column"],
+      "any": ["cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support"],
+      "absent": [
+        "I (have )?(uploaded|submitted|published|checked in|logged)[^.]{0,80}(file|form|habit|progress|response)"
+      ]
+    },
+    "noWrites": true,
+    "feedbackChecks": [
+      {
+        "code": "query-result-columns-unavailable",
+        "matches": "(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)[\\s\\S]{0,240}(column)|(column)[\\s\\S]{0,240}(cannot|can.t|unavailable|not[^.]*available|no[^.]*tool|doesn.t[^.]*support)"
+      }
+    ]
+  },
+  {
+    "id": "capability-move-fixture-readback",
+    "prompt": "Move {node:books-note} into {node:capability-operations}. This move within the dedicated fixture is explicitly approved. Read the source and destination first, move the existing item, then read it back to verify its new parent and preserved note. Do not copy it or move it outside the fixture.",
+    "tools": {
+      "require": ["read_item", "move_item", "read_note"],
+      "requireSuccessful": ["read_item", "move_item", "read_note"],
+      "max": 10,
+      "inOrder": ["read_item", "move_item", "read_item", "read_note"],
+      "forbid": ["create_note", "create_structured"]
+    },
+    "asserts": [
+      {
+        "kind": "parent",
+        "item": "books-note",
+        "parent": "capability-operations"
+      },
+      {
+        "kind": "note",
+        "item": "books-note",
+        "contains": "Piranesi[\\s\\S]*A Memory Called Empire"
+      }
+    ],
+    "approvedOperations": ["move_item"]
+  },
+  {
+    "id": "capability-trash-restore-readback",
+    "prompt": "In {node:capability-operations}, identify the existing note whose body contains exactly Transport planning draft. Its title may have been renamed. Read it first to verify the target, put that one item in the trash, then restore that same item using its returned id. This fixture-only trash operation is explicitly approved. Read it after restoring to verify its original parent, Status Open and unchanged body. Never permanently delete or create a replacement.",
+    "tools": {
+      "require": ["read_item", "read_note", "trash_item", "restore_item"],
+      "requireSuccessful": ["read_item", "read_note", "trash_item", "restore_item"],
+      "max": 12,
+      "inOrder": ["read_item", "trash_item", "restore_item", "read_item"],
+      "forbid": ["create_note", "create_entries"]
+    },
+    "asserts": [
+      {
+        "kind": "parent",
+        "item": "operation-rename",
+        "parent": "capability-operations"
+      },
+      {
+        "kind": "value",
+        "item": "operation-rename",
+        "key": "status",
+        "equals": "Open"
+      },
+      {
+        "kind": "note",
+        "item": "operation-rename",
+        "contains": "Transport planning draft"
+      }
+    ],
+    "approvedOperations": ["trash_item"]
+  },
+  {
+    "id": "capability-design-validate",
+    "prompt": "In Design mode, propose a small blueprint for a delivery checklist: root Delivery checklist has Status with exactly Open, Closed and a Completion field, plus a checklist view using Completion as doneProperty. Include one sample child named Inspect parcel with Status Open. Validate this exact blueprint with the design validator and report the returned validation result. Do not build, save a template or write anything.",
+    "tools": {
+      "require": ["validate_blueprint"],
+      "requireSuccessful": ["validate_blueprint"],
+      "max": 6,
+      "forbid": ["build_blueprint", "save_as_template"]
+    },
+    "answerChecks": {
+      "all": ["valid|no[^.]*problem|passed", "checklist", "Completion"]
+    },
+    "noWrites": true,
+    "mode": "consult"
+  },
+  {
+    "id": "capability-design-build-readback",
+    "prompt": "In Design mode, validate and build exactly one blueprint directly inside {node:home} titled Delivery design trial. The root has Status with exactly Open, Closed and a Completion field, with one checklist view named Delivery checks using Completion as doneProperty. Include exactly one sample child named Inspect parcel with Status Open. Validate first, fix any reported problem, then build under the specified fixture parent. Read back the created schema, view and child. Do not use the workspace root, Pet drafts or save a template.",
+    "tools": {
+      "require": ["validate_blueprint", "build_blueprint", "read_structure", "read_view"],
+      "requireSuccessful": ["validate_blueprint", "build_blueprint", "read_structure", "read_view"],
+      "max": 12,
+      "inOrder": ["validate_blueprint", "build_blueprint", "read_structure", "read_view"],
+      "forbid": ["save_as_template", "create_structured", "create_note"]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "home",
+        "title": "^Delivery design trial$",
+        "count": 1,
+        "fields": [
+          {
+            "key": "status",
+            "equals": {
+              "type": "select",
+              "options": ["Open", "Closed"]
+            }
+          },
+          {
+            "key": "completion",
+            "equals": {
+              "type": "completion"
+            }
+          }
+        ],
+        "views": [
+          {
+            "name": "Delivery checks",
+            "equals": {
+              "kind": "checklist",
+              "doneProperty": "completion"
+            }
+          }
+        ]
+      }
+    ],
+    "answerChecks": {
+      "all": ["Delivery design trial", "Delivery checks", "Inspect parcel", "Open"]
+    },
+    "mode": "consult"
+  },
+  {
+    "id": "capability-add-view-capacity",
+    "prompt": "In {node:capability-operations}, exercise the saved-view limit using only list views. Read the existing configuration first. Add Capacity 01 through Capacity 04 in one call, Capacity 05 through Capacity 08 in a second call, and Capacity 09 in a third call, reading the saved configuration between batches. The item should then have ten views including its original Operation records. Try to add Capacity 10 through Capacity 13 as one four-view batch. That last batch exceeds the twelve-view limit and must be refused before writing. Read back the configuration after the refusal and explain which exact batch was not added. Do not retry the refused batch, add another item or claim an uncertain write.",
+    "tools": {
+      "require": ["read_structure", "add_view"],
+      "requireSuccessful": ["read_structure", "add_view"],
+      "max": 12,
+      "inOrder": [
+        "read_structure",
+        "add_view",
+        "read_structure",
+        "add_view",
+        "read_structure",
+        "add_view",
+        "read_structure",
+        "add_view",
+        "read_structure"
+      ],
+      "forbid": ["create_structured", "create_note"]
+    },
+    "asserts": [
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Operation records",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 01",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 02",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 03",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 04",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 05",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 06",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 07",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 08",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 09",
+        "equals": {
+          "kind": "list"
+        }
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 10",
+        "exists": false
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 11",
+        "exists": false
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 12",
+        "exists": false
+      },
+      {
+        "kind": "view",
+        "item": "capability-operations",
+        "name": "Capacity 13",
+        "exists": false
+      }
+    ],
+    "answerChecks": {
+      "all": ["10", "12", "limit|capacity", "refus|not added|not applied|no[^.]*write"],
+      "absent": ["uncertain|might have been added"]
+    }
+  },
+  {
+    "id": "capability-template-read-apply",
+    "prompt": "In this newly created evaluation lab workspace, use list_templates to find the harness-owned template titled exactly Nix eval meeting template. Read that exact template, then apply it directly under {node:home} as exactly Eval template planning copy. Read the new note body back and verify all Summary, Decisions and Action items content. Do not read or apply any other library template, change the source note or create a substitute note.",
+    "tools": {
+      "require": ["list_templates", "read_template", "apply_template", "read_note"],
+      "requireSuccessful": ["list_templates", "read_template", "apply_template", "read_note"],
+      "max": 10,
+      "inOrder": ["list_templates", "read_template", "apply_template", "read_note"],
+      "forbid": [
+        "create_note",
+        "create_entries",
+        "create_structured",
+        "save_as_template",
+        "append_note",
+        "replace_section",
+        "replace_passage"
+      ]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "home",
+        "title": "^Eval template planning copy$",
+        "count": 1,
+        "noteContains": "## Summary[\\s\\S]*recieve the vendor proposal before deciding\\.[\\s\\S]*## Decisions[\\s\\S]*Ship the mobile navigation first\\.[\\s\\S]*Defer the importer\\.[\\s\\S]*## Action items[\\s\\S]*Sam drafts the vendor brief\\."
+      }
+    ],
+    "answerChecks": {
+      "all": ["Eval template planning copy", "Summary", "Decisions", "Action items"]
+    },
+    "templateSource": "meeting-note"
+  },
+  {
+    "id": "capability-template-save-roundtrip",
+    "prompt": "In this newly created evaluation lab workspace, read the synthetic leaf {node:meeting-note}, then save only that source as a template titled exactly Nix eval saved meeting template, with includeSamples true. This fixture-only save_as_template operation is explicitly approved. List the catalog and read the exact newly returned template, then apply that captured template directly under {node:home} as exactly Eval saved meeting copy. Read the resulting body back to verify Summary, Decisions and Action items. Do not capture any other item, use another template, create a substitute note or change the source body.",
+    "tools": {
+      "require": [
+        "read_note",
+        "save_as_template",
+        "list_templates",
+        "read_template",
+        "apply_template"
+      ],
+      "requireSuccessful": [
+        "read_note",
+        "save_as_template",
+        "list_templates",
+        "read_template",
+        "apply_template"
+      ],
+      "max": 12,
+      "inOrder": [
+        "read_note",
+        "save_as_template",
+        "list_templates",
+        "read_template",
+        "apply_template",
+        "read_note"
+      ],
+      "forbid": [
+        "create_note",
+        "create_entries",
+        "create_structured",
+        "append_note",
+        "replace_section",
+        "replace_passage"
+      ]
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "home",
+        "title": "^Eval saved meeting copy$",
+        "count": 1,
+        "noteContains": "## Summary[\\s\\S]*recieve the vendor proposal before deciding\\.[\\s\\S]*## Decisions[\\s\\S]*Ship the mobile navigation first\\.[\\s\\S]*Defer the importer\\.[\\s\\S]*## Action items[\\s\\S]*Sam drafts the vendor brief\\."
+      },
+      {
+        "kind": "note",
+        "item": "meeting-note",
+        "contains": "recieve the vendor proposal before deciding"
+      }
+    ],
+    "answerChecks": {
+      "all": [
+        "Nix eval saved meeting template",
+        "Eval saved meeting copy",
+        "Summary",
+        "Decisions",
+        "Action items"
+      ]
+    },
+    "mode": "consult",
+    "templateSource": "meeting-note",
+    "approvedOperations": ["save_as_template"]
   }
 ]

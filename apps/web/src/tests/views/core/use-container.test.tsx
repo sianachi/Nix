@@ -268,7 +268,7 @@ describe('container loading', () => {
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              views: [{ id: 'list', name: 'List', kind: 'list', dateProperty: null }],
+              views: [{ id: 'list', name: 'List', kind: 'list', companionPlacement: 'above' }],
               unrenderable: [],
               default: 'list',
             }),

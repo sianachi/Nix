@@ -9,6 +9,7 @@ import {
   structuredSpecSchema,
   validateSpec,
   viewSetupSpecSchema,
+  updateViewSpecSchema,
   blueprintSchema,
   validateBlueprint,
   saveSpecSchema,
@@ -20,6 +21,9 @@ import { readTemplate } from './templates/read.js';
 import { bodyEditOf, loadPreviewContext } from './context.js';
 import { checkItem, type StructureFingerprint } from './guards.js';
 import { readStructure } from './structure/read-structure.js';
+import { readView } from './structure/read-view.js';
+import { boundedStructureRead } from './structure/read-output.js';
+import * as updateView from './structure/update-view.js';
 import * as createStructured from './structure/create-structured.js';
 import * as addView from './structure/add-view.js';
 import * as createEntries from './structure/create-entries.js';
@@ -83,6 +87,7 @@ export async function runWorkspaceTool(
   const requestOptions = { signal, forceRefresh: true };
   let result: unknown;
   // The items a read returned content from, checked for a covering lock once the read is done.
+  let unboundedReadProvenance = false;
   let contentSources: (string | null | undefined)[] = [];
   const check = (id: string) => checkItem(ports, workspaceId, id, signal);
   const rawSpec: unknown = args.specJson.trim() ? JSON.parse(args.specJson) : {};
@@ -141,6 +146,7 @@ export async function runWorkspaceTool(
       'create_entries',
       'add_fields',
       'edit_form',
+      'update_view',
       'list_templates',
       'read_calendar',
     ].includes(args.operation)
@@ -161,6 +167,7 @@ export async function runWorkspaceTool(
       'create_entries',
       'add_fields',
       'edit_form',
+      'update_view',
       'set_recurrence',
     ].includes(args.operation)
   ) {
@@ -169,6 +176,8 @@ export async function runWorkspaceTool(
       throw new WorkspaceToolRefusal(
         'The item changed since you approved this. Ask the pet to look again.',
       );
+    if (context.problems.length > 0)
+      throw new WorkspaceToolRefusal(context.problems.map((problem) => problem.message).join('\n'));
     if (args.operation === 'create_structured') {
       const spec = structuredSpecSchema.parse(rawSpec);
       const report = validateSpec('create_structured', spec, {
@@ -235,6 +244,20 @@ export async function runWorkspaceTool(
         addFields.compile(spec, { itemId: args.itemId, existing }),
         signal,
       );
+    } else if (args.operation === 'update_view') {
+      const spec = updateViewSpecSchema.parse(rawSpec);
+      const existing = context.existing;
+      if (existing === undefined) throw new Error('update_view preview context is missing.');
+      const report = validateSpec('update_view', spec, { ...context, today: ports.clock.today() });
+      if (!report.ok)
+        throw new WorkspaceToolRefusal(
+          report.problems.map((p) => `${p.path}: ${p.message}`).join('\n'),
+        );
+      result = await updateView.execute(
+        ports,
+        updateView.compile(spec, { itemId: args.itemId, existing }),
+        signal,
+      );
     } else if (args.operation === 'edit_form') {
       const spec = formEditSpecSchema.parse(rawSpec);
       const existing = context.existing;
@@ -272,6 +295,7 @@ export async function runWorkspaceTool(
     case 'create_entries':
     case 'add_fields':
     case 'edit_form':
+    case 'update_view':
     case 'set_recurrence':
       break;
     case 'restore_item': {
@@ -448,6 +472,17 @@ export async function runWorkspaceTool(
           result = await readStructure(ports, workspaceId, item.id, signal);
           contentSources = [item.id];
           break;
+        case 'read_view': {
+          const evidence = await readView(ports, workspaceId, item.id, args.query, signal);
+          result = evidence;
+          contentSources = [
+            item.id,
+            ...evidence.results.flatMap((row) => [row.id, row.containerId]),
+          ];
+          // Aggregate matches have no bounded lock provenance; hold later writes conservatively.
+          unboundedReadProvenance = evidence.hasUnboundedProvenance;
+          break;
+        }
         case 'read_note':
         case 'append_note':
           if (item.type !== 'note') throw new Error('This operation supports note bodies only.');
@@ -512,9 +547,13 @@ export async function runWorkspaceTool(
       }
     }
   }
-  const text = JSON.stringify(result);
+  const text =
+    args.operation === 'read_structure' || args.operation === 'read_view'
+      ? boundedStructureRead(args.operation, result)
+      : JSON.stringify(result);
   const readOnly = READ_ONLY_OPERATIONS.has(args.operation);
-  const lockedContent = readOnly && (await anyUnderLock(ports, contentSources, signal));
+  const lockedContent =
+    readOnly && (unboundedReadProvenance || (await anyUnderLock(ports, contentSources, signal)));
   return {
     lockedContent,
     text:
@@ -531,7 +570,9 @@ export async function runWorkspaceTool(
       'create_entries',
     ].includes(args.operation)
       ? [args.parentId || null]
-      : ['add_view', 'add_fields', 'edit_form', 'set_recurrence'].includes(args.operation)
+      : ['add_view', 'update_view', 'add_fields', 'edit_form', 'set_recurrence'].includes(
+            args.operation,
+          )
         ? [args.itemId]
         : [],
   };

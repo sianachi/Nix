@@ -6,7 +6,7 @@ import type {
   StructureView,
   ValidationReport,
 } from '@nix/structure-spec';
-import { z } from 'zod';
+import { parseStructureView } from './structure/view-configuration.js';
 import type { BodyEdit, BodyEditPlan, CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
 import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
@@ -36,6 +36,9 @@ export interface PreviewExisting {
   inherit: boolean;
   effective: StructureProperty[];
   views: StructureView[];
+  defaultViewId?: string;
+  hideDocument?: boolean;
+  version?: string;
 }
 
 /** Everything a card (or `run.ts`, recomputing the same thing at execution time) needs to
@@ -75,80 +78,6 @@ export function bodyEditOf(args: WorkspaceToolArgs): BodyEdit | undefined {
     return { kind: 'passage', find: args.query, replace: args.markdown };
   return undefined;
 }
-
-const formConditionSchema = z.object({
-  fieldBlockId: z.string(),
-  operator: z.string(),
-  value: z.string().nullable(),
-});
-const formBlockSchema = z.object({
-  id: z.string(),
-  kind: z.string(),
-  propertyKey: z.string().nullable(),
-  text: z.string(),
-  help: z.string().nullable(),
-  required: z.boolean(),
-  identityRole: z.string().nullable(),
-  visibleWhen: z.array(formConditionSchema),
-});
-const interactiveFormSchema = z.object({
-  pages: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      description: z.string().nullable(),
-      visibleWhen: z.array(formConditionSchema),
-      blocks: z.array(formBlockSchema),
-    }),
-  ),
-  titleMode: z.string(),
-  titleFieldBlockId: z.string().nullable(),
-  confirmationTitle: z.string(),
-  confirmationMessage: z.string(),
-});
-const viewDetailSchema = z.looseObject({
-  id: z.string(),
-  name: z.string(),
-  kind: z.string(),
-  columns: z
-    .array(z.string())
-    .nullish()
-    .transform((value) => value ?? []),
-  groupBy: z.string().nullable().default(null),
-  groupOrder: z
-    .array(z.string())
-    .nullish()
-    .transform((value) => value ?? []),
-  dateProperty: z.string().nullable().default(null),
-  sortBy: z.string().nullable().default(null),
-  sortDescending: z.boolean().default(false),
-  mode: z.string().nullable().default(null),
-  coverProperty: z.string().nullable().default(null),
-  endDateProperty: z.string().nullable().default(null),
-  cardSize: z.string().nullable().default(null),
-  layout: z.string().nullable().default(null),
-  filters: z
-    .array(z.object({ property: z.string(), operator: z.string(), value: z.string() }))
-    .default([]),
-  habitWidgets: z
-    .array(
-      z.object({
-        id: z.string(),
-        kind: z.enum(['completion', 'quantity', 'heatmap']),
-        habitId: z.string(),
-        from: z.string(),
-        to: z.string(),
-      }),
-    )
-    .default([]),
-  measure: z.string().nullable().default(null),
-  measureProperty: z.string().nullable().default(null),
-  companionViewId: z.string().nullable().default(null),
-  companionPlacement: z.enum(['below', 'beside']).nullable().default(null),
-  interactiveForm: interactiveFormSchema.nullable().default(null),
-  doneProperty: z.string().nullable().default(null),
-  rowBy: z.string().nullable().default(null),
-}) satisfies z.ZodType<StructureView>;
 
 /** The fields this item inherits from its ancestors alone, backed out of the effective schema by
  * removing whatever the item declares itself - `EffectiveSchema` only carries the merged result
@@ -398,9 +327,15 @@ export async function loadPreviewContext(
   // reads. This prevents a newly supported or future legacy operation from falling through into
   // schema/view access with a cross-workspace id.
   if (
-    !['add_view', 'read_structure', 'add_fields', 'edit_form', 'set_recurrence'].includes(
-      args.operation,
-    )
+    ![
+      'add_view',
+      'read_structure',
+      'read_view',
+      'add_fields',
+      'edit_form',
+      'update_view',
+      'set_recurrence',
+    ].includes(args.operation)
   ) {
     if (args.itemId && !['restore_item', 'read_template'].includes(args.operation))
       await checkItem(ports, workspaceId, args.itemId, signal);
@@ -426,7 +361,7 @@ export async function loadPreviewContext(
     ports.core.query(structure.effectiveSchema(args.itemId), requestOptions),
     ports.core.query(views.containerViewConfigurations(args.itemId), requestOptions),
   ]);
-  const existingViews = containerViews.views.map((view) => viewDetailSchema.parse(view));
+  const existingViews = containerViews.views.map((view) => parseStructureView(view));
   return {
     destination,
     existing: {
@@ -434,10 +369,33 @@ export async function loadPreviewContext(
       inherit: schema.inherit,
       effective: schema.properties,
       views: existingViews,
+      defaultViewId: containerViews.default,
+      hideDocument: containerViews.hideDocument,
+      ...(containerViews.version === null ? {} : { version: containerViews.version }),
     },
     itemValues: item.properties,
     inheritedFields: inheritedOnly(schema.properties, schema.declared),
-    fingerprint: structureFingerprint({ declared: schema.declared }, existingViews),
-    problems: [],
+    fingerprint: structureFingerprint(
+      {
+        declared: schema.declared,
+        effective: schema.properties,
+        inherit: schema.inherit,
+        defaultViewId: containerViews.default,
+        hideDocument: containerViews.hideDocument,
+        ...(containerViews.version === null ? {} : { version: containerViews.version }),
+      },
+      existingViews,
+    ),
+    problems:
+      args.operation === 'update_view' && !containerViews.version
+        ? [
+            {
+              path: 'itemId',
+              code: 'version_required',
+              message:
+                'The server cannot yet protect this view update from concurrent changes. Update Core before approving this refinement.',
+            },
+          ]
+        : [],
   };
 }

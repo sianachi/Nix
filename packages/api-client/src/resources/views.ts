@@ -33,7 +33,7 @@ export const containerViews = (itemId: string): QueryEndpoint<ContainerViews> =>
     cacheKey: ['items', itemId, 'views'],
   });
 
-/** Reads the view fields required by view-backed write operations. */
+/** Reads full stored configurations for view-backed writes and evidence-based reviews. */
 export const containerViewConfigurations = (
   itemId: string,
 ): QueryEndpoint<ContainerViewConfigurations> =>

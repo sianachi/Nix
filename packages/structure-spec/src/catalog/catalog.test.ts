@@ -32,6 +32,36 @@ describe('the capability catalog', () => {
     expect(consult).toContain('- board: groupBy');
   });
 
+  it('discloses call limits, fixed task keys, and actual Gallery, Query and Habit settings', () => {
+    const catalog = buildCatalog();
+    for (const text of [renderChat(catalog), renderConsult(catalog, readPatterns())]) {
+      expect(text).toContain('create_structured 6 views, add_view 4; 12 total per item');
+      expect(text).toContain(
+        'Task field keys equal their type: due_date, start_date, completion, priority, estimate, reminder',
+      );
+      expect(text).toContain('columns are not configurable');
+      expect(text).toContain('not column mappings');
+      expect(text).toContain('columns (field keys)');
+      expect(text).toContain(
+        'Columns may include title; it is an item-title marker, never a form field',
+      );
+    }
+    const consult = renderConsult(catalog, readPatterns());
+    expect(consult).toContain(
+      'Configure child node.habit with frequency, weekdays, target and unit',
+    );
+  });
+
+  it('offers the same read-only review and requested refinement workflow in both modes', () => {
+    const catalog = buildCatalog();
+    for (const text of [renderChat(catalog), renderConsult(catalog, readPatterns())]) {
+      expect(text).toContain('Read configuration with nix_read_structure');
+      expect(text).toContain('bounded results with nix_read_view');
+      expect(text).toContain('Reviews only read');
+      expect(text).toContain('requested refinements use nix_update_view, then read back');
+    }
+  });
+
   it('names every property type in PROPERTY_TYPES except assignee', () => {
     const catalog = buildCatalog();
     const names = catalog.propertyTypes.map((type) => type.type);
