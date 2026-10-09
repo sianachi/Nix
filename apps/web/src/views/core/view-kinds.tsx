@@ -19,6 +19,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { BoardView } from '../board/board-view';
+import { normalizeChartView } from '../chart/chart-options';
 import { ChartView } from '../chart/chart-view';
 import { ChecklistView } from '../checklist/checklist-view';
 import { MatrixView } from '../matrix/matrix-view';
@@ -146,6 +147,13 @@ export interface ViewConfiguration {
    * configuration is only ever a property.
    */
   readonly extraChoices?: readonly { readonly value: string; readonly label: string }[];
+
+  /**
+   * Brings the rest of the view back in line once the property is chosen, for a kind whose other
+   * settings depend on what kind of property it is - a chart grouped by a date needs a period, and
+   * one grouped by a select must not keep one. Applied after `clears`.
+   */
+  readonly normalize?: (view: View, fields: readonly PropertyDefinition[]) => View;
 }
 
 /**
@@ -520,12 +528,15 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
       {
         field: 'groupBy',
         label: 'Group by',
-        emptyHint: 'There is no select property yet. Add one under Properties first.',
-        hint: 'Each value of this property becomes a bar.',
+        emptyHint: 'There is no select or date property yet. Add one under Properties first.',
+        hint: 'Each value of a select becomes a bar; a date puts the chart on a time axis.',
         // The view is genuinely waiting on this one: with nothing to group by there are no bars,
         // and the server refuses to draw rather than answering with none.
         emptyChoice: 'Choose a property',
         accepts: (property) => canChartBy(property.type),
+        // A date needs a period and a select must not keep one; the chart's own settings follow
+        // whichever was chosen.
+        normalize: normalizeChartView,
       },
       {
         field: 'measureProperty',

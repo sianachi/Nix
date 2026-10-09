@@ -1,5 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
-import { NixApiError } from '@nix/api-client';
+import { itemChartSchema, NixApiError } from '@nix/api-client';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { ChartView } from '../../../views/chart/chart-view';
@@ -42,7 +42,9 @@ function chartOf(over: Record<string, unknown> = {}): Record<string, unknown> {
 
 function answer(body: unknown, ok = true, status = 200): void {
   if (ok) {
-    query.mockResolvedValue(body);
+    // Parsed as the real client parses it, so the defaults a server from before chart types omits
+    // are filled exactly as they are in production.
+    query.mockResolvedValue(itemChartSchema.parse(body));
     return;
   }
 
@@ -140,5 +142,55 @@ describe('the chart view', () => {
       expect(screen.getByRole('columnheader', { name: 'estimate' })).toBeVisible();
     });
     expect(screen.getByText('18')).toBeVisible();
+  });
+
+  it('names the items a time axis could not place rather than dropping them', async () => {
+    answer(
+      chartOf({
+        chartKind: 'line',
+        period: 'month',
+        buckets: [
+          { value: '2026-01-01', children: 2, total: null },
+          { value: '2026-02-01', children: 0, total: null },
+        ],
+        children: 2,
+        distinctValues: 2,
+        unplaced: 3,
+      }),
+    );
+    renderChart();
+
+    expect(await screen.findByText(/3 items have no date in "status"/)).toBeVisible();
+  });
+
+  it('says how many series values were folded into Other', async () => {
+    answer(
+      chartOf({
+        chartKind: 'column',
+        splitBy: 'owner',
+        buckets: [
+          {
+            value: 'Todo',
+            children: 6,
+            total: null,
+            cells: [
+              { children: 4, total: null },
+              { children: 2, total: null },
+            ],
+          },
+        ],
+        series: [
+          { value: 'Ada', other: false, children: 4, total: null },
+          { value: null, other: true, children: 2, total: null },
+        ],
+        otherSeries: 5,
+        children: 6,
+        distinctValues: 1,
+      }),
+    );
+    renderChart();
+
+    expect(await screen.findByText(/the other 5 are drawn together as Other/)).toBeVisible();
+    expect(screen.getByRole('columnheader', { name: 'Other (5 values)' })).toBeVisible();
   });
 });

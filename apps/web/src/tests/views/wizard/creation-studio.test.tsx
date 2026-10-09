@@ -246,7 +246,8 @@ describe('the guided creation studio', () => {
     expect(request).toBeDefined();
     const body = jsonRequestBody(request?.[1]) as { views: readonly unknown[] };
     expect(body.views).toHaveLength(2);
-    // Every field the fixtures carry, plus the arrangement lists the write shape always sends.
+    // Every field the fixtures carry, plus the arrangement lists and chart options the write
+    // shape always sends.
     const arranged = {
       sorts: [],
       collapsedGroups: [],
@@ -254,6 +255,7 @@ describe('the guided creation studio', () => {
       aggregates: [],
       doneProperty: null,
       rowBy: null,
+      chart: null,
     };
     expect(body.views[0]).toEqual({ ...arranged, ...primary });
     expect(body.views[1]).toEqual({ ...arranged, ...companion });
