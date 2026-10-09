@@ -119,8 +119,12 @@ export {
 } from './access-tokens.js';
 export {
   chartBucketSchema,
+  chartCellSchema,
+  chartSeriesSchema,
   itemChartSchema,
   type ChartBucket,
+  type ChartCell,
+  type ChartSeries,
   type ItemChart,
 } from './item-chart.js';
 export {
