@@ -16,8 +16,9 @@ namespace Nix.Features.Views;
 /// List views: the property keys to show, in order. Empty means the effective schema decides.
 /// </param>
 /// <param name="GroupBy">
-/// Board views: the single-select property whose values become columns. List views: the select or
-/// checkbox property, or <c>$type</c> for each item's body kind, whose values become sections.
+/// Board views: the single-select property whose values become columns. List views: a property
+/// <see cref="Nix.Domain.Properties.PropertyTypes.CanSectionBy"/> admits, or <c>$type</c> for each
+/// item's body kind, whose values become sections.
 /// </param>
 /// <param name="GroupOrder">
 /// Board views: which of that property's values to show, in which order. Empty means all of them.
@@ -56,11 +57,12 @@ namespace Nix.Features.Views;
 /// looked like. Anything else is refused on write; the set is closed.
 /// </param>
 /// <param name="DoneProperty">
-/// Checklist views: the checkbox or completion property each line's box ticks. Null means the
-/// checklist's fallback - a property keyed <c>done</c>, then the schema's task completion.
+/// Checklist views: the property each line's box ticks, one whose values are yes or no. Null means
+/// the checklist's fallback - a property keyed <c>done</c>, then the schema's task completion.
 /// </param>
 /// <param name="RowBy">
-/// Matrix views: the select or checkbox property whose values become rows. Its columns are
+/// Matrix views: the property whose values become rows, one that
+/// <see cref="Nix.Domain.Properties.PropertyTypes.CanSectionBy"/> admits. Its columns are
 /// <c>groupBy</c>, the board's own field.
 /// </param>
 /// <param name="Filters">
