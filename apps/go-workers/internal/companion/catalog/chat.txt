@@ -18,9 +18,10 @@ Section: View kinds
 - Habit tracker (habit_tracker). Habit children arranged by local date with recorded progress.
 - Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; columns[0] is shown beside each title.
 - Matrix (matrix): needs a select or checkbox property; optional: rowBy (select or checkbox, required). Cards in a grid of cells, placed by two properties at once.
+- Outline (outline). The subtree as a collapsible tree of titles, reshaped by keyboard.
 
 Section: Recipes
-board, timeline, gallery, sheet, form, interactive-form, query, calendar, list, checklist, matrix, habit-tracker. Each sets up the view kind it names; query is a smart list.
+board, timeline, gallery, sheet, form, interactive-form, query, calendar, list, checklist, matrix, outline, habit-tracker. Each sets up the view kind it names; query is a smart list.
 
 Section: Never
 - Publish a public link

@@ -3,6 +3,7 @@ import {
   ClipboardList,
   ListChecks,
   Grid2x2,
+  ListTree,
   Columns3,
   HardDrive,
   LayoutGrid,
@@ -21,6 +22,7 @@ import { BoardView } from '../board/board-view';
 import { ChartView } from '../chart/chart-view';
 import { ChecklistView } from '../checklist/checklist-view';
 import { MatrixView } from '../matrix/matrix-view';
+import { OutlineView } from '../outline/outline-view';
 import { CalendarView } from '../calendar/calendar-view';
 import type { PropertyDefinition, View } from './container-model';
 import {
@@ -649,6 +651,19 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     ],
     chooses: [],
     appliesSavedFilters: true,
+  },
+  {
+    // The subtree as a tree of titles (plan 3.8), the one kind that edits structure. It reads its
+    // own children level by level as rows open, so a saved filter or sort - which would hide or
+    // reorder the very siblings a move is placed among - is not offered.
+    kind: 'outline',
+    label: 'Outline',
+    icon: ListTree,
+    render: (props) => (
+      <OutlineView key={`${props.container.itemId ?? 'root'}:${props.view.id}`} {...props} />
+    ),
+    configures: [],
+    chooses: [],
   },
 ];
 

@@ -35,8 +35,8 @@ export function StructuredViewConfiguration({
   view,
   fields,
   onChange,
-  showColumns = !['query', 'interactive_form', 'checklist'].includes(view.kind),
-  showSort = !['form', 'interactive_form', 'query'].includes(view.kind),
+  showColumns = !['query', 'interactive_form', 'checklist', 'outline'].includes(view.kind),
+  showSort = !['form', 'interactive_form', 'query', 'outline'].includes(view.kind),
   showFilters,
   showKindFilters = true,
 }: StructuredViewConfigurationProps): ReactNode {

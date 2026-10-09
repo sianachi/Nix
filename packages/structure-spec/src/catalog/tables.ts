@@ -130,6 +130,13 @@ export const VIEW_KIND_RULES = [
     optional: [{ field: 'rowBy', shape: 'select or checkbox, required' }],
     description: 'Cards in a grid of cells, placed by two properties at once.',
   },
+  {
+    kind: 'outline',
+    label: 'Outline',
+    requires: null,
+    optional: [],
+    description: 'The subtree as a collapsible tree of titles, reshaped by keyboard.',
+  },
 ] as const satisfies readonly ViewKindRule[];
 
 /** The recipe ids the pet may never use: a file drive and personal finances are studio-only. */

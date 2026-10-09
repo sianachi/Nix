@@ -44,6 +44,7 @@ export const STRUCTURED_SPEC_RECIPE_IDS = [
   'query',
   'checklist',
   'matrix',
+  'outline',
 ] as const;
 
 export const structuredRecipeIdSchema = z.enum(STRUCTURED_SPEC_RECIPE_IDS);
