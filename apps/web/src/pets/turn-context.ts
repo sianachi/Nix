@@ -8,6 +8,20 @@ export const WORKSPACE_MAP_LIMIT = 40;
  * is one request, so this bounds the work a first message costs on a workspace with many roots. */
 const EXPANDED_ROOTS = 8;
 
+/** The limits Core and the worker hold each entry to, in UTF-16 code units (JavaScript's own
+ * string length), so a long title is shortened here instead of failing the whole message. */
+const TITLE_UNITS = 240;
+const TYPE_UNITS = 64;
+const VIEW_KIND_UNITS = 40;
+
+/** `text` cut to at most `units` UTF-16 code units, never splitting a surrogate pair. */
+export function truncateUnits(text: string, units: number): string {
+  if (text.length <= units) return text;
+  const cut = text.slice(0, units);
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
+}
+
 /** How long the map may take before the message goes without it. A map is a convenience; a reply
  * waiting on it is not. */
 const MAP_TIMEOUT_MS = 3000;
@@ -81,7 +95,8 @@ export async function buildWorkspaceMap(
   const bounded = AbortSignal.any([signal, timeout]);
   try {
     const roots = await firstPage(client, workspaceId, undefined, bounded);
-    const seconds = await Promise.all(
+    // One container that refuses its listing (a closed lock, say) costs only its own branch.
+    const settled = await Promise.allSettled(
       roots
         .filter((root) => root.hasChildren)
         .slice(0, EXPANDED_ROOTS)
@@ -91,13 +106,18 @@ export async function buildWorkspaceMap(
           ),
         ),
     );
-    return [...roots, ...seconds.flat()].slice(0, WORKSPACE_MAP_LIMIT).map((item) => {
-      const viewKinds = cachedViewKinds(client, item.id);
+    const seconds = settled.flatMap((branch) =>
+      branch.status === 'fulfilled' ? branch.value : [],
+    );
+    return [...roots, ...seconds].slice(0, WORKSPACE_MAP_LIMIT).map((item) => {
+      const viewKinds = cachedViewKinds(client, item.id)
+        ?.filter((kind) => kind.length <= VIEW_KIND_UNITS)
+        .slice(0, 12);
       return {
         id: item.id,
-        title: item.title.slice(0, 240),
-        type: item.type.slice(0, 64),
-        ...(viewKinds === undefined ? {} : { viewKinds: viewKinds.slice(0, 12) }),
+        title: truncateUnits(item.title, TITLE_UNITS),
+        type: truncateUnits(item.type, TYPE_UNITS),
+        ...(viewKinds === undefined ? {} : { viewKinds }),
       };
     });
   } catch {

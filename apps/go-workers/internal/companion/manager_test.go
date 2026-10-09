@@ -893,3 +893,27 @@ func TestTurnContextIsBounded(t *testing.T) {
 		}
 	}
 }
+
+// TestLengthLimitsCountUTF16Units pins that the worker measures text the way Core and the browser
+// do: a title of 240 "é" (480 UTF-8 bytes) is within the 240 limit, a message of 8000 "é" is
+// within the 8000 limit, and a character outside the Basic Multilingual Plane counts as two.
+func TestLengthLimitsCountUTF16Units(t *testing.T) {
+	r := request()
+	r.Text = strings.Repeat("é", 8000)
+	r.WorkspaceMap = []WorkspaceMapEntry{{ID: "66666666-6666-4666-8666-666666666666", Title: strings.Repeat("é", 240), Type: "note", ViewKinds: []string{strings.Repeat("é", 40)}}}
+	if !validRequest(r) {
+		t.Fatal("non-ASCII text within the UTF-16 limits was refused")
+	}
+	r.Text = strings.Repeat("é", 8001)
+	if validRequest(r) {
+		t.Fatal("text over 8000 UTF-16 units was accepted")
+	}
+	r = request()
+	r.WorkspaceMap = []WorkspaceMapEntry{{ID: "66666666-6666-4666-8666-666666666666", Title: strings.Repeat("\U0001D11E", 121), Type: "note"}}
+	if validRequest(r) {
+		t.Fatal("a title of 242 UTF-16 units was accepted")
+	}
+	if utf16Len("a\U0001D11Eé") != 4 {
+		t.Fatalf("utf16Len miscounts: %d", utf16Len("a\U0001D11Eé"))
+	}
+}
