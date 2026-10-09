@@ -144,9 +144,12 @@ public sealed partial class DocumentImportStore
                 ParentId = parentId,
                 Seq = sequence,
                 // A planned set-by value comes from the imported file, not from anyone who acted
-                // here: the importing principal is attributed for every scheduled value.
+                // here: the importing principal is attributed for every scheduled value. Of the
+                // reserved $ space only habit and finance content is imported.
                 Properties = ItemProperties.RestampCopiedSetBy(
-                    ItemProperties.WithTitle(planned.Properties, planned.Title),
+                    ReservedPropertyContent.Strip(
+                        ItemProperties.WithTitle(planned.Properties, planned.Title),
+                        ReservedPropertyContent.ContentPrefixes),
                     context.PrincipalId.ToString()),
                 Schema = planned.Schema,
                 Views = planned.Views,
@@ -156,6 +159,12 @@ public sealed partial class DocumentImportStore
                 CreatedAt = now,
                 LastModifiedAt = now,
             };
+            // Habit and finance content is checked by its own validators before it is applied.
+            if (ReservedPropertyContent.Refuse(item.Properties, item.Type) is not null)
+            {
+                return null;
+            }
+
             items.Add(item);
 
             FileVersionId? fileVersionId = null;

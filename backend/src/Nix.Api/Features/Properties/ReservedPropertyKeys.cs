@@ -17,8 +17,9 @@ namespace Nix.Features.Properties;
 /// <c>$type</c> could never be filtered on as itself, and one such as <c>$habit_x</c> would
 /// impersonate a system key, so a generic write may not set any of them. Exactly three paths
 /// refuse here: a schema declaration (<c>PropertySchemaRules</c>), <c>CreateItem</c> and
-/// <c>SetItemProperties</c>. The template draft edit, capture and document import paths write
-/// bags without passing through them.
+/// <c>SetItemProperties</c>. The template draft edit, template capture and template and document
+/// import paths do not refuse; they drop every <c>$</c> key outside
+/// <c>ReservedPropertyContent</c>'s habit and finance allowlist, which is validated on apply.
 /// </para>
 /// <para>
 /// <b>Setting is refused; clearing is not.</b> A bag that already holds a <c>$</c> key a client
