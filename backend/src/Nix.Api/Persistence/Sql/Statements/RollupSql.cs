@@ -139,6 +139,9 @@ namespace Nix.Persistence.Sql.Statements;
 /// </remarks>
 public static class RollupSql
 {
+    /// <summary>A child's value for the key being folded, read through the shared guard.</summary>
+    private static readonly string ChildNumber = NumberSql.Bounded("c.properties", "k.key");
+
     /// <summary>
     /// Every reduction of every named property, over the children of each of the given parents.
     /// </summary>
@@ -149,7 +152,7 @@ public static class RollupSql
     /// produces no row at all, so the answer is the size of what was found rather than the size of
     /// what was asked.
     /// </remarks>
-    public const string AggregateChildProperties = $"""
+    public static readonly string AggregateChildProperties = $"""
         SELECT container.id AS parent_id,
                fold.key,
                fold.children,
@@ -168,22 +171,10 @@ public static class RollupSql
                        WHERE jsonb_typeof(c.properties -> k.key) IS NOT NULL
                          AND jsonb_typeof(c.properties -> k.key) <> 'null'
                    ) AS present,
-                   count(*) FILTER (
-                       WHERE jsonb_typeof(c.properties -> k.key) = 'number'
-                         AND abs((c.properties ->> k.key)::numeric) <= 1e15
-                   ) AS numbers,
-                   CASE WHEN abs(sum(CASE WHEN jsonb_typeof(c.properties -> k.key) = 'number'
-                                           AND abs((c.properties ->> k.key)::numeric) <= 1e15
-                                          THEN (c.properties ->> k.key)::numeric END)) <= 1e28
-                        THEN sum(CASE WHEN jsonb_typeof(c.properties -> k.key) = 'number'
-                                       AND abs((c.properties ->> k.key)::numeric) <= 1e15
-                                      THEN (c.properties ->> k.key)::numeric END) END AS total,
-                   min(CASE WHEN jsonb_typeof(c.properties -> k.key) = 'number'
-                             AND abs((c.properties ->> k.key)::numeric) <= 1e15
-                            THEN (c.properties ->> k.key)::numeric END) AS smallest,
-                   max(CASE WHEN jsonb_typeof(c.properties -> k.key) = 'number'
-                             AND abs((c.properties ->> k.key)::numeric) <= 1e15
-                            THEN (c.properties ->> k.key)::numeric END) AS largest,
+                   count({ChildNumber}) AS numbers,
+                   {NumberSql.CappedSum(ChildNumber)} AS total,
+                   min({ChildNumber}) AS smallest,
+                   max({ChildNumber}) AS largest,
                    count(*) FILTER (WHERE jsonb_typeof(c.properties -> k.key) = 'boolean') AS booleans,
                    count(*) FILTER (WHERE c.properties -> k.key = 'true'::jsonb) AS truths
             FROM item AS c

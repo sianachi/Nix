@@ -4,6 +4,7 @@ using System.Text;
 using Nix.Abstractions;
 using Nix.Domain.Query;
 using Nix.Domain.Views;
+using NodaTime;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -45,14 +46,15 @@ namespace Nix.Persistence.Sql.Statements;
 /// with a bracketed zone, both beginning with the same ten characters, and a
 /// <c>timestamptz</c> cast throws on the bracketed suffix. <c>left(NULL, 10)</c> is null, so an
 /// item without the property fails every day comparison - absent is never "on" any day. The two
-/// structural timestamps (<c>$created</c>, <c>$modified</c>) are real columns and are read as
-/// their UTC calendar day in the same <c>yyyy-MM-dd</c> text.
+/// structural timestamps (<c>$created</c>, <c>$modified</c>) are real columns, compared as a
+/// half-open range of instants - the caller's days, resolved in the caller's zone
+/// (<see cref="QuerySpec.Zone"/>) - which also keeps them sargable.
 /// </para>
 /// <para>
-/// <b>Numbers are guarded, never cast blind.</b> <c>greater-than</c>, <c>less-than</c> and the
-/// numeric folds read a stored JSON number, or a string matching a fixed number pattern, and
-/// nothing else; a word in a numeric column is not greater than anything and never an error. The pattern
-/// bounds the exponent so a hostile value cannot overflow the cast.
+/// <b>Numbers are JSON numbers, read through <see cref="NumberSql"/>.</b> <c>greater-than</c>,
+/// <c>less-than</c> and the numeric folds read a stored JSON number and nothing else - the
+/// rollups' rule - so a word, or a string that only looks like a number, is skipped rather than
+/// cast, and no stored value can fail the statement.
 /// </para>
 /// <para>
 /// <b>Day rules over the reserved <c>due_date</c> key compile to <c>item.due_day</c></b> - the
@@ -75,19 +77,6 @@ namespace Nix.Persistence.Sql.Statements;
 /// </remarks>
 public static class QuerySql
 {
-    /// <summary>
-    /// A number as a stored string may spell it: optional sign, digits with an optional fraction, and
-    /// an exponent of at most three digits so the cast cannot overflow <c>numeric</c>. A fixed
-    /// literal, never input.
-    /// </summary>
-    private const string NumberPattern = @"^\s*[-+]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]{1,3})?\s*$";
-
-    /// <summary>
-    /// The largest magnitude a fold reads, matching the rollups' bound (<see cref="RollupSql"/>):
-    /// a total of values under it fits a <see cref="decimal"/>. A larger value is skipped and counted.
-    /// </summary>
-    private const string FoldBound = "1e15";
-
     /// <summary>
     /// The reserved key whose day comparisons compile to the generated column instead of the bag.
     /// </summary>
@@ -197,7 +186,8 @@ public static class QuerySql
             QueryAggregateFunctions.Count => "count(*)::numeric",
             // Rounded to six places, every one: a stored number may carry more fractional digits
             // than a decimal holds, and a total of them would fail to read rather than round.
-            QueryAggregateFunctions.Sum => "round(sum(measure), 6)",
+            // A total past NumberSql.TotalBound answers null rather than overflowing the reader.
+            QueryAggregateFunctions.Sum => $"round({NumberSql.CappedSum("measure")}, 6)",
             QueryAggregateFunctions.Average => "round(avg(measure), 6)",
             QueryAggregateFunctions.Minimum => "round(min(measure), 6)",
             QueryAggregateFunctions.Maximum => "round(max(measure), 6)",
@@ -213,7 +203,7 @@ public static class QuerySql
         if (numeric)
         {
             var key = Text("measure_key", aggregate.Property!, parameters);
-            sql.Append(CultureInfo.InvariantCulture, $"{BoundedNumber(key)} AS measure,\n           ");
+            sql.Append(CultureInfo.InvariantCulture, $"{NumberSql.Bounded("item.properties", "@" + key)} AS measure,\n           ");
             sql.Append(CultureInfo.InvariantCulture, $"{Present(key)} AS present");
         }
         else
@@ -304,29 +294,29 @@ public static class QuerySql
             sql.Append("\n  AND item.id <> @query_item_id");
         }
 
+        // No hidden proper ancestor: a plain correlated anti-join, which the planner can turn
+        // into one hashed pass over the closure for a workspace-wide read (measured on 60k items:
+        // a grouped sum fell from 883k to 16k buffers) while a narrow read keeps its per-row
+        // index probe. An inner join is safe here because an edge whose ancestor row is missing
+        // cannot exist: FK_item_closure_item_tenant_id_ancestor_id cascades the edge away with
+        // its ancestor. The other bulk reads keep the older fenced LEFT JOIN LATERAL probe.
         sql.Append(
             """
 
               AND NOT EXISTS (
                   SELECT 1
                   FROM item_closure AS visibility_edge
-                  LEFT JOIN LATERAL (
-                      SELECT visibility_ancestor.template_id,
-                             visibility_ancestor.lifecycle_state
-                      FROM item AS visibility_ancestor
-                      WHERE visibility_ancestor.tenant_id = @tenant_id
-                        AND visibility_ancestor.id = visibility_edge.ancestor_id
-                      LIMIT 1
-                  ) AS stored_ancestor ON TRUE
+                  JOIN item AS visibility_ancestor
+                    ON visibility_ancestor.tenant_id = @tenant_id
+                   AND visibility_ancestor.id = visibility_edge.ancestor_id
                   WHERE visibility_edge.tenant_id = @tenant_id
                     AND visibility_edge.descendant_id = item.id
                     AND visibility_edge.depth > 0
-                    AND (stored_ancestor.template_id IS NOT NULL
-                         OR stored_ancestor.lifecycle_state IS DISTINCT FROM 'active')
-                  OFFSET 0
+                    AND (visibility_ancestor.template_id IS NOT NULL
+                         OR visibility_ancestor.lifecycle_state <> 'active')
               )
-              AND
             """);
+        sql.Append("\n  AND ");
         sql.Append(ItemLockSql.ItemIsNotUnderClosedLock);
 
         if (spec.Scope is { } scope)
@@ -360,7 +350,7 @@ public static class QuerySql
             if (!rule.IsGroup)
             {
                 sql.Append("\n  AND ");
-                AppendCondition(sql, parameters, rule, $"p{index}", spec.Today);
+                AppendCondition(sql, parameters, rule, $"p{index}", spec.Today, spec.Zone);
                 continue;
             }
 
@@ -375,7 +365,7 @@ public static class QuerySql
                 }
 
                 sql.Append('(');
-                AppendCondition(sql, parameters, rule.Any[inner], $"p{index}_{inner}", spec.Today);
+                AppendCondition(sql, parameters, rule.Any[inner], $"p{index}_{inner}", spec.Today, spec.Zone);
                 sql.Append(')');
             }
 
@@ -394,11 +384,12 @@ public static class QuerySql
         List<NpgsqlParameter> parameters,
         FilterRule rule,
         string name,
-        DateOnly today)
+        DateOnly today,
+        DateTimeZone zone)
     {
         if (QueryFields.IsReserved(rule.Property))
         {
-            AppendStructuralCondition(sql, parameters, rule, name, today);
+            AppendStructuralCondition(sql, parameters, rule, name, today, zone);
             return;
         }
 
@@ -449,10 +440,10 @@ public static class QuerySql
 
             case QueryOperators.GreaterThan:
             case QueryOperators.LessThan:
-                // A guarded number compared with the literal, cast from text so a literal beyond
+                // A stored JSON number compared with the literal, cast from text so a literal beyond
                 // decimal's range still compares. A non-number is null, and null is not greater.
                 var comparison = rule.Operator == QueryOperators.GreaterThan ? ">" : "<";
-                sql.Append(CultureInfo.InvariantCulture, $"COALESCE({GuardedNumber(Key())} {comparison} CAST(@{Text($"{name}_number", rule.Value.Trim(), parameters)} AS numeric), FALSE)");
+                sql.Append(CultureInfo.InvariantCulture, $"COALESCE({NumberSql.Number("item.properties", "@" + Key())} {comparison} CAST(@{Text($"{name}_number", rule.Value.Trim(), parameters)} AS numeric), FALSE)");
                 break;
 
             case QueryOperators.IsEmpty:
@@ -477,7 +468,8 @@ public static class QuerySql
         List<NpgsqlParameter> parameters,
         FilterRule rule,
         string name,
-        DateOnly today)
+        DateOnly today,
+        DateTimeZone zone)
     {
         var negated = rule.Operator == QueryOperators.NotEqualTo;
 
@@ -518,16 +510,7 @@ public static class QuerySql
 
             case QueryFields.Created:
             case QueryFields.Modified:
-                var day = TimestampDay(rule.Property);
-                if (QueryOperators.ReadsDayCount(rule.Operator))
-                {
-                    AppendWindow(sql, parameters, day, rule, name, today);
-                }
-                else
-                {
-                    sql.Append(CultureInfo.InvariantCulture, $"{day} {DayComparison(rule.Operator)} @{Day($"{name}_day", rule.Value, today, parameters)}");
-                }
-
+                AppendTimestampRange(sql, parameters, rule, name, today, zone);
                 return;
 
             default:
@@ -545,13 +528,83 @@ public static class QuerySql
         _ => throw new InvalidOperationException($"'{@operator}' does not compare days."),
     };
 
-    /// <summary>A structural timestamp's UTC day, as the same yyyy-MM-dd text a stored date is.</summary>
-    private static string TimestampDay(string field) => field switch
+    /// <summary>
+    /// A structural timestamp rule as a half-open range of instants: the caller's days, each
+    /// starting at midnight in the caller's zone. <c>on</c> is <c>[start(d), start(d+1))</c>,
+    /// <c>before</c> is <c>&lt; start(d)</c>, <c>on-or-after</c> is <c>&gt;= start(d)</c>, and the
+    /// windows cover their days inclusively. A bare column compared with a parameter, so the
+    /// predicate is leakproof and index-servable under RLS.
+    /// </summary>
+    private static void AppendTimestampRange(
+        StringBuilder sql,
+        List<NpgsqlParameter> parameters,
+        FilterRule rule,
+        string name,
+        DateOnly today,
+        DateTimeZone zone)
     {
-        QueryFields.Created => "to_char(item.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
-        QueryFields.Modified => "to_char(item.last_modified_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')",
-        _ => throw new InvalidOperationException($"'{field}' is not a timestamp field."),
-    };
+        var column = rule.Property == QueryFields.Created ? "item.created_at" : "item.last_modified_at";
+
+        (DateOnly? From, DateOnly? Through) days = rule.Operator switch
+        {
+            QueryOperators.On => (Resolve(rule.Value, today), Resolve(rule.Value, today)),
+            QueryOperators.Before => (null, Previous(Resolve(rule.Value, today))),
+            QueryOperators.OnOrAfter => (Resolve(rule.Value, today), null),
+            QueryOperators.WithinNext => (today, Plus(today, Count(rule.Value))),
+            QueryOperators.WithinLast => (Plus(today, -Count(rule.Value)), today),
+            _ => throw new InvalidOperationException($"'{rule.Operator}' does not compare days."),
+        };
+
+        var terms = new List<string>(2);
+        if (days.From is { } from)
+        {
+            terms.Add($"{column} >= @{Instant($"{name}_from", StartOf(from, zone), parameters)}");
+        }
+
+        // The end is exclusive: the start of the day after the last one included. The calendar's
+        // last day has no day after it, so the range is simply left open there.
+        if (days.Through is { } through && through < DateOnly.MaxValue)
+        {
+            terms.Add($"{column} < @{Instant($"{name}_to", StartOf(through.AddDays(1), zone), parameters)}");
+        }
+
+        // "Before the first day there is" holds for nothing, and an unbounded range for everything.
+        sql.Append(terms.Count > 0
+            ? "(" + string.Join(" AND ", terms) + ")"
+            : rule.Operator == QueryOperators.Before ? "FALSE" : "TRUE");
+
+        static DateOnly Resolve(string value, DateOnly today) =>
+            QueryOperators.ResolveDay(value, today)
+            ?? throw new InvalidOperationException($"'{value}' is not a day; the handler validates rules first.");
+
+        static int Count(string value) => int.Parse(value, NumberStyles.None, CultureInfo.InvariantCulture);
+
+        static DateOnly? Previous(DateOnly day) => day == DateOnly.MinValue ? null : day.AddDays(-1);
+
+        static DateOnly Plus(DateOnly day, int days) =>
+            day.DayNumber + days < DateOnly.MinValue.DayNumber ? DateOnly.MinValue
+            : day.DayNumber + days > DateOnly.MaxValue.DayNumber ? DateOnly.MaxValue
+            : day.AddDays(days);
+    }
+
+    /// <summary>
+    /// The instant a day starts in a zone, clamped to what a <see cref="DateTimeOffset"/> can hold
+    /// (a zone east of UTC starts 0001-01-01 before the representable range).
+    /// </summary>
+    private static DateTimeOffset StartOf(DateOnly day, DateTimeZone zone)
+    {
+        var instant = zone.AtStartOfDay(LocalDate.FromDateOnly(day)).ToInstant();
+        var earliest = NodaTime.Instant.FromDateTimeOffset(DateTimeOffset.MinValue);
+        var latest = NodaTime.Instant.FromDateTimeOffset(DateTimeOffset.MaxValue);
+        var clamped = instant < earliest ? earliest : instant > latest ? latest : instant;
+        return clamped.ToDateTimeOffset();
+    }
+
+    private static string Instant(string name, DateTimeOffset value, List<NpgsqlParameter> parameters)
+    {
+        parameters.Add(new NpgsqlParameter(name, NpgsqlDbType.TimestampTz) { Value = value });
+        return name;
+    }
 
     /// <summary>
     /// A window of days from today: forward for <c>within-next</c>, back for <c>within-last</c>,
@@ -617,29 +670,6 @@ public static class QuerySql
     /// </summary>
     private static string Empty(string key) =>
         $"COALESCE((item.properties -> @{key}) IN ('null'::jsonb, '\"\"'::jsonb, '[]'::jsonb), TRUE)";
-
-    /// <summary>
-    /// A stored value as a number when it is one - a JSON number, or a string matching
-    /// <see cref="NumberPattern"/> - and null otherwise. The CASE is what keeps the cast from ever
-    /// meeting a word: Postgres evaluates its arms in order.
-    /// </summary>
-    private static string GuardedNumber(string key) =>
-        $"""
-        (CASE jsonb_typeof(item.properties -> @{key})
-                       WHEN 'number' THEN (item.properties ->> @{key})::numeric
-                       WHEN 'string' THEN CASE WHEN (item.properties ->> @{key}) ~ '{NumberPattern}'
-                                               THEN (item.properties ->> @{key})::numeric END
-                   END)
-        """;
-
-    /// <summary>
-    /// <see cref="GuardedNumber"/>, further bounded to what a fold can total without leaving
-    /// <see cref="decimal"/>'s range. A value outside it is null here and counted as skipped.
-    /// </summary>
-    private static string BoundedNumber(string key) =>
-        $"""
-        (CASE WHEN abs({GuardedNumber(key)}) <= {FoldBound} THEN {GuardedNumber(key)} END)
-        """;
 
     /// <summary>Whether a row holds a value for the key at all: not absent, not null, not empty text.</summary>
     private static string Present(string key) =>

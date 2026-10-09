@@ -15,7 +15,10 @@ namespace Nix.Features.Properties;
 /// trusted dispatch, and the queries plan (D2) spells structural query fields the same way
 /// (<see cref="QueryFields"/>: <c>$type</c>, <c>$inside</c>, ...). A client key such as
 /// <c>$type</c> could never be filtered on as itself, and one such as <c>$habit_x</c> would
-/// impersonate a system key, so a generic write may not set any of them.
+/// impersonate a system key, so a generic write may not set any of them. Exactly three paths
+/// refuse here: a schema declaration (<c>PropertySchemaRules</c>), <c>CreateItem</c> and
+/// <c>SetItemProperties</c>. The template draft edit, capture and document import paths write
+/// bags without passing through them.
 /// </para>
 /// <para>
 /// <b>Setting is refused; clearing is not.</b> A bag that already holds a <c>$</c> key a client

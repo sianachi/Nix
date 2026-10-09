@@ -25,7 +25,7 @@ namespace Nix.Domain.Views;
 /// an "any of" group: it matches when at least one of its rules does, and its own property,
 /// operator and value are empty. Groups do not nest - "all of, containing any of" is the whole
 /// grammar - and the rule ceiling counts the rules inside groups (<see cref="QueryRules"/>).
-/// ADR-0039 recorded AND-only; the queries plan (1.6) widened it by exactly this one level.
+/// ADR-0060 records the widening from AND-only by exactly this one level.
 /// </para>
 /// <para>
 /// <b>A property starting with <c>$</c> is a structural field, not a property key</b>
@@ -108,8 +108,8 @@ public static class QueryOperators
 
     /// <summary>The stored number is greater than the literal.</summary>
     /// <remarks>
-    /// A stored JSON number, or a string that reads as one. Anything else - absent, a word, a list -
-    /// is not greater than anything, never an error.
+    /// A stored JSON number, the rollups' rule (<c>NumberSql</c>). Anything else - absent, a word, a
+    /// list, a string that only looks like a number - is not greater than anything, never an error.
     /// </remarks>
     public const string GreaterThan = "greater-than";
 

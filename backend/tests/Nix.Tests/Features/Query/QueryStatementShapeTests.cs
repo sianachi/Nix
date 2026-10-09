@@ -57,15 +57,30 @@ public sealed class QueryStatementShapeTests
     }
 
     [Fact]
-    public void Numeric_comparisons_cast_only_numbers_and_number_shaped_strings()
+    public void Numeric_comparisons_read_json_numbers_only()
     {
         var compiled = Compile(new FilterRule("points", "greater-than", " 2.5 "));
 
-        Assert.Contains("WHEN 'number' THEN (item.properties ->> @p0_key)::numeric", compiled.Sql, StringComparison.Ordinal);
-        Assert.Contains("WHEN 'string' THEN CASE WHEN (item.properties ->> @p0_key) ~ '", compiled.Sql, StringComparison.Ordinal);
+        Assert.Contains(NumberSql.Number("item.properties", "@p0_key"), compiled.Sql, StringComparison.Ordinal);
         Assert.Contains("> CAST(@p0_number AS numeric), FALSE)", compiled.Sql, StringComparison.Ordinal);
         Assert.Equal("2.5", Parameter(compiled, "p0_number"));
-        Assert.Contains("[0-9]{1,3}", compiled.Sql, StringComparison.Ordinal);
+
+        // No pattern over text: a string never reaches the cast.
+        Assert.DoesNotContain(" ~ '", compiled.Sql, StringComparison.Ordinal);
+        Assert.DoesNotContain("WHEN 'string'", compiled.Sql, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_guard_nests_the_cast_inside_the_type_test()
+    {
+        // CASE fixes the evaluation order; AND would not.
+        Assert.Equal(
+            "(CASE WHEN jsonb_typeof(b -> k) = 'number' THEN (b ->> k)::numeric END)",
+            NumberSql.Number("b", "k"));
+        Assert.StartsWith(
+            "(CASE WHEN jsonb_typeof(b -> k) = 'number' THEN CASE WHEN abs((b ->> k)::numeric) <= 1e15",
+            NumberSql.Bounded("b", "k"),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -133,13 +148,26 @@ public sealed class QueryStatementShapeTests
     }
 
     [Fact]
-    public void Created_and_modified_compare_their_utc_day_as_text()
+    public void Created_and_modified_compare_instants_from_the_callers_zone_as_half_open_ranges()
     {
-        var created = Compile(new FilterRule("$created", "before", "today"));
-        var modified = Compile(new FilterRule("$modified", "within-last", "3"));
+        var zone = NodaTime.DateTimeZoneProviders.Tzdb["America/New_York"];
+        CompiledQuery Zoned(params FilterRule[] rules) =>
+            QuerySql.Compile(new QuerySpec([.. rules], QueryOrder.Recency, Today) { Zone = zone });
 
-        Assert.Contains("to_char(item.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') < @p0_day", created.Sql, StringComparison.Ordinal);
-        Assert.Contains("to_char(item.last_modified_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') BETWEEN @p0_from AND @p0_to", modified.Sql, StringComparison.Ordinal);
+        var on = Zoned(new FilterRule("$created", "on", "2026-08-13"));
+        Assert.Contains("(item.created_at >= @p0_from AND item.created_at < @p0_to)", on.Sql, StringComparison.Ordinal);
+        Assert.Equal(new DateTimeOffset(2026, 8, 13, 4, 0, 0, TimeSpan.Zero), Parameter(on, "p0_from"));
+        Assert.Equal(new DateTimeOffset(2026, 8, 14, 4, 0, 0, TimeSpan.Zero), Parameter(on, "p0_to"));
+
+        var before = Zoned(new FilterRule("$modified", "before", "today"));
+        Assert.Contains("(item.last_modified_at < @p0_to)", before.Sql, StringComparison.Ordinal);
+        Assert.Equal(new DateTimeOffset(2026, 8, 13, 4, 0, 0, TimeSpan.Zero), Parameter(before, "p0_to"));
+
+        var last = Zoned(new FilterRule("$modified", "within-last", "3"));
+        Assert.Equal(new DateTimeOffset(2026, 8, 10, 4, 0, 0, TimeSpan.Zero), Parameter(last, "p0_from"));
+        Assert.Equal(new DateTimeOffset(2026, 8, 14, 4, 0, 0, TimeSpan.Zero), Parameter(last, "p0_to"));
+
+        Assert.DoesNotContain("to_char", last.Sql, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -242,7 +270,8 @@ public sealed class QueryStatementShapeTests
         // The permission, lifecycle, lock and rule text is one builder's output in both.
         var match = rows[rows.IndexOf("WHERE item.tenant_id = @tenant_id", StringComparison.Ordinal)..rows.IndexOf("ORDER BY", StringComparison.Ordinal)];
         Assert.Contains(match.TrimEnd(), aggregate, StringComparison.Ordinal);
-        Assert.Contains("round(sum(measure), 6)", aggregate, StringComparison.Ordinal);
+        Assert.Contains($"round({NumberSql.CappedSum("measure")}, 6)", aggregate, StringComparison.Ordinal);
+        Assert.Contains("<= 1e28", aggregate, StringComparison.Ordinal);
         Assert.Contains("LIMIT @group_limit", aggregate, StringComparison.Ordinal);
         Assert.Contains("count(*) FILTER (WHERE present AND measure IS NULL) AS skipped", aggregate, StringComparison.Ordinal);
         Assert.Contains("<= 1e15", aggregate, StringComparison.Ordinal);

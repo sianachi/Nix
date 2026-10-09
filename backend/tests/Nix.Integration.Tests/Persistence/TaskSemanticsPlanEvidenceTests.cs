@@ -94,9 +94,7 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         // The row-security qual is pinned as present, not left incidental: a future change that
         // let due_day be served ABOVE the policy would keep every shape assertion green.
         Assert.Contains("nix.tenant_id", plan, StringComparison.Ordinal);
-        Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
-        AssertAncestorPointLookup(plan);
-        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
+        AssertQueryAntiJoin(plan);
 
         // The two tenants exist so the policy has something to exclude - so the exclusion is
         // asserted, not implied: the same statement executed as Alpha returns rows, and none of
@@ -127,9 +125,7 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         Assert.Contains("due_day <=", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Parallel Seq Scan", plan, StringComparison.Ordinal);
         Assert.Contains("nix.tenant_id", plan, StringComparison.Ordinal);
-        Assert.Contains("IX_item_closure_tenant_id_descendant_id", plan, StringComparison.Ordinal);
-        AssertAncestorPointLookup(plan);
-        Assert.DoesNotContain("never executed", plan, StringComparison.Ordinal);
+        AssertQueryAntiJoin(plan);
 
         var titles = await ExecuteTitlesAsRuntimeRoleAsync(compiled.Sql, compiled.Parameters);
         Assert.NotEmpty(titles);
@@ -179,7 +175,7 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         // every row, which is the shape that took about a second before. With half the closure
         // table under a closed lock, one sequential pass to build the hash is the right read.
         Assert.Contains("hashed SubPlan", plan, StringComparison.Ordinal);
-        Assert.DoesNotContain("Materialize", plan, StringComparison.Ordinal);
+        Assert.False(LockSubtreeIsMaterialized(plan), "A closed lock's subtree was materialised and rescanned per row.");
         Assert.DoesNotContain("Parallel Seq Scan", plan, StringComparison.Ordinal);
 
         var titles = await ExecuteTitlesAsRuntimeRoleAsync(compiled.Sql, parameters);
@@ -421,6 +417,49 @@ public sealed class TaskSemanticsPlanEvidenceTests : IAsyncLifetime
         // every plan above is exactly the one it was before locks existed. The closed case has its
         // own test below.
         AddIfMissing("closed_lock_ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid, Array.Empty<Guid>());
+    }
+
+    /// <summary>
+    /// The query statements' hidden-ancestor probe is a plain anti-join (data review S1), not the
+    /// fenced per-row lookup the other bulk reads keep: the planner chooses how to run it - a
+    /// hash over the closure for a workspace-wide read, a nested loop over a small hidden set
+    /// for an index-ordered one - and either is an anti-join reading the closure through its index.
+    /// </summary>
+    private static void AssertQueryAntiJoin(string plan)
+    {
+        Assert.Contains("Anti Join", plan, StringComparison.Ordinal);
+        Assert.Contains("item_closure visibility_edge", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on item_closure visibility_edge", plan, StringComparison.Ordinal);
+    }
+
+    /// <summary>Whether a Materialize node in the plan sits over the lock filter's closure read.</summary>
+    private static bool LockSubtreeIsMaterialized(string plan)
+    {
+        var lines = plan.Split('\n');
+        for (var index = 0; index < lines.Length; index++)
+        {
+            var at = lines[index].IndexOf("Materialize", StringComparison.Ordinal);
+            if (at < 0)
+            {
+                continue;
+            }
+
+            for (var below = index + 1; below < lines.Length; below++)
+            {
+                var indent = lines[below].Length - lines[below].TrimStart().Length;
+                if (indent <= at && lines[below].TrimStart().StartsWith("->", StringComparison.Ordinal))
+                {
+                    break;
+                }
+
+                if (lines[below].Contains("lock_edge", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static void AssertAncestorPointLookup(string plan) =>

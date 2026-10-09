@@ -3,6 +3,7 @@ using Nix.Domain.Items;
 using Nix.Domain.Query;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Views;
+using NodaTime;
 
 namespace Nix.Abstractions;
 
@@ -96,6 +97,12 @@ public sealed record QuerySpec(ImmutableArray<FilterRule> Rules, QueryOrder Orde
 
     /// <summary>What to group by, or null for one ungrouped list.</summary>
     public QueryGrouping? Grouping { get; init; }
+
+    /// <summary>
+    /// The caller's zone, in which <c>$created</c> and <c>$modified</c> days begin and end. The
+    /// handler resolves it from the caller's own preferences; UTC when they name none.
+    /// </summary>
+    public DateTimeZone Zone { get; init; } = DateTimeZone.Utc;
 }
 
 /// <summary>A query limited to one container's subtree or its direct children.</summary>
@@ -139,4 +146,53 @@ public sealed record QueryOrder(string? Key, bool IsDay, bool Descending)
 {
     /// <summary>Most recently modified first - what an unconfigured query view shows.</summary>
     public static readonly QueryOrder Recency = new(null, false, false);
+}
+
+/// <summary>A query statement the database refused to finish - timed out, or failed on stored data.</summary>
+/// <remarks>
+/// Raised by the query port in place of a raw database error, so the handlers can answer a stable
+/// code rather than a 500. The rules were validated before the statement ran, so a failure here is
+/// about time or data, never about the caller's grammar.
+/// </remarks>
+public sealed class ItemQueryFailedException : Exception
+{
+    /// <summary>Initializes a new instance of the <see cref="ItemQueryFailedException"/> class.</summary>
+    /// <param name="timedOut">Whether the statement ran past its timeout.</param>
+    /// <param name="sqlState">The database's error code, for the log.</param>
+    /// <param name="inner">The database error.</param>
+    public ItemQueryFailedException(bool timedOut, string sqlState, Exception inner)
+        : base(timedOut ? "The query ran past its time limit." : $"The query could not run ({sqlState}).", inner)
+    {
+        TimedOut = timedOut;
+        SqlState = sqlState;
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="ItemQueryFailedException"/> class.</summary>
+    public ItemQueryFailedException()
+    {
+        SqlState = string.Empty;
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="ItemQueryFailedException"/> class.</summary>
+    /// <param name="message">What happened.</param>
+    public ItemQueryFailedException(string message)
+        : base(message)
+    {
+        SqlState = string.Empty;
+    }
+
+    /// <summary>Initializes a new instance of the <see cref="ItemQueryFailedException"/> class.</summary>
+    /// <param name="message">What happened.</param>
+    /// <param name="innerException">The cause.</param>
+    public ItemQueryFailedException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+        SqlState = string.Empty;
+    }
+
+    /// <summary>Whether the statement ran past its timeout rather than failing on data.</summary>
+    public bool TimedOut { get; }
+
+    /// <summary>The database's error code.</summary>
+    public string SqlState { get; }
 }

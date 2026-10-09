@@ -21,7 +21,7 @@ namespace Nix.Features.Query;
 /// Registered under <c>/api/v1</c>, which is what authenticates it - the path is the policy. Its
 /// own feature rather than a shape on the views routes: reading a container's views answers "how
 /// may this be looked at", and this answers "what matches", which is a bulk read with its own
-/// ceiling, its own honesty fields and its own security posture (ADR-0039).
+/// ceiling, its own honesty fields and its own security posture (ADR-0060).
 /// </remarks>
 internal static class QueryEndpoints
 {
@@ -44,6 +44,15 @@ internal static class QueryEndpoints
 
     /// <summary>Stable code for an ad-hoc query the grammar refuses.</summary>
     internal const string InvalidRequestCode = "query.invalid_request";
+
+    /// <summary>Stable code for a query that ran past its statement timeout.</summary>
+    internal const string TimedOutCode = "query.timed_out";
+
+    /// <summary>Stable code for a query the database refused to finish on stored data.</summary>
+    internal const string CouldNotRunCode = "query.could_not_run";
+
+    /// <summary>Stable code for a principal already running as many ad-hoc queries as it may.</summary>
+    internal const string TooManyInFlightCode = "query.too_many_in_flight";
 
     /// <summary>The literal the workspaces feature publishes for "no such workspace, or not visible".</summary>
     internal const string WorkspaceNotFoundCode = "workspaces.not_found";
@@ -86,7 +95,9 @@ internal static class QueryEndpoints
                 + "convey on its own. Each row carries its container's title so a cross-container "
                 + "list can say where a row lives. Items under a lock the caller has not opened "
                 + "are left out, and a view stored on a locked item is refused with "
-                + "'items.locked' (423) until it is unlocked.");
+                + "'items.locked' (423) until it is unlocked. A query that runs past its time limit "
+                + "answers 'query.timed_out' (503).")
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         var workspaces = endpoints.MapGroup("/api/v1/workspaces").WithTags("Query");
 
@@ -113,7 +124,12 @@ internal static class QueryEndpoints
                 + "'items.not_found', as the item read does, and a locked one 'items.locked'. A "
                 + "read sent as a POST because rules do not fit a URL: it changes nothing, a "
                 + "read-scoped token may call it, and it has its own per-address rate limit "
-                + "('queries'), separate from writes.")
+                + "('queries'), separate from writes, plus at most four in flight per person "
+                + "('query.too_many_in_flight', 429). A statement past its time limit answers "
+                + "'query.timed_out' (503). Numbers are stored JSON numbers only; a string that "
+                + "looks like one is not compared. '$created' and '$modified' days are the "
+                + "caller's, in the zone their preferences name (UTC when none). A list-valued "
+                + "property grouped on falls into the 'no value' group.")
             .Accepts<WorkspaceQueryRequest>("application/json")
             .Produces<WorkspaceQueryResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
@@ -121,6 +137,7 @@ internal static class QueryEndpoints
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status423Locked)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .WithRequestBodyLimit(RequestBodyLimit)
             .RequireRateLimiting(RateLimitRefusal.QueriesPolicyName);
 
@@ -131,8 +148,9 @@ internal static class QueryEndpoints
                 "Matches exactly what POST /workspaces/{workspaceId}/query would - same rules, "
                 + "scope, permission, lifecycle and lock filters - and folds the matches instead of "
                 + "returning them: 'count' rows, or 'sum', 'avg', 'min' or 'max' of a numeric "
-                + "property. A stored number, or text that reads as one, is folded; any other value "
-                + "is left out and counted in 'skipped', never treated as zero. With 'groupBy' the "
+                + "property. A stored JSON number within 1e15 is folded; any other value - text, "
+                + "including text that looks like a number - is left out and counted in 'skipped', "
+                + "never treated as zero, and a sum past 1e28 answers null. With 'groupBy' the "
                 + "fold is also given per group, at most "
                 + GroupCeiling
                 + " groups in the same order a grouped query uses, with 'truncated' and "
@@ -145,6 +163,7 @@ internal static class QueryEndpoints
             .ProducesProblem(StatusCodes.Status413PayloadTooLarge)
             .ProducesProblem(StatusCodes.Status423Locked)
             .ProducesProblem(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .WithRequestBodyLimit(RequestBodyLimit)
             .RequireRateLimiting(RateLimitRefusal.QueriesPolicyName);
 
@@ -171,6 +190,8 @@ internal static class QueryEndpoints
             InvalidRulesCode => StatusCodes.Status422UnprocessableEntity,
             InvalidRequestCode => StatusCodes.Status400BadRequest,
             WorkspaceNotFoundCode => StatusCodes.Status404NotFound,
+            TimedOutCode or CouldNotRunCode => StatusCodes.Status503ServiceUnavailable,
+            TooManyInFlightCode => StatusCodes.Status429TooManyRequests,
             _ => StatusCodes.Status500InternalServerError,
         };
 

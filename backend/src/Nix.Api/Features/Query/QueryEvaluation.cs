@@ -26,7 +26,53 @@ internal static class QueryEvaluation
     /// would silently return nothing, which a reader reads as "nothing matches".
     /// </remarks>
     internal static bool TryParseToday(string? text, out DateOnly today) =>
-        DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out today);
+        DateOnly.TryParseExact(text, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out today)
+        && today >= EarliestToday
+        && today <= LatestToday;
+
+    /// <summary>The earliest day a caller may say is today.</summary>
+    /// <remarks>
+    /// Bounded both ways so every token and window resolved from it (a year of days either side,
+    /// a month back) stays inside the calendar: an unbounded today let 9999-12-31 plus seven days
+    /// throw, which reached the caller as a 500.
+    /// </remarks>
+    internal static readonly DateOnly EarliestToday = new(1900, 1, 1);
+
+    /// <summary>The latest day a caller may say is today.</summary>
+    internal static readonly DateOnly LatestToday = new(9000, 12, 31);
+
+    /// <summary>The sentence refusing a today outside the bounds or not a day at all.</summary>
+    /// <param name="text">The day as sent.</param>
+    /// <returns>The refusal's detail.</returns>
+    internal static string TodayRefusal(string? text) =>
+        $"'{text}' is not a day between 1900-01-01 and 9000-12-31; send today as yyyy-MM-dd.";
+
+    /// <summary>
+    /// The caller's zone for <c>$created</c> and <c>$modified</c>: their preferences' zone, UTC when
+    /// they have none or it names no zone this build knows. Read only when a rule needs it.
+    /// </summary>
+    /// <param name="rules">The rules.</param>
+    /// <param name="preferences">The caller's preferences store.</param>
+    /// <param name="caller">The acting principal.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The zone.</returns>
+    internal static async ValueTask<NodaTime.DateTimeZone> ZoneAsync(
+        ImmutableArray<FilterRule> rules,
+        IPrincipalPreferencesStore preferences,
+        NixSessionContext caller,
+        CancellationToken cancellationToken)
+    {
+        if (!QueryRules.Leaves(rules).Any(rule => QueryFields.IsDay(rule.Property)))
+        {
+            return NodaTime.DateTimeZone.Utc;
+        }
+
+        var stored = await preferences.FindAsync(caller.TenantId, caller.PrincipalId, cancellationToken).ConfigureAwait(false);
+        return stored?.TimeZone is { Length: > 0 } name
+            && NodaTime.DateTimeZoneProviders.Tzdb.GetZoneOrNull(name) is { } zone
+            ? zone
+            : NodaTime.DateTimeZone.Utc;
+    }
 
     /// <summary>The sentence refusing a query's rules, or null when they may run.</summary>
     /// <param name="rules">The rules, plain and grouped.</param>

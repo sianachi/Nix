@@ -414,6 +414,7 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SetItemRecurrence, Item>, SetItemRecurrenceHandler>();
         services.AddScoped<ICommandHandler<CompleteRecurrenceOccurrence, Item>, CompleteRecurrenceOccurrenceHandler>();
         services.AddScoped<IQueryHandler<RunItemQuery, Result<ItemQueryResults>>, RunItemQueryHandler>();
+        services.TryAddSingleton<QueryConcurrencyLimiter>();
         services.AddScoped<IQueryHandler<RunWorkspaceQuery, Result<WorkspaceQueryResults>>, WorkspaceQueryHandler>();
         services.AddScoped<IQueryHandler<AggregateWorkspaceQuery, Result<WorkspaceAggregateResults>>, WorkspaceQueryHandler>();
         services.AddScoped<IQueryHandler<GetShelf, Result<ShelfResults>>, GetShelfHandler>();

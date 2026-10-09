@@ -2149,7 +2149,7 @@ export interface paths {
     };
     /**
      * Run one of an item's query views
-     * @description Runs the saved query the named view stores: every active item the caller may read, in any container, whose properties satisfy the view's filters. The client names the view and never sends rules - the stored view is the whole query, and rules are edited through PUT /items/{itemId}/views like any other view configuration. 'today' is required, as yyyy-MM-dd in the caller's own zone, because a stored rule may say 'today' and only the caller knows which day that is. Rows the caller may not read are excluded while the query runs, never filtered from its results, so the ceiling is spent only on rows that are actually returned. Results are ordered by the first date-shaped filter's property soonest-first, else by the view's own sort compared as text, else most recently modified first, and always tie-broken by id so the same read returns the same rows twice. At most 500 rows are returned; 'truncated' says when more matched, which a list cannot convey on its own. Each row carries its container's title so a cross-container list can say where a row lives. Items under a lock the caller has not opened are left out, and a view stored on a locked item is refused with 'items.locked' (423) until it is unlocked.
+     * @description Runs the saved query the named view stores: every active item the caller may read, in any container, whose properties satisfy the view's filters. The client names the view and never sends rules - the stored view is the whole query, and rules are edited through PUT /items/{itemId}/views like any other view configuration. 'today' is required, as yyyy-MM-dd in the caller's own zone, because a stored rule may say 'today' and only the caller knows which day that is. Rows the caller may not read are excluded while the query runs, never filtered from its results, so the ceiling is spent only on rows that are actually returned. Results are ordered by the first date-shaped filter's property soonest-first, else by the view's own sort compared as text, else most recently modified first, and always tie-broken by id so the same read returns the same rows twice. At most 500 rows are returned; 'truncated' says when more matched, which a list cannot convey on its own. Each row carries its container's title so a cross-container list can say where a row lives. Items under a lock the caller has not opened are left out, and a view stored on a locked item is refused with 'items.locked' (423) until it is unlocked. A query that runs past its time limit answers 'query.timed_out' (503).
      */
     get: operations['RunItemQuery'];
     put?: never;
@@ -2171,7 +2171,7 @@ export interface paths {
     put?: never;
     /**
      * Run an ad-hoc query over one workspace
-     * @description Runs the rule shape a query view stores, without a saved view, over one workspace the caller may read: every active item that satisfies 'filters' (ANDed, with one level of 'any' groups, at most eight with the preset's), optionally beneath 'scope.parentId' (its whole subtree unless 'descendants' is false). Rules may test properties or the structural fields $type, $inside, $created, $modified and $done. Rows the caller may not read are excluded while the query runs, so the limit (100 by default, at most 500) is spent only on rows that are returned; 'truncated' says when more matched. With 'groupBy', rows arrive group by group - in 'groupBy.order', then by text, with 'no value' last - and 'groups' lists each group with its full count, so a cut list has whole groups first. Rows are otherwise ordered by 'sort', else by the first date rule's property soonest first, else most recently modified first, always tie-broken by id. 'today' (yyyy-MM-dd, the caller's own day) is required when a rule uses a day token or a window. A workspace the caller cannot read answers 'workspaces.not_found'; a scope container it cannot read answers 'items.not_found', as the item read does, and a locked one 'items.locked'. A read sent as a POST because rules do not fit a URL: it changes nothing, a read-scoped token may call it, and it has its own per-address rate limit ('queries'), separate from writes.
+     * @description Runs the rule shape a query view stores, without a saved view, over one workspace the caller may read: every active item that satisfies 'filters' (ANDed, with one level of 'any' groups, at most eight with the preset's), optionally beneath 'scope.parentId' (its whole subtree unless 'descendants' is false). Rules may test properties or the structural fields $type, $inside, $created, $modified and $done. Rows the caller may not read are excluded while the query runs, so the limit (100 by default, at most 500) is spent only on rows that are returned; 'truncated' says when more matched. With 'groupBy', rows arrive group by group - in 'groupBy.order', then by text, with 'no value' last - and 'groups' lists each group with its full count, so a cut list has whole groups first. Rows are otherwise ordered by 'sort', else by the first date rule's property soonest first, else most recently modified first, always tie-broken by id. 'today' (yyyy-MM-dd, the caller's own day) is required when a rule uses a day token or a window. A workspace the caller cannot read answers 'workspaces.not_found'; a scope container it cannot read answers 'items.not_found', as the item read does, and a locked one 'items.locked'. A read sent as a POST because rules do not fit a URL: it changes nothing, a read-scoped token may call it, and it has its own per-address rate limit ('queries'), separate from writes, plus at most four in flight per person ('query.too_many_in_flight', 429). A statement past its time limit answers 'query.timed_out' (503). Numbers are stored JSON numbers only; a string that looks like one is not compared. '$created' and '$modified' days are the caller's, in the zone their preferences name (UTC when none). A list-valued property grouped on falls into the 'no value' group.
      */
     post: operations['RunWorkspaceQuery'];
     delete?: never;
@@ -2191,7 +2191,7 @@ export interface paths {
     put?: never;
     /**
      * Fold an ad-hoc query over one workspace
-     * @description Matches exactly what POST /workspaces/{workspaceId}/query would - same rules, scope, permission, lifecycle and lock filters - and folds the matches instead of returning them: 'count' rows, or 'sum', 'avg', 'min' or 'max' of a numeric property. A stored number, or text that reads as one, is folded; any other value is left out and counted in 'skipped', never treated as zero. With 'groupBy' the fold is also given per group, at most 100 groups in the same order a grouped query uses, with 'truncated' and 'groupCount' saying when more exist; 'total', 'count' and 'skipped' always cover every matched row. Same refusals, token scope and rate limit as the query.
+     * @description Matches exactly what POST /workspaces/{workspaceId}/query would - same rules, scope, permission, lifecycle and lock filters - and folds the matches instead of returning them: 'count' rows, or 'sum', 'avg', 'min' or 'max' of a numeric property. A stored JSON number within 1e15 is folded; any other value - text, including text that looks like a number - is left out and counted in 'skipped', never treated as zero, and a sum past 1e28 answers null. With 'groupBy' the fold is also given per group, at most 100 groups in the same order a grouped query uses, with 'truncated' and 'groupCount' saying when more exist; 'total', 'count' and 'skipped' always cover every matched row. Same refusals, token scope and rate limit as the query.
      */
     post: operations['AggregateWorkspaceQuery'];
     delete?: never;
@@ -11293,6 +11293,15 @@ export interface operations {
           'application/json': components['schemas']['QueryResultsResponse'];
         };
       };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
     };
   };
   RunWorkspaceQuery: {
@@ -11364,6 +11373,15 @@ export interface operations {
           'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
     };
   };
   AggregateWorkspaceQuery: {
@@ -11428,6 +11446,15 @@ export interface operations {
       };
       /** @description Too Many Requests */
       429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
         headers: {
           [name: string]: unknown;
         };
