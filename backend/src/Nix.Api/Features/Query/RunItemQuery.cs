@@ -20,10 +20,11 @@ namespace Nix.Features.Query;
 /// decides which day it is, and a saved query stores the rule (<c>today</c>) rather than a date.
 /// </param>
 /// <remarks>
-/// <b>The client names the view; it never sends rules.</b> The stored view is the whole query -
-/// a caller who could supply rules could project any property of every item it can read, and
-/// probe ones it cannot. The calendar makes the same argument for its own config; ADR-0039
-/// records this one.
+/// <b>The client names the view; it never sends rules here.</b> The stored view is the whole
+/// query. Sending rules is the ad-hoc workspace query's job (<c>RunWorkspaceQuery</c>),
+/// which runs the same rules through the same evaluator and statement but over one workspace the
+/// caller names; it projects nothing the caller could not read item by item, which is the
+/// argument ADR-0039 made for keeping rules server-side and the queries plan (1.1) revisited.
 /// </remarks>
 public sealed record RunItemQuery(ItemId ItemId, string ViewId, string Today)
     : IQuery<Result<ItemQueryResults>>;
@@ -92,9 +93,7 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        // Exact-parsed, the calendar's own rule and reasons: a malformed day compares happily as
-        // text and would silently return nothing, which a reader reads as "nothing matches".
-        if (!DateOnly.TryParseExact(query.Today, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var today))
+        if (!QueryEvaluation.TryParseToday(query.Today, out var today))
         {
             return Result.Failure<ItemQueryResults>(
                 QueryErrors.InvalidToday($"'{query.Today}' is not a day; send today as yyyy-MM-dd."));
@@ -151,101 +150,40 @@ public sealed class RunItemQueryHandler : IQueryHandler<RunItemQuery, Result<Ite
         // Re-validated at execution, fail-closed: the stored JSON reader is fail-soft per rule,
         // and a dropped rule can only ever WIDEN a query. Refusing to run a set that no longer
         // passes is what keeps that widening from silently disclosing rows the saved query never
-        // asked for.
+        // asked for. The same check the ad-hoc query runs (QueryEvaluation), so a stored rule and
+        // a sent one are refused for the same reasons.
         var rules = view.Filters.IsDefaultOrEmpty ? [] : view.Filters;
-        foreach (var rule in rules)
+        if (QueryEvaluation.Refuse(rules) is { } reason)
         {
-            if (QueryOperators.Refuse(rule) is { } reason)
-            {
-                return Result.Failure<ItemQueryResults>(
-                    QueryErrors.InvalidRules(
-                        $"A stored filter no longer validates ({reason}), so the query was not "
-                        + "run. Edit the view's filters and save them again."));
-            }
-
-            // The write path refuses these on a query view; a rule that reached the column some
-            // other way is refused here rather than at the compiler, which has no arm for it.
-            if (!QueryOperators.CompiledByQuery.Contains(rule.Operator))
-            {
-                return Result.Failure<ItemQueryResults>(
-                    QueryErrors.InvalidRules(
-                        $"A query view cannot yet filter with '{rule.Operator}', so the query was "
-                        + "not run. Edit the view's filters and save them again."));
-            }
+            return Result.Failure<ItemQueryResults>(
+                QueryErrors.InvalidRules(
+                    $"A stored filter no longer validates ({reason}), so the query was not "
+                    + "run. Edit the view's filters and save them again."));
         }
 
         // Resolved here, not in the compiler: QuerySql is a static class with no session to read
         // a principal from, and the same argument that keeps "today" client-supplied keeps "me"
-        // the opposite - never client-supplied - so this is the one place both facts are in
-        // scope at once. What reaches the query port is already a literal; see QuerySql's remarks.
-        var resolvedRules = ResolveCaller(rules, caller.PrincipalId.ToString());
+        // the opposite - never client-supplied.
+        var resolvedRules = QueryEvaluation.ResolveCaller(rules, caller.PrincipalId.ToString());
+
+        // A view's own sort is outranked by a date rule (soonest first), as it always was; it is
+        // lexical over the property text, which the published description states.
+        var fallback = view.SortBy is { Length: > 0 } sortBy
+            ? new QueryOrder(sortBy, IsDay: false, view.SortDescending)
+            : null;
 
         var workspaces = await _permissions.ReadableWorkspacesAsync(cancellationToken).ConfigureAwait(false);
 
+        var spec = new QuerySpec(resolvedRules, QueryEvaluation.ResolveOrder(resolvedRules, null, fallback), today)
+        {
+            ExcludedItemId = query.ItemId,
+        };
+
         var results = await _query
-            .RunAsync(query.ItemId, resolvedRules, ResolveOrder(view, resolvedRules), today, workspaces, MaximumResults, cancellationToken)
+            .RunAsync(spec, workspaces, MaximumResults, cancellationToken)
             .ConfigureAwait(false);
 
         return Result.Success(new ItemQueryResults(results, view.Id, ToIso(today), MaximumResults));
-    }
-
-    /// <summary>
-    /// Replaces <see cref="QueryOperators.Me"/> wherever it appears as a rule's value with the
-    /// caller's own canonical identifier - the exact lowercase text an <c>assignee</c> property
-    /// stores (<c>PrincipalId.ToString()</c>), so the comparison downstream actually matches.
-    /// </summary>
-    /// <param name="rules">
-    /// The re-validated rules. Grammar already guarantees <see cref="QueryOperators.Me"/> can only
-    /// survive here as the value of <see cref="QueryOperators.EqualTo"/> or
-    /// <see cref="QueryOperators.NotEqualTo"/> - every other operator refuses it before this runs.
-    /// </param>
-    /// <param name="callerId">The acting principal's canonical identifier.</param>
-    /// <returns>The rules, with every <c>me</c> value replaced; everything else untouched.</returns>
-    private static ImmutableArray<FilterRule> ResolveCaller(ImmutableArray<FilterRule> rules, string callerId)
-    {
-        if (rules.IsDefaultOrEmpty)
-        {
-            return rules;
-        }
-
-        var resolved = ImmutableArray.CreateBuilder<FilterRule>(rules.Length);
-        foreach (var rule in rules)
-        {
-            resolved.Add(string.Equals(rule.Value, QueryOperators.Me, StringComparison.Ordinal)
-                ? rule with { Value = callerId }
-                : rule);
-        }
-
-        return resolved.ToImmutable();
-    }
-
-    /// <summary>
-    /// How the rows are ordered: the first date-shaped rule's property ascending - soonest first,
-    /// which is what Today, Next-7-days and Overdue all want - else the view's own sort, else
-    /// most recently modified first.
-    /// </summary>
-    private static QueryOrder ResolveOrder(
-        ViewDefinition view,
-        System.Collections.Immutable.ImmutableArray<FilterRule> rules)
-    {
-        foreach (var rule in rules)
-        {
-            if (QueryOperators.ReadsDay(rule.Operator)
-                || string.Equals(rule.Operator, QueryOperators.WithinNext, StringComparison.Ordinal))
-            {
-                return new QueryOrder(rule.Property, IsDay: true, Descending: false);
-            }
-        }
-
-        if (view.SortBy is { Length: > 0 } sortBy)
-        {
-            // Lexical ordering over the property text - a number sorts as text. Stated in the
-            // published description rather than hidden; precise typed ordering is a later goal's
-            // problem, with the schema knowledge it needs.
-            return new QueryOrder(sortBy, IsDay: false, view.SortDescending);
-        }
-
-        return QueryOrder.Recency;
     }
 
     private static string ToIso(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);

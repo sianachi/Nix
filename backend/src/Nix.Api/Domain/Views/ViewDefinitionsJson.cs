@@ -128,6 +128,7 @@ public static class ViewDefinitionsJson
     private const string FilterPropertyKey = "property";
     private const string FilterOperatorKey = "operator";
     private const string FilterValueKey = "value";
+    private const string FilterAnyKey = "any";
     private const string CompanionViewIdKey = "companionViewId";
     private const string CompanionPlacementKey = "companionPlacement";
     private const string InteractiveFormKey = "interactiveForm";
@@ -315,12 +316,7 @@ public static class ViewDefinitionsJson
                 var filters = new JsonArray();
                 foreach (var rule in view.Filters)
                 {
-                    filters.Add(new JsonObject
-                    {
-                        [FilterPropertyKey] = rule.Property,
-                        [FilterOperatorKey] = rule.Operator,
-                        [FilterValueKey] = rule.Value,
-                    });
+                    filters.Add(WriteFilter(rule));
                 }
 
                 entry[FiltersKey] = filters;
@@ -620,17 +616,67 @@ public static class ViewDefinitionsJson
                 continue;
             }
 
-            var property = ReadString(rule[FilterPropertyKey]);
-            var @operator = ReadString(rule[FilterOperatorKey]);
-            var value = ReadString(rule[FilterValueKey]);
-
-            if (property is { Length: > 0 } && @operator is { Length: > 0 } && value is not null)
+            // An "any of" group (one level only): its rules are read the same fail-soft way, and
+            // a nested group inside one is dropped rather than flattened into a different meaning.
+            if (rule[FilterAnyKey] is JsonArray alternatives)
             {
-                rules.Add(new FilterRule(property, @operator, value));
+                var inner = ImmutableArray.CreateBuilder<FilterRule>(alternatives.Count);
+                foreach (var alternative in alternatives)
+                {
+                    if (alternative is JsonObject leaf && leaf[FilterAnyKey] is null && ReadLeaf(leaf) is { } read)
+                    {
+                        inner.Add(read);
+                    }
+                }
+
+                if (inner.Count > 0)
+                {
+                    rules.Add(FilterRule.Group(inner.ToImmutable()));
+                }
+
+                continue;
+            }
+
+            if (ReadLeaf(rule) is { } plain)
+            {
+                rules.Add(plain);
             }
         }
 
         return rules.ToImmutable();
+    }
+
+    private static FilterRule? ReadLeaf(JsonObject rule)
+    {
+        var property = ReadString(rule[FilterPropertyKey]);
+        var @operator = ReadString(rule[FilterOperatorKey]);
+        var value = ReadString(rule[FilterValueKey]);
+
+        return property is { Length: > 0 } && @operator is { Length: > 0 } && value is not null
+            ? new FilterRule(property, @operator, value)
+            : null;
+    }
+
+    /// <summary>Writes one stored rule: a plain condition, or an "any of" group of them.</summary>
+    private static JsonObject WriteFilter(FilterRule rule)
+    {
+        if (!rule.IsGroup)
+        {
+            return new JsonObject
+            {
+                [FilterPropertyKey] = rule.Property,
+                [FilterOperatorKey] = rule.Operator,
+                [FilterValueKey] = rule.Value,
+            };
+        }
+
+        var alternatives = new JsonArray();
+        foreach (var inner in rule.Any)
+        {
+            alternatives.Add(WriteFilter(inner));
+        }
+
+        return new JsonObject { [FilterAnyKey] = alternatives };
     }
 
     /// <summary>

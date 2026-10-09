@@ -26,7 +26,18 @@ public sealed class BulkItemVisibilityStatementTests
         { nameof(BookmarkSql.Keep), BookmarkSql.Keep, 1, OwnAncestors },
         {
             nameof(QuerySql),
-            QuerySql.Compile([], QueryOrder.Recency, new DateOnly(2026, 8, 22)).Sql,
+            QuerySql.Compile(new QuerySpec([], QueryOrder.Recency, new DateOnly(2026, 8, 22))).Sql,
+            1,
+            OwnAncestors
+        },
+        {
+            nameof(QuerySql.CompileAggregate),
+            QuerySql.CompileAggregate(
+                new QuerySpec([], QueryOrder.Recency, new DateOnly(2026, 8, 22))
+                {
+                    Grouping = new QueryGrouping("status", []),
+                },
+                new Nix.Domain.Query.QueryAggregate("sum", "points")).Sql,
             1,
             OwnAncestors
         },

@@ -462,7 +462,14 @@
                             "on",
                             "before",
                             "on-or-after",
-                            "within-next"
+                            "within-next",
+                            "within-last",
+                            "contains",
+                            "not-contains",
+                            "greater-than",
+                            "less-than",
+                            "is-empty",
+                            "is-not-empty"
                           ]
                         },
                         "value": {
@@ -856,7 +863,14 @@
                             "on",
                             "before",
                             "on-or-after",
-                            "within-next"
+                            "within-next",
+                            "within-last",
+                            "contains",
+                            "not-contains",
+                            "greater-than",
+                            "less-than",
+                            "is-empty",
+                            "is-not-empty"
                           ]
                         },
                         "value": {
@@ -1404,7 +1418,14 @@
                                 "on",
                                 "before",
                                 "on-or-after",
-                                "within-next"
+                                "within-next",
+                                "within-last",
+                                "contains",
+                                "not-contains",
+                                "greater-than",
+                                "less-than",
+                                "is-empty",
+                                "is-not-empty"
                               ]
                             },
                             "value": {
@@ -2260,7 +2281,14 @@
                                 "on",
                                 "before",
                                 "on-or-after",
-                                "within-next"
+                                "within-next",
+                                "within-last",
+                                "contains",
+                                "not-contains",
+                                "greater-than",
+                                "less-than",
+                                "is-empty",
+                                "is-not-empty"
                               ]
                             },
                             "value": {

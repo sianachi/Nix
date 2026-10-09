@@ -10,8 +10,8 @@ namespace Nix.Domain.Views;
 /// <param name="Operator">One of <see cref="QueryOperators"/>' closed set.</param>
 /// <param name="Value">
 /// What the operator compares against, in the operator's own grammar - a literal for the equality
-/// pair (or <c>me</c>, resolved to the calling principal), <c>today</c> or <c>yyyy-MM-dd</c> for
-/// the date trio, a day count for <c>within-next</c>.
+/// pair (or <c>me</c>, resolved to the calling principal), a day token or <c>yyyy-MM-dd</c> for
+/// the date trio, a day count for <c>within-next</c> and <c>within-last</c>.
 /// </param>
 /// <remarks>
 /// <para>
@@ -21,12 +21,38 @@ namespace Nix.Domain.Views;
 /// declared. A rule naming a property nothing declares simply matches nothing.
 /// </para>
 /// <para>
-/// <b>Rules combine with AND only.</b> The shipped presets need nothing more (Overdue is
-/// <c>due before today</c> AND <c>done not-equals true</c>), and OR would double the compiler,
-/// the validator and the editor for a case no preset exercises. ADR-0039 records the decision.
+/// <b>Rules combine with AND, with one level of OR.</b> A rule whose <see cref="Any"/> is set is
+/// an "any of" group: it matches when at least one of its rules does, and its own property,
+/// operator and value are empty. Groups do not nest - "all of, containing any of" is the whole
+/// grammar - and the rule ceiling counts the rules inside groups (<see cref="QueryRules"/>).
+/// ADR-0039 recorded AND-only; the queries plan (1.6) widened it by exactly this one level.
+/// </para>
+/// <para>
+/// <b>A property starting with <c>$</c> is a structural field, not a property key</b>
+/// (<see cref="QueryFields"/>): the item's type, its ancestry, its timestamps, its completion.
+/// Property keys may not start with <c>$</c>, which is what keeps the two spaces apart.
 /// </para>
 /// </remarks>
-public sealed record FilterRule(string Property, string Operator, string Value);
+public sealed record FilterRule(string Property, string Operator, string Value)
+{
+    /// <summary>
+    /// The rules of an "any of" group, or default for an ordinary rule.
+    /// </summary>
+    /// <remarks>
+    /// An init-only member rather than a fourth positional parameter, so every ordinary rule is
+    /// still written the way it always was, and a group is spelled through <see cref="Group"/>.
+    /// </remarks>
+    public ImmutableArray<FilterRule> Any { get; init; }
+
+    /// <summary>Whether this is an "any of" group rather than one condition.</summary>
+    public bool IsGroup => !Any.IsDefaultOrEmpty;
+
+    /// <summary>An "any of" group over <paramref name="rules"/>.</summary>
+    /// <param name="rules">The alternatives; at least one matches for the group to match.</param>
+    /// <returns>The group.</returns>
+    public static FilterRule Group(ImmutableArray<FilterRule> rules) =>
+        new(string.Empty, string.Empty, string.Empty) { Any = rules };
+}
 
 /// <summary>
 /// The operators a query view may use, and each one's value grammar.
@@ -62,15 +88,18 @@ public static class QueryOperators
     /// <summary>The stored date falls within the next N days, today included.</summary>
     public const string WithinNext = "within-next";
 
+    /// <summary>The stored date falls within the last N days, today included - the mirror of <see cref="WithinNext"/>.</summary>
+    public const string WithinLast = "within-last";
+
     /// <summary>
     /// For text, the stored value contains the literal as a substring, ignoring case. For a
     /// multi-select, the literal is one of the stored options exactly, case included - an option
     /// is a declared name, not text to search.
     /// </summary>
     /// <remarks>
-    /// Evaluated today only by the web, over a container's own children
-    /// (<c>apps/web/src/views/core/filter-rules.ts</c>), whose tests pin both halves; the SQL arm
-    /// arrives with ADR-0055 and must keep this meaning.
+    /// The web evaluates it over a container's own children
+    /// (<c>apps/web/src/views/core/filter-rules.ts</c>) and <c>QuerySql</c> compiles it with the
+    /// same meaning: an escaped <c>ILIKE</c> for text, element containment for a list.
     /// </remarks>
     public const string Contains = "contains";
 
@@ -78,12 +107,16 @@ public static class QueryOperators
     public const string NotContains = "not-contains";
 
     /// <summary>The stored number is greater than the literal.</summary>
+    /// <remarks>
+    /// A stored JSON number, or a string that reads as one. Anything else - absent, a word, a list -
+    /// is not greater than anything, never an error.
+    /// </remarks>
     public const string GreaterThan = "greater-than";
 
-    /// <summary>The stored number is less than the literal.</summary>
+    /// <summary>The stored number is less than the literal. Same reading as <see cref="GreaterThan"/>.</summary>
     public const string LessThan = "less-than";
 
-    /// <summary>The property is absent, empty text or an empty list. Takes no value.</summary>
+    /// <summary>The property is absent, null, empty text or an empty list. Takes no value.</summary>
     public const string IsEmpty = "is-empty";
 
     /// <summary>The negation of <see cref="IsEmpty"/>. Takes no value.</summary>
@@ -96,6 +129,26 @@ public static class QueryOperators
     /// saved as the rule rather than as whichever day it was written on.
     /// </remarks>
     public const string Today = "today";
+
+    /// <summary>The Monday on or before the caller's today (weeks start on Monday, as the calendar draws them).</summary>
+    public const string StartOfWeek = "start-of-week";
+
+    /// <summary>The first day of the caller's month.</summary>
+    public const string StartOfMonth = "start-of-month";
+
+    /// <summary>Seven days before the caller's today.</summary>
+    public const string SameDayLastWeek = "same-day-last-week";
+
+    /// <summary>
+    /// The same day of the previous month, clamped to that month's last day (31 March reads 28 or
+    /// 29 February).
+    /// </summary>
+    public const string SameDayLastMonth = "same-day-last-month";
+
+    /// <summary>Every token a day operator accepts where a date would go.</summary>
+    /// <remarks>Each is resolved from the caller's own today, never the server clock - see <see cref="Today"/>.</remarks>
+    public static readonly ImmutableArray<string> DayTokens =
+        [Today, StartOfWeek, StartOfMonth, SameDayLastWeek, SameDayLastMonth];
 
     /// <summary>The token a stored rule keeps where the calling principal's identifier would go.</summary>
     /// <remarks>
@@ -126,22 +179,20 @@ public static class QueryOperators
     /// <see cref="Me"/>, which are value tokens, never an operator.
     /// </summary>
     public static readonly ImmutableArray<string> All =
-        [EqualTo, NotEqualTo, On, Before, OnOrAfter, WithinNext,
+        [EqualTo, NotEqualTo, On, Before, OnOrAfter, WithinNext, WithinLast,
             Contains, NotContains, GreaterThan, LessThan, IsEmpty, IsNotEmpty];
 
     /// <summary>
-    /// The operators a query view's SQL compiles today - <see cref="All"/> before ADR-0054 widened
-    /// it for container views.
+    /// The operators a query's SQL compiles - since the queries plan (1.2), every one of
+    /// <see cref="All"/>.
     /// </summary>
     /// <remarks>
-    /// A container view evaluates its rules over children already read, so every operator in
-    /// <see cref="All"/> is meaningful there. A query view compiles its rules to SQL, and
-    /// <c>QuerySql</c> has an arm for these and no others; a query view naming one of the rest is
-    /// refused on write and refused again before it runs, rather than reaching the compiler's
-    /// "unknown operator" throw.
+    /// Kept as its own name rather than folded into <see cref="All"/>, because it is the set the
+    /// statement and the pet catalog must agree on, and the two sets were apart once (ADR-0054). A
+    /// rule naming an operator outside it is refused on write and again before it runs, rather
+    /// than reaching the compiler's "unknown operator" throw.
     /// </remarks>
-    public static readonly ImmutableArray<string> CompiledByQuery =
-        [EqualTo, NotEqualTo, On, Before, OnOrAfter, WithinNext];
+    public static readonly ImmutableArray<string> CompiledByQuery = All;
 
     /// <summary>Whether an operator takes no value at all.</summary>
     /// <param name="operator">The operator text.</param>
@@ -153,7 +204,17 @@ public static class QueryOperators
     /// <returns><see langword="true"/> for the numeric comparisons.</returns>
     public static bool ReadsNumber(string @operator) => @operator is GreaterThan or LessThan;
 
-    /// <summary>The most days <see cref="WithinNext"/> may look ahead.</summary>
+    /// <summary>Whether an operator reads its value as a count of days around today.</summary>
+    /// <param name="operator">The operator text.</param>
+    /// <returns><see langword="true"/> for <see cref="WithinNext"/> and <see cref="WithinLast"/>.</returns>
+    public static bool ReadsDayCount(string @operator) => @operator is WithinNext or WithinLast;
+
+    /// <summary>Whether an operator compares days at all - the date trio or a window.</summary>
+    /// <param name="operator">The operator text.</param>
+    /// <returns><see langword="true"/> when the rule is date-shaped.</returns>
+    public static bool IsDateShaped(string @operator) => ReadsDay(@operator) || ReadsDayCount(@operator);
+
+    /// <summary>The most days <see cref="WithinNext"/> or <see cref="WithinLast"/> may reach.</summary>
     public const int MaximumWithinDays = 365;
 
     /// <summary>The longest value a rule may carry, in characters.</summary>
@@ -169,8 +230,38 @@ public static class QueryOperators
 
     /// <summary>Whether the operator reads its value as a day.</summary>
     /// <param name="operator">The operator text.</param>
-    /// <returns><see langword="true"/> for the date trio; <see cref="WithinNext"/> reads a count.</returns>
+    /// <returns><see langword="true"/> for the date trio; the windows read a count.</returns>
     public static bool ReadsDay(string @operator) => @operator is On or Before or OnOrAfter;
+
+    /// <summary>Whether a value is one of the <see cref="DayTokens"/>.</summary>
+    /// <param name="value">The rule's value.</param>
+    /// <returns><see langword="true"/> for a token the caller's today resolves.</returns>
+    public static bool IsDayToken(string value) => DayTokens.Contains(value);
+
+    /// <summary>The day a day operator's value names, resolved against the caller's today.</summary>
+    /// <param name="value">A token from <see cref="DayTokens"/> or a <c>yyyy-MM-dd</c> date.</param>
+    /// <param name="today">The caller's own today.</param>
+    /// <returns>The day, or <see langword="null"/> when the value is neither.</returns>
+    public static DateOnly? ResolveDay(string value, DateOnly today) => value switch
+    {
+        Today => today,
+        StartOfWeek => today.AddDays(-(((int)today.DayOfWeek + 6) % 7)),
+        StartOfMonth => new DateOnly(today.Year, today.Month, 1),
+        SameDayLastWeek => today.AddDays(-7),
+        SameDayLastMonth => today.AddMonths(-1),
+        _ => DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
+            ? day
+            : null,
+    };
+
+    /// <summary>Whether a rule can only be compiled once the caller's today is known.</summary>
+    /// <param name="rule">A leaf rule.</param>
+    /// <returns><see langword="true"/> for a window, or a day operator holding a token.</returns>
+    public static bool NeedsToday(FilterRule rule)
+    {
+        ArgumentNullException.ThrowIfNull(rule);
+        return ReadsDayCount(rule.Operator) || (ReadsDay(rule.Operator) && IsDayToken(rule.Value));
+    }
 
     /// <summary>
     /// The sentence refusing one rule, or null when the rule is storable.
@@ -184,6 +275,13 @@ public static class QueryOperators
     public static string? Refuse(FilterRule rule)
     {
         ArgumentNullException.ThrowIfNull(rule);
+
+        if (rule.IsGroup)
+        {
+            // A group is a container of rules, checked by QueryRules where the nesting and the
+            // ceiling are known; asking this method about one is asking the wrong question.
+            return "an \"any of\" group is not a single filter";
+        }
 
         if (rule.Property.Length == 0)
         {
@@ -217,10 +315,11 @@ public static class QueryOperators
         }
 
         if (ReadsDay(rule.Operator)
-            && !string.Equals(rule.Value, Today, StringComparison.Ordinal)
+            && !IsDayToken(rule.Value)
             && !IsCalendarDay(rule.Value))
         {
-            return $"'{rule.Operator}' reads a day: '{Today}' or a date written yyyy-MM-dd";
+            return $"'{rule.Operator}' reads a day: '{Today}', '{StartOfWeek}', '{StartOfMonth}', "
+                + $"'{SameDayLastWeek}', '{SameDayLastMonth}' or a date written yyyy-MM-dd";
         }
 
         if (ReadsNumber(rule.Operator) && !IsFiniteNumber(rule.Value))
@@ -228,15 +327,17 @@ public static class QueryOperators
             return $"'{rule.Operator}' reads a number, written like 12 or -3.5";
         }
 
-        if (string.Equals(rule.Operator, WithinNext, StringComparison.Ordinal)
+        if (ReadsDayCount(rule.Operator)
             && (!int.TryParse(rule.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var days)
                 || days < 1
                 || days > MaximumWithinDays))
         {
-            return $"'{WithinNext}' reads a number of days from 1 to {MaximumWithinDays}";
+            return $"'{rule.Operator}' reads a number of days from 1 to {MaximumWithinDays}";
         }
 
-        return null;
+        // Last, so a structural field still meets the grammar every operator has; the field then
+        // narrows which operators and values mean anything for it.
+        return QueryFields.IsReserved(rule.Property) ? QueryFields.Refuse(rule) : null;
     }
 
     private static bool IsFiniteNumber(string value) =>

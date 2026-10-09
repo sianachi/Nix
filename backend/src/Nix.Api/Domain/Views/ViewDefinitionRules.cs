@@ -5,8 +5,8 @@ namespace Nix.Domain.Views;
 /// <summary>Pure storage rules shared by every view-writing boundary.</summary>
 public static class ViewDefinitionRules
 {
-    /// <summary>The most filter rules one view may carry.</summary>
-    public const int MaximumFilters = 8;
+    /// <summary>The most filter rules one view may carry, counting those inside groups.</summary>
+    public const int MaximumFilters = QueryRules.MaximumRules;
 
     /// <summary>The most keys one view may sort by.</summary>
     public const int MaximumSorts = 3;
@@ -118,25 +118,11 @@ public static class ViewDefinitionRules
                 }
             }
 
-            if (!view.Filters.IsDefaultOrEmpty)
+            // One check for every arrival of a rule set (QueryRules): the ceiling across groups,
+            // one level of "any of", each rule's grammar, and structural fields on queries only.
+            if (QueryRules.Refuse(view.Filters, view.Kind == ViewKind.Query) is { } filterReason)
             {
-                if (view.Filters.Length > MaximumFilters)
-                {
-                    return $"'{view.Name}': a view may carry at most {MaximumFilters} filters.";
-                }
-
-                foreach (var rule in view.Filters)
-                {
-                    if (QueryOperators.Refuse(rule) is { } reason)
-                    {
-                        return $"'{view.Name}': {reason}.";
-                    }
-
-                    if (view.Kind == ViewKind.Query && !QueryOperators.CompiledByQuery.Contains(rule.Operator))
-                    {
-                        return $"'{view.Name}': a query view cannot filter with '{rule.Operator}' yet.";
-                    }
-                }
+                return $"'{view.Name}': {filterReason}.";
             }
 
             if (RefuseArrangement(view) is { } arrangement)

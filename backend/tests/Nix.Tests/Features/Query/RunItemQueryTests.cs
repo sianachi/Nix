@@ -104,14 +104,14 @@ public sealed class RunItemQueryTests
     }
 
     [Fact]
-    public async Task A_stored_container_only_operator_on_a_query_view_refuses_to_run()
+    public async Task A_stored_rule_over_a_reserved_field_no_build_compiles_refuses_to_run()
     {
-        // "contains" validates as a rule (ADR-0054) but QuerySql has no arm for it. The write path
-        // refuses it on a query view; one that reached the column another way - an import, a
-        // template, a hand edit - must stop here and never reach the compiler or the rows.
+        // "$tag" is reserved but has no compilation arm (there is no tag model yet). The write
+        // path refuses it; one that reached the column another way - an import, a template, a hand
+        // edit - must stop here and never reach the compiler or the rows.
         var views = """
             {"views":[{"id":"q","name":"Q","kind":"query","filters":[
-                {"property":"title","operator":"contains","value":"plan"}]}]}
+                {"property":"$tag","operator":"equals","value":"urgent"}]}]}
             """;
         var query = new RecordingQuery();
         var handler = Handler(query, ItemWithViews(views));
@@ -120,8 +120,30 @@ public sealed class RunItemQueryTests
 
         Assert.True(result.IsFailure);
         Assert.Equal("query.invalid_rules", result.Error.Code);
-        Assert.Contains("contains", result.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("$tag", result.Error.Message, StringComparison.Ordinal);
         Assert.Equal(0, query.Calls);
+    }
+
+    [Fact]
+    public async Task A_stored_any_of_group_runs_and_me_inside_it_resolves_to_the_caller()
+    {
+        // One level of OR on a stored view (queries plan 1.6), through the same evaluator the
+        // ad-hoc query uses: "me" is resolved inside the group, and only on an equality.
+        var views = """
+            {"views":[{"id":"q","name":"Q","kind":"query","filters":[
+                {"any":[{"property":"assignee","operator":"equals","value":"me"},
+                        {"property":"title","operator":"contains","value":"me"}]}]}]}
+            """;
+        var query = new RecordingQuery();
+        var handler = Handler(query, ItemWithViews(views));
+
+        var result = await handler.HandleAsync(new RunItemQuery(SmartList, "q", "2026-08-15"), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        var group = Assert.Single(query.LastRules);
+        Assert.True(group.IsGroup);
+        Assert.Equal(Caller.ToString(), group.Any[0].Value);
+        Assert.Equal("me", group.Any[1].Value);
     }
 
     [Fact]
@@ -362,207 +384,4 @@ public sealed class RunItemQueryTests
         CreatedAt = DateTimeOffset.UnixEpoch,
         LastModifiedAt = DateTimeOffset.UnixEpoch,
     };
-
-    /// <summary>Finds the one prepared item, however it is asked.</summary>
-    private sealed class StubTree : IItemTree
-    {
-        private readonly Item? _item;
-
-        internal StubTree(Item? item) => _item = item;
-
-        public ValueTask<Item?> FindAsync(ItemId id, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(_item?.Id == id ? _item : null);
-
-        public ValueTask<Item?> FindStoredAsync(ItemId id, CancellationToken cancellationToken) =>
-            FindAsync(id, cancellationToken);
-
-        public ValueTask<IReadOnlySet<ItemId>> WithChildrenAsync(
-            WorkspaceId workspaceId,
-            IReadOnlyList<ItemId> parents,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<IReadOnlyList<Item>> ListChildrenAsync(
-            WorkspaceId workspaceId,
-            ItemId? parentId,
-            bool includeDeleted,
-            long? afterSequence,
-            int limit,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<bool> WorkspaceExistsAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<long> NextSiblingSequenceAsync(
-            WorkspaceId workspaceId,
-            ItemId? parentId,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<long> AllocateSiblingSequenceAsync(
-            WorkspaceId workspaceId,
-            ItemId? parentId,
-            ItemId movingId,
-            ItemId? afterId,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask InsertAsync(Item item, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask UpdatePropertiesAsync(
-            ItemId id,
-            string properties,
-            PrincipalId actor,
-            DateTimeOffset at,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask UpdateSchemaAsync(
-            ItemId id,
-            string? schema,
-            PrincipalId actor,
-            DateTimeOffset at,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask UpdateViewsAsync(
-            ItemId id,
-            string? views,
-            PrincipalId actor,
-            DateTimeOffset at,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask TouchAsync(
-            ItemId id,
-            PrincipalId actor,
-            DateTimeOffset at,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<bool> WouldCreateCycleAsync(
-            ItemId id,
-            ItemId newParentId,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask ReparentAsync(
-            ItemId id,
-            ItemId? newParentId,
-            long seq,
-            PrincipalId actor,
-            DateTimeOffset at,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask SetLifecycleAsync(
-            ItemId id,
-            ItemLifecycleState state,
-            PrincipalId actor,
-            DateTimeOffset at,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-    }
-
-    /// <summary>Answers every lock question with one fixed answer: everything open, or everything closed.</summary>
-    private sealed class StubLocks(bool open) : IItemLocks
-    {
-        public ValueTask<ItemLockState> GetStateAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(new ItemLockState(!open, null, open ? null : itemId, !open));
-
-        public ValueTask<bool> MayReadBodyAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(open);
-
-        public ValueTask<bool> AnyInSubtreeAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(!open);
-
-        public ValueTask<IReadOnlySet<ItemId>> LockedAmongAsync(
-            IReadOnlyList<ItemId> itemIds,
-            CancellationToken cancellationToken) =>
-            ValueTask.FromResult<IReadOnlySet<ItemId>>(open ? new HashSet<ItemId>() : itemIds.ToHashSet());
-
-        public ValueTask<string?> FindVerifierAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> LockAsync(ItemId itemId, string verifier, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> ChangeVerifierAsync(
-            ItemId itemId,
-            string expected,
-            string verifier,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<bool> RemoveAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public ValueTask<bool> GrantAsync(
-            ItemId itemId,
-            string verifier,
-            DateTimeOffset expiresAt,
-            CancellationToken cancellationToken) => throw new NotSupportedException();
-
-        public ValueTask<bool> IsLockedAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(!open);
-
-        public ValueTask RevokeAsync(ItemId itemId, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-    }
-
-    /// <summary>Answers with a fixed session context, or none - the way a missing pipeline setup would.</summary>
-    private sealed class StubSession : INixSessionContextAccessor
-    {
-        internal StubSession(NixSessionContext? current) => Current = current;
-
-        public NixSessionContext? Current { get; }
-    }
-
-    /// <summary>Answers with a fixed readable set, the way the resolver does for one principal.</summary>
-    private sealed class StubPermissions : IPermissionResolver
-    {
-        private readonly IReadOnlyList<WorkspaceId> _readable;
-
-        internal StubPermissions(IReadOnlyList<WorkspaceId> readable) => _readable = readable;
-
-        public ValueTask<bool> CanReadWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(_readable.Contains(workspaceId));
-
-        public ValueTask<bool> CanWriteWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(_readable.Contains(workspaceId));
-
-        public ValueTask<bool> CanManageWorkspaceAsync(WorkspaceId workspaceId, CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-
-        public ValueTask<IReadOnlyList<WorkspaceId>> ReadableWorkspacesAsync(CancellationToken cancellationToken) =>
-            ValueTask.FromResult(_readable);
-
-        public ValueTask<bool> IsTenantAdministratorAsync(CancellationToken cancellationToken) =>
-            ValueTask.FromResult(false);
-    }
-
-    /// <summary>A query port that answers empty and remembers what it was asked.</summary>
-    private sealed class RecordingQuery : IItemQuery
-    {
-        internal int Calls { get; private set; }
-
-        internal ItemId LastQueryItemId { get; private set; }
-
-        internal ImmutableArray<FilterRule> LastRules { get; private set; }
-
-        internal QueryOrder? LastOrder { get; private set; }
-
-        internal IReadOnlyList<WorkspaceId> LastReadableWorkspaces { get; private set; } = [];
-
-        internal int LastLimit { get; private set; }
-
-        public ValueTask<QueryResults> RunAsync(
-            ItemId queryItemId,
-            ImmutableArray<FilterRule> rules,
-            QueryOrder order,
-            DateOnly today,
-            IReadOnlyList<WorkspaceId> readableWorkspaces,
-            int limit,
-            CancellationToken cancellationToken)
-        {
-            Calls++;
-            LastQueryItemId = queryItemId;
-            LastRules = rules;
-            LastOrder = order;
-            LastReadableWorkspaces = readableWorkspaces;
-            LastLimit = limit;
-
-            return ValueTask.FromResult(QueryResults.Empty);
-        }
-    }
 }
