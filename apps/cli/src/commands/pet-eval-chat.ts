@@ -5,6 +5,7 @@ import {
   createCompanionBodies,
   defaultClock,
   defaultIds,
+  describeToolCall,
   executeBuild,
   hasExternalLink,
   loadPreviewContext,
@@ -204,8 +205,8 @@ function operationOf(tool: PetToolCall): string {
 
 /** Why a write may not run on its own, or undefined when it may. Mirrors the web card: the
  * lane F policy, the external-link rule, the hold after a read of locked content (the worker's
- * conversation-level `lockedRead`), the hold on completing an occurrence of a repeating task, and
- * the harness's own fixture boundary. */
+ * conversation-level `lockedRead`), body-edit preview and formatting holds, the hold on completing
+ * an occurrence of a repeating task, and the harness's own fixture boundary. */
 export async function declineReason(
   session: Session,
   fixture: ChatFixture,
@@ -215,6 +216,7 @@ export async function declineReason(
   lockedRead = false,
   ports?: CompanionPorts,
   workspaceId?: string,
+  onPreview?: (fingerprint: string) => void,
 ): Promise<string | undefined> {
   let parsed: ReturnType<typeof workspaceToolSchema.safeParse>;
   try {
@@ -228,16 +230,35 @@ export async function declineReason(
   if (!allowWrites) return 'writes are not allowed in this run';
   if (!canApplyWithoutAsking(args.operation)) return `${args.operation} always asks`;
   if (lockedRead) return 'earlier in this conversation it read locked content';
-  if (args.operation === 'complete_task') {
+  const bodyEdit = args.operation === 'replace_section' || args.operation === 'replace_passage';
+  if (bodyEdit || args.operation === 'complete_task') {
     // The same preview the card reads: an occurrence of a repeating task cannot be reopened, so it
     // never runs unattended. Without a preview there is no way to tell, so it does not run either.
-    if (ports === undefined || workspaceId === undefined) return 'the task may repeat and there is no preview';
+    if (ports === undefined || workspaceId === undefined)
+      return bodyEdit
+        ? 'the body edit has no preview'
+        : 'the task may repeat and there is no preview';
     try {
-      const context = await loadPreviewContext(ports, workspaceId, args, AbortSignal.timeout(30_000));
+      const context = await loadPreviewContext(
+        ports,
+        workspaceId,
+        args,
+        AbortSignal.timeout(30_000),
+      );
+      const model = describeToolCall(args, context);
+      if (model.problems.length > 0) return 'the preview has problems';
       if (context.taskCompletion?.kind === 'occurrence')
         return "completing a repeating task's occurrence cannot be undone";
+      if (bodyEdit) {
+        if (model.bodyEdit === undefined) return 'the body edit has no preview';
+        if (model.bodyEdit.losesFormatting) return 'the body edit removes formatting';
+        if (hasExternalLink([model.bodyEdit.after])) return 'the text links to another host';
+      }
+      onPreview?.(context.fingerprint);
     } catch {
-      return 'the task preview could not be loaded';
+      return bodyEdit
+        ? 'the body edit preview could not be loaded'
+        : 'the task preview could not be loaded';
     }
   }
   if (hasExternalLink([args.title, args.markdown, args.specJson, args.propertiesJson]))
@@ -393,6 +414,7 @@ export async function runChatCase(
           break;
         }
         const at = Date.now();
+        let fingerprint: string | undefined;
         const reason = await declineReason(
           session,
           fixture,
@@ -402,6 +424,9 @@ export async function runChatCase(
           connection.lockedRead,
           ports,
           options.workspace,
+          (value) => {
+            fingerprint = value;
+          },
         );
         if (reason !== undefined) {
           await declineTool(session, options.workspace, options.pet, tool, reason);
@@ -415,6 +440,9 @@ export async function runChatCase(
           tool.id,
           'approve',
           'chat',
+          canApplyWithoutAsking(operation as Parameters<typeof canApplyWithoutAsking>[0])
+            ? { arguments: tool.arguments, ...(fingerprint === undefined ? {} : { fingerprint }) }
+            : undefined,
         )) as PetConnection;
         const status = after.tools?.find((entry) => entry.id === tool.id)?.status;
         tools.push({ operation, decision: 'ran', success: status === 'completed', ms: Date.now() - at });

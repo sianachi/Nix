@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { petCommand, petToolRun } from './pets.ts';
+import { executePetToolRun, petCommand, petToolRun } from './pets.ts';
+import { openSession } from '../session.ts';
 
 const CORE = 'http://core.nix.test';
 const COLLAB = 'http://collab.nix.test';
@@ -272,6 +273,99 @@ function item(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 }
 
 describe('pet tools run', () => {
+  it('keeps the eval-approved fingerprint instead of approving a fresh structure snapshot', async () => {
+    const itemId = String(item().id);
+    const argumentsText = JSON.stringify({
+      operation: 'add_view',
+      itemId,
+      parentId: '',
+      title: '',
+      markdown: '',
+      query: '',
+      propertiesJson: '',
+      specJson: JSON.stringify({ views: [{ kind: 'list', name: 'Next' }] }),
+    });
+    const tool = pendingTool({ arguments: argumentsText });
+    const results: Record<string, unknown>[] = [];
+    server.use(
+      http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        if (body.operation === 'read') return HttpResponse.json(runtimeResponse([tool]));
+        if (body.operation === 'tool_claim')
+          return HttpResponse.json(
+            runtimeResponse([{ ...tool, status: 'claimed', claimId: body.requestId }]),
+          );
+        results.push(body);
+        return HttpResponse.json(runtimeResponse([{ ...tool, status: 'failed' }]));
+      }),
+      http.get(`${CORE}/api/v1/items/${itemId}`, () => HttpResponse.json(item())),
+      http.get(`${CORE}/api/v1/items/${itemId}/schema`, () =>
+        HttpResponse.json({
+          properties: [],
+          declared: [],
+          inherit: true,
+        }),
+      ),
+      http.get(`${CORE}/api/v1/items/${itemId}/views`, () =>
+        HttpResponse.json({
+          views: [],
+          unrenderable: [],
+          default: '',
+          hideDocument: false,
+        }),
+      ),
+    );
+    const session = openSession({
+      profile: { apiUrl: CORE, token: 'pat' },
+      bearerToken: 'session',
+    });
+    await executePetToolRun(session, WORKSPACE, PET, TOOL, 'approve', 'chat', {
+      arguments: argumentsText,
+      fingerprint: 'the earlier snapshot',
+    });
+    expect(results).toEqual([
+      expect.objectContaining({
+        toolSuccess: false,
+        toolResult: 'The item changed since you approved this. Ask the pet to look again.',
+      }),
+    ]);
+  });
+
+  it.each(['changed request', 'locked read'] as const)(
+    'refuses eval auto-approval after %s before claiming',
+    async (change) => {
+      const calls: string[] = [];
+      const argumentsText = listItemsArgs();
+      const tool = pendingTool({ arguments: argumentsText });
+      server.use(
+        http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
+          const body = (await request.json()) as { operation: string };
+          calls.push(body.operation);
+          return HttpResponse.json({
+            ...runtimeResponse([
+              change === 'changed request' ? { ...tool, arguments: `${argumentsText} ` } : tool,
+            ]),
+            lockedRead: change === 'locked read',
+          });
+        }),
+      );
+      const session = openSession({
+        profile: { apiUrl: CORE, token: 'pat' },
+        bearerToken: 'session',
+      });
+      await expect(
+        executePetToolRun(session, WORKSPACE, PET, TOOL, 'approve', 'chat', {
+          arguments: argumentsText,
+        }),
+      ).rejects.toThrow(
+        change === 'changed request'
+          ? 'Tool changed after evaluation preview.'
+          : 'The conversation read locked content after evaluation preview.',
+      );
+      expect(calls).toEqual(['read']);
+    },
+  );
+
   it('dry run prints the preview and performs no runtime write', async () => {
     const profile = await withProfile();
     try {
