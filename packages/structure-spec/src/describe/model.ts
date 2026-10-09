@@ -46,12 +46,7 @@ export interface PreviewTextRange {
 
 /** What a body edit touches: a whole section, or the one block a passage sits in. */
 export type PreviewBodyEditScope =
-  | 'section'
-  | 'paragraph'
-  | 'list item'
-  | 'heading'
-  | 'code block'
-  | 'table cell';
+  'section' | 'paragraph' | 'list item' | 'heading' | 'code block' | 'table cell';
 
 export interface PreviewBodyEdit {
   scope: PreviewBodyEditScope;

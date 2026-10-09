@@ -80,28 +80,37 @@ public sealed class UnitOfWorkResponseTests(NixPostgresFixture fixture) : IAsync
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         gate.Enabled = true;
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/write");
-        var pending = client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, Cancellation);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/write");
+        HttpResponseMessage? response = null;
         try
         {
-            await gate.BeforeCommit.Task.WaitAsync(TimeSpan.FromSeconds(10), Cancellation);
-            Assert.False(gate.ResponseStarted);
+            var pending = client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, Cancellation);
+            try
+            {
+                await gate.BeforeCommit.Task.WaitAsync(TimeSpan.FromSeconds(10), Cancellation);
+                Assert.False(gate.ResponseStarted);
+            }
+            finally
+            {
+                gate.Resume.TrySetResult();
+                response = await pending;
+            }
+            Assert.Equal(failCommit ? HttpStatusCode.InternalServerError : HttpStatusCode.Created, response.StatusCode);
+            Assert.Equal(failCommit ? "application/problem+json" : "application/json", response.Content.Headers.ContentType?.MediaType);
+            var body = await response.Content.ReadAsStringAsync(Cancellation);
+            if (failCommit)
+            {
+                Assert.DoesNotContain("Committed HTTP item", body, StringComparison.Ordinal);
+            }
+            else
+            {
+                Assert.Contains("Committed HTTP item", body, StringComparison.Ordinal);
+            }
         }
         finally
         {
-            gate.Resume.TrySetResult();
-        }
-        using var response = await pending;
-        Assert.Equal(failCommit ? HttpStatusCode.InternalServerError : HttpStatusCode.Created, response.StatusCode);
-        Assert.Equal(failCommit ? "application/problem+json" : "application/json", response.Content.Headers.ContentType?.MediaType);
-        var body = await response.Content.ReadAsStringAsync(Cancellation);
-        if (failCommit)
-        {
-            Assert.DoesNotContain("Committed HTTP item", body, StringComparison.Ordinal);
-        }
-        else
-        {
-            Assert.Contains("Committed HTTP item", body, StringComparison.Ordinal);
+            response?.Dispose();
+            request.Dispose();
         }
 
         await using var verify = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
