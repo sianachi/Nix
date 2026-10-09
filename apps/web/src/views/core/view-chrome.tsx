@@ -237,9 +237,16 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
   // view whose schema has not arrived yet is never accused of naming a property that does not
   // exist - it has not been told what exists.
   if (args.drawable.kind === 'undrawable') {
+    // A view that cannot be drawn is a configuration problem, so the way out is its settings.
     return {
       kind: 'chrome',
-      node: <ErrorPanel title={args.drawable.title} detail={args.drawable.detail} />,
+      node: (
+        <ErrorPanel
+          title={args.drawable.title}
+          detail={args.drawable.detail}
+          {...(configureHref === null ? {} : { action: <ViewSettingsLink href={configureHref} /> })}
+        />
+      ),
     };
   }
 
@@ -430,4 +437,16 @@ function savedFiltersHideAll(
 /** "this board" as the first two words of a sentence. */
 function capitalise(subject: string): string {
   return subject.charAt(0).toUpperCase() + subject.slice(1);
+}
+
+/** The way from a view that cannot draw, or draws less than asked, to the settings that fix it. */
+export function ViewSettingsLink({ href }: { readonly href: string }): ReactNode {
+  return (
+    <Link
+      to={href}
+      className={`inline-flex w-fit items-center underline pointer-coarse:min-h-(--control-lg) ${focusRing}`}
+    >
+      Change this view&apos;s settings
+    </Link>
+  );
 }

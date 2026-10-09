@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { InteractiveFormEditor } from '../form/interactive-form-editor';
+import { resolveDoneProperty } from '../checklist/checklist-view';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
 import type { PropertyDefinition, View } from './container-model';
 import { LineListInput } from './line-list-input';
@@ -198,6 +199,11 @@ function ChecklistDetailChoice({
   readonly onChange: (view: View) => void;
 }): ReactNode {
   const current = view.columns.find((key) => key !== 'title') ?? '';
+  // The box is already on every line, so the property it ticks is not offered as the detail too.
+  const done = resolveDoneProperty(fields, view.doneProperty);
+  const offered = fields.filter(
+    (field) => done.kind !== 'ready' || field.key !== done.property.key,
+  );
   return (
     <Field label="Shown beside each line" hint="One property, read-only, after the title.">
       {(control) => (
@@ -210,7 +216,7 @@ function ChecklistDetailChoice({
           }}
         >
           <option value="">Nothing</option>
-          {fields.map((field) => (
+          {offered.map((field) => (
             <option key={field.key} value={field.key}>
               {field.label}
             </option>

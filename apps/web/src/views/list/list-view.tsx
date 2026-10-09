@@ -35,7 +35,8 @@ import { useItemContextActions } from '../core/use-item-context-actions';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
-import { drawable, useViewChrome } from '../core/view-chrome';
+import { drawable, useViewChrome, ViewSettingsLink } from '../core/view-chrome';
+import { viewConfigureHref } from '../core/view-configure-route';
 import { useViewState, type SortDirection } from '../core/view-state';
 import { useVirtualWindow } from '../core/use-virtual-window';
 import { virtualSpacers } from '../core/virtual-window';
@@ -173,6 +174,7 @@ export function ListView(props: ListViewProps): ReactNode {
   // Sections (plan 3.3). A grouping that cannot be resolved does not cost the list its rows: the
   // list is what every container falls back to, so it draws flat and says why the headings are
   // missing rather than refusing to draw at all, which is what a board does without its columns.
+  const settingsHref = view === null ? null : viewConfigureHref(container.itemId, view);
   const sectioning = resolveViewAxis(container.schema?.properties ?? [], view?.groupBy, {
     allowType: true,
   });
@@ -184,6 +186,7 @@ export function ListView(props: ListViewProps): ReactNode {
     sectioning.kind === 'missing' || sectioning.kind === 'wrongType' ? (
       <PartialNotice
         pending={`This list is shown without sections. ${describeAxisProblem(sectioning, 'sections')}`}
+        {...(settingsHref === null ? {} : { action: <ViewSettingsLink href={settingsHref} /> })}
       />
     ) : null;
   const toggleSection = (group: string): void => {
@@ -319,7 +322,7 @@ function ListSections(props: ListSectionsProps): ReactNode {
         const open = !collapsed.has(section.group);
         const bodyId = `${baseId}-section-${String(index)}`;
         return (
-          <section key={section.group} aria-label={section.label} className="flex flex-col gap-2">
+          <section key={section.group} className="flex flex-col gap-2">
             <Text as="h3" variant="h6">
               <button
                 type="button"

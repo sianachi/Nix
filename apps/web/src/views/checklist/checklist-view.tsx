@@ -1,5 +1,5 @@
 import { Button, Checkbox, ContextMenu, Input, Text, cn, focusRing } from '@nix/ui';
-import { useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import {
   readPropertyText,
@@ -8,7 +8,7 @@ import {
   type View,
 } from '../core/container-model';
 import { TITLE_COLUMN_KEY } from '../core/columns';
-import { valueShapeOf } from '../core/property-types';
+import { propertyTypeWord, valueShapeOf } from '../core/property-types';
 import type { ContainerData } from '../core/use-container';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import { drawable, undrawable, useViewChrome } from '../core/view-chrome';
@@ -75,17 +75,17 @@ function describeDone(
     case 'none':
       return {
         title: 'This checklist has nothing to tick',
-        detail: `"${view.name}" ticks a checkbox property, and there is none called "done" and no task completion here. Add one under Properties, or choose one in this view's settings.`,
+        detail: `"${view.name}" ticks a checkbox, and there is no checkbox called "Done" and no task completion here. Add one under Properties, or choose one in this view's settings.`,
       };
     case 'missing':
       return {
         title: 'This checklist ticks a property that no longer exists',
-        detail: `"${view.name}" ticks "${resolution.key}", which is not in this item's schema. The items are all still here; choose another checkbox in this view's settings.`,
+        detail: `"${view.name}" ticks a property that has been removed from this item. The items are all still here; choose another checkbox in this view's settings.`,
       };
     case 'wrongType':
       return {
         title: 'This checklist ticks a property that is not a checkbox',
-        detail: `"${resolution.property.label}" is a ${resolution.property.type} property, and a checklist's boxes need a checkbox or a completion. The items are all still here.`,
+        detail: `"${resolution.property.label}" is a ${propertyTypeWord(resolution.property.type)} property, and a checklist's boxes need a checkbox or a completion. The items are all still here; choose another in this view's settings.`,
       };
   }
 }
@@ -95,6 +95,20 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
   const viewState = useViewState();
   const [hideDone, setHideDone] = useState(false);
   const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // Where focus goes once a ticked line has been hidden: the next visible line's box, so ticking
+  // through a list with "Hide done" on never drops focus to the page. A ref, because it is an
+  // instruction to the render that follows the write, not something to draw.
+  const boxRefs = useRef(new Map<string, HTMLInputElement>());
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (target === null) return;
+    const box = boxRefs.current.get(target);
+    if (box !== undefined) {
+      pendingFocus.current = null;
+      box.focus();
+    }
+  });
   const properties = container.schema?.properties ?? [];
   const done = resolveDoneProperty(properties, view.doneProperty);
 
@@ -108,7 +122,6 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
         : undrawable<PropertyDefinition>(describeDone(done, view)),
     emptyTitle: 'Nothing on this checklist yet',
     emptyDetail: 'Add the first line below; each one is an item inside this one.',
-    emptyAction: <AddLine onCreate={container.create} />,
     filtered: (total) => ({
       title: 'No lines match the filters',
       detail: `This checklist holds ${String(total)} lines. The filters in the address are hiding all of them.`,
@@ -120,17 +133,32 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
       viewState.sortBy === null ? view.sortDescending : viewState.direction === 'descending',
   });
 
-  if (chrome.kind === 'chrome') {
+  // An empty checklist is drawn by the checklist itself rather than the chrome's empty panel, so
+  // the add field sits at the same place in the tree before and after the first line: focus typed
+  // into it survives the first add instead of being dropped when the panel is replaced.
+  const emptyAndReady =
+    container.status === 'ready' &&
+    !container.locked &&
+    container.children.length === 0 &&
+    done.kind === 'ready';
+  if (chrome.kind === 'chrome' && !emptyAndReady) {
     return chrome.node;
   }
+  if (done.kind !== 'ready') return null;
 
-  const doneProperty = chrome.drawable;
+  const doneProperty = done.property;
+  const items = chrome.kind === 'items' ? chrome.items : [];
+  const notice = chrome.kind === 'items' ? chrome.notice : null;
   const isDone = (item: Item): boolean => item.properties[doneProperty.key] === true;
   const secondary = secondaryProperty(view, properties, doneProperty.key);
-  const doneCount = chrome.items.filter(isDone).length;
-  const shown = hideDone ? chrome.items.filter((item) => !isDone(item)) : chrome.items;
+  const doneCount = items.filter(isDone).length;
+  const shown = hideDone ? items.filter((item) => !isDone(item)) : items;
 
   function tick(item: Item, checked: boolean): void {
+    if (hideDone && checked) {
+      const at = shown.findIndex((candidate) => candidate.id === item.id);
+      pendingFocus.current = (shown[at + 1] ?? shown[at - 1])?.id ?? null;
+    }
     setRefusals((current) => withoutKey(current, item.id));
     void container.setProperties(item.id, { [doneProperty.key]: checked }).then((refusal) => {
       if (refusal !== null) {
@@ -141,11 +169,18 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
-      {chrome.notice}
+      {notice}
 
-      <ChecklistProgress done={doneCount} total={chrome.items.length} />
+      {items.length === 0 ? (
+        <Text variant="bodySmall" tone="muted">
+          Nothing on this checklist yet. Add the first line below; each one is an item inside this
+          one.
+        </Text>
+      ) : (
+        <ChecklistProgress done={doneCount} total={items.length} />
+      )}
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2" hidden={items.length === 0}>
         <Button
           variant="ghost"
           aria-pressed={hideDone}
@@ -157,7 +192,7 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
         </Button>
       </div>
 
-      {shown.length === 0 ? (
+      {items.length === 0 ? null : shown.length === 0 ? (
         <Text variant="bodySmall" tone="muted">
           Every line is done. Turn off &quot;Hide done&quot; to see them.
         </Text>
@@ -168,6 +203,10 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
               key={item.id}
               item={item}
               done={isDone(item)}
+              boxRef={(element) => {
+                if (element === null) boxRefs.current.delete(item.id);
+                else boxRefs.current.set(item.id, element);
+              }}
               secondary={secondary}
               refusal={refusals.get(item.id) ?? null}
               onTick={(checked) => {
@@ -238,6 +277,7 @@ function ChecklistProgress({
 interface ChecklistLineProps {
   readonly item: Item;
   readonly done: boolean;
+  readonly boxRef: (element: HTMLInputElement | null) => void;
   readonly secondary: PropertyDefinition | null;
   readonly refusal: string | null;
   readonly onTick: (checked: boolean) => void;
@@ -245,7 +285,7 @@ interface ChecklistLineProps {
 }
 
 function ChecklistLine(props: ChecklistLineProps): ReactNode {
-  const { item, done, secondary, refusal, onTick, onOpen } = props;
+  const { item, done, boxRef, secondary, refusal, onTick, onOpen } = props;
   const itemActions = useItemContextActions(onOpen);
   const title = item.title.length > 0 ? item.title : 'Untitled';
   const detail = secondary === null ? '' : readPropertyText(item, secondary.key);
@@ -258,6 +298,7 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
             {/* Named by the line's title: the box is what a person reaches for, and "Buy milk,
                 checkbox, not checked" is the sentence a screen reader should say about it. */}
             <Checkbox
+              ref={boxRef}
               aria-label={title}
               checked={done}
               onChange={(event) => {
@@ -285,7 +326,7 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
               </Text>
             </button>
             {detail.length === 0 || secondary === null ? null : (
-              <Text as="span" variant="caption" tone="muted" className="shrink-0">
+              <Text as="span" variant="caption" tone="muted" truncate className="min-w-0 max-w-1/2">
                 <span className="sr-only">{secondary.label}: </span>
                 {detail}
               </Text>

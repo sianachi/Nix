@@ -612,7 +612,7 @@ export const VIEW_KINDS: readonly ViewKindDescriptor[] = [
     configures: [
       {
         field: 'doneProperty',
-        label: 'Ticks',
+        label: 'Box ticks',
         emptyHint:
           'There is no checkbox property yet. Add one under Properties, or call one "done" to use it automatically.',
         hint: 'Each box ticks this property. Left on automatic, a checkbox called "done" or the task completion is used.',
