@@ -48,7 +48,7 @@ public static class ReservedPropertyContent
     /// <returns>The key, or <see langword="null"/> (also for a bag that does not parse, which the caller's own validation refuses).</returns>
     public static string? FirstForbidden(string? bag, IReadOnlyList<string> allowed)
     {
-        if (bag is null || !bag.Contains('$', StringComparison.Ordinal))
+        if (bag is null)
         {
             return null;
         }
@@ -71,7 +71,7 @@ public static class ReservedPropertyContent
     /// <returns>The bag, unchanged when it carries nothing to drop or does not parse.</returns>
     public static string? Strip(string? bag, IReadOnlyList<string> allowed)
     {
-        if (bag is null || !bag.Contains('$', StringComparison.Ordinal))
+        if (bag is null)
         {
             return bag;
         }
@@ -107,33 +107,58 @@ public static class ReservedPropertyContent
     /// The sentence refusing an allowlisted group whose values its own validator rejects, or null.
     /// </summary>
     /// <param name="bag">The bag about to be applied.</param>
-    /// <param name="type">The item's type, for the finance readers.</param>
+    /// <param name="title">The item's title, for the finance readers.</param>
     /// <returns>The reason, or <see langword="null"/>.</returns>
     /// <remarks>
-    /// Habit settings are judged by <see cref="HabitSettings.Read"/> whenever their defining key is
-    /// present; a finance record by <see cref="FinanceAccount.Read"/> or
-    /// <see cref="FinanceTransaction.Read"/> whenever it claims to be one. Other <c>$habit_</c> and
-    /// <c>$fin_</c> keys (check-in marks, history versions, finance settings) are carried as they
-    /// are, the same as the habit and finance endpoints read them fail-soft.
+    /// Habit settings and their history are judged by <see cref="HabitHistory.Read"/> whenever
+    /// their defining key is present. Finance settings and each record kind use their own readers.
+    /// Decoded property names are checked, so JSON escapes cannot bypass the reserved-key rules.
     /// </remarks>
-    public static string? Refuse(string? bag, string type)
+    public static string? Refuse(string? bag, string title)
     {
-        if (bag is null || !bag.Contains('$', StringComparison.Ordinal))
+        if (bag is null)
         {
             return null;
         }
 
-        if (bag.Contains("\"$habit_frequency\"", StringComparison.Ordinal) && HabitSettings.Read(bag) is null)
+        JsonObject content;
+        try
         {
-            return "a habit's settings are malformed";
+            if (JsonNode.Parse(bag) is not JsonObject parsed)
+            {
+                return "property content is malformed";
+            }
+
+            content = parsed;
+            // Enumeration also refuses duplicate member names before the feature readers run.
+            _ = content.Count;
+        }
+        catch (Exception error) when (error is JsonException or ArgumentException)
+        {
+            return "property content is malformed";
         }
 
-        if (FinanceAccount.Claims(bag) && FinanceAccount.Read(Guid.Empty, type, bag) is null)
+        if (content.ContainsKey("$habit_frequency") && HabitHistory.Read(bag) is null)
+        {
+            return "a habit's settings or history are malformed";
+        }
+
+        if (FinanceSettings.IsConfigured(bag) && FinanceSettings.Read(bag) is null)
+        {
+            return "finance settings are malformed";
+        }
+
+        if (FinanceAccount.Claims(bag) && FinanceAccount.Read(Guid.Empty, title, bag) is null)
         {
             return "a finance account's fields are malformed";
         }
 
-        if (FinanceTransaction.Claims(bag) && FinanceTransaction.Read(Guid.Empty, type, bag) is null)
+        if (BudgetLine.Claims(bag) && BudgetLine.Read(Guid.Empty, title, 0, bag) is null)
+        {
+            return "a budget line's fields are malformed";
+        }
+
+        if (FinanceTransaction.Claims(bag) && FinanceTransaction.Read(Guid.Empty, title, bag) is null)
         {
             return "a finance transaction's fields are malformed";
         }

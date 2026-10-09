@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+using Nix.Domain.Habits;
 using Nix.Domain.Items;
 
 namespace Nix.Tests.Domain.Items;
@@ -59,4 +61,35 @@ public sealed class ReservedPropertyContentTests
     {
         Assert.NotNull(ReservedPropertyContent.Refuse("""{"$fin_kind":"transaction"}""", "note"));
     }
+
+    [Fact]
+    public void Escaped_reserved_keys_are_checked_by_their_decoded_names()
+    {
+        const string bag = """{"\u0024type":"task","\u0024habit_frequency":"daily"}""";
+
+        Assert.Equal("$type", ReservedPropertyContent.FirstForbidden(bag, Content));
+        var stripped = JsonNode.Parse(ReservedPropertyContent.Strip(bag, Content)!)!.AsObject();
+        Assert.False(stripped.ContainsKey("$type"));
+        Assert.NotNull(ReservedPropertyContent.Refuse(bag, "note"));
+    }
+
+    [Fact]
+    public void Valid_current_habit_settings_do_not_allow_malformed_history()
+    {
+        var bag = new HabitSettings("daily", [], "UTC", new DateOnly(2026, 1, 1), 1, "times").ToProperties();
+        Assert.Null(ReservedPropertyContent.Refuse(bag.ToJsonString(), "note"));
+
+        bag["$habit_versions"] = new JsonArray(new JsonObject
+        {
+            ["effectiveFrom"] = "2026-01-01",
+            ["settings"] = new JsonObject { ["$habit_frequency"] = "daily" },
+        });
+        Assert.NotNull(ReservedPropertyContent.Refuse(bag.ToJsonString(), "note"));
+    }
+
+    [Theory]
+    [InlineData("""{"$fin_kind":"line"}""")]
+    [InlineData("""{"$fin_currency":"GBP"}""")]
+    public void Malformed_budget_lines_and_finance_settings_are_refused(string bag) =>
+        Assert.NotNull(ReservedPropertyContent.Refuse(bag, "Finance"));
 }

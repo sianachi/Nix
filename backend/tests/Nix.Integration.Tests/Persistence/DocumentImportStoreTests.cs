@@ -82,13 +82,15 @@ public sealed class DocumentImportStoreTests(NixPostgresFixture fixture) : IAsyn
         Assert.Equal("times", (string?)bag["$habit_unit"]);
     }
 
-    [Fact]
-    public async Task An_import_with_malformed_habit_settings_is_refused()
+    [Theory]
+    [InlineData("""{"$habit_frequency":"daily"}""")]
+    [InlineData("""{"$habit_frequency":"daily","$habit_timezone":"UTC","$habit_start_date":"2026-01-01","$habit_target":1,"$habit_unit":"times","$habit_status_versions":[{"effectiveFrom":"2026-01-01","status":"forged"}]}""")]
+    public async Task An_import_with_malformed_habit_settings_is_refused(string properties)
     {
         await using var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         var (imports, operation, digest) = await CommitQueuedAsync(work, "nix", "habit.nix", 8, itemCount: 1);
         var note = new ImportEnvelopePlan("note", null, 0, "Broken habit", "note",
-            """{"$habit_frequency":"daily"}""", null, null, "active", false, null);
+            properties, null, null, "active", false, null);
 
         Assert.Null(await imports.StageAsync(new StageDocumentImport(
             DocumentImportId.From(operation.Id), new string('b', 64), digest, [note]), Cancellation));

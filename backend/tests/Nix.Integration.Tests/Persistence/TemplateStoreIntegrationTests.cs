@@ -4077,14 +4077,16 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         }
     }
 
-    [Fact]
-    public async Task A_template_whose_habit_settings_are_malformed_is_refused_at_application()
+    [Theory]
+    [InlineData("""{"title":"Template root","answer":"a","$habit_frequency":"daily"}""")]
+    [InlineData("""{"title":"Template root","answer":"a","$habit_frequency":"daily","$habit_timezone":"UTC","$habit_start_date":"2026-01-01","$habit_target":1,"$habit_unit":"times","$habit_versions":[{"effectiveFrom":"2026-01-01","settings":{"$habit_frequency":"daily"}}]}""")]
+    public async Task A_template_whose_habit_settings_are_malformed_is_refused_at_application(string properties)
     {
         // The allowlisted group is checked by the habit validator when it is applied, not trusted
         // because the template carried it.
         var root = Items()[0] with
         {
-            Properties = """{"title":"Template root","answer":"a","$habit_frequency":"daily"}""",
+            Properties = properties,
         };
         TemplateId templateId;
         var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
