@@ -133,7 +133,7 @@ public sealed class WorkspaceQueryPlanEvidenceTests : IAsyncLifetime
         // ancestor probe is one hashed pass over the closure rather than a probe per row (data
         // review S1: 883k to 16k buffers on 60k items).
         Assert.Contains("CTE matched", plan, StringComparison.Ordinal);
-        Assert.Contains("Hash Anti Join", plan, StringComparison.Ordinal);
+        Assert.Matches(@"Hash (Right )?Anti Join", plan);
         Assert.True(Count(plan, "CTE Scan on matched") >= 2, "Expected both folds to read the materialised match.");
     }
 
