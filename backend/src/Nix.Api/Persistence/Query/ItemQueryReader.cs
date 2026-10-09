@@ -131,6 +131,23 @@ public sealed class ItemQueryReader : IItemQuery
                 failure.SqlState,
                 failure);
         }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Not a database refusal (an I/O fault, a mapper overflow): still undo the savepoint
+            // and its timeout so a caller that continues the transaction does not inherit them,
+            // then let the failure surface as it is.
+            try
+            {
+                await _sql.ExecuteAsync($"ROLLBACK TO SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+                await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (NpgsqlException)
+            {
+                // The connection itself is gone; the unit of work rolls the transaction back.
+            }
+
+            throw;
+        }
 
         await _sql.ExecuteAsync($"RELEASE SAVEPOINT {Savepoint}", cancellationToken: cancellationToken).ConfigureAwait(false);
         await SetTimeoutAsync(previous, cancellationToken).ConfigureAwait(false);
