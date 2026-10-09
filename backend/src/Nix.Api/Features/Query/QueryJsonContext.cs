@@ -11,4 +11,8 @@ namespace Nix.Serialization;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(QueryResultsResponse))]
+[JsonSerializable(typeof(WorkspaceQueryRequest))]
+[JsonSerializable(typeof(WorkspaceQueryResponse))]
+[JsonSerializable(typeof(WorkspaceAggregateRequest))]
+[JsonSerializable(typeof(WorkspaceAggregateResponse))]
 internal sealed partial class QueryJsonContext : JsonSerializerContext;

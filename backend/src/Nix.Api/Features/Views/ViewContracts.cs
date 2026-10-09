@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Nix.Features.Views;
 
 /// <summary>
@@ -124,28 +126,45 @@ internal sealed record ViewGroupLimitContract(string Group, int Limit);
 /// </param>
 internal sealed record ViewAggregateContract(string Property, string Function);
 
-/// <summary>One condition of a view's filter.</summary>
-/// <param name="Property">The property key the condition tests, matched across containers.</param>
+/// <summary>One condition of a view's filter, or an "any of" group of conditions.</summary>
+/// <param name="Property">
+/// The property key the condition tests, matched across containers - or, on a query, one of the
+/// structural fields <c>$type</c> (body kind), <c>$inside</c> (an ancestor's id, through the
+/// closure), <c>$created</c> and <c>$modified</c> (UTC days), <c>$done</c> (the completion key is
+/// true). Property keys may not start with <c>$</c>. Absent on a group.
+/// </param>
 /// <param name="Operator">
 /// One of: <c>equals</c>, <c>not-equals</c>, <c>on</c>, <c>before</c>, <c>on-or-after</c>,
-/// <c>within-next</c>, <c>contains</c>, <c>not-contains</c>, <c>greater-than</c>, <c>less-than</c>,
-/// <c>is-empty</c>, <c>is-not-empty</c>. A closed set, refused outside it. A query view may use only
-/// the first six.
+/// <c>within-next</c>, <c>within-last</c>, <c>contains</c>, <c>not-contains</c>,
+/// <c>greater-than</c>, <c>less-than</c>, <c>is-empty</c>, <c>is-not-empty</c>. A closed set,
+/// refused outside it. Absent on a group.
 /// </param>
 /// <param name="Value">
-/// What the operator compares against: a literal for the equality pair; <c>today</c> or a
-/// <c>yyyy-MM-dd</c> date for <c>on</c>/<c>before</c>/<c>on-or-after</c>; a day count from 1 to
-/// 365 for <c>within-next</c>; a literal for <c>contains</c>/<c>not-contains</c>, matched as a
-/// case-insensitive substring of text or as one multi-select option exactly; a finite invariant
-/// number for <c>greater-than</c>/<c>less-than</c>; empty for <c>is-empty</c>/<c>is-not-empty</c>.
-/// <c>today</c> is resolved at read time from the caller's own <c>today</c> parameter, so a saved
-/// query stays a rule rather than a date.
+/// What the operator compares against: a literal for the equality pair (or <c>me</c>, the calling
+/// principal); a day for <c>on</c>/<c>before</c>/<c>on-or-after</c>, written <c>yyyy-MM-dd</c> or
+/// as one of the tokens <c>today</c>, <c>start-of-week</c> (Monday), <c>start-of-month</c>,
+/// <c>same-day-last-week</c>, <c>same-day-last-month</c>; a day count from 1 to 365 for
+/// <c>within-next</c>/<c>within-last</c>; a literal for <c>contains</c>/<c>not-contains</c>,
+/// matched as a case-insensitive substring of text or as one multi-select option exactly; a
+/// finite number for <c>greater-than</c>/<c>less-than</c>, compared with stored numbers and with
+/// text that reads as one; empty for <c>is-empty</c>/<c>is-not-empty</c> (absent, null, empty
+/// text and an empty list are all empty). Tokens are resolved at read time from the caller's own
+/// today, so a saved query stays a rule rather than a date. Absent on a group.
+/// </param>
+/// <param name="Any">
+/// Set only on an "any of" group: the conditions, at least one of which must hold. Groups do not
+/// nest, and the conditions inside groups count toward the eight-filter ceiling.
 /// </param>
 /// <remarks>
-/// Rules combine with AND. Whether the property exists is deliberately not checked - the query
-/// spans containers, and a rule naming a property nothing declares simply matches nothing.
+/// Rules combine with AND, with one level of OR through groups. Whether the property exists is
+/// deliberately not checked - a query spans containers, and a rule naming a property nothing
+/// declares simply matches nothing.
 /// </remarks>
-internal sealed record FilterRuleContract(string Property, string Operator, string Value);
+internal sealed record FilterRuleContract(
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Property,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Operator,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Value,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<FilterRuleContract>? Any = null);
 
 internal sealed record FormConditionContract(string FieldBlockId, string Operator, string? Value);
 

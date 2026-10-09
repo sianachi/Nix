@@ -132,6 +132,15 @@ public static class AccessTokenScopePolicy
             return Requirement.Read;
         }
 
+        // The ad-hoc workspace query and its aggregate: reads sent as POSTs because rules do not
+        // fit a URL, classified as reads for the mentions reason. Matched by exact shape - the
+        // workspaces prefix, one id segment, then "query" or "query/aggregate" - so nothing later
+        // nested under either path inherits it.
+        if (HttpMethods.IsPost(method) && IsWorkspaceQueryPath(value))
+        {
+            return Requirement.Read;
+        }
+
         // Workspace membership administration changes who can reach an entire item tree. The
         // database role remains the authority; an admin-scoped token is an additional ceiling.
         if (value.Contains("/members", StringComparison.OrdinalIgnoreCase)
@@ -166,6 +175,33 @@ public static class AccessTokenScopePolicy
         }
 
         return Requirement.Write;
+    }
+
+    /// <summary>
+    /// Whether a trimmed path is exactly <c>/api/v1/workspaces/{id}/query</c> or
+    /// <c>/api/v1/workspaces/{id}/query/aggregate</c>, with one segment for the id.
+    /// </summary>
+    private static bool IsWorkspaceQueryPath(string value)
+    {
+        const string Prefix = "/api/v1/workspaces/";
+        if (!value.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // One segment for the workspace: the route's guid constraint is what makes it an id (any
+        // other segment matches no endpoint and answers 404), and the contract walk classifies the
+        // templated path, so the segment is not parsed here.
+        var rest = value[Prefix.Length..];
+        var slash = rest.IndexOf('/', StringComparison.Ordinal);
+        if (slash <= 0)
+        {
+            return false;
+        }
+
+        var tail = rest[(slash + 1)..];
+        return string.Equals(tail, "query", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(tail, "query/aggregate", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

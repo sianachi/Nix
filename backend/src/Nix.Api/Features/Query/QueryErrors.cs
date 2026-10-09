@@ -39,4 +39,13 @@ public static class QueryErrors
     /// </remarks>
     public static NixError InvalidRules(string detail) =>
         new(QueryEndpoints.InvalidRulesCode, detail);
+
+    /// <summary>An ad-hoc query or aggregate asked for something its grammar does not allow.</summary>
+    /// <remarks>
+    /// 400, kept apart from <see cref="InvalidRules"/> (422): there the rules were stored and have
+    /// stopped validating, here the caller sent them and can correct them. Checked before anything
+    /// is read, so the refusal is a function of the request alone and says nothing about the data.
+    /// </remarks>
+    public static NixError InvalidRequest(string detail) =>
+        new(QueryEndpoints.InvalidRequestCode, detail);
 }

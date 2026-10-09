@@ -218,6 +218,9 @@ var lockPasswordAttemptsPerMinute = builder.Configuration.GetValue(
 var suggestionsPerMinute = builder.Configuration.GetValue(
     "Nix:RateLimits:SuggestionsPerMinute",
     60);
+var queriesPerMinute = builder.Configuration.GetValue(
+    "Nix:RateLimits:QueriesPerMinute",
+    120);
 
 // One window, named once: the limiter's window and the fallback the rejection reports are the same
 // interval by definition, and two literals would eventually disagree.
@@ -296,6 +299,20 @@ builder.Services.AddRateLimiter(options =>
             _ => new FixedWindowRateLimiterOptions
             {
                 PermitLimit = suggestionsPerMinute,
+                Window = writesWindow,
+                QueueLimit = 0,
+            }));
+
+    // The ad-hoc workspace query and aggregate: reads sent as POSTs because rules do not fit a
+    // URL. Per address for the same pre-authentication reason, and a window of their own: a
+    // dashboard drawing several tiles, or an assistant answering a question, must never use up the
+    // window a person's saves draw on, and each request scans a workspace, so it is not unbounded.
+    options.AddPolicy<IPAddress>(RateLimitRefusal.QueriesPolicyName, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            ClientKey.For(httpContext),
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = queriesPerMinute,
                 Window = writesWindow,
                 QueueLimit = 0,
             }));

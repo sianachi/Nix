@@ -8668,6 +8668,192 @@
         }
       }
     },
+    "/api/v1/workspaces/{workspaceId}/query": {
+      "post": {
+        "tags": [
+          "Query"
+        ],
+        "summary": "Run an ad-hoc query over one workspace",
+        "description": "Runs the rule shape a query view stores, without a saved view, over one workspace the caller may read: every active item that satisfies 'filters' (ANDed, with one level of 'any' groups, at most eight with the preset's), optionally beneath 'scope.parentId' (its whole subtree unless 'descendants' is false). Rules may test properties or the structural fields $type, $inside, $created, $modified and $done. Rows the caller may not read are excluded while the query runs, so the limit (100 by default, at most 500) is spent only on rows that are returned; 'truncated' says when more matched. With 'groupBy', rows arrive group by group - in 'groupBy.order', then by text, with 'no value' last - and 'groups' lists each group with its full count, so a cut list has whole groups first. Rows are otherwise ordered by 'sort', else by the first date rule's property soonest first, else most recently modified first, always tie-broken by id. 'today' (yyyy-MM-dd, the caller's own day) is required when a rule uses a day token or a window. A workspace the caller cannot read answers 'workspaces.not_found'; a scope container it cannot read answers 'items.not_found', as the item read does, and a locked one 'items.locked'. A read sent as a POST because rules do not fit a URL: it changes nothing, a read-scoped token may call it, and it has its own per-address rate limit ('queries'), separate from writes.",
+        "operationId": "RunWorkspaceQuery",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceQueryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/workspaces/{workspaceId}/query/aggregate": {
+      "post": {
+        "tags": [
+          "Query"
+        ],
+        "summary": "Fold an ad-hoc query over one workspace",
+        "description": "Matches exactly what POST /workspaces/{workspaceId}/query would - same rules, scope, permission, lifecycle and lock filters - and folds the matches instead of returning them: 'count' rows, or 'sum', 'avg', 'min' or 'max' of a numeric property. A stored number, or text that reads as one, is folded; any other value is left out and counted in 'skipped', never treated as zero. With 'groupBy' the fold is also given per group, at most 100 groups in the same order a grouped query uses, with 'truncated' and 'groupCount' saying when more exist; 'total', 'count' and 'skipped' always cover every matched row. Same refusals, token scope and rate limit as the query.",
+        "operationId": "AggregateWorkspaceQuery",
+        "parameters": [
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceAggregateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceAggregateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Payload Too Large",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Locked",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/chart": {
       "get": {
         "tags": [
@@ -9745,6 +9931,55 @@
           },
           "auth": {
             "type": "string"
+          }
+        }
+      },
+      "AggregateGroupResponse": {
+        "required": [
+          "key",
+          "label",
+          "value",
+          "count",
+          "skipped"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "value": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "skipped": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
           }
         }
       },
@@ -12859,13 +13094,31 @@
         "type": "object",
         "properties": {
           "property": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "operator": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "value": {
-            "type": "string"
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "any": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FilterRuleContract"
+            }
           }
         }
       },
@@ -16524,6 +16777,81 @@
           }
         }
       },
+      "QueryAggregateContract": {
+        "required": [
+          "function",
+          "property"
+        ],
+        "type": "object",
+        "properties": {
+          "function": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "property": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "QueryGroupByContract": {
+        "required": [
+          "property",
+          "order"
+        ],
+        "type": "object",
+        "properties": {
+          "property": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "order": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "QueryGroupResponse": {
+        "required": [
+          "key",
+          "label",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
       "QueryResultResponse": {
         "required": [
           "id",
@@ -16608,6 +16936,49 @@
           },
           "truncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "QueryScopeContract": {
+        "required": [
+          "parentId",
+          "descendants"
+        ],
+        "type": "object",
+        "properties": {
+          "parentId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "descendants": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "QuerySortContract": {
+        "required": [
+          "property",
+          "descending"
+        ],
+        "type": "object",
+        "properties": {
+          "property": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "descending": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },
@@ -19490,6 +19861,155 @@
           }
         }
       },
+      "WorkspaceAggregateRequest": {
+        "required": [
+          "scope",
+          "preset",
+          "filters",
+          "groupBy",
+          "aggregate",
+          "today"
+        ],
+        "type": "object",
+        "properties": {
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueryScopeContract"
+              }
+            ]
+          },
+          "preset": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "filters": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FilterRuleContract"
+            }
+          },
+          "groupBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueryGroupByContract"
+              }
+            ]
+          },
+          "aggregate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueryAggregateContract"
+              }
+            ]
+          },
+          "today": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "WorkspaceAggregateResponse": {
+        "required": [
+          "workspaceId",
+          "today",
+          "function",
+          "property",
+          "groupBy",
+          "groups",
+          "total",
+          "count",
+          "skipped",
+          "groupCount",
+          "truncated"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "today": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "function": {
+            "type": "string"
+          },
+          "property": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groupBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AggregateGroupResponse"
+            }
+          },
+          "total": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "skipped": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "groupCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      },
       "WorkspaceCalendarLinkResponse": {
         "required": [
           "containerItemId",
@@ -19791,6 +20311,187 @@
           },
           "kind": {
             "type": "string"
+          }
+        }
+      },
+      "WorkspaceQueryRequest": {
+        "required": [
+          "scope",
+          "preset",
+          "filters",
+          "sort",
+          "groupBy",
+          "limit",
+          "today"
+        ],
+        "type": "object",
+        "properties": {
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueryScopeContract"
+              }
+            ]
+          },
+          "preset": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "filters": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FilterRuleContract"
+            }
+          },
+          "sort": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuerySortContract"
+              }
+            ]
+          },
+          "groupBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueryGroupByContract"
+              }
+            ]
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "today": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "WorkspaceQueryResponse": {
+        "required": [
+          "workspaceId",
+          "today",
+          "results",
+          "limit",
+          "truncated",
+          "groupBy",
+          "groups"
+        ],
+        "type": "object",
+        "properties": {
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "today": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceQueryRowResponse"
+            }
+          },
+          "limit": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "groupBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryGroupResponse"
+            }
+          }
+        }
+      },
+      "WorkspaceQueryRowResponse": {
+        "required": [
+          "id",
+          "workspaceId",
+          "containerId",
+          "containerTitle",
+          "title",
+          "type",
+          "properties",
+          "group"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workspaceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "containerId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "containerTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "properties": {
+            "$ref": "#/components/schemas/JsonObject"
+          },
+          "group": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
