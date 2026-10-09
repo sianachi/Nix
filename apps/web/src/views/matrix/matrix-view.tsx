@@ -1,6 +1,6 @@
-import { Blueprint, Button, ContextMenu, Icon, Select, Text, cn, focusRing } from '@nix/ui';
+import { Blueprint, Button, ContextMenu, Icon, Menu, Text, cn, focusRing } from '@nix/ui';
 import { CircleAlert } from 'lucide-react';
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
 import { useNarrowViewport } from '../../layout/viewport';
 import {
@@ -100,6 +100,20 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
   const [showEmpty, setShowEmpty] = useState(false);
   const [dragged, setDragged] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [dropCell, setDropCell] = useState<string | null>(null);
+  // After a move the card is drawn in its new cell as a new element, so focus is put back on its
+  // title once that render lands - the way the outline keeps focus on a moved row.
+  const titleRefs = useRef(new Map<string, HTMLButtonElement>());
+  const pendingFocus = useRef<string | null>(null);
+  useEffect(() => {
+    const target = pendingFocus.current;
+    if (target === null) return;
+    const element = titleRefs.current.get(target);
+    if (element !== undefined) {
+      pendingFocus.current = null;
+      element.focus();
+    }
+  });
   const properties = container.schema?.properties ?? [];
   const resolution = resolveAxes(properties, view);
 
@@ -148,6 +162,7 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
     const writeColumn = columns.valueFor;
     if (writeRow === undefined || writeColumn === undefined) return;
     setMoveError(null);
+    pendingFocus.current = item.id;
     // Both axes in one write: a move is one edit, and it either lands whole or not at all.
     void container
       .setProperties(item.id, {
@@ -174,6 +189,10 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
       cells={cells}
       fields={cardFields}
       dragging={dragged === item.id}
+      titleRef={(element) => {
+        if (element === null) titleRefs.current.delete(item.id);
+        else titleRefs.current.set(item.id, element);
+      }}
       onDragStart={() => {
         setDragged(item.id);
       }}
@@ -189,15 +208,42 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
 
   const dropTarget = (address: CellAddress) => ({
     onDragOver: (event: DragEvent<HTMLElement>) => {
-      if (dragged !== null) event.preventDefault();
+      if (dragged === null) return;
+      event.preventDefault();
+      setDropCell(cellValue(address));
+    },
+    onDragLeave: () => {
+      setDropCell(null);
     },
     onDrop: (event: DragEvent<HTMLElement>) => {
       event.preventDefault();
       const item = chrome.items.find((candidate) => candidate.id === dragged);
       setDragged(null);
+      setDropCell(null);
       if (item !== undefined) move(item, address);
     },
   });
+  // The board's own drop-target outline, so a held card shows where it will land.
+  const dropOutline = (address: CellAddress): string =>
+    dragged !== null && dropCell === cellValue(address)
+      ? 'outline-2 -outline-offset-2 outline-accent'
+      : '';
+
+  /** A create control already in a cell: the new item gets both of the cell's values. */
+  const addTo = (row: AxisGroup, column: AxisGroup): ReactNode => {
+    const writeRow = rows.valueFor;
+    const writeColumn = columns.valueFor;
+    if (writeRow === undefined || writeColumn === undefined) return null;
+    return (
+      <CreateItemControl
+        compact
+        label={`Add an item to ${row.label}, ${column.label}`}
+        properties={{ [rows.key]: writeRow(row.group), [columns.key]: writeColumn(column.group) }}
+        onCreate={container.create}
+        className="self-start"
+      />
+    );
+  };
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -243,6 +289,7 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
                       label={`${row.label}, ${column.label}`}
                       render={cardFor}
                     />
+                    {addTo(row, column)}
                   </div>
                 );
               })}
@@ -277,13 +324,19 @@ export function MatrixView(props: MatrixViewProps): ReactNode {
                       <td
                         key={column.group}
                         {...dropTarget(address)}
-                        className="min-w-48 border border-divider p-3 align-top"
+                        className={cn(
+                          'min-w-48 border border-divider p-3 align-top',
+                          dropOutline(address),
+                        )}
                       >
-                        <CellCards
-                          items={cellItems(address)}
-                          label={`${row.label}, ${column.label}`}
-                          render={cardFor}
-                        />
+                        <div className="flex flex-col gap-2">
+                          <CellCards
+                            items={cellItems(address)}
+                            label={`${row.label}, ${column.label}`}
+                            render={cardFor}
+                          />
+                          {addTo(row, column)}
+                        </div>
                       </td>
                     );
                   })}
@@ -347,6 +400,7 @@ interface MatrixCardProps {
   readonly cells: readonly CellChoice[];
   readonly fields: readonly PropertyDefinition[];
   readonly dragging: boolean;
+  readonly titleRef: (element: HTMLButtonElement | null) => void;
   readonly onDragStart: () => void;
   readonly onDragEnd: () => void;
   readonly onMove: (to: CellAddress) => void;
@@ -359,7 +413,18 @@ function cellValue(address: CellAddress): string {
 }
 
 function MatrixCard(props: MatrixCardProps): ReactNode {
-  const { item, current, cells, fields, dragging, onDragStart, onDragEnd, onMove, onOpen } = props;
+  const {
+    item,
+    current,
+    cells,
+    fields,
+    dragging,
+    titleRef,
+    onDragStart,
+    onDragEnd,
+    onMove,
+    onOpen,
+  } = props;
   const itemActions = useItemContextActions(onOpen);
   const title = item.title.length > 0 ? item.title : 'Untitled';
 
@@ -381,6 +446,7 @@ function MatrixCard(props: MatrixCardProps): ReactNode {
               onDragEnd={onDragEnd}
             >
               <button
+                ref={titleRef}
                 type="button"
                 onClick={() => {
                   onOpen(item.id);
@@ -402,23 +468,30 @@ function MatrixCard(props: MatrixCardProps): ReactNode {
               );
             })}
 
-            <Select
-              aria-label={`Move ${title} to`}
-              value={cellValue(current)}
-              onChange={(event) => {
-                const target = cells.find((cell) => cellValue(cell.address) === event.target.value);
-                if (target !== undefined) onMove(target.address);
-              }}
+            {/* A menu of cells rather than a select: a select commits on a single arrow press and
+                drops focus when the card leaves its cell, while a menu commits only on a choice. */}
+            <Menu
+              label={`Move ${title} to`}
+              items={cells.map((cell) => ({
+                key: cellValue(cell.address),
+                label: cell.label,
+                disabled: cellValue(cell.address) === cellValue(current),
+                onSelect: () => {
+                  onMove(cell.address);
+                },
+              }))}
             >
-              {cells.some((cell) => cellValue(cell.address) === cellValue(current)) ? null : (
-                <option value={cellValue(current)}>Where it is now</option>
+              {(trigger) => (
+                <Button
+                  {...trigger}
+                  variant="ghost"
+                  aria-label={`Move ${title} to`}
+                  className="self-start"
+                >
+                  Move to…
+                </Button>
               )}
-              {cells.map((cell) => (
-                <option key={cellValue(cell.address)} value={cellValue(cell.address)}>
-                  {cell.label}
-                </option>
-              ))}
-            </Select>
+            </Menu>
           </Blueprint>
         </li>
       )}
