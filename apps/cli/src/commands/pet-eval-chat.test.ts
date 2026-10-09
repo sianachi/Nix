@@ -3,7 +3,8 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { chatCaseSchema } from '@nix/structure-spec';
 import { openSession } from '../session.ts';
-import type { CompanionPorts } from '@nix/companion';
+import { WorkspaceToolRefusal, type BodyEditPlan, type CompanionPorts } from '@nix/companion';
+import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown';
 import {
   declineReason,
   runChatSuite,
@@ -315,6 +316,105 @@ describe('pet eval chat', () => {
         await declineReason(session(), fixture, completeTask, true, new Map(), false, taskPorts(false), WORKSPACE),
       ).toBeUndefined();
     });
+    describe.each(['replace_section', 'replace_passage'] as const)(
+      '%s preview holds',
+      (operation) => {
+        const edit = pending(
+          toolCall('t-1', { operation, itemId: DENTIST, query: 'old', markdown: 'new' }),
+        );
+        const plan: BodyEditPlan = {
+          scope: operation === 'replace_section' ? 'section' : 'paragraph',
+          before: 'old',
+          after: 'new',
+          blocksRemoved: 1,
+          blocksAdded: 1,
+          losses: [],
+          markdownChanges: EMPTY_MARKDOWN_IMPORT_SCAN,
+          fingerprint: 'checked-body',
+        };
+        function bodyPorts(value: BodyEditPlan = plan): CompanionPorts {
+          const base = taskPorts(false);
+          return {
+            ...base,
+            bodies: { ...base.bodies, planEdit: vi.fn().mockResolvedValue(value) },
+          };
+        }
+
+        it('declines formatting loss and a link formed with the existing note text', async () => {
+          inFixture();
+          expect(
+            await declineReason(
+              session(),
+              fixture,
+              edit,
+              true,
+              new Map(),
+              false,
+              bodyPorts({ ...plan, losses: [{ kind: 'alignment-dropped', detail: '' }] }),
+              WORKSPACE,
+            ),
+          ).toBe('the body edit removes formatting');
+          const joining = pending(
+            toolCall('t-1', {
+              operation,
+              itemId: DENTIST,
+              query: 'old',
+              markdown: 's://other.test',
+            }),
+          );
+          expect(
+            await declineReason(
+              session(),
+              fixture,
+              joining,
+              true,
+              new Map(),
+              false,
+              bodyPorts({ ...plan, before: 'httpold', after: 'https://other.test' }),
+              WORKSPACE,
+            ),
+          ).toBe('the text links to another host');
+        });
+
+        it('declines a missing, failed or refused preview', async () => {
+          inFixture();
+          expect(await declineReason(session(), fixture, edit, true, new Map())).toBe(
+            'the body edit has no preview',
+          );
+          const base = bodyPorts();
+          const planEdit = vi.fn().mockRejectedValueOnce(new Error('offline'));
+          const ports = { ...base, bodies: { ...base.bodies, planEdit } };
+          expect(
+            await declineReason(session(), fixture, edit, true, new Map(), false, ports, WORKSPACE),
+          ).toBe('the body edit preview could not be loaded');
+          planEdit.mockRejectedValueOnce(
+            new WorkspaceToolRefusal('Passage not found.'),
+          );
+          expect(
+            await declineReason(session(), fixture, edit, true, new Map(), false, ports, WORKSPACE),
+          ).toBe('the preview has problems');
+        });
+
+        it('allows a clean preview and retains its fingerprint for execution', async () => {
+          inFixture();
+          const onPreview = vi.fn();
+          expect(
+            await declineReason(
+              session(),
+              fixture,
+              edit,
+              true,
+              new Map(),
+              false,
+              bodyPorts(),
+              WORKSPACE,
+              onPreview,
+            ),
+          ).toBeUndefined();
+          expect(onPreview).toHaveBeenCalledWith(plan.fingerprint);
+        });
+      },
+    );
   });
 
   it('stops at the tool budget and reports it', async () => {

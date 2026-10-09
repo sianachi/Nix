@@ -194,6 +194,8 @@ export async function executePetToolRun(
   toolId: string,
   decision: PetToolDecision,
   mode: 'chat' | 'consult' = 'chat',
+  /** Eval auto-approval binds execution to the request and preview that passed its holds. */
+  autoApproval?: { readonly arguments: string; readonly fingerprint?: string },
 ): Promise<unknown> {
   const client = session.client;
   const runtime = await client.execute(
@@ -201,6 +203,12 @@ export async function executePetToolRun(
   );
   const tool: PetToolCall | undefined = runtime.tools?.find((entry) => entry.id === toolId);
   if (tool?.status !== 'pending') throw new Error(`Tool ${toolId} is not pending.`);
+  if (decision === 'approve' && autoApproval !== undefined) {
+    if (tool.arguments !== autoApproval.arguments)
+      throw new Error('Tool changed after evaluation preview.');
+    if (runtime.lockedRead)
+      throw new Error('The conversation read locked content after evaluation preview.');
+  }
 
   // Matches `pet-work-tools.tsx:113-117`: malformed arguments must still resolve to a plain
   // "unsupported" preview, never an uncaught parse error - a corrupt call must stay declinable.
@@ -270,7 +278,11 @@ export async function executePetToolRun(
           mode,
           toolId,
           claimId: requestId,
-          ...(previewContext ? { fence: previewContext.fingerprint } : {}),
+          ...(autoApproval?.fingerprint !== undefined
+            ? { fence: autoApproval.fingerprint }
+            : previewContext
+              ? { fence: previewContext.fingerprint }
+              : {}),
         },
       );
       toolResult = outcome.text;
