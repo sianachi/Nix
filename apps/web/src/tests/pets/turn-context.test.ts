@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { NixClient } from '@nix/api-client';
-import { buildWorkspaceMap, ownerTurnContext, WORKSPACE_MAP_LIMIT } from '../../pets/turn-context';
+import {
+  buildWorkspaceMap,
+  ownerTurnContext,
+  truncateUnits,
+  WORKSPACE_MAP_LIMIT,
+} from '../../pets/turn-context';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 
@@ -74,6 +79,32 @@ describe('buildWorkspaceMap', () => {
     // The root listing plus at most eight child listings: never one request per root.
     expect(paginate.mock.calls.length).toBeLessThanOrEqual(9);
     expect(map?.slice(0, 30).map((entry) => entry.id)).toEqual(roots.map((root) => root.id));
+  });
+
+  it('keeps the rest of the map when one container refuses its listing', async () => {
+    const paginate = vi.fn(async function* (endpoint: { query: { parentId?: string } }) {
+      await Promise.resolve();
+      const parent = endpoint.query.parentId;
+      if (parent === id(1)) throw new Error('locked');
+      if (parent === undefined) yield* [item(1, true), item(2, true)];
+      else if (parent === id(2)) yield item(3, true, id(2));
+    });
+    const client = { paginate, cache: { peek: vi.fn() } } as unknown as NixClient;
+    const map = await buildWorkspaceMap(client, WORKSPACE_ID, new AbortController().signal);
+    expect(map?.map((entry) => entry.id)).toEqual([id(1), id(2), id(3)]);
+  });
+
+  it('shortens titles and types to the shared limits counted in UTF-16 units', async () => {
+    const long = { ...item(1, false), title: 'é'.repeat(300), type: 't'.repeat(80) };
+    const { client } = fakeClient({ '': [long] }, { [id(1)]: ['board', 'x'.repeat(41)] });
+    const [entry] =
+      (await buildWorkspaceMap(client, WORKSPACE_ID, new AbortController().signal)) ?? [];
+    expect(entry?.title).toHaveLength(240);
+    expect(entry?.type).toHaveLength(64);
+    expect(entry?.viewKinds).toEqual(['board']);
+    const clef = String.fromCodePoint(0x1d11e);
+    expect(truncateUnits(`a${clef}`, 2)).toBe('a');
+    expect(truncateUnits(`a${clef}`, 3)).toBe(`a${clef}`);
   });
 
   it('gives up quietly when the workspace cannot be listed, so the message still goes', async () => {

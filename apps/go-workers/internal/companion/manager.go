@@ -355,10 +355,25 @@ func validRequest(r Request) bool {
 	case "status", "connect", "disconnect", "models":
 		return true
 	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
-		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && validTurnContext(r) && len(r.Text) <= 8000 && len(r.SharedText) <= 16000 && len(r.Instructions) <= 4000 && len(r.Model) <= 160 && len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
+		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
 	}
+}
+
+// utf16Len counts s the way Core and the browser count a string's length - in UTF-16 code units -
+// so a limit both sides state as the same number means the same thing. len(s) counts UTF-8 bytes:
+// a 121-character title of "é" is 242 bytes and would fail a 240 limit Core already accepted.
+func utf16Len(s string) int {
+	units := 0
+	for _, r := range s {
+		if r >= 0x10000 {
+			units += 2
+		} else {
+			units++
+		}
+	}
+	return units
 }
 
 var timeZoneName = regexp.MustCompile(`^[A-Za-z0-9_+\-/]{1,64}$`)
@@ -378,11 +393,11 @@ func validTurnContext(r Request) bool {
 		return false
 	}
 	for _, entry := range r.WorkspaceMap {
-		if !uuid.MatchString(entry.ID) || len(entry.Title) > 240 || len(entry.Type) > 64 || len(entry.ViewKinds) > 12 {
+		if !uuid.MatchString(entry.ID) || utf16Len(entry.Title) > 240 || utf16Len(entry.Type) > 64 || len(entry.ViewKinds) > 12 {
 			return false
 		}
 		for _, kind := range entry.ViewKinds {
-			if len(kind) > 40 {
+			if utf16Len(kind) > 40 {
 				return false
 			}
 		}
