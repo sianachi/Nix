@@ -24,6 +24,8 @@ export interface StructuredViewConfigurationProps {
   readonly showFilters?: boolean | undefined;
   /** A Smart-list wizard owns its starter choices and passes false to avoid a second filter editor. */
   readonly showKindFilters?: boolean | undefined;
+  /** Whether "any of" groups may be added; a template stores plain conditions only. */
+  readonly allowGroups?: boolean | undefined;
 }
 
 /**
@@ -40,6 +42,7 @@ export function StructuredViewConfiguration({
   showSort = !['form', 'interactive_form', 'query', 'outline'].includes(view.kind),
   showFilters,
   showKindFilters = true,
+  allowGroups = true,
 }: StructuredViewConfigurationProps): ReactNode {
   const descriptor = findViewKind(view.kind);
   const showsSavedFilters = showFilters ?? descriptor?.appliesSavedFilters === true;
@@ -152,6 +155,7 @@ export function StructuredViewConfiguration({
       {showsSavedFilters ? (
         <FilterRulesEditor
           scope="container"
+          allowGroups={allowGroups}
           rules={view.filters}
           schema={fields}
           onChange={(filters) => {
@@ -160,6 +164,7 @@ export function StructuredViewConfiguration({
         />
       ) : showKindFilters && descriptor?.editsFilters === true ? (
         <FilterRulesEditor
+          allowGroups={allowGroups}
           rules={view.filters}
           schema={fields}
           onChange={(filters) => {

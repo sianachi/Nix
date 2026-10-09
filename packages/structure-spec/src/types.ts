@@ -94,12 +94,28 @@ export interface StructureHabitWidget {
   to: string;
 }
 
-/** One condition of a query view, as `container-model.ts`'s `ViewFilterRule`. */
+/** One condition of a query view, as `container-model.ts`'s `ViewFilterCondition`. */
 export interface StructureFilter {
   property: string;
   operator: string;
   value: string;
 }
+
+/**
+ * An "any of" group: matches when at least one of its conditions does. One level only - a group
+ * holds plain conditions - and its conditions count toward the eight-filter ceiling
+ * (`QueryRules` in `backend/src/Nix.Api/Domain/Views/QueryRules.cs`).
+ */
+export interface StructureFilterGroup {
+  /** Always null: a group has no condition of its own, only `any`. Core omits the three on write. */
+  property: null;
+  operator: null;
+  value: null;
+  any: StructureFilter[];
+}
+
+/** One entry of a view's filters: a condition, or an "any of" group of conditions. */
+export type StructureFilterEntry = StructureFilter | StructureFilterGroup;
 
 /**
  * A view, as `apps/web/src/views/core/container-model.ts`'s `View`.
@@ -123,7 +139,7 @@ export interface StructureView {
   endDateProperty: string | null;
   cardSize: string | null;
   layout: string | null;
-  filters: StructureFilter[];
+  filters: StructureFilterEntry[];
   habitWidgets?: StructureHabitWidget[];
   measure?: string | null;
   measureProperty?: string | null;

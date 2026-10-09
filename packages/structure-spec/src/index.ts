@@ -1,5 +1,7 @@
 export type {
   StructureFilter,
+  StructureFilterEntry,
+  StructureFilterGroup,
   StructureForm,
   StructureFormBlock,
   StructureFormCondition,

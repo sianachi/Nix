@@ -9,7 +9,8 @@ import {
   PartialNotice,
 } from '../../components/states/status-panels';
 import { inferFilters, type InferredFilters } from '../../lib/suggest/infer-filters';
-import { readPropertyText, type ViewFilterRule } from '../core/container-model';
+import { isFilterGroup, readPropertyText, type ViewFilterRule } from '../core/container-model';
+import { ruleConditions } from '../core/filter-rules';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { useHiddenItems } from '../../items/use-hidden-items';
 import { useQueryResults } from './use-query-results';
@@ -131,8 +132,11 @@ export function QueryView(props: ViewRendererProps): ReactNode {
     const inferred = inferFilters(chosen, rows);
     // Appended to what the list already asks, skipping a proposed rule it already has: the
     // examples were drawn from rows the existing rules matched, so those rules still hold.
+    // Only the plain conditions: one inside an "any of" group need not hold for every row.
     const existing = new Set(
-      view.filters.map((rule) => `${rule.property}\u0000${rule.operator}\u0000${rule.value}`),
+      view.filters
+        .filter((rule) => !isFilterGroup(rule))
+        .map((rule) => `${rule.property}\u0000${rule.operator}\u0000${rule.value}`),
     );
     const added = inferred.rules
       .map((rule) => ({ property: rule.property, operator: rule.operator, value: rule.value }))
@@ -290,14 +294,16 @@ export function QueryView(props: ViewRendererProps): ReactNode {
                   properties are the view's own filters, deduplicated - a rule pair over one
                   property (Overdue's due/done) shows each key once. */}
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  {[...new Set(view.filters.map((rule) => rule.property))].map((key) => {
-                    const text = readPropertyText(owner, key);
-                    return text.length === 0 ? null : (
-                      <Text key={key} variant="note" tone="muted" as="span">
-                        {text}
-                      </Text>
-                    );
-                  })}
+                  {[...new Set(ruleConditions(view.filters).map((rule) => rule.property))].map(
+                    (key) => {
+                      const text = readPropertyText(owner, key);
+                      return text.length === 0 ? null : (
+                        <Text key={key} variant="note" tone="muted" as="span">
+                          {text}
+                        </Text>
+                      );
+                    },
+                  )}
                 </div>
               </div>
               <Menu

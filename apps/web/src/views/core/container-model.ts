@@ -148,6 +148,25 @@ export type FormCondition = z.infer<typeof FormConditionSchema>;
 export type FormBlock = z.infer<typeof FormBlockSchema>;
 export type InteractiveFormDefinition = z.infer<typeof InteractiveFormSchema>;
 
+/** One condition of a view's filters. */
+const ViewFilterConditionSchema = z.object({
+  property: z.string(),
+  operator: z.string(),
+  value: z.string(),
+});
+
+/**
+ * An "any of" group: matches when at least one of its conditions does. One level only, and its
+ * conditions count toward the eight-filter ceiling. Core omits a group's own property, operator
+ * and value; they parse as null so the group still satisfies the generated contract's shape.
+ */
+const ViewFilterGroupSchema = z.object({
+  property: z.null().default(null),
+  operator: z.null().default(null),
+  value: z.null().default(null),
+  any: z.array(ViewFilterConditionSchema),
+});
+
 export const ViewSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -222,7 +241,8 @@ export const ViewSchema = z.object({
   layout: z.string().nullable(),
 
   /**
-   * For a query: the conditions the server compiles and runs, AND-combined.
+   * For a query: the conditions the server compiles and runs, AND-combined, with one level of
+   * "any of" groups among them.
    *
    * The operator is an open string, matching `mode` and for the same reason: the server polices
    * the closed set on write and re-validates at execution, and an editor meeting a token from a
@@ -231,13 +251,7 @@ export const ViewSchema = z.object({
    * newest first".
    */
   filters: z
-    .array(
-      z.object({
-        property: z.string(),
-        operator: z.string(),
-        value: z.string(),
-      }),
-    )
+    .array(z.union([ViewFilterConditionSchema, ViewFilterGroupSchema]))
     // Defaulted, unlike its siblings: a server from before the field answers views without it,
     // and absence must cost nothing - the parse fills the empty set the contract now always sends.
     .default([]),
@@ -356,8 +370,24 @@ export function toViewRequest(view: View): ParsedView {
   };
 }
 
-/** One condition of a query view. */
+/** One entry of a view's filters: a condition, or an "any of" group of conditions. */
 export type ViewFilterRule = View['filters'][number];
+
+/** One condition of a view's filters. */
+export type ViewFilterCondition = z.infer<typeof ViewFilterConditionSchema>;
+
+/** An "any of" group of conditions. */
+export type ViewFilterGroup = z.infer<typeof ViewFilterGroupSchema>;
+
+/** Whether a filter entry is an "any of" group. */
+export function isFilterGroup(rule: ViewFilterRule): rule is ViewFilterGroup {
+  return 'any' in rule;
+}
+
+/** An "any of" group over `conditions`, in the shape Core reads and writes. */
+export function filterGroup(conditions: readonly ViewFilterCondition[]): ViewFilterGroup {
+  return { property: null, operator: null, value: null, any: [...conditions] };
+}
 
 /**
  * The compile-time tie to the generated contract.

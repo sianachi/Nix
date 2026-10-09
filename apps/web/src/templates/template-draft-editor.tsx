@@ -4,7 +4,12 @@ import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'rea
 
 import type { CollabSync } from '../editor/collab-sync';
 import { NoteEditor } from '../editor/note-editor';
-import type { EffectiveSchema, PropertyDefinition, View } from '../views/core/container-model';
+import {
+  isFilterGroup,
+  type EffectiveSchema,
+  type PropertyDefinition,
+  type View,
+} from '../views/core/container-model';
 import { PROPERTY_TYPES } from '../views/core/property-types';
 import { StructuredViewConfiguration } from '../views/core/structured-view-configuration';
 import { findViewKind } from '../views/core/view-kinds';
@@ -519,6 +524,9 @@ function TemplateViewsEditor({
       views: {
         views: next.map((view) => ({
           ...view,
+          // A template stores plain conditions only (Core refuses a group there), and this editor
+          // never offers one (`allowGroups={false}` below), so this only narrows the type.
+          filters: view.filters.filter((rule) => !isFilterGroup(rule)),
           companionViewId: view.companionViewId ?? null,
           companionPlacement: view.companionPlacement ?? null,
           interactiveForm: view.interactiveForm ?? null,
@@ -686,7 +694,12 @@ function TemplateViewCard({
         </Button>
       </div>
 
-      <StructuredViewConfiguration view={view} fields={fields} onChange={onChange} />
+      <StructuredViewConfiguration
+        view={view}
+        fields={fields}
+        onChange={onChange}
+        allowGroups={false}
+      />
 
       <div className="grid gap-3 sm:grid-cols-2">
         <Field
