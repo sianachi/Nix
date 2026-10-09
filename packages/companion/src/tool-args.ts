@@ -177,6 +177,10 @@ export function isDay(value: unknown): value is string {
  * back to the model and may name tools; `ownerMessage`, when given, is the plain sentence the
  * owner reads instead, with no tool names. */
 export class WorkspaceToolRefusal extends Error {
+  /** Whether `message` may quote text read from under a lock (a body edit's refusal lists the
+   * note's headings). Reported with the tool result like a read's `lockedContent`. */
+  lockedContent = false;
+
   constructor(
     message: string,
     readonly ownerMessage?: string,

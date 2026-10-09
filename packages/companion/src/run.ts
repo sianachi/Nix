@@ -471,7 +471,15 @@ export async function runWorkspaceTool(
               'This edit has no approved preview. Review it again before editing.',
               'This edit had no approved preview, so nothing was edited.',
             );
-          result = await bodies.applyEdit(item.id, edit, options.fence, signal);
+          try {
+            result = await bodies.applyEdit(item.id, edit, options.fence, signal);
+          } catch (reason) {
+            // A refusal can quote the note (the headings it has, how often a passage appears);
+            // a successful edit returns counts only, so only a refusal needs the lock check.
+            if (reason instanceof WorkspaceToolRefusal)
+              reason.lockedContent = await anyUnderLock(ports, [item.id], signal);
+            throw reason;
+          }
           break;
         }
         case 'rename_item':

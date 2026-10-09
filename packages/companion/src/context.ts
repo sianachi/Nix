@@ -13,6 +13,7 @@ import { checkItem, structureFingerprint, type StructureFingerprint } from './gu
 import { WorkspaceToolRefusal } from './tool-args.js';
 import { validateBlueprint } from '@nix/structure-spec';
 import { findSandbox } from './blueprint/sandbox.js';
+import { anyUnderLock } from './read/locks.js';
 import {
   completedFlag,
   planTaskCompletion,
@@ -58,6 +59,9 @@ export interface PreviewContext {
   /** For a body edit (`replace_section`, `replace_passage`): what it would change. Absent when the
    * edit cannot be placed, in which case `problems` says why. */
   bodyEdit?: BodyEditPlan;
+  /** A body edit the preview refused, whose problem text quotes a note under a lock (its
+   * headings, say). The card reports it with the declined result, as a read would. */
+  refusalQuotesLockedContent?: boolean;
   /** What a `complete_task` write will do, decided from the same reads the executor repeats. */
   taskCompletion?: TaskCompletionPlan;
 }
@@ -329,11 +333,14 @@ export async function loadPreviewContext(
       };
     } catch (error) {
       if (error instanceof WorkspaceToolRefusal)
-        return refused(
-          edit.kind === 'section' ? 'heading' : 'find',
-          error.ownerMessage ?? error.message,
-          error.message,
-        );
+        return {
+          ...refused(
+            edit.kind === 'section' ? 'heading' : 'find',
+            error.ownerMessage ?? error.message,
+            error.message,
+          ),
+          refusalQuotesLockedContent: await anyUnderLock(ports, [item.id], signal),
+        };
       throw error;
     }
   }
