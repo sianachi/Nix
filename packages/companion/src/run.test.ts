@@ -1243,6 +1243,45 @@ describe('reading values, the calendar, and completing tasks', () => {
     expect(result.items.every((row) => row.properties === undefined)).toBe(true);
   });
 
+  it('never carries rollup values, which Core folds from children into computed, not properties', async () => {
+    const withRollup = {
+      ...taskSchema,
+      properties: [
+        ...taskSchema.properties,
+        field('done_count', 'rollup'),
+        field('score', 'formula'),
+      ],
+    };
+    const fake = listSetup([
+      {
+        ...child('44444444-4444-4444-8444-444444444444', { status: 'Doing' }),
+        hasChildren: true,
+        computed: { done_count: 3 },
+      },
+    ]);
+    fake.query.mockImplementation((endpoint: { operation: string }) =>
+      Promise.resolve(
+        endpoint.operation === 'schema.get'
+          ? withRollup
+          : {
+              id: containerId,
+              workspaceId: workspace,
+              parentId: null,
+              title: 'Tasks',
+              type: 'note',
+            },
+      ),
+    );
+    const outcome = await runWorkspaceTool(
+      fake.ports,
+      workspace,
+      input('list_items', { parentId: containerId }),
+      fake.signal,
+    );
+    expect(outcome.text).not.toContain('done_count');
+    expect(outcome.text).not.toContain('score');
+  });
+
   it('lists the workspace root without reading any schema', async () => {
     const { ports, query, signal } = listSetup([
       { ...child('55555555-5555-4555-8555-555555555555', { status: 'x' }), parentId: null },
