@@ -2980,6 +2980,7 @@ export interface components {
       to?: null | string;
       cumulative?: null | boolean;
       rollingAverage?: null | boolean;
+      stacked?: null | boolean;
     };
     ChartResponse: {
       /** Format: uuid */
@@ -3006,6 +3007,11 @@ export interface components {
       otherSeries: number | string;
       /** Format: int64 */
       unplaced: number | string;
+      /** Format: int64 */
+      outsideWindow: number | string;
+      stacked: boolean;
+      cumulative: boolean;
+      rollingAverage: boolean;
     };
     ChartSeriesResponse: {
       value: null | string;
