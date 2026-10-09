@@ -42,7 +42,10 @@ type Request struct {
 	ToolID          string `json:"toolId"`
 	ToolResult      string `json:"toolResult"`
 	ToolSuccess     bool   `json:"toolSuccess"`
-	HistoryID       string `json:"historyId"`
+	// ToolLockedContent says the tool result being reported came from an item under a lock (the
+	// executor's lockedContent). It sets the conversation's LockedRead.
+	ToolLockedContent bool   `json:"toolLockedContent"`
+	HistoryID         string `json:"historyId"`
 	// InlineKind, ContextText and Language belong to the "inline" operation only (inline.go):
 	// the kind of writing task, the surrounding note text for context, and the translate target.
 	InlineKind  string `json:"inlineKind"`
@@ -95,6 +98,9 @@ type Response struct {
 	History         []HistoryEntry `json:"history"`
 	// Revision lets a watcher tell whether anything changed since it last looked.
 	Revision int64 `json:"revision"`
+	// LockedRead says the model's current thread holds a tool result read from under a lock. The
+	// web client holds every write for the owner while it is set, whichever tab or turn it is in.
+	LockedRead bool `json:"lockedRead"`
 }
 
 type conversation struct {
@@ -108,6 +114,10 @@ type conversation struct {
 	Messages        []Message  `json:"messages"`
 	WorkspaceAccess bool       `json:"-"`
 	Tools           []ToolCall `json:"tools"`
+	// LockedRead is set once a tool result read from under a lock reaches this thread, and stays
+	// set for as long as the thread does: the model can still quote that result in any later
+	// turn. Only a new thread (a reset, a tool-version bump, a first message) clears it.
+	LockedRead bool `json:"lockedRead,omitempty"`
 	// Revision is never persisted: every load (fresh or restored) gets a new one, monotonic
 	// across worker restarts because it is seeded from the clock rather than a counter.
 	Revision int64 `json:"-"`
@@ -355,7 +365,7 @@ func validRequest(r Request) bool {
 	case "status", "connect", "disconnect", "models":
 		return true
 	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
-		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
+		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
 	}
@@ -582,6 +592,7 @@ func (a *account) snapshot(key string) Response {
 		r.Messages = append([]Message{}, c.Messages...)
 		r.Tools = append([]ToolCall{}, c.Tools...)
 		r.Revision = c.Revision
+		r.LockedRead = c.LockedRead
 	}
 	return r
 }
@@ -727,6 +738,10 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	// its thread dropped above; tell the user before replacing their state below.
 	if c.ThreadID != "" && c.ToolVersion != 0 && c.ToolVersion != toolVersion {
 		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":tools", Role: "system", Text: "Your pet was updated and starts a fresh conversation."})
+	}
+	if method == "thread/start" {
+		// A new thread holds nothing the previous one read.
+		c.LockedRead = false
 	}
 	c.ThreadID = thread
 	c.ToolVersion = toolVersion

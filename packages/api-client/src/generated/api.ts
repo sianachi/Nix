@@ -3898,6 +3898,8 @@ export interface components {
        * @default 0
        */
       revision: number | string;
+      /** @default false */
+      lockedRead: boolean;
     };
     PetHistoryEntry: {
       id: string;
@@ -3970,6 +3972,8 @@ export interface components {
       /** @default  */
       timeZone: string;
       workspaceMap?: null | components['schemas']['PetWorkspaceMapEntry'][];
+      /** @default false */
+      toolLockedContent: boolean;
     };
     PetSettings: {
       enabled: boolean;

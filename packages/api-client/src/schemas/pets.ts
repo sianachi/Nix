@@ -75,6 +75,12 @@ export const petConnectionSchema = z.object({
     .nullable()
     .default([]),
   revision: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).default(0),
+  /**
+   * The conversation's model thread holds a tool result read from under a lock. Every write waits
+   * for the owner while it is set, in any tab and any later turn; only a new thread clears it.
+   * Defaulted, so a server from before the field parses as unmarked.
+   */
+  lockedRead: z.boolean().default(false),
 });
 
 export type PetProfile = z.infer<typeof petProfileSchema>;

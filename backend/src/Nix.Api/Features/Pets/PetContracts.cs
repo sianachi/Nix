@@ -20,12 +20,16 @@ public sealed record PetSettingsResponse(long Revision, PetSettings Settings);
 public sealed record SavePetSettingsRequest(long ExpectedRevision, PetSettings Settings);
 
 /// <summary>Truthful provider availability without credentials or inferred entitlements.</summary>
+/// <remarks>
+/// <c>LockedRead</c> says the conversation's model thread holds a tool result read from under a
+/// lock. The client holds every write for the owner while it is set; only a new thread clears it.
+/// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1054", Justification = "The wire contract uses an empty string when no device login is pending; clients allowlist the provider URL.")]
 [System.Diagnostics.CodeAnalysis.SuppressMessage("Design", "CA1056", Justification = "The wire contract uses an empty string when no device login is pending; clients allowlist the provider URL.")]
 public sealed record PetConnectionResponse(string Provider, string Status, string Reason, bool CanConnect,
     string VerificationUrl = "", string UserCode = "", string State = "idle", IReadOnlyList<PetMessage>? Messages = null,
     IReadOnlyList<PetModel>? Models = null, IReadOnlyList<PetToolCall>? Tools = null, IReadOnlyList<PetHistoryEntry>? History = null,
-    long Revision = 0);
+    long Revision = 0, bool LockedRead = false);
 
 /// <summary>A private archived conversation in this workspace and pet.</summary>
 public sealed record PetHistoryEntry(string Id, string Title, string CreatedAt);
@@ -50,20 +54,22 @@ public sealed record PetWorkspaceMapEntry(Guid Id, string Title, string Type, IR
 /// <remarks>
 /// <c>Today</c> (yyyy-MM-dd in the owner's zone) and <c>TimeZone</c> (an IANA name) let the model
 /// resolve relative dates; <c>WorkspaceMap</c> (at most 40 containers) is sent with a
-/// conversation's first message only. All three are the client's own view, passed to the model
-/// as context and never used for an authorization decision; every tool the model calls is still
-/// checked against the caller's permissions.
+/// conversation's first message only. <c>ToolLockedContent</c> reports, with a tool result, that the
+/// result came from an item under a lock; it can only tighten what runs without asking. All of these
+/// are the client's own view and never used for an authorization decision; every tool the model
+/// calls is still checked against the caller's permissions.
 /// </remarks>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
-    string Mode = "", string Today = "", string TimeZone = "", IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap = null);
+    string Mode = "", string Today = "", string TimeZone = "", IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap = null,
+    bool ToolLockedContent = false);
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,
     string ItemId, string ItemTitle, string SharedText, string Model, bool WorkspaceAccess,
     string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode, long After,
-    string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap);
+    string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap, bool ToolLockedContent);
 
 /// <summary>One inline writing request from the editor: the person's selection and what to do with it.</summary>
 /// <param name="WorkspaceId">The workspace the item is in.</param>

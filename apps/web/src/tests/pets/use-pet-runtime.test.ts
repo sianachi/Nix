@@ -23,6 +23,7 @@ function connection(overrides: Record<string, unknown> = {}) {
     models: [],
     tools: [],
     revision: 0,
+    lockedRead: false,
     ...overrides,
   };
 }

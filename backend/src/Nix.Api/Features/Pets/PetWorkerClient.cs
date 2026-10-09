@@ -122,7 +122,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
-            request.Mode, after, request.Today, request.TimeZone, request.WorkspaceMap), PetJsonContext.Default.PetWorkerRequest);
+            request.Mode, after, request.Today, request.TimeZone, request.WorkspaceMap, request.ToolLockedContent), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

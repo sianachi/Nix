@@ -73,6 +73,8 @@ export interface RuntimeInput {
   readonly toolId?: string;
   readonly toolResult?: string;
   readonly toolSuccess?: boolean;
+  /** With a tool result: the result came from an item under a lock (marks the conversation). */
+  readonly toolLockedContent?: boolean;
   readonly historyId?: string;
   readonly mode?: 'chat' | 'consult';
   /** The owner's own day, `yyyy-MM-dd` in `timeZone`, so the model can resolve relative dates. */
@@ -107,6 +109,7 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       toolId: input.toolId ?? '',
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
+      toolLockedContent: input.toolLockedContent ?? false,
       mode: input.mode ?? '',
       today: input.today ?? '',
       timeZone: input.timeZone ?? '',

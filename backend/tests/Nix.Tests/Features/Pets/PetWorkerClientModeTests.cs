@@ -175,6 +175,22 @@ public sealed class PetWorkerClientModeTests
     }
 
     [Fact]
+    public async Task A_tool_result_forwards_locked_content_and_the_conversation_mark_comes_back()
+    {
+        using var handler = new LockedReadWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteAsync(new("tool_result", WorkspaceGuid, PetGuid, Guid.NewGuid(),
+            ToolId: "read-1", ToolResult: "body", ToolSuccess: true, ToolLockedContent: true), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.True(result.Value.LockedRead);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.True(body.RootElement.GetProperty("toolLockedContent").GetBoolean());
+    }
+
+    [Fact]
     public async Task A_message_from_the_worker_carries_no_actions_member()
     {
         // An older worker still writes an actions array; Core's contract no longer has one, so
@@ -299,6 +315,22 @@ public sealed class PetWorkerClientModeTests
             return new(HttpStatusCode.OK)
             {
                 Content = new StringContent("{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"Connected\",\"canConnect\":false,\"messages\":[]}", System.Text.Encoding.UTF8, "application/json"),
+            };
+        }
+    }
+
+    private sealed class LockedReadWorker : HttpMessageHandler
+    {
+        public string Body { get; private set; } = "";
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Body = await request.Content!.ReadAsStringAsync(cancellationToken);
+            return new(HttpStatusCode.OK)
+            {
+                Content = new StringContent(
+                    "{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"Connected\",\"canConnect\":false,\"messages\":[],\"lockedRead\":true}",
+                    System.Text.Encoding.UTF8, "application/json"),
             };
         }
     }
