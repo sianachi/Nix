@@ -71,7 +71,7 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   chart: ['groupBy', 'groupOrder', 'measure', 'measureField', 'chartKind', 'period', 'splitBy'],
   calendar: ['date', 'endDate', 'mode'],
   timeline: ['date', 'endDate', 'mode'],
-  gallery: ['cover', 'cardSize'],
+  gallery: ['columns', 'cover', 'cardSize'],
   query: ['preset', 'filters'],
   interactive_form: ['form'],
   habit_tracker: [],
@@ -81,6 +81,12 @@ const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
 };
 
 const ALL_KIND_GATED_FIELDS = [...new Set(Object.values(KIND_EXTRA_FIELDS).flat())] as const;
+
+/** These renderers already show the item title separately and accept its marker among columns.
+ * This is a column reference only; form blocks and other field references still need a property. */
+export function isTitleColumnReference(kind: ViewKind, ref: string): boolean {
+  return ref === 'title' && KIND_EXTRA_FIELDS[kind].includes('columns');
+}
 
 const CALENDAR_MODES = new Set(['day', 'week', 'month']);
 const TIMELINE_MODES = new Set(['week', 'month', 'quarter']);

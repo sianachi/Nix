@@ -128,7 +128,9 @@ internal static class StructureEndpoints
                 + "readable everywhere it already was. Absent leaves the stored flag as it is; true "
                 + "makes the first view open when the default was the document, and fails with "
                 + "'views.document_cannot_be_hidden' when there are no views or the default "
-                + "explicitly names the document. Replacing the set with no views clears the flag.")
+                + "explicitly names the document. Replacing the set with no views clears the flag. "
+                + "An optional expectedVersion from the views read atomically rejects stale replacements "
+                + "with views.version_conflict (409); absent preserves legacy unconditional replacement.")
             .Produces<ContainerViewsResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
@@ -157,7 +159,7 @@ internal static class StructureEndpoints
                 or PropertyErrors.InvalidSchemaCode
                 or PropertyErrors.InvalidViewsCode
                 or PropertyErrors.DocumentCannotBeHiddenCode => StatusCodes.Status422UnprocessableEntity,
-            PropertyErrors.SetupCollisionCode => StatusCodes.Status409Conflict,
+            PropertyErrors.SetupCollisionCode or PropertyErrors.ViewVersionConflictCode => StatusCodes.Status409Conflict,
             ItemEndpoints.LifecycleConflictCode => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status404NotFound,
         };

@@ -5,6 +5,8 @@ import type { StructureProperty } from '../types.js';
 import { compileAddView, compileCreateStructured, compileEntries } from './operations.js';
 import { isWriteStep, STEP_KINDS, type Step } from './steps.js';
 import { compileChartOptions, compileView } from './views.js';
+import { structuredSpecSchema } from '../spec/operations.js';
+import { validateSpec } from '../validate/spec.js';
 
 const STATUS: StructureProperty = {
   key: 'status',
@@ -15,6 +17,63 @@ const STATUS: StructureProperty = {
 };
 
 describe('compileCreateStructured', () => {
+  it.each([
+    ['list', {}],
+    ['sheet', {}],
+    ['form', {}],
+    ['gallery', {}],
+    ['checklist', { doneProperty: 'done' }],
+    ['matrix', { columnBy: 'status', rowBy: 'category' }],
+  ] as const)('accepts the built-in title marker only among %s columns', (kind, settings) => {
+    const spec = structuredSpecSchema.parse({
+      recipe: kind,
+      fields: [
+        { label: 'Status', type: 'select', options: ['Open', 'Done'] },
+        { label: 'Category', type: 'select', options: ['Home', 'Work'] },
+        { label: 'Done', type: 'checkbox' },
+        { label: 'Notes', type: 'text' },
+      ],
+      views: [{ kind, columns: ['title', 'notes'], ...settings }],
+    });
+    expect(
+      validateSpec('create_structured', spec, { inheritedFields: [], today: '2026-10-09' }).ok,
+    ).toBe(true);
+    const [step] = compileCreateStructured(spec, {
+      title: 'Work',
+      parentId: null,
+      inheritedFields: [],
+    });
+    if (step?.kind !== 'createStructuredItem') throw new Error('Expected createStructuredItem.');
+    expect(step.views[0]?.columns).toEqual(['title', 'notes']);
+    expect(step.schema.properties.some((property) => property.key === 'title')).toBe(false);
+  });
+
+  it('validates and compiles Gallery secondary card fields using real schema keys', () => {
+    const spec = structuredSpecSchema.parse({
+      recipe: 'gallery',
+      fields: [
+        { label: 'Status', type: 'select', options: ['Open', 'Done'] },
+        { label: 'Picture', type: 'image' },
+      ],
+      views: [{ kind: 'gallery', columns: ['status'], cover: 'picture', cardSize: 'small' }],
+    });
+    expect(
+      validateSpec('create_structured', spec, { inheritedFields: [], today: '2026-10-09' }).ok,
+    ).toBe(true);
+    const [step] = compileCreateStructured(spec, {
+      title: 'Cards',
+      parentId: null,
+      inheritedFields: [],
+    });
+    if (step?.kind !== 'createStructuredItem') throw new Error('Expected createStructuredItem.');
+    expect(step.views[0]).toMatchObject({
+      kind: 'gallery',
+      columns: ['status'],
+      coverProperty: 'picture',
+      cardSize: 'small',
+    });
+  });
+
   it('assigns deterministic view ids', () => {
     const steps = compileCreateStructured(
       {

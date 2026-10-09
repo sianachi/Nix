@@ -72,8 +72,11 @@ export const VIEW_KIND_RULES = [
     kind: 'gallery',
     label: 'Gallery',
     requires: null,
-    optional: [{ field: 'cover', shape: 'image' }],
-    description: 'Children as cards, each optionally showing a picture property.',
+    optional: [
+      { field: 'cover', shape: 'image' },
+      { field: 'columns', shape: 'field keys' },
+    ],
+    description: 'Cards with an optional picture and chosen fields.',
   },
   {
     kind: 'sheet',
@@ -101,7 +104,7 @@ export const VIEW_KIND_RULES = [
     label: 'Smart list',
     requires: null,
     optional: [],
-    description: 'A saved cross-container query, run server-side from stored filters.',
+    description: 'Saved query rows show filter fields; columns are not configurable.',
   },
   {
     kind: 'chart',
@@ -119,14 +122,15 @@ export const VIEW_KIND_RULES = [
     label: 'Habit tracker',
     requires: null,
     optional: [],
-    description: 'Habit children arranged by local date with recorded progress.',
+    description: 'Child habit settings and dated check-ins, not column mappings.',
   },
   {
     kind: 'checklist',
     label: 'Checklist',
     requires: null,
     optional: [{ field: 'doneProperty', shape: 'checkbox' }],
-    description: 'A box to tick per child, with progress; columns[0] is shown beside each title.',
+    description:
+      'A box to tick per child, with progress; first property column appears beside title.',
   },
   {
     kind: 'matrix',
@@ -204,6 +208,8 @@ export interface CatalogLimits {
   readonly fieldsPerNode: number;
   readonly fieldsPerBlueprint: number;
   readonly viewsPerNode: number;
+  readonly viewsPerAddView: number;
+  readonly viewsPerContainer: number;
   readonly viewsPerBlueprint: number;
   readonly sampleEntries: number;
   readonly plannedWritesPerBuild: number;
@@ -229,6 +235,8 @@ export const LIMITS = {
   fieldsPerNode: 30,
   fieldsPerBlueprint: 80,
   viewsPerNode: 6,
+  viewsPerAddView: 4,
+  viewsPerContainer: 12,
   viewsPerBlueprint: 20,
   sampleEntries: 30,
   plannedWritesPerBuild: 80,
@@ -311,6 +319,7 @@ export const STRUCTURE_OPERATIONS = {
     'create_entries',
     'add_fields',
     'edit_form',
+    'update_view',
     'set_recurrence',
   ],
   consult: [
@@ -319,6 +328,7 @@ export const STRUCTURE_OPERATIONS = {
     'create_entries',
     'add_fields',
     'edit_form',
+    'update_view',
     'set_recurrence',
   ],
 } as const satisfies StructureOperationsByMode;
@@ -338,6 +348,7 @@ export const WORKSPACE_OPERATIONS = [
   'read_item',
   'read_note',
   'read_structure',
+  'read_view',
   'create_note',
   'append_note',
   'replace_section',
@@ -353,6 +364,7 @@ export const WORKSPACE_OPERATIONS = [
   'validate_blueprint',
   'add_fields',
   'edit_form',
+  'update_view',
   'set_recurrence',
   'list_templates',
   'read_template',
@@ -372,6 +384,7 @@ export const READ_ONLY_OPERATION_NAMES = [
   'read_item',
   'read_note',
   'read_structure',
+  'read_view',
   'list_templates',
   'read_template',
   'read_calendar',

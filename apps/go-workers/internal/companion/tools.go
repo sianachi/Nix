@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const maxToolCallsPerTurn = 20
+
 type Model struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -90,6 +92,7 @@ var toolArgSpecs = map[string]map[string]argMapping{
 	"read_item":          {"itemId": {"itemId", argString}},
 	"read_note":          {"itemId": {"itemId", argString}},
 	"read_structure":     {"itemId": {"itemId", argString}},
+	"read_view":          {"itemId": {"itemId", argString}, "query": {"query", argObjectJSON}},
 	"create_note":        {"title": {"title", argString}, "markdown": {"markdown", argString}, "parentId": {"parentId", argString}},
 	"append_note":        {"itemId": {"itemId", argString}, "markdown": {"markdown", argString}},
 	"replace_section":    {"itemId": {"itemId", argString}, "heading": {"query", argString}, "markdown": {"markdown", argString}},
@@ -101,6 +104,7 @@ var toolArgSpecs = map[string]map[string]argMapping{
 	"restore_item":       {"itemId": {"itemId", argString}},
 	"create_structured":  {"title": {"title", argString}, "spec": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
 	"add_view":           {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"update_view":        {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
 	"create_entries":     {"parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
 	"validate_blueprint": {"blueprint": {"specJson", argObjectJSON}},
 	"add_fields":         {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
@@ -426,8 +430,12 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 				readMayBeStale = true
 			}
 		}
-		if len(c.Tools) >= 20 {
+		if len(c.Tools) >= maxToolCallsPerTurn {
 			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", p.Tool, "reason", "20 tool calls per turn reached"}, nil)
+			if peer, ok := a.transport.(toolTransport); ok {
+				_ = peer.Reply(id, toolOutput(false, "This turn reached its limit of 20 tool calls. No action ran for this request. Stop calling tools in this turn, report what completed and what remains unverified, and continue the remaining work in a later user turn. Do not repeat completed or uncertain writes."))
+				return true
+			}
 			return false
 		}
 		c.Tools = append(c.Tools, ToolCall{ID: p.CallID, Arguments: string(flatArguments), Status: "pending", rpcID: append(json.RawMessage{}, id...), pendingSince: time.Now()})
@@ -453,7 +461,7 @@ func toolIdentity(raw string) (string, bool) {
 		return "", false
 	}
 	operation, _ := args["operation"].(string)
-	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "list_templates" || operation == "read_template" || operation == "validate_blueprint" || operation == "read_calendar"
+	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "read_view" || operation == "list_templates" || operation == "read_template" || operation == "validate_blueprint" || operation == "read_calendar"
 	if properties, ok := args["propertiesJson"].(string); ok && properties != "" {
 		var object map[string]any
 		decoder := json.NewDecoder(strings.NewReader(properties))
@@ -470,6 +478,15 @@ func toolIdentity(raw string) (string, bool) {
 		if json.Valid([]byte(spec)) && decoder.Decode(&object) == nil && object != nil {
 			canonical, _ := json.Marshal(object)
 			args["specJson"] = string(canonical)
+		}
+	}
+	if query, ok := args["query"].(string); operation == "read_view" && ok && query != "" {
+		var object map[string]any
+		decoder := json.NewDecoder(strings.NewReader(query))
+		decoder.UseNumber()
+		if json.Valid([]byte(query)) && decoder.Decode(&object) == nil && object != nil {
+			canonical, _ := json.Marshal(object)
+			args["query"] = string(canonical)
 		}
 	}
 	canonical, err := json.Marshal(args)
@@ -563,6 +580,13 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 				return "nix_set_properties requires properties (a JSON object)."
 			}
 		}
+	case "read_view":
+		if !uuid.MatchString(p.ItemID) {
+			return "nix_read_view requires the exact itemId UUID."
+		}
+		if !isJSONObject(p.Query) {
+			return "nix_read_view requires query with an exact viewId and optional pageSize (1 to 25)."
+		}
 	case "replace_section", "replace_passage":
 		if !uuid.MatchString(p.ItemID) {
 			return fmt.Sprintf("nix_%s requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", p.Operation, modelParamForItemID(p.Operation))
@@ -584,12 +608,12 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 		if !isJSONObject(p.Spec) {
 			return "nix_create_structured requires spec (a JSON object)."
 		}
-	case "add_view":
+	case "add_view", "update_view":
 		if !uuid.MatchString(p.ItemID) {
-			return fmt.Sprintf("nix_add_view requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", modelParamForItemID(p.Operation))
+			return fmt.Sprintf("nix_%s requires the exact %s UUID. Discover it with nix_list_items or nix_search if it is not already known.", p.Operation, modelParamForItemID(p.Operation))
 		}
 		if !isJSONObject(p.Spec) {
-			return "nix_add_view requires spec (a JSON object)."
+			return fmt.Sprintf("nix_%s requires spec (a JSON object).", p.Operation)
 		}
 	case "create_entries":
 		if !uuid.MatchString(p.ParentID) {

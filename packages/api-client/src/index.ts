@@ -83,6 +83,7 @@ export {
   KNOWN_ITEM_TYPES,
   itemChartSchema,
   itemQueryResultsSchema,
+  viewConfigurationSchema,
   itemSchema,
   noContentSchema,
   problemDetailsSchema,
@@ -161,6 +162,7 @@ export type {
   WorkspaceQueryResults,
   WorkspaceQueryRow,
   PropertyDefinition,
+  ViewConfiguration,
   QueryResultRow,
   SearchHit,
   SearchResults,
@@ -271,6 +273,7 @@ export type {
  * to the client, so nothing above this package ever sees a URL.
  */
 export * as accessTokens from './resources/access-tokens.js';
+export * as health from './resources/health.js';
 export * as principal from './resources/principal.js';
 export * as pets from './resources/pets.js';
 export {

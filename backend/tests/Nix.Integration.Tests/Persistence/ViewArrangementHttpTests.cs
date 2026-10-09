@@ -162,6 +162,54 @@ public sealed class ViewArrangementHttpTests : IAsyncLifetime
         Assert.Contains("median", body.RootElement.GetProperty("detail").GetString(), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Conditional_view_versions_round_trip_and_stale_replacements_return_409()
+    {
+        var token = await AccessTokenAsync("view-conditional-version");
+        var itemId = await CreateScratchItemAsync(token);
+        string originalVersion;
+        using (var read = await SendRawAsync(HttpMethod.Get, $"/api/v1/items/{itemId}/views", token, null))
+        {
+            Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+            using var json = JsonDocument.Parse(await read.Content.ReadAsStringAsync(Cancellation));
+            originalVersion = json.RootElement.GetProperty("version").GetString()!;
+            Assert.Matches("^[a-f0-9]{64}$", originalVersion);
+        }
+        var conditional = JsonSerializer.Serialize(new
+        {
+            views = new[] { new { id = "first", name = "First", kind = "list", columns = Array.Empty<string>(), groupOrder = Array.Empty<string>(), sortDescending = false } },
+            @default = "first",
+            hideDocument = true,
+            expectedVersion = originalVersion,
+        });
+        using (var write = await SendRawAsync(HttpMethod.Put, $"/api/v1/items/{itemId}/views", token, conditional))
+        {
+            Assert.Equal(HttpStatusCode.OK, write.StatusCode);
+            using var json = JsonDocument.Parse(await write.Content.ReadAsStringAsync(Cancellation));
+            Assert.NotEqual(originalVersion, json.RootElement.GetProperty("version").GetString());
+        }
+        const string legacyAddition = """
+            {"views":[{"id":"first","name":"First","kind":"list","columns":[],"groupOrder":[],"sortDescending":false},
+              {"id":"added","name":"Added","kind":"list","columns":[],"groupOrder":[],"sortDescending":false}],
+              "default":"added","hideDocument":true}
+            """;
+        using (var legacy = await SendRawAsync(HttpMethod.Put, $"/api/v1/items/{itemId}/views", token, legacyAddition))
+        {
+            Assert.Equal(HttpStatusCode.OK, legacy.StatusCode);
+        }
+        using (var stale = await SendRawAsync(HttpMethod.Put, $"/api/v1/items/{itemId}/views", token, conditional))
+        {
+            Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+            using var json = JsonDocument.Parse(await stale.Content.ReadAsStringAsync(Cancellation));
+            Assert.Equal("views.version_conflict", json.RootElement.GetProperty("code").GetString());
+        }
+        using var verified = await SendRawAsync(HttpMethod.Get, $"/api/v1/items/{itemId}/views", token, null);
+        using var current = JsonDocument.Parse(await verified.Content.ReadAsStringAsync(Cancellation));
+        Assert.Equal(["first", "added"], current.RootElement.GetProperty("views").EnumerateArray().Select(view => view.GetProperty("id").GetString()));
+        Assert.Equal("added", current.RootElement.GetProperty("default").GetString());
+        Assert.True(current.RootElement.GetProperty("hideDocument").GetBoolean());
+    }
+
     private async Task<string> CreateScratchItemAsync(string bearer)
     {
         using var created = await SendRawAsync(

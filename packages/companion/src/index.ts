@@ -51,3 +51,5 @@ export { planBuild, type BuildPlan, type PlanBuildOptions } from './blueprint/pl
 export { createSandbox, findSandbox, SANDBOX_TITLE } from './blueprint/sandbox.js';
 
 export { executeBuild, type BuildResult } from './blueprint/build.js';
+
+export { readView, type ReadViewResult } from './structure/read-view.js';

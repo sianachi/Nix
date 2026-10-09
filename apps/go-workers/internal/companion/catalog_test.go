@@ -16,7 +16,7 @@ import (
 // added to workspaceTools() and forgotten here would not fail this test. Nothing in the schema
 // marks an operation as "structure-shaped", so there is no enum to derive the other direction
 // from without inventing one.
-var structureOperationsInChatMode = []string{"create_structured", "add_view", "create_entries", "add_fields", "edit_form", "set_recurrence"}
+var structureOperationsInChatMode = []string{"create_structured", "add_view", "create_entries", "add_fields", "edit_form", "update_view", "set_recurrence"}
 
 func TestCatalogsAreEmbeddedAndBounded(t *testing.T) {
 	if chatCatalog == "" {
@@ -70,11 +70,11 @@ func TestWorkspaceToolsOffersOneToolPerOperationPerMode(t *testing.T) {
 	chatNames := toolNamesFor("chat")
 	consultNames := toolNamesFor("consult")
 
-	if len(chatNames) != 25 {
-		t.Fatalf("chat mode offers %d tools, want 25", len(chatNames))
+	if len(chatNames) != 27 {
+		t.Fatalf("chat mode offers %d tools, want 27", len(chatNames))
 	}
-	if len(consultNames) != 28 {
-		t.Fatalf("consult mode offers %d tools, want 28", len(consultNames))
+	if len(consultNames) != 30 {
+		t.Fatalf("consult mode offers %d tools, want 30", len(consultNames))
 	}
 	for _, name := range []string{"nix_workspace", "workspace"} {
 		if _, ok := chatNames[name]; ok {

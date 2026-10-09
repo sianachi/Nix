@@ -515,10 +515,22 @@ internal static class StructuredItemSetupEndpoints
                 PropertyErrors.InvalidViews("The interactive form could not be published.")));
         }
 
+        var persistedViews = await dispatcher.QueryAsync<GetContainerViews, Result<ContainerViewSet>>(
+            new GetContainerViews(item.Id), httpContext.RequestAborted).ConfigureAwait(false);
+        if (persistedViews.IsFailure)
+        {
+            return TypedResults.Problem(StructureEndpoints.Problem(httpContext, persistedViews.Error));
+        }
+
         var response = new StructuredItemResponse(
             ItemMapping.ToResponse(item, false),
             PropertyMapping.ToResponse(schema, schema),
-            new ContainerViewsResponse([.. views.Select(ViewMapping.ToResponse)], [], request.Views.Default ?? "document", false),
+            new ContainerViewsResponse(
+                [.. persistedViews.Value.Views.Select(ViewMapping.ToResponse)],
+                persistedViews.Value.Unrenderable,
+                persistedViews.Value.Default,
+                persistedViews.Value.HideDocument,
+                persistedViews.Value.Version),
             publicForm);
         return TypedResults.Created($"/api/v1/items/{item.Id}", response);
     }
@@ -594,7 +606,8 @@ internal static class StructuredItemSetupEndpoints
                 [.. stored.Value.Views.Select(ViewMapping.ToResponse)],
                 stored.Value.Unrenderable,
                 stored.Value.Default,
-                stored.Value.HideDocument),
+                stored.Value.HideDocument,
+                stored.Value.Version),
             publicForm));
     }
 
@@ -674,7 +687,8 @@ internal static class StructuredItemSetupEndpoints
                 [.. stored.Value.Views.Select(ViewMapping.ToResponse)],
                 stored.Value.Unrenderable,
                 stored.Value.Default,
-                stored.Value.HideDocument),
+                stored.Value.HideDocument,
+                stored.Value.Version),
             publicForm));
     }
 

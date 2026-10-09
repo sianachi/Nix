@@ -287,9 +287,13 @@
         {
           "field": "cover",
           "shape": "image"
+        },
+        {
+          "field": "columns",
+          "shape": "field keys"
         }
       ],
-      "description": "Children as cards, each optionally showing a picture property."
+      "description": "Cards with an optional picture and chosen fields."
     },
     {
       "kind": "sheet",
@@ -317,7 +321,7 @@
       "label": "Smart list",
       "requires": null,
       "optional": [],
-      "description": "A saved cross-container query, run server-side from stored filters."
+      "description": "Saved query rows show filter fields; columns are not configurable."
     },
     {
       "kind": "chart",
@@ -344,7 +348,7 @@
       "label": "Habit tracker",
       "requires": null,
       "optional": [],
-      "description": "Habit children arranged by local date with recorded progress."
+      "description": "Child habit settings and dated check-ins, not column mappings."
     },
     {
       "kind": "checklist",
@@ -356,7 +360,7 @@
           "shape": "checkbox"
         }
       ],
-      "description": "A box to tick per child, with progress; columns[0] is shown beside each title."
+      "description": "A box to tick per child, with progress; first property column appears beside title."
     },
     {
       "kind": "matrix",
@@ -449,6 +453,7 @@
       "create_entries",
       "add_fields",
       "edit_form",
+      "update_view",
       "set_recurrence"
     ],
     "consult": [
@@ -457,6 +462,7 @@
       "create_entries",
       "add_fields",
       "edit_form",
+      "update_view",
       "set_recurrence"
     ]
   },
@@ -470,6 +476,8 @@
     "fieldsPerNode": 30,
     "fieldsPerBlueprint": 80,
     "viewsPerNode": 6,
+    "viewsPerAddView": 4,
+    "viewsPerContainer": 12,
     "viewsPerBlueprint": 20,
     "sampleEntries": 30,
     "plannedWritesPerBuild": 80,

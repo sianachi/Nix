@@ -175,6 +175,15 @@ describe('fieldSpecSchema', () => {
 });
 
 describe('viewSpecSchema', () => {
+  it('accepts Gallery card fields and refuses ignored Smart list columns', () => {
+    expect(
+      viewSpecSchema.safeParse({ kind: 'gallery', columns: ['title', 'status'] }).success,
+    ).toBe(true);
+    const query = viewSpecSchema.safeParse({ kind: 'query', columns: ['status'] });
+    expect(query.success).toBe(false);
+    if (!query.success) expect(query.error.issues[0]?.path).toEqual(['columns']);
+  });
+
   it('board views only accept groupBy and groupOrder', () => {
     const boardWithAllowedFields = viewSpecSchema.safeParse({
       kind: 'board',

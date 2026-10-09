@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { LIMITS } from '../catalog/tables.js';
 import { fieldSpecSchema } from './field.js';
 import { viewSpecSchema } from './view.js';
 
@@ -53,7 +54,7 @@ export const structuredSpecSchema = z
   .object({
     recipe: structuredRecipeIdSchema,
     fields: z.array(fieldSpecSchema).max(30),
-    views: z.array(viewSpecSchema).max(6).optional(),
+    views: z.array(viewSpecSchema).max(LIMITS.viewsPerNode).optional(),
     inherit: z.boolean().default(true),
   })
   .strict();
@@ -62,7 +63,7 @@ export type StructuredSpec = z.infer<typeof structuredSpecSchema>;
 export const viewSetupSpecSchema = z
   .object({
     fields: z.array(fieldSpecSchema).max(20).optional(),
-    views: z.array(viewSpecSchema).min(1).max(4),
+    views: z.array(viewSpecSchema).min(1).max(LIMITS.viewsPerAddView),
   })
   .strict();
 export type ViewSetupSpec = z.infer<typeof viewSetupSpecSchema>;

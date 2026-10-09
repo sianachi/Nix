@@ -31,6 +31,13 @@ describe('pet executor never-operation guard', () => {
         expect(source).toMatch(/structure\.setItemSchema\(targetId/);
         expect(source).toMatch(/nodeItems\.get\(raw\.target\.nodeId\)/);
         expect(source.replace('setItemSchema', ''), file).not.toMatch(forbidden);
+      } else if (file.endsWith('/structure/update-view.ts')) {
+        // A strict settings patch compiles the complete current view set in the same order.
+        // The shared run loop fences every setting; the compiler cannot remove or create a view.
+        expect(source).toMatch(/compileUpdateView\(spec, context\)/);
+        expect(source).toMatch(/!step\.viewUpdate/);
+        expect(source).toMatch(/step\.schema\.properties\.length > 0/);
+        expect(source.replace('setContainerViews', ''), file).not.toMatch(forbidden);
       } else {
         expect(source, file).not.toMatch(forbidden);
       }

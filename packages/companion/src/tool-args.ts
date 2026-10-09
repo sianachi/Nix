@@ -62,7 +62,7 @@ export const workspaceToolSchema = z
     if (args.operation === 'replace_section' || args.operation === 'replace_passage')
       required('query');
     if (args.operation === 'replace_section') required('markdown');
-    if (args.operation === 'search') required('query');
+    if (args.operation === 'search' || args.operation === 'read_view') required('query');
     if (args.operation === 'create_entries') required('parentId');
     if (
       [
@@ -71,6 +71,7 @@ export const workspaceToolSchema = z
         'create_entries',
         'add_fields',
         'edit_form',
+        'update_view',
         'set_recurrence',
       ].includes(args.operation)
     ) {

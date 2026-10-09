@@ -69,7 +69,7 @@ export const fieldSpecSchema = z
       .regex(/^[a-z][a-z0-9_]*$/)
       // Short on purpose: the pattern already says the shape, and every byte is in the pet's
       // tool schema budget.
-      .describe('Omit to derive from label.')
+      .describe('Task key = type; else omit.')
       .optional(),
     type: z.enum(FIELD_SPEC_TYPES),
     options: z.array(z.string().min(1).max(60)).min(1).max(30).optional(),

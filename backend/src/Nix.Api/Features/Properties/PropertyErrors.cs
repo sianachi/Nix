@@ -29,6 +29,9 @@ public static class PropertyErrors
     /// <summary>Stable code for a guided setup colliding with configuration added meanwhile.</summary>
     public const string SetupCollisionCode = "structure.setup_collision";
 
+    /// <summary>Stable code for replacing views after their approved configuration changed.</summary>
+    public const string ViewVersionConflictCode = "views.version_conflict";
+
     /// <summary>
     /// One or more property values do not fit the schema.
     /// </summary>
@@ -64,4 +67,8 @@ public static class PropertyErrors
 
     /// <summary>A field or view identifier was claimed after a wizard draft was opened.</summary>
     public static NixError SetupCollision(string detail) => new(SetupCollisionCode, detail);
+
+    /// <summary>The view configuration changed after the caller read it.</summary>
+    public static NixError ViewVersionConflict() =>
+        new(ViewVersionConflictCode, "The view configuration changed. Read it again before saving.");
 }

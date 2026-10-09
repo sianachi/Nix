@@ -5,9 +5,15 @@ import { chatCaseSchema } from '@nix/structure-spec';
 import { openSession } from '../session.ts';
 import { WorkspaceToolRefusal, type BodyEditPlan, type CompanionPorts } from '@nix/companion';
 import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown';
+import { viewConfigurationSchema, type TemplateSummary } from '@nix/api-client';
+import * as Y from 'yjs';
+import { prosemirrorJSONToYDoc } from 'y-prosemirror';
+import { nixSchema } from '@nix/editor-schema';
 import {
   declineReason,
+  runChatCase,
   runChatSuite,
+  scopeFixtureQueryViews,
   substituteDates,
   type ChatEvalRuntime,
   type ChatFixture,
@@ -42,7 +48,12 @@ const fixture: ChatFixture = {
   ]),
 };
 
-function item(id: string, parentId: string | null, title: string, properties: Record<string, unknown> = {}) {
+function item(
+  id: string,
+  parentId: string | null,
+  title: string,
+  properties: Record<string, unknown> = {},
+) {
   return {
     id,
     workspaceId: WORKSPACE,
@@ -81,6 +92,19 @@ function connection(extra: Record<string, unknown> = {}) {
   return { provider: 'chatgpt', status: 'connected', reason: '', canConnect: false, ...extra };
 }
 
+function bodyUpdate(text: string): string {
+  const doc = prosemirrorJSONToYDoc(
+    nixSchema,
+    { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] },
+    'default',
+  );
+  try {
+    return Buffer.from(Y.encodeStateAsUpdate(doc)).toString('base64');
+  } finally {
+    doc.destroy();
+  }
+}
+
 /** A runtime that offers `tools` one read at a time, then finishes with `answer`. */
 function scriptedRuntime(tools: ReturnType<typeof toolCall>[], answer: string) {
   const calls: Record<string, unknown>[] = [];
@@ -89,10 +113,13 @@ function scriptedRuntime(tools: ReturnType<typeof toolCall>[], answer: string) {
     http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
       const body = (await request.json()) as Record<string, unknown>;
       calls.push(body);
-      const current = () =>
-        tools.map((tool) => ({ ...tool, ...(decided.get(tool.id) ?? {}) }));
+      const current = () => tools.map((tool) => ({ ...tool, ...(decided.get(tool.id) ?? {}) }));
       if (body.operation === 'tool_claim') {
-        decided.set(String(body.toolId), { status: 'claimed', claimId: String(body.requestId), result: '' });
+        decided.set(String(body.toolId), {
+          status: 'claimed',
+          claimId: String(body.requestId),
+          result: '',
+        });
         return HttpResponse.json(connection({ state: 'thinking', tools: current() }));
       }
       if (body.operation === 'tool_result') {
@@ -104,7 +131,9 @@ function scriptedRuntime(tools: ReturnType<typeof toolCall>[], answer: string) {
         return HttpResponse.json(connection({ state: 'thinking', tools: current() }));
       }
       if (body.operation === 'read') {
-        const pending = tools.some((tool) => (decided.get(tool.id)?.status ?? 'pending') === 'pending');
+        const pending = tools.some(
+          (tool) => (decided.get(tool.id)?.status ?? 'pending') === 'pending',
+        );
         return HttpResponse.json(
           connection({
             state: pending ? 'thinking' : 'success',
@@ -134,9 +163,631 @@ function runner(): ChatEvalRuntime {
 }
 
 describe('pet eval chat', () => {
+  it('retains recovery evidence when a template persists before its detail read fails', async () => {
+    const tool = toolCall('capture', {
+      operation: 'save_as_template',
+      itemId: DENTIST,
+      title: 'Saved synthetic note',
+      specJson: '{"includeSamples":true}',
+    });
+    const calls = scriptedRuntime([tool], 'Never verified.');
+    let resets = 0;
+    server.use(
+      http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
+        const body = (await request.clone().json()) as Record<string, unknown>;
+        if (body.operation !== 'reset') return;
+        resets += 1;
+        return resets === 1
+          ? HttpResponse.json(connection({ state: 'idle' }))
+          : HttpResponse.json({ title: 'Reset unavailable', status: 503 }, { status: 503 });
+      }),
+    );
+    const capture = vi.fn(() =>
+      HttpResponse.json({
+        templateId: OUTSIDE,
+        operationId: WORKSPACE,
+        writtenTargetItemIds: [OUTSIDE],
+        fileTransferPending: false,
+      }),
+    );
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Synthetic note')),
+      ),
+      http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+        HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+      ),
+      http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/templates/capture-preview/${DENTIST}`, () =>
+        HttpResponse.json({
+          fingerprint: 'a'.repeat(64),
+          captureFingerprint: 'b'.repeat(64),
+          sourceTitle: 'Synthetic note',
+          itemCount: 1,
+        }),
+      ),
+      http.post('http://nix.eval.test:8100/templates/captures', capture),
+      http.get(`${CORE}/api/v1/templates/${OUTSIDE}`, () =>
+        HttpResponse.json({ title: 'Detail unavailable', status: 503 }, { status: 503 }),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'uncertain-save',
+      prompt: 'Capture the synthetic note.',
+      mode: 'consult',
+      templateSource: 'task-dentist',
+      approvedOperations: ['save_as_template'],
+    });
+    const scoped = {
+      ...fixture,
+      templateSourceId: DENTIST,
+      templates: new Map<string, TemplateSummary>(),
+    };
+    await expect(
+      runChatCase(
+        chatCase,
+        1,
+        { suite: 'chat', workspace: WORKSPACE, pet: PET, allowWrites: true },
+        scoped,
+        runner(),
+      ),
+    ).rejects.toThrow('Template capture did not return a confirmed result');
+    expect(capture).toHaveBeenCalledOnce();
+    expect(resets).toBe(1);
+    expect(calls.some((call) => call.operation === 'interrupt')).toBe(true);
+    // The failed local receipt contains no recoverable ID; no catalog sweep or write retry ran.
+    expect(scoped.templates.size).toBe(0);
+  });
+
+  it('retains the source when template setup has an uncertain capture result', async () => {
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Synthetic note')),
+      ),
+      http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, () =>
+        HttpResponse.json({ items: [], nextCursor: null }),
+      ),
+      http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/templates/capture-preview/${DENTIST}`, () =>
+        HttpResponse.json({
+          fingerprint: 'a'.repeat(64),
+          captureFingerprint: 'b'.repeat(64),
+          sourceTitle: 'Synthetic note',
+          itemCount: 1,
+        }),
+      ),
+      http.post('http://nix.eval.test:8100/templates/captures', () =>
+        HttpResponse.json({ title: 'Uncertain', status: 503 }, { status: 503 }),
+      ),
+    );
+    const teardown = vi.fn(() => Promise.resolve());
+    const chatCase = chatCaseSchema.parse({
+      id: 'uncertain-seed',
+      prompt: 'Read the template.',
+      templateSource: 'task-dentist',
+    });
+    await expect(
+      runChatSuite(
+        [chatCase],
+        { suite: 'chat', workspace: WORKSPACE, pet: PET },
+        { ...runner(), teardown },
+      ),
+    ).rejects.toThrow('fixture was left in place');
+    expect(teardown).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    'stops an unfinished turn before resetting or removing its fixture: settles=$0',
+    async (settles) => {
+      const tools = [
+        toolCall('one', { operation: 'unsupported' }),
+        toolCall('two', { operation: 'unsupported' }),
+      ];
+      const calls: string[] = [];
+      let state = 'idle';
+      let interrupted = false;
+      let settlingReads = 0;
+      server.use(
+        http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
+          const body = (await request.json()) as Record<string, unknown>;
+          const operation = String(body.operation);
+          calls.push(operation);
+          if (operation === 'send') state = 'thinking';
+          if (operation === 'tool_claim') {
+            const tool = tools.find((entry) => entry.id === body.toolId);
+            if (tool) {
+              tool.status = 'claimed';
+              tool.claimId = String(body.requestId);
+            }
+          }
+          if (operation === 'tool_result') {
+            const tool = tools.find((entry) => entry.id === body.toolId);
+            if (tool) tool.status = 'failed';
+          }
+          if (operation === 'interrupt') interrupted = true;
+          if (operation === 'read' && interrupted) {
+            settlingReads += 1;
+            if (settles && settlingReads >= 2) state = 'error';
+          }
+          if (operation === 'reset') {
+            if (state === 'thinking')
+              return HttpResponse.json(
+                { title: 'Stop the running turn first', status: 409 },
+                { status: 409 },
+              );
+            state = 'idle';
+          }
+          return HttpResponse.json(connection({ state, tools: interrupted ? [] : tools }));
+        }),
+      );
+      const teardown = vi.fn(() => {
+        expect(state).toBe('idle');
+        return Promise.resolve();
+      });
+      const chatCase = chatCaseSchema.parse({
+        id: 'stop-turn',
+        prompt: 'Check.',
+        tools: { max: 1 },
+      });
+      const result = runChatSuite(
+        [chatCase],
+        { suite: 'chat', workspace: WORKSPACE, pet: PET },
+        { ...runner(), teardown },
+      );
+      if (settles) {
+        const [score] = await result;
+        expect(score?.outcome).toBe('tool_limit');
+        expect(teardown).toHaveBeenCalledOnce();
+        expect(calls.slice(-4)).toEqual(['interrupt', 'read', 'read', 'reset']);
+      } else {
+        await expect(result).rejects.toThrow('fixture was left in place');
+        expect(teardown).not.toHaveBeenCalled();
+        expect(calls.filter((entry) => entry === 'reset')).toHaveLength(1);
+        expect(settlingReads).toBe(10);
+      }
+    },
+  );
+
+  it.each([
+    { variant: 'correct', pass: true },
+    { variant: 'wrong field', pass: false },
+    { variant: 'wrong view', pass: false },
+    { variant: 'wrong note', pass: false },
+    { variant: 'duplicate', pass: false },
+  ])('grades created child schema, views, note and count: $variant', async ({ variant, pass }) => {
+    scriptedRuntime([], 'Created.');
+    const child = item(DENTIST, TASKS, 'Created demo', { mood: 'Calm' });
+    const field = {
+      key: 'mood',
+      label: 'Mood',
+      type: variant === 'wrong field' ? 'number' : 'text',
+      options: [],
+      required: false,
+    };
+    server.use(
+      http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, ({ request }) =>
+        HttpResponse.json({
+          items:
+            new URL(request.url).searchParams.get('parentId') === TASKS
+              ? variant === 'duplicate'
+                ? [child, { ...child, id: OUTSIDE }]
+                : [child]
+              : [],
+          nextCursor: null,
+        }),
+      ),
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () => HttpResponse.json(child)),
+      http.get(`${CORE}/api/v1/items/${DENTIST}/schema`, () =>
+        HttpResponse.json({ properties: [field], declared: [field], inherit: true }),
+      ),
+      http.get(`${CORE}/api/v1/items/${DENTIST}/views`, () =>
+        HttpResponse.json({
+          views: [
+            {
+              id: 'list-1',
+              kind: 'list',
+              name: 'Overview',
+              columns: variant === 'wrong view' ? [] : ['title', 'mood'],
+            },
+          ],
+          default: 'list-1',
+          hideDocument: false,
+          unrenderable: [],
+        }),
+      ),
+      http.get('http://nix.eval.test:8100/documents/:itemId/updates', () =>
+        HttpResponse.json({
+          headSeq: '1',
+          schemaVersion: 2,
+          updates: [
+            {
+              seq: '1',
+              update: bodyUpdate(variant === 'wrong note' ? 'Unrelated.' : 'A calm demo tour.'),
+            },
+          ],
+          hasMore: false,
+        }),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'created-child',
+      prompt: 'Verify the demo.',
+      asserts: [
+        {
+          kind: 'child',
+          parent: 'tasks',
+          title: '^Created demo$',
+          count: 1,
+          values: { mood: 'Calm' },
+          fields: [{ key: 'mood', equals: { type: 'text', inherited: false } }],
+          views: [{ name: 'Overview', equals: { kind: 'list', columns: ['title', 'mood'] } }],
+          noteContains: 'calm demo tour',
+        },
+      ],
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.pass).toBe(pass);
+    if (!pass) expect(result?.failures).toHaveLength(1);
+  });
+
+  it.each([false, true])(
+    'independently verifies that a refused view was not saved: present=$0',
+    async (present) => {
+      scriptedRuntime([], 'Refused.');
+      server.use(
+        http.get(`${CORE}/api/v1/items/${TASKS}/views`, () =>
+          HttpResponse.json({
+            views: present ? [{ id: 'refused', kind: 'list', name: 'Too many' }] : [],
+            default: present ? 'refused' : '',
+            hideDocument: false,
+            unrenderable: [],
+          }),
+        ),
+      );
+      const chatCase = chatCaseSchema.parse({
+        id: 'absent-view',
+        prompt: 'Check.',
+        asserts: [{ kind: 'view', item: 'tasks', name: 'Too many', exists: false }],
+      });
+      const [result] = await runChatSuite(
+        [chatCase],
+        { suite: 'chat', workspace: WORKSPACE, pet: PET },
+        runner(),
+      );
+      expect(result?.pass).toBe(!present);
+    },
+  );
+
+  it('routes every request and cleanup to the case conversation mode', async () => {
+    const calls = scriptedRuntime(
+      [toolCall('bad', { operation: 'create_note', title: 'Outside' })],
+      'Cannot change that.',
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'design-route',
+      prompt: 'Check.',
+      mode: 'consult',
+      tools: { require: ['create_note'] },
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.pass).toBe(true);
+    expect(calls.length).toBeGreaterThan(4);
+    expect(calls.every((call) => call.mode === 'consult')).toBe(true);
+  });
+
+  it('explicit fixture approvals require writes enabled and never cross the fixture boundary', async () => {
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Task')),
+      ),
+      http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+        HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+      ),
+      http.get(`${CORE}/api/v1/items/${OUTSIDE}`, () =>
+        HttpResponse.json(item(OUTSIDE, null, 'Outside')),
+      ),
+    );
+    const session = runner().session;
+    const inside = {
+      ...toolCall('trash', { operation: 'trash_item', itemId: DENTIST }),
+      status: 'pending' as const,
+    };
+    const outside = {
+      ...toolCall('outside', { operation: 'trash_item', itemId: OUTSIDE }),
+      status: 'pending' as const,
+    };
+    expect(
+      await declineReason(
+        session,
+        fixture,
+        inside,
+        true,
+        new Map(),
+        false,
+        undefined,
+        undefined,
+        undefined,
+        ['trash_item'],
+      ),
+    ).toBeUndefined();
+    expect(
+      await declineReason(
+        session,
+        fixture,
+        inside,
+        false,
+        new Map(),
+        false,
+        undefined,
+        undefined,
+        undefined,
+        ['trash_item'],
+      ),
+    ).toBe('writes are not allowed in this run');
+    expect(
+      await declineReason(
+        session,
+        fixture,
+        outside,
+        true,
+        new Map(),
+        false,
+        undefined,
+        undefined,
+        undefined,
+        ['trash_item'],
+      ),
+    ).toBe('the target is outside the fixture');
+    expect(
+      await declineReason(
+        session,
+        fixture,
+        inside,
+        true,
+        new Map(),
+        true,
+        undefined,
+        undefined,
+        undefined,
+        ['trash_item'],
+      ),
+    ).toBe("earlier reads need the owner's review before changes");
+    const move = {
+      ...toolCall('move', { operation: 'move_item', itemId: DENTIST, parentId: OUTSIDE }),
+      status: 'pending' as const,
+    };
+    expect(
+      await declineReason(
+        session,
+        fixture,
+        move,
+        true,
+        new Map(),
+        false,
+        undefined,
+        undefined,
+        undefined,
+        ['move_item'],
+      ),
+    ).toBe('the target is outside the fixture');
+  });
+
+  it.each([
+    { source: 'computed', properties: { total: -1 }, computed: { total: 42 }, pass: true },
+    { source: 'computed', properties: { total: 42 }, computed: null, pass: false },
+    { source: 'properties', properties: { total: 42 }, computed: { total: -1 }, pass: true },
+  ] as const)('checks $source values without substituting another source', async (entry) => {
+    scriptedRuntime([], 'Checked.');
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json({
+          ...item(DENTIST, TASKS, 'Call dentist', entry.properties),
+          computed: entry.computed,
+        }),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'check-total',
+      prompt: 'Check the total.',
+      asserts: [
+        { kind: 'value', item: 'task-dentist', key: 'total', source: entry.source, equals: 42 },
+      ],
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.pass).toBe(entry.pass);
+  });
+
+  it.each([
+    { expression: '[hours] * 2', inherited: false, pass: true },
+    { expression: '[hours] * 3', inherited: false, pass: false },
+    { expression: '[hours] * 2', inherited: true, pass: false },
+  ])(
+    'proves computed field configuration and declaration: $expression, $inherited',
+    async (entry) => {
+      scriptedRuntime([], 'Checked.');
+      const field = {
+        key: 'total',
+        label: 'Total',
+        type: 'formula',
+        options: [],
+        required: false,
+        expression: entry.expression,
+        aggregate: null,
+        source: null,
+      };
+      server.use(
+        http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+          HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+        ),
+        http.get(`${CORE}/api/v1/items/${TASKS}/schema`, () =>
+          HttpResponse.json({
+            properties: [field],
+            declared: entry.inherited ? [] : [field],
+            inherit: true,
+          }),
+        ),
+        http.get(`${CORE}/api/v1/items/${TASKS}/views`, () =>
+          HttpResponse.json({ views: [], default: '', hideDocument: false, unrenderable: [] }),
+        ),
+        http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, () =>
+          HttpResponse.json({ items: [], nextCursor: null }),
+        ),
+      );
+      const chatCase = chatCaseSchema.parse({
+        id: 'check-formula',
+        prompt: 'Check the formula.',
+        asserts: [
+          {
+            kind: 'field',
+            item: 'tasks',
+            key: 'total',
+            equals: {
+              type: 'formula',
+              expression: '[hours] * 2',
+              inherited: false,
+              computed: true,
+            },
+          },
+        ],
+      });
+      const [result] = await runChatSuite(
+        [chatCase],
+        { suite: 'chat', workspace: WORKSPACE, pet: PET },
+        runner(),
+      );
+      expect(result?.pass).toBe(entry.pass);
+      if (!entry.pass) expect(result?.failures.join(' ')).toContain('differs at');
+    },
+  );
+
+  it('can prove a task remains incomplete with a falsy assertion', async () => {
+    scriptedRuntime([], 'Checked.');
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Call dentist', { completion: false })),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'check-open',
+      prompt: 'Check.',
+      asserts: [{ kind: 'value', item: 'task-dentist', key: 'completion', truthy: false }],
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.pass).toBe(true);
+  });
+
   it('substitutes relative dates in the fixture', () => {
     expect(substituteDates('{today} {today+3} {today-2}', '2026-10-08')).toBe(
       '2026-10-08 2026-10-11 2026-10-06',
+    );
+  });
+
+  it('isolates seeded queries inside their fixture while retaining their rules, other views and defaults', async () => {
+    const writes: Record<string, unknown>[] = [];
+    server.use(
+      http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+        HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+      ),
+      http.get(`${CORE}/api/v1/items/${TASKS}/views`, () =>
+        HttpResponse.json({
+          views: [
+            {
+              id: 'open-1',
+              name: 'Open work',
+              kind: 'query',
+              filters: [{ property: 'status', operator: 'equals', value: 'Done' }],
+            },
+            { id: 'board-1', name: 'Stages', kind: 'board', groupBy: 'status' },
+          ],
+          unrenderable: [],
+          default: 'board-1',
+          hideDocument: true,
+        }),
+      ),
+      http.put(`${CORE}/api/v1/items/${TASKS}/views`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        writes.push(body);
+        return HttpResponse.json({ ...body, unrenderable: [] });
+      }),
+    );
+    await scopeFixtureQueryViews(runner().session, fixture, ['tasks']);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({
+      default: 'board-1',
+      hideDocument: true,
+      views: [
+        {
+          id: 'open-1',
+          filters: [
+            { property: 'status', operator: 'equals', value: 'Done', any: null },
+            { property: '$inside', operator: 'equals', value: TASKS, any: null },
+          ],
+        },
+        { id: 'board-1', groupBy: 'status' },
+      ],
+    });
+  });
+
+  it('refuses query seeding outside the fixture and a scope that would exceed the condition budget', async () => {
+    server.use(
+      http.get(`${CORE}/api/v1/items/${OUTSIDE}`, () =>
+        HttpResponse.json(item(OUTSIDE, null, 'Outside')),
+      ),
+    );
+    await expect(
+      scopeFixtureQueryViews(
+        runner().session,
+        { ...fixture, nodes: new Map([['outside', OUTSIDE]]) },
+        ['outside'],
+      ),
+    ).rejects.toThrow('outside the seeded fixture');
+    server.use(
+      http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+        HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+      ),
+      http.get(`${CORE}/api/v1/items/${TASKS}/views`, () =>
+        HttpResponse.json({
+          views: [
+            {
+              id: 'open-1',
+              name: 'Open work',
+              kind: 'query',
+              filters: [
+                {
+                  any: Array.from({ length: 8 }, () => ({
+                    property: 'status',
+                    operator: 'equals',
+                    value: 'Done',
+                  })),
+                },
+              ],
+            },
+          ],
+          unrenderable: [],
+          default: 'open-1',
+          hideDocument: false,
+        }),
+      ),
+    );
+    await expect(scopeFixtureQueryViews(runner().session, fixture, ['tasks'])).rejects.toThrow(
+      'maximum 8 conditions',
     );
   });
 
@@ -144,12 +795,18 @@ describe('pet eval chat', () => {
     const calls = scriptedRuntime(
       [
         toolCall('t-1', { operation: 'list_items', parentId: TASKS }),
-        toolCall('t-2', { operation: 'set_properties', itemId: DENTIST, propertiesJson: '{"completion":true}' }),
+        toolCall('t-2', {
+          operation: 'set_properties',
+          itemId: DENTIST,
+          propertiesJson: '{"completion":true}',
+        }),
       ],
       'Pay rent and Call dentist are on the board.',
     );
     server.use(
-      http.get(`${CORE}/api/v1/items/${TASKS}`, () => HttpResponse.json(item(TASKS, ROOT, 'Tasks'))),
+      http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+        HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+      ),
       // nix_list_items reads the container's schema to key each row's values.
       http.get(`${CORE}/api/v1/items/${TASKS}/schema`, () =>
         HttpResponse.json({ properties: [], declared: [], inherit: true }),
@@ -158,7 +815,12 @@ describe('pet eval chat', () => {
       http.get(`${CORE}/api/v1/items/${ROOT}`, () => HttpResponse.json(item(ROOT, null, 'Home'))),
       // ...and the container's lock state, to report whether the read returned locked content.
       http.get(`${CORE}/api/v1/items/${TASKS}/lock`, () =>
-        HttpResponse.json({ locked: false, unlockedUntil: null, lockItemId: null, selfLocked: false }),
+        HttpResponse.json({
+          locked: false,
+          unlockedUntil: null,
+          lockItemId: null,
+          selfLocked: false,
+        }),
       ),
       http.get(`${CORE}/api/v1/workspaces/${WORKSPACE}/items`, () =>
         HttpResponse.json({ items: [item(DENTIST, TASKS, 'Call dentist')], nextCursor: null }),
@@ -170,11 +832,19 @@ describe('pet eval chat', () => {
       tools: { require: ['list_items|search'], forbid: ['create_note'], max: 6 },
       answer: 'Pay rent',
     });
-    const [result] = await runChatSuite([chatCase], { suite: 'chat', workspace: WORKSPACE, pet: PET }, runner());
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
     expect(result).toMatchObject({ id: 'read-board', outcome: 'done', pass: true });
     expect(result?.tools).toEqual([
       expect.objectContaining({ operation: 'list_items', decision: 'ran', success: true }),
-      expect.objectContaining({ operation: 'set_properties', decision: 'declined', reason: 'writes are not allowed in this run' }),
+      expect.objectContaining({
+        operation: 'set_properties',
+        decision: 'declined',
+        reason: 'writes are not allowed in this run',
+      }),
     ]);
     expect(calls.find((call) => call.operation === 'send')).toMatchObject({
       text: 'What is on Tasks?',
@@ -193,8 +863,12 @@ describe('pet eval chat', () => {
       'Done.',
     );
     server.use(
-      http.get(`${CORE}/api/v1/items/${OUTSIDE}`, () => HttpResponse.json(item(OUTSIDE, null, 'Elsewhere'))),
-      http.get(`${CORE}/api/v1/items/${DENTIST}`, () => HttpResponse.json(item(DENTIST, TASKS, 'Call dentist', { completion: false }))),
+      http.get(`${CORE}/api/v1/items/${OUTSIDE}`, () =>
+        HttpResponse.json(item(OUTSIDE, null, 'Elsewhere')),
+      ),
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Call dentist', { completion: false })),
+      ),
     );
     const chatCase = chatCaseSchema.parse({
       id: 'complete-task',
@@ -208,8 +882,16 @@ describe('pet eval chat', () => {
       runner(),
     );
     expect(result?.tools).toEqual([
-      expect.objectContaining({ operation: 'rename_item', decision: 'declined', reason: 'the target is outside the fixture' }),
-      expect.objectContaining({ operation: 'trash_item', decision: 'declined', reason: 'trash_item always asks' }),
+      expect.objectContaining({
+        operation: 'rename_item',
+        decision: 'declined',
+        reason: 'the target is outside the fixture',
+      }),
+      expect.objectContaining({
+        operation: 'trash_item',
+        decision: 'declined',
+        reason: 'trash_item always asks',
+      }),
     ]);
     expect(result?.pass).toBe(false);
     expect(result?.failures).toEqual([
@@ -217,6 +899,241 @@ describe('pet eval chat', () => {
       'attempted forbidden trash_item',
       'task-dentist.completion is false, expected truthy',
     ]);
+  });
+
+  it('declines and fails every write attempted during a review, even with --allow-writes', async () => {
+    scriptedRuntime(
+      [
+        toolCall('t-1', {
+          operation: 'set_properties',
+          itemId: DENTIST,
+          propertiesJson: '{"completion":true}',
+        }),
+      ],
+      'Reviewed.',
+    );
+    const chatCase = chatCaseSchema.parse({ id: 'review', prompt: 'Review only.', noWrites: true });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET, allowWrites: true },
+      runner(),
+    );
+    expect(result).toMatchObject({ pass: false, failures: ['review attempted a write'] });
+    expect(result?.tools).toEqual([
+      expect.objectContaining({
+        operation: 'set_properties',
+        decision: 'declined',
+        reason: 'this case is a read-only review',
+      }),
+    ]);
+  });
+
+  it('sends disabled workspace access and declines attempted reads without touching the workspace', async () => {
+    const calls = scriptedRuntime(
+      [toolCall('t-1', { operation: 'read_item', itemId: DENTIST })],
+      'I cannot inspect without access.',
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'access-off',
+      prompt: 'Review it.',
+      workspaceAccess: false,
+      noWrites: true,
+      answerChecks: { all: ['cannot', 'access'] },
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(calls.find((call) => call.operation === 'send')).toMatchObject({
+      workspaceAccess: false,
+    });
+    expect(result?.tools).toEqual([
+      expect.objectContaining({
+        decision: 'declined',
+        reason: 'workspace access is disabled for this case',
+      }),
+    ]);
+    expect(result?.failures).toEqual(['attempted a tool with workspace access disabled']);
+  });
+
+  it('checks bounded answer signals and fixture evidence without retaining answer or tool content', async () => {
+    const privateText = 'unrelated workspace secret';
+    scriptedRuntime(
+      [],
+      `Call dentist has no Start date. PNG export is unavailable. ${privateText}`,
+    );
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Call dentist')),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'review-signals',
+      prompt: 'Review.',
+      noWrites: true,
+      answerChecks: {
+        all: ['Start date'],
+        any: ['no Start date', 'missing date'],
+        absent: ['export succeeded'],
+        references: ['task-dentist'],
+      },
+      feedbackChecks: [
+        { code: 'chart-image-export-unavailable', matches: 'PNG export is unavailable' },
+      ],
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result).toMatchObject({
+      pass: true,
+      answer: null,
+      feedback: [{ code: 'chart-image-export-unavailable', source: 'answer' }],
+    });
+    expect(result?.answerLength).toBeGreaterThan(0);
+    expect(JSON.stringify(result)).not.toContain(privateText);
+  });
+
+  it('never records unrecognised operation text from a malformed tool call', async () => {
+    scriptedRuntime([toolCall('t-1', { operation: 'private workspace text' })], 'Declined.');
+    const chatCase = chatCaseSchema.parse({ id: 'malformed', prompt: 'Review.' });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.tools).toEqual([
+      expect.objectContaining({
+        operation: 'unparseable',
+        decision: 'declined',
+        reason: 'unsupported request',
+      }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain('private workspace text');
+  });
+
+  it('fails a vague answer that omits its fixture evidence and required findings', async () => {
+    scriptedRuntime([], 'Everything is fine; export succeeded.');
+    server.use(
+      http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+        HttpResponse.json(item(DENTIST, TASKS, 'Call dentist')),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'review-signals',
+      prompt: 'Review.',
+      answerChecks: {
+        all: ['Start date'],
+        any: ['missing', 'undated'],
+        absent: ['export succeeded'],
+        references: ['task-dentist'],
+      },
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.failures).toEqual([
+      'answer lacks required signal /Start date/',
+      'answer lacks every alternative signal',
+      'answer contains forbidden signal /export succeeded/',
+      "answer does not reference fixture item 'task-dentist'",
+    ]);
+  });
+
+  it('checks exact per-view settings with order-independent objects and significant array order', async () => {
+    scriptedRuntime([], 'Verified.');
+    server.use(
+      http.get(`${CORE}/api/v1/items/${TASKS}/views`, () =>
+        HttpResponse.json({
+          views: [
+            {
+              id: 'board-1',
+              name: 'Stages',
+              kind: 'board',
+              dateProperty: null,
+              groupBy: 'status',
+              groupOrder: ['To do', 'Doing', 'Done'],
+              filters: [{ property: 'status', operator: 'equals', value: 'Doing' }],
+            },
+          ],
+          unrenderable: [],
+          default: 'board-1',
+          hideDocument: false,
+        }),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'saved-view',
+      prompt: 'Verify.',
+      asserts: [
+        {
+          kind: 'view',
+          item: 'tasks',
+          name: 'Stages',
+          equals: {
+            groupBy: 'status',
+            groupOrder: ['To do', 'Doing', 'Done'],
+            filters: [{ value: 'Doing', operator: 'equals', property: 'status', any: null }],
+          },
+        },
+      ],
+    });
+    const [passed] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(passed?.failures).toEqual([]);
+    expect(passed?.pass).toBe(true);
+    scriptedRuntime([], 'Verified.');
+    const reordered = chatCaseSchema.parse({
+      ...chatCase,
+      asserts: [
+        {
+          kind: 'view',
+          item: 'tasks',
+          name: 'Stages',
+          equals: { groupBy: 'team', groupOrder: ['Doing', 'To do', 'Done'] },
+        },
+      ],
+    });
+    const [failed] = await runChatSuite(
+      [reordered],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(failed?.failures).toEqual(["tasks view 'Stages' differs at groupBy, groupOrder"]);
+  });
+
+  it('reports failed operation names without retaining private error output, and requires successful evidence reads', async () => {
+    scriptedRuntime(
+      [toolCall('t-1', { operation: 'search', query: 'Tasks' })],
+      'I could not search.',
+    );
+    server.use(
+      http.get(`${CORE}/api/v1/search`, () =>
+        HttpResponse.json({ title: 'private failure detail', status: 500 }, { status: 500 }),
+      ),
+    );
+    const chatCase = chatCaseSchema.parse({
+      id: 'failed-read',
+      prompt: 'Review.',
+      tools: { require: ['search'], requireSuccessful: ['search'] },
+    });
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
+    expect(result?.failures).toEqual(['never completed search']);
+    expect(result?.feedback).toEqual([
+      { code: 'tool-failed', source: 'tool', operation: 'search' },
+    ]);
+    expect(JSON.stringify(result)).not.toContain('private failure detail');
   });
 
   describe('the same holds as the web card', () => {
@@ -238,7 +1155,11 @@ describe('pet eval chat', () => {
       const query = vi.fn((endpoint: { operation: string }) =>
         Promise.resolve(
           endpoint.operation === 'schema.get'
-            ? { properties: [field('due_date', 'due_date'), field('completion', 'completion')], declared: [], inherit: true }
+            ? {
+                properties: [field('due_date', 'due_date'), field('completion', 'completion')],
+                declared: [],
+                inherit: true,
+              }
             : endpoint.operation === 'locks.get'
               ? { locked: false, unlockedUntil: null, lockItemId: null, selfLocked: false }
               : endpoint.operation === 'workspaceCalendar.get'
@@ -269,7 +1190,10 @@ describe('pet eval chat', () => {
                     seriesTruncated: false,
                   }
                 : endpoint.operation === 'items.get'
-                  ? item(DENTIST, null, 'Call dentist', { due_date: '2026-09-01', completion: false })
+                  ? item(DENTIST, null, 'Call dentist', {
+                      due_date: '2026-09-01',
+                      completion: false,
+                    })
                   : undefined,
         ),
       );
@@ -278,42 +1202,349 @@ describe('pet eval chat', () => {
         core,
         collab: core,
         bodies: { read: vi.fn(), append: vi.fn() },
-        clock: { today: () => today, timeZone: () => 'UTC', now: () => new Date(`${today}T09:00:00Z`) },
+        clock: {
+          today: () => today,
+          timeZone: () => 'UTC',
+          now: () => new Date(`${today}T09:00:00Z`),
+        },
         ids: { uuid: () => '00000001-0000-4000-8000-000000000000' },
       } as unknown as CompanionPorts;
     }
     function inFixture() {
       server.use(
-        http.get(`${CORE}/api/v1/items/${DENTIST}`, () => HttpResponse.json(item(DENTIST, TASKS, 'Call dentist'))),
-        http.get(`${CORE}/api/v1/items/${TASKS}`, () => HttpResponse.json(item(TASKS, ROOT, 'Tasks'))),
+        http.get(`${CORE}/api/v1/items/${DENTIST}`, () =>
+          HttpResponse.json(item(DENTIST, TASKS, 'Call dentist')),
+        ),
+        http.get(`${CORE}/api/v1/items/${TASKS}`, () =>
+          HttpResponse.json(item(TASKS, ROOT, 'Tasks')),
+        ),
       );
     }
-    const pending = (tool: ReturnType<typeof toolCall>) => ({ ...tool, status: 'pending' as const });
+
+    it('allows only locally captured template identities and fixture-contained applications', async () => {
+      inFixture();
+      const captured: TemplateSummary = {
+        id: DENTIST,
+        workspaceId: WORKSPACE,
+        title: 'Synthetic template',
+        description: null,
+        origin: 'user',
+        revision: 1,
+        includeBody: true,
+        includeChildren: false,
+        fieldCount: 0,
+        viewCount: 0,
+        childCount: 0,
+        viewKinds: [],
+        capabilities: { canEdit: true, canDelete: true, canExport: true, canApply: true },
+        updatedAt: '2026-10-09T00:00:00.000Z',
+      };
+      const scoped = { ...fixture, templates: new Map([[DENTIST, captured]]) };
+      const call = (operation: string, itemId: string, parentId = '') => ({
+        ...toolCall('template', { operation, itemId, parentId, title: 'Copy', specJson: '{}' }),
+        status: 'pending' as const,
+      });
+      expect(
+        await declineReason(session(), scoped, call('read_template', OUTSIDE), true, new Map()),
+      ).toBe('the template was not captured by this fixture');
+      expect(
+        await declineReason(session(), scoped, call('read_template', DENTIST), false, new Map()),
+      ).toBeUndefined();
+      expect(
+        await declineReason(
+          session(),
+          scoped,
+          call('apply_template', OUTSIDE, TASKS),
+          true,
+          new Map(),
+        ),
+      ).toBe('the template was not captured by this fixture');
+      expect(
+        await declineReason(
+          session(),
+          scoped,
+          call('apply_template', DENTIST, TASKS),
+          true,
+          new Map(),
+        ),
+      ).toBeUndefined();
+      expect(
+        await declineReason(session(), scoped, call('apply_template', DENTIST), true, new Map()),
+      ).toBe('the target is the workspace root, outside the fixture');
+    });
+
+    it.each([1, 2])(
+      'requires a full preview fence for the approved single-note capture: count=$0',
+      async (itemCount) => {
+        inFixture();
+        const base = taskPorts(false);
+        const query = vi.fn(() =>
+          Promise.resolve({
+            fingerprint: 'a'.repeat(64),
+            captureFingerprint: 'b'.repeat(64),
+            sourceTitle: 'Synthetic source',
+            itemCount,
+          }),
+        );
+        const ports = { ...base, core: { ...base.core, query } } as unknown as CompanionPorts;
+        const approvedSource = { ...fixture, templateSourceId: DENTIST };
+        const capture = {
+          ...toolCall('save', {
+            operation: 'save_as_template',
+            itemId: DENTIST,
+            title: 'Saved',
+            specJson: '{"includeSamples":true}',
+          }),
+          status: 'pending' as const,
+        };
+        const fence = vi.fn();
+        const reason = await declineReason(
+          session(),
+          approvedSource,
+          capture,
+          true,
+          new Map(),
+          false,
+          ports,
+          WORKSPACE,
+          fence,
+          ['save_as_template'],
+        );
+        expect(reason).toBe(
+          itemCount === 1
+            ? undefined
+            : 'the approved template source must remain a single synthetic note',
+        );
+        if (itemCount === 1) expect(fence).toHaveBeenCalledWith('a'.repeat(64));
+        else expect(fence).not.toHaveBeenCalled();
+        expect(
+          await declineReason(
+            session(),
+            approvedSource,
+            capture,
+            true,
+            new Map(),
+            true,
+            ports,
+            WORKSPACE,
+            fence,
+            ['save_as_template'],
+          ),
+        ).toBe("earlier reads need the owner's review before changes");
+        expect(
+          await declineReason(
+            session(),
+            fixture,
+            capture,
+            true,
+            new Map(),
+            false,
+            ports,
+            WORKSPACE,
+            fence,
+            ['save_as_template'],
+          ),
+        ).toBe('only the approved synthetic fixture note may be captured');
+        const excludesSamples = {
+          ...capture,
+          arguments: toolCall('save', {
+            operation: 'save_as_template',
+            itemId: DENTIST,
+            title: 'Saved',
+            specJson: '{}',
+          }).arguments,
+        };
+        expect(
+          await declineReason(
+            session(),
+            approvedSource,
+            excludesSamples,
+            true,
+            new Map(),
+            false,
+            ports,
+            WORKSPACE,
+            fence,
+            ['save_as_template'],
+          ),
+        ).toBe('the fixture capture must include samples and have no initialization rules');
+      },
+    );
+    const pending = (tool: ReturnType<typeof toolCall>) => ({
+      ...tool,
+      status: 'pending' as const,
+    });
     const completeTask = pending(
-      toolCall('t-1', { operation: 'complete_task', itemId: DENTIST, specJson: '{"completed":true}' }),
+      toolCall('t-1', {
+        operation: 'complete_task',
+        itemId: DENTIST,
+        specJson: '{"completed":true}',
+      }),
     );
 
     it('declines every write once the conversation has read locked content', async () => {
       inFixture();
       const write = pending(
-        toolCall('t-1', { operation: 'set_properties', itemId: DENTIST, propertiesJson: '{"completion":true}' }),
+        toolCall('t-1', {
+          operation: 'set_properties',
+          itemId: DENTIST,
+          propertiesJson: '{"completion":true}',
+        }),
       );
       expect(await declineReason(session(), fixture, write, true, new Map(), true)).toBe(
-        'earlier in this conversation it read locked content',
+        "earlier reads need the owner's review before changes",
       );
-      expect(await declineReason(session(), fixture, write, true, new Map(), false)).toBeUndefined();
+      expect(
+        await declineReason(session(), fixture, write, true, new Map(), false),
+      ).toBeUndefined();
+    });
+
+    it('requires an explicit fixture approval and a valid fingerprint preview for update_view', async () => {
+      inFixture();
+      const edit = pending(
+        toolCall('t-1', {
+          operation: 'update_view',
+          itemId: TASKS,
+          specJson: '{"viewId":"board-1","patch":{"groupBy":"status"}}',
+        }),
+      );
+      const view = viewConfigurationSchema.parse({
+        id: 'board-1',
+        name: 'Stages',
+        kind: 'board',
+        groupBy: 'team',
+      });
+      const status = { ...field('status', 'select'), options: ['To do', 'Doing', 'Done'] };
+      const team = { ...field('team', 'select'), options: ['Studio', 'Engineering'] };
+      let viewVersion: string | null = 'a'.repeat(64);
+      const base = taskPorts(false);
+      const query = vi.fn((endpoint: { operation: string; path: string }) =>
+        Promise.resolve(
+          endpoint.operation === 'schema.get'
+            ? { properties: [status, team], declared: [status, team], inherit: true }
+            : endpoint.operation === 'views.getConfigurations'
+              ? {
+                  views: [view],
+                  unrenderable: [],
+                  default: view.id,
+                  hideDocument: false,
+                  version: viewVersion,
+                }
+              : endpoint.operation === 'items.get'
+                ? endpoint.path.includes(TASKS)
+                  ? item(TASKS, ROOT, 'Tasks')
+                  : item(ROOT, null, 'Home')
+                : undefined,
+        ),
+      );
+      const ports = { ...base, core: { ...base.core, query } } as unknown as CompanionPorts;
+      expect(
+        await declineReason(session(), fixture, edit, true, new Map(), false, ports, WORKSPACE),
+      ).toBe('update_view always asks');
+      expect(
+        await declineReason(
+          session(),
+          fixture,
+          edit,
+          false,
+          new Map(),
+          false,
+          ports,
+          WORKSPACE,
+          undefined,
+          ['update_view'],
+        ),
+      ).toBe('writes are not allowed in this run');
+      expect(
+        await declineReason(
+          session(),
+          fixture,
+          edit,
+          true,
+          new Map(),
+          false,
+          undefined,
+          WORKSPACE,
+          undefined,
+          ['update_view'],
+        ),
+      ).toBe('the view edit has no preview');
+      expect(
+        await declineReason(
+          session(),
+          fixture,
+          edit,
+          true,
+          new Map(),
+          true,
+          ports,
+          WORKSPACE,
+          undefined,
+          ['update_view'],
+        ),
+      ).toBe("earlier reads need the owner's review before changes");
+      const onPreview = vi.fn();
+      expect(
+        await declineReason(
+          session(),
+          fixture,
+          edit,
+          true,
+          new Map(),
+          false,
+          ports,
+          WORKSPACE,
+          onPreview,
+          ['update_view'],
+        ),
+      ).toBeUndefined();
+      expect(onPreview).toHaveBeenCalledWith(expect.any(String));
+      expect(onPreview.mock.calls[0]?.[0]).toContain('board-1');
+      viewVersion = null;
+      expect(
+        await declineReason(
+          session(),
+          fixture,
+          edit,
+          true,
+          new Map(),
+          false,
+          ports,
+          WORKSPACE,
+          onPreview,
+          ['update_view'],
+        ),
+      ).toBe('the preview has problems');
     });
 
     it('declines completing an occurrence of a repeating task, and any completion without a preview', async () => {
       inFixture();
       expect(
-        await declineReason(session(), fixture, completeTask, true, new Map(), false, taskPorts(true), WORKSPACE),
+        await declineReason(
+          session(),
+          fixture,
+          completeTask,
+          true,
+          new Map(),
+          false,
+          taskPorts(true),
+          WORKSPACE,
+        ),
       ).toBe("completing a repeating task's occurrence cannot be undone");
       expect(await declineReason(session(), fixture, completeTask, true, new Map(), false)).toBe(
         'the task may repeat and there is no preview',
       );
       expect(
-        await declineReason(session(), fixture, completeTask, true, new Map(), false, taskPorts(false), WORKSPACE),
+        await declineReason(
+          session(),
+          fixture,
+          completeTask,
+          true,
+          new Map(),
+          false,
+          taskPorts(false),
+          WORKSPACE,
+        ),
       ).toBeUndefined();
     });
     describe.each(['replace_section', 'replace_passage'] as const)(
@@ -387,9 +1618,7 @@ describe('pet eval chat', () => {
           expect(
             await declineReason(session(), fixture, edit, true, new Map(), false, ports, WORKSPACE),
           ).toBe('the body edit preview could not be loaded');
-          planEdit.mockRejectedValueOnce(
-            new WorkspaceToolRefusal('Passage not found.'),
-          );
+          planEdit.mockRejectedValueOnce(new WorkspaceToolRefusal('Passage not found.'));
           expect(
             await declineReason(session(), fixture, edit, true, new Map(), false, ports, WORKSPACE),
           ).toBe('the preview has problems');
@@ -429,7 +1658,11 @@ describe('pet eval chat', () => {
       http.get(`${CORE}/api/v1/search`, () => HttpResponse.json({ results: [], truncated: false })),
     );
     const chatCase = chatCaseSchema.parse({ id: 'budget', prompt: 'x', tools: { max: 1 } });
-    const [result] = await runChatSuite([chatCase], { suite: 'chat', workspace: WORKSPACE, pet: PET }, runner());
+    const [result] = await runChatSuite(
+      [chatCase],
+      { suite: 'chat', workspace: WORKSPACE, pet: PET },
+      runner(),
+    );
     expect(result).toMatchObject({ outcome: 'tool_limit', pass: false });
     expect(result?.failures).toContain('outcome tool_limit');
   });

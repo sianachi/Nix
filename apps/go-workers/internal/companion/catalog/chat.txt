@@ -1,22 +1,28 @@
 Section: Structure operations
-create_structured, add_view, create_entries, add_fields, edit_form, set_recurrence
+create_structured, add_view, create_entries, add_fields, edit_form, update_view, set_recurrence
+Per call: create_structured 6 views, add_view 4; 12 total per item. Read structure for remaining capacity.
+
+Section: View review
+Read configuration with nix_read_structure and bounded results with nix_read_view. Reviews only read; requested refinements use nix_update_view, then read back.
 
 Section: Property types
-text (Text), long_text (Long text (several lines)), number (Number), select (Select (one of a list)), multi_select (Multi-select (any of a list)), date (Date), timestamp (Date and time), datetime (Date or time), checkbox (Checkbox), url (Link), image (Picture), due_date (Due date), start_date (Start date), completion (Completion), priority (Priority (1 to 4)), estimate (Estimate), formula (Formula), rollup (Rollup (across children)), reminder (Reminder)
+text, long_text, number, select, multi_select, date, timestamp, datetime, checkbox, url, image, due_date, start_date, completion, priority, estimate, formula, rollup, reminder
+Task field keys equal their type: due_date, start_date, completion, priority, estimate, reminder. Labels stay free.
 
 Section: View kinds
+Columns may include title; it is an item-title marker, never a form field.
 - List (list): optional: groupBy (select, checkbox or $type). Rows and columns, one row per child, optionally in sections.
 - Board (board): needs a select property. Cards grouped into columns by a single select property.
 - Calendar (calendar): needs a date-shaped property. Items placed on a day, week or month by a date property.
 - Timeline (timeline): needs a date-shaped property; optional: endDate (date-shaped). Bars across a time axis; without an end date an item is a milestone.
-- Gallery (gallery): optional: cover (image). Children as cards, each optionally showing a picture property.
+- Gallery (gallery): optional: cover (image), columns (field keys). Cards with an optional picture and chosen fields.
 - Spreadsheet (sheet). Children as an editable grid, one row per child and one column per property.
 - Form (form). A single-page fillable form over the schema; each submission is a new child.
 - Interactive form (interactive_form). A multi-page, conditional form whose answers create a child item.
-- Smart list (query). A saved cross-container query, run server-side from stored filters.
+- Smart list (query). Saved query rows show filter fields; columns are not configurable.
 - Chart (chart): needs a select-or-date property; optional: measureField (number), splitBy (select-or-checkbox). Children counted or totalled per select value, or per period of a date (set period). chartKind: bar, column, pie, or line/area/year on a date; splitBy makes series.
-- Habit tracker (habit_tracker). Habit children arranged by local date with recorded progress.
-- Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; columns[0] is shown beside each title.
+- Habit tracker (habit_tracker). Child habit settings and dated check-ins, not column mappings.
+- Checklist (checklist): optional: doneProperty (checkbox). A box to tick per child, with progress; first property column appears beside title.
 - Matrix (matrix): needs a select or checkbox property; optional: rowBy (select or checkbox, required). Cards in a grid of cells, placed by two properties at once.
 - Outline (outline). The subtree as a collapsible tree of titles, reshaped by keyboard.
 

@@ -59,6 +59,8 @@ const UNCERTAIN_OUTCOME_RESULT =
   'The operation failed or its result is uncertain. Inspect Nix before retrying a write. Do not assume success.';
 
 const DECLINED_RESULT = 'Declined by the user. Do not retry this change unless asked.';
+const HELD_AUTO_APPROVAL_RESULT =
+  "Earlier reads need the owner's review before changes. No action ran. Do not retry without approval.";
 
 /**
  * Opens the named (or default) profile for a pet operation. Browser-approved profiles renew
@@ -260,7 +262,11 @@ export async function executePetToolRun(
   let toolSuccess = false;
   // Reported with the result so the worker marks the conversation (a read from under a lock).
   let toolLockedContent = false;
-  if (decision === 'approve') {
+  if (decision === 'approve' && autoApproval !== undefined && claimed.lockedRead) {
+    // A protected read can settle while the preview loads. The claim receipt is the latest
+    // conversation state; settle its hold before any automatic write starts.
+    toolResult = HELD_AUTO_APPROVAL_RESULT;
+  } else if (decision === 'approve') {
     try {
       const outcome = await runWorkspaceTool(
         {

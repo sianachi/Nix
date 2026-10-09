@@ -70,6 +70,12 @@ export type Step =
       schema: StructureSchema;
       originalPropertyKeys: string[];
       views: StructureView[];
+      /** Distinguishes a settings patch from an interactive-form replacement in the preview. */
+      viewUpdate?: true;
+      /** The update-view executor preserves these while replacing the full ordered view set. */
+      defaultViewId?: string | null;
+      hideDocument?: boolean;
+      expectedVersion?: string;
     }
   | {
       kind: 'createItem';

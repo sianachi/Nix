@@ -1,39 +1,13 @@
-import { items, structure, views } from '@nix/api-client';
-import { isComputedType } from '@nix/structure-spec';
-import { z } from 'zod';
+import {
+  items,
+  structure,
+  views,
+  viewConfigurationSchema,
+  type ViewConfiguration,
+} from '@nix/api-client';
+import { isComputedType, LIMITS } from '@nix/structure-spec';
 import { checkItem } from '../guards.js';
 import type { CompanionPorts } from '../ports.js';
-
-/** `GET /items/{id}/views` returns the full `ViewResponse` shape on the wire; the api-client
- * resource narrows its parse to the fields a plain view listing needs (`ContainerViewConfigurations`),
- * but its per-view schema is a loose object, so the fields this preview wants (`groupBy`, `columns`,
- * the form outline) still arrive on each parsed value - just untyped. Re-parsing here, once, keeps
- * that read narrowly scoped to what this file actually uses instead of widening the shared
- * api-client type for every other caller of `views.containerViewConfigurations`. */
-const viewDetailSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  kind: z.string(),
-  groupBy: z.string().nullable().default(null),
-  dateProperty: z.string().nullable().default(null),
-  columns: z.array(z.string()).nullable().default(null),
-  interactiveForm: z
-    .object({
-      pages: z.array(
-        z.object({
-          title: z.string(),
-          blocks: z.array(
-            z.object({
-              kind: z.string(),
-              propertyKey: z.string().nullable().default(null),
-            }),
-          ),
-        }),
-      ),
-    })
-    .nullable()
-    .default(null),
-});
 
 export interface ReadStructureField {
   key: string;
@@ -43,6 +17,9 @@ export interface ReadStructureField {
   required: boolean;
   inherited: boolean;
   computed: boolean;
+  expression: string | null;
+  aggregate: string | null;
+  source: string | null;
 }
 
 export interface ReadStructureFormPage {
@@ -50,13 +27,11 @@ export interface ReadStructureFormPage {
   questions: string[];
 }
 
-export interface ReadStructureView {
-  id: string;
-  name: string;
-  kind: string;
-  groupBy: string | null;
-  dateProperty: string | null;
-  columns: string[] | null;
+export interface ReadStructureView extends ViewConfiguration {
+  canRender: boolean;
+  isDefault: boolean;
+  /** Core currently reports unrenderable identities, rather than detailed reasons. */
+  problems: string[];
   form?: { pages: ReadStructureFormPage[] };
 }
 
@@ -64,7 +39,44 @@ export interface ReadStructureResult {
   item: { id: string; title: string; type: string };
   fields: ReadStructureField[];
   views: ReadStructureView[];
+  viewCapacity: { limit: number; current: number; remaining: number };
+  defaultView: string;
+  hideDocument: boolean;
+  inheritsFields: boolean;
   childCount: number | 'many';
+}
+
+/** Carries the stored shape and Core's renderability decision without guessing a reason Core
+ * did not return. The compatibility form outline supplements the full conditional form. */
+export function describeView(
+  raw: unknown,
+  container: { unrenderable: string[]; default: string },
+  labelByKey: ReadonlyMap<string, string> = new Map(),
+): ReadStructureView {
+  const view = viewConfigurationSchema.parse(raw);
+  const canRender = !container.unrenderable.includes(view.id);
+  const form =
+    view.interactiveForm === null
+      ? undefined
+      : {
+          pages: view.interactiveForm.pages.map((page) => ({
+            title: page.title,
+            questions: page.blocks
+              .filter((block) => block.kind === 'field' && block.propertyKey !== null)
+              .map((block) => labelByKey.get(block.propertyKey ?? '') ?? block.propertyKey ?? ''),
+          })),
+        };
+  return {
+    ...view,
+    canRender,
+    isDefault: container.default === view.id,
+    problems: canRender
+      ? []
+      : [
+          'Core marks this view as unrenderable. The read contract does not supply the specific reason; inspect its configured fields and their types.',
+        ],
+    ...(form === undefined ? {} : { form }),
+  };
 }
 
 /** Bounds the child-count check to at most two requests of one row each: the first row proves a
@@ -115,36 +127,25 @@ export async function readStructure(
     required: property.required,
     inherited: !declaredKeys.has(property.key),
     computed: isComputedType(property.type),
+    expression: property.expression ?? null,
+    aggregate: property.aggregate ?? null,
+    source: property.source ?? null,
   }));
 
-  const viewList: ReadStructureView[] = containerViews.views.map((raw) => {
-    const view = viewDetailSchema.parse(raw);
-    const form =
-      view.interactiveForm !== null
-        ? {
-            pages: view.interactiveForm.pages.map((page) => ({
-              title: page.title,
-              questions: page.blocks
-                .filter((block) => block.kind === 'field' && block.propertyKey !== null)
-                .map((block) => labelByKey.get(block.propertyKey ?? '') ?? block.propertyKey ?? ''),
-            })),
-          }
-        : undefined;
-    return {
-      id: view.id,
-      name: view.name,
-      kind: view.kind,
-      groupBy: view.groupBy,
-      dateProperty: view.dateProperty,
-      columns: view.columns,
-      ...(form ? { form } : {}),
-    };
-  });
+  const viewList = containerViews.views.map((raw) => describeView(raw, containerViews, labelByKey));
 
   return {
     item: { id: item.id, title: item.title, type: item.type },
     fields,
     views: viewList,
+    viewCapacity: {
+      limit: LIMITS.viewsPerContainer,
+      current: viewList.length,
+      remaining: Math.max(0, LIMITS.viewsPerContainer - viewList.length),
+    },
+    defaultView: containerViews.default,
+    hideDocument: containerViews.hideDocument,
+    inheritsFields: schema.inherit,
     childCount,
   };
 }

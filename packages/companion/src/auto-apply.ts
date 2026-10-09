@@ -2,13 +2,14 @@ import { READ_ONLY_OPERATIONS, type WorkspaceToolArgs } from './tool-args.js';
 
 /** Writes that keep asking even while "apply changes without asking" is on. Each one can
  * change who sees something, which no preview makes safe to run unread and no undo takes
- * back: trash hides an item from everyone until restored; a move changes which ancestors an
+ * back. Existing view refinements also always require a review of the before/after card.
+ * Trash hides an item from everyone until restored; a move changes which ancestors an
  * item inherits its permissions from, so it can widen the audience; a template capture copies
  * a subtree into the workspace-visible library. The catalog's "Never" list (publish, permanent
  * delete, remove or retype a field, delete a view) is not here because no tool can do those. */
 const ALWAYS_ASK_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set<
   WorkspaceToolArgs['operation']
->(['trash_item', 'move_item', 'save_as_template']);
+>(['trash_item', 'move_item', 'save_as_template', 'update_view']);
 
 /** Whether a pending write may run without a click once its preview has loaded clean. Reads
  * are governed separately (`readWithoutAsking`); this only answers for writes. Lives in this

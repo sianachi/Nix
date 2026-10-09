@@ -407,6 +407,32 @@ public sealed partial class ItemTree : IItemTree
             .ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async ValueTask<bool> TryUpdateViewsAsync(
+        ItemId id,
+        WorkspaceId workspaceId,
+        string? expectedViews,
+        string? views,
+        PrincipalId actor,
+        DateTimeOffset at,
+        CancellationToken cancellationToken)
+    {
+        var tenant = Tenant;
+        var changed = await _dbContext.Items
+            .Where(item => item.TenantId == tenant && item.Id == id
+                && item.WorkspaceId == workspaceId && item.LifecycleState == ItemLifecycleState.Active
+                && item.Views == expectedViews)
+            .TagWith("ItemTree.TryUpdateViewsAsync")
+            .ExecuteUpdateAsync(
+                update => update
+                    .SetProperty(item => item.Views, views)
+                    .SetProperty(item => item.LastModifiedBy, actor)
+                    .SetProperty(item => item.LastModifiedAt, at),
+                cancellationToken)
+            .ConfigureAwait(false);
+        return changed == 1;
+    }
+
+    /// <inheritdoc />
     public async ValueTask<bool> WouldCreateCycleAsync(
         ItemId id,
         ItemId parentId,

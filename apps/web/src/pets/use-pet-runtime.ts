@@ -113,8 +113,9 @@ function hasPendingTool(runtime: PetConnection | null): boolean {
 
 /**
  * Owns the companion runtime's connection: the watch loop, model discovery, and every mutation
- * against it (`send`, `interrupt`, `reset`, `reload`). No component outside this hook may call
- * `pets.watchRuntime` or `pets.runtime({operation:'read'})` directly - see `pet-companion.tsx`.
+ * against it (`send`, `interrupt`, `reset`, `reload`). Components use this hook for watches
+ * and ordinary reads. PetWorkTools may read once to reconcile a refused tool claim against
+ * another session; it does not start a second watch loop.
  *
  * `panelOpen` governs whether the watch loop keeps running while the caller's panel is closed:
  * it always runs while open, and while closed it keeps running only for as long as the last

@@ -31,11 +31,13 @@ namespace Nix.Features.Views;
 /// empty board - which is indistinguishable from an item with nothing in it, and sends somebody looking for
 /// their missing items instead of their missing property.
 /// </remarks>
+/// <param name="Version">Opaque version of all durable view settings for a conditional replacement.</param>
 public sealed record ContainerViewSet(
     ImmutableArray<ViewDefinition> Views,
     ImmutableArray<string> Unrenderable,
     string Default,
-    bool HideDocument = false);
+    bool HideDocument = false,
+    string Version = "");
 
 /// <summary>Reads the views a container offers.</summary>
 /// <param name="ItemId">The container.</param>
@@ -86,7 +88,7 @@ public sealed class GetContainerViewsHandler : IQueryHandler<GetContainerViews, 
         var views = stored.Views;
         if (views.IsEmpty)
         {
-            return Result.Success(new ContainerViewSet([], [], ViewDefinitionsJson.DocumentView));
+            return Result.Success(new ContainerViewSet([], [], ViewDefinitionsJson.DocumentView, Version: ViewConfigurationVersion.FromStored(item.Views)));
         }
 
         // The schema a view's configuration is checked against is the one its children carry,
@@ -98,7 +100,7 @@ public sealed class GetContainerViewsHandler : IQueryHandler<GetContainerViews, 
             .Select(view => view.Id)
             .ToImmutableArray();
 
-        return Result.Success(new ContainerViewSet(views, unrenderable, stored.Resolve(), stored.HideDocument));
+        return Result.Success(new ContainerViewSet(views, unrenderable, stored.Resolve(), stored.HideDocument, ViewConfigurationVersion.FromStored(item.Views)));
     }
 }
 
@@ -118,11 +120,13 @@ public sealed class GetContainerViewsHandler : IQueryHandler<GetContainerViews, 
 /// order as often as an individual view is renamed. Per-view endpoints would make reordering a
 /// sequence of writes that can half-apply.
 /// </remarks>
+/// <param name="ExpectedVersion">An observed version, or null for a legacy unconditional write.</param>
 public sealed record SetContainerViews(
     ItemId ItemId,
     ImmutableArray<ViewDefinition> Views,
     string? DefaultView,
-    bool? HideDocument = null)
+    bool? HideDocument = null,
+    string? ExpectedVersion = null)
     : ICommand<ImmutableArray<ViewDefinition>>;
 
 /// <summary>Handles <see cref="SetContainerViews"/>.</summary>
@@ -193,6 +197,12 @@ public sealed class SetContainerViewsHandler
                 ItemErrors.LifecycleConflict("A deleted container's views cannot be changed."));
         }
 
+        if (command.ExpectedVersion is not null
+            && !string.Equals(command.ExpectedVersion, ViewConfigurationVersion.FromStored(item.Views), StringComparison.Ordinal))
+        {
+            return Result.Failure<ImmutableArray<ViewDefinition>>(PropertyErrors.ViewVersionConflict());
+        }
+
         if (ViewDefinitionRules.Refuse(views, defaultView) is { } reason)
         {
             return Result.Failure<ImmutableArray<ViewDefinition>>(PropertyErrors.InvalidViews(reason));
@@ -232,9 +242,20 @@ public sealed class SetContainerViewsHandler
                     $"A container's views may be at most {ViewDefinitionsJson.MaximumBytes} bytes."));
         }
 
-        await _tree
-            .UpdateViewsAsync(itemId, json, context.PrincipalId, _clock.GetUtcNow(), cancellationToken)
-            .ConfigureAwait(false);
+        if (command.ExpectedVersion is not null)
+        {
+            if (!await _tree.TryUpdateViewsAsync(itemId, item.WorkspaceId, item.Views, json,
+                    context.PrincipalId, _clock.GetUtcNow(), cancellationToken).ConfigureAwait(false))
+            {
+                return Result.Failure<ImmutableArray<ViewDefinition>>(PropertyErrors.ViewVersionConflict());
+            }
+        }
+        else
+        {
+            await _tree
+                .UpdateViewsAsync(itemId, json, context.PrincipalId, _clock.GetUtcNow(), cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         return Result.Success(views);
     }
@@ -335,7 +356,8 @@ internal static class GetContainerViewsEndpoint
                     [.. views.Views.Select(ViewMapping.ToResponse)],
                     views.Unrenderable,
                     views.Default,
-                    views.HideDocument)),
+                    views.HideDocument,
+                    views.Version)),
             error => TypedResults.Problem(StructureEndpoints.Problem(httpContext, error)));
     }
 }
@@ -372,7 +394,7 @@ internal static class SetContainerViewsEndpoint
 
         var stored = await dispatcher
             .SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
-                new SetContainerViews(ItemId.From(itemId), views, request.Default, request.HideDocument),
+                new SetContainerViews(ItemId.From(itemId), views, request.Default, request.HideDocument, request.ExpectedVersion),
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 
@@ -395,7 +417,8 @@ internal static class SetContainerViewsEndpoint
                     [.. set.Views.Select(ViewMapping.ToResponse)],
                     set.Unrenderable,
                     set.Default,
-                    set.HideDocument)),
+                    set.HideDocument,
+                    set.Version)),
             error => TypedResults.Problem(StructureEndpoints.Problem(httpContext, error)));
     }
 }

@@ -34,3 +34,5 @@ export { saveSpecSchema } from './save.js';
 export type { SaveSpec } from './save.js';
 
 export { keyFor } from './keys.js';
+export { updateViewSpecSchema } from './update-view.js';
+export type { UpdateViewPatch, UpdateViewSpec } from './update-view.js';
