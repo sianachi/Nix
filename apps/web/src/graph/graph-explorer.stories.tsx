@@ -63,6 +63,24 @@ export function Chronological(): ReactElement {
 export function LayoutPicker(): ReactElement {
   return <GraphExplorer nodes={nodes} links={links} onOpen={noop} />;
 }
+export function SearchAndFocus(): ReactElement {
+  return (
+    <GraphExplorer nodes={nodes} links={links} initialFocusId="prototype" onOpen={noop} partial />
+  );
+}
+SearchAndFocus.play = async ({
+  canvasElement,
+}: {
+  readonly canvasElement: HTMLElement;
+}): Promise<void> => {
+  const canvas = within(canvasElement);
+  await userEvent.type(
+    canvas.getByRole('searchbox', { name: 'Find an item' }),
+    'Research findings',
+  );
+  await userEvent.click(canvas.getByRole('button', { name: 'Focus graph on Research findings' }));
+  await canvas.findByText('Showing Research findings');
+};
 export function DarkClusters(): ReactElement {
   return view('clusters');
 }
@@ -134,3 +152,19 @@ TinyBrowse.play = async ({
 }): Promise<void> => {
   await userEvent.click(within(canvasElement).getByRole('button', { name: 'Browse connections' }));
 };
+
+export function TinyFocused(): ReactElement {
+  return (
+    <div className="w-64 max-w-full">
+      <GraphExplorer
+        nodes={nodes.map((node) => ({
+          ...node,
+          title: 'VeryLongItemTitleWithoutSpaces'.repeat(5),
+        }))}
+        links={links}
+        initialFocusId="prototype"
+        onOpen={noop}
+      />
+    </div>
+  );
+}

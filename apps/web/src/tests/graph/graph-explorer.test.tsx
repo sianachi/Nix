@@ -7,12 +7,19 @@ import { GraphView } from '../../graph/graph-view';
 import { readGraphPresentation, writeGraphPresentation } from '../../graph/graph-presentation';
 import { readArrangement, writeArrangement } from '../../graph/graph-arrangement';
 import { memoryStorage } from '../views/suggest/suggest-fixtures';
+const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
 beforeEach(() => {
   vi.stubGlobal('localStorage', memoryStorage());
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  });
 });
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  if (originalScroll === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  else Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll);
 });
 const DATES = {
   createdAt: '2026-01-01T00:00:00+00:00',
@@ -96,6 +103,103 @@ it('opens focus mode from the phone list', async () => {
   await user.click(screen.getByRole('button', { name: 'Focus graph on Plan' }));
   expect(screen.getByRole('combobox', { name: 'Graph layout' })).toHaveValue('focused');
   expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('plan');
+});
+
+it('searches all loaded titles above the drawing and focuses a result outside the current neighborhood', async () => {
+  stubViewport(true);
+  const user = userEvent.setup();
+  const unrelated = {
+    id: 'unrelated',
+    title: 'Weekly training',
+    parentId: null,
+    type: 'note',
+    ...DATES,
+  };
+  const { container } = render(
+    <GraphExplorer
+      nodes={[...nodes, unrelated]}
+      links={[]}
+      initialFocusId="plan"
+      onOpen={vi.fn()}
+      partial
+    />,
+  );
+  const search = screen.getByRole('searchbox', { name: 'Find an item' });
+  const drawing = container.querySelector('svg[class~="group/graph"]');
+  if (drawing === null) throw new Error('The graph drawing is missing.');
+  expect(search.compareDocumentPosition(drawing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(
+    within(screen.getByRole('tree')).queryByRole('button', { name: /Weekly training/ }),
+  ).not.toBeInTheDocument();
+
+  await user.type(search, ' training ');
+  expect(
+    within(screen.getByRole('region', { name: 'Graph search results' })).getByRole('status'),
+  ).toHaveTextContent('1 matching items in the loaded portion');
+  await user.click(screen.getByRole('button', { name: 'Focus graph on Weekly training' }));
+
+  expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('unrelated');
+  expect(screen.getByRole('combobox', { name: 'Connection distance' })).toHaveValue('1');
+  expect(within(screen.getByRole('tree')).getAllByRole('treeitem')).toHaveLength(1);
+  expect(screen.getByText('Showing Weekly training')).toBeInTheDocument();
+  expect(search).toHaveValue('');
+  expect(screen.getByRole('region', { name: 'Spatial graph' })).toHaveFocus();
+});
+
+it('opens a requested focused graph on a phone and resets the destination when its focus changes', () => {
+  stubViewport(false);
+  const props = { nodes, links: [], onOpen: vi.fn() };
+  const { rerender } = render(<GraphExplorer {...props} initialFocusId="plan" />);
+  expect(screen.getByRole('button', { name: 'Spatial graph' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('plan');
+  rerender(<GraphExplorer {...props} initialFocusId="project" />);
+  expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('project');
+});
+
+it('explains an unavailable requested focus without implying the graph covers the whole workspace', () => {
+  stubViewport(false);
+  render(
+    <GraphExplorer nodes={nodes} links={[]} initialFocusId="outside" onOpen={vi.fn()} partial />,
+  );
+  expect(screen.getByText(/This item is not in the visible graph/)).toHaveTextContent(
+    'outside the loaded portion',
+  );
+  expect(screen.getByText('2 matching items in the loaded portion')).toBeInTheDocument();
+  expect(screen.queryByRole('combobox', { name: 'Focus item' })).not.toBeInTheDocument();
+});
+
+it('applies a pending focus once the requested item becomes visible', () => {
+  stubViewport(false);
+  const props = { links: [], initialFocusId: 'plan', onOpen: vi.fn() };
+  const { rerender } = render(<GraphExplorer {...props} nodes={nodes.slice(0, 1)} />);
+  expect(screen.getByText(/This item is not in the visible graph/)).toBeInTheDocument();
+  rerender(<GraphExplorer {...props} nodes={nodes} />);
+  expect(screen.queryByText(/This item is not in the visible graph/)).not.toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('plan');
+  expect(screen.getByRole('region', { name: 'Spatial graph' })).toHaveFocus();
+});
+
+it('lets a reader replace an unavailable focus before that item appears', async () => {
+  stubViewport(false);
+  const props = { links: [], initialFocusId: 'plan', onOpen: vi.fn() };
+  const { rerender } = render(<GraphExplorer {...props} nodes={nodes.slice(0, 1)} />);
+  await userEvent.click(screen.getByRole('button', { name: 'Focus graph on Project' }));
+  expect(screen.queryByText(/This item is not in the visible graph/)).not.toBeInTheDocument();
+  rerender(<GraphExplorer {...props} nodes={nodes} />);
+  expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue('project');
+});
+
+it('keeps the item the reader showed in the graph when the pending note later appears', async () => {
+  stubViewport(false);
+  const props = { links: [], initialFocusId: 'plan', onOpen: vi.fn() };
+  const { rerender } = render(<GraphExplorer {...props} nodes={nodes.slice(0, 1)} />);
+  await userEvent.click(screen.getByRole('button', { name: 'Show Project in graph' }));
+  rerender(<GraphExplorer {...props} nodes={nodes} />);
+  expect(screen.getByRole('combobox', { name: 'Graph layout' })).toHaveValue('radial');
+  expect(screen.getByText('Showing Project')).toBeInTheDocument();
 });
 
 it('offers item actions on long press without also opening the item', () => {
