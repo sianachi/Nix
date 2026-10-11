@@ -3,13 +3,23 @@ import {
   Button,
   ContextMenu,
   Icon,
+  Popover,
   Text,
   cn,
   focusRing,
   focusRingInset,
   gridRangeCell,
 } from '@nix/ui';
-import { ArrowDown, ArrowUp, Check, ChevronsUpDown, SquareArrowOutUpRight, X } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronsUpDown,
+  Square,
+  SquareArrowOutUpRight,
+  X,
+} from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -20,7 +30,9 @@ import {
   type ReactNode,
 } from 'react';
 
-import { type Item, type View } from '../core/container-model';
+import { type Item, type PropertyDefinition, type View } from '../core/container-model';
+import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
+import { isComputedType } from '../core/property-types';
 import { CreateItemControl } from '../core/create-item-control';
 import { FILL_SERIES_SHORTCUT } from '../../keyboard/shortcut-registry';
 import { formatShortcut } from '../../lib/shortcuts';
@@ -73,11 +85,8 @@ import {
  * Shift extends, typing replaces, Enter edits (or opens, on a title), Tab moves with Escape
  * releasing it.
  *
- * **Cells are painted text, not mounted controls.** The list view mounts a control per cell
- * because every cell is a tab stop; a windowed grid over thousands of rows cannot afford either
- * the controls or the tab stops. One overlay input edits the active cell, and what it commits is
- * coerced by the column's type - the same coercion paste and fill go through, so a cell filled,
- * pasted or typed stores the same value.
+ * Cells stay windowed; only the active cell mounts an editor. Text typing uses the same coercion
+ * as paste and fill, while property choices use the shared picker rather than free-form text.
  */
 
 /** Cell geometry is a fixed 32px of runtime arithmetic, shared by rows, header and overlay. */
@@ -147,6 +156,7 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
       <SpreadsheetGrid
         items={chrome.items}
         columns={resolveColumns(view, container.schema)}
+        properties={container.schema?.properties ?? []}
         sortBy={sortBy}
         direction={direction}
         onSort={(key, next) => {
@@ -170,6 +180,7 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
 interface SpreadsheetGridProps {
   readonly items: readonly Item[];
   readonly columns: readonly SpreadsheetColumn[];
+  readonly properties: readonly PropertyDefinition[];
   readonly sortBy: string | null;
   readonly direction: SortDirection;
   readonly onSort: (key: string, direction: SortDirection) => void;
@@ -184,7 +195,8 @@ interface SpreadsheetGridProps {
 }
 
 function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
-  const { items, columns, sortBy, direction, onSort, onWrite, onWriteMany, onOpen } = props;
+  const { items, columns, properties, sortBy, direction, onSort, onWrite, onWriteMany, onOpen } =
+    props;
 
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
 
@@ -202,6 +214,17 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
    * does not sit under the grid describing an edit from minutes ago.
    */
   const [notice, setNotice] = useState<string | null>(null);
+  const [propertyEdit, setPropertyEdit] = useState<{
+    itemId: string;
+    propertyKey: string;
+  } | null>(null);
+  const [propertyRefusal, setPropertyRefusal] = useState<string | null>(null);
+  const propertyEditRef = useRef(propertyEdit);
+  const propertyWriteRef = useRef(0);
+  const propertyPanelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    propertyEditRef.current = propertyEdit;
+  }, [propertyEdit]);
 
   // Whether Tab is a cell movement or an exit. Escape releases the trap and any grid keystroke
   // restores it - blurring on Escape, which this replaced, sent focus to <body>, so the promised
@@ -235,6 +258,36 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   const active = clamp(selection.active, bounds);
   const activeColumn = columns[active.col];
   const activeItem = items[active.row];
+  const activeProperty = properties.find((property) => property.key === activeColumn?.key);
+  const editedItem =
+    propertyEdit === null ? undefined : items.find((item) => item.id === propertyEdit.itemId);
+  const editedProperty = properties.find((property) => property.key === propertyEdit?.propertyKey);
+  if (propertyEdit !== null && (editedItem === undefined || editedProperty === undefined)) {
+    setPropertyEdit(null);
+    setPropertyRefusal(null);
+  }
+
+  function canEditProperty(property: PropertyDefinition | undefined): boolean {
+    return (
+      property !== undefined && isKnownPropertyType(property.type) && !isComputedType(property.type)
+    );
+  }
+
+  function closePropertyEdit(commit = true): void {
+    if (
+      commit &&
+      document.activeElement instanceof HTMLElement &&
+      propertyPanelRef.current?.contains(document.activeElement)
+    ) {
+      document.activeElement.blur();
+    }
+    propertyEditRef.current = null;
+    setPropertyEdit(null);
+  }
+
+  function usesPicker(property: PropertyDefinition | undefined): boolean {
+    return property !== undefined && !['text', 'long_text', 'url'].includes(property.type);
+  }
 
   /**
    * The selection follows the item, not the index. Recorded and reconciled during render (the
@@ -502,6 +555,22 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
       return;
     }
 
+    const property = properties.find((entry) => entry.key === column.key);
+    if (
+      canEditProperty(property) &&
+      property !== undefined &&
+      usesPicker(property) &&
+      (source === 'open' ||
+        !['text', 'long_text', 'url', 'number', 'estimate'].includes(property.type))
+    ) {
+      if (!commitDraft('stay')) return;
+      setPropertyRefusal(null);
+      const edit = { itemId: item.id, propertyKey: property.key };
+      propertyEditRef.current = edit;
+      setPropertyEdit(edit);
+      return;
+    }
+
     if (!column.editable) {
       say(
         item.title || 'Untitled',
@@ -641,12 +710,13 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   return (
     <div className="min-w-0 max-w-full">
       <p id={hintId} className="sr-only">
-        Arrow keys move the active cell, and Shift extends the selection. Typing replaces a cell;
-        Enter edits it, or opens the item on a title. Control or Command with C copies and V pastes
-        the selection as tab-separated text, D fills down from the selection’s first row, and Shift
-        with D continues a series such as Week 1, Week 2 down the selection. Delete clears the
-        selection. Tab and Shift+Tab move between cells rather than leaving the grid; press Escape,
-        then Tab, to move focus out of it.
+        Arrow keys move the active cell, and Shift extends the selection. Typing replaces text and
+        number cells; Enter opens the property's editor, or opens the item on a title. Clicking a
+        choice, checkbox, date or number cell opens its typed control. Control or Command with C
+        copies and V pastes the selection as tab-separated text, D fills down from the selection’s
+        first row, and Shift with D continues a series such as Week 1, Week 2 down the selection.
+        Delete clears the selection. Tab and Shift+Tab move between cells rather than leaving the
+        grid; press Escape, then Tab, to move focus out of it.
       </p>
 
       {/* The same model, findable by sight: a tap or a click alone reaches selection, editing
@@ -665,8 +735,9 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
             </Text>
           </summary>
           <Text as="p" variant="note" tone="muted">
-            Arrows move, Shift extends. Type to replace a cell, Enter to edit it (on a title, Enter
-            opens the item). Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes tab-separated text, Ctrl/Cmd+D
+            Arrows move, Shift extends. Type to replace text and numbers. Enter edits a property or
+            opens the item on a title. Click a choice, checkbox, date or number cell to use its
+            typed control. Ctrl/Cmd+C copies and Ctrl/Cmd+V pastes tab-separated text, Ctrl/Cmd+D
             fills down, Ctrl/Cmd+Shift+D continues a series, Delete clears. Escape, then Tab, leaves
             the grid.
           </Text>
@@ -698,6 +769,104 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
             </Button>
           </div>
         ) : null}
+
+        {usesPicker(activeProperty) || propertyEdit !== null ? (
+          <Popover
+            label={`Edit ${editedProperty?.label ?? activeColumn?.label ?? 'property'} for ${(editedItem?.title ?? activeItem?.title ?? '') || 'Untitled'}`}
+            open={propertyEdit !== null && editedItem !== undefined && editedProperty !== undefined}
+            onOpenChange={(open) => {
+              if (!open) closePropertyEdit();
+              else if (activeColumn !== undefined && activeItem !== undefined) {
+                beginEdit('open', cellText(activeItem, activeColumn));
+              }
+            }}
+            trigger={(trigger) => (
+              <Button
+                {...trigger}
+                variant="secondary"
+                disabled={!canEditProperty(activeProperty)}
+                aria-label={`Edit ${activeColumn?.label ?? 'property'} for ${(activeItem?.title ?? '') || 'Untitled'}`}
+              >
+                Edit {activeColumn?.label ?? 'property'}
+              </Button>
+            )}
+          >
+            {({ close }) => (
+              // Escape cancels the unsent draft before closing can blur its control.
+              // eslint-disable-next-line jsx-a11y/no-static-element-interactions
+              <div
+                ref={propertyPanelRef}
+                className="flex flex-col gap-3"
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape' || event.defaultPrevented) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closePropertyEdit(false);
+                  requestAnimationFrame(() => scrollerRef.current?.focus({ preventScroll: true }));
+                }}
+              >
+                {editedItem !== undefined && editedProperty !== undefined ? (
+                  <PropertyInput
+                    key={`${editedItem.id}:${editedProperty.key}`}
+                    item={editedItem}
+                    property={editedProperty}
+                    error={propertyRefusal}
+                    onCommit={(value) => {
+                      const write = ++propertyWriteRef.current;
+                      setPropertyRefusal(null);
+                      setNotice(null);
+                      void onWrite(editedItem.id, { [editedProperty.key]: value })
+                        .then((refusal) => {
+                          if (
+                            propertyWriteRef.current === write &&
+                            propertyEditRef.current?.itemId === editedItem.id &&
+                            propertyEditRef.current.propertyKey === editedProperty.key
+                          )
+                            setPropertyRefusal(refusal);
+                          if (refusal !== null)
+                            say(editedItem.title || 'Untitled', editedProperty.label, refusal);
+                        })
+                        .catch(() => {
+                          const refusal =
+                            'That change could not be sent. Check the connection and try again.';
+                          if (
+                            propertyWriteRef.current === write &&
+                            propertyEditRef.current?.itemId === editedItem.id &&
+                            propertyEditRef.current.propertyKey === editedProperty.key
+                          )
+                            setPropertyRefusal(refusal);
+                          say(editedItem.title || 'Untitled', editedProperty.label, refusal);
+                        });
+                    }}
+                  />
+                ) : null}
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    close();
+                    requestAnimationFrame(() =>
+                      scrollerRef.current?.focus({ preventScroll: true }),
+                    );
+                  }}
+                >
+                  Done
+                </Button>
+              </div>
+            )}
+          </Popover>
+        ) : (
+          <Button
+            variant="secondary"
+            disabled={!canEditProperty(activeProperty)}
+            aria-label={`Edit ${activeColumn?.label ?? 'property'} for ${(activeItem?.title ?? '') || 'Untitled'}`}
+            onClick={() => {
+              if (activeColumn !== undefined && activeItem !== undefined)
+                beginEdit('open', cellText(activeItem, activeColumn));
+            }}
+          >
+            Edit {activeColumn?.label ?? 'property'}
+          </Button>
+        )}
 
         {/* The pointer-only way to open a row: tapping the title twice already does it, but a
             visible control means opening never depends on a double-click or a keyboard. */}
@@ -792,7 +961,9 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
             },
             {
               label: `Edit ${column.label}`,
-              disabled: !column.editable,
+              disabled: !canEditProperty(
+                properties.find((property) => property.key === column.key),
+              ),
               onSelect: () => {
                 if (!commitDraft('stay')) return;
                 dispatch({ type: 'moveTo', ref, extend: false });
@@ -967,6 +1138,15 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                               return;
                             }
                             dispatch({ type: 'moveTo', ref: { row, col }, extend: event.shiftKey });
+                            if (
+                              !event.shiftKey &&
+                              canEditProperty(
+                                properties.find((property) => property.key === column.key),
+                              ) &&
+                              usesPicker(properties.find((property) => property.key === column.key))
+                            ) {
+                              beginEdit('open', cellText(item, column), { row, col });
+                            }
                           }}
                           onDoubleClick={() => {
                             if (isTitle) {
@@ -984,7 +1164,22 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                           )}
                           style={cellStyle}
                         >
-                          {shown}
+                          {column.type === 'checkbox' || column.type === 'completion' ? (
+                            <Icon
+                              icon={item.properties[column.key] === true ? Check : Square}
+                              size="sm"
+                            />
+                          ) : column.type === 'select' ||
+                            column.type === 'priority' ||
+                            column.type === 'assignee' ||
+                            column.type === 'multi_select' ? (
+                            <span className="flex items-center justify-between gap-1">
+                              <span className="truncate">{shown}</span>
+                              <Icon icon={ChevronDown} size="sm" />
+                            </span>
+                          ) : (
+                            shown
+                          )}
                         </div>
                       );
                     })}

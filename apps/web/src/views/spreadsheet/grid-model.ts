@@ -35,6 +35,7 @@ export interface SpreadsheetColumn {
    */
   readonly type: string | null;
 
+  /** Whether free text, paste, fill and range clearing can write this column. */
   readonly editable: boolean;
 }
 
@@ -42,10 +43,10 @@ export interface SpreadsheetColumn {
  * The types whose values a person can honestly type into a text overlay.
  *
  * Narrower than `isKnownPropertyType`, deliberately: that predicate means "the property panel has
- * a control for this", and the panel has a zone picker and an image control this grid does not.
+ * a control for this", and the shared picker can edit values free text cannot describe.
  * A `timestamp` is stored as RFC 9557 with a bracketed zone - a format nobody would type and the
  * server refuses anything else - and an `image` is an asset reference free text can only break.
- * Those columns read (and copy their stored value) but never edit; the grid says so when asked.
+ * Those columns read and copy here; direct edits use the active property's shared control.
  */
 const TEXT_EDITABLE_TYPES: readonly string[] = [
   'text',
@@ -64,7 +65,7 @@ const TEXT_EDITABLE_TYPES: readonly string[] = [
  * `assignee` shares its shape with plain `text` on purpose - see `valueShapeOf` - so width and
  * clearing stay on one switch with everything else string-shaped. But its value is a principal's
  * identifier, a canonical lowercase UUID, and a person typing one into a cell is not a workflow:
- * the picker that turns a name into that identifier lives in the property panel, not here. Named by
+ * the shared picker turns a name into that identifier, while paste and fill remain restricted. Named by
  * type rather than by shape, unlike `TEXT_EDITABLE_TYPES` above, because there is nothing left in
  * the shape itself to tell `assignee` apart from an ordinary string.
  */

@@ -9,8 +9,24 @@ import { SpreadsheetView } from './spreadsheet-view';
 export default { title: 'Nix/Views/Spreadsheet', parameters: { layout: 'padded' } };
 
 const PROPERTIES: PropertyDefinition[] = [
-  { key: 'status', label: 'Status', type: 'text', options: [], required: false },
+  {
+    key: 'status',
+    label: 'Status',
+    type: 'select',
+    options: ['Planning', 'In progress', 'Done'],
+    required: false,
+  },
   { key: 'count', label: 'Count', type: 'number', options: [], required: false },
+  { key: 'done', label: 'Done', type: 'checkbox', options: [], required: false },
+  { key: 'due', label: 'Due date', type: 'due_date', options: [], required: false },
+  {
+    key: 'tags',
+    label: 'Tags',
+    type: 'multi_select',
+    options: ['Writing', 'Review'],
+    required: false,
+  },
+  { key: 'priority', label: 'Priority', type: 'priority', options: [], required: false },
 ];
 const VIEW: View = {
   id: 'spreadsheet',
@@ -37,9 +53,22 @@ function Example(): ReactNode {
       'a',
       'A long plan title that remains readable without pushing the page outside a small phone',
       1,
-      { status: 'Planning', count: 3 },
+      {
+        status: 'Planning',
+        count: 3,
+        done: false,
+        due: '2026-10-15',
+        tags: ['Writing'],
+        priority: 2,
+      },
     ),
-    storyItem('b', 'Write the first draft', 2, { status: 'In progress', count: 8 }),
+    storyItem('b', 'Write the first draft', 2, {
+      status: 'In progress',
+      count: 8,
+      done: true,
+      tags: ['Review'],
+      priority: 3,
+    }),
   ]);
   const [opened, setOpened] = useState<string | null>(null);
   function apply(itemId: string, properties: Record<string, unknown>): void {
