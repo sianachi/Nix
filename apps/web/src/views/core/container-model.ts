@@ -633,6 +633,17 @@ export function applyFilters(
   );
 }
 
+/** Title search only narrows the loaded rows; it never changes the view's saved rules. */
+export function applyTitleSearch<T extends { readonly title: string | null }>(
+  items: readonly T[],
+  search: string,
+): readonly T[] {
+  const needle = search.trim().toLowerCase();
+  return needle.length === 0
+    ? items
+    : items.filter((item) => (item.title ?? '').toLowerCase().includes(needle));
+}
+
 /**
  * Compares two sibling positions.
  *

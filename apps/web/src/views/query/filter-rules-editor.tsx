@@ -126,6 +126,11 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
   const { rules, schema, onChange, scope = 'query', allowGroups = true } = props;
   const listId = useId();
   const full = ruleConditions(rules).length >= MAXIMUM_CONDITIONS;
+  const testedKeys = new Set(ruleConditions(rules).map((rule) => rule.property));
+  const computedRules =
+    scope === 'query'
+      ? schema.filter((property) => isComputedType(property.type) && testedKeys.has(property.key))
+      : [];
 
   function replace(index: number, next: ViewFilterRule | null): void {
     onChange(
@@ -139,18 +144,20 @@ export function FilterRulesEditor(props: FilterRulesEditorProps): ReactNode {
     <div className="@container flex min-w-0 flex-col gap-2">
       <Text variant="note" tone="muted" as="p">
         {scope === 'query'
-          ? 'Filters run across every container you can read, joined with AND; an "any of" group matches when one of its filters does. A property here is a key that may live in other containers, so it is typed rather than picked.'
+          ? 'Filters run across every container you can read, joined with AND; an "any of" group matches when one of its filters does. A property here is a key that may live in other containers, so it is typed rather than picked. Smart lists compare stored values; computed formula and rollup values can be filtered in container views.'
           : 'Filters are joined with AND, and an "any of" group matches when one of its filters does. They hide children from this view only. Other views keep their own filters.'}
       </Text>
+      {computedRules.length === 0 ? null : (
+        <Text variant="note" tone="accent" role="status">
+          Filters on {computedRules.map((property) => property.label).join(', ')} compare stored
+          values only. The computed values shown in this container are not searched by a smart list.
+        </Text>
+      )}
 
       <datalist id={listId}>
-        {/* Computed properties are not suggested: a filter is compiled and run by the server
-            against stored values, and a formula has none - it is evaluated where it is drawn.
-            A rule over one would match nothing, forever, with nothing on screen to say why.
-            Suggestions are still only suggestions; the box stays free text, so nothing here
-            stops somebody typing a key that lives in another container. */}
+        {/* Query filters compare stored values; container filters read decorated child values. */}
         {schema
-          .filter((property) => !isComputedType(property.type))
+          .filter((property) => scope === 'container' || !isComputedType(property.type))
           .map((property) => (
             <option key={property.key} value={property.key}>
               {property.label}

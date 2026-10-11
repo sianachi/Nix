@@ -1,0 +1,96 @@
+import { screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import { renderAt } from '../../render-with-router';
+import { aView } from '../../view-fixture';
+import { filterGroup, type ViewFilterRule } from '../../../views/core/container-model';
+import { ViewTools } from '../../../views/core/view-tools';
+import { useViewState } from '../../../views/core/view-state';
+
+const rules: readonly ViewFilterRule[] = [
+  filterGroup([
+    { property: 'status', operator: 'equals', value: 'Doing' },
+    { property: 'status', operator: 'equals', value: 'Done' },
+  ]),
+];
+
+function Subject({
+  onSave = () => Promise.resolve(null),
+}: {
+  readonly onSave?: (filters: readonly ViewFilterRule[]) => Promise<string | null>;
+}) {
+  const state = useViewState();
+  return (
+    <ViewTools
+      view={aView({ filters: [...rules] })}
+      schema={[]}
+      viewState={state}
+      onSave={onSave}
+    />
+  );
+}
+
+describe('view search and saved filters', () => {
+  it('changes and clears title search without changing link filters', async () => {
+    const user = userEvent.setup();
+    renderAt(<Subject />, '/?f.status=Doing&search=Water');
+    const search = screen.getByRole('searchbox', { name: 'Search titles' });
+    expect(search).toHaveValue('Water');
+    await user.clear(search);
+    await user.type(search, 'Plants');
+    expect(search).toHaveValue('Plants');
+    await user.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(search).toHaveValue('');
+    expect(search).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Clear link filters (1)' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Clear link filters (1)' }));
+    expect(search).toHaveFocus();
+    expect(
+      screen.queryByRole('button', { name: 'Clear link filters (1)' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('preserves grouped rules and writes only when Save view filters is clicked', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(() => Promise.resolve(null));
+    renderAt(<Subject onSave={onSave} />);
+    await user.click(screen.getByRole('button', { name: 'View filters (1)' }));
+    expect(screen.getByRole('region', { name: 'Saved view filters' })).toHaveTextContent(
+      'for everyone',
+    );
+    expect(onSave).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save view filters' }));
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(rules);
+    expect(screen.queryByRole('region', { name: 'Saved view filters' })).not.toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'View filters (1)' })).toHaveFocus(),
+    );
+  });
+
+  it('keeps a refused draft visible and allows cancellation without writing again', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(() => Promise.resolve('You cannot edit this view.'));
+    renderAt(<Subject onSave={onSave} />);
+    await user.click(screen.getByRole('button', { name: 'View filters (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Save view filters' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('You cannot edit this view.');
+    expect(screen.getByRole('region', { name: 'Saved view filters' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('region', { name: 'Saved view filters' })).not.toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: 'View filters (1)' })).toHaveFocus(),
+    );
+  });
+
+  it('keeps failed changes editable when saving unexpectedly throws', async () => {
+    const user = userEvent.setup();
+    renderAt(<Subject onSave={() => Promise.reject(new Error('Transport failed'))} />);
+    await user.click(screen.getByRole('button', { name: 'View filters (1)' }));
+    await user.click(screen.getByRole('button', { name: 'Save view filters' }));
+    expect(screen.getByRole('alert')).toHaveTextContent('Your changes are still here.');
+    expect(screen.getByRole('button', { name: 'Save view filters' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+  });
+});

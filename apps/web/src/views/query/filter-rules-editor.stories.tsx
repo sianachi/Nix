@@ -15,6 +15,7 @@ const SCHEMA: readonly PropertyDefinition[] = [
   { key: 'due_date', label: 'Due', type: 'due_date', options: [], required: false },
   { key: 'status', label: 'Status', type: 'select', options: ['Todo', 'Doing'], required: false },
   { key: 'points', label: 'Points', type: 'number', options: [], required: false },
+  { key: 'score', label: 'Score', type: 'formula', options: [], required: false },
 ];
 
 function Harness(props: {
@@ -59,6 +60,19 @@ export function ContainerFilters(): ReactElement {
         { property: 'status', operator: 'is-not-empty', value: '' },
         { property: 'due_date', operator: 'within-last', value: '7' },
       ]}
+    />
+  );
+}
+
+export function ComputedQueryRule(): ReactElement {
+  return <Harness initial={[{ property: 'score', operator: 'greater-than', value: '3' }]} />;
+}
+
+export function ComputedContainerRule(): ReactElement {
+  return (
+    <Harness
+      scope="container"
+      initial={[{ property: 'score', operator: 'greater-than', value: '3' }]}
     />
   );
 }

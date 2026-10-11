@@ -9,7 +9,13 @@ import {
   PartialNotice,
 } from '../../components/states/status-panels';
 import { inferFilters, type InferredFilters } from '../../lib/suggest/infer-filters';
-import { isFilterGroup, readPropertyText, type ViewFilterRule } from '../core/container-model';
+import {
+  applyTitleSearch,
+  isFilterGroup,
+  readPropertyText,
+  type ViewFilterRule,
+} from '../core/container-model';
+import { useViewState } from '../core/view-state';
 import { ruleConditions } from '../core/filter-rules';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { useHiddenItems } from '../../items/use-hidden-items';
@@ -34,12 +40,13 @@ const QueryByExamplePanel = lazy(() => import('./query-by-example'));
  * ticked; "Suggest filters" then asks `lib/suggest/infer-filters.ts` what the ticked rows share that
  * the other rows on screen mostly do not, and drops the answer into the filter editor as a draft
  * (`query-by-example.tsx`). Only saving that draft changes the smart list, through the same view
- * write every other view configuration takes, and the list is re-run afterwards because a run is
- * keyed by the view's id rather than its rules.
+ * write every other view configuration takes. The shared workspace invalidation refreshes the
+ * run after the saved view changes.
  */
 export function QueryView(props: ViewRendererProps): ReactNode {
   const { container, view, onOpen } = props;
   const visibility = useHiddenItems();
+  const viewState = useViewState();
 
   // The itemId this view runs against is the smart list itself - the container's own id, not its
   // children. Every child the container may incidentally hold stays untouched by this view.
@@ -82,7 +89,6 @@ export function QueryView(props: ViewRendererProps): ReactNode {
       return;
     }
     stopPicking();
-    await run.reload();
   }
 
   if (run.status === 'loading') {
@@ -109,7 +115,8 @@ export function QueryView(props: ViewRendererProps): ReactNode {
   }
 
   const { results } = run;
-  const visible = results.results.filter((item) => !visibility.hiddenSet.has(item.id));
+  const unhidden = results.results.filter((item) => !visibility.hiddenSet.has(item.id));
+  const visible = applyTitleSearch(unhidden, viewState.search);
 
   if (results.results.length === 0) {
     return (
@@ -233,12 +240,12 @@ export function QueryView(props: ViewRendererProps): ReactNode {
         />
       ) : null}
 
-      {visible.length < results.results.length ? (
+      {unhidden.length < results.results.length ? (
         <Text variant="caption" tone="muted" role="status">
-          {String(results.results.length - visible.length)} hidden
+          {String(results.results.length - unhidden.length)} hidden
         </Text>
       ) : null}
-      {visible.length === 0 ? (
+      {unhidden.length === 0 ? (
         <div className="flex flex-col items-start gap-2">
           <Text variant="note" tone="muted">
             All matches are hidden for you.
@@ -253,6 +260,15 @@ export function QueryView(props: ViewRendererProps): ReactNode {
           </Button>
         </div>
       ) : null}
+      {visible.length === unhidden.length ? null : (
+        <div className="flex flex-wrap items-center gap-2" role="status">
+          <Text variant="note" tone="muted">
+            {visible.length === 0
+              ? 'No loaded results match this title search. Clear the search above to see them.'
+              : `${String(visible.length)} of ${String(unhidden.length)} loaded results match this title search.`}
+          </Text>
+        </div>
+      )}
       <ul className="flex flex-col">
         {visible.map((row) => {
           const owner = { title: row.title ?? '', properties: row.properties };
