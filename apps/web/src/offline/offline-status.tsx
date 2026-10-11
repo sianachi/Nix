@@ -1,5 +1,5 @@
 import { Button, Text } from '@nix/ui';
-import { useSyncExternalStore, type ReactNode } from 'react';
+import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useSessionStore } from '../auth/session-store';
 
@@ -8,6 +8,7 @@ import { requestOfflineSync } from './offline-runtime';
 import { useNetworkOnline } from './use-network-online';
 
 export function OfflineStatus({ showOpen = true }: { readonly showOpen?: boolean }): ReactNode {
+  const [collapsed, setCollapsed] = useState(false);
   const snapshot = useSyncExternalStore(subscribeOfflineNotes, getOfflineSnapshot);
   const online = useNetworkOnline();
   const subject = useSessionStore((state) => state.profile?.subject);
@@ -36,25 +37,37 @@ export function OfflineStatus({ showOpen = true }: { readonly showOpen?: boolean
   return (
     <aside
       aria-label="Offline notes status"
-      className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-divider bg-background px-3 py-1"
+      className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-t border-divider bg-background px-3 py-1"
     >
-      <Text as="p" variant="caption" role="status">
-        {message}
-      </Text>
-      <div className="flex items-center gap-2">
-        {showOpen && accountMatches ? (
+      {!collapsed ? (
+        <Text as="p" variant="caption" role="status" className="min-w-0 break-words">
+          {message}
+        </Text>
+      ) : null}
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+        {!collapsed && showOpen && accountMatches ? (
           <Link to="/offline" className="text-sm underline underline-offset-2">
             Notes on this device
           </Link>
         ) : null}
-        {online && accountMatches ? (
+        {!collapsed && online && accountMatches ? (
           <Button variant="ghost" disabled={busy} onClick={requestOfflineSync}>
             {busy ? 'Syncing…' : 'Sync now'}
           </Button>
         ) : null}
+        <Button
+          variant="ghost"
+          aria-label={collapsed ? 'Show offline sync status' : 'Collapse offline sync status'}
+          aria-expanded={!collapsed}
+          onClick={() => {
+            setCollapsed(!collapsed);
+          }}
+        >
+          {collapsed ? 'Device sync' : 'Collapse'}
+        </Button>
       </div>
       {snapshot.error ? (
-        <Text as="p" variant="caption" role="alert" className="w-full">
+        <Text as="p" variant="caption" role="alert" className="min-w-0 w-full break-words">
           {snapshot.error}
         </Text>
       ) : null}

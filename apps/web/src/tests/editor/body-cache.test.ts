@@ -109,6 +109,18 @@ describe('the document body store', () => {
     expect(await readBodyCache(scope(ADA, 'item-250'))).not.toBeNull();
   });
 
+  it('preserves the highest confirmed sequence across older and socket snapshot writers', async () => {
+    const original = record(scope(ADA, 'cursor'));
+    await writeBodyCache({ ...original, serverSeq: '9007199254740993' });
+    await writeBodyCache({ ...original, serverSeq: '9007199254740992' });
+    await writeBodyCache(original);
+
+    expect((await readBodyCache(original.scope))?.serverSeq).toBe('9007199254740993');
+
+    await writeBodyCache({ ...original, docId: 'replacement' });
+    expect((await readBodyCache(original.scope))?.serverSeq).toBeUndefined();
+  });
+
   it('refuses a body larger than the per-document limit', async () => {
     await expect(
       writeBodyCache(record(scope(ADA, 'huge'), Date.now(), 8 * 1024 * 1024 + 1)),
