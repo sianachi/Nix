@@ -56,18 +56,32 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
         var submit = client.PostAsync(FormPath(link), content, Cancellation);
         try
         {
-            await observer.Arrived.Task.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
-            await WaitForBlockedBackendAsync(observer.BackendPid);
-            Assert.False(submit.IsCompleted);
+            try
+            {
+                await observer.Arrived.Task.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
+                await WaitForBlockedBackendAsync(observer.BackendPid);
+                Assert.False(submit.IsCompleted);
+            }
+            finally
+            {
+                await editor.CommitAsync(Cancellation);
+            }
+            var response = await submit.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
+
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            await AssertSavedResponsesAsync(link.ItemId, 0);
         }
         finally
         {
-            await editor.CommitAsync(Cancellation);
+            client.CancelPendingRequests();
+            try
+            {
+                using var response = await submit;
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
-        using var response = await submit.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
-
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        await AssertSavedResponsesAsync(link.ItemId, 0);
     }
 
     [Fact]
@@ -79,29 +93,46 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
         using var client = factory.CreateClient();
         using var content = new StringContent("""{"answers":{}}""", Encoding.UTF8, "application/json");
         var submit = client.PostAsync(FormPath(link), content, Cancellation);
-        await observer.Locked.Task.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
-        await using var editor = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
-        var connection = Assert.IsType<NpgsqlConnection>(editor.DbContext.Database.GetDbConnection());
-        var change = editor.Resolve<NixDispatcher>().SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
-            new(link.ItemId, [Form("temporary")], "form"), Cancellation).AsTask();
         try
         {
-            await WaitForBlockedBackendAsync(connection.ProcessID);
-            Assert.False(change.IsCompleted);
+            await observer.Locked.Task.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
+            await using var editor = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+            var connection = Assert.IsType<NpgsqlConnection>(editor.DbContext.Database.GetDbConnection());
+            var change = editor.Resolve<NixDispatcher>().SendAsync<SetContainerViews, ImmutableArray<ViewDefinition>>(
+                new(link.ItemId, [Form("temporary")], "form"), Cancellation).AsTask();
+            bool modeChanged;
+            try
+            {
+                await WaitForBlockedBackendAsync(connection.ProcessID);
+                Assert.False(change.IsCompleted);
+            }
+            finally
+            {
+                observer.Release.TrySetResult();
+                modeChanged = (await change).IsSuccess;
+            }
+
+            var response = await submit.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+            Assert.True(modeChanged);
+            await editor.CommitAsync(Cancellation);
+            await AssertSavedResponsesAsync(link.ItemId, 1);
+            await using var verify = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+            var item = await verify.Resolve<IItemTree>().FindAsync(link.ItemId, Cancellation);
+            Assert.Equal("temporary", ViewDefinitionsJson.Read(Assert.IsType<Item>(item).Views).Views[0].Mode);
         }
         finally
         {
             observer.Release.TrySetResult();
+            client.CancelPendingRequests();
+            try
+            {
+                using var response = await submit;
+            }
+            catch (OperationCanceledException)
+            {
+            }
         }
-
-        using var response = await submit.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
-        Assert.True((await change.WaitAsync(TimeSpan.FromSeconds(20), Cancellation)).IsSuccess);
-        await editor.CommitAsync(Cancellation);
-        await AssertSavedResponsesAsync(link.ItemId, 1);
-        await using var verify = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
-        var item = await verify.Resolve<IItemTree>().FindAsync(link.ItemId, Cancellation);
-        Assert.Equal("temporary", ViewDefinitionsJson.Read(Assert.IsType<Item>(item).Views).Views[0].Mode);
     }
 
     [Fact]
