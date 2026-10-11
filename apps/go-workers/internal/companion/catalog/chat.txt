@@ -17,8 +17,8 @@ Columns may include title; it is an item-title marker, never a form field.
 - Timeline (timeline): needs a date-shaped property; optional: endDate (date-shaped). Bars across a time axis; without an end date an item is a milestone.
 - Gallery (gallery): optional: cover (image), columns (field keys). Cards with an optional picture and chosen fields.
 - Spreadsheet (sheet). Children as an editable grid, one row per child and one column per property.
-- Form (form). A single-page fillable form over the schema; each submission is a new child.
-- Interactive form (interactive_form). A multi-page, conditional form whose answers create a child item.
+- Form (form): optional: mode (saved or temporary). A single-page form; answers stay temporary or create a child.
+- Interactive form (interactive_form): optional: mode (saved or temporary). A multi-page, conditional form; answers stay temporary or create a child.
 - Smart list (query). Saved query rows show filter fields; columns are not configurable.
 - Chart (chart): needs a select-or-date property; optional: measureField (number), splitBy (select-or-checkbox). Children counted or totalled per select value, or per period of a date (set period). chartKind: bar, column, pie, or line/area/year on a date; splitBy makes series.
 - Habit tracker (habit_tracker). Child habit settings and dated check-ins, not column mappings.

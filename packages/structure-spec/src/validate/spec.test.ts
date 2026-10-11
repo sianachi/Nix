@@ -385,6 +385,91 @@ describe('validateSpec create_structured', () => {
   });
 });
 
+describe('formula fields in every structural write', () => {
+  const operations = ['create_structured', 'add_view', 'add_fields', 'edit_form'] as const;
+  const formulaContext = context({
+    inheritedFields: [
+      { key: 'price', label: 'Price', type: 'number', options: [], required: false },
+    ],
+    existing: { declared: [statusProperty], views: [interactiveFormView()] },
+  });
+  const specFor = (op: (typeof operations)[number], fields: unknown[]) => {
+    if (op === 'create_structured') return { recipe: 'list', fields };
+    if (op === 'add_view') return { fields, views: [{ kind: 'list' }] };
+    if (op === 'edit_form')
+      return {
+        fields,
+        viewId: 'form',
+        form: { pages: [{ title: 'Details', blocks: [{ field: 'status' }] }] },
+      };
+    return { fields };
+  };
+
+  it.each(operations)('refuses invalid formulas in %s before writing', (op) => {
+    for (const formula of [
+      'PROPERTY("price")',
+      'prop("price")',
+      'TODAY()',
+      'NOT(TRUE, FALSE)',
+      'SUM(A1:A3)',
+      '=[price] * 2',
+      '[price] == 2',
+      '[Price] * 2',
+      '[missing] + 1',
+    ]) {
+      const report = validateSpec(
+        op,
+        specFor(op, [{ key: 'total', label: 'Total', type: 'formula', formula }]),
+        formulaContext,
+      );
+      expect(report.ok, `${op}: ${formula}`).toBe(false);
+      expect(report.problems).toContainEqual(
+        expect.objectContaining({
+          path: 'fields[0].formula',
+          code: 'formula.invalid_expression',
+        }),
+      );
+    }
+  });
+
+  it.each(operations)('accepts exact inherited and same-call keys in %s', (op) => {
+    const report = validateSpec(
+      op,
+      specFor(op, [
+        {
+          key: 'total',
+          label: 'Total',
+          type: 'formula',
+          formula: 'ROUND([price] * [quantity], 2)',
+        },
+        { key: 'quantity', label: 'Quantity', type: 'number' },
+      ]),
+      formulaContext,
+    );
+    expect(report.problems).toEqual([]);
+  });
+
+  it('does not prevent an unrelated addition because an existing formula is invalid', () => {
+    const report = validateSpec(
+      'add_fields',
+      { fields: [{ label: 'Comment', type: 'text' }] },
+      context({
+        inheritedFields: [
+          {
+            key: 'old',
+            label: 'Old',
+            type: 'formula',
+            expression: 'NOPE(1)',
+            options: [],
+            required: false,
+          },
+        ],
+      }),
+    );
+    expect(report.problems).toEqual([]);
+  });
+});
+
 describe('validateSpec add_view', () => {
   it.each([
     [10, 4, false, 2],

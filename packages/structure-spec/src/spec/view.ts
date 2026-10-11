@@ -66,14 +66,14 @@ type ViewKind = (typeof VIEW_KINDS)[number];
 const KIND_EXTRA_FIELDS: Record<ViewKind, readonly string[]> = {
   list: ['columns', 'groupBy'],
   sheet: ['columns'],
-  form: ['columns'],
+  form: ['columns', 'mode'],
   board: ['groupBy', 'groupOrder'],
   chart: ['groupBy', 'groupOrder', 'measure', 'measureField', 'chartKind', 'period', 'splitBy'],
   calendar: ['date', 'endDate', 'mode'],
   timeline: ['date', 'endDate', 'mode'],
   gallery: ['columns', 'cover', 'cardSize'],
   query: ['preset', 'filters'],
-  interactive_form: ['form'],
+  interactive_form: ['form', 'mode'],
   habit_tracker: [],
   checklist: ['columns', 'doneProperty'],
   matrix: ['columns', 'rowBy', 'columnBy'],
@@ -102,11 +102,11 @@ export const viewSpecSchema = z
     kind: z.enum(VIEW_KINDS),
     name: z.string().min(1).max(60).optional(),
     columns: z.array(z.string().min(1)).max(30).optional(),
-    groupBy: z.string().min(1).describe('See view rules.').optional(),
+    groupBy: z.string().min(1).optional(),
     groupOrder: z.array(z.string().min(1)).optional(),
     date: z.string().min(1).optional(),
     endDate: z.string().min(1).optional(),
-    mode: z.enum(['day', 'week', 'month', 'quarter']).optional(),
+    mode: z.enum(['day', 'week', 'month', 'quarter', 'temporary', 'saved']).optional(),
     cover: z.string().min(1).optional(),
     cardSize: z.enum(['small', 'medium', 'large']).optional(),
     sortBy: z.string().min(1).optional(),
@@ -154,6 +154,17 @@ export const viewSpecSchema = z
           code: 'custom',
           path: ['mode'],
           message: 'A timeline mode must be week, month, or quarter.',
+        });
+      }
+      if (
+        (view.kind === 'form' || view.kind === 'interactive_form') &&
+        view.mode !== 'saved' &&
+        view.mode !== 'temporary'
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['mode'],
+          message: 'A form mode must be saved or temporary.',
         });
       }
     }

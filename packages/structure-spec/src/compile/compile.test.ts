@@ -17,6 +17,26 @@ const STATUS: StructureProperty = {
 };
 
 describe('compileCreateStructured', () => {
+  it('compiles a pet-designed calculator into an ordinary form with temporary mode', () => {
+    const spec = structuredSpecSchema.parse({
+      recipe: 'form',
+      fields: [
+        { label: 'Weight', type: 'number' },
+        { label: 'Double weight', type: 'formula', formula: '[weight] * 2' },
+      ],
+      views: [{ kind: 'form', mode: 'temporary' }],
+    });
+    const [step] = compileCreateStructured(spec, {
+      title: 'Calculator',
+      parentId: null,
+      inheritedFields: [],
+    });
+    if (step?.kind !== 'createStructuredItem') throw new Error('Expected createStructuredItem.');
+    expect(step.views[0]?.mode).toBe('temporary');
+    expect(
+      step.schema.properties.find((property) => property.key === 'double_weight')?.expression,
+    ).toBe('[weight] * 2');
+  });
   it.each([
     ['list', {}],
     ['sheet', {}],
