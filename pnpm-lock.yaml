@@ -137,6 +137,28 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
 
+  apps/sites:
+    dependencies:
+      '@nix/export':
+        specifier: workspace:*
+        version: link:../../packages/export
+      '@nix/site-render':
+        specifier: workspace:*
+        version: link:../../packages/site-render
+      amqplib:
+        specifier: ^2.2.0
+        version: 2.2.0
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
+
   apps/web:
     dependencies:
       '@excalidraw/excalidraw':
@@ -148,6 +170,9 @@ importers:
       '@nix/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
+      '@nix/chart-render':
+        specifier: workspace:*
+        version: link:../../packages/chart-render
       '@nix/companion':
         specifier: workspace:*
         version: link:../../packages/companion
@@ -163,6 +188,9 @@ importers:
       '@nix/sheet':
         specifier: workspace:*
         version: link:../../packages/sheet
+      '@nix/site-render':
+        specifier: workspace:*
+        version: link:../../packages/site-render
       '@nix/structure-spec':
         specifier: workspace:*
         version: link:../../packages/structure-spec
@@ -327,6 +355,18 @@ importers:
       prettier:
         specifier: ^3.6.0
         version: 3.9.6
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
+
+  packages/chart-render:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.1
       typescript:
         specifier: ^5.9.0
         version: 5.9.3
@@ -529,6 +569,40 @@ importers:
       yjs:
         specifier: ^13.6.31
         version: 13.6.31
+
+  packages/site-render:
+    dependencies:
+      '@fontsource/nunito-sans':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@nix/chart-render':
+        specifier: workspace:*
+        version: link:../chart-render
+      '@nix/design-tokens':
+        specifier: workspace:*
+        version: link:../design-tokens
+      '@nix/export':
+        specifier: workspace:*
+        version: link:../export
+      '@nix/view-render':
+        specifier: workspace:*
+        version: link:../view-render
+      highlight.js:
+        specifier: ^11.12.0
+        version: 11.12.0
+      zod:
+        specifier: ^4.1.0
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
 
   packages/structure-spec:
     dependencies:
@@ -2833,6 +2907,10 @@ packages:
   ajv@8.20.0:
     resolution: {integrity: sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA==}
 
+  amqplib@2.2.0:
+    resolution: {integrity: sha512-VifzN9aHs/Q3zTruVHXh2yCisQyXexBN91CQ2E5iSyUKyNjH6ilYhJGte5AXZH/Bj1PaH7SwPhyuSf6Msd2udw==}
+    engines: {node: '>=18'}
+
   ansi-colors@4.1.3:
     resolution: {integrity: sha512-/6w/C21Pm1A7aZitlI5Ni/2J6FFQN8i1Cvz3kHABAAbw93v/NlvKdVOqz7CCWz/3iv/JplRSEEZ83XION15ovw==}
     engines: {node: '>=6'}
@@ -3867,6 +3945,10 @@ packages:
 
   hermes-parser@0.25.1:
     resolution: {integrity: sha512-6pEjquH3rqaI6cYAXYPcz9MS4rY6R4ngRgrgfDshRptUZIc3lw0MCIJIGDj9++mfySOuPTHB4nrSW99BCvOPIA==}
+
+  highlight.js@11.12.0:
+    resolution: {integrity: sha512-nbfWpyRMcMrPMmDwJB+dhX/eiaPKtc2RB+0QZskqJ3WjRA/FDS0e9hZrx8EC/lbEv8gXy98FcDbNa/dspAaJMg==}
+    engines: {node: '>=12.0.0'}
 
   hono@4.13.5:
     resolution: {integrity: sha512-O6+/eCYRkzzzy0rPWwKLiGBR1nFuUPZynnwjxN1MBA62NNqbT0wQEzQyK2gSO5yDIDB336sXQleAhOHrzlYyKw==}
@@ -7852,6 +7934,8 @@ snapshots:
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
+  amqplib@2.2.0: {}
+
   ansi-colors@4.1.3: {}
 
   ansi-regex@5.0.1: {}
@@ -9070,6 +9154,8 @@ snapshots:
   hermes-parser@0.25.1:
     dependencies:
       hermes-estree: 0.25.1
+
+  highlight.js@11.12.0: {}
 
   hono@4.13.5: {}
 

@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "I am a software engineer in Birmingham. Most of my work sits where software meets hardware and data: devices at the edge, the backends they report to, and the models that make sense of what they send."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Day to day that means "
+          },
+          {
+            "type": "text",
+            "text": ".NET",
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " and "
+          },
+          {
+            "type": "text",
+            "text": "Go",
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " for services, "
+          },
+          {
+            "type": "text",
+            "text": "Python",
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " for data and models, and "
+          },
+          {
+            "type": "text",
+            "text": "TypeScript",
+            "marks": [
+              {
+                "type": "bold"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " for anything with a screen. I like systems that are small enough to understand and boring enough to trust."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Below are the projects I spend my evenings on and the notes I write along the way. If something here is useful to you, I would like to hear about it."
+          }
+        ]
+      }
+    ]
+  }
+}

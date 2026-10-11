@@ -1,0 +1,52 @@
+{
+  "formatVersion": 1,
+  "siteId": "0199c0de-0100-7000-8000-000000000900",
+  "buildId": "0199c0de-0100-7000-8000-000000000901",
+  "workspaceId": "0199c0de-0100-7000-8000-000000000902",
+  "rootItemId": "0199c0de-0100-7000-8000-000000000001",
+  "layout": "docs",
+  "settings": {
+    "name": "Nix Docs",
+    "description": "Nix is a self-hosted, collaborative workspace for your life and work. Notes, tasks, canvases, sheets and calendars, all made from one kind of thing.",
+    "accent": "#416180",
+    "navigation": [
+      {
+        "label": "Get started",
+        "path": "/getting-started/"
+      },
+      {
+        "label": "Features",
+        "path": "/features/"
+      },
+      {
+        "label": "Self-hosting",
+        "path": "/self-hosting/"
+      },
+      {
+        "label": "Changelog",
+        "path": "/changelog/"
+      }
+    ],
+    "footerText": "Nix is open source and self-hosted.",
+    "builtWithNix": true,
+    "language": "en-GB"
+  },
+  "canonicalOrigin": "https://docs.nix.example",
+  "builtAt": "2026-10-11T12:00:00Z",
+  "datedCollections": [
+    {
+      "itemId": "0199c0de-0100-7000-8000-000000000040",
+      "dateProperty": "date",
+      "tagsProperty": "tags",
+      "coverProperty": null,
+      "summaryProperty": null
+    }
+  ],
+  "redirects": [
+    {
+      "from": "/install/",
+      "toItemId": "0199c0de-0100-7000-8000-000000000011"
+    }
+  ],
+  "pageCount": 18
+}
