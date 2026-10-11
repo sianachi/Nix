@@ -732,13 +732,13 @@ function DriveTable(
                           <DriveFileThumbnail
                             item={item}
                             info={info}
-                            className="size-8"
+                            className="size-8 shrink-0"
                             iconSize="sm"
                           />
                         ) : (
                           <Icon icon={RowIcon} size="sm" />
                         )}
-                        <Text variant="body" as="span" className="min-w-0">
+                        <Text variant="body" as="span" className="min-w-0 flex-1">
                           {item.title || 'Untitled'}
                         </Text>
                       </button>
@@ -908,7 +908,7 @@ function DriveGrid(props: RowsProps): ReactNode {
                     variant="body"
                     as="span"
                     title={item.title || 'Untitled'}
-                    className="line-clamp-2 break-words"
+                    className="line-clamp-2 wrap-anywhere"
                   >
                     {item.title || 'Untitled'}
                   </Text>

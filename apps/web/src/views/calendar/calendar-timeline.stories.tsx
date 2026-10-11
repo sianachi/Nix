@@ -1,4 +1,5 @@
 import { within } from '@testing-library/dom';
+import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { MemoryRouter } from 'react-router';
 
@@ -91,3 +92,18 @@ export const TinyTimeline = {
 };
 export const DarkTinyCalendar = { ...TinyCalendar, globals: { ground: 'dark' } };
 export const DarkTinyTimeline = { ...TinyTimeline, globals: { ground: 'dark' } };
+export const TinyTimelineRescheduling = {
+  ...TinyTimeline,
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    await userEvent.click(
+      within(canvasElement).getByRole('button', {
+        name: 'Reschedule An idea to schedule',
+      }),
+    );
+    checkNarrowView({ canvasElement });
+  },
+};
+export const DarkTinyTimelineRescheduling = {
+  ...TinyTimelineRescheduling,
+  globals: { ground: 'dark' },
+};

@@ -162,6 +162,18 @@ export const StackedColumns = {
   ),
 };
 export const StackedColumnsDark = { ...StackedColumns, ...dark };
+export const LongSeriesLabels = {
+  render: (): ReactElement => (
+    <Stage>
+      <ChartBody
+        chart={splitChart('column', [
+          'PublishingTeamResponsibleForTheEditorialReview',
+          'WaitingForTheEditorialReviewAndPublicationDecision',
+        ])}
+      />
+    </Stage>
+  ),
+};
 
 export const Pie = {
   render: (): ReactElement => (

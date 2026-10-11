@@ -14,17 +14,10 @@
 
 /* The component sources Tailwind scans for class names. */
 @source '../src';
-@source '../../../apps/web/src/pets';
-/* The editor stories main.ts lists render the editor's own class strings (`prose.ts`), the page
-   guides and the table tools; without this line those stories render with Tailwind's reset. */
-@source '../../../apps/web/src/editor';
-@source '../../../apps/web/src/plugins';
-/* Structured-view previews must compile the same utilities as the application. */
-@source '../../../apps/web/src/views';
-@source '../../../apps/web/src/components';
-/* Graph previews need the same SVG fill, stroke and pointer utilities as the application. */
-@source '../../../apps/web/src/graph';
-@source '../../../apps/web/src/search';
+@source '../../../apps/web/index.html';
+/* All application previews compile the same utilities as production, including
+   shell, offline, file, property and automation surfaces. */
+@source '../../../apps/web/src';
 
 /* The ground: the light technical paper the whole system sits on. */
 body {

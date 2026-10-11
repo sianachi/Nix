@@ -901,7 +901,7 @@ function PhoneFrame({
   return (
     <div
       style={{ width, height, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
-      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-divider"
+      className="relative flex h-full max-h-[calc(100dvh-var(--spacing)*8)] min-h-0 max-w-full flex-col overflow-hidden rounded-lg border border-divider"
     >
       <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
