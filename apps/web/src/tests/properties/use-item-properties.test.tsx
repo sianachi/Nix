@@ -1,4 +1,4 @@
-import { NixApiError, NixErrorKind } from '@nix/api-client';
+import { createNixClient, NixApiError, NixErrorKind } from '@nix/api-client';
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -16,7 +16,17 @@ import { useItemProperties } from '../../properties/use-item-properties';
 
 const ITEM_ID = '5a5a5a5a-5555-4555-8555-5a5a5a5a5a5a';
 
-const client = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn() }));
+const io = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn() }));
+const client = {
+  ...io,
+  cache: createNixClient({
+    baseUrl: 'http://localhost',
+    tokens: {
+      getAccessToken: () => Promise.resolve(null),
+      refreshAccessToken: () => Promise.resolve(null),
+    },
+  }).cache,
+};
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
 
 function emptySchema(): Record<string, unknown> {

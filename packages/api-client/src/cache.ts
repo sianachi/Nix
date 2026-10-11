@@ -26,7 +26,7 @@
  * interested caller leaves is the underlying request actually aborted.
  */
 
-import { NixApiError } from './errors.js';
+import { isNixApiError, NixApiError } from './errors.js';
 import { report, type NixTelemetry } from './telemetry.js';
 
 export type CacheKey = readonly string[];
@@ -102,6 +102,8 @@ export interface ServerCache {
   evict(key: CacheKey): void;
   clear(): void;
   subscribe(listener: (key: CacheKey) => void): () => void;
+  /** One notification per explicit invalidation, including prefixes without cached entries. */
+  subscribeInvalidation(listener: (prefix: CacheKey) => void): () => void;
 }
 
 export interface ServerCacheOptions {
@@ -117,6 +119,7 @@ interface Flight {
   readonly promise: Promise<unknown>;
   readonly controller: AbortController;
   waiters: number;
+  state: 'fresh' | 'stale' | 'removed';
 }
 
 const DEFAULT_STALE_AFTER_MS = 30_000;
@@ -128,6 +131,18 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
   const telemetry = options.telemetry;
   const flights = new Map<string, Flight>();
   const listeners = new Set<(key: CacheKey) => void>();
+  const invalidationListeners = new Set<(prefix: CacheKey) => void>();
+
+  function invalidateFlights(head: string, state: 'stale' | 'removed', exact = false): void {
+    for (const [id, flight] of flights) {
+      if (id !== head && (exact || (head !== '' && !id.startsWith(head + SEPARATOR)))) continue;
+      if (flight.state !== 'removed') flight.state = state;
+    }
+  }
+
+  function notifyInvalidation(prefix: CacheKey): void {
+    for (const listener of invalidationListeners) listener(prefix);
+  }
 
   function notify(id: string): void {
     const key = id.split(SEPARATOR);
@@ -138,20 +153,33 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
     const controller = new AbortController();
     const promise = load(controller.signal).then(
       (data) => {
-        flights.delete(id);
-        store.write(id, { data, storedAt: now(), stale: false });
-        notify(id);
+        if (flights.get(id) === flight) flights.delete(id);
+        if (flight.state !== 'removed') {
+          store.write(id, { data, storedAt: now(), stale: flight.state === 'stale' });
+          notify(id);
+        }
         return data;
       },
       (error: unknown) => {
-        flights.delete(id);
+        if (flights.get(id) === flight) {
+          flights.delete(id);
+          if (
+            flight.state !== 'removed' &&
+            isNixApiError(error) &&
+            (error.status === 403 || error.status === 404 || error.status === 423) &&
+            store.read(id) !== undefined
+          ) {
+            store.remove(id);
+            notify(id);
+          }
+        }
         throw error;
       },
     );
     // The shared promise outlives individual callers; keep an abandoned
     // rejection from surfacing as an unhandled rejection.
     promise.catch(() => undefined);
-    const flight: Flight = { promise, controller, waiters: 0 };
+    const flight: Flight = { promise, controller, waiters: 0, state: 'fresh' };
     flights.set(id, flight);
     return flight;
   }
@@ -159,7 +187,8 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
   function release(id: string, flight: Flight): void {
     flight.waiters -= 1;
     if (flight.waiters > 0) return;
-    flights.delete(id);
+    if (flights.get(id) === flight) flights.delete(id);
+    flight.state = 'removed';
     flight.controller.abort();
   }
 
@@ -168,7 +197,10 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
     load: CacheLoader<TData>,
     signal: AbortSignal | undefined,
   ): Promise<TData> {
-    const flight = flights.get(id) ?? start(id, load);
+    const existing = flights.get(id);
+    // A post-write read must not join the response that began before that write.
+    if (existing !== undefined && existing.state !== 'fresh') existing.state = 'removed';
+    const flight = existing?.state === 'fresh' ? existing : start(id, load);
     flight.waiters += 1;
     const shared = flight.promise as Promise<TData>;
     if (signal === undefined) return shared;
@@ -211,8 +243,7 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
     return share(id, load, undefined).then(
       () => undefined,
       (error: unknown) => {
-        // A failed background refresh keeps the stale data on screen, but it
-        // is never invisible: it goes out as telemetry.
+        // Temporary failures retain cached data; refusals remove it in start.
         report(telemetry?.onCacheRevalidateError, { key, error });
       },
     );
@@ -251,39 +282,55 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
 
     invalidate(key: CacheKey): void {
       const id = cacheKeyToString(key);
+      invalidateFlights(id, 'stale', true);
       const entry = store.read(id);
-      if (entry === undefined) return;
-      store.write(id, { ...entry, stale: true });
-      notify(id);
+      if (entry !== undefined) {
+        store.write(id, { ...entry, stale: true });
+        notify(id);
+      }
+      notifyInvalidation(key);
     },
 
     invalidatePrefix(prefix: CacheKey): void {
       const head = cacheKeyToString(prefix);
+      invalidateFlights(head, 'stale');
       for (const id of store.keys()) {
-        if (id !== head && !id.startsWith(head + SEPARATOR)) continue;
+        if (head !== '' && id !== head && !id.startsWith(head + SEPARATOR)) continue;
         const entry = store.read(id);
         if (entry === undefined) continue;
         store.write(id, { ...entry, stale: true });
         notify(id);
       }
+      notifyInvalidation(prefix);
     },
 
     evict(key: CacheKey): void {
       const id = cacheKeyToString(key);
+      invalidateFlights(id, 'removed', true);
       store.remove(id);
       notify(id);
+      notifyInvalidation(key);
     },
 
     clear(): void {
       const ids = store.keys();
+      invalidateFlights('', 'removed');
       store.clear();
       for (const id of ids) notify(id);
+      notifyInvalidation([]);
     },
 
     subscribe(listener: (key: CacheKey) => void): () => void {
       listeners.add(listener);
       return (): void => {
         listeners.delete(listener);
+      };
+    },
+
+    subscribeInvalidation(listener: (prefix: CacheKey) => void): () => void {
+      invalidationListeners.add(listener);
+      return (): void => {
+        invalidationListeners.delete(listener);
       };
     },
   };

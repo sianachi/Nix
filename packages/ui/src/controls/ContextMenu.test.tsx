@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useLayoutEffect, useRef } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ContextMenu, LONG_PRESS_MS } from './ContextMenu';
@@ -32,6 +33,24 @@ describe('ContextMenu', () => {
   afterEach(() => {
     vi.useRealTimers();
     getSelection()?.removeAllRanges();
+  });
+
+  it('handles a context-menu request as soon as its row is committed', () => {
+    function NewlyRenderedRow() {
+      const ref = useRef<HTMLDivElement>(null);
+      useLayoutEffect(() => {
+        ref.current
+          ?.querySelector('button')
+          ?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      }, []);
+      return (
+        <div ref={ref}>
+          <Row items={[{ label: 'Open beside', onSelect: vi.fn() }]} />
+        </div>
+      );
+    }
+    render(<NewlyRenderedRow />);
+    expect(screen.getByRole('menuitem', { name: 'Open beside' })).toHaveFocus();
   });
 
   it('opens its own menu on a secondary click instead of the browser menu', () => {

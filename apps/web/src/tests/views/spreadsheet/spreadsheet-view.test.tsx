@@ -18,9 +18,8 @@ import { SpreadsheetView } from '../../../views/spreadsheet/spreadsheet-view';
 
 /**
  * The spreadsheet view, driven the way a person drives it: one focused scroller, arrows, typing,
- * and the clipboard. Cells are painted text with `aria-activedescendant` naming the active one, so
- * these tests assert on cell labels and on the writes the grid makes - not on per-cell controls,
- * which the grid deliberately does not mount.
+ * and the clipboard. Cells stay windowed with `aria-activedescendant` naming the active one. Only the active property
+ * mounts its typed editor, so these tests assert on cell labels, controls and the writes they make.
  */
 
 function item(
@@ -52,10 +51,7 @@ function schemaOf(...properties: PropertyDefinition[]): EffectiveSchema {
   return { properties, declared: properties, inherit: true };
 }
 
-const SCHEMA = schemaOf(
-  property('status', 'Status', 'select'),
-  property('count', 'Count', 'number'),
-);
+const SCHEMA = schemaOf(property('status', 'Status', 'text'), property('count', 'Count', 'number'));
 
 const writes: { itemId: string; bag: Record<string, unknown> }[] = [];
 
@@ -273,6 +269,123 @@ describe('editing a cell', () => {
   });
 });
 
+describe('typed property controls', () => {
+  const typedSchema = schemaOf(
+    { ...property('status', 'Status', 'select'), options: ['open', 'done'] },
+    property('done', 'Done', 'checkbox'),
+    property('date', 'Date', 'date'),
+    { ...property('tags', 'Tags', 'multi_select'), options: ['red', 'blue'] },
+    property('priority', 'Priority', 'priority'),
+    property('count', 'Count', 'number'),
+    property('when', 'When', 'timestamp'),
+    property('total', 'Total', 'formula'),
+  );
+  const typedAlpha = item('item-a', 'Alpha', 1, {
+    status: 'open',
+    done: false,
+    date: '2026-10-10',
+    count: 3,
+    total: 8,
+  });
+
+  it('opens declared select options with one click and writes the choice once', async () => {
+    const user = userEvent.setup();
+    renderAt(sheetWith({ items: [typedAlpha], schema: typedSchema }));
+    await user.click(screen.getByRole('gridcell', { name: 'Status for Alpha, open' }));
+    const select = screen.getByRole('combobox', { name: 'Status' });
+    expect(select).toHaveFocus();
+    expect(screen.getByRole('option', { name: 'done' })).toBeInTheDocument();
+    await user.selectOptions(select, 'done');
+    expect(writes).toEqual([{ itemId: 'item-a', bag: { status: 'done' } }]);
+    await user.keyboard('{Escape}');
+    await act(async () => {
+      await new Promise(requestAnimationFrame);
+    });
+    expect(grid()).toHaveFocus();
+    pressOnGrid('ArrowDown');
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('stores checkbox and multiple choices as booleans and arrays', async () => {
+    const user = userEvent.setup();
+    renderAt(
+      sheetWith({
+        items: [typedAlpha],
+        schema: typedSchema,
+        view: aView({ kind: 'sheet', columns: ['done', 'tags'] }),
+      }),
+    );
+    await user.click(screen.getByRole('gridcell', { name: 'Done for Alpha, No' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Done' }));
+    expect(writes.at(-1)).toEqual({ itemId: 'item-a', bag: { done: true } });
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('gridcell', { name: 'Tags for Alpha' }));
+    await user.click(screen.getByRole('checkbox', { name: 'red' }));
+    await user.click(screen.getByRole('checkbox', { name: 'blue' }));
+    expect(writes.at(-1)).toEqual({ itemId: 'item-a', bag: { tags: ['red', 'blue'] } });
+  });
+
+  it('offers date, numeric priority and timestamp controls using the property schema', async () => {
+    const user = userEvent.setup();
+    renderAt(
+      sheetWith({
+        items: [typedAlpha],
+        schema: typedSchema,
+        view: aView({ kind: 'sheet', columns: ['date', 'priority', 'when'] }),
+      }),
+    );
+    await user.click(screen.getByRole('gridcell', { name: 'Date for Alpha, 2026-10-10' }));
+    const date = screen.getByLabelText('Date');
+    expect(date).toHaveAttribute('type', 'date');
+    fireEvent.change(date, { target: { value: '2026-10-15' } });
+    expect(writes.at(-1)).toEqual({ itemId: 'item-a', bag: { date: '2026-10-15' } });
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('gridcell', { name: 'Priority for Alpha' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Priority' }), '2');
+    expect(writes.at(-1)).toEqual({ itemId: 'item-a', bag: { priority: 2 } });
+    await user.keyboard('{Escape}');
+    fireEvent.scroll(grid(), { target: { scrollLeft: 400 } });
+    fireEvent.mouseDown(screen.getByRole('gridcell', { name: 'When for Alpha' }));
+    expect(screen.getByRole('dialog', { name: 'Edit When for Alpha' })).toBeInTheDocument();
+    expect(screen.getByLabelText('When')).toHaveAttribute('type', 'datetime-local');
+  });
+
+  it('settles a numeric draft on click-away and starts the next row with its own value', async () => {
+    const user = userEvent.setup();
+    const beta = item('item-b', 'Beta', 2, { count: 3 });
+    renderAt(
+      sheetWith({
+        items: [typedAlpha, beta],
+        schema: typedSchema,
+        view: aView({ kind: 'sheet', columns: ['count'] }),
+      }),
+    );
+    await user.click(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Count' }), {
+      target: { value: '7.5' },
+    });
+    await user.click(screen.getByRole('gridcell', { name: 'Count for Beta, 3' }));
+    expect(writes).toEqual([{ itemId: 'item-a', bag: { count: 7.5 } }]);
+    expect(screen.getByRole('spinbutton', { name: 'Count' })).toHaveValue(3);
+    await user.keyboard('{Escape}');
+    expect(writes).toHaveLength(1);
+  });
+
+  it('keeps formulas and unknown property types read-only while allowing typed pickers', () => {
+    renderAt(
+      sheetWith({
+        items: [typedAlpha],
+        schema: typedSchema,
+        view: aView({ kind: 'sheet', columns: ['total'] }),
+      }),
+    );
+    fireEvent.mouseDown(screen.getByRole('gridcell', { name: 'Total for Alpha, 8' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Edit Total for Alpha' })).toBeDisabled();
+    expect(writes).toEqual([]);
+  });
+});
+
 describe('ranges and the clipboard', () => {
   it('copies the selected range as TSV', () => {
     renderAt(sheetWith({ items: [ALPHA, BETA] }));
@@ -454,27 +567,26 @@ describe('honesty around the edges', () => {
 });
 
 describe('reaching editing and opening by pointer alone', () => {
-  it('applies an inline property edit with a visible control and writes once', async () => {
+  it('applies a numeric property edit with a visible control and writes once', async () => {
     const user = userEvent.setup();
     renderAt(sheetWith({ items: [ALPHA] }));
-    await user.dblClick(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Count for Alpha' }), {
+    await user.click(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Count' }), {
       target: { value: '7' },
     });
-    await user.click(screen.getByRole('button', { name: 'Apply property edit' }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
     expect(writes).toEqual([{ itemId: 'item-a', bag: { count: 7 } }]);
   });
 
-  it('cancels an inline property edit with a visible control without blur committing', async () => {
+  it('cancels an unsent numeric draft with Escape without blur committing', async () => {
     const user = userEvent.setup();
     renderAt(sheetWith({ items: [ALPHA] }));
-    await user.dblClick(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Edit Count for Alpha' }), {
-      target: { value: '7' },
-    });
-    await user.click(screen.getByRole('button', { name: 'Cancel property edit' }));
+    await user.click(screen.getByRole('gridcell', { name: 'Count for Alpha, 3' }));
+    const editor = screen.getByRole('spinbutton', { name: 'Count' });
+    fireEvent.change(editor, { target: { value: '7' } });
+    await user.keyboard('{Escape}');
     expect(writes).toEqual([]);
-    expect(screen.queryByRole('textbox', { name: 'Edit Count for Alpha' })).toBeNull();
+    expect(screen.queryByRole('spinbutton', { name: 'Count' })).toBeNull();
   });
 
   it('opens the held row without selecting or opening a different row', () => {

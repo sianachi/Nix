@@ -10,6 +10,8 @@ import type { ContainerData } from './use-container';
 import { VIEW_GUTTER } from './view-gutter';
 import { findViewKind } from './view-kinds';
 import { ViewItemVisibility } from './view-item-visibility';
+import { ViewTools } from './view-tools';
+import { useViewState } from './view-state';
 
 /**
  * An item's children, drawn the way the chosen view says.
@@ -33,9 +35,34 @@ export function ContainerView({ container, view, onOpen }: ContainerViewProps): 
   const narrow = useNarrowViewport();
   const open = narrow ? onOpen : (openDialog ?? onOpen);
   const [grid, setGrid] = useState(false);
+  const viewState = useViewState();
+  const descriptor = view === null ? null : findViewKind(view.kind);
+  const tools =
+    container.status === 'ready' &&
+    !container.locked &&
+    (view === null || descriptor?.appliesSavedFilters === true || view.kind === 'query') ? (
+      <ViewTools
+        key={`${container.itemId ?? 'root'}:${view?.id ?? 'default'}`}
+        view={view}
+        schema={container.schema?.properties ?? []}
+        viewState={viewState}
+        onSave={async (filters) => {
+          const stored = container.views?.views ?? [];
+          if (view === null || !stored.some((candidate) => candidate.id === view.id)) {
+            return 'This view is no longer available. Reload it before saving filters.';
+          }
+          return container.setViews(
+            stored.map((candidate) =>
+              candidate.id === view.id ? { ...candidate, filters: [...filters] } : candidate,
+            ),
+          );
+        }}
+      />
+    ) : null;
   if (narrow && view?.kind === 'sheet')
     return (
       <div className={VIEW_GUTTER}>
+        {tools}
         <Button
           variant="ghost"
           aria-pressed={grid}
@@ -58,6 +85,7 @@ export function ContainerView({ container, view, onOpen }: ContainerViewProps): 
     );
   return (
     <div className={VIEW_GUTTER}>
+      {tools}
       <ViewItemVisibility container={container} view={view}>
         {(visible) => renderContent(visible, view, open)}
       </ViewItemVisibility>

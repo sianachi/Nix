@@ -3,6 +3,7 @@ import { expect, userEvent, within } from 'storybook/test';
 
 import { Button } from './Button';
 import { Input } from './Input';
+import { Dialog } from './Dialog';
 import { Popover } from './Popover';
 
 /** A small non-modal panel of controls beside its trigger, and a bottom sheet on a phone. */
@@ -36,5 +37,26 @@ export const Open: Story = {
     const canvas = within(canvasElement.ownerDocument.body);
     await userEvent.click(canvas.getByRole('button', { name: 'Filter' }));
     await expect(canvas.getByRole('dialog', { name: 'Filter' })).toBeVisible();
+  },
+};
+
+export const InsideModal: Story = {
+  render: (args) => (
+    <Dialog open title="Item settings" onClose={() => undefined}>
+      <Popover {...args} />
+    </Dialog>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    const trigger = canvas.getByRole('button', { name: 'Filter' });
+    await userEvent.click(trigger);
+    const field = canvas.getByRole('textbox', { name: 'Contains' });
+    await expect(field).toHaveFocus();
+    await userEvent.type(field, 'Reading');
+    await expect(field).toHaveValue('Reading');
+    await userEvent.keyboard('{Escape}');
+    await expect(trigger).toHaveFocus();
+    await expect(canvas.getByRole('dialog', { name: 'Item settings' })).toBeVisible();
+    await userEvent.click(trigger);
   },
 };

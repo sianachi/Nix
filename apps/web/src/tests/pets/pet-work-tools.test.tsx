@@ -623,11 +623,13 @@ describe('companion work approvals', () => {
       ),
     ).toHaveLength(1);
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
-    expect(changed).toHaveBeenCalledExactlyOnceWith({
-      workspaceId: '11111111-1111-4111-8111-111111111111',
-      parentId: null,
-      removedItemIds: [],
-      restoredItemIds: [],
+    await waitFor(() => {
+      expect(changed).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        parentId: null,
+        removedItemIds: [],
+        restoredItemIds: [],
+      });
     });
     expect(client.invalidate).toHaveBeenCalledWith(['items']);
     expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
@@ -714,7 +716,7 @@ describe('companion work approvals', () => {
     expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
   });
 
-  it('passes the preview fingerprint to execution and notifies every touched parent', async () => {
+  it('passes the preview fingerprint to execution and refreshes touched containers once', async () => {
     const changed = vi.fn();
     const unsubscribe = onItemChildrenChanged(changed);
     const structuredRuntime = {
@@ -784,32 +786,14 @@ describe('companion work approvals', () => {
     expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
       body: { mode: 'consult', operation: 'tool_result' },
     });
-    expect(changed.mock.calls).toEqual([
-      [
-        {
-          workspaceId: '11111111-1111-4111-8111-111111111111',
-          removedItemIds: [],
-          restoredItemIds: [],
-          parentId: '11111111-1111-4111-8111-111111111111',
-        },
-      ],
-      [
-        {
-          workspaceId: '11111111-1111-4111-8111-111111111111',
-          parentId: null,
-          removedItemIds: [],
-          restoredItemIds: [],
-        },
-      ],
-      [
-        {
-          workspaceId: '11111111-1111-4111-8111-111111111111',
-          removedItemIds: [],
-          restoredItemIds: [],
-          parentId: '33333333-3333-4333-8333-333333333333',
-        },
-      ],
-    ]);
+    await waitFor(() => {
+      expect(changed).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: '11111111-1111-4111-8111-111111111111',
+        parentId: null,
+        removedItemIds: [],
+        restoredItemIds: [],
+      });
+    });
     expect(client.invalidate).toHaveBeenCalledWith(['items']);
     unsubscribe();
   });

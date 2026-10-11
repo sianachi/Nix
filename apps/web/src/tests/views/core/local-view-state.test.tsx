@@ -8,13 +8,22 @@ import { LocalViewStateContext, useViewState } from '../../../views/core/view-st
 function DialogView() {
   const view = useViewState();
   return (
-    <button
-      onClick={() => {
-        view.setFilter('status', ['Done']);
-      }}
-    >
-      Filter dialog: {view.filters[0]?.values[0] ?? 'none'}
-    </button>
+    <>
+      <button
+        onClick={() => {
+          view.setFilter('status', ['Done']);
+        }}
+      >
+        Filter dialog: {view.filters[0]?.values[0] ?? 'none'}
+      </button>
+      <button
+        onClick={() => {
+          view.setSearch('Dialog note');
+        }}
+      >
+        Search dialog: {view.search || 'none'}
+      </button>
+    </>
   );
 }
 function Parent() {
@@ -40,5 +49,18 @@ it('keeps dialog filters out of the underlying view address', async () => {
   expect(screen.getByRole('button', { name: 'Filter dialog: Done' })).toBeInTheDocument();
   expect(screen.getByRole('status', { name: 'Parent address' })).toHaveTextContent(
     '?view=board&sort=title&f.status=Doing',
+  );
+});
+it('keeps dialog title search out of the underlying pane address', async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={['/?view=board&search=parent']}>
+      <Parent />
+    </MemoryRouter>,
+  );
+  await user.click(screen.getByRole('button', { name: 'Search dialog: none' }));
+  expect(screen.getByRole('button', { name: 'Search dialog: Dialog note' })).toBeInTheDocument();
+  expect(screen.getByRole('status', { name: 'Parent address' })).toHaveTextContent(
+    '?view=board&search=parent',
   );
 });

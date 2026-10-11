@@ -16,6 +16,7 @@ import {
   type Drawable,
 } from '../../../views/core/view-chrome';
 import { useViewState } from '../../../views/core/view-state';
+import { ViewTools } from '../../../views/core/view-tools';
 
 /**
  * The five states every view shares, exercised through a view that does nothing else.
@@ -78,7 +79,17 @@ function Subject(props: {
   });
 
   if (chrome.kind === 'chrome') {
-    return chrome.node;
+    return (
+      <>
+        <ViewTools
+          view={null}
+          schema={[]}
+          viewState={viewState}
+          onSave={() => Promise.resolve(null)}
+        />
+        {chrome.node}
+      </>
+    );
   }
 
   return (
@@ -94,6 +105,27 @@ function Subject(props: {
 }
 
 describe('the shared view chrome', () => {
+  it('searches after saved and link filters and clears search without widening those filters', async () => {
+    const user = userEvent.setup();
+    renderAt(
+      <Subject container={aContainer({ children: [OPEN, DONE], truncated: true })} />,
+      '/?f.status=open&search=missing',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('No loaded items match this title search');
+    expect(screen.getByRole('status')).toHaveTextContent('More items have not been loaded.');
+    await user.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(screen.getByText('Open one')).toBeVisible();
+    expect(screen.queryByText('Done one')).not.toBeInTheDocument();
+    expect(screen.getByText(/hidden by the current filters/)).toBeVisible();
+  });
+
+  it('names title search separately from saved filters when it hides some loaded items', () => {
+    renderAt(<Subject container={aContainer({ children: [OPEN, DONE] })} />, '/?search=OPEN');
+    expect(screen.getByText('Open one')).toBeVisible();
+    expect(screen.queryByText('Done one')).not.toBeInTheDocument();
+    expect(screen.getByText(/hidden by the title search/)).toBeVisible();
+  });
+
   it('tells loading apart from empty apart from filtered-to-nothing', () => {
     const { unmount } = renderAt(<Subject container={aContainer({ status: 'loading' })} />);
 

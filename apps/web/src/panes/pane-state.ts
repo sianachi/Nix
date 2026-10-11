@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router';
 import { announce } from '../a11y/announcer';
 import { useRoomForAnotherPane } from '../layout/viewport';
 import { parseSelectedItem, selectedItemParam } from '../routing/selected-item';
-import { clearViewState } from '../views/core/view-state';
+import { clearViewState, SEARCH_PARAM } from '../views/core/view-state';
 import {
   PANE_LIMIT,
   SIZES_PARAM,
@@ -96,7 +96,7 @@ export function deletePane(params: URLSearchParams, index: number): void {
  * that {@link parsePanes} refuses to read - and the pane a person did not close would vanish.
  */
 export function shiftPane(params: URLSearchParams, from: number, to: number): void {
-  const bases = ['view', 'mode', 'sort', 'dir'];
+  const bases = ['view', 'mode', 'sort', 'dir', SEARCH_PARAM];
 
   const itemId = params.get(selectedItemParam(from));
   const carried = bases.map((base) => params.get(paneParam(base, from)));

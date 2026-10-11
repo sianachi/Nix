@@ -32,7 +32,7 @@ export {
   sheetMetaMap,
   writeCell,
 } from './model.js';
-export { parseFormula } from './parser.js';
+export { parseFormula, parseFormulaResult, type FormulaParseResult } from './parser.js';
 export { FORMULA_FUNCTION_NAMES } from './evaluator.js';
 export {
   PROPERTY_FORMULA_HELP,
@@ -45,6 +45,7 @@ export {
   evaluateFormulaPlan,
   evaluatePropertyFormulas,
   formulaFieldNames,
+  propertyFormulaProblem,
   planPropertyFormulas,
 } from './properties.js';
 export {

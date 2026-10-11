@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { evaluateSheet } from './engine.js';
+import { FORMULA_FUNCTION_ARITIES, SHEET_FUNCTIONS } from './functions.js';
 import { type CellValue } from './values.js';
 
 function evaluate(formula: string, cells: Record<string, string> = {}): CellValue {
@@ -126,5 +127,74 @@ describe('operator semantics', () => {
   it('coerces numeric text in arithmetic and refuses words', () => {
     expect(evaluate('"5" + 1')).toBe(6);
     expect(evaluate('"five" + 1')).toEqual({ error: '#VALUE!' });
+  });
+});
+
+describe('formula corrections and property-friendly functions', () => {
+  it('exposes arity for every implemented function and both lazy functions', () => {
+    expect([...FORMULA_FUNCTION_ARITIES.keys()].sort()).toEqual(
+      [...SHEET_FUNCTIONS.keys(), 'IF', 'IFERROR'].sort(),
+    );
+  });
+  it('keeps numeric results finite, including aggregate overflow', () => {
+    expect(evaluate('SUM(1e308, 1e308)')).toEqual({ error: '#VALUE!' });
+    expect(evaluate('SUM(1e308, 1e308) > 1e308')).toEqual({ error: '#VALUE!' });
+    expect(evaluate('POWER(1e308, 2)')).toEqual({ error: '#VALUE!' });
+  });
+
+  it.each([
+    'ABS(-2,99)',
+    'ROUND(2.34,1,99)',
+    'NOT(TRUE,FALSE)',
+    'LEFT("hello",2,99)',
+    'LEN()',
+    'DAYS("2026-01-01")',
+  ])('refuses the wrong argument count in %s', (expression) => {
+    expect(evaluate(expression)).toEqual({ error: '#VALUE!' });
+  });
+
+  it('uses IFERROR only when an error occurs and keeps the other branch lazy', () => {
+    expect(evaluate('IFERROR(1/0, 0)')).toBe(0);
+    expect(evaluate('IFERROR(12, 1/0)')).toBe(12);
+    expect(evaluate('IFERROR(SUM(1e308,1e308), 0)')).toBe(0);
+    expect(evaluate('IFERROR(1/0, 2/0)')).toEqual({ error: '#DIV/0!' });
+  });
+
+  it('tests empty cells and empty text without treating zero, false, or spaces as blank', () => {
+    expect(evaluate('ISBLANK(A1)')).toBe(true);
+    expect(evaluate('ISBLANK("")')).toBe(true);
+    for (const expression of ['ISBLANK(0)', 'ISBLANK(FALSE)', 'ISBLANK(" ")']) {
+      expect(evaluate(expression)).toBe(false);
+    }
+  });
+
+  it('converts numeric text and checks text containment without case sensitivity', () => {
+    expect(evaluate('VALUE("12.5") * 2')).toBe(25);
+    expect(evaluate('VALUE("words")')).toEqual({ error: '#VALUE!' });
+    expect(evaluate('CONTAINS("Work, home", "WORK")')).toBe(true);
+    expect(evaluate('CONTAINS("Work", "travel")')).toBe(false);
+    expect(evaluate('CONTAINS("", "")')).toBe(true);
+  });
+
+  it('computes signed Gregorian day differences from ISO day strings', () => {
+    expect(evaluate('DAYS("2026-10-11", "2026-10-01")')).toBe(10);
+    expect(evaluate('DAYS("2026-10-01", "2026-10-11")')).toBe(-10);
+    expect(evaluate('DAYS("2024-03-01", "2024-02-28")')).toBe(2);
+    expect(evaluate('DAYS("2000-03-01", "2000-02-28")')).toBe(2);
+    expect(evaluate('DAYS("1900-03-01", "1900-02-28")')).toBe(1);
+    expect(evaluate('DAYS("0001-01-01", "9999-12-31")')).toBe(-3652058);
+  });
+
+  it.each([
+    '2026-02-29',
+    '2026-13-01',
+    '2026-00-01',
+    '2026-01-00',
+    '2026-04-31',
+    '0000-01-01',
+    '10/11/2026',
+    '2026-10-11T00:00:00Z',
+  ])('refuses invalid or time-bearing day %s', (day) => {
+    expect(evaluate(`DAYS("${day}", "2026-01-01")`)).toEqual({ error: '#VALUE!' });
   });
 });

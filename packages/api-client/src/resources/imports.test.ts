@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createInMemoryTokenStore } from '../auth.js';
 import { createNixClient, type NixClient } from '../client.js';
 import { server, TEST_BASE_URL, testUrl } from '../testing/server.js';
-import { beginAndPreviewDocument } from './imports.js';
+import { beginAndPreviewDocument, commitAndWaitDocumentImport } from './imports.js';
 
 const IMPORT_ID = 'a1111111-1111-4111-8111-111111111111';
 const OPERATION_ID = 'a2222222-2222-4222-8222-222222222222';
@@ -83,6 +83,64 @@ beforeEach(() => {
 });
 
 describe('the durable document import resource', () => {
+  it('refreshes published items and their workspace after the commit worker finishes', async () => {
+    const invalidations: string[][] = [];
+    client.cache.subscribeInvalidation((prefix) => invalidations.push([...prefix]));
+    server.use(
+      http.post(testUrl(`/api/v1/imports/${IMPORT_ID}/commit`), () =>
+        HttpResponse.json(
+          { ...durableOperation(), status: 'queued', completedAt: null },
+          { status: 202 },
+        ),
+      ),
+      http.get(testUrl(`/api/v1/operations/${OPERATION_ID}`), () => {
+        expect(invalidations).toEqual([['imports', IMPORT_ID]]);
+        return HttpResponse.json(durableOperation());
+      }),
+      http.get(testUrl(`/api/v1/imports/${IMPORT_ID}`), () =>
+        HttpResponse.json({ ...documentImport(), status: 'completed', rootItemId: IMPORT_ID }),
+      ),
+    );
+
+    const published = await commitAndWaitDocumentImport(client, IMPORT_ID);
+
+    expect(published.rootItemId).toBe(IMPORT_ID);
+    expect(invalidations).toEqual([
+      ['imports', IMPORT_ID],
+      ['imports', IMPORT_ID],
+      ['items'],
+      ['workspaces', WORKSPACE_ID, 'items'],
+    ]);
+  });
+
+  it('does not announce imported items when durable publication fails', async () => {
+    const invalidations: string[][] = [];
+    client.cache.subscribeInvalidation((prefix) => invalidations.push([...prefix]));
+    server.use(
+      http.post(testUrl(`/api/v1/imports/${IMPORT_ID}/commit`), () =>
+        HttpResponse.json(durableOperation(), { status: 202 }),
+      ),
+      http.get(testUrl(`/api/v1/operations/${OPERATION_ID}`), () =>
+        HttpResponse.json(durableOperation()),
+      ),
+      http.get(testUrl(`/api/v1/imports/${IMPORT_ID}`), () =>
+        HttpResponse.json({
+          ...documentImport(),
+          status: 'failed',
+          failureCode: 'import.commit_failed',
+        }),
+      ),
+    );
+
+    await expect(commitAndWaitDocumentImport(client, IMPORT_ID)).rejects.toThrow(
+      'import.commit_failed',
+    );
+    expect(invalidations).toEqual([
+      ['imports', IMPORT_ID],
+      ['imports', IMPORT_ID],
+    ]);
+  });
+
   it('uploads through a capability, waits for RabbitMQ work, and verifies the plan', async () => {
     let uploaded = '';
     server.use(

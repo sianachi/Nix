@@ -338,6 +338,11 @@ describe('the hostile archive reader', () => {
       'completion',
       'priority',
       'estimate',
+      'assignee',
+      'formula',
+      'rollup',
+      'datetime',
+      'reminder',
     ];
 
     const properties = everyType.map((type) => ({
@@ -346,6 +351,8 @@ describe('the hostile archive reader', () => {
       type,
       options: type === 'select' || type === 'multi_select' ? ['One'] : [],
       required: false,
+      ...(type === 'formula' ? { expression: '1 + 1' } : {}),
+      ...(type === 'rollup' ? { aggregate: 'count', source: null } : {}),
     }));
 
     const read = parseArchiveObject({
@@ -357,6 +364,143 @@ describe('the hostile archive reader', () => {
     });
 
     expect(read.bundles[0]?.schema?.properties.map((property) => property.type)).toEqual(everyType);
+  });
+
+  it.each([ARCHIVE_FORMAT_VERSION, FILE_ARCHIVE_FORMAT_VERSION])(
+    'preserves computed definitions in an archive v%s round trip',
+    async (formatVersion) => {
+      const properties = [
+        {
+          key: 'amount',
+          label: 'Amount',
+          type: 'number',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate: null,
+          source: null,
+        },
+        {
+          key: 'completion',
+          label: 'Completed',
+          type: 'completion',
+          options: [],
+          required: false,
+        },
+        {
+          key: 'total',
+          label: 'Total',
+          type: 'formula',
+          options: [],
+          required: false,
+          expression: '[amount] * 2',
+          aggregate: null,
+          source: null,
+        },
+        ...['count', 'sum', 'min', 'max', 'average', 'any', 'all'].map((aggregate) => ({
+          key: `rollup_${aggregate}`,
+          label: aggregate,
+          type: 'rollup',
+          options: [],
+          required: false,
+          expression: null,
+          aggregate,
+          source:
+            aggregate === 'count'
+              ? null
+              : aggregate === 'any' || aggregate === 'all'
+                ? 'completion'
+                : 'amount',
+        })),
+        {
+          key: 'long_source',
+          label: 'Long source',
+          type: 'rollup',
+          options: [],
+          required: false,
+          aggregate: 'sum',
+          source: 'a'.repeat(201),
+        },
+      ];
+      const schema = { properties, declared: properties.slice(2), inherit: true };
+      const snapshot = {
+        ...manifest(),
+        formatVersion,
+        rootEffectiveSchema: schema,
+        ...(formatVersion === FILE_ARCHIVE_FORMAT_VERSION ? { files: [] } : {}),
+      };
+      // eslint-disable-next-line @typescript-eslint/require-await -- the archive writer consumes an async source.
+      async function* source(): AsyncGenerator<ItemBundle> {
+        yield { ...bundle(ROOT), schema };
+        yield bundle(CHILD);
+      }
+
+      const bytes = await collect(writeArchive({ manifest: snapshot, bundles: source() }));
+      const read = await readArchive(pieces(bytes));
+
+      expect(read.manifest.rootEffectiveSchema).toEqual(schema);
+      expect(read.bundles[0]?.schema).toEqual(schema);
+      expect(read.bundles[1]?.schema).toBeNull();
+    },
+  );
+
+  it('preserves older property definitions without introducing computed metadata', () => {
+    const property = { key: 'name', label: 'Name', type: 'text', options: [], required: false };
+    const schema = { properties: [property], declared: [property], inherit: false };
+    const read = parseArchiveObject({
+      manifest: manifest(),
+      bundles: [{ ...bundle(ROOT), schema }, bundle(CHILD)],
+    });
+
+    expect(read.bundles[0]?.schema).toEqual(schema);
+  });
+
+  it.each([
+    { type: 'formula' },
+    { type: 'formula', expression: null },
+    { type: 'formula', expression: ' ' },
+    { type: 'formula', expression: 7 },
+    { type: 'formula', expression: '1'.repeat(1_025) },
+    { type: 'formula', expression: '1', required: true },
+    { type: 'formula', expression: '1', options: ['One'] },
+    { type: 'formula', expression: '1', aggregate: 'count' },
+    { type: 'formula', expression: '1', source: 'amount' },
+    { type: 'rollup' },
+    { type: 'rollup', aggregate: null },
+    { type: 'rollup', aggregate: 7 },
+    { type: 'rollup', aggregate: 'median' },
+    { type: 'rollup', aggregate: 'sum' },
+    { type: 'rollup', aggregate: 'sum', source: null },
+    { type: 'rollup', aggregate: 'sum', source: '' },
+    { type: 'rollup', aggregate: 'sum', source: 7 },
+    { type: 'rollup', aggregate: 'sum', source: 'computed' },
+    { type: 'rollup', aggregate: 'count', expression: '1' },
+    { type: 'rollup', aggregate: 'count', required: true },
+    { type: 'rollup', aggregate: 'count', options: ['One'] },
+    { type: 'text', expression: '1' },
+    { type: 'text', aggregate: 'count' },
+    { type: 'text', source: 'amount' },
+  ])('refuses malformed computed metadata case %#', (metadata) => {
+    const property = {
+      key: 'computed',
+      label: 'Computed',
+      options: [],
+      required: false,
+      ...metadata,
+    };
+    const schema = { properties: [property], declared: [property], inherit: true };
+    expect(() =>
+      parseArchiveObject({
+        manifest: manifest(),
+        bundles: [{ ...bundle(ROOT), schema }, bundle(CHILD)],
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'archive.schema_invalid' }) as Error);
+    expect(() =>
+      parseArchiveObject({
+        manifest: { ...manifest(), rootEffectiveSchema: schema },
+        bundles: [bundle(ROOT), bundle(CHILD)],
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'archive.schema_invalid' }) as Error);
   });
 
   it('reads a chunked template archive and preserves modern view configuration', async () => {

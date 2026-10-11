@@ -45,7 +45,6 @@ export const completeUpload = (upload: FileUpload): CommandEndpoint<Operation> =
     method: 'POST',
     path: `/api/v1/files/uploads/${upload.id}/complete`,
     schema: operationSchema,
-    invalidates: [['items']],
   });
 export const cancelUpload = (uploadId: string): CommandEndpoint<undefined> =>
   defineCommand({
@@ -130,11 +129,16 @@ export async function completeUploadAndWait(
 ): Promise<FileRecord> {
   const operation = await client.execute(completeUpload(upload), { signal });
   await waitForOperation(client, operation.id, signal === undefined ? {} : { signal });
+  client.invalidate(['file-uploads', upload.id]);
   const status = await client.query(uploadById(upload.id), { signal, forceRefresh: true });
   if (status.status !== 'completed' || status.itemId === null) {
     throw new Error(status.failureCode ?? 'The file did not publish.');
   }
-  return client.query(fileByItem(status.itemId), { signal, forceRefresh: true });
+  client.invalidate(['items', status.itemId]);
+  client.invalidate(['files', status.itemId]);
+  const published = await client.query(fileByItem(status.itemId), { signal, forceRefresh: true });
+  client.invalidate(['workspaces', published.workspaceId, 'items']);
+  return published;
 }
 
 export async function uploadAndCompleteFile(

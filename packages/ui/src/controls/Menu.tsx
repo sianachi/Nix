@@ -508,7 +508,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
 
   const panelClass = cn(
     blueprintFrame,
-    'fixed z-30 flex flex-col overflow-y-auto bg-background py-1 font-body shadow-md',
+    'fixed inset-auto z-50 m-0 flex flex-col overflow-y-auto bg-background px-0 py-1 font-body text-foreground shadow-md',
     chromeSurface,
     // design-token-exempt: 220px is a minimum reading measure for a short label list, the same
     // category as `Dialog.tsx`'s 560px - not a step on any scale.
@@ -524,6 +524,7 @@ export function MenuPanel(props: MenuPanelProps): ReactNode {
     <div
       id={id}
       ref={panelRef}
+      popover="manual"
       role={role}
       aria-label={label}
       // Escape remains reachable when every command is disabled.

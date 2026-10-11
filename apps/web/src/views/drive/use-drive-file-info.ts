@@ -1,7 +1,8 @@
-import { files as fileResources, type FileRecord } from '@nix/api-client';
+import { files as fileResources, isNixApiError, type FileRecord } from '@nix/api-client';
 import { useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
+import { cacheKeysOverlap, useCacheInvalidation } from '../../api/use-cache-invalidation';
 
 /** What this hook knows about one file item's record, or why it does not know yet. */
 export type DriveFileInfo =
@@ -32,11 +33,24 @@ export function useDriveFileInfo(
   const [info, setInfo] = useState<ReadonlyMap<string, DriveFileInfo>>(new Map());
   const fetched = useRef(new Set<string>());
   const controllers = useRef(new Map<string, AbortController>());
+  const [revision, setRevision] = useState(0);
 
   // A stable key rather than the array itself: a caller typically passes a freshly filtered array
   // every render, and depending on that would refetch nothing every render into an infinite loop
   // of the abort/refetch cleanup below.
   const key = fileItemIds.join('\u0000');
+
+  useCacheInvalidation(
+    (prefix) => fileItemIds.some((id) => cacheKeysOverlap(prefix, ['files', id])),
+    (prefixes) => {
+      for (const id of fileItemIds) {
+        if (!prefixes.some((prefix) => cacheKeysOverlap(prefix, ['files', id]))) continue;
+        controllers.current.get(id)?.abort();
+        fetched.current.delete(id);
+      }
+      setRevision((current) => current + 1);
+    },
+  );
 
   useEffect(() => {
     const ids = key.length === 0 ? [] : key.split('\u0000');
@@ -56,21 +70,34 @@ export function useDriveFileInfo(
 
       const controller = new AbortController();
       controllers.current.set(itemId, controller);
-      setInfo((current) => new Map(current).set(itemId, { status: 'loading' }));
+      setInfo((current) =>
+        current.get(itemId)?.status === 'ready'
+          ? current
+          : new Map(current).set(itemId, { status: 'loading' }),
+      );
 
       client
-        .query(fileResources.fileByItem(itemId), { signal: controller.signal })
+        .query(fileResources.fileByItem(itemId), {
+          signal: controller.signal,
+          forceRefresh: true,
+        })
         .then((record) => {
           if (controller.signal.aborted) return;
           setInfo((current) => new Map(current).set(itemId, { status: 'ready', record }));
         })
-        .catch(() => {
+        .catch((reason: unknown) => {
           if (controller.signal.aborted) return;
-          setInfo((current) => new Map(current).set(itemId, { status: 'error' }));
+          const refused =
+            isNixApiError(reason) &&
+            (reason.status === 403 || reason.status === 404 || reason.status === 423);
+          setInfo((current) =>
+            !refused && current.get(itemId)?.status === 'ready'
+              ? current
+              : new Map(current).set(itemId, { status: 'error' }),
+          );
         });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` is the array's identity for this effect's purposes; `client` is stable per provider.
-  }, [key]);
+  }, [client, key, revision]);
 
   useEffect(() => {
     // Unmount only: every request still open at that point belongs to a row nobody can see again.
