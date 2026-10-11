@@ -30,6 +30,32 @@ export const NarrowPlans = {
     </div>
   ),
 };
+export const LongLabels = {
+  render: (): ReactNode => (
+    <RecordViewStory>
+      <GalleryView
+        container={storyContainer(
+          [
+            storyItem('long', 'NotesForTheEditorialReviewAndPublicationDecision', 1, {
+              owner: 'PublishingTeamResponsibleForTheEditorialReview',
+            }),
+          ],
+          [
+            {
+              key: 'owner',
+              label: 'PublishingTeamResponsibleForTheEditorialReview',
+              type: 'text',
+              options: [],
+              required: false,
+            },
+          ],
+        )}
+        view={recordStoryView('gallery', { columns: ['owner'] })}
+        onOpen={() => undefined}
+      />
+    </RecordViewStory>
+  ),
+};
 export const CoverPicker = {
   ...Plans,
   play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {

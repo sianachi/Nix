@@ -104,6 +104,13 @@ export const LongBody: Story = {
     ),
     actions: <Button>Understood</Button>,
   },
+  play: async ({ canvasElement }) => {
+    const dialog = within(canvasElement).getByRole('dialog', { name: 'Version retention' });
+    const scroller = dialog.querySelector<HTMLElement>('[tabindex="0"]');
+    await expect(scroller).not.toBeNull();
+    scroller?.focus();
+    await expect(scroller).toHaveFocus();
+  },
 };
 
 /**

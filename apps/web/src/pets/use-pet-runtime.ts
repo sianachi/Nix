@@ -1,4 +1,4 @@
-import { isCanceledError, pets, type PetConnection } from '@nix/api-client';
+import { isCanceledError, isNixApiError, pets, type PetConnection } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../api/api-client-provider';
 import { ownerTurnContext } from './turn-context';
@@ -22,6 +22,7 @@ export interface PetSendInput {
   readonly text: string;
   readonly model: string;
   readonly workspaceAccess: boolean;
+  readonly readOnly?: boolean;
   readonly itemId?: string;
   readonly sharedText?: string;
   /** The workspace's main containers, for a conversation's first message only (plan B.2). */
@@ -136,6 +137,7 @@ export function usePetRuntime(
   workspaceId: string,
   petId: string,
   panelOpen: boolean,
+  rootItemId?: string,
 ): UsePetRuntimeResult {
   const client = useApiClient();
   const [runtime, setRuntimeState] = useState<PetConnection | null>(null);
@@ -163,6 +165,17 @@ export function usePetRuntime(
   // apart from a current one without the effect itself needing to depend on it.
   const generation = useRef(0);
   const [exposedGeneration, setExposedGeneration] = useState(0);
+  const refuseNoteScope = useCallback(() => {
+    generation.current += 1;
+    lifetime.current?.abort();
+    runtimeRef.current = null;
+    setRuntimeState(null);
+    setBusy(false);
+    reportError(
+      'This note is no longer available. Reopen it before continuing the conversation.',
+      'load',
+    );
+  }, [reportError]);
   useEffect(() => {
     panelOpenRef.current = panelOpen;
     if (panelOpen) wake.current.dispatchEvent(new Event('wake'));
@@ -254,7 +267,12 @@ export function usePetRuntime(
           // generic query cache would otherwise serve the first response straight back for up
           // to 30s without ever reaching the worker again.
           const result = await client.query(
-            pets.watchRuntime({ workspaceId, petId, after: revision.current }),
+            pets.watchRuntime({
+              workspaceId,
+              petId,
+              after: revision.current,
+              ...(rootItemId ? { rootItemId } : {}),
+            }),
             { signal: controller.signal, forceRefresh: true },
           );
           if (isAborted(controller.signal) || myGeneration !== generation.current) break;
@@ -268,6 +286,10 @@ export function usePetRuntime(
         } catch (cause) {
           if (isCanceledError(cause) || isAborted(controller.signal)) break;
           if (myGeneration !== generation.current) break;
+          if (rootItemId && isNixApiError(cause) && [403, 404, 409].includes(cause.status ?? 0)) {
+            refuseNoteScope();
+            break;
+          }
           failures += 1;
           if (failures >= 2) {
             // Never overwrite a send or command failure the person has not acted on yet.
@@ -286,7 +308,7 @@ export function usePetRuntime(
       cancelled = true;
       controller.abort();
     };
-  }, [client, workspaceId, petId, applyRaw, reportError]);
+  }, [client, workspaceId, petId, rootItemId, applyRaw, reportError, refuseNoteScope]);
 
   const command = useCallback(
     async (operation: 'send' | 'interrupt' | 'reset' | 'read', input?: PetSendInput) => {
@@ -301,12 +323,14 @@ export function usePetRuntime(
             operation,
             workspaceId,
             petId,
+            ...(rootItemId ? { rootItemId } : {}),
             ...(operation === 'send' && input
               ? {
                   requestId: requestId.current,
                   text: input.text,
                   model: input.model,
                   workspaceAccess: input.workspaceAccess,
+                  ...(rootItemId ? { readOnly: input.readOnly ?? true } : {}),
                   ...ownerTurnContext(),
                   ...(input.workspaceMap ? { workspaceMap: input.workspaceMap } : {}),
                   ...(input.itemId
@@ -327,6 +351,10 @@ export function usePetRuntime(
           !isAborted(controller.signal) &&
           myGeneration === generation.current
         ) {
+          if (rootItemId && isNixApiError(cause) && [403, 404, 409].includes(cause.status ?? 0)) {
+            refuseNoteScope();
+            return false;
+          }
           reportError(
             operation === 'send'
               ? 'The request could not be confirmed. Try again; your draft is preserved.'
@@ -339,7 +367,7 @@ export function usePetRuntime(
         if (!isAborted(controller.signal) && myGeneration === generation.current) setBusy(false);
       }
     },
-    [busy, client, workspaceId, petId, applyRaw, reportError],
+    [busy, client, workspaceId, petId, rootItemId, applyRaw, reportError, refuseNoteScope],
   );
 
   return {

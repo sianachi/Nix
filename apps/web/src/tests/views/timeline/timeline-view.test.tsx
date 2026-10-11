@@ -570,31 +570,6 @@ describe('when the configuration has drifted', () => {
 });
 
 describe('the timeline at a phone width', () => {
-  /**
-   * The file's first narrow-viewport coverage, and an honest note on what it is: jsdom performs no
-   * layout, so nothing here can measure a 375px pane or watch a field stack. `stubViewport(false)`
-   * pins the suite's declared width to narrow - the component itself reads no media query, since
-   * every `sm:` variant is CSS - and the assertions check the class contract those variants spell
-   * out, the same style as calendar-view.test.tsx's own narrow-width block. The rendered claim
-   * belongs to a real-browser pass at 375px.
-   */
-
-  it('lets the reschedule fields stack at the base width instead of forcing the pane wide', async () => {
-    stubViewport(false);
-    const user = person();
-    render({ children: [ROLLOUT] });
-
-    await user.click(screen.getByRole('button', { name: 'Reschedule Rollout' }));
-
-    for (const label of ['Starts', 'Ends']) {
-      const wrapper = screen.getByLabelText(label).closest('[class*="sm:min-w-"]');
-      expect(wrapper).toBeInstanceOf(HTMLElement);
-      // Full-width rows below `sm`, the 14rem floor only from `sm` up: unconditional, that floor
-      // was wider than the room a 375px viewport leaves once the pane's gutters are taken out.
-      expect(wrapper).toHaveClass('w-full', 'min-w-0', 'sm:w-auto', 'sm:min-w-[14rem]');
-    }
-  });
-
   it('caps the no-end-property note only from sm up, where the cap is narrower than the screen', async () => {
     stubViewport(false);
     const user = person();

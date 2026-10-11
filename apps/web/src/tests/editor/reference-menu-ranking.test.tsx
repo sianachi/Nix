@@ -1,5 +1,5 @@
 import { nixEditingExtensions } from '@nix/editor-schema';
-import type { NixClient } from '@nix/api-client';
+import type { NixClient, QueryEndpoint } from '@nix/api-client';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 import { type ReactNode } from 'react';
@@ -82,8 +82,12 @@ async function openWith(content: string): Promise<Editor> {
 beforeEach(() => {
   captured = null;
   vi.stubGlobal('localStorage', memoryStorage());
-  query = vi.fn(() =>
-    Promise.resolve({ query: 'plan', results: HITS, limit: CANDIDATE_POOL, truncated: false }),
+  query = vi.fn((endpoint: Pick<QueryEndpoint<unknown>, 'operation'>) =>
+    Promise.resolve(
+      endpoint.operation === 'items.related'
+        ? { related: [], limit: CANDIDATE_POOL, truncated: false }
+        : { query: 'plan', results: HITS, limit: CANDIDATE_POOL, truncated: false },
+    ),
   );
 });
 
@@ -146,6 +150,10 @@ describe('ranking the reference picker', () => {
     const editor = await openWith('[[plan');
     await waitFor(() => {
       expect(screen.getAllByRole('option')).toHaveLength(8);
+      expect(editor.view.dom).toHaveAttribute(
+        'aria-activedescendant',
+        screen.getByRole('option', { name: 'Plan 0' }).id,
+      );
     });
 
     fireEvent.keyDown(editor.view.dom, { key: 'Enter' });

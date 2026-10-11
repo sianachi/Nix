@@ -380,6 +380,13 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			}
 			return false
 		}
+		if reason := noteScopeToolRefusal(c, string(flatArguments)); reason != "" {
+			if peer, ok := a.transport.(toolTransport); ok {
+				_ = peer.Reply(id, toolOutput(false, reason))
+				return true
+			}
+			return false
+		}
 		fingerprint, readOnly := toolIdentity(string(flatArguments))
 		readMayBeStale := false
 		for i := len(c.Tools) - 1; i >= 0; i-- {

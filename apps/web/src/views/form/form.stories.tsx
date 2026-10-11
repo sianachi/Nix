@@ -127,6 +127,32 @@ function CompactDesignerExample(): ReactNode {
   );
 }
 
+function TemporaryCalculatorExample(): ReactNode {
+  const fields: PropertyDefinition[] = [
+    { key: 'sessions', label: 'Sessions completed', type: 'number', required: true, options: [] },
+    { key: 'minutes', label: 'Minutes per session', type: 'number', required: true, options: [] },
+    {
+      key: 'total',
+      label: 'Total training minutes',
+      type: 'formula',
+      expression: '[sessions] * [minutes]',
+      required: false,
+      options: [],
+    },
+  ];
+  return (
+    <MemoryRouter>
+      <section aria-label="Narrow form view" className="w-64 max-w-full">
+        <FormView
+          container={storyContainer([], fields)}
+          view={{ ...VIEW, mode: 'temporary', name: 'Training calculator' }}
+          onOpen={() => undefined}
+        />
+      </section>
+    </MemoryRouter>
+  );
+}
+
 function checkNarrowForm({ canvasElement }: { readonly canvasElement: HTMLElement }): void {
   const region = within(canvasElement).getByRole('region', { name: 'Narrow form view' });
   if (region.scrollWidth > region.clientWidth) {
@@ -137,6 +163,7 @@ function checkNarrowForm({ canvasElement }: { readonly canvasElement: HTMLElemen
 export const EntryForm = { render: EntryFormExample, play: checkNarrowForm };
 export const InteractiveForm = { render: InteractiveFormExample, play: checkNarrowForm };
 export const CompactDesigner = { render: CompactDesignerExample, play: checkNarrowForm };
+export const TemporaryCalculator = { render: TemporaryCalculatorExample, play: checkNarrowForm };
 export const DarkEntryForm = { ...EntryForm, globals: { ground: 'dark' } };
 export const DarkInteractiveForm = { ...InteractiveForm, globals: { ground: 'dark' } };
 export const DarkCompactDesigner = { ...CompactDesigner, globals: { ground: 'dark' } };

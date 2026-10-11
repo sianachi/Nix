@@ -219,6 +219,12 @@ export function buildProgram(): Command {
     .option('--api-url <url>', 'Core origin when supplying an interactive bearer token')
     .option('--workspace <id>', 'workspace identity')
     .option('--pet <id>', 'saved pet identity')
+    .option('--root-item <id>', 'limit the conversation to this note and its readable children')
+    .option('--allow-edits', 'allow approval-gated edits within --root-item', false)
+    .option(
+      '--history-id <id>',
+      'archived conversation identity for read_history or delete_history',
+    )
     .option('--message <text>', 'message to send')
     .option('--model <id>', 'model from pet models')
     .option(

@@ -20,11 +20,13 @@ export function PetHistory({
   petId,
   name,
   client,
+  rootItemId,
 }: {
   readonly workspaceId: string;
   readonly petId: string;
   readonly name: string;
   readonly client: Pick<NixClient, 'execute'>;
+  readonly rootItemId?: string | undefined;
 }): ReactElement {
   const [history, setHistory] = useState<NonNullable<PetConnection['history']>>([]);
   const [selected, setSelected] = useState('');
@@ -48,7 +50,13 @@ export function PetHistory({
       const signal = lifetime.current?.signal;
       if (!signal || signal.aborted) return;
       const result = await client.execute(
-        pets.runtime({ operation, workspaceId, petId, ...(historyId ? { historyId } : {}) }),
+        pets.runtime({
+          operation,
+          workspaceId,
+          petId,
+          ...(rootItemId ? { rootItemId } : {}),
+          ...(historyId ? { historyId } : {}),
+        }),
         { signal },
       );
       if (isAborted(signal)) return;
@@ -82,7 +90,7 @@ export function PetHistory({
         <>
           <Text variant="note">
             Previous conversations are saved when you start a new one. Up to 32 are kept for this
-            pet in this workspace.
+            pet {rootItemId ? 'about this note' : 'in this workspace'}.
           </Text>
           <Select
             aria-label="Saved conversation"

@@ -13,12 +13,14 @@ public sealed class PublicFormStore : IPublicFormStore
 {
     private readonly NixDbContext _database;
     private readonly ScopedNixSessionContextAccessor _session;
+    private readonly IFinanceLock _topology;
 
     /// <summary>Initializes a store sharing the request's database unit of work.</summary>
-    public PublicFormStore(NixDbContext database, ScopedNixSessionContextAccessor session)
+    public PublicFormStore(NixDbContext database, ScopedNixSessionContextAccessor session, IFinanceLock topology)
     {
         _database = database;
         _session = session;
+        _topology = topology;
     }
 
     /// <inheritdoc />
@@ -45,6 +47,20 @@ public sealed class PublicFormStore : IPublicFormStore
         await _database.Principals.AnyAsync(
             principal => principal.Id == principalId && principal.Status == PrincipalStatus.Active,
             cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
+    public async ValueTask<bool> LockSubmissionAsync(PublicFormLink link, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(link);
+        var context = _session.Current
+            ?? throw new InvalidOperationException("Public form submissions require a tenant session.");
+        // Match CreateItem's topology-first order before holding the parent against view changes.
+        await _topology.AcquireWorkspaceTopologyAsync(link.WorkspaceId, cancellationToken).ConfigureAwait(false);
+        var item = await _database.Items.FromSqlInterpolated(
+                $"SELECT * FROM item WHERE tenant_id = {context.TenantId.Value} AND id = {link.ItemId.Value} AND workspace_id = {link.WorkspaceId.Value} FOR UPDATE")
+            .AsNoTracking().SingleOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return item is { TemplateId: null, LifecycleState: ItemLifecycleState.Active };
+    }
 
     /// <inheritdoc />
     public async ValueTask<PublicFormLink?> FindForUpdateAsync(

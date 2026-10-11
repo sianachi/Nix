@@ -70,6 +70,8 @@ export interface PropertyInputProps {
   readonly onCommit: (value: PropertyValue) => void;
 
   readonly disabled?: boolean;
+  /** Temporary form inputs must not record choice history or upload files. */
+  readonly allowInputStorage?: boolean;
   /** Optional removal from the sequential tab order for compact summary-only surfaces. */
   readonly tabIndex?: number;
 
@@ -525,7 +527,7 @@ function SelectValue(props: PropertyInputProps): ReactNode {
   const { item, property, onCommit, disabled = false, density = 'panel' } = props;
 
   const current = readSelectValue(item, property.key);
-  const frecency = useSelectFrecency(property.key);
+  const frecency = useSelectFrecency(property.key, props.allowInputStorage ?? true);
 
   // The declared options, plus whatever this item actually holds if the schema has moved on since
   // it was written. Dropping the stored value would make the control report some other option as
@@ -667,7 +669,7 @@ function AssigneeValue(props: PropertyInputProps): ReactNode {
     label: member.subjectDisplayName,
   }));
 
-  const frecency = useSelectFrecency(property.key);
+  const frecency = useSelectFrecency(property.key, props.allowInputStorage ?? true);
   const options: readonly AssigneeOption[] =
     current !== null && known === null
       ? [{ id: current, label: current }, ...memberOptions]
@@ -1439,7 +1441,7 @@ function ComputedValue(props: PropertyInputProps): ReactNode {
               ? 'block w-full px-2 py-1 font-body text-base text-foreground'
               : cn(
                   blueprintFrame,
-                  'block w-full bg-background px-3 py-2 font-body text-base text-foreground',
+                  'block min-w-0 w-full wrap-anywhere bg-background px-3 py-2 font-body text-base text-foreground',
                 ),
           )}
         >

@@ -11,6 +11,7 @@ import {
   readBodyCache,
   sealBodyCache,
   writeBodyCache,
+  type BodyCacheRecord,
 } from '../editor/body-cache';
 import { flushLocalDraftsForScope } from '../editor/collab-sync';
 import { createDraftJournal, type DraftRecord } from '../editor/draft-journal';
@@ -100,13 +101,15 @@ async function retainBody(
   scope: string,
   docId: string,
   update: Uint8Array,
+  serverSeq: bigint,
 ): Promise<Uint8Array> {
   if (update.byteLength > MAX_BODY_BYTES)
     throw new Error('This note exceeds the 8 MiB offline storage limit.');
   assertAdmitted(options, scope);
   const savedAt = Date.now();
-  await writeBodyCache({ scope, docId, schemaVersion: SCHEMA_VERSION, savedAt, update }, () =>
-    admits(options, scope),
+  await writeBodyCache(
+    { scope, docId, schemaVersion: SCHEMA_VERSION, savedAt, update, serverSeq: String(serverSeq) },
+    () => admits(options, scope),
   );
   assertAdmitted(options, scope);
   const saved = await readBodyCache(scope);
@@ -119,17 +122,24 @@ async function retainBody(
 async function downloadBody(
   options: AdmittedBodyOptions,
   scope: string,
+  cached: BodyCacheRecord | null = null,
 ): Promise<{
   doc: Y.Doc;
   docId: string;
   schemaVersion: number;
   canWrite: boolean;
+  serverSeq: bigint;
 }> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const doc = new Y.Doc();
-    let after = 0n;
+    const base =
+      attempt === 0 && cached?.serverSeq !== undefined && cached.schemaVersion === SCHEMA_VERSION
+        ? cached
+        : null;
+    let after = BigInt(base?.serverSeq ?? '0');
     let identity: z.infer<typeof pageSchema> | undefined;
     try {
+      if (base !== null) Y.applyUpdate(doc, base.update);
       for (let pageNumber = 0; pageNumber < 2048; pageNumber += 1) {
         assertAdmitted(options, scope);
         const result = await options.client.download(
@@ -145,6 +155,16 @@ async function downloadBody(
         assertAdmitted(options, scope);
         if (page.schemaVersion > SCHEMA_VERSION)
           throw new Error('This note requires a newer editor before it can be downloaded.');
+        if (base !== null) {
+          if (page.docId !== base.docId || page.headSeq < after)
+            await rejectReplacement(
+              options,
+              scope,
+              'The note body changed since its saved copy. Its pending edits were preserved.',
+            );
+          if (page.schemaVersion !== base.schemaVersion)
+            throw new CheckpointGap('The note needs a fresh schema checkpoint.');
+        }
         if (
           identity !== undefined &&
           (identity.docId !== page.docId || identity.schemaVersion !== page.schemaVersion)
@@ -177,6 +197,7 @@ async function downloadBody(
             docId: page.docId,
             schemaVersion: page.schemaVersion,
             canWrite: page.canWrite,
+            serverSeq: after,
           };
         }
         if (after <= previous) throw new CheckpointGap('The note body download did not advance.');
@@ -209,7 +230,7 @@ export async function synchronizeOfflineBody(
   const journal = createDraftJournal(scope, () => undefined);
   const records = await journal.read();
   assertAdmitted(options, scope);
-  const remote = await downloadBody(options, scope);
+  const remote = await downloadBody(options, scope, cached);
   try {
     if (!remote.canWrite) await options.onReadOnly?.();
     assertAdmitted(options, scope);
@@ -234,6 +255,7 @@ export async function synchronizeOfflineBody(
     assertAdmitted(options, scope);
     const serverUpdate = Y.encodeStateAsUpdate(remote.doc);
     const serverVector = Y.encodeStateVector(remote.doc);
+    let serverSeq = remote.serverSeq;
     if (cached !== null && cached.schemaVersion === SCHEMA_VERSION)
       Y.applyUpdate(remote.doc, cached.update);
     for (const record of records) Y.applyUpdate(remote.doc, record.update);
@@ -245,17 +267,20 @@ export async function synchronizeOfflineBody(
     }));
     if (records.length > 0) {
       if (!remote.canWrite) {
-        await retainBody(options, scope, remote.docId, serverUpdate);
+        await retainBody(options, scope, remote.docId, serverUpdate, serverSeq);
         throw new Error('This note is read-only. Pending edits remain saved on this device.');
       }
+      const merged = Y.encodeStateAsUpdate(remote.doc);
+      // State vectors omit tombstones, so a raw difference can repeat already durable deletions.
+      const changed =
+        merged.byteLength !== serverUpdate.byteLength ||
+        merged.some((byte, index) => byte !== serverUpdate[index]);
       const update = Y.encodeStateAsUpdate(remote.doc, serverVector);
-      if (update.byteLength > MAX_UPDATE_BYTES)
+      if (changed && update.byteLength > MAX_UPDATE_BYTES)
         throw new Error(
           'This pending edit exceeds the 1 MiB synchronization limit. Its local copy is preserved.',
         );
-      // An empty difference is already durable; lost-response retries must not create duplicate text.
-      const difference = Y.decodeUpdate(update);
-      if (difference.structs.length > 0 || difference.ds.clients.size > 0) {
+      if (changed) {
         assertAdmitted(options, scope);
         try {
           const appended = await options.client.execute(
@@ -306,31 +331,44 @@ export async function synchronizeOfflineBody(
                 scope,
                 'The note body changed. Its pending edits were preserved.',
               );
-            await retainBody(options, scope, remote.docId, Y.encodeStateAsUpdate(readable.doc));
+            await retainBody(
+              options,
+              scope,
+              remote.docId,
+              Y.encodeStateAsUpdate(readable.doc),
+              readable.serverSeq,
+            );
           } finally {
             readable.doc.destroy();
           }
           throw new Error('This note is read-only. Pending edits remain saved on this device.');
         }
-      }
-      const confirmed = await downloadBody(options, scope);
-      const canWrite = confirmed.canWrite;
-      try {
-        if (!canWrite) await options.onReadOnly?.();
-        assertAdmitted(options, scope);
-        if (confirmed.docId !== remote.docId || confirmed.schemaVersion !== remote.schemaVersion)
-          await rejectReplacement(
-            options,
-            scope,
-            'The note body changed before its edits were retained. Its pending edits were preserved.',
-          );
-        if (!canWrite) {
-          await retainBody(options, scope, remote.docId, Y.encodeStateAsUpdate(confirmed.doc));
-          throw new Error('This note is read-only. Pending edits remain saved on this device.');
+        const confirmed = await downloadBody(options, scope);
+        const canWrite = confirmed.canWrite;
+        try {
+          if (!canWrite) await options.onReadOnly?.();
+          assertAdmitted(options, scope);
+          if (confirmed.docId !== remote.docId || confirmed.schemaVersion !== remote.schemaVersion)
+            await rejectReplacement(
+              options,
+              scope,
+              'The note body changed before its edits were retained. Its pending edits were preserved.',
+            );
+          if (!canWrite) {
+            await retainBody(
+              options,
+              scope,
+              remote.docId,
+              Y.encodeStateAsUpdate(confirmed.doc),
+              confirmed.serverSeq,
+            );
+            throw new Error('This note is read-only. Pending edits remain saved on this device.');
+          }
+          Y.applyUpdate(remote.doc, Y.encodeStateAsUpdate(confirmed.doc));
+          serverSeq = confirmed.serverSeq;
+        } finally {
+          confirmed.doc.destroy();
         }
-        Y.applyUpdate(remote.doc, Y.encodeStateAsUpdate(confirmed.doc));
-      } finally {
-        confirmed.doc.destroy();
       }
     }
     const update = await retainBody(
@@ -338,6 +376,7 @@ export async function synchronizeOfflineBody(
       scope,
       remote.docId,
       Y.encodeStateAsUpdate(remote.doc),
+      serverSeq,
     );
     await journal.acknowledge(acknowledged, () => admits(options, scope));
     assertAdmitted(options, scope);

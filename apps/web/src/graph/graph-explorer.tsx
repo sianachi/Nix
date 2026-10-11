@@ -1,10 +1,14 @@
 import type { GraphLink, GraphNode } from '@nix/api-client';
-import { Button, ContextMenu, Input, Select, Text } from '@nix/ui';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Button, ContextMenu, Input, Select, Text, focusRing } from '@nix/ui';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNarrowViewport } from '../layout/viewport';
 import { useHiddenItems } from '../items/use-hidden-items';
 import { GraphView } from './graph-view';
-import { readGraphPresentation, writeGraphPresentation } from './graph-presentation';
+import {
+  readGraphPresentation,
+  writeGraphPresentation,
+  type GraphPresentation,
+} from './graph-presentation';
 import { GRAPH_REPRESENTATIONS, type GraphRepresentation } from './graph-representations';
 
 interface Connection {
@@ -32,7 +36,12 @@ export function graphConnections(
 }
 
 export function GraphExplorer(props: Parameters<typeof WorkspaceGraphExplorer>[0]): ReactNode {
-  return <WorkspaceGraphExplorer key={props.workspaceId} {...props} />;
+  return (
+    <WorkspaceGraphExplorer
+      key={`${props.workspaceId ?? ''}:${props.initialFocusId ?? ''}`}
+      {...props}
+    />
+  );
 }
 
 function WorkspaceGraphExplorer({
@@ -43,6 +52,7 @@ function WorkspaceGraphExplorer({
   workspaceId,
   onMove,
   onLink,
+  initialFocusId = null,
 }: {
   readonly nodes: readonly GraphNode[];
   readonly links: readonly GraphLink[];
@@ -55,6 +65,7 @@ function WorkspaceGraphExplorer({
   readonly workspaceId?: string | undefined;
   readonly onMove?: ((itemId: string, parentId: string) => void) | undefined;
   readonly onLink?: ((sourceId: string, targetId: string) => void) | undefined;
+  readonly initialFocusId?: string | null;
 }): ReactNode {
   const visibility = useHiddenItems();
   // GraphView's simulation consumes array identity: rebuild only for graph or visibility changes.
@@ -67,13 +78,25 @@ function WorkspaceGraphExplorer({
     return allLinks.filter((link) => ids.has(link.sourceId) && ids.has(link.targetId));
   }, [allLinks, nodes]);
   const narrow = useNarrowViewport();
-  const [choice, setChoice] = useState<'browse' | 'spatial' | null>(null);
-  const [visitedSpatial, setVisitedSpatial] = useState(!narrow);
+  const initialFocus = nodes.find((node) => node.id === initialFocusId);
+  const [pendingFocusId, setPendingFocusId] = useState(
+    initialFocus === undefined ? initialFocusId : null,
+  );
+  const [choice, setChoice] = useState<'browse' | 'spatial' | null>(
+    initialFocus ? 'spatial' : null,
+  );
+  const [visitedSpatial, setVisitedSpatial] = useState(!narrow || initialFocus !== undefined);
   const mode = choice ?? (narrow ? 'browse' : 'spatial');
   const [search, setSearch] = useState('');
   const [limit, setLimit] = useState(50);
-  const [reveal, setReveal] = useState<{ id: string; token: number } | null>(null);
-  const [presentation, setPresentation] = useState(() => readGraphPresentation(workspaceId));
+  const [reveal, setReveal] = useState<{ id: string; token: number } | null>(
+    initialFocus === undefined ? null : { id: initialFocus.id, token: 1 },
+  );
+  const [presentation, setPresentation] = useState<GraphPresentation>(() =>
+    initialFocus === undefined
+      ? readGraphPresentation(workspaceId)
+      : { representation: 'focused', focusId: initialFocus.id, distance: 1 },
+  );
   const focusId = nodes.some((node) => node.id === presentation.focusId)
     ? presentation.focusId
     : (nodes.find((node) => node.parentId !== null)?.id ?? nodes[0]?.id ?? null);
@@ -81,9 +104,11 @@ function WorkspaceGraphExplorer({
     writeGraphPresentation(workspaceId, presentation);
   }, [workspaceId, presentation]);
   const spatialRef = useRef<HTMLDivElement | null>(null);
+  const searchId = useId();
   useEffect(() => {
     if (reveal !== null) {
       spatialRef.current?.scrollIntoView({ block: 'start' });
+      spatialRef.current?.focus({ preventScroll: true });
     }
   }, [reveal]);
   // The graph can contain 2,000 nodes and 4,000 edges. Index only when server data changes,
@@ -95,14 +120,82 @@ function WorkspaceGraphExplorer({
   const matches = nodes.filter((node) =>
     (node.title?.trim() ? node.title : 'Untitled')
       .toLocaleLowerCase()
-      .includes(search.toLocaleLowerCase()),
+      .includes(search.trim().toLocaleLowerCase()),
   );
+  const focusInGraph = (id: string): void => {
+    setPendingFocusId(null);
+    setPresentation({ representation: 'focused', focusId: id, distance: 1 });
+    setChoice('spatial');
+    setVisitedSpatial(true);
+    setSearch('');
+    setReveal((current) => ({ id, token: (current?.token ?? 0) + 1 }));
+  };
+  if (pendingFocusId !== null && initialFocus?.id === pendingFocusId) {
+    focusInGraph(pendingFocusId);
+  }
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      {initialFocusId !== null &&
+      initialFocus === undefined &&
+      (pendingFocusId !== null || presentation.focusId === initialFocusId) ? (
+        <Text variant="caption" tone="muted" role="status">
+          This item is not in the visible graph. It may be hidden, unavailable, or outside the
+          loaded portion of the workspace.
+        </Text>
+      ) : null}
       {nodes.length < allNodes.length ? (
         <Text variant="caption" tone="muted" role="status">
           {String(allNodes.length - nodes.length)} hidden
         </Text>
+      ) : null}
+      <label htmlFor={searchId} className="flex min-w-0 flex-col gap-2">
+        <Text as="span" variant="caption">
+          Find an item
+        </Text>
+        <Input
+          id={searchId}
+          type="search"
+          placeholder="Search item titles"
+          value={search}
+          onChange={(event) => {
+            setSearch(event.target.value);
+            setLimit(50);
+          }}
+        />
+      </label>
+      {mode === 'spatial' && search.trim().length > 0 ? (
+        <section aria-label="Graph search results" className="flex min-w-0 flex-col gap-2">
+          <Text as="p" variant="caption" tone="muted" role="status">
+            {String(matches.length)} matching items{partial ? ' in the loaded portion' : ''}. Choose
+            an item to focus its connections.
+          </Text>
+          <ul className="flex min-w-0 flex-col gap-1">
+            {matches.slice(0, 10).map((node) => (
+              <li key={node.id} className="min-w-0">
+                <Button
+                  variant="ghost"
+                  className="h-auto min-h-(--control-md) w-full justify-start break-all whitespace-normal text-left"
+                  aria-label={`Focus graph on ${titles.get(node.id) ?? 'Untitled'}`}
+                  onClick={() => {
+                    focusInGraph(node.id);
+                  }}
+                >
+                  {titles.get(node.id)}
+                </Button>
+              </li>
+            ))}
+          </ul>
+          {matches.length > 10 ? (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setChoice('browse');
+              }}
+            >
+              Browse all matching items
+            </Button>
+          ) : null}
+        </section>
       ) : null}
       <div className="flex flex-wrap gap-2" aria-label="Graph presentation">
         <Button
@@ -126,7 +219,14 @@ function WorkspaceGraphExplorer({
         </Button>
       </div>
       {mode === 'spatial' || visitedSpatial ? (
-        <div ref={spatialRef} hidden={mode !== 'spatial'}>
+        <div
+          ref={spatialRef}
+          hidden={mode !== 'spatial'}
+          role="region"
+          aria-label="Spatial graph"
+          tabIndex={-1}
+          className={focusRing}
+        >
           <div className="mb-3 flex flex-wrap items-end gap-3">
             <label className="flex min-w-0 max-w-full flex-col gap-1">
               <Text as="span" variant="caption">
@@ -140,6 +240,7 @@ function WorkspaceGraphExplorer({
                     (candidate): candidate is GraphRepresentation => candidate === value,
                   );
                   if (representation === undefined) return;
+                  setPendingFocusId(null);
                   setPresentation((current) => ({ ...current, representation }));
                   setReveal(null);
                 }}
@@ -161,6 +262,7 @@ function WorkspaceGraphExplorer({
                     value={focusId ?? ''}
                     disabled={nodes.length === 0}
                     onChange={(event) => {
+                      setPendingFocusId(null);
                       setPresentation((current) => ({ ...current, focusId: event.target.value }));
                       setReveal(null);
                     }}
@@ -183,6 +285,7 @@ function WorkspaceGraphExplorer({
                   <Select
                     value={presentation.distance}
                     onChange={(event) => {
+                      setPendingFocusId(null);
                       setPresentation((current) => ({
                         ...current,
                         distance: Number(event.target.value),
@@ -222,39 +325,20 @@ function WorkspaceGraphExplorer({
         aria-label="Graph connections"
         className="flex flex-col gap-3"
       >
-        <label htmlFor="graph-explorer-search" className="flex flex-col gap-2">
-          <Text as="span" variant="caption">
-            Find an item
-          </Text>
-          <Input
-            id="graph-explorer-search"
-            type="search"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-              setLimit(50);
-            }}
-          />
-        </label>
         <Text as="p" variant="caption" tone="muted" role="status">
-          {String(matches.length)} matching items
+          {String(matches.length)} matching items{partial ? ' in the loaded portion' : ''}
         </Text>
         <ul className="divide-y divide-divider">
           {matches.slice(0, limit).map((node) => {
             const related = connections.get(node.id) ?? [];
             const title = titles.get(node.id) ?? 'Untitled';
             const showInGraph = (): void => {
+              setPendingFocusId(null);
               setChoice('spatial');
               setVisitedSpatial(true);
               if (presentation.representation === 'focused') {
                 setPresentation((current) => ({ ...current, focusId: node.id }));
               }
-              setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
-            };
-            const focusInGraph = (): void => {
-              setPresentation({ representation: 'focused', focusId: node.id, distance: 1 });
-              setChoice('spatial');
-              setVisitedSpatial(true);
               setReveal((current) => ({ id: node.id, token: (current?.token ?? 0) + 1 }));
             };
             return (
@@ -269,7 +353,12 @@ function WorkspaceGraphExplorer({
                       },
                     },
                     { label: 'Show in graph', onSelect: showInGraph },
-                    { label: 'Focus in graph', onSelect: focusInGraph },
+                    {
+                      label: 'Focus in graph',
+                      onSelect: () => {
+                        focusInGraph(node.id);
+                      },
+                    },
                   ]}
                 >
                   {(target) => (
@@ -295,7 +384,9 @@ function WorkspaceGraphExplorer({
                 <Button
                   variant="ghost"
                   aria-label={`Focus graph on ${titles.get(node.id) ?? 'Untitled'}`}
-                  onClick={focusInGraph}
+                  onClick={() => {
+                    focusInGraph(node.id);
+                  }}
                 >
                   Focus in graph
                 </Button>

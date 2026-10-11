@@ -2,7 +2,7 @@ import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it } from 'vitest';
 import { App } from '../../app';
-import { item, stubCoreApi } from '../api-stub';
+import { item, stubCoreApi, STUB_WORKSPACE_ID } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { aView } from '../view-fixture';
 import { stubViewport } from '../stub-viewport';
@@ -53,4 +53,22 @@ it('opens a child over its parent and closes back to the same view', async () =>
   expect(
     within(screen.getByRole('region', { name: 'Container' })).getByRole('button', { name: 'Plan' }),
   ).toBeInTheDocument();
+});
+
+it('closes an item dialog when focusing the graph at the same address', async () => {
+  const note = item({ id: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', title: 'Plan' });
+  stubCoreApi({ items: [note] });
+  const user = userEvent.setup();
+  renderAt(<App />, `/w/${STUB_WORKSPACE_ID}/graph?focus=${note.id}`);
+  await user.click(await screen.findByRole('button', { name: 'Browse connections' }));
+  await user.click(
+    within(screen.getByRole('region', { name: 'Graph connections' })).getByRole('button', {
+      name: /^Plan$/,
+    }),
+  );
+  const dialog = await screen.findByRole('dialog', { name: 'Plan' });
+  await user.click(within(dialog).getByRole('button', { name: 'Item actions' }));
+  await user.click(await screen.findByRole('menuitem', { name: 'Focus in graph' }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Graph connections' })).toBeVisible();
 });

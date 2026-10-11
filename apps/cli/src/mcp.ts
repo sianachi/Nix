@@ -1327,9 +1327,15 @@ export async function createWorkspaceMcpServer(
           'settings',
           'tool_claim',
           'tool_result',
+          'history',
+          'read_history',
+          'delete_history',
         ]),
         workspaceId: identifier.optional(),
         petId: identifier.optional(),
+        rootItemId: identifier.optional(),
+        allowEdits: z.boolean().optional(),
+        historyId: identifier.optional(),
         message: z.string().max(20_000).optional(),
         model: z.string().max(160).optional(),
         workspaceTools: z.boolean().optional(),
@@ -1347,6 +1353,9 @@ export async function createWorkspaceMcpServer(
         return executePetRuntime(session.client, input.operation, {
           ...(input.workspaceId ? { workspace: input.workspaceId } : {}),
           ...(input.petId ? { pet: input.petId } : {}),
+          ...(input.rootItemId ? { rootItem: input.rootItemId } : {}),
+          ...(input.allowEdits !== undefined ? { allowEdits: input.allowEdits } : {}),
+          ...(input.historyId ? { historyId: input.historyId } : {}),
           ...(input.message !== undefined ? { message: input.message } : {}),
           ...(input.model !== undefined ? { model: input.model } : {}),
           ...(input.workspaceTools !== undefined ? { workspaceTools: input.workspaceTools } : {}),
@@ -1367,12 +1376,14 @@ export async function createWorkspaceMcpServer(
       inputSchema: {
         workspaceId: identifier,
         petId: identifier,
+        rootItemId: identifier.optional(),
+        allowEdits: z.boolean().optional(),
         toolId: z.string().max(200),
         decision: z.enum(['approve', 'decline', 'preview']),
         apiUrl: z.string().trim().min(1).optional(),
       },
     },
-    ({ workspaceId, petId, toolId, decision, apiUrl }) =>
+    ({ workspaceId, petId, toolId, decision, apiUrl, rootItemId, allowEdits }) =>
       toolResult(async () =>
         executePetToolRun(
           await petSessionForMcp(apiUrl, options),
@@ -1380,6 +1391,8 @@ export async function createWorkspaceMcpServer(
           petId,
           toolId,
           decision,
+          undefined,
+          rootItemId ? { rootItemId, readOnly: !allowEdits } : undefined,
         ),
       ),
   );

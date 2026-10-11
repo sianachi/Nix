@@ -93,7 +93,7 @@ function ViewStrip(props: ViewSwitcherProps): ReactNode {
   return trailing === undefined ? (
     strip
   ) : (
-    <div className="flex items-center">
+    <div className="flex min-w-0 items-center">
       <div className="min-w-0 flex-1">{strip}</div>
       <div className="flex shrink-0 items-center gap-1 pr-3">{trailing}</div>
     </div>
@@ -138,7 +138,7 @@ function ViewTabs(props: ViewSwitcherProps): ReactNode {
     <nav
       ref={stripRef}
       aria-label="Views"
-      className="flex snap-x items-center gap-1 overflow-x-auto px-8 py-1.5"
+      className="flex min-w-0 max-w-full snap-x items-center gap-1 overflow-x-auto px-4 py-1.5 sm:px-8"
     >
       {documentLabel === undefined || documentHidden === true ? null : (
         <SwitcherTab

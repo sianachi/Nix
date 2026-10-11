@@ -1,5 +1,7 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -11,14 +13,50 @@ using Nix.Features.Workspaces;
 using Nix.Messaging;
 using Nix.Persistence;
 using Nix.Persistence.Workspaces;
+using Nix.Tests.Harness;
 
 namespace Nix.Tests.Features.Pets;
 
-public sealed class PetWorkerClientModeTests
+public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : IClassFixture<ContractHostFactory>
 {
     private static readonly Guid WorkspaceGuid = new("44444444-4444-4444-8444-444444444444");
     private static readonly Guid PetGuid = new("55555555-5555-4555-8555-555555555555");
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task The_note_runtime_route_requires_a_root_before_contacting_worker()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton(gateway)));
+        using var client = host.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(new Uri("/api/v1/me/pets/runtime/note", UriKind.Relative),
+            new PetRuntimeRequest("read", WorkspaceGuid, PetGuid), Cancellation);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(false, HttpStatusCode.BadRequest)]
+    [InlineData(true, HttpStatusCode.UnprocessableEntity)]
+    public async Task The_note_watch_route_requires_a_nonempty_root_before_contacting_worker(bool hasRoot, HttpStatusCode status)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton(gateway)));
+        using var client = host.CreateClient();
+        var path = $"/api/v1/me/pets/runtime/note/watch?workspaceId={WorkspaceGuid}&petId={PetGuid}"
+            + (hasRoot ? $"&rootItemId={Guid.Empty}" : "");
+
+        using var response = await client.GetAsync(new Uri(path, UriKind.Relative), Cancellation);
+
+        Assert.Equal(status, response.StatusCode);
+        Assert.Equal(0, handler.Calls);
+    }
 
     [Fact]
     public async Task An_unknown_mode_is_refused_as_pets_invalid_request()
@@ -28,6 +66,35 @@ public sealed class PetWorkerClientModeTests
         var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
 
         var result = await gateway.ExecuteAsync(new("status", Mode: "design"), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.invalid_request", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task An_empty_root_item_is_refused_before_reaching_the_worker()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteAsync(new("read", WorkspaceGuid, PetGuid, RootItemId: Guid.Empty), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.invalid_request", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task A_note_conversation_refuses_shared_item_context_outside_its_root()
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+
+        var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Explain this note",
+            ItemId: Guid.NewGuid(), RootItemId: Guid.NewGuid()), Cancellation);
 
         Assert.True(result.IsFailure);
         Assert.Equal("pets.invalid_request", result.Error.Code);

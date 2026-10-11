@@ -43,6 +43,42 @@ export const Desktop = {
       <Canvas />
     </div>
   ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    const workspace = canvas.getByRole('region', { name: 'Canvas workspace' });
+    await canvas.findByRole('region', { name: 'Shapes' });
+    await waitFor(() => {
+      const canvasRect = workspace.getBoundingClientRect();
+      const controls = workspace.querySelectorAll<HTMLElement>('button, .ToolIcon');
+      for (const control of controls) {
+        const rect = control.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        if (
+          rect.left < canvasRect.left ||
+          rect.right > canvasRect.right ||
+          rect.top < canvasRect.top ||
+          rect.bottom > canvasRect.bottom
+        ) {
+          throw new Error('Canvas controls fall outside the workspace.');
+        }
+      }
+    });
+    const addItem = canvas.queryByRole('button', { name: 'Add a Nix item to the canvas' });
+    if (addItem === null) {
+      await userEvent.click(canvas.getByRole('button', { name: 'Canvas actions' }));
+      await userEvent.click(
+        within(canvasElement.ownerDocument.body).getByRole('menuitem', {
+          name: 'Add a Nix item to the canvas',
+        }),
+      );
+    } else {
+      await userEvent.click(addItem);
+    }
+    const dialog = await within(canvasElement.ownerDocument.body).findByRole('dialog', {
+      name: 'Add a Nix item',
+    });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  },
 };
 
 export const SmallCanvas = {

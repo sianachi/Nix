@@ -15,6 +15,16 @@ import { resolveFieldRef } from './refs.js';
 import { viewSpecSchema } from './view.js';
 
 describe('vocabulary parity', () => {
+  it('allows saved and temporary modes only on forms, keeping date mode grammars intact', () => {
+    for (const kind of ['form', 'interactive_form']) {
+      expect(viewSpecSchema.safeParse({ kind, mode: 'temporary' }).success).toBe(true);
+      expect(viewSpecSchema.safeParse({ kind, mode: 'saved' }).success).toBe(true);
+      expect(viewSpecSchema.safeParse({ kind, mode: 'month' }).success).toBe(false);
+    }
+    expect(viewSpecSchema.safeParse({ kind: 'calendar', mode: 'temporary' }).success).toBe(false);
+    expect(viewSpecSchema.safeParse({ kind: 'timeline', mode: 'saved' }).success).toBe(false);
+    expect(viewSpecSchema.safeParse({ kind: 'board', mode: 'temporary' }).success).toBe(false);
+  });
   it('field types are every property type except assignee', () => {
     const vocabulary = PROPERTY_TYPES.map((entry) => entry.value).filter(
       (value) => value !== 'assignee',

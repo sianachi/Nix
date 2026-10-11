@@ -152,7 +152,11 @@ func conversationKey(r Request) string {
 	if r.WorkspaceID == "" || r.PetID == "" {
 		return ""
 	}
-	return r.WorkspaceID + "-" + r.PetID
+	key := r.WorkspaceID + "-" + r.PetID
+	if r.RootItemID != "" {
+		key += "-note-" + r.RootItemID
+	}
+	return key
 }
 
 func valueOrDefault(model string) string {

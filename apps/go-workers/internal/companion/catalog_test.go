@@ -151,3 +151,17 @@ func normalizeForCodexTest(schema any) any {
 		return map[string]any{}
 	}
 }
+
+func TestPropertyFormulaGuidanceIsPresentWithoutWorkspaceTools(t *testing.T) {
+	for _, phrase := range []string{
+		"case-sensitive property keys as [key]",
+		"without a leading =",
+		"never labels, prop() or PROPERTY()",
+		"TODAY and NOW are unsupported",
+		`IF([completion], "Done", "Open")`,
+	} {
+		if !strings.Contains(instructions(), phrase) {
+			t.Errorf("instructions omit formula guidance %q", phrase)
+		}
+	}
+}

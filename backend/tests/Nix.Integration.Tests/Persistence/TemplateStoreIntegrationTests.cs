@@ -2938,11 +2938,9 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             await ImportAndFinalizeAsync($"bounded-list-{index}");
         }
 
-        // Docker's log cursor is second-granular. Cross a timestamp boundary so setup statements
-        // cannot be mistaken for catalog-read statements in the bounded-query assertion below.
-        await Task.Delay(TimeSpan.FromSeconds(1.1), Cancellation);
-        var since = DateTime.UtcNow;
-        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        var capture = new ReaderQueryCaptureInterceptor();
+        await using var application = NixPersistenceHost.Create(_fixture.ApplicationConnectionString, capture);
+        var work = await application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
             var library = await work.Resolve<TemplateStore>().ListAsync(
@@ -2952,7 +2950,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             Assert.Equal(templateCount, library.Value.Templates.Count);
         }
 
-        var lines = (await _fixture.ServerLogLinesSinceAsync(since))
+        var lines = capture.Statements
             .Select(line => line.Replace("\"", string.Empty, StringComparison.Ordinal).ToUpperInvariant())
             .ToArray();
         Assert.Equal(1, lines.Count(line => line.Contains(
@@ -4455,6 +4453,22 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
             Assert.False(await work.DbContext.ContentSnapshots.AnyAsync(
                 snapshot => snapshot.DocId == documentId,
                 Cancellation));
+        }
+    }
+
+    private sealed class ReaderQueryCaptureInterceptor : DbCommandInterceptor
+    {
+        public List<string> Statements { get; } = [];
+
+        public override ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(command);
+            Statements.Add(command.CommandText);
+            return base.ReaderExecutedAsync(command, eventData, result, cancellationToken);
         }
     }
 

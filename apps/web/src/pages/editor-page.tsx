@@ -483,6 +483,7 @@ interface OpenItemProps {
   /** Editing the title is a commitment to this document - it gets pinned, the way a double-click
    * from the tree does. */
   readonly onCommit: () => void;
+  readonly onNavigateAway?: () => void;
 }
 
 export function OpenItem({
@@ -495,6 +496,7 @@ export function OpenItem({
   onOpen,
   onClose,
   onCommit,
+  onNavigateAway,
 }: OpenItemProps): ReactNode {
   const visibility = useHiddenItems();
   const treeChildren = useHiddenItems('tree-children');
@@ -670,6 +672,30 @@ export function OpenItem({
 
   const actionEntries: MenuAction[] = [
     treeChildrenEntry(treeChildren, itemId, title),
+    ...(workspace && lock.open
+      ? [
+          {
+            key: 'note-chat',
+            label: 'Chat about this note',
+            onSelect: () => {
+              onNavigateAway?.();
+              void navigate(
+                `/w/${encodeURIComponent(workspace.workspaceId)}/pet?root=${encodeURIComponent(itemId)}`,
+              );
+            },
+          },
+          {
+            key: 'focus-graph',
+            label: 'Focus in graph',
+            onSelect: () => {
+              onNavigateAway?.();
+              void navigate(
+                `/w/${encodeURIComponent(workspace.workspaceId)}/graph?focus=${encodeURIComponent(itemId)}`,
+              );
+            },
+          },
+        ]
+      : []),
     ...(visibility.enabled
       ? [
           {

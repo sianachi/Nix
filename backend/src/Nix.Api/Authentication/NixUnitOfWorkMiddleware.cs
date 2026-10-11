@@ -659,6 +659,7 @@ public sealed class NixUnitOfWorkMiddleware
         // the same token still gets touched by the requests that follow the long poll.
         var isWatchLongPoll = HttpMethods.IsGet(context.Request.Method)
             && (context.Request.Path.StartsWithSegments("/api/v1/me/pets/runtime/watch", StringComparison.OrdinalIgnoreCase)
+                || context.Request.Path.StartsWithSegments("/api/v1/me/pets/runtime/note/watch", StringComparison.OrdinalIgnoreCase)
                 || context.Request.Path.StartsWithSegments("/api/v1/me/notifications/watch", StringComparison.OrdinalIgnoreCase));
         if (!isWatchLongPoll && (state.LastUsedAt is null || now - state.LastUsedAt >= LastUsedGranularity))
         {
