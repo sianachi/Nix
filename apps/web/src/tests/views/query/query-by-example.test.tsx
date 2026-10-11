@@ -1,12 +1,28 @@
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import {
+  createInMemoryTokenStore,
+  createNixClient,
+  itemQueryResultsSchema,
+  viewConfigurationSchema,
+  views as coreViews,
+} from '@nix/api-client';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import { renderAt, signedIn } from '../../render-with-router';
 import { aContainer, views } from '../../container-fixture';
 import { aView } from '../../view-fixture';
-import { ApiClientProvider } from '../../../api/api-client-provider';
+import { STUB_WORKSPACE } from '../../api-stub';
+import { ApiClientOverrideProvider, ApiClientProvider } from '../../../api/api-client-provider';
 import { AuthProvider } from '../../../auth/auth-provider';
-import type { PropertyDefinition, View } from '../../../views/core/container-model';
+import {
+  toViewRequest,
+  type PropertyDefinition,
+  type View,
+} from '../../../views/core/container-model';
+import { onItemChildrenChanged } from '../../../lib/item-children-changed';
+import type * as WorkspaceContextModule from '../../../workspaces/workspace-context';
 import { describeInferredRule } from '../../../views/query/query-by-example';
 import { QueryView } from '../../../views/query/query-view';
 
@@ -61,11 +77,8 @@ const ROWS = [
   row(4, 'Dentist', 'Health'),
 ];
 
-let runs = 0;
-
 beforeEach(() => {
   signedIn();
-  runs = 0;
   vi.stubGlobal(
     'fetch',
     vi.fn((input: string | URL) => {
@@ -78,7 +91,6 @@ beforeEach(() => {
           ),
         );
       }
-      runs += 1;
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -138,23 +150,153 @@ describe('query by example', () => {
   });
 
   it('saves the reviewed rules through the view write and re-runs the list', async () => {
-    const setViews = renderList();
+    const { WorkspaceProvider } = await vi.importActual<typeof WorkspaceContextModule>(
+      '../../../workspaces/workspace-context',
+    );
+    const client = createNixClient({
+      baseUrl: window.location.origin,
+      tokens: createInMemoryTokenStore({
+        initialAccessToken: 'query-by-example-test-token',
+        refresh: () => Promise.resolve(null),
+      }),
+    });
+    const storedSchema = z.object({
+      views: z.array(viewConfigurationSchema),
+      default: z.string(),
+    });
+    let stored = storedSchema.parse({
+      views: [LIST],
+      default: LIST.id,
+    });
+    const rows = itemQueryResultsSchema.shape.results.parse(ROWS);
+    const requests: Request[] = [];
+    const viewsPath = `/api/v1/items/${SMART_LIST}/views`;
+    const queryPath = `/api/v1/items/${SMART_LIST}/query`;
+    const response = (body: unknown): Response =>
+      new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        // Node Request cannot accept jsdom's AbortSignal; preserve the other request data.
+        const request =
+          input instanceof Request ? input : new Request(input, { ...init, signal: null });
+        requests.push(request);
+        const url = new URL(request.url);
+        if (url.pathname === viewsPath) {
+          if (request.method !== 'PUT') throw new Error('The proposal must use the view write.');
+          stored = storedSchema.parse(await request.json());
+          return response({
+            ...stored,
+            views: stored.views.map(({ id, name, kind }) => ({ id, name, kind })),
+            unrenderable: [],
+          });
+        }
+        if (url.pathname === queryPath) {
+          const rules = stored.views[0]?.filters ?? [];
+          return response({
+            itemId: SMART_LIST,
+            viewId: url.searchParams.get('view'),
+            today: url.searchParams.get('today'),
+            results:
+              rules.length === 0
+                ? rows
+                : rows.filter((candidate) =>
+                    rules.every(
+                      (rule) =>
+                        rule.property === 'category' &&
+                        rule.operator === 'equals' &&
+                        candidate.properties.category === rule.value,
+                    ),
+                  ),
+            limit: 500,
+            truncated: false,
+          });
+        }
+        throw new Error(`Unexpected Core request: ${request.method} ${url.pathname}`);
+      }),
+    );
+    const setViews = async (next: readonly View[]): Promise<null> => {
+      await client.execute(
+        coreViews.setContainerViews(SMART_LIST, {
+          views: next.map(toViewRequest),
+          default: LIST.id,
+        }),
+      );
+      return null;
+    };
+    renderAt(
+      <ApiClientOverrideProvider client={client}>
+        <Routes>
+          <Route
+            path="/w/:workspaceId"
+            element={
+              <WorkspaceProvider
+                state={{
+                  status: 'ready',
+                  workspaces: [{ ...STUB_WORKSPACE, id: WORKSPACE }],
+                  error: null,
+                  reload: () => undefined,
+                  workspaceCreated: () => undefined,
+                  workspaceUpdated: () => undefined,
+                  workspaceRemoved: () => undefined,
+                }}
+              >
+                <QueryView
+                  container={aContainer({
+                    itemId: SMART_LIST,
+                    views: views([LIST]),
+                    setViews,
+                    schema: { properties: [CATEGORY, PRIORITY], declared: [], inherit: true },
+                  })}
+                  view={LIST}
+                  onOpen={vi.fn()}
+                />
+              </WorkspaceProvider>
+            }
+          />
+        </Routes>
+      </ApiClientOverrideProvider>,
+      `/w/${WORKSPACE}`,
+    );
+    for (const title of ['Rent', 'Water', 'Groceries', 'Dentist'])
+      expect(await screen.findByText(title)).toBeVisible();
+    expect(requests.filter((request) => request.method === 'PUT')).toHaveLength(0);
     await tickAndSuggest();
-    const before = runs;
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Save filters' }));
-
-    await waitFor(() => {
-      expect(setViews).toHaveBeenCalledWith([
-        { ...LIST, filters: [{ property: 'category', operator: 'equals', value: 'Bills' }] },
-      ]);
-    });
-    await waitFor(() => {
-      expect(runs).toBeGreaterThan(before);
-    });
-    expect(
-      screen.queryByRole('region', { name: 'Filters suggested from examples' }),
-    ).not.toBeInTheDocument();
+    const queryReads = requests.filter(
+      (request) => new URL(request.url).pathname === queryPath,
+    ).length;
+    const changed = vi.fn();
+    const stop = onItemChildrenChanged(changed);
+    try {
+      fireEvent.click(await screen.findByRole('button', { name: 'Save filters' }));
+      await waitFor(() => {
+        expect(stored.views[0]?.filters).toEqual([
+          { property: 'category', operator: 'equals', value: 'Bills', any: null },
+        ]);
+        expect(
+          screen.queryByRole('region', { name: 'Filters suggested from examples' }),
+        ).not.toBeInTheDocument();
+        expect(screen.getByText('Rent')).toBeVisible();
+        expect(screen.getByText('Water')).toBeVisible();
+        expect(screen.queryByText('Groceries')).not.toBeInTheDocument();
+        expect(screen.queryByText('Dentist')).not.toBeInTheDocument();
+      });
+      await act(async () => {
+        await new Promise<void>((resolve) => setTimeout(resolve, 1_050));
+      });
+      expect(requests.filter((request) => request.method === 'PUT')).toHaveLength(1);
+      expect(
+        requests.filter((request) => new URL(request.url).pathname === queryPath),
+      ).toHaveLength(queryReads + 1);
+      expect(changed).toHaveBeenCalledExactlyOnceWith({
+        workspaceId: WORKSPACE,
+        parentId: null,
+        removedItemIds: [],
+        restoredItemIds: [],
+      });
+    } finally {
+      stop();
+    }
   });
 
   it('keeps the proposal open and says why when the save is refused', async () => {

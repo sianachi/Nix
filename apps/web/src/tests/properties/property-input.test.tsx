@@ -814,7 +814,7 @@ describe('a formula property', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      '#NAME? - This formula uses a property name that nothing here declares.',
+      '#NAME? - This formula uses a property name that nothing here declares, or an unknown function.',
     );
   });
 
