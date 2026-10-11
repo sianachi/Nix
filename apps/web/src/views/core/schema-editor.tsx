@@ -1,4 +1,8 @@
-import { formulaFieldNames } from '@nix/sheet';
+import {
+  FORMULA_FUNCTION_NAMES,
+  PROPERTY_FORMULA_LIMITS,
+  propertyFormulaProblem,
+} from '@nix/sheet';
 import { Button, Field, Icon, Input, Select, Text, cn, fieldLabel, focusRing } from '@nix/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
@@ -109,34 +113,6 @@ function referenceHint(available: Referenceable): string {
   return `${opening} ${parts.join(' ')}`;
 }
 
-/**
- * What is wrong with an expression as it stands, or null.
- *
- * **Asked of the engine, not of a second parser written here.** `formulaFieldNames` is the same
- * parse the value will get when it is drawn, so a draft this accepts is a draft that evaluates -
- * two answers to "is this a formula" is exactly the thing a shared package exists to prevent.
- *
- * This is guidance while typing, not a gate: the save is still the server's to refuse, and a
- * reference to a key that is not declared *here* may well be declared above, which is why an
- * unknown name is reported as a note rather than as a refusal.
- */
-function expressionProblem(expression: string, available: ReadonlySet<string>): string | null {
-  const trimmed = expression.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-
-  const referenced = formulaFieldNames(trimmed);
-  if (referenced === null) {
-    return 'This is not written in a way the formula parser understands, so it will read as #PARSE!.';
-  }
-
-  const unknown = referenced.filter((name) => !available.has(name));
-  return unknown.length === 0
-    ? null
-    : `${unknown.map((name) => `[${name}]`).join(', ')} ${unknown.length === 1 ? 'is not a property' : 'are not properties'} anything here declares, so it will read as #NAME?.`;
-}
-
 /** A key derived from a label: lower case, words joined by underscores. */
 function keyFor(label: string): string {
   return label
@@ -177,7 +153,7 @@ export function SchemaEditor({
 
   // Once per render, not once per property row: every formula input reads these on every
   // keystroke, and building them per row made the work quadratic in the number of properties.
-  const available = referenceable(draft, inheritedOnly);
+  const available = referenceable(draft, inherit ? inheritedOnly : []);
 
   /**
    * What a rollup may fold.
@@ -437,18 +413,19 @@ function FormulaField({
   readonly onChange: (expression: string) => void;
 }): ReactNode {
   const expression = property.expression ?? '';
-  const problem = expressionProblem(expression, available.all);
+  const problem = propertyFormulaProblem(expression, available.all);
 
   return (
     <Field
       label={`Formula for ${property.label || 'this field'}`}
-      hint={referenceHint(available)}
+      hint={`${referenceHint(available)} Use field keys, without a leading =. Functions: ${FORMULA_FUNCTION_NAMES.join(', ')}.`}
       error={problem}
     >
       {(control) => (
         <Input
           {...control}
           value={expression}
+          maxLength={PROPERTY_FORMULA_LIMITS.maxLength}
           onChange={(event) => {
             onChange(event.target.value);
           }}

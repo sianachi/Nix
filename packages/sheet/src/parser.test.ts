@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseFormula } from './parser.js';
+import { parseFormula, parseFormulaResult } from './parser.js';
 
 describe('parsing literals and operators', () => {
   it('parses numbers, decimals, and exponents', () => {
@@ -131,5 +131,17 @@ describe('malformed formulas', () => {
     for (const text of garbage) {
       expect(() => parseFormula(text)).not.toThrow();
     }
+  });
+});
+
+describe('bounded parser diagnostics', () => {
+  it('returns source positions for invalid input and unfinished expressions', () => {
+    expect(parseFormulaResult('[price')).toMatchObject({ ok: false, position: 0 });
+    expect(parseFormulaResult('SUM(1,')).toMatchObject({ ok: false, position: 6 });
+    expect(parseFormulaResult('SUM(12345')).toMatchObject({ ok: false, position: 9 });
+    expect(parseFormulaResult('SUM(1,    ')).toMatchObject({ ok: false, position: 10 });
+  });
+  it('refuses oversized input before recursive parsing', () => {
+    expect(parseFormula('('.repeat(4096) + '1' + ')'.repeat(4096))).toBeNull();
   });
 });

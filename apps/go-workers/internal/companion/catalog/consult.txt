@@ -72,13 +72,13 @@ Section: Rollup aggregates
 count (How many), sum (Total), average (Average), min (Smallest), max (Largest), any (Any of them), all (All of them)
 
 Section: Formulas
-Functions: ABS, AND, AVERAGE, CONCATENATE, COUNT, COUNTA, IF, INT, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER
+Functions: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE
 A formula reads other properties by name in square brackets, as [estimate].
 - #DIV/0!: This formula divides by zero.
 - #REF!: A formula reads other properties by name in square brackets, as [estimate], and cannot read spreadsheet cells.
 - #CYCLE!: This formula refers to itself, directly or through another formula.
 - #VALUE!: This formula uses a value of the wrong kind, such as text where a number is needed.
-- #NAME?: This formula uses a property name that nothing here declares.
+- #NAME?: This formula uses a property name that nothing here declares, or an unknown function.
 - #LIMIT!: This formula is too long or too involved to finish evaluating.
 - #PARSE!: This formula isn't written in a way the parser understands.
 

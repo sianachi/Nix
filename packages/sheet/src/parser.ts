@@ -1,5 +1,6 @@
 import { type BinaryOperator, type FormulaNode } from './ast.js';
 import { parseA1 } from './refs.js';
+import { SHEET_LIMITS } from './limits.js';
 import { type Token, tokenize } from './tokenizer.js';
 
 /**
@@ -12,21 +13,42 @@ import { type Token, tokenize } from './tokenizer.js';
  * that to #PARSE!.
  */
 
+export type FormulaParseResult =
+  | { readonly ok: true; readonly node: FormulaNode }
+  | { readonly ok: false; readonly position: number; readonly message: string };
+
 export function parseFormula(text: string): FormulaNode | null {
+  const result = parseFormulaResult(text);
+  return result.ok ? result.node : null;
+}
+
+/** Parse once, retaining a source position for authoring feedback. */
+export function parseFormulaResult(text: string): FormulaParseResult {
+  if (text.length > SHEET_LIMITS.maxRawLength) {
+    return { ok: false, position: SHEET_LIMITS.maxRawLength, message: 'The formula is too long.' };
+  }
   const lexed = tokenize(text);
   if (!lexed.ok) {
-    return null;
+    return {
+      ok: false,
+      position: lexed.position,
+      message: 'Check this character, string, or property reference.',
+    };
   }
-  const parser = new Parser(lexed.tokens);
+  const parser = new Parser(lexed.tokens, text.length);
   try {
     const node = parser.parseExpression(0);
     if (!parser.atEnd()) {
-      return null;
+      return {
+        ok: false,
+        position: parser.position(),
+        message: 'Unexpected text after the expression.',
+      };
     }
-    return node;
+    return { ok: true, node };
   } catch (error) {
     if (error instanceof ParseFailure) {
-      return null;
+      return { ok: false, position: parser.position(), message: error.message };
     }
     throw error;
   }
@@ -58,10 +80,17 @@ function binaryPrecedence(op: string): number | null {
 class Parser {
   private index = 0;
 
-  constructor(private readonly tokens: readonly Token[]) {}
+  constructor(
+    private readonly tokens: readonly Token[],
+    private readonly endPosition: number,
+  ) {}
 
   atEnd(): boolean {
     return this.index >= this.tokens.length;
+  }
+
+  position(): number {
+    return this.tokens[this.index]?.position ?? this.endPosition;
   }
 
   private peek(): Token | null {
