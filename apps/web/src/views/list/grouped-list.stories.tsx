@@ -51,11 +51,19 @@ function view(overrides: Partial<View>): View {
   };
 }
 
-function Example({ overrides = {} }: { readonly overrides?: Partial<View> }): ReactNode {
+function Example({
+  overrides = {},
+  children = CHILDREN,
+  properties = [STATUS, OWNER],
+}: {
+  readonly overrides?: Partial<View>;
+  readonly children?: typeof CHILDREN;
+  readonly properties?: readonly PropertyDefinition[];
+}): ReactNode {
   return (
     <MemoryRouter>
       <ListView
-        container={storyContainer(CHILDREN, [STATUS, OWNER])}
+        container={storyContainer(children, properties)}
         view={view(overrides)}
         onOpen={() => undefined}
       />
@@ -70,6 +78,22 @@ export const SectionFolded = {
 };
 export const GroupingGone = {
   render: (): ReactNode => <Example overrides={{ groupBy: 'priority' }} />,
+};
+export const LongLabels = {
+  render: (): ReactNode => (
+    <Example
+      children={[
+        storyItem('long', 'NotesForTheEditorialReviewAndPublicationDecision', 1, {
+          status: 'WaitingForTheEditorialReviewAndPublicationDecision',
+          owner: 'PublishingTeamResponsibleForTheEditorialReview',
+        }),
+      ]}
+      properties={[
+        { ...STATUS, options: ['WaitingForTheEditorialReviewAndPublicationDecision'] },
+        { ...OWNER, label: 'PublishingTeamResponsibleForTheEditorialReview' },
+      ]}
+    />
+  ),
 };
 export const DarkBySelect = { ...BySelect, globals: { ground: 'dark' } };
 export const DarkSectionFolded = { ...SectionFolded, globals: { ground: 'dark' } };

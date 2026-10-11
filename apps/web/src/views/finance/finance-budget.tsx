@@ -340,7 +340,7 @@ export function FinanceBudget({
             aria-label="Budget figures"
             // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need a tab stop on the horizontal scroll owner to reach clipped budget columns.
             tabIndex={0}
-            className={cn('min-w-0 overflow-x-auto', focusRing)}
+            className={cn('relative min-w-0 overflow-x-auto', focusRing)}
           >
             <table className="w-full min-w-max border-collapse">
               <caption className="sr-only">Budget lines by month</caption>

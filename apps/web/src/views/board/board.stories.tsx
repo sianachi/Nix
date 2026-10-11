@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { within } from '@testing-library/dom';
+import { waitFor, within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
 
 import type { PropertyDefinition } from '../core/container-model';
@@ -22,9 +22,15 @@ const START = [
   storyItem('c', 'Choose our next trip together', 3, { status: 'Done' }),
 ];
 
-function Example(): ReactNode {
-  const [children, setChildren] = useState(START);
-  const container = storyContainer(children, [STATUS], {
+function Example({
+  status = STATUS,
+  cards = START,
+}: {
+  readonly status?: PropertyDefinition;
+  readonly cards?: typeof START;
+}): ReactNode {
+  const [children, setChildren] = useState(cards);
+  const container = storyContainer(children, [status], {
     setProperties: (id, values) => {
       setChildren((current) =>
         current.map((item) =>
@@ -52,6 +58,33 @@ export const NarrowPlans = {
       <Example />
     </div>
   ),
+};
+export const LongLabels = {
+  render: (): ReactNode => (
+    <div className="max-w-xs">
+      <Example
+        status={{
+          ...STATUS,
+          label: 'Publishing stage for a very long property label',
+          options: ['WaitingForTheEditorialReviewAndPublicationDecision'],
+        }}
+        cards={[
+          storyItem('long', 'NotesForTheEditorialReviewAndPublicationDecision', 1, {
+            status: 'WaitingForTheEditorialReviewAndPublicationDecision',
+          }),
+        ]}
+      />
+    </div>
+  ),
+  play: async ({ canvasElement }: { readonly canvasElement: HTMLElement }): Promise<void> => {
+    const column = within(canvasElement).getByRole('region', {
+      name: 'WaitingForTheEditorialReviewAndPublicationDecision',
+    });
+    await waitFor(() => {
+      if (column.scrollWidth > column.clientWidth)
+        throw new Error('The add-item control overflows its board column');
+    });
+  },
 };
 export const RowActions = {
   ...Plans,

@@ -5,17 +5,30 @@ import userEvent from '@testing-library/user-event';
 import { storyContainer, storyItem } from '../core/story-container';
 import { RecordViewStory, recordStoryView, STORY_FILE } from '../list/record-view-story';
 import { DriveView } from './drive-view';
+import { DriveMoveDialog } from './drive-move-dialog';
 
 export default { title: 'Nix/Views/Drive', parameters: { layout: 'padded' } };
-function Example({ layout = 'list' }: { readonly layout?: string }): ReactNode {
+function Example({
+  layout = 'list',
+  longNames = false,
+}: {
+  readonly layout?: string;
+  readonly longNames?: boolean;
+}): ReactNode {
   return (
     <RecordViewStory>
       <DriveView
         container={storyContainer(
           [
-            storyItem('a', 'Ideas for a quiet weekend', 1),
+            storyItem('a', longNames ? 'WeekendPlan'.repeat(12) : 'Ideas for a quiet weekend', 1),
             storyItem('b', 'Canvas for the garden plan', 2, {}, 'canvas'),
-            storyItem(STORY_FILE, 'Reading list.txt', 3, {}, 'file'),
+            storyItem(
+              STORY_FILE,
+              longNames ? `${'ReadingList'.repeat(12)}.txt` : 'Reading list.txt',
+              3,
+              {},
+              'file',
+            ),
           ],
           [],
           { itemId: null },
@@ -33,6 +46,32 @@ export const NarrowFiles = {
     <div className="max-w-xs">
       <Example />
     </div>
+  ),
+};
+export const NarrowLongFiles = {
+  render: (): ReactNode => (
+    <div className="max-w-xs">
+      <Example longNames />
+    </div>
+  ),
+};
+export const NarrowLongGrid = {
+  render: (): ReactNode => (
+    <div className="max-w-xs">
+      <Example layout="grid" longNames />
+    </div>
+  ),
+};
+export const LongMoveDestination = {
+  render: (): ReactNode => (
+    <DriveMoveDialog
+      open
+      onClose={() => undefined}
+      selectedCount={3}
+      destinations={[{ id: 'destination', title: 'ProjectArchive'.repeat(12) }]}
+      parent={undefined}
+      onMove={() => undefined}
+    />
   ),
 };
 export const MoveDialog = {
