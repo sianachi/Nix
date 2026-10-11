@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EMPTY_MARKDOWN_IMPORT_SCAN } from '@nix/markdown/scan';
@@ -155,6 +155,70 @@ afterEach(() => {
 });
 
 describe('the import dialog', () => {
+  it.each([
+    ['archive.nix', '', 'nix'],
+    ['ARCHIVE.NIX', 'application/octet-stream', 'nix'],
+    ['report.pdf', 'application/pdf', 'pdf'],
+    ['report.docx', '', 'docx'],
+    ['notes.txt', 'text/plain', 'txt'],
+    ['note.md', 'text/markdown', null],
+    ['photo.jpg', 'image/jpeg', null],
+  ])('keeps %s selected when the browser clears its live file list', async (name, type, format) => {
+    const begin = vi.spyOn(importResources, 'beginAndPreviewDocument').mockResolvedValue({
+      operation: documentOperation(),
+      plan: documentPlan,
+    });
+    open();
+    const input = screen.getByLabelText<HTMLInputElement>('Markdown files to import');
+    const file = new File(['Body'], name, { type });
+    const files = [file];
+    Object.defineProperty(input, 'files', { configurable: true, get: () => files });
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      set: () => {
+        files.length = 0;
+      },
+    });
+
+    fireEvent.change(input);
+
+    expect(await screen.findByRole('button', { name: /Import 2 items/ })).toBeInTheDocument();
+    if (format === null) {
+      expect(begin).not.toHaveBeenCalled();
+    } else {
+      expect(begin).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ format, fileName: name, byteLength: 4 }),
+        file,
+        expect.any(AbortSignal),
+        expect.any(Function),
+      );
+    }
+    expect(files).toHaveLength(0);
+  });
+
+  it('keeps folder notes and attachments when the browser clears its live file list', async () => {
+    open();
+    const input = screen.getByLabelText<HTMLInputElement>('Folder to import');
+    const files = [
+      vaultFile('Vault/Notes/note.md', 'Body'),
+      new File(['picture'], 'photo.jpg', { type: 'image/jpeg' }),
+    ];
+    Object.defineProperty(files[1], 'webkitRelativePath', { value: 'Vault/Notes/photo.jpg' });
+    Object.defineProperty(input, 'files', { configurable: true, get: () => files });
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      set: () => {
+        files.length = 0;
+      },
+    });
+
+    fireEvent.change(input);
+
+    expect(await screen.findByRole('button', { name: 'Import 4 items' })).toBeInTheDocument();
+    expect(files).toHaveLength(0);
+  });
+
   it('says which document and Markdown sources it can import before anything is chosen', () => {
     open();
 
