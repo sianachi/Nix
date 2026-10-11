@@ -27,11 +27,14 @@ export interface HiddenItemsPreference {
   readonly showAll: () => void;
 }
 
-export function useHiddenItems(): HiddenItemsPreference {
+export function useHiddenItems(target: 'items' | 'tree-children' = 'items'): HiddenItemsPreference {
   const subject = useSessionStore((state) => state.profile?.subject ?? null);
   const workspace = useOptionalWorkspace();
   const scope =
-    subject === null || workspace === null ? null : hiddenItemsKey(subject, workspace.workspaceId);
+    subject === null || workspace === null
+      ? null
+      : hiddenItemsKey(subject, workspace.workspaceId) +
+        (target === 'items' ? '' : ':tree-children');
   const snapshot = useCallback(() => (scope === null ? EMPTY : readHiddenItems(scope)), [scope]);
   const hiddenIds = useSyncExternalStore(subscribeHiddenItems, snapshot, () => EMPTY);
   const [failedScope, setFailedScope] = useState<string | null>(null);
@@ -63,14 +66,14 @@ export function useHiddenItems(): HiddenItemsPreference {
       const retained = store([...ids, itemId]);
       publishNotice({
         key: 'item-visibility',
-        message: `${title || 'Untitled'} hidden.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+        message: `${title || 'Untitled'}${target === 'items' ? ' hidden' : ': children hidden from tree'}.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
         action: {
           label: 'Undo',
           onAction: () => {
             const saved = store(readHiddenItems(scope).filter((id) => id !== itemId));
             publishNotice({
               key: 'item-visibility',
-              message: `${title || 'Item'} shown again.${saved ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+              message: `${title || 'Item'}${target === 'items' ? ' shown again' : ': children shown in tree'}.${saved ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
             });
           },
         },
@@ -81,7 +84,7 @@ export function useHiddenItems(): HiddenItemsPreference {
       const retained = store(readHiddenItems(scope).filter((id) => id !== itemId));
       publishNotice({
         key: 'item-visibility',
-        message: `${title || 'Item'} is no longer hidden for you.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
+        message: `${title || 'Item'}${target === 'items' ? ' is no longer hidden for you' : ': children shown in tree'}.${retained ? '' : ' Your browser could not save this preference; it lasts until this page reloads.'}`,
       });
     },
     showItems: (itemIds: readonly string[]) => {

@@ -10,6 +10,9 @@ import {
   writeHiddenItems,
 } from '../../lib/view-hidden-items';
 import { useHiddenItems, useHiddenItemPredicate } from '../../items/use-hidden-items';
+import { ViewItemVisibility } from '../../views/core/view-item-visibility';
+import { aContainer } from '../container-fixture';
+import { item } from '../api-stub';
 import { memoryStorage } from '../views/suggest/suggest-fixtures';
 import { signedIn } from '../render-with-router';
 
@@ -128,4 +131,29 @@ describe('personal hidden items', () => {
       unsubscribe();
     }
   });
+});
+
+it('keeps children visible in views and search when their parent hides children in the tree', () => {
+  writeHiddenItems(hiddenItemsKey('test-subject', 'workspace-a') + ':tree-children', ['note-a']);
+  const container = aContainer({
+    itemId: 'note-a',
+    children: [item({ id: 'child', title: 'Child note', parentId: 'note-a' })],
+  });
+  render(
+    <>
+      <Subject />
+      <ViewItemVisibility container={container} view={null}>
+        {(visible) => (
+          <ul aria-label="View children">
+            {visible.children.map((child) => (
+              <li key={child.id}>{child.title}</li>
+            ))}
+          </ul>
+        )}
+      </ViewItemVisibility>
+    </>,
+  );
+  expect(screen.getByRole('list', { name: 'View children' })).toHaveTextContent('Child note');
+  expect(screen.getByText('A visible')).toBeVisible();
+  expect(screen.getByText('Search shows A')).toBeVisible();
 });

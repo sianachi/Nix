@@ -1,3 +1,4 @@
+import { treeChildrenEntry } from './item-menu-entries';
 import { Button, ContextMenu, Icon, Menu, Text, type MenuEntry } from '@nix/ui';
 import { ArrowLeft, ChevronRight, EyeOff, MoreHorizontal, Shapes, X } from 'lucide-react';
 import { useRef, useState, type ReactNode } from 'react';
@@ -24,6 +25,7 @@ export function MobileWorkspaceBrowser({
   readonly destinations: ReactNode;
 }): ReactNode {
   const visibility = useHiddenItems();
+  const treeChildren = useHiddenItems('tree-children');
   const landmarks = useItemLandmarks();
   const iconReturnFocus = useRef<HTMLButtonElement | null>(null);
   const [iconItem, setIconItem] = useState<{
@@ -31,7 +33,10 @@ export function MobileWorkspaceBrowser({
     readonly id: string;
     readonly title: string;
   } | null>(null);
-  const visible = tree.childrenOf(parentId).filter((item) => !visibility.hiddenSet.has(item.id));
+  const visible =
+    parentId !== null && treeChildren.hiddenSet.has(parentId)
+      ? []
+      : tree.childrenOf(parentId).filter((item) => !visibility.hiddenSet.has(item.id));
   const parent = parentId === null ? null : tree.find(parentId);
   const loading =
     tree.status === 'loading' || (parentId !== null && tree.isLoadingChildren(parentId));
@@ -106,6 +111,7 @@ export function MobileWorkspaceBrowser({
       >
         {visible.map((item) => {
           const actions: MenuEntry[] = [
+            treeChildrenEntry(treeChildren, item.id, item.title),
             ...(landmarks.enabled
               ? [
                   {
@@ -181,7 +187,7 @@ export function MobileWorkspaceBrowser({
                   </Button>
                 )}
               </Menu>
-              {item.hasChildren ? (
+              {item.hasChildren && !treeChildren.hiddenSet.has(item.id) ? (
                 <Button
                   variant="ghost"
                   className="min-h-(--control-lg) min-w-(--control-lg)"
@@ -199,9 +205,11 @@ export function MobileWorkspaceBrowser({
         })}
         {!loading && !tree.error && visible.length === 0 ? (
           <Text as="p" variant="note" tone="muted" className="p-3">
-            {tree.childrenOf(parentId).length > 0
-              ? 'Items here are hidden for you.'
-              : 'No items here yet. Use New note to create one.'}
+            {parentId !== null && treeChildren.hiddenSet.has(parentId)
+              ? 'Children are hidden from the tree. Open this item to see them in its views.'
+              : tree.childrenOf(parentId).length > 0
+                ? 'Items here are hidden for you.'
+                : 'No items here yet. Use New note to create one.'}
           </Text>
         ) : null}
       </PaneViewport>

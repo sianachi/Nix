@@ -1,9 +1,10 @@
-import type { MenuEntry } from '@nix/ui';
+import type { MenuAction, MenuEntry } from '@nix/ui';
 import { Link, Star } from 'lucide-react';
 
 import { useBookmarksStore } from '../bookmarks/use-bookmarks';
 import { copyItemLink } from '../lib/item-link';
 import { publishNotice } from '../lib/notices';
+import type { HiddenItemsPreference } from './use-hidden-items';
 
 /**
  * Menu entries that mean the same thing wherever an item appears - a sidebar row, a tab, a list
@@ -39,6 +40,22 @@ export function copyLinkEntry(workspaceId: string, itemId: string, title: string
             : 'The link could not be copied. Your browser refused access to the clipboard.',
         });
       });
+    },
+  };
+}
+
+export function treeChildrenEntry(
+  preference: Pick<HiddenItemsPreference, 'enabled' | 'hiddenSet' | 'show' | 'hide'>,
+  itemId: string,
+  title: string,
+): MenuAction {
+  return {
+    key: 'tree-children',
+    label: preference.hiddenSet.has(itemId) ? 'Show children in tree' : 'Hide children from tree',
+    disabled: !preference.enabled,
+    onSelect: () => {
+      if (preference.hiddenSet.has(itemId)) preference.show(itemId, title);
+      else preference.hide(itemId, title);
     },
   };
 }

@@ -16,6 +16,7 @@ beforeEach(() => {
   signedIn();
   stubViewport(true);
   writeHiddenItems(hiddenItemsKey('test-subject', STUB_WORKSPACE_ID), []);
+  writeHiddenItems(hiddenItemsKey('test-subject', STUB_WORKSPACE_ID) + ':tree-children', []);
 });
 
 describe('hiding saved notes for yourself', () => {
@@ -49,5 +50,44 @@ describe('hiding saved notes for yourself', () => {
     expect(await screen.findByRole('textbox', { name: 'Note title' })).toHaveValue('Meeting notes');
     await userEvent.click(screen.getByRole('button', { name: 'Item actions' }));
     expect(screen.getByRole('menuitem', { name: 'Show for me' })).toBeVisible();
+  });
+});
+
+describe('children hidden only from the workspace tree', () => {
+  const child = item({
+    id: '2e2e2e2e-1111-4111-8111-2e2e2e2e2e2e',
+    title: 'Agenda',
+    parentId: NOTE.id,
+  });
+  it('removes already expanded children, keeps the parent, and restores them from item actions', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [{ ...NOTE, hasChildren: true }, child] });
+    renderAt(<App />, `/?item=${NOTE.id}`);
+    await screen.findByRole('textbox', { name: 'Note title' });
+    await user.click(await screen.findByRole('button', { name: 'Expand Meeting notes' }));
+    const tree = screen.getByRole('tree', { name: 'Items' });
+    expect(await within(tree).findByRole('button', { name: 'Agenda' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Item actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Hide children from tree' }));
+    expect(within(tree).getByRole('button', { name: 'Meeting notes' })).toBeVisible();
+    expect(within(tree).queryByRole('button', { name: 'Agenda' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Expand Meeting notes' })).not.toBeInTheDocument();
+    expect(within(tree).getByRole('treeitem')).not.toHaveAttribute('aria-expanded');
+    await user.click(screen.getByRole('button', { name: 'Item actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Show children in tree' }));
+    expect(await within(tree).findByRole('button', { name: 'Agenda' })).toBeVisible();
+  });
+
+  it('retains the setting on reopening while keeping child links accessible', async () => {
+    writeHiddenItems(hiddenItemsKey('test-subject', STUB_WORKSPACE_ID) + ':tree-children', [
+      NOTE.id,
+    ]);
+    stubCoreApi({ items: [{ ...NOTE, hasChildren: true }, child] });
+    renderAt(<App />, `/?item=${child.id}`);
+    expect(await screen.findByRole('textbox', { name: 'Note title' })).toHaveValue('Agenda');
+    const tree = await screen.findByRole('tree', { name: 'Items' });
+    expect(within(tree).getByRole('button', { name: 'Meeting notes' })).toBeVisible();
+    expect(within(tree).queryByRole('button', { name: 'Agenda' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Expand Meeting notes' })).not.toBeInTheDocument();
   });
 });

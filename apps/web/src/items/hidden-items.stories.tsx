@@ -1,3 +1,5 @@
+import { Button, Menu } from '@nix/ui';
+import { treeChildrenEntry } from './item-menu-entries';
 import { useState, type ReactNode } from 'react';
 
 import { HiddenItemsList, type HiddenEntry } from './hidden-items-list';
@@ -48,3 +50,41 @@ export const Unavailable = { render: (): ReactNode => <Example unavailable /> };
 export const StorageUnavailable = { render: (): ReactNode => <Example saveFailed /> };
 export const Empty = { render: (): ReactNode => <Example empty /> };
 export const DarkReady = { ...Ready, globals: { ground: 'dark' } };
+
+function TreeChildrenExample() {
+  const [hidden, setHidden] = useState(false);
+  return (
+    <Menu
+      label="Item actions"
+      items={[
+        treeChildrenEntry(
+          {
+            enabled: true,
+            hiddenSet: new Set(hidden ? ['note'] : []),
+            hide: () => {
+              setHidden(true);
+            },
+            show: () => {
+              setHidden(false);
+            },
+          },
+          'note',
+          'Meeting notes',
+        ),
+      ]}
+    >
+      {(trigger) => <Button {...trigger}>Item actions</Button>}
+    </Menu>
+  );
+}
+export const TreeChildren = {
+  render: (): ReactNode => <TreeChildrenExample />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    canvasElement.querySelector('button')?.click();
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => {
+        resolve();
+      }),
+    );
+  },
+};
