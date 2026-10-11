@@ -48,6 +48,21 @@ describe('validateBlueprint', () => {
     expect(problem?.message).toContain("refers to 'missing'");
   });
 
+  it.each(['NOPE(1)', 'NOT(TRUE, FALSE)', 'SUM(A1:A3)'])(
+    'refuses known-invalid formula %s before construction',
+    (formula) => {
+      const report = validateBlueprint(
+        blueprint({
+          id: 'root',
+          title: 'Root',
+          fields: [{ label: 'Total', type: 'formula', formula }],
+        }),
+        context(),
+      );
+      expect(findProblem(report.problems, 'formula.invalid_expression')).toBeDefined();
+    },
+  );
+
   it('cross-node cycle through inherited fields is refused', () => {
     const report = validateBlueprint(
       blueprint({

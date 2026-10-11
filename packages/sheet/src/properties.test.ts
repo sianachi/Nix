@@ -7,6 +7,7 @@ import {
   evaluatePropertyFormulas,
   formulaFieldNames,
   planPropertyFormulas,
+  propertyFormulaProblem,
 } from './properties.js';
 import { tokenize } from './tokenizer.js';
 import { type CellValue } from './values.js';
@@ -266,5 +267,62 @@ describe('planning a schema once and evaluating many items against it', () => {
     const plan = planPropertyFormulas([]);
     expect(plan.keys).toEqual([]);
     expect(evaluateFormulaPlan(plan, bag({})).opsUsed).toBe(0);
+  });
+});
+
+describe('formula authoring feedback', () => {
+  const available = new Set(['price', 'quantity', 'name', 'due_date', 'start_date']);
+
+  it('identifies unknown functions, wrong arity, sheet references, and leading =', () => {
+    expect(propertyFormulaProblem('NOPE([price])', available)).toContain(
+      'NOPE is not a supported function',
+    );
+    expect(propertyFormulaProblem('NOT(TRUE, FALSE)', available)).toContain(
+      'NOT expects 1 argument',
+    );
+    expect(propertyFormulaProblem('SUM(A1:A3)', available)).toContain(
+      'cannot read spreadsheet cells',
+    );
+    expect(propertyFormulaProblem('=[price] * 2', available)).toContain('without a leading =');
+    expect(propertyFormulaProblem('IFERROR([price] / [quantity], 0)', available)).toBeNull();
+  });
+
+  it('reports a parse position without running the expression', () => {
+    expect(propertyFormulaProblem('[price', available)).toContain('At character 1');
+    expect(propertyFormulaProblem('1 +', available)).toContain('#PARSE!');
+  });
+
+  it('rejects oversized input before parsing or reference walking can overflow the stack', () => {
+    const oversized = '('.repeat(4096) + '1' + ')'.repeat(4096);
+    expect(formulaFieldNames(oversized)).toBeNull();
+    expect(propertyFormulaProblem(oversized, available)).toContain('1024 characters');
+  });
+
+  it('does not permit IFERROR to conceal cycles or exhaust the evaluation budget', () => {
+    expect(
+      evaluate([
+        { key: 'a', expression: 'IFERROR([b], 0)' },
+        { key: 'b', expression: '[a]' },
+      ]).values.get('a'),
+    ).toEqual({ error: '#CYCLE!' });
+    const result = evaluatePropertyFormulas(
+      { formulas: [{ key: 'a', expression: 'IFERROR(1+2+3, 0)' }], read: bag({}) },
+      { maxLength: 1024, maxOps: 2 },
+    );
+    expect(result.values.get('a')).toEqual({ error: '#LIMIT!' });
+  });
+
+  it('refuses nonfinite values supplied by a caller instead of publishing invalid numbers', () => {
+    for (const expression of [
+      '[price]',
+      'NOT([price])',
+      'COUNT([price])',
+      'CONTAINS([price], "inf")',
+      'LEN([price])',
+    ]) {
+      expect(
+        evaluate([{ key: 'value', expression }], { price: Infinity }).values.get('value'),
+      ).toEqual({ error: '#VALUE!' });
+    }
   });
 });

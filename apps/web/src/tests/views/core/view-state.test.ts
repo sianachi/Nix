@@ -86,6 +86,7 @@ describe('the whole view state', () => {
       sortBy: 'owner',
       direction: 'descending',
       filters: [{ propertyKey: 'status', values: ['Doing'] }],
+      search: '',
     });
   });
 
@@ -104,5 +105,11 @@ describe('the whole view state', () => {
 
     expect(state.viewId).toBeNull();
     expect(state.sortBy).toBeNull();
+  });
+
+  it('reads title search independently in each pane', () => {
+    const params = new URLSearchParams('search=Water+plants&search2=Read');
+    expect(parseViewState(params).search).toBe('Water plants');
+    expect(parseViewState(params, 1).search).toBe('Read');
   });
 });

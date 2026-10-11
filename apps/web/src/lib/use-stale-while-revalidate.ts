@@ -41,8 +41,13 @@ export interface StaleWhileRevalidate<Status extends string> {
    * Call when a load fails. `errorStatus` is only used the first time a load fails - once data has
    * loaded once, a failure keeps that data and reports it through `refreshError` instead of
    * replacing `status`.
+   * Set `blocking` after a confirmed refusal when the caller has discarded its loaded data.
    */
-  readonly reportFailed: (message: string, errorStatus: Status) => void;
+  readonly reportFailed: (
+    message: string,
+    errorStatus: Status,
+    options?: { readonly blocking?: boolean },
+  ) => void;
 }
 
 export function useStaleWhileRevalidate<Status extends string>(
@@ -77,17 +82,28 @@ export function useStaleWhileRevalidate<Status extends string>(
     setRefreshError(null);
   }, []);
 
-  const reportFailed = useCallback((message: string, errorStatus: Status) => {
-    // There is already data on screen: keep it, and say the reload failed rather than replacing it
-    // with an error panel that discards everything the reader was looking at.
-    if (hasLoadedOnce.current) {
-      setRefreshing(false);
-      setRefreshError(message);
-    } else {
-      setError(message);
-      setStatus(errorStatus);
-    }
-  }, []);
+  const reportFailed = useCallback(
+    (message: string, errorStatus: Status, options: { readonly blocking?: boolean } = {}) => {
+      if (options.blocking === true) {
+        hasLoadedOnce.current = false;
+        setError(message);
+        setStatus(errorStatus);
+        setRefreshing(false);
+        setRefreshError(null);
+        return;
+      }
+      // There is already data on screen: keep it, and say the reload failed rather than replacing it
+      // with an error panel that discards everything the reader was looking at.
+      if (hasLoadedOnce.current) {
+        setRefreshing(false);
+        setRefreshError(message);
+      } else {
+        setError(message);
+        setStatus(errorStatus);
+      }
+    },
+    [],
+  );
 
   return { status, error, refreshing, refreshError, beginLoad, reportLoaded, reportFailed };
 }

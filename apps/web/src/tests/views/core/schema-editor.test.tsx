@@ -445,6 +445,31 @@ describe('the schema editor', () => {
     expect(screen.getByText(/Inherited: \[estimate\]/)).toBeVisible();
   });
 
+  it('stops offering inherited formula references when their inheritance is disabled', async () => {
+    const user = userEvent.setup();
+    const declared = [
+      propertyOf({ key: 'total', label: 'Total', type: 'formula', expression: '[estimate] * 2' }),
+    ];
+    render(
+      <SchemaEditor
+        container={containerOf({
+          properties: [
+            ...declared,
+            propertyOf({ key: 'estimate', label: 'Estimate', type: 'number' }),
+          ],
+          declared,
+          inherit: true,
+        })}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox', { name: /ignore fields from items above/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/\[estimate\].*#NAME\?/);
+    expect(screen.queryByText(/Inherited: \[estimate\]/)).not.toBeInTheDocument();
+  });
+
   it('says so while typing when an expression will not parse', async () => {
     const user = userEvent.setup();
 
@@ -485,6 +510,30 @@ describe('the schema editor', () => {
     await user.type(screen.getByRole('textbox', { name: /formula for total/i }), '[[prise] * 2');
 
     expect(screen.getByRole('alert')).toHaveTextContent(/\[prise\].*#NAME\?/);
+  });
+
+  it.each([
+    ['NOPE(1)', /NOPE is not a supported function/],
+    ['NOT(TRUE, FALSE)', /NOT expects 1 argument/],
+    ['A1 * 2', /cannot read spreadsheet cells/],
+    ['=1 + 2', /without a leading =/],
+  ])('explains a known-invalid formula %s while typing', async (expression, message) => {
+    const user = userEvent.setup();
+    const declared = [
+      propertyOf({ key: 'total', label: 'Total', type: 'formula', expression: '' }),
+    ];
+    render(
+      <SchemaEditor
+        container={containerOf({ properties: declared, declared, inherit: true })}
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    const input = screen.getByRole('textbox', { name: /formula for total/i });
+    expect(input).toHaveAttribute('maxlength', '1024');
+    expect(screen.getByText(/Functions:.*IFERROR.*ISBLANK/)).toBeVisible();
+    await user.type(input, expression);
+    expect(screen.getByRole('alert')).toHaveTextContent(message);
   });
 
   it('offers a fold and a property to fold once a property is a rollup', async () => {

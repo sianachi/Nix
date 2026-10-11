@@ -10,6 +10,7 @@ import {
 } from '../../components/states/status-panels';
 import {
   applyFilters,
+  applyTitleSearch,
   sortItems,
   type Item,
   type View,
@@ -201,9 +202,13 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     () => applyRules(container.children, savedRules, ruleContext),
     [savedRules, container.children, ruleContext],
   );
-  const visible = useMemo(
+  const addressed = useMemo(
     () => applyFilters(saved, viewState.filters, ruleContext),
     [ruleContext, saved, viewState.filters],
+  );
+  const visible = useMemo(
+    () => applyTitleSearch(addressed, viewState.search),
+    [addressed, viewState.search],
   );
   const properties = container.schema?.properties;
   const sorted = useMemo(
@@ -291,7 +296,7 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     };
   }
 
-  if (visible.length === 0) {
+  if (addressed.length === 0) {
     // Emptiness we caused rather than emptiness we found, and told apart from it deliberately:
     // somebody who followed a filtered link and is told "nothing in here yet" goes looking for
     // items they think have been deleted.
@@ -314,8 +319,21 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
     };
   }
 
+  if (visible.length === 0) {
+    return {
+      kind: 'chrome',
+      node: (
+        <EmptyPanel
+          title="No loaded items match this title search"
+          detail={`None of the ${String(addressed.length)} loaded items remaining after filters match. Clear the search above to see them.${container.truncated ? ' More items have not been loaded.' : ''}`}
+        />
+      ),
+    };
+  }
+
   const hiddenBySaved = container.children.length - saved.length;
-  const hiddenByAddress = saved.length - visible.length;
+  const hiddenByAddress = saved.length - addressed.length;
+  const hiddenBySearch = addressed.length - visible.length;
 
   // Truncation is said alongside the filter notice, not instead of it: they are two different
   // partialities. A container past the paging ceiling shows its first pages, and every count a
@@ -327,6 +345,7 @@ export function useViewChrome<TValue>(args: ViewChromeArgs<TValue>): ViewChrome<
       : null,
     hiddenBySaved === 0 ? null : hiddenNotice(hiddenBySaved, "this view's saved filters"),
     hiddenByAddress === 0 ? null : hiddenNotice(hiddenByAddress, 'the current filters'),
+    hiddenBySearch === 0 ? null : hiddenNotice(hiddenBySearch, 'the title search'),
     readerUnknown
       ? 'Rules about you could not be checked, so they are not applied and more items may show.'
       : null,

@@ -7,6 +7,8 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useApiClient } from '../../api/api-client-provider';
+import { cacheKeysOverlap, useCacheInvalidation } from '../../api/use-cache-invalidation';
+import { useOptionalWorkspace } from '../../workspaces/workspace-context';
 
 /**
  * One chart view's buckets, refreshed on demand and whenever its configuration changes.
@@ -85,27 +87,38 @@ export interface ChartState {
 
 export function useChart(itemId: string, viewId: string, fingerprint = ''): ChartState {
   const client = useApiClient();
+  const workspace = useOptionalWorkspace();
 
   const [status, setStatus] = useState<ChartStatus>('loading');
   const [chart, setChart] = useState<ItemChart | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [failure, setFailure] = useState<ChartFailure | null>(null);
-  const loadedFingerprint = useRef<string | null>(null);
+  const activeLoad = useRef<AbortController | null>(null);
 
   const load = useCallback(
     async (forceRefresh = true): Promise<void> => {
-      setStatus('loading');
+      activeLoad.current?.abort();
+      const controller = new AbortController();
+      activeLoad.current = controller;
+      setStatus((current) => (current === 'ready' ? current : 'loading'));
       setError(null);
       setFailure(null);
 
       try {
         const loaded = await client.query(coreItemChart.itemChart(itemId, viewId), {
           forceRefresh,
+          signal: controller.signal,
         });
+        if (controller.signal.aborted || activeLoad.current !== controller) return;
         setChart(loaded);
         setStatus('ready');
       } catch (reason) {
-        if (isCanceledError(reason)) return;
+        if (
+          controller.signal.aborted ||
+          activeLoad.current !== controller ||
+          isCanceledError(reason)
+        )
+          return;
         const why = isNixApiError(reason)
           ? refusal(reason)
           : { kind: 'unavailable' as const, message: 'Core could not be reached.' };
@@ -117,13 +130,25 @@ export function useChart(itemId: string, viewId: string, fingerprint = ''): Char
     [client, itemId, viewId],
   );
 
+  useCacheInvalidation(
+    (prefix) =>
+      prefix[0] === 'items' ||
+      (workspace !== null &&
+        cacheKeysOverlap(prefix, ['workspaces', workspace.workspaceId, 'items'])),
+    () => {
+      void load(true);
+    },
+  );
+
   useEffect(() => {
-    // The first read may come from the cache; a read after the configuration changed must not.
-    const changed = loadedFingerprint.current !== null && loadedFingerprint.current !== fingerprint;
-    loadedFingerprint.current = fingerprint;
+    let disposed = false;
     queueMicrotask(() => {
-      void load(changed);
+      if (!disposed) void load(true);
     });
+    return () => {
+      disposed = true;
+      activeLoad.current?.abort();
+    };
   }, [load, fingerprint]);
 
   const reload = useCallback(() => load(true), [load]);

@@ -150,11 +150,10 @@ export function ImportDialog({
     [],
   );
 
-  async function chose(list: FileList | null): Promise<void> {
-    if (list === null || list.length === 0) {
+  async function chose(files: readonly File[]): Promise<void> {
+    if (files.length === 0) {
       return;
     }
-    const files = [...list];
     setPhase({ name: 'pick', reading: true, error: null });
 
     try {
@@ -464,7 +463,8 @@ export function ImportDialog({
                 aria-hidden="true"
                 aria-label="Markdown files to import"
                 onChange={(event) => {
-                  const files = event.currentTarget.files;
+                  // Snapshot before resetting: browsers can clear the existing FileList in place.
+                  const files = Array.from(event.currentTarget.files ?? []);
                   event.currentTarget.value = '';
                   void chose(files);
                 }}
@@ -478,7 +478,7 @@ export function ImportDialog({
                 aria-label="Folder to import"
                 {...{ webkitdirectory: '' }}
                 onChange={(event) => {
-                  const files = event.currentTarget.files;
+                  const files = Array.from(event.currentTarget.files ?? []);
                   event.currentTarget.value = '';
                   void chose(files);
                 }}

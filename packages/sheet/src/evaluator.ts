@@ -1,16 +1,16 @@
 import { type FormulaNode } from './ast.js';
 import { type Argument, type EvaluationContext, MAX_TEXT_LENGTH } from './eval-types.js';
-import { SHEET_FUNCTIONS } from './functions.js';
+import { FORMULA_FUNCTION_ARITIES, SHEET_FUNCTIONS } from './functions.js';
 import { normalizeRange } from './refs.js';
 
 /**
- * Every function name a formula may call: `SHEET_FUNCTIONS`'s keys plus `IF`, which is not in
- * that map because it is lazy (only its taken branch evaluates) and is dispatched by name below
+ * Every function name a formula may call: `SHEET_FUNCTIONS`'s keys plus `IF` and `IFERROR`, which are not in
+ * that map because they evaluate only their taken branch and are dispatched by name below
  * instead. Exported, sorted, so a consumer that only needs the names - the pet's capability
  * catalog (`@nix/structure-spec`) is the first one - does not need to know about `IF`'s special
  * case or import the function implementations themselves.
  */
-export const FORMULA_FUNCTION_NAMES: readonly string[] = [...SHEET_FUNCTIONS.keys(), 'IF'].sort(
+export const FORMULA_FUNCTION_NAMES: readonly string[] = [...FORMULA_FUNCTION_ARITIES.keys()].sort(
   (a, b) => a.localeCompare(b),
 );
 import {
@@ -28,8 +28,7 @@ import {
  * op from the shared budget, so evaluation time is bounded by SheetLimits
  * rather than by whatever the formula author had in mind.
  *
- * IF is evaluated here rather than in the registry because it is the one
- * function whose unchosen branch must not run: =IF(TRUE, 1, 1/0) is 1, not
+ * IF and IFERROR are evaluated here because their unchosen branches must not run: =IF(TRUE, 1, 1/0) is 1, not
  * #DIV/0!. AND and OR are eager, matching the incumbents.
  */
 export function evaluateFormula(node: FormulaNode, ctx: EvaluationContext): CellValue {
@@ -39,7 +38,7 @@ export function evaluateFormula(node: FormulaNode, ctx: EvaluationContext): Cell
     // is not in v1.
     return sheetError('#VALUE!');
   }
-  return arg.value;
+  return typeof arg.value === 'number' ? finiteOrValueError(arg.value) : arg.value;
 }
 
 function evaluateArgument(node: FormulaNode, ctx: EvaluationContext): Argument {
@@ -52,15 +51,18 @@ function evaluateArgument(node: FormulaNode, ctx: EvaluationContext): Argument {
     case 'boolean':
       return { kind: 'value', value: node.value };
     case 'ref':
-      return { kind: 'value', value: ctx.readCell(node.ref.row, node.ref.col) };
-    case 'field':
-      // Called through the context rather than extracted first: a surface with no fields to
-      // resolve leaves the reader absent, and #NAME? is the honest answer for a name nothing here
-      // can know.
+    case 'field': {
+      const value =
+        node.kind === 'ref'
+          ? ctx.readCell(node.ref.row, node.ref.col)
+          : ctx.readField === undefined
+            ? sheetError('#NAME?')
+            : ctx.readField(node.name);
       return {
         kind: 'value',
-        value: ctx.readField === undefined ? sheetError('#NAME?') : ctx.readField(node.name),
+        value: typeof value === 'number' ? finiteOrValueError(value) : value,
       };
+    }
     case 'range':
       return { kind: 'range', range: normalizeRange(node.start, node.end) };
     case 'unary': {
@@ -162,6 +164,18 @@ function evaluateCall(
   node: Extract<FormulaNode, { kind: 'call' }>,
   ctx: EvaluationContext,
 ): CellValue {
+  const arity = FORMULA_FUNCTION_ARITIES.get(node.name);
+  if (arity === undefined) return sheetError('#NAME?');
+  if (node.args.length < arity[0] || (arity[1] !== null && node.args.length > arity[1])) {
+    return sheetError('#VALUE!');
+  }
+  if (node.name === 'IFERROR') {
+    const value = node.args[0];
+    const fallback = node.args[1];
+    if (value === undefined || fallback === undefined) return sheetError('#VALUE!');
+    const result = evaluateFormula(value, ctx);
+    return isSheetError(result) ? evaluateFormula(fallback, ctx) : result;
+  }
   if (node.name === 'IF') {
     const first = node.args[0];
     if (first === undefined || node.args.length > 3) {
@@ -186,7 +200,7 @@ function evaluateCall(
   for (const argNode of node.args) {
     const arg = evaluateArgument(argNode, ctx);
     if (arg.kind === 'value' && isSheetError(arg.value)) {
-      // Errors propagate into every eager function; only IF above escapes.
+      // Errors propagate into eager functions; IF and IFERROR handle their branches above.
       return arg.value;
     }
     args.push(arg);

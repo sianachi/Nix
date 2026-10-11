@@ -1,7 +1,8 @@
 import { type FormulaNode } from './ast.js';
 import { BudgetExhausted, type EvaluationContext } from './eval-types.js';
 import { evaluateFormula } from './evaluator.js';
-import { parseFormula } from './parser.js';
+import { parseFormula, parseFormulaResult } from './parser.js';
+import { FORMULA_FUNCTION_ARITIES } from './functions.js';
 import { type CellValue, type SheetErrorCode, sheetError } from './values.js';
 
 /**
@@ -94,7 +95,7 @@ export const PROPERTY_FORMULA_HELP: Readonly<Record<SheetErrorCode, string>> = {
     'A formula reads other properties by name in square brackets, as [estimate], and cannot read spreadsheet cells.',
   '#CYCLE!': 'This formula refers to itself, directly or through another formula.',
   '#VALUE!': 'This formula uses a value of the wrong kind, such as text where a number is needed.',
-  '#NAME?': 'This formula uses a property name that nothing here declares.',
+  '#NAME?': 'This formula uses a property name that nothing here declares, or an unknown function.',
   '#LIMIT!': 'This formula is too long or too involved to finish evaluating.',
   '#PARSE!': "This formula isn't written in a way the parser understands.",
 };
@@ -163,6 +164,7 @@ export type PropertyReader = (key: string) => CellValue | undefined;
  * against.
  */
 export function formulaFieldNames(expression: string): readonly string[] | null {
+  if (expression.length > PROPERTY_FORMULA_LIMITS.maxLength) return null;
   const parsed = parseFormula(expression);
   if (parsed === null) {
     return null;
@@ -178,6 +180,69 @@ export function formulaFieldNames(expression: string): readonly string[] | null 
   });
 
   return names;
+}
+
+/** Static authoring feedback from the same parser and function contracts used to evaluate. */
+export function propertyFormulaProblem(
+  expression: string,
+  available: ReadonlySet<string>,
+): string | null {
+  if (expression.length > PROPERTY_FORMULA_LIMITS.maxLength) {
+    return `Use at most ${String(PROPERTY_FORMULA_LIMITS.maxLength)} characters. This formula will read as #LIMIT!.`;
+  }
+  if (expression.trim().length === 0) return null;
+  if (expression.trimStart().startsWith('=')) {
+    return 'Write the expression without a leading =. Only spreadsheet cells need =. This formula will read as #PARSE!.';
+  }
+  const parsed = parseFormulaResult(expression);
+  if (!parsed.ok) {
+    return `At character ${String(parsed.position + 1)}: ${parsed.message} This formula will read as #PARSE!.`;
+  }
+  const pending = [parsed.node];
+  const unknown = new Set<string>();
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (node === undefined) break;
+    switch (node.kind) {
+      case 'field':
+        if (!available.has(node.name)) unknown.add(node.name);
+        break;
+      case 'ref':
+      case 'range':
+        return PROPERTY_FORMULA_HELP['#REF!'];
+      case 'call': {
+        const arity = FORMULA_FUNCTION_ARITIES.get(node.name);
+        if (arity === undefined)
+          return `${node.name} is not a supported function. This formula can read as #NAME?.`;
+        const [min, max] = arity;
+        if (node.args.length < min || (max !== null && node.args.length > max)) {
+          const count =
+            max === null
+              ? `at least ${String(min)}`
+              : min === max
+                ? String(min)
+                : `${String(min)} to ${String(max)}`;
+          return `${node.name} expects ${count} ${max === 1 ? 'argument' : 'arguments'}. This formula can read as #VALUE!.`;
+        }
+        pending.push(...node.args);
+        break;
+      }
+      case 'unary':
+      case 'percent':
+        pending.push(node.operand);
+        break;
+      case 'binary':
+        pending.push(node.right, node.left);
+        break;
+      case 'number':
+      case 'string':
+      case 'boolean':
+        break;
+    }
+  }
+  return unknown.size === 0
+    ? null
+    : `${[...unknown].map((name) => `[${name}]`).join(', ')} ${unknown.size === 1 ? 'is not a property' : 'are not properties'} anything here declares. Use the field key shown below. This formula can read as #NAME?.`;
 }
 
 /**

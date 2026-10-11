@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { Button } from './Button';
 import { Dialog } from './Dialog';
+import { Popover } from './Popover';
 import { Input } from './Input';
 
 /**
@@ -76,6 +77,25 @@ function OpenableDialog({ children }: { children?: ReactNode }): ReactNode {
 }
 
 describe('Dialog', () => {
+  it('lets an inline disclosure consume Escape before the surrounding modal', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Dialog open title="Item settings" onClose={onClose}>
+        <Popover label="Filter" trigger={(trigger) => <button {...trigger}>Filter</button>}>
+          <input aria-label="Contains" />
+        </Popover>
+      </Dialog>,
+    );
+    const trigger = screen.getByRole('button', { name: 'Filter' });
+    await user.click(trigger);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Filter' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Item settings' })).toBeVisible();
+    expect(trigger).toHaveFocus();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('shows nothing until it is told to open', () => {
     render(
       <Dialog open={false} title="Rename document" onClose={vi.fn()}>

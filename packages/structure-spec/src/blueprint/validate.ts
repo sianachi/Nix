@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import {
   formulaFieldNames,
+  propertyFormulaProblem,
   planPropertyFormulas,
   PROPERTY_FORMULA_HELP,
   PROPERTY_FORMULA_LIMITS,
@@ -52,6 +53,16 @@ export function validateFormulas(
             path: `${path}.fields`,
             code: 'formula.unknown_field',
             message: `${PROPERTY_FORMULA_HELP['#NAME?']} Formula '${formula.key}' refers to '${name}'.`,
+          });
+        }
+      }
+      if (names.every((name) => fieldByKey.has(name))) {
+        const problem = propertyFormulaProblem(formula.expression, new Set(fieldByKey.keys()));
+        if (problem !== null) {
+          problems.push({
+            path: `${path}.fields`,
+            code: 'formula.invalid_expression',
+            message: `Formula '${formula.key}': ${problem}`,
           });
         }
       }

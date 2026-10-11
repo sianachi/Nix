@@ -814,7 +814,7 @@ describe('a formula property', () => {
     );
 
     expect(screen.getByRole('alert')).toHaveTextContent(
-      '#NAME? - This formula uses a property name that nothing here declares.',
+      '#NAME? - This formula uses a property name that nothing here declares, or an unknown function.',
     );
   });
 
@@ -910,6 +910,123 @@ describe('a rollup property', () => {
     expect(onCommit).toHaveBeenCalledWith('2099-03-17T09:30:00-10:00[Pacific/Honolulu]');
     expect(screen.getByText(/in Pacific\/Honolulu/)).toBeVisible();
   });
+
+  it('keeps an unsent timestamp and its time zone through refresh, then saves it on blur', () => {
+    const onCommit = vi.fn();
+    const property = propertyOf({ key: 'starts', label: 'Starts', type: 'timestamp' });
+    const { rerender } = render(
+      <PropertyInput
+        item={itemWith({ starts: '2099-03-17T09:30:00+00:00[Europe/London]' })}
+        property={property}
+        onCommit={onCommit}
+      />,
+    );
+    const control = screen.getByLabelText('Starts');
+    fireEvent.change(control, { target: { value: '2099-03-17T10:45' } });
+    rerender(
+      <PropertyInput
+        item={itemWith({ starts: '2099-03-18T14:00:00-04:00[America/New_York]' })}
+        property={property}
+        onCommit={onCommit}
+      />,
+    );
+    expect(control).toHaveValue('2099-03-17T10:45');
+    expect(screen.getByRole('combobox', { name: 'Time zone for Starts' })).toHaveValue(
+      'Europe/London',
+    );
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.blur(control);
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith('2099-03-17T10:45:00+00:00[Europe/London]');
+
+    rerender(
+      <PropertyInput
+        item={itemWith({ starts: '2099-03-19T16:15:00+01:00[Europe/Berlin]' })}
+        property={property}
+        onCommit={onCommit}
+      />,
+    );
+    expect(control).toHaveValue('2099-03-19T16:15');
+    expect(screen.getByRole('combobox', { name: 'Time zone for Starts' })).toHaveValue(
+      'Europe/Berlin',
+    );
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unsent reminder through refresh, then saves it on blur', () => {
+    const onCommit = vi.fn();
+    const property = propertyOf({ key: 'reminder', label: 'Reminder', type: 'reminder' });
+    const { rerender } = render(
+      <PropertyInput
+        item={itemWith({ reminder: '2099-03-17T19:30:00+00:00[Europe/London]' })}
+        property={property}
+        onCommit={onCommit}
+      />,
+    );
+    const control = screen.getByLabelText('Reminder');
+    fireEvent.change(control, { target: { value: '2099-03-17T10:45' } });
+    rerender(
+      <PropertyInput
+        item={itemWith({ reminder: '2099-03-18T18:00:00+00:00[Europe/London]' })}
+        property={property}
+        onCommit={onCommit}
+      />,
+    );
+    expect(control).toHaveValue('2099-03-17T10:45');
+    expect(onCommit).not.toHaveBeenCalled();
+    fireEvent.blur(control);
+    expect(onCommit).toHaveBeenCalledExactlyOnceWith('2099-03-17T10:45:00-10:00[Pacific/Honolulu]');
+
+    rerender(
+      <PropertyInput
+        item={itemWith({ reminder: '2099-03-19T22:15:00+00:00[Europe/London]' })}
+        property={property}
+        onCommit={onCommit}
+      />,
+    );
+    expect(control).toHaveValue('2099-03-19T12:15');
+    fireEvent.blur(control);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      type: 'timestamp',
+      initial: '2099-03-17T09:30:00+00:00[Europe/London]',
+      expected: '2099-03-17T10:45:00+00:00[Europe/London]',
+    },
+    {
+      type: 'reminder',
+      initial: '2099-03-17T19:30:00+00:00[Europe/London]',
+      expected: '2099-03-17T10:45:00-10:00[Pacific/Honolulu]',
+    },
+  ])(
+    'retries an unchanged $type draft on blur after a failed save',
+    ({ type, initial, expected }) => {
+      const onCommit = vi.fn();
+      const property = propertyOf({ key: 'moment', label: 'Moment', type });
+      const stored = itemWith({ moment: initial });
+      const { rerender } = render(
+        <PropertyInput item={stored} property={property} onCommit={onCommit} />,
+      );
+      const control = screen.getByLabelText('Moment');
+      fireEvent.change(control, { target: { value: '2099-03-17T10:45' } });
+      fireEvent.blur(control);
+      expect(onCommit).toHaveBeenCalledExactlyOnceWith(expected);
+
+      rerender(
+        <PropertyInput
+          item={stored}
+          property={property}
+          error="That change could not be saved."
+          onCommit={onCommit}
+        />,
+      );
+      expect(control).toHaveValue('2099-03-17T10:45');
+      expect(screen.getByRole('alert')).toHaveTextContent('That change could not be saved.');
+      fireEvent.blur(control);
+      expect(onCommit.mock.calls).toEqual([[expected], [expected]]);
+    },
+  );
 
   it('shows a stored reminder on the reader’s own clock and clears it with its own control', async () => {
     const person = userEvent.setup();

@@ -3,7 +3,11 @@ import { useState, type ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { renderAt } from '../../render-with-router';
-import type { PropertyDefinition, ViewFilterRule } from '../../../views/core/container-model';
+import {
+  filterGroup,
+  type PropertyDefinition,
+  type ViewFilterRule,
+} from '../../../views/core/container-model';
 import { FilterRulesEditor } from '../../../views/query/filter-rules-editor';
 
 /**
@@ -147,6 +151,47 @@ describe('the filter rules editor', () => {
 
     renderEditor([], 'container');
     expect(suggested()).not.toContain('$type');
+  });
+
+  it('suggests computed fields for loaded container filters and excludes them from smart lists', () => {
+    const schema = [
+      ...SCHEMA,
+      { key: 'score', label: 'Score', type: 'formula', options: [], required: false },
+      { key: 'total', label: 'Total', type: 'rollup', options: [], required: false },
+    ] satisfies readonly PropertyDefinition[];
+    const query = renderAt(
+      <FilterRulesEditor rules={[]} schema={schema} scope="query" onChange={() => undefined} />,
+    );
+    const suggested = () =>
+      Array.from(document.querySelectorAll('datalist option'), (option) =>
+        option.getAttribute('value'),
+      );
+    expect(suggested()).not.toContain('score');
+    expect(suggested()).not.toContain('total');
+    expect(screen.getByText(/Smart lists compare stored values/)).toBeVisible();
+    query.unmount();
+    renderAt(
+      <FilterRulesEditor rules={[]} schema={schema} scope="container" onChange={() => undefined} />,
+    );
+    expect(suggested()).toContain('score');
+    expect(suggested()).toContain('total');
+  });
+
+  it('warns about computed local keys in query groups while preserving cross-container free text', () => {
+    renderAt(
+      <FilterRulesEditor
+        rules={[filterGroup([{ property: 'score', operator: 'greater-than', value: '5' }])]}
+        schema={[{ key: 'score', label: 'Score', type: 'formula', options: [], required: false }]}
+        scope="query"
+        onChange={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Filters on Score compare stored values only.',
+    );
+    expect(screen.getByRole('combobox', { name: 'Property' })).toHaveValue('score');
+    expect(screen.getByRole('combobox', { name: 'Condition' })).toHaveValue('greater-than');
+    expect(screen.getByRole('textbox', { name: 'Value' })).toHaveValue('5');
   });
 
   it('hints the day tokens a day operator reads', () => {

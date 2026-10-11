@@ -10,7 +10,7 @@ function Panel({ anchor }: { readonly anchor: () => FloatingMenuAnchor }) {
   useAnchoredPanel(ref, anchor, null);
   return (
     <div role="region" aria-label="Scroller">
-      <div ref={ref} role="dialog" aria-label="Tools" />
+      <div ref={ref} popover="manual" role="dialog" aria-label="Tools" />
     </div>
   );
 }

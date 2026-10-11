@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/sianachi/Nix/apps/go-workers/internal/nixarchive"
 )
@@ -69,14 +70,20 @@ type nixSchemaSnapshot struct {
 }
 
 type nixSchemaProperty struct {
-	Key  string `json:"key"`
-	Type string `json:"type"`
+	Key        string   `json:"key"`
+	Type       string   `json:"type"`
+	Options    []string `json:"options"`
+	Required   bool     `json:"required"`
+	Expression *string  `json:"expression"`
+	Aggregate  *string  `json:"aggregate"`
+	Source     *string  `json:"source"`
 }
 
 var nixPropertyTypes = map[string]struct{}{
 	"text": {}, "number": {}, "select": {}, "multi_select": {}, "date": {}, "checkbox": {},
 	"url": {}, "timestamp": {}, "image": {}, "due_date": {}, "start_date": {},
 	"completion": {}, "priority": {}, "estimate": {}, "assignee": {}, "long_text": {},
+	"formula": {}, "rollup": {}, "datetime": {}, "reminder": {},
 }
 
 type nixBundle struct {
@@ -387,6 +394,33 @@ func validateNixSchema(schema *nixSchemaSnapshot) error {
 			}
 			if _, ok := nixPropertyTypes[property.Type]; !ok {
 				return fmt.Errorf("the property schema contains unsupported type %q", property.Type)
+			}
+			if property.Type == "formula" {
+				if property.Expression == nil || strings.TrimSpace(*property.Expression) == "" ||
+					len(utf16.Encode([]rune(*property.Expression))) > 1024 {
+					return fmt.Errorf("the formula property %q needs an expression of at most 1024 characters", property.Key)
+				}
+			} else if property.Expression != nil {
+				return fmt.Errorf("the non-formula property %q contains an expression", property.Key)
+			}
+			if property.Type == "rollup" {
+				if property.Aggregate == nil {
+					return fmt.Errorf("the rollup property %q needs an aggregate", property.Key)
+				}
+				switch *property.Aggregate {
+				case "count", "sum", "min", "max", "average", "any", "all":
+				default:
+					return fmt.Errorf("the rollup property %q contains an unsupported aggregate", property.Key)
+				}
+				if property.Source == nil && *property.Aggregate != "count" || property.Source != nil &&
+					(strings.TrimSpace(*property.Source) == "" || *property.Source == property.Key) {
+					return fmt.Errorf("the rollup property %q needs a valid source property", property.Key)
+				}
+			} else if property.Aggregate != nil || property.Source != nil {
+				return fmt.Errorf("the non-rollup property %q contains aggregate or source metadata", property.Key)
+			}
+			if (property.Type == "formula" || property.Type == "rollup") && (property.Required || len(property.Options) != 0) {
+				return fmt.Errorf("the computed property %q cannot be required or contain options", property.Key)
 			}
 		}
 	}

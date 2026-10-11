@@ -1545,6 +1545,92 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         }
     }
 
+    [Theory]
+    [InlineData(PropertyType.Formula, "[amount] * 3", null, null)]
+    [InlineData(PropertyType.Rollup, null, RollupAggregate.Average, "amount")]
+    [InlineData(PropertyType.Rollup, null, RollupAggregate.Sum, "budget")]
+    public async Task Merge_refuses_different_computed_definitions_before_staging(
+        PropertyType type, string? expression, RollupAggregate? aggregate, string? source)
+    {
+        var existingSchema = ComputedSchema(type);
+        var incomingSchema = ComputedSchema(type, expression, aggregate, source);
+        var templateId = await ImportAndFinalizeAsync("computed-merge", rootSchema: incomingSchema);
+        var targetId = await AddOrdinaryItemAsync("Computed merge target");
+        var work = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            await work.DbContext.Items.Where(item => item.Id == targetId)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.Schema, existingSchema), Cancellation);
+            var store = work.Resolve<TemplateStore>();
+            var preflight = await store.PreflightAsync(
+                templateId, TemplateApplicationMode.Merge, targetId, null, Cancellation);
+
+            Assert.True(preflight.IsSuccess);
+            Assert.False(preflight.Value.CanApply);
+            Assert.Equal("Property 'total' already exists with an incompatible definition.", Assert.Single(preflight.Value.Conflicts));
+            var applicationsBefore = await work.DbContext.TemplateApplications.CountAsync(Cancellation);
+            var begun = await store.BeginApplicationAsync(
+                templateId, TemplateApplicationMode.Merge, targetId, null, null, "computed-merge-application", Cancellation);
+
+            Assert.True(begun.IsFailure);
+            Assert.Equal("templates.conflict", begun.Error.Code);
+            Assert.Equal(applicationsBefore, await work.DbContext.TemplateApplications.CountAsync(Cancellation));
+            Assert.False(await work.DbContext.Items.IgnoreQueryFilters().AnyAsync(
+                item => item.LifecycleState == ItemLifecycleState.Provisioning, Cancellation));
+            Assert.Equal(existingSchema, PropertySchemaJson.Write(PropertySchemaJson.Read(
+                (await work.DbContext.Items.AsNoTracking().SingleAsync(item => item.Id == targetId, Cancellation)).Schema)));
+        }
+    }
+
+    [Theory]
+    [InlineData(PropertyType.Formula, "[amount] * 3", null, null)]
+    [InlineData(PropertyType.Rollup, null, RollupAggregate.Average, "amount")]
+    [InlineData(PropertyType.Rollup, null, RollupAggregate.Sum, "budget")]
+    public async Task Merge_finalization_refuses_computed_definition_changes_after_staging(
+        PropertyType type, string? expression, RollupAggregate? aggregate, string? source)
+    {
+        var originalSchema = ComputedSchema(type);
+        var changedSchema = ComputedSchema(type, expression, aggregate, source);
+        var templateId = await ImportAndFinalizeAsync("computed-merge-drift", rootSchema: originalSchema);
+        var targetId = await AddOrdinaryItemAsync("Computed merge drift target");
+        TemplateApplicationPlan staged;
+        var begin = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (begin.ConfigureAwait(false))
+        {
+            await begin.DbContext.Items.Where(item => item.Id == targetId)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.Schema, originalSchema), Cancellation);
+            var begun = await begin.Resolve<TemplateStore>().BeginApplicationAsync(
+                templateId, TemplateApplicationMode.Merge, targetId, null, null, "computed-merge-drift-application", Cancellation);
+            Assert.True(begun.IsSuccess, begun.IsFailure ? begun.Error.ToString() : null);
+            staged = begun.Value;
+            Assert.Single(staged.CreatedItems);
+            await begin.CommitAsync(Cancellation);
+        }
+
+        var edit = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (edit.ConfigureAwait(false))
+        {
+            await edit.DbContext.Items.Where(item => item.Id == targetId)
+                .ExecuteUpdateAsync(update => update.SetProperty(item => item.Schema, changedSchema), Cancellation);
+            await edit.CommitAsync(Cancellation);
+        }
+
+        var finalize = await _fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (finalize.ConfigureAwait(false))
+        {
+            var result = await finalize.Resolve<TemplateStore>().FinalizeApplicationAsync(
+                staged.ApplicationId, [], Cancellation);
+
+            Assert.True(result.IsFailure);
+            Assert.Equal("templates.conflict", result.Error.Code);
+            Assert.Equal(changedSchema, PropertySchemaJson.Write(PropertySchemaJson.Read(
+                (await finalize.DbContext.Items.AsNoTracking().SingleAsync(item => item.Id == targetId, Cancellation)).Schema)));
+            Assert.Equal(ItemLifecycleState.Provisioning,
+                (await finalize.DbContext.Items.IgnoreQueryFilters().SingleAsync(
+                    item => item.Id == staged.CreatedItems[0].ItemId, Cancellation)).LifecycleState);
+        }
+    }
+
     [Fact]
     public async Task Merge_preflight_rejects_schema_and_view_sets_that_only_overflow_when_combined()
     {
@@ -3906,7 +3992,8 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
 
     private async Task<TemplateId> ImportAndFinalizeAsync(
         string idempotencyKey,
-        Nix.Abstractions.NixSessionContext? context = null)
+        Nix.Abstractions.NixSessionContext? context = null,
+        string? rootSchema = null)
     {
         var selected = context ?? TestTenants.AlphaContext;
         var work = await _fixture.Application.BeginUnitOfWorkAsync(selected, Cancellation);
@@ -3917,7 +4004,7 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
                 selected.WorkspaceId!.Value,
                 $"{idempotencyKey}-import",
                 Descriptor(),
-                Items(),
+                rootSchema is null ? Items() : [Items()[0] with { Schema = rootSchema }, Items()[1]],
                 Cancellation);
             Assert.True(begun.IsSuccess);
             var finalized = await store.FinalizeOperationAsync(begun.Value.OperationId!.Value, [], Cancellation);
@@ -4142,6 +4229,25 @@ public sealed class TemplateStoreIntegrationTests : IAsyncLifetime
         Items()[0] with { HasBody = true },
         Items()[1],
     ];
+
+    private static string ComputedSchema(
+        PropertyType type,
+        string? expression = null,
+        RollupAggregate? aggregate = null,
+        string? source = null) => PropertySchemaJson.Write(new PropertySchema
+        {
+            Inherit = false,
+            Properties =
+            [
+                new PropertyDefinition("answer", "Answer", PropertyType.Text, [], false),
+                new PropertyDefinition("amount", "Amount", PropertyType.Number, [], false),
+                new PropertyDefinition("budget", "Budget", PropertyType.Number, [], false),
+                new PropertyDefinition("total", "Total", type, [], false,
+                    type == PropertyType.Formula ? expression ?? "[amount] * 2" : null,
+                    type == PropertyType.Rollup ? aggregate ?? RollupAggregate.Sum : null,
+                    type == PropertyType.Rollup ? source ?? "amount" : null),
+            ],
+        });
 
     private static string LargeSchema(string key, char labelCharacter) =>
         $"{{\"inherit\":true,\"properties\":[{{\"key\":\"{key}\",\"label\":\"{new string(labelCharacter, 17_000)}\",\"type\":\"text\",\"required\":false}}]}}";

@@ -1,12 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { NixClient } from '@nix/api-client';
+import { createNixClient, NixApiError, type NixClient } from '@nix/api-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FileViewer } from '../../files/file-viewer';
 import { stubViewport } from '../stub-viewport';
 
 let client: NixClient;
+const revokeObjectURL = vi.fn();
 
 vi.mock('../../api/api-client-provider', () => ({
   useApiClient: () => client,
@@ -39,6 +40,13 @@ function record(previewable: boolean, mediaType = 'image/png') {
 
 function fakeClient(previewable: boolean, mediaType = 'image/png'): NixClient {
   return {
+    cache: createNixClient({
+      baseUrl: 'http://localhost',
+      tokens: {
+        getAccessToken: () => Promise.resolve(null),
+        refreshAccessToken: () => Promise.resolve(null),
+      },
+    }).cache,
     query: vi.fn((endpoint: { operation: string }) => {
       if (endpoint.operation === 'files.get')
         return Promise.resolve(record(previewable, mediaType));
@@ -68,7 +76,7 @@ beforeEach(() => {
   });
   Object.defineProperty(URL, 'revokeObjectURL', {
     configurable: true,
-    value: vi.fn(),
+    value: revokeObjectURL.mockClear(),
   });
 });
 
@@ -226,5 +234,68 @@ describe('the file item viewer', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/preview is unavailable/i);
     expect(screen.getAllByRole('button', { name: 'Download' })[0]).toBeEnabled();
+  });
+
+  it.each([403, 404, 423])(
+    'removes previous file metadata and preview when a refresh returns %s',
+    async (status) => {
+      client = fakeClient(true);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => Promise.resolve(new Response('payload', { status: 200 }))),
+      );
+      const user = userEvent.setup();
+
+      render(<FileViewer itemId={ITEM} />);
+      expect(await screen.findByRole('img', { name: 'diagram.png' })).toHaveAttribute(
+        'src',
+        'blob:nix-preview',
+      );
+      await user.click(screen.getByRole('button', { name: 'File info' }));
+      expect(screen.getByText('1'.repeat(64))).toBeVisible();
+
+      vi.spyOn(client, 'query').mockRejectedValueOnce(
+        NixApiError.fromStatus(status, 'This file is no longer available.'),
+      );
+      act(() => {
+        client.cache.invalidatePrefix(['files', ITEM]);
+      });
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This file is no longer available.',
+      );
+      expect(screen.queryByRole('region', { name: 'File' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('img', { name: 'diagram.png' })).not.toBeInTheDocument();
+      expect(screen.queryByText('diagram.png')).not.toBeInTheDocument();
+      expect(screen.queryByText('1'.repeat(64))).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:nix-preview');
+    },
+  );
+
+  it('retains the previous file metadata and preview when a refresh temporarily fails', async () => {
+    client = fakeClient(true);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('payload', { status: 200 }))),
+    );
+
+    render(<FileViewer itemId={ITEM} />);
+    const preview = await screen.findByRole('img', { name: 'diagram.png' });
+    vi.spyOn(client, 'query').mockRejectedValueOnce(
+      NixApiError.fromStatus(503, 'The server is temporarily unavailable.'),
+    );
+    act(() => {
+      client.cache.invalidatePrefix(['files', ITEM]);
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The server is temporarily unavailable.',
+    );
+    expect(screen.getByText('diagram.png')).toBeVisible();
+    expect(screen.getByRole('img', { name: 'diagram.png' })).toBe(preview);
+    expect(preview).toHaveAttribute('src', 'blob:nix-preview');
+    expect(screen.getByRole('button', { name: 'Download' })).toBeEnabled();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
   });
 });

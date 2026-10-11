@@ -1,6 +1,6 @@
 import { fireEvent, screen, within } from '@testing-library/react';
 import type * as apiClient from '@nix/api-client';
-import type { NixClient } from '@nix/api-client';
+import { createNixClient, type NixClient } from '@nix/api-client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { aContainer } from '../../container-fixture';
@@ -166,6 +166,13 @@ vi.mock('@nix/api-client', async () => {
 
 function fakeClient(): NixClient {
   return {
+    cache: createNixClient({
+      baseUrl: 'http://localhost',
+      tokens: {
+        getAccessToken: () => Promise.resolve(null),
+        refreshAccessToken: () => Promise.resolve(null),
+      },
+    }).cache,
     query: vi.fn((endpoint: { operation: string; path: string }) => {
       if (endpoint.operation === 'files.get') {
         if (endpoint.path.includes(FILE_A.id))
