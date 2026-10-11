@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { isEditableTarget } from '../primitives/interaction';
@@ -92,7 +92,7 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
   });
   // Found by its marker rather than held in a ref or in state: state rendered every row a second
   // time as it mounted, which a long table paid for in full.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = document.querySelector<HTMLElement>(
       `[data-context-menu="${CSS.escape(marker)}"]`,
     );

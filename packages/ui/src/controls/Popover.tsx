@@ -189,13 +189,14 @@ function PopoverPanel(props: PopoverPanelProps): ReactNode {
     <div
       id={id}
       ref={panelRef}
+      popover="manual"
       role="dialog"
       aria-label={label}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       className={cn(
         blueprintFrame,
-        'fixed z-30 flex flex-col gap-3 overflow-y-auto bg-background p-3 shadow-md',
+        'fixed inset-auto z-50 m-0 flex flex-col gap-3 overflow-y-auto bg-background p-3 text-foreground shadow-md',
         chromeSurface,
         // design-token-exempt: the same reading-measure floor and phone bottom-sheet concession as
         // `<Menu>`'s panel, so a popover and a menu opened from one toolbar look like one family.
