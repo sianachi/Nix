@@ -141,6 +141,32 @@ describe('account-scoped draft persistence', () => {
     ).rejects.toThrow('closed');
   });
 
+  it('lists duplicate draft records once per scope and only for the admitted account', async () => {
+    for (const [id, itemId] of [
+      ['one', 'same'],
+      ['two', 'same'],
+      ['three', 'other'],
+    ] as const)
+      await writeDraft({
+        id,
+        scope: scope(itemId),
+        revision: 0,
+        update: update(id),
+      });
+    await openBodyCache('bob');
+    await writeDraft({
+      id: 'bob-draft',
+      scope: documentScope('bob', 'workspace', 'same', 'note') ?? '',
+      revision: 0,
+      update: update('Other account'),
+    });
+    await openBodyCache('alice');
+    await sealItemBodies('alice', 'workspace', 'same');
+    expect(await listDraftScopes('alice')).toEqual([scope('other'), scope('same')]);
+    expect(await listDraftScopes('bob')).toEqual([]);
+    expect(await readDrafts(scope('same'))).toHaveLength(2);
+  });
+
   it('recovers more than 128 editor instances without discarding their updates', async () => {
     for (let index = 0; index < 129; index += 1)
       await writeDraft({

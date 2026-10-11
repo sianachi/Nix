@@ -304,22 +304,23 @@ function draftsChanged(): void {
 /** Pending note scopes for the currently open account, without loading their Yjs bytes. */
 export async function listDraftScopes(subject: string): Promise<string[]> {
   if (!bodyCacheAccountAdmits(subject)) return [];
+  const epoch = bodyCacheDraftEpoch(subject);
   const prefix = `${JSON.stringify([subject]).slice(0, -1)},`;
   return transaction('readonly', (store, done) => {
-    const scopes: string[] = [];
-    const cursor = store.index('scope').openKeyCursor(null, 'nextunique');
+    const scopes = new Set<string>();
+    const cursor = store.index('scope').openKeyCursor();
     cursor.onsuccess = () => {
       const current = cursor.result;
       if (current === null) {
-        done(bodyCacheAccountAdmits(subject) ? scopes : []);
+        done(bodyCacheDraftCurrent(subject, epoch) ? [...scopes] : []);
         return;
       }
       if (
         typeof current.key === 'string' &&
         current.key.startsWith(prefix) &&
-        bodyCacheAccountAdmits(subject)
+        bodyCacheDraftCurrent(subject, epoch)
       )
-        scopes.push(current.key);
+        scopes.add(current.key);
       current.continue();
     };
   });
