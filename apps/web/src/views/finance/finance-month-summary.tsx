@@ -44,7 +44,7 @@ export function FinanceMonthSummary({
           <Text variant="body" className="font-semibold">
             {figures.net < 0 ? 'Spending above income this month' : 'Money left this month'}
           </Text>
-          <Text as="p" variant="h3" className="break-words tabular-nums">
+          <Text as="p" variant="h3" className="tabular-nums">
             <Money amount={Math.abs(figures.net)} currency={currency} />
           </Text>
           <Text variant="bodySmall" tone="muted">
@@ -63,7 +63,7 @@ export function FinanceMonthSummary({
                 ? 'Debt above cash held'
                 : 'Cash after all remaining debt'}
           </Text>
-          <Text as="p" variant="h3" className="break-words tabular-nums">
+          <Text as="p" variant="h3" className="tabular-nums">
             <Money
               amount={Math.abs(afterDebt ?? dashboard.position.netPosition)}
               currency={currency}

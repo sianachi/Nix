@@ -212,7 +212,7 @@ function Fact({ label, value }: { readonly label: string; readonly value: ReactN
       <Text as="dt" variant="caption" tone="muted">
         {label}
       </Text>
-      <Text as="dd" variant="bodySmall" className="break-words">
+      <Text as="dd" variant="bodySmall">
         {value}
       </Text>
     </div>

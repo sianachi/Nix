@@ -33,6 +33,23 @@ func TestCatalogsAreEmbeddedAndBounded(t *testing.T) {
 	}
 }
 
+func TestPropertyFormulaGuidanceIsPresentWithoutWorkspaceTools(t *testing.T) {
+	for _, mode := range []string{"chat", "consult"} {
+		text := catalogFor(mode)
+		for _, phrase := range []string{
+			"case-sensitive property keys as [key]",
+			"without a leading =",
+			"never labels, prop() or PROPERTY()",
+			"TODAY and NOW are unsupported",
+			`IF([completion], "Done", "Open")`,
+		} {
+			if !strings.Contains(text, phrase) {
+				t.Errorf("%s instructions omit formula guidance %q", mode, phrase)
+			}
+		}
+	}
+}
+
 func TestCatalogNamesEveryOperationInItsMode(t *testing.T) {
 	names := toolNamesFor("chat")
 

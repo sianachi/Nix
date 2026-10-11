@@ -52,10 +52,19 @@ export function MobileNoteToolbar({
         const dock = dockRef.current;
         const parent = dock?.parentElement;
         if (!dock || !parent) return;
+        const bounds = parent.getBoundingClientRect();
         const bottom = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
         dock.style.setProperty(
           '--keyboard-inset',
-          `${String(Math.max(0, parent.getBoundingClientRect().bottom - bottom))}px`,
+          `${String(Math.max(0, bounds.bottom - bottom))}px`,
+        );
+        dock.style.setProperty(
+          '--viewport-inset-left',
+          `${String(Math.max(0, (viewport?.offsetLeft ?? 0) - bounds.left))}px`,
+        );
+        dock.style.setProperty(
+          '--viewport-inset-right',
+          `${String(Math.max(0, bounds.right - ((viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth))))}px`,
         );
         document.documentElement.style.setProperty(
           '--mobile-note-toolbar-clearance',
@@ -84,10 +93,10 @@ export function MobileNoteToolbar({
   const collapsed = visibility === 'while-writing' && hidden;
   const [actionsOpen, setActionsOpen] = useState(false);
   return (
-    // design-token-exempt: keyboard inset is measured from the runtime visual viewport; safe-area is supplied by the device.
+    // design-token-exempt: insets follow the runtime visual viewport and the device safe area.
     <div
       ref={dockRef}
-      className="absolute inset-x-3 bottom-[max(calc(var(--keyboard-inset,0%)+var(--spacing)*3),env(safe-area-inset-bottom))] z-20 rounded-md border border-divider bg-background p-1 shadow-md"
+      className="absolute left-[calc(var(--spacing)*3+var(--viewport-inset-left,0%))] right-[calc(var(--spacing)*3+var(--viewport-inset-right,0%))] bottom-[max(calc(var(--keyboard-inset,0%)+var(--spacing)*3),env(safe-area-inset-bottom))] z-20 min-w-0 rounded-md border border-divider bg-background p-1 shadow-md"
     >
       {collapsed ? (
         <Button
@@ -103,7 +112,7 @@ export function MobileNoteToolbar({
         </Button>
       ) : (
         <>
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1">
             <div
               className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
               role="group"

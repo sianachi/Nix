@@ -1169,7 +1169,7 @@ export function TransactionDialog({
             </Text>
           </div>
         ) : null}
-        <fieldset disabled={busy || closePending} className="flex flex-col gap-4">
+        <fieldset disabled={busy || closePending} className="flex min-w-0 flex-col gap-4">
           <Field label="Amount" hint={`In ${currency}. Refunds go in as money in.`}>
             {(control) => (
               <div className="grid min-w-0 grid-cols-1 gap-2 @sm:grid-cols-2">

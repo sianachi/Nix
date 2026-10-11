@@ -211,7 +211,10 @@ public static class PublicFormEndpoints
         ArgumentNullException.ThrowIfNull(item);
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(httpContext);
-        if (!tokens.IsConfigured || view.Kind != ViewKind.InteractiveForm || view.InteractiveForm is null)
+        if (!tokens.IsConfigured
+            || view.Kind != ViewKind.InteractiveForm
+            || view.InteractiveForm is null
+            || string.Equals(view.Mode, "temporary", StringComparison.Ordinal))
         {
             return null;
         }
@@ -350,7 +353,7 @@ public static class PublicFormEndpoints
         await using var transaction = await store.BeginAsync(context, httpContext.RequestAborted)
             .ConfigureAwait(false);
 #pragma warning restore CA2007
-        var resolved = await Resolve(store, tree, payload, httpContext.RequestAborted).ConfigureAwait(false);
+        var resolved = await Resolve(store, tree, payload, lockSubmission: false, httpContext.RequestAborted).ConfigureAwait(false);
         if (resolved is null)
         {
             return NotFound();
@@ -403,7 +406,7 @@ public static class PublicFormEndpoints
         await using var transaction = await store.BeginAsync(context, httpContext.RequestAborted)
             .ConfigureAwait(false);
 #pragma warning restore CA2007
-        var resolved = await Resolve(store, tree, payload, httpContext.RequestAborted).ConfigureAwait(false);
+        var resolved = await Resolve(store, tree, payload, lockSubmission: true, httpContext.RequestAborted).ConfigureAwait(false);
         if (resolved is null)
         {
             return NotFound();
@@ -475,6 +478,7 @@ public static class PublicFormEndpoints
         IPublicFormStore store,
         IItemTree tree,
         PublicFormTokenPayload payload,
+        bool lockSubmission,
         CancellationToken cancellationToken)
     {
         var link = await store.FindAsync(payload.LinkId, cancellationToken).ConfigureAwait(false);
@@ -490,6 +494,11 @@ public static class PublicFormEndpoints
             return null;
         }
 
+        if (lockSubmission && !await store.LockSubmissionAsync(link, cancellationToken).ConfigureAwait(false))
+        {
+            return null;
+        }
+
         var item = await tree.FindAsync(link.ItemId, cancellationToken).ConfigureAwait(false);
         var view = item is null ? null : FindInteractiveForm(item, link.ViewId);
         return item is null || item.LifecycleState != ItemLifecycleState.Active || view is null
@@ -501,6 +510,7 @@ public static class PublicFormEndpoints
         ViewDefinitionsJson.Read(item.Views).Views.FirstOrDefault(
             view => view.Kind == ViewKind.InteractiveForm
                 && view.InteractiveForm is not null
+                && !string.Equals(view.Mode, "temporary", StringComparison.Ordinal)
                 && string.Equals(view.Id, viewId, StringComparison.Ordinal));
 
     public static IReadOnlyList<FormBlock> VisibleFields(

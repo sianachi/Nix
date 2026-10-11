@@ -1293,12 +1293,9 @@ function RescheduleFields({
     aside.endKey === null ? null : resolveDateProperty(aside.schema, aside.endKey, 'End date');
 
   return (
-    // Each field's floor holds only from `sm` up. Unconditional, 14rem was wider than the room a
-    // 375px viewport leaves once the pane's gutters are taken out, so the fields forced the pane
-    // wide instead of stacking; at the base width they are `w-full` rows of the wrapping flex,
-    // one under the other, which is what a phone-width form is.
+    // Cap the desktop measure by the pane width, since a split pane can be narrower than a phone.
     <div className="flex flex-wrap items-start gap-3">
-      <div className="w-full min-w-0 sm:w-auto sm:min-w-[14rem]">
+      <div className="w-full min-w-0 max-w-full sm:w-56">
         <PropertyInput
           item={item}
           property={start}
@@ -1319,7 +1316,7 @@ function RescheduleFields({
           under Views to give these bars a length.
         </Text>
       ) : (
-        <div className="w-full min-w-0 sm:w-auto sm:min-w-[14rem]">
+        <div className="w-full min-w-0 max-w-full sm:w-56">
           <PropertyInput
             item={item}
             property={end}

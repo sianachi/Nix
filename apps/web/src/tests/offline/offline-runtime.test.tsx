@@ -397,6 +397,67 @@ beforeEach(async () => {
 });
 
 describe('scheduling background offline synchronization', () => {
+  it('does not queue another full pass for repeated online events during an active pass', async () => {
+    const remoteNote = note(1);
+    const remote = core([remoteNote]);
+    const flushStarted = deferred();
+    const releaseFlush = deferred();
+    let flushes = 0;
+    transport.beforeAccountFlush = async () => {
+      flushes += 1;
+      if (flushes === 1) {
+        flushStarted.resolve();
+        await releaseFlush.promise;
+      }
+    };
+    const mounted = renderRuntime(remote.client);
+    await flushStarted.promise;
+    act(() => {
+      window.dispatchEvent(new Event('online'));
+      window.dispatchEvent(new Event('online'));
+    });
+    const ready = nextReady();
+    await act(async () => {
+      releaseFlush.resolve();
+      await ready;
+    });
+
+    expect(flushes).toBe(1);
+    expect(transport.downloaded).toEqual([remoteNote.id]);
+    mounted.unmount();
+  });
+
+  it('retries an aborted active pass when the network returns before its cleanup finishes', async () => {
+    const remoteNote = note(1);
+    const remote = core([remoteNote]);
+    const flushStarted = deferred();
+    const releaseFlush = deferred();
+    let flushes = 0;
+    transport.beforeAccountFlush = async () => {
+      flushes += 1;
+      if (flushes === 1) {
+        flushStarted.resolve();
+        await releaseFlush.promise;
+      }
+    };
+    const mounted = renderRuntime(remote.client);
+    await flushStarted.promise;
+    act(() => {
+      window.dispatchEvent(new Event('offline'));
+      window.dispatchEvent(new Event('online'));
+    });
+    const ready = nextReady();
+    await act(async () => {
+      releaseFlush.resolve();
+      await ready;
+    });
+
+    expect(flushes).toBe(2);
+    expect(transport.downloaded).toEqual([remoteNote.id]);
+    expect(getOfflineSnapshot().status).toBe('ready');
+    mounted.unmount();
+  });
+
   it('waits five minutes after a long pass completes before starting the next automatic pass', async () => {
     const remoteNote = note(1);
     const remote = core([remoteNote]);

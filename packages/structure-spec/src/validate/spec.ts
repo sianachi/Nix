@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import { propertyFormulaProblem } from '@nix/sheet';
 
 import { LIMITS } from '../catalog/tables.js';
 
@@ -305,6 +306,25 @@ function report(problems: Problem[], stats: ValidationReport['stats']): Validati
   return { ok: problems.length === 0, problems, warnings: [], stats };
 }
 
+function pushFormulaProblems(
+  declared: readonly StructureProperty[],
+  effective: readonly StructureProperty[],
+  problems: Problem[],
+): void {
+  const keys = new Set(effective.map((field) => field.key));
+  declared.forEach((field, index) => {
+    if (field.type !== 'formula' || field.expression === null || field.expression === undefined)
+      return;
+    const reason = propertyFormulaProblem(field.expression, keys);
+    if (reason !== null)
+      problems.push({
+        path: `fields[${String(index)}].formula`,
+        code: 'formula.invalid_expression',
+        message: `Formula '${field.key}': ${reason}`,
+      });
+  });
+}
+
 function validateCreateStructured(raw: unknown, context: ValidationContext): ValidationReport {
   const stats = statsFromRaw(raw);
   const parsed = structuredSpecSchema.safeParse(raw);
@@ -317,6 +337,7 @@ function validateCreateStructured(raw: unknown, context: ValidationContext): Val
   const priorFields = spec.inherit ? context.inheritedFields : [];
   const declared = compileFieldSpecs(spec.fields, priorFields, 'fields', problems);
   const effective = mergeProperties(priorFields, declared);
+  pushFormulaProblems(declared, effective, problems);
 
   // Core refuses a child's schema when inherited properties are present too; keep that deliberate
   // stricter check across ancestors, matching the effective schema the operation will compile.
@@ -356,6 +377,7 @@ function validateAddView(raw: unknown, context: ValidationContext): ValidationRe
   problems.push(...refuseAdditiveCollisions(priorEffective, declared));
 
   const effective = mergeProperties(priorEffective, declared);
+  pushFormulaProblems(declared, effective, problems);
   const schemaProblem = refuseSchema({ properties: effective, inherit: true });
   if (schemaProblem !== null) {
     problems.push({ path: 'fields', code: 'schema', message: schemaProblem });
@@ -424,6 +446,7 @@ function validateAddFields(raw: unknown, context: ValidationContext): Validation
   problems.push(...refuseAdditiveCollisions(priorEffective, declared));
 
   const effective = mergeProperties(priorEffective, declared);
+  pushFormulaProblems(declared, effective, problems);
   const schemaProblem = refuseSchema({
     properties: effective,
     inherit: context.existing?.inherit ?? true,
@@ -460,6 +483,7 @@ function validateEditForm(raw: unknown, context: ValidationContext): ValidationR
   const newFields = compileFieldSpecs(spec.fields ?? [], priorEffective, 'fields', problems);
   problems.push(...refuseAdditiveCollisions(priorEffective, newFields));
   const effective = mergeProperties(priorEffective, newFields);
+  pushFormulaProblems(newFields, effective, problems);
   const schemaProblem = refuseSchema({
     properties: effective,
     inherit: context.existing?.inherit ?? true,

@@ -20,6 +20,11 @@ internal static class PetEndpoints
         group.MapPost("/runtime", Runtime).WithName("PetRuntime")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
             .ProducesProblem(StatusCodes.Status409Conflict);
+        group.MapPost("/runtime/note", RuntimeNote).WithName("PetNoteRuntime")
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
         group.MapPost("/inline", PetInlineEndpoint.Handle).WithName("PetInlineWrite")
             .WithSummary("Stream an inline writing result for text selected in a note")
             .WithDescription(
@@ -52,6 +57,10 @@ internal static class PetEndpoints
         // which is what bounds the connections one person can pin.
         group.MapGet("/runtime/watch", Watch).WithName("WatchPetRuntime")
             .ProducesProblem(StatusCodes.Status429TooManyRequests);
+        group.MapGet("/runtime/note/watch", WatchNote).WithName("WatchPetNoteRuntime")
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests);
         return endpoints;
     }
 
@@ -66,11 +75,27 @@ internal static class PetEndpoints
         return Respond(result, context);
     }
 
+    private static async Task<Results<Ok<PetConnectionResponse>, ProblemHttpResult>> RuntimeNote(
+        PetRuntimeRequest request, HttpContext context, [FromServices] PetWorkerClient worker)
+    {
+        if (request.RootItemId is null)
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Respond(Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Choose a note for this conversation.")), context);
+        }
+
+        return await Runtime(request, context, worker).ConfigureAwait(false);
+    }
+
+    private static Task<Results<Ok<PetConnectionResponse>, ProblemHttpResult>> WatchNote(
+        Guid workspaceId, Guid petId, Guid rootItemId, HttpContext context, [FromServices] PetWorkerClient worker,
+        string? mode = null, long after = 0) => Watch(workspaceId, petId, context, worker, mode, after, rootItemId);
+
     private static async Task<Results<Ok<PetConnectionResponse>, ProblemHttpResult>> Watch(
-        Guid workspaceId, Guid petId, HttpContext context, [FromServices] PetWorkerClient worker, string? mode = null, long after = 0)
+        Guid workspaceId, Guid petId, HttpContext context, [FromServices] PetWorkerClient worker, string? mode = null, long after = 0, Guid? rootItemId = null)
     {
         context.Response.Headers.CacheControl = "no-store";
-        var result = await worker.ExecuteWatchAsync(workspaceId, petId, mode ?? string.Empty, after, context.RequestAborted).ConfigureAwait(false);
+        var result = await worker.ExecuteWatchAsync(workspaceId, petId, mode ?? string.Empty, after, context.RequestAborted, rootItemId).ConfigureAwait(false);
         return Respond(result, context);
     }
 

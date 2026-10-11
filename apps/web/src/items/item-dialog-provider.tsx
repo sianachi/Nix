@@ -53,6 +53,9 @@ function ItemDialogSession({
             setStack((current) => current.slice(0, index));
           }}
           onOpen={open}
+          onNavigateAway={() => {
+            setStack([]);
+          }}
           onPage={() => {
             setStack([]);
             openPreview(itemId);
@@ -69,12 +72,14 @@ function ItemDialog({
   onClose,
   onOpen,
   onPage,
+  onNavigateAway,
 }: {
   readonly itemId: string;
   readonly tree: WorkspaceTree;
   readonly onClose: () => void;
   readonly onOpen: (itemId: string) => void;
   readonly onPage: () => void;
+  readonly onNavigateAway: () => void;
 }): ReactNode {
   const [params, setParams] = useState(() => new URLSearchParams());
   const templates = useTemplateLibrary();
@@ -130,6 +135,7 @@ function ItemDialog({
                 )}
                 onOpen={onOpen}
                 onClose={undefined}
+                onNavigateAway={onNavigateAway}
                 onCommit={() => undefined}
               />
             </LocalViewStateContext>

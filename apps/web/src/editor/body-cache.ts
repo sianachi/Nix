@@ -29,6 +29,7 @@ const recordSchema = z.object({
   scope: z.string().min(1),
   docId: z.string().min(1),
   schemaVersion: z.number().int().nonnegative(),
+  serverSeq: z.string().regex(/^\d+$/u).max(20).optional(),
   savedAt: z.number().nonnegative(),
   // Checked by tag rather than `instanceof`: a structured clone can come back from another realm.
   update: z
@@ -40,6 +41,8 @@ export interface BodyCacheRecord {
   readonly scope: string;
   readonly docId: string;
   readonly schemaVersion: number;
+  /** A confirmed HTTP log cursor covered by this full state, retained across socket snapshots. */
+  readonly serverSeq?: string | undefined;
   readonly savedAt: number;
   readonly update: Uint8Array;
 }
@@ -453,18 +456,26 @@ export async function writeBodyCache(
       request.onsuccess = () => {
         const existing = recordSchema.safeParse(request.result);
         try {
-          const update =
+          const compatible =
             existing.success &&
             existing.data.docId === record.docId &&
-            existing.data.schemaVersion === record.schemaVersion
-              ? Y.mergeUpdates([existing.data.update, record.update])
-              : record.update;
+            existing.data.schemaVersion === record.schemaVersion;
+          const update = compatible
+            ? Y.mergeUpdates([existing.data.update, record.update])
+            : record.update;
+          const previousSeq = compatible ? existing.data.serverSeq : undefined;
+          const serverSeq =
+            previousSeq !== undefined &&
+            (record.serverSeq === undefined || BigInt(previousSeq) > BigInt(record.serverSeq))
+              ? previousSeq
+              : record.serverSeq;
           if (update.byteLength > MAX_BYTES) {
             store.transaction.abort();
             return;
           }
           store.put({
             ...record,
+            serverSeq,
             update,
             savedAt: Math.max(record.savedAt, existing.success ? existing.data.savedAt : 0),
           });

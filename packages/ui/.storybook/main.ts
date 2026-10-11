@@ -15,8 +15,7 @@ const config: StorybookConfig = {
     '../src/**/*.stories.@(ts|tsx)',
     '../../../apps/web/src/pets/*.stories.tsx',
     '../../../apps/web/src/shell/notifications/*.stories.tsx',
-    '../../../apps/web/src/shell/nav-rail.stories.tsx',
-    '../../../apps/web/src/shell/zen-exit.stories.tsx',
+    '../../../apps/web/src/shell/*.stories.tsx',
     '../../../apps/web/src/editor/*.stories.tsx',
     '../../../apps/web/src/items/*.stories.tsx',
     '../../../apps/web/src/offline/*.stories.tsx',
@@ -27,6 +26,7 @@ const config: StorybookConfig = {
     '../../../apps/web/src/files/*.stories.tsx',
     '../../../apps/web/src/templates/*.stories.tsx',
     '../../../apps/web/src/views/chart/*.stories.tsx',
+    '../../../apps/web/src/views/core/*.stories.tsx',
     '../../../apps/web/src/views/calendar/*.stories.tsx',
     '../../../apps/web/src/views/sheet/*.stories.tsx',
     '../../../apps/web/src/views/spreadsheet/*.stories.tsx',
@@ -49,7 +49,13 @@ const config: StorybookConfig = {
     '../../../apps/web/src/recording/*.stories.tsx',
     '../../../apps/web/src/speech/*.stories.tsx',
   ],
-  staticDirs: [{ from: '../../../apps/web/public/pets', to: '/pets' }],
+  staticDirs: [
+    { from: '../../../apps/web/public/pets', to: '/pets' },
+    {
+      from: '../../../apps/web/node_modules/@excalidraw/excalidraw/dist/prod/fonts',
+      to: '/excalidraw-assets/fonts',
+    },
+  ],
   addons: ['@storybook/addon-a11y', '@storybook/addon-docs', '@storybook/addon-vitest'],
   framework: {
     name: '@storybook/react-vite',

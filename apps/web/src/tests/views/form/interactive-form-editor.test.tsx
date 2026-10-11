@@ -1,7 +1,7 @@
 import { createNixClient } from '@nix/api-client';
 import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClientOverrideProvider } from '../../../api/api-client-provider';
 import type {
@@ -14,6 +14,16 @@ import {
   InteractiveFormRespondentPreview,
 } from '../../../views/form/interactive-form-editor';
 import { renderAt } from '../../render-with-router';
+import { useChoiceOrderPreference } from '../../../settings/suggestion-preferences';
+import { memoryStorage } from '../suggest/suggest-fixtures';
+
+vi.mock('../../../workspaces/workspace-context', () => ({
+  useOptionalWorkspace: () => ({ workspaceId: 'preview-workspace' }),
+}));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const SCHEMA: readonly PropertyDefinition[] = [
   { key: 'response', label: 'Response', type: 'text', options: [], required: false },
@@ -43,6 +53,30 @@ const FORM: InteractiveFormDefinition = {
 };
 
 describe('interactive form design', () => {
+  it('does not record choice history while previewing the form in a workspace', () => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    useChoiceOrderPreference.getState().setSetting('on');
+    renderAt(
+      <InteractiveFormRespondentPreview
+        form={FORM}
+        schema={[
+          {
+            key: 'response',
+            label: 'Response',
+            type: 'select',
+            options: ['Good', 'Low'],
+            required: false,
+          },
+        ]}
+      />,
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Your next step' }), {
+      target: { value: 'Good' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Preview confirmation' }));
+    expect(screen.getByRole('heading', { name: 'Response received' })).toBeInTheDocument();
+    expect(localStorage.length).toBe(0);
+  });
   it('focuses the required answer in the respondent preview and clears its error when answered', async () => {
     const user = userEvent.setup();
     renderAt(<InteractiveFormRespondentPreview form={FORM} schema={SCHEMA} />);

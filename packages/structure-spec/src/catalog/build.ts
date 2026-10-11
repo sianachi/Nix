@@ -11,6 +11,7 @@ import {
 } from '../vocabulary/property-types.js';
 import { STRUCTURED_RECIPES } from '../vocabulary/recipes.js';
 import { TASK_SEMANTIC_FIELD_TYPES } from '../spec/field.js';
+import { PROPERTY_FORMULA_GUIDANCE } from './formulas.js';
 import { SMART_LISTS } from '../vocabulary/smart-lists.js';
 import {
   FORM_RULES,
@@ -281,14 +282,16 @@ export function renderConsult(catalog: Catalog, patterns: string): string {
   lines.push('');
 
   lines.push('Section: Formulas');
-  lines.push('Functions: ' + catalog.formulaFunctions.join(', '));
-  lines.push('A formula reads other properties by name in square brackets, as [estimate].');
+  lines.push(PROPERTY_FORMULA_GUIDANCE);
   for (const code of Object.keys(catalog.formulaHelp) as SheetErrorCode[]) {
     lines.push(`- ${code}: ${catalog.formulaHelp[code]}`);
   }
   lines.push('');
 
   lines.push('Section: Forms');
+  lines.push(
+    'For form and interactive_form views, mode:"temporary" keeps answers in memory and creates no entry; mode:"saved" creates entries. Put calculations in formula schema fields, not input blocks.',
+  );
   lines.push(`Block kinds: ${catalog.formRules.blockKinds.join(', ')}`);
   lines.push(`Condition operators: ${catalog.formRules.conditionOperators.join(', ')}`);
   lines.push(`Identity roles: ${catalog.formRules.identityRoles.join(', ')}`);

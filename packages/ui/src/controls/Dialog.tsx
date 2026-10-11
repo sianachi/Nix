@@ -14,6 +14,7 @@ import { cn } from '../lib/cn';
 import { blueprintFrame } from '../primitives/Blueprint';
 import { Icon } from '../primitives/Icon';
 import { Text } from '../primitives/Text';
+import { focusRingInset } from '../primitives/interaction';
 import { Button } from './Button';
 
 /**
@@ -409,7 +410,13 @@ export function Dialog(props: DialogProps): ReactNode {
               // The one scroll region in a standard dialog. `min-h-0` overrides the flex item's
               // default min-content height, which is otherwise exactly tall enough to defeat
               // `overflow-y-auto` by never shrinking below the body's own content.
-              <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
+              <div
+                role="region"
+                aria-label={`${title} content`}
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- Justification: keyboard users need focus to scroll dialog content.
+                tabIndex={0}
+                className={`flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain ${focusRingInset}`}
+              >
                 {children}
               </div>
             ) : (

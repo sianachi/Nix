@@ -70,6 +70,10 @@ export interface RuntimeInput {
   readonly sharedText?: string;
   readonly model?: string;
   readonly workspaceAccess?: boolean;
+  /** Limits this conversation to one item and its descendants. */
+  readonly rootItemId?: string;
+  /** Offers reading tools only; Core still checks every request. */
+  readonly readOnly?: boolean;
   readonly toolId?: string;
   readonly toolResult?: string;
   readonly toolSuccess?: boolean;
@@ -98,7 +102,8 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
   defineCommand({
     operation: 'pets.runtime',
     method: 'POST',
-    path: '/api/v1/me/pets/runtime',
+    path:
+      input.rootItemId === undefined ? '/api/v1/me/pets/runtime' : '/api/v1/me/pets/runtime/note',
     schema: petConnectionSchema,
     body: {
       ...input,
@@ -106,6 +111,8 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
       sharedText: input.sharedText ?? '',
       model: input.model ?? '',
       workspaceAccess: input.workspaceAccess ?? false,
+      rootItemId: input.rootItemId ?? null,
+      readOnly: input.readOnly ?? false,
       toolId: input.toolId ?? '',
       toolResult: input.toolResult ?? '',
       toolSuccess: input.toolSuccess ?? false,
@@ -125,6 +132,7 @@ export const runtime = (input: RuntimeInput): CommandEndpoint<PetConnection> =>
 export interface WatchRuntimeInput {
   readonly workspaceId: string;
   readonly petId: string;
+  readonly rootItemId?: string;
   readonly mode?: 'chat' | 'consult';
   /** The caller's last known revision; the server waits for a change past it. */
   readonly after?: number;
@@ -140,11 +148,15 @@ export const watchRuntime = (input: WatchRuntimeInput): QueryEndpoint<PetConnect
     operation: 'pets.watchRuntime',
     // Core waits up to 20 seconds; the ordinary 15-second read budget ends too early.
     timeoutMs: 35_000,
-    path: '/api/v1/me/pets/runtime/watch',
+    path:
+      input.rootItemId === undefined
+        ? '/api/v1/me/pets/runtime/watch'
+        : '/api/v1/me/pets/runtime/note/watch',
     schema: petConnectionSchema,
     query: {
       workspaceId: input.workspaceId,
       petId: input.petId,
+      ...(input.rootItemId ? { rootItemId: input.rootItemId } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
       after: input.after ?? 0,
     },

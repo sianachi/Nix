@@ -56,13 +56,15 @@ function Example({
   view = VIEW,
   refuse,
   cards = CARDS,
+  properties = [URGENCY, IMPORTANCE],
 }: {
   readonly view?: View;
   readonly refuse?: string;
   readonly cards?: readonly Item[];
+  readonly properties?: readonly PropertyDefinition[];
 }): ReactNode {
   const [children, setChildren] = useState<readonly Item[]>(cards);
-  const container = storyContainer(children, [URGENCY, IMPORTANCE], {
+  const container = storyContainer(children, properties, {
     setProperties: (itemId, values) => {
       if (refuse !== undefined) return Promise.resolve(refuse);
       setChildren((current) =>
@@ -91,6 +93,22 @@ export const MoveRefused = {
 /** Two cards only, so most cells are empty: press "Show empty rows and columns". */
 export const MostlyEmpty = {
   render: (): ReactNode => <Example cards={CARDS.slice(0, 2)} />,
+};
+export const LongLabels = {
+  render: (): ReactNode => (
+    <Example
+      cards={[
+        storyItem('long', 'NotesForTheEditorialReviewAndPublicationDecision', 1, {
+          urgency: 'WaitingForTheEditorialReviewAndPublicationDecision',
+          importance: 'EssentialForTheNextPublicationAndArchive',
+        }),
+      ]}
+      properties={[
+        { ...URGENCY, options: ['WaitingForTheEditorialReviewAndPublicationDecision'] },
+        { ...IMPORTANCE, options: ['EssentialForTheNextPublicationAndArchive'] },
+      ]}
+    />
+  ),
 };
 export const Phone = { ...Priorities, parameters: { viewport: { defaultViewport: 'mobile1' } } };
 export const DarkMoveRefused = { ...MoveRefused, globals: { ground: 'dark' } };

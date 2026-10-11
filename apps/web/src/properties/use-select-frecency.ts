@@ -43,11 +43,13 @@ export const RECENT_CHOICES = 3;
 
 const NO_SCORES: ReadonlyMap<string, number> = new Map();
 
-export function useSelectFrecency(propertyKey: string): SelectFrecency {
+export function useSelectFrecency(propertyKey: string, allowStorage = true): SelectFrecency {
   const workspace = useOptionalWorkspace();
   const enabled = useChoiceOrderPreference((state) => state.setting === 'on');
   const namespace =
-    workspace === null || !enabled ? null : `select:${workspace.workspaceId}:${propertyKey}`;
+    workspace === null || !enabled || !allowStorage
+      ? null
+      : `select:${workspace.workspaceId}:${propertyKey}`;
 
   const [snapshot, setSnapshot] = useState(() => ({
     namespace,

@@ -54,6 +54,7 @@ const interactiveForm = {
 
 function renderForm(
   create: (title: string, properties?: Record<string, unknown>) => Promise<string | null>,
+  mode: string | null = null,
 ): void {
   renderAt(
     <InteractiveFormView
@@ -68,19 +69,54 @@ function renderForm(
               required: false,
             },
             { key: 'detail', label: 'Detail', type: 'text', options: [], required: false },
+            {
+              key: 'detail_length',
+              label: 'Detail length',
+              type: 'formula',
+              expression: 'LEN([detail])',
+              options: [],
+              required: false,
+            },
           ],
           declared: [],
           inherit: true,
         },
         create,
       })}
-      view={aView({ kind: 'interactive_form', interactiveForm })}
+      view={aView({ kind: 'interactive_form', interactiveForm, mode })}
       onOpen={vi.fn()}
     />,
   );
 }
 
 describe('interactive forms', () => {
+  it('calculates only answers still visible after a conditional page is hidden', async () => {
+    const create = vi.fn(() => Promise.resolve(null));
+    const user = userEvent.setup();
+    renderForm(create, 'temporary');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Low');
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(screen.getByRole('textbox', { name: 'What happened?' }), 'Busy');
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Good');
+    await user.click(screen.getByRole('button', { name: 'Show results' }));
+    expect(screen.getByLabelText('Detail length')).toHaveTextContent('0');
+    expect(create).not.toHaveBeenCalled();
+  });
+  it('keeps a temporary response in memory and lets the person edit or explicitly save it', async () => {
+    const create = vi.fn(() => Promise.resolve(null));
+    const user = userEvent.setup();
+    renderForm(create, 'temporary');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Mood' }), 'Good');
+    await user.click(screen.getByRole('button', { name: 'Show results' }));
+    expect(screen.getByRole('heading', { name: 'Results ready' })).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Edit answers' }));
+    expect(screen.getByRole('combobox', { name: 'Mood' })).toHaveValue('Good');
+    await user.click(screen.getByRole('checkbox', { name: 'Save this response' }));
+    await user.click(screen.getByRole('button', { name: 'Send response' }));
+    expect(create).toHaveBeenCalledExactlyOnceWith('Good', { mood: 'Good' });
+  });
   it('navigates visible pages, enforces their required fields, and creates schema-backed properties', async () => {
     const create = vi.fn(() => Promise.resolve(null));
     const user = userEvent.setup();

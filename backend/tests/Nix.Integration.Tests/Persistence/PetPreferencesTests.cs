@@ -4,10 +4,15 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Nix.Abstractions;
 using Nix.Domain.Content;
+using Nix.Domain.Items;
 using Nix.Domain.Primitives;
+using Nix.Features.Items;
+using Nix.Features.Locks;
 using Nix.Features.Pets;
+using Nix.Features.Workspaces;
 using Nix.Integration.Tests.Harness;
 using Nix.Messaging;
+using Nix.Persistence.Workspaces;
 using Npgsql;
 
 namespace Nix.Integration.Tests.Persistence;
@@ -86,13 +91,13 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
         }
     }
 
-    private async Task SaveInitialAsync()
+    private async Task SaveInitialAsync(bool enabled = false)
     {
         var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
         await using (work.ConfigureAwait(false))
         {
             var id = Guid.NewGuid();
-            var settings = new PetSettings(false, id, "system", [new(id, "Owl", "owl", "calm", "balanced", "")]);
+            var settings = new PetSettings(enabled, id, "system", [new(id, "Owl", "owl", "calm", "balanced", "")]);
             Result<PetSettingsResponse> saved = await work.Resolve<NixDispatcher>()
                 .SendAsync<SavePetSettings, PetSettingsResponse>(new(0, settings), Cancellation);
             Assert.True(saved.IsSuccess);
@@ -148,12 +153,154 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
             Assert.Equal(TestTenants.Alpha.ToString(), body.RootElement.GetProperty("tenantId").GetString());
             Assert.Equal(TestTenants.AlphaPrincipal.ToString(), body.RootElement.GetProperty("principalId").GetString());
             Assert.Contains("calm", body.RootElement.GetProperty("instructions").GetString(), StringComparison.Ordinal);
+            Assert.False(body.RootElement.TryGetProperty("rootItemId", out _));
+            Assert.False(body.RootElement.TryGetProperty("readOnly", out _));
             Assert.Equal("test-secret", handler.Secret);
             var disabled = await gateway.ExecuteAsync(new("send", TestTenants.AlphaWorkspace, saved.Settings.ActivePetId, Guid.NewGuid(), "Hello"), Cancellation);
             Assert.True(disabled.IsFailure);
             Assert.Equal(1, handler.Calls);
         }
     }
+
+    [Fact]
+    public async Task Note_conversations_refuse_missing_foreign_and_wrong_workspace_roots_before_contacting_worker()
+    {
+        await SaveInitialAsync();
+        var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var otherWorkspace = await dispatcher.SendAsync<CreateWorkspace, WorkspaceSnapshot>(new("Other workspace"), Cancellation);
+            Assert.True(otherWorkspace.IsSuccess);
+            var otherItem = await dispatcher.SendAsync<CreateItem, Item>(
+                new(otherWorkspace.Value.Id, "note", "Other note", null, null), Cancellation);
+            Assert.True(otherItem.IsSuccess);
+
+            using var handler = new RecordingWorker();
+            using var http = new HttpClient(handler);
+            var gateway = Gateway(work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>(), http);
+            var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
+            foreach (var root in new[] { Guid.NewGuid(), M0SchemaSeed.Beta.ItemId, otherItem.Value.Id.Value })
+            {
+                await AssertScopedOperationsRefusedAsync(gateway, settings.Settings.ActivePetId!.Value, root);
+            }
+            Assert.Equal(0, handler.Calls);
+        }
+    }
+
+    [Fact]
+    public async Task Note_conversations_forward_scope_read_only_and_the_existing_shared_item_title()
+    {
+        await SaveInitialAsync(enabled: true);
+        var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (work.ConfigureAwait(false))
+        {
+            using var handler = new RecordingWorker();
+            using var http = new HttpClient(handler);
+            var dispatcher = work.Resolve<NixDispatcher>();
+            var gateway = Gateway(work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>(), http);
+            var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
+            var root = M0SchemaSeed.Alpha.ItemId;
+            var item = await dispatcher.QueryAsync<GetItem, Result<Item>>(new(ItemId.From(root)), Cancellation);
+            var result = await gateway.ExecuteAsync(new("send", TestTenants.AlphaWorkspace, settings.Settings.ActivePetId,
+                Guid.NewGuid(), "Explain this note", ItemId: root, SharedText: "Selected text",
+                WorkspaceMap: [new(Guid.NewGuid(), "Outside context", "note")], RootItemId: root, ReadOnly: true), Cancellation);
+
+            Assert.True(result.IsSuccess);
+            using (var body = JsonDocument.Parse(handler.Body))
+            {
+                Assert.Equal(root, body.RootElement.GetProperty("rootItemId").GetGuid());
+                Assert.True(body.RootElement.GetProperty("readOnly").GetBoolean());
+                Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("workspaceMap").ValueKind);
+                Assert.Equal(ItemProperties.ReadTitle(item.Value.Properties), body.RootElement.GetProperty("itemTitle").GetString());
+                Assert.Equal("Selected text", body.RootElement.GetProperty("sharedText").GetString());
+            }
+
+            var watch = await gateway.ExecuteWatchAsync(TestTenants.AlphaWorkspace, settings.Settings.ActivePetId!.Value,
+                "chat", 42, Cancellation, root);
+            Assert.True(watch.IsSuccess);
+            using var watchedBody = JsonDocument.Parse(handler.Body);
+            Assert.Equal(root, watchedBody.RootElement.GetProperty("rootItemId").GetGuid());
+            Assert.Equal(42, watchedBody.RootElement.GetProperty("after").GetInt64());
+            Assert.Equal(2, handler.Calls);
+        }
+    }
+
+    [Fact]
+    public async Task Closed_root_and_ancestor_locks_withhold_note_conversations_and_history_but_open_credentials_can_read()
+    {
+        await SaveInitialAsync();
+        var locker = Guid.NewGuid();
+        var root = M0SchemaSeed.Alpha.ItemId;
+        Guid child;
+        var setup = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+        await using (setup.ConfigureAwait(false))
+        {
+            setup.Resolve<CredentialSessionContext>().Set(locker);
+            var dispatcher = setup.Resolve<NixDispatcher>();
+            var created = await dispatcher.SendAsync<CreateItem, Item>(
+                new(new(TestTenants.AlphaWorkspace), "note", "Child", ItemId.From(root), null), Cancellation);
+            Assert.True(created.IsSuccess);
+            child = created.Value.Id.Value;
+            var locked = await dispatcher.SendAsync<LockItem, bool>(new(ItemId.From(root), "hunter22", null), Cancellation);
+            Assert.True(locked.IsSuccess);
+            await setup.CommitAsync(Cancellation);
+        }
+
+        foreach (var credential in new[] { Guid.NewGuid(), locker })
+        {
+            var work = await fixture.Application.BeginUnitOfWorkAsync(TestTenants.AlphaContext, Cancellation);
+            await using (work.ConfigureAwait(false))
+            {
+                work.Resolve<CredentialSessionContext>().Set(credential);
+                using var handler = new RecordingWorker();
+                using var http = new HttpClient(handler);
+                var dispatcher = work.Resolve<NixDispatcher>();
+                var gateway = Gateway(work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>(), http);
+                var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
+                foreach (var scopedRoot in new[] { root, child })
+                {
+                    if (credential != locker)
+                    {
+                        await AssertScopedOperationsRefusedAsync(gateway, settings.Settings.ActivePetId!.Value, scopedRoot);
+                        Assert.Equal(0, handler.Calls);
+                    }
+                    else
+                    {
+                        var read = await gateway.ExecuteAsync(new("read", TestTenants.AlphaWorkspace,
+                            settings.Settings.ActivePetId, RootItemId: scopedRoot), Cancellation);
+                        Assert.True(read.IsSuccess);
+                        var watch = await gateway.ExecuteWatchAsync(TestTenants.AlphaWorkspace,
+                            settings.Settings.ActivePetId!.Value, "chat", 0, Cancellation, scopedRoot);
+                        Assert.True(watch.IsSuccess);
+                    }
+                }
+                Assert.Equal(credential == locker ? 4 : 0, handler.Calls);
+            }
+        }
+    }
+
+    private static async Task AssertScopedOperationsRefusedAsync(PetWorkerClient gateway, Guid petId, Guid root)
+    {
+        foreach (var operation in new[] { "read", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history" })
+        {
+            var result = await gateway.ExecuteAsync(new(operation, TestTenants.AlphaWorkspace, petId, Guid.NewGuid(), "Test",
+                ToolId: "tool-one", HistoryId: Guid.NewGuid(), RootItemId: root), Cancellation);
+            Assert.True(result.IsFailure);
+            Assert.Equal("pets.not_found", result.Error.Code);
+        }
+        var watch = await gateway.ExecuteWatchAsync(TestTenants.AlphaWorkspace, petId, "chat", 0, Cancellation, root);
+        Assert.True(watch.IsFailure);
+        Assert.Equal("pets.not_found", watch.Error.Code);
+    }
+
+    private static PetWorkerClient Gateway(INixSessionContextAccessor session, NixDispatcher dispatcher,
+        IPermissionResolver permissions, HttpClient http) => new(http,
+        new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Nix:Pets:WorkerUrl"] = "http://worker:8301",
+            ["Nix:InternalSecret"] = "test-secret",
+        }).Build(), session, dispatcher, permissions);
 
     private sealed class RecordingWorker : HttpMessageHandler
     {

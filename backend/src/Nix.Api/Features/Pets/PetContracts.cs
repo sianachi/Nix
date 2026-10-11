@@ -58,18 +58,22 @@ public sealed record PetWorkspaceMapEntry(Guid Id, string Title, string Type, IR
 /// result came from an item under a lock; it can only tighten what runs without asking. All of these
 /// are the client's own view and never used for an authorization decision; every tool the model
 /// calls is still checked against the caller's permissions.
+/// <c>RootItemId</c> scopes a conversation to one readable item and its children. <c>ReadOnly</c>
+/// limits the companion's tools; it never grants permission to read workspace data.
 /// </remarks>
 public sealed record PetRuntimeRequest(string Operation, Guid? WorkspaceId = null, Guid? PetId = null,
     Guid? RequestId = null, string Text = "", Guid? ItemId = null, string SharedText = "",
     string Model = "", bool WorkspaceAccess = false, string ToolId = "", string ToolResult = "", bool ToolSuccess = false, Guid? HistoryId = null,
     string Mode = "", string Today = "", string TimeZone = "", IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap = null,
-    bool ToolLockedContent = false);
+    bool ToolLockedContent = false, Guid? RootItemId = null, bool ReadOnly = false);
 
 internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string Instructions,
     string ItemId, string ItemTitle, string SharedText, string Model, bool WorkspaceAccess,
     string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode, long After,
-    string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap, bool ToolLockedContent);
+    string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap, bool ToolLockedContent,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RootItemId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ReadOnly);
 
 /// <summary>One inline writing request from the editor: the person's selection and what to do with it.</summary>
 /// <param name="WorkspaceId">The workspace the item is in.</param>

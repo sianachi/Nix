@@ -84,6 +84,23 @@ function updated(spec: unknown, views: StructureView[]) {
 }
 
 describe('narrow update-view schema', () => {
+  it('lets a pet change a form response mode while preserving its ordinary view kind', () => {
+    const form = view({ kind: 'form', mode: 'saved' });
+    const { selected } = updated({ viewId: form.id, patch: { mode: 'temporary' } }, [form]);
+    expect(selected.kind).toBe('form');
+    expect(selected.mode).toBe('temporary');
+    expect(
+      validateSpec('update_view', { viewId: form.id, patch: { mode: 'month' } }, validation([form]))
+        .ok,
+    ).toBe(false);
+    expect(
+      validateSpec(
+        'update_view',
+        { viewId: 'calendar', patch: { mode: 'saved' } },
+        validation([view({ id: 'calendar', kind: 'calendar', dateProperty: 'due' })]),
+      ).ok,
+    ).toBe(false);
+  });
   it.each([
     'id',
     'kind',

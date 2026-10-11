@@ -292,7 +292,7 @@ describe('surviving the reload a create causes', () => {
 });
 
 describe('a computed property on a form', () => {
-  it('is not offered as a field, because a form writes children and nothing writes a computed value', () => {
+  it('offers computed properties as results rather than editable inputs', () => {
     formAt({
       schema: schemaOf(
         property('sleep', 'Sleep', 'number'),
@@ -301,7 +301,8 @@ describe('a computed property on a form', () => {
     });
 
     expect(screen.getByRole('spinbutton', { name: /sleep/i })).toBeVisible();
-    expect(screen.queryByText(/rested/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Rested')).toHaveTextContent('No');
+    expect(screen.queryByRole('textbox', { name: 'Rested' })).not.toBeInTheDocument();
   });
 
   it('is not reported as unavailable either, because nothing about it is broken', () => {
@@ -312,5 +313,44 @@ describe('a computed property on a form', () => {
     });
 
     expect(screen.queryByText(/cannot be offered as inputs here/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('temporary calculations', () => {
+  const calculator = schemaOf(
+    property('weight', 'Weight', 'number', { required: true }),
+    property('height', 'Height', 'number', { required: true }),
+    property('bmi', 'BMI', 'formula', { expression: 'ROUND([weight] / ([height] * [height]), 1)' }),
+  );
+
+  it('calculates inputs locally without a title or create, and clears every draft input', async () => {
+    const user = userEvent.setup();
+    const create = vi.fn(() => Promise.resolve(null));
+    formAt({ schema: calculator, view: aView({ kind: 'form', mode: 'temporary' }), create });
+
+    expect(screen.getByRole('checkbox', { name: 'Save this entry' })).not.toBeChecked();
+    expect(screen.queryByLabelText(/Title/)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText(/Weight/), '72');
+    await user.type(screen.getByLabelText(/Height/), '1.8');
+    await user.click(screen.getByRole('button', { name: 'Calculate' }));
+    expect(screen.getByLabelText('BMI')).toHaveTextContent('22.2');
+    expect(screen.getByText('Calculated here. No entry was saved.')).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Clear inputs' }));
+    expect(screen.getByLabelText(/Weight/)).toHaveValue(null);
+    expect(screen.getByLabelText(/Height/)).toHaveValue(null);
+  });
+
+  it('saves only input properties after the person opts into saving', async () => {
+    const user = userEvent.setup();
+    const create = vi.fn(() => Promise.resolve(null));
+    formAt({ schema: calculator, view: aView({ kind: 'form', mode: 'temporary' }), create });
+    await user.type(screen.getByLabelText(/Weight/), '72');
+    await user.type(screen.getByLabelText(/Height/), '1.8');
+    await user.click(screen.getByRole('checkbox', { name: 'Save this entry' }));
+    await user.type(screen.getByLabelText(/Title/), 'Check-in');
+    await user.click(screen.getByRole('button', { name: 'Add entry' }));
+    expect(create).toHaveBeenCalledExactlyOnceWith('Check-in', { weight: 72, height: 1.8 });
   });
 });
