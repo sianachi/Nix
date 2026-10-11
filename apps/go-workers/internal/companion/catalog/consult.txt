@@ -17,8 +17,8 @@ Columns may include title; it is an item-title marker, never a form field.
 - Timeline (timeline): needs a date-shaped property; optional: endDate (date-shaped). Bars across a time axis; without an end date an item is a milestone.
 - Gallery (gallery): optional: cover (image), columns (field keys). Cards with an optional picture and chosen fields.
 - Spreadsheet (sheet). Children as an editable grid, one row per child and one column per property.
-- Form (form). A single-page fillable form over the schema; each submission is a new child.
-- Interactive form (interactive_form). A multi-page, conditional form whose answers create a child item.
+- Form (form): optional: mode (saved or temporary). A single-page form; answers stay temporary or create a child.
+- Interactive form (interactive_form): optional: mode (saved or temporary). A multi-page, conditional form; answers stay temporary or create a child.
 - Smart list (query). Saved query rows show filter fields; columns are not configurable.
 - Chart (chart): needs a select-or-date property; optional: measureField (number), splitBy (select-or-checkbox). Children counted or totalled per select value, or per period of a date (set period). chartKind: bar, column, pie, or line/area/year on a date; splitBy makes series.
 - Habit tracker (habit_tracker). Child habit settings and dated check-ins, not column mappings.
@@ -72,8 +72,7 @@ Section: Rollup aggregates
 count (How many), sum (Total), average (Average), min (Smallest), max (Largest), any (Any of them), all (All of them)
 
 Section: Formulas
-Functions: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE
-A formula reads other properties by name in square brackets, as [estimate].
+Formula fields use a bare expression without a leading =. Read exact, case-sensitive property keys as [key], never labels, prop() or PROPERTY(). Declare new formula inputs with explicit keys; read existing keys with nix_read_structure. Use double-quoted text, commas between arguments, = for equality, <> for inequality and AND/OR/NOT for logic. Cells, ranges, JavaScript, TODAY and NOW are unsupported. Supported functions only: ABS, AND, AVERAGE, CONCATENATE, CONTAINS, COUNT, COUNTA, DAYS, IF, IFERROR, INT, ISBLANK, LEFT, LEN, LOWER, MAX, MID, MIN, MOD, NOT, OR, POWER, RIGHT, ROUND, ROUNDDOWN, ROUNDUP, SQRT, SUM, TRIM, UPPER, VALUE. Examples: [price] * [quantity]; IF([completion], "Done", "Open"); IFERROR(ROUND([price] * [quantity], 2), 0). DAYS(end, start) subtracts date-only YYYY-MM-DD values; timestamps are unsupported. A formula reads this item; use a rollup to aggregate children. Computed values cannot be assigned.
 - #DIV/0!: This formula divides by zero.
 - #REF!: A formula reads other properties by name in square brackets, as [estimate], and cannot read spreadsheet cells.
 - #CYCLE!: This formula refers to itself, directly or through another formula.
@@ -83,6 +82,7 @@ A formula reads other properties by name in square brackets, as [estimate].
 - #PARSE!: This formula isn't written in a way the parser understands.
 
 Section: Forms
+For form and interactive_form views, mode:"temporary" keeps answers in memory and creates no entry; mode:"saved" creates entries. Put calculations in formula schema fields, not input blocks.
 Block kinds: field, heading, paragraph
 Condition operators: equals, not_equals, contains, checked, not_checked
 Identity roles: name, email
@@ -108,8 +108,8 @@ Valid view settings by kind:
 - timeline: date, endDate
 - gallery: cover, columns
 - sheet: no kind-specific settings
-- form: no kind-specific settings
-- interactive_form: no kind-specific settings
+- form: mode
+- interactive_form: mode
 - query: no kind-specific settings
 - chart: groupBy, measureField, splitBy
 - habit_tracker: no kind-specific settings

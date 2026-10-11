@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { blueprintSchema } from '../blueprint/schema.js';
 import { TASK_SEMANTIC_FIELD_TYPES } from '../spec/field.js';
+import { PROPERTY_FORMULA_GUIDANCE } from './formulas.js';
 import {
   applySpecSchema,
   entriesSpecSchema,
@@ -31,7 +32,9 @@ import {
  * downstream of the worker changes.
  */
 
-const TASK_KEYS_DESCRIPTION = ` Task fields use their type as the key: ${TASK_SEMANTIC_FIELD_TYPES.join(', ')}; omit key or set it to that type, with any label.`;
+const TASK_KEYS_DESCRIPTION = ` Task fields use their type as the key: ${TASK_SEMANTIC_FIELD_TYPES.join(', ')}; omit key or set it to that type, with any label. ${PROPERTY_FORMULA_GUIDANCE}`;
+const FORM_MODE_DESCRIPTION =
+  ' For form and interactive_form views, mode:"temporary" keeps answers in memory and creates no entry; mode:"saved" creates entries. Put calculations in formula schema fields, not input blocks.';
 const HABIT_DESCRIPTION =
   ' Habit configuration belongs on each child node.habit (frequency, weekdays, target, unit); habit_tracker has no column mappings.';
 
@@ -350,7 +353,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['itemId'],
   }),
   create_structured: () => ({
-    description: `Create a new item with a recipe, fields and up to ${String(LIMITS.viewsPerNode)} views per call, under parentId (omit for the workspace root). Items support at most ${String(LIMITS.viewsPerContainer)} views total. Shown for approval before it runs.${TASK_KEYS_DESCRIPTION}`,
+    description: `Create a new item with a recipe, fields and up to ${String(LIMITS.viewsPerNode)} views per call, under parentId (omit for the workspace root). Items support at most ${String(LIMITS.viewsPerContainer)} views total. Shown for approval before it runs.${TASK_KEYS_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
       title: stringProperty('The new item title.'),
       spec: jsonSchemaOf(structuredSpecSchema),
@@ -359,7 +362,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['title', 'spec'],
   }),
   add_view: () => ({
-    description: `Add fields and up to ${String(LIMITS.viewsPerAddView)} views per call to an item's existing schema, within its ${String(LIMITS.viewsPerContainer)}-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view.${TASK_KEYS_DESCRIPTION}`,
+    description: `Add fields and up to ${String(LIMITS.viewsPerAddView)} views per call to an item's existing schema, within its ${String(LIMITS.viewsPerContainer)}-view total limit. Read nix_read_structure.viewCapacity first and split batches within remaining capacity. Never removes or retypes a field, never deletes an existing view.${TASK_KEYS_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
       itemId: stringProperty(ITEM_ID_DESCRIPTION),
       spec: jsonSchemaOf(viewSetupSpecSchema),
@@ -368,7 +371,8 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   }),
   update_view: () => ({
     description:
-      'Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success.',
+      'Refine one existing view using exact field keys from nix_read_structure. Only patch named settings; unmentioned settings, fields, kind, default and companions stay intact. Shows before and after and always asks for approval. Use nix_edit_form for form pages; read structure and results back after success.' +
+      FORM_MODE_DESCRIPTION,
     properties: {
       itemId: stringProperty(ITEM_ID_DESCRIPTION),
       spec: jsonSchemaOf(updateViewSpecSchema),
@@ -384,7 +388,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['parentId', 'spec'],
   }),
   validate_blueprint: () => ({
-    description: `Check a whole-structure design before building it. Never writes; returns the same problems nix_build_blueprint would refuse on. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint. Design mode only.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}`,
+    description: `Check a whole-structure design before building it. Never writes; returns the same problems nix_build_blueprint would refuse on. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint. Design mode only.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: { blueprint: blueprintProperty() },
     required: ['blueprint'],
   }),
@@ -439,7 +443,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['templateId', 'title'],
   }),
   build_blueprint: () => ({
-    description: `Build a validated blueprint under Pet drafts, at parentId (omit for the workspace root). Call nix_validate_blueprint first and fix every problem it reports. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint. Design mode only.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}`,
+    description: `Build a validated blueprint under Pet drafts, at parentId (omit for the workspace root). Call nix_validate_blueprint first and fix every problem it reports. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint. Design mode only.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}${FORM_MODE_DESCRIPTION}`,
     properties: {
       blueprint: blueprintProperty(),
       parentId: stringProperty('The parent item UUID, or omit to build under Pet drafts.'),

@@ -90,7 +90,10 @@ func catalogFor(mode string) string {
 	if mode == "consult" {
 		return consultCatalog
 	}
-	return chatCatalog
+	// Formula advice is needed even when workspace access omits the typed tools.
+	_, formulas, _ := strings.Cut(consultCatalog, "Section: Formulas\n")
+	formulas, _, _ = strings.Cut(formulas, "\n\n")
+	return chatCatalog + "\n\nSection: Formulas\n" + formulas
 }
 
 // workspaceTools returns the mode's typed per-operation tools as the `[]any` of
