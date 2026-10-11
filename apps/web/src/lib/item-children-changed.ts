@@ -57,6 +57,7 @@ export function notifyItemChildrenChanged(
     readonly restoredItemIds?: readonly string[];
   } = {},
 ): void {
+  if (subscribers === 0) return;
   if ((change.removedItemIds?.length ?? 0) === 0 && (change.restoredItemIds?.length ?? 0) === 0) {
     const previous = pending.get(workspaceId);
     const nextParent = previous === undefined || previous.parentId === parentId ? parentId : null;
