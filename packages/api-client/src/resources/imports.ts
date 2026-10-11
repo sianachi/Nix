@@ -77,7 +77,7 @@ export const commitDocumentImport = (importId: string): CommandEndpoint<Operatio
     method: 'POST',
     path: `/api/v1/imports/${importId}/commit`,
     schema: operationSchema,
-    invalidates: [['imports', importId], ['items']],
+    invalidates: [['imports', importId]],
   });
 
 export const cancelDocumentImport = (importId: string): CommandEndpoint<undefined> =>
@@ -129,6 +129,7 @@ export async function commitAndWaitDocumentImport(
 ): Promise<DocumentImport> {
   const commit = await client.execute(commitDocumentImport(importId), { signal });
   await waitForOperation(client, commit.id, signal === undefined ? {} : { signal });
+  client.invalidate(['imports', importId]);
   const operation = await client.query(documentImportById(importId), {
     signal,
     forceRefresh: true,
@@ -136,6 +137,8 @@ export async function commitAndWaitDocumentImport(
   if (operation.status !== 'completed' || operation.rootItemId === null) {
     throw new Error(operation.failureCode ?? 'The document import did not publish.');
   }
+  client.invalidate(['items']);
+  client.invalidate(['workspaces', operation.workspaceId, 'items']);
   return operation;
 }
 

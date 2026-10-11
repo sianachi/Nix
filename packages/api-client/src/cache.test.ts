@@ -134,6 +134,117 @@ describe('stale while revalidate', () => {
 });
 
 describe('invalidation', () => {
+  it('notifies uncached scopes once and ignores ordinary reads on the invalidation channel', async () => {
+    const cache = createServerCache();
+    const seen: string[][] = [];
+    const unsubscribe = cache.subscribeInvalidation((prefix) => seen.push([...prefix]));
+
+    cache.invalidate(['items', 'uncached']);
+    cache.invalidatePrefix(['workspaces', 'new', 'items']);
+    cache.evict(['files', 'uncached']);
+    cache.clear();
+    await cache.read(['items', 'a'], () => Promise.resolve('value'));
+    unsubscribe();
+    cache.invalidate(['items', 'a']);
+
+    expect(seen).toEqual([
+      ['items', 'uncached'],
+      ['workspaces', 'new', 'items'],
+      ['files', 'uncached'],
+      [],
+    ]);
+  });
+
+  it('notifies a prefix once even when several cached entries match', async () => {
+    const cache = createServerCache();
+    const seen: string[][] = [];
+    cache.subscribeInvalidation((prefix) => seen.push([...prefix]));
+    await cache.read(['items', 'a'], () => Promise.resolve('a'));
+    await cache.read(['items', 'b'], () => Promise.resolve('b'));
+    cache.invalidatePrefix(['items']);
+
+    expect(seen).toEqual([['items']]);
+    expect(cache.peek(['items', 'a'])?.stale).toBe(true);
+    expect(cache.peek(['items', 'b'])?.stale).toBe(true);
+  });
+
+  it.each(['key', 'prefix'] as const)(
+    'keeps a response stale when its %s was invalidated while loading',
+    async (scope) => {
+      const cache = createServerCache({ staleAfterMs: 60_000 });
+      const gate = deferred<string>();
+      const pending = cache.read(['items', 'a'], () => gate.promise);
+      if (scope === 'key') cache.invalidate(['items', 'a']);
+      else cache.invalidatePrefix(['items']);
+      gate.resolve('before write');
+
+      expect((await pending).data).toBe('before write');
+      expect(cache.peek(['items', 'a'])?.stale).toBe(true);
+      const refreshed = await cache.read(['items', 'a'], () => Promise.resolve('after write'));
+      await refreshed.revalidation;
+      expect(cache.peek(['items', 'a'])).toMatchObject({ data: 'after write', stale: false });
+    },
+  );
+
+  it('starts a post-write read immediately and prevents the old response overwriting it', async () => {
+    const cache = createServerCache({ staleAfterMs: 60_000 });
+    const oldGate = deferred<string>();
+    const newGate = deferred<string>();
+    const load = vi
+      .fn<CacheLoader<string>>()
+      .mockImplementationOnce(() => oldGate.promise)
+      .mockImplementationOnce(() => newGate.promise);
+    const original = cache.read(['items', 'a'], load);
+    cache.invalidatePrefix(['items']);
+    const refreshed = cache.read(['items', 'a'], load, { forceRefresh: true });
+    const sharedRefresh = cache.read(['items', 'a'], load, { forceRefresh: true });
+    newGate.resolve('after write');
+
+    expect((await refreshed).data).toBe('after write');
+    expect((await sharedRefresh).data).toBe('after write');
+    oldGate.resolve('before write');
+    expect((await original).data).toBe('before write');
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(cache.peek(['items', 'a'])).toMatchObject({ data: 'after write', stale: false });
+  });
+
+  it('keeps the new request shared when an older invalidated request finishes first', async () => {
+    const cache = createServerCache();
+    const oldGate = deferred<string>();
+    const newGate = deferred<string>();
+    const load = vi
+      .fn<CacheLoader<string>>()
+      .mockImplementationOnce(() => oldGate.promise)
+      .mockImplementationOnce(() => newGate.promise);
+    const original = cache.read(['items', 'a'], load);
+    cache.invalidate(['items', 'a']);
+    const refreshed = cache.read(['items', 'a'], load, { forceRefresh: true });
+    oldGate.resolve('before write');
+    expect((await original).data).toBe('before write');
+    const sharedRefresh = cache.read(['items', 'a'], load, { forceRefresh: true });
+    newGate.resolve('after write');
+
+    expect((await refreshed).data).toBe('after write');
+    expect((await sharedRefresh).data).toBe('after write');
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(cache.peek(['items', 'a'])).toMatchObject({ data: 'after write', stale: false });
+  });
+
+  it.each(['evict', 'clear'] as const)(
+    'does not restore a pending response to the cache after %s',
+    async (operation) => {
+      const cache = createServerCache();
+      const gate = deferred<string>();
+      const pending = cache.read(['items', 'a'], () => gate.promise);
+      if (operation === 'evict') cache.evict(['items', 'a']);
+      else cache.clear();
+      gate.resolve('removed');
+
+      expect((await pending).data).toBe('removed');
+      expect(cache.peek(['items', 'a'])).toBeUndefined();
+    },
+  );
+
   it('marks an entry stale so the next read refreshes it behind the caller', async () => {
     const cache = createServerCache({ staleAfterMs: 60_000 });
     let version = 1;
