@@ -25,6 +25,7 @@ import {
   Settings2,
   Upload,
   Maximize2,
+  Globe,
 } from 'lucide-react';
 import {
   Suspense,
@@ -85,8 +86,10 @@ import { LockDialog } from '../locks/lock-dialog';
 import { LockedBody } from '../locks/locked-body';
 import { useForgetLockedBody } from '../locks/use-forget-locked-body';
 import { useItemLock } from '../locks/use-item-lock';
+import { focusSitePaneHeading } from '../sites/site-pane';
+import { useItemHasSite } from '../sites/use-item-site';
 import { historyPanelWidth } from '../layout/regions';
-import { ItemPanel } from '../panel/item-panel';
+import { ItemPanel, type Pane } from '../panel/item-panel';
 import { DailyNoteBar } from '../daily-notes/daily-note-bar';
 import { parseDailyNoteDate } from '../daily-notes/daily-note';
 import { browserStorage } from '../lib/browser-storage';
@@ -528,6 +531,7 @@ export function OpenItem({
   const [inlinePanelOpen, setInlinePanelOpen] = useState(() => readPanelOpen(browserStorage()));
   const [overlayPanelOpen, setOverlayPanelOpen] = useState(false);
   const panelOpen = overlayDetails ? overlayPanelOpen : inlinePanelOpen;
+  const [panelPane, setPanelPane] = useState<Pane>('details');
 
   // The dialog is mounted only while it is open, so an export that was never started costs nothing
   // and a closed one keeps no half-chosen format from last time.
@@ -591,6 +595,13 @@ export function OpenItem({
       return !current;
     });
   }
+
+  function openSitePane(): void {
+    setPanelPane('site');
+    if (!panelOpen) togglePanel();
+    focusSitePaneHeading();
+  }
+  const hasSite = useItemHasSite(itemId);
 
   const details = useItemProperties(itemId);
 
@@ -722,6 +733,12 @@ export function OpenItem({
       onSelect: () => {
         setExportOpen(true);
       },
+    },
+    {
+      key: 'site',
+      label: hasSite === false ? 'Publish as a site…' : 'Site',
+      icon: Globe,
+      onSelect: openSitePane,
     },
     {
       key: 'import',
@@ -1059,10 +1076,23 @@ export function OpenItem({
               presentation="workspace"
               className="sm:max-w-xl"
             >
-              <ItemPanel container={container} details={details} onClose={togglePanel} overlay />
+              <ItemPanel
+                container={container}
+                details={details}
+                onClose={togglePanel}
+                overlay
+                pane={panelPane}
+                onPaneChange={setPanelPane}
+              />
             </Dialog>
           ) : (
-            <ItemPanel container={container} details={details} onClose={togglePanel} />
+            <ItemPanel
+              container={container}
+              details={details}
+              onClose={togglePanel}
+              pane={panelPane}
+              onPaneChange={setPanelPane}
+            />
           )
         ) : null}
 

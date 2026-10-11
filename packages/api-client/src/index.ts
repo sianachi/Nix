@@ -426,6 +426,35 @@ export {
   exportStatusSchema,
 } from './schemas/exports.js';
 export * as companionBodies from './resources/companion-bodies.js';
+export * as sites from './resources/sites.js';
+export type {
+  CreateSiteInput,
+  PublishSiteInput,
+  UpdateSiteHostnameInput,
+  UpdateSiteInput,
+} from './resources/sites.js';
+export type {
+  Site,
+  SiteBuild,
+  SiteBuildList,
+  SiteBuildStatus,
+  SiteDatedCollection,
+  SiteApproval,
+  SiteApprovalEntry,
+  SiteApprovalList,
+  SiteDnsRecord,
+  SiteHostname,
+  SiteLayout,
+  SiteList,
+  SiteNavLink,
+  SitePage,
+  SitePageList,
+  SiteRepublishMode,
+  SiteServeMode,
+  SiteSettings,
+  SiteStatus,
+} from './schemas/sites.js';
+export { siteBuildSchema, siteSchema, siteSettingsSchema } from './schemas/sites.js';
 export type { PetToolCall } from './schemas/pets.js';
 
 export * as habits from './resources/habits.js';
