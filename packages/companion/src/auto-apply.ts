@@ -18,9 +18,7 @@ const ALWAYS_ASK_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new S
  * external link (`hasExternalLink`) are the caller's own checks: this function only knows the
  * operation. */
 export function canApplyWithoutAsking(operation: WorkspaceToolArgs['operation']): boolean {
-  return (
-!READ_ONLY_OPERATIONS.has(operation) && !ALWAYS_ASK_OPERATIONS.has(operation)
-  );
+  return !READ_ONLY_OPERATIONS.has(operation) && !ALWAYS_ASK_OPERATIONS.has(operation);
 }
 
 const EXTERNAL_LINK = /(?:^|[^A-Za-z0-9])(?:https?:)?\/\/[^\s/]+/i;

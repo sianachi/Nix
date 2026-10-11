@@ -1069,7 +1069,7 @@ describe('companion work approvals', () => {
           runtime={buildRuntime}
           workspaceId="11111111-1111-4111-8111-111111111111"
           petId="22222222-2222-4222-8222-222222222222"
-            onChange={vi.fn()}
+          onChange={vi.fn()}
         />
       </MemoryRouter>,
     );
@@ -1139,7 +1139,7 @@ describe('companion work approvals', () => {
           runtime={incompleteRuntime}
           workspaceId="11111111-1111-4111-8111-111111111111"
           petId="22222222-2222-4222-8222-222222222222"
-            onChange={vi.fn()}
+          onChange={vi.fn()}
         />
       </MemoryRouter>,
     );

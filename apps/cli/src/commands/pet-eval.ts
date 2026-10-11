@@ -160,9 +160,7 @@ async function runtime(
   operation: 'reset' | 'send' | 'read' | 'tool_claim' | 'tool_result',
   extra: Partial<Parameters<typeof pets.runtime>[0]> = {},
 ): Promise<PetConnection> {
-  return session.client.execute(
-    pets.runtime({ operation, workspaceId, petId, ...extra }),
-  );
+  return session.client.execute(pets.runtime({ operation, workspaceId, petId, ...extra }));
 }
 
 async function postLocalToolResult(
