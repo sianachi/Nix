@@ -666,6 +666,7 @@ describe('Core-mediated browser sessions', () => {
   });
 
   it('rejects renewal for another account while preserving that account’s offline marker', async () => {
+    vi.stubGlobal('localStorage', memoryStorage());
     vi.spyOn(offline, 'rememberOfflineAccount').mockImplementation((profile) => {
       vi.spyOn(offline, 'readOfflineAccount').mockReturnValue(profile);
       return Promise.resolve();
@@ -691,6 +692,8 @@ describe('Core-mediated browser sessions', () => {
     );
     renderProvider();
     await screen.findByText('authenticated');
+    const departingEpoch = bodies.bodyCacheAccountEpoch('person-1');
+    expect(departingEpoch).not.toBeNull();
     vi.mocked(offline.readOfflineAccount).mockReturnValue({
       subject: 'person-2',
       name: 'Other Person',
@@ -699,8 +702,8 @@ describe('Core-mediated browser sessions', () => {
     await userEvent.setup().click(screen.getByRole('button', { name: 'Read access token' }));
     await screen.findByText('anonymous');
     expect(screen.getByLabelText('Access token')).toHaveTextContent('No token');
-    expect(forget).toHaveBeenCalledWith('person-1', null);
-    expect(bodies.sealAccountBodies).toHaveBeenCalledWith('person-1', null);
+    expect(forget).toHaveBeenCalledWith('person-1', departingEpoch);
+    expect(bodies.sealAccountBodies).toHaveBeenCalledWith('person-1', departingEpoch);
     expect(clear).not.toHaveBeenCalled();
     expect(offline.readOfflineAccount()).toMatchObject({ subject: 'person-2' });
     expect(useSessionStore.getState().profile).toBeNull();
