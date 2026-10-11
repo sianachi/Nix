@@ -48,6 +48,7 @@ const config: StorybookConfig = {
     '../../../apps/web/src/launch/*.stories.tsx',
     '../../../apps/web/src/recording/*.stories.tsx',
     '../../../apps/web/src/speech/*.stories.tsx',
+    '../../../apps/web/src/sites/*.stories.tsx',
   ],
   staticDirs: [
     { from: '../../../apps/web/public/pets', to: '/pets' },
