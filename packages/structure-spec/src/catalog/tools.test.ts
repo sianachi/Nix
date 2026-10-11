@@ -32,19 +32,21 @@ function toolNames(): string[] {
 }
 
 describe('buildPetTools', () => {
-  it('teaches the supported property grammar to formula-writing tools in both modes', () => {
-    for (const mode of ['chat', 'consult'] as const) {
-      const tools = new Map(buildPetTools(mode).map((tool) => [tool.name, tool]));
-      const operations = ['create_structured', 'add_view', 'add_fields', 'edit_form'];
-      if (mode === 'consult') operations.push('validate_blueprint', 'build_blueprint');
-      for (const operation of operations) {
-        const description = tools.get(`nix_${operation}`)?.description ?? '';
-        expect(description).toContain('case-sensitive property keys as [key]');
-        expect(description).toContain('without a leading =');
-        expect(description).toContain('never labels, prop() or PROPERTY()');
-        expect(description).toContain('TODAY and NOW are unsupported');
-        expect(description).toContain(FORMULA_FUNCTION_NAMES.join(', '));
-      }
+  it('teaches the supported property grammar to formula-writing tools', () => {
+    const tools = new Map(buildPetTools().map((tool) => [tool.name, tool]));
+    for (const operation of [
+      'create_structured',
+      'add_view',
+      'add_fields',
+      'edit_form',
+      'build_blueprint',
+    ]) {
+      const description = tools.get(`nix_${operation}`)?.description ?? '';
+      expect(description).toContain('case-sensitive property keys as [key]');
+      expect(description).toContain('without a leading =');
+      expect(description).toContain('never labels, prop() or PROPERTY()');
+      expect(description).toContain('TODAY and NOW are unsupported');
+      expect(description).toContain(FORMULA_FUNCTION_NAMES.join(', '));
     }
   });
   it('keeps per-call and total capacity guidance after provider schema normalization', () => {
