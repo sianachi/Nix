@@ -12,6 +12,7 @@ using Nix.Domain.Locks;
 using Nix.Domain.Notifications;
 using Nix.Domain.Plugins;
 using Nix.Domain.Scheduling;
+using Nix.Domain.Sites;
 using Nix.Domain.Templates;
 using Nix.Domain.Tenancy;
 using Nix.Domain.Transcriptions;
@@ -230,6 +231,39 @@ public sealed class NixDbContext : DbContext
     /// <summary>Gets lease-bounded plugin invocation attempts.</summary>
     public DbSet<PluginInvocation> PluginInvocations => Set<PluginInvocation>();
 
+    /// <summary>Gets the static publications of item subtrees.</summary>
+    public DbSet<Site> Sites => Set<Site>();
+
+    /// <summary>Gets the hostnames that resolve to sites.</summary>
+    public DbSet<SiteHostname> SiteHostnames => Set<SiteHostname>();
+
+    /// <summary>Gets the items kept out of sites.</summary>
+    public DbSet<SiteExclusion> SiteExclusions => Set<SiteExclusion>();
+
+    /// <summary>Gets the dated collections of sites.</summary>
+    public DbSet<SiteDatedCollectionSetting> SiteDatedCollectionSettings => Set<SiteDatedCollectionSetting>();
+
+    /// <summary>Gets the stable public paths of site pages.</summary>
+    public DbSet<SitePage> SitePages => Set<SitePage>();
+
+    /// <summary>Gets the permanent redirects of sites.</summary>
+    public DbSet<SiteRedirect> SiteRedirects => Set<SiteRedirect>();
+
+    /// <summary>Gets the builds of sites.</summary>
+    public DbSet<SiteBuild> SiteBuilds => Set<SiteBuild>();
+
+    /// <summary>Gets the immutable manifest pages of builds.</summary>
+    public DbSet<SiteBuildPage> SiteBuildPages => Set<SiteBuildPage>();
+
+    /// <summary>Gets the files builds may copy.</summary>
+    public DbSet<SiteBuildFile> SiteBuildFiles => Set<SiteBuildFile>();
+
+    /// <summary>Gets the objects builds wrote.</summary>
+    public DbSet<SiteBuildObject> SiteBuildObjects => Set<SiteBuildObject>();
+
+    /// <summary>Gets the host-manifest operation sets.</summary>
+    public DbSet<SiteActivation> SiteActivations => Set<SiteActivation>();
+
     /// <inheritdoc />
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     {
@@ -362,6 +396,17 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new PluginEventReceiptConfiguration());
         modelBuilder.ApplyConfiguration(new PluginEventInboxConfiguration());
         modelBuilder.ApplyConfiguration(new PluginInvocationConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteHostnameConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteExclusionConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteDatedCollectionSettingConfiguration());
+        modelBuilder.ApplyConfiguration(new SitePageConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteRedirectConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteBuildConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteBuildPageConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteBuildFileConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteBuildObjectConfiguration());
+        modelBuilder.ApplyConfiguration(new SiteActivationConfiguration());
 
         // Template trees and half-hydrated regular items are implementation state, not workspace
         // content. Special template/application paths opt out explicitly; every ordinary EF item

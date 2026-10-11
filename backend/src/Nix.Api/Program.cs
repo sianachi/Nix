@@ -33,6 +33,7 @@ using Nix.Features.Query;
 using Nix.Features.Recurrence;
 using Nix.Features.Roles;
 using Nix.Features.Search;
+using Nix.Features.Sites;
 using Nix.Features.TemplateImports;
 using Nix.Features.Templates;
 using Nix.Features.Tokens;
@@ -99,6 +100,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.TypeInfoResolverChain.Add(DocumentImportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(ExportsJsonContext.Default);
     options.SerializerOptions.TypeInfoResolverChain.Add(PluginsJsonContext.Default);
+    options.SerializerOptions.TypeInfoResolverChain.Add(Nix.Features.Sites.SitesJsonContext.Default);
 });
 
 // Injected clock: endpoints never read DateTimeOffset.UtcNow directly, so time is
@@ -367,6 +369,14 @@ builder.Services.AddSingleton(static provider =>
             (int)FailedAuthenticationThrottle.DefaultWindow.TotalSeconds)));
 });
 
+// Sites serve user-written content. A sites domain the app's own cookies can reach would let that
+// content act as the app, so a configuration that is unsafe or unusable stops the host before it
+// accepts a request. An empty domain leaves the feature off.
+SiteOptions.Bind(builder.Configuration).AssertValid(
+    Uri.TryCreate(builder.Configuration["Nix:Bff:PublicOrigin"], UriKind.Absolute, out var appOrigin) ? appOrigin.Host : null,
+    builder.Environment.IsDevelopment());
+builder.Services.AddHttpContextAccessor();
+
 // Persistence, when a connection string is configured.
 //
 // Three callers depend on this host booting without a database: the endpoint tests, which run the
@@ -597,6 +607,7 @@ app.MapPublicFormEndpoints();
 app.MapTemplateEndpoints();
 app.MapTokenEndpoints();
 app.MapTokenExchangeEndpoints();
+app.MapSiteEndpoints();
 
 app.Run();
 

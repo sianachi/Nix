@@ -11,7 +11,7 @@ namespace Nix.Features.BrowserAuth;
 /// <summary>Same-origin browser authentication backed by an opaque Core session cookie.</summary>
 internal static class BrowserAuthEndpoints
 {
-    private const string LoginCookiePath = "/auth/callback";
+    private const string LoginCookiePath = "/";
 
     /// <summary>Registers the interactive login, session, token and logout routes.</summary>
     internal static IEndpointRouteBuilder MapBrowserAuthEndpoints(this IEndpointRouteBuilder endpoints)

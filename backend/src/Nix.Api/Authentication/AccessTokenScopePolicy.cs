@@ -161,7 +161,12 @@ public static class AccessTokenScopePolicy
             // Automation rules act later, unattended, with their owner's write access
             // (ADR-0051 section 6): a token may read them, but creating, changing, running or
             // deleting one is an admin capability, never an ordinary write.
-            || value.Contains("/automations", StringComparison.OrdinalIgnoreCase))
+            || value.Contains("/automations", StringComparison.OrdinalIgnoreCase)
+            // Publishing a site puts a subtree on the public internet (ADR-0063), as
+            // `/public-link` does for a view: creating, changing, publishing, rolling back,
+            // withdrawing or deleting one is an admin capability for a token. Reading a site and
+            // its builds stays a read through the shortcut above.
+            || value.StartsWith("/api/v1/sites", StringComparison.OrdinalIgnoreCase))
         {
             return Requirement.Admin;
         }

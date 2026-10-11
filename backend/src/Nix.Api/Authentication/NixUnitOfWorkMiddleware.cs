@@ -313,7 +313,7 @@ public sealed class NixUnitOfWorkMiddleware
             if (execution is null
                 || execution.TenantId != workerToken.TenantId.Value
                 || execution.ActorId != workerToken.PrincipalId.Value
-                || !execution.Kind.StartsWith("export.", StringComparison.Ordinal)
+                || !WorkerExportDelegationPolicy.Delegates(execution.Kind)
                 || !WorkerExportDelegationPolicy.Allows(context.Request, workerToken, execution))
             {
                 await WriteProblemAsync(
