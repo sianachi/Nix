@@ -431,9 +431,7 @@ async function runtime(
   operation: 'reset' | 'send' | 'read' | 'interrupt' | 'tool_claim' | 'tool_result',
   extra: Partial<Parameters<typeof pets.runtime>[0]> = {},
 ): Promise<PetConnection> {
-  return session.client.execute(
-    pets.runtime({ operation, workspaceId, petId, ...extra }),
-  );
+  return session.client.execute(pets.runtime({ operation, workspaceId, petId, ...extra }));
 }
 
 async function declineTool(
@@ -858,8 +856,7 @@ export async function runChatCase(
       await stopEvaluationTurn(session, options.workspace, options.pet, sleep);
     // Keep the settled conversation as recovery evidence for an uncertain capture. A reset
     // failure must not replace its retention error and cause the suite to delete the source.
-    if (!retained)
-      await runtime(session, options.workspace, options.pet, 'reset');
+    if (!retained) await runtime(session, options.workspace, options.pet, 'reset');
   }
 
   const attempted = tools.map((tool) => tool.operation);

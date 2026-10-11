@@ -1227,9 +1227,7 @@ export function buildProgram(): Command {
       await run(() => readStructureOutline(flags.profile, itemId, outputOptions(flags.json)));
     });
 
-  const blueprint = program
-    .command('blueprint')
-    .description('Inspect and build a blueprint.');
+  const blueprint = program.command('blueprint').description('Inspect and build a blueprint.');
   blueprint
     .command('catalog')
     .description('Print the generated structure catalog.')

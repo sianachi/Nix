@@ -1,8 +1,5 @@
 import { z } from 'zod';
-import {
-  READ_ONLY_OPERATION_NAMES,
-  WORKSPACE_OPERATIONS,
-} from '@nix/structure-spec';
+import { READ_ONLY_OPERATION_NAMES, WORKSPACE_OPERATIONS } from '@nix/structure-spec';
 
 const optionalId = z.union([z.literal(''), z.uuid()]);
 export const workspaceToolSchema = z

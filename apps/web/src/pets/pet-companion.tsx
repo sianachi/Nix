@@ -12,11 +12,7 @@ import { PetAvatar } from './pet-avatar';
 import { publishPetAttention } from './pet-attention';
 import { usePetSettings } from './use-pet-settings';
 import { usePetRuntime } from './use-pet-runtime';
-import {
-  readDevicePreference,
-  readPetPosition,
-  writePetPosition,
-} from './device-preferences';
+import { readDevicePreference, readPetPosition, writePetPosition } from './device-preferences';
 import { chatOpensAsPage, launcherFloats, pageIsAvailable } from './pet-surface';
 import { useZenActive } from '../lib/zen-mode';
 import { usePetSurface } from './use-pet-surface';

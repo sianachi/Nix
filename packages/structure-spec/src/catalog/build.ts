@@ -210,11 +210,7 @@ export function renderCatalog(catalog: Catalog, patterns: string): string {
   );
   lines.push('');
   lines.push('Section: Property types');
-  lines.push(
-    catalog.propertyTypes
-      .map((type) => `${type.type} (${type.label})`)
-      .join(', '),
-  );
+  lines.push(catalog.propertyTypes.map((type) => `${type.type} (${type.label})`).join(', '));
   lines.push(
     `Task field keys equal their type: ${TASK_SEMANTIC_FIELD_TYPES.join(', ')}. Labels stay free.`,
   );
@@ -235,7 +231,6 @@ export function renderCatalog(catalog: Catalog, patterns: string): string {
     lines.push(`- ${rule}`);
   }
   lines.push('');
-
 
   lines.push('Section: Query operators');
   for (const operator of catalog.queryOperators) {
