@@ -43,6 +43,13 @@ import { listedItems } from './read/list-items.js';
 import { anyUnderLock } from './read/locks.js';
 import { calendarRange, readCalendar } from './read/calendar.js';
 import {
+  prepareNoteScopedTool,
+  checkNoteScopedItem,
+  listNoteScopedItems,
+  searchNoteScopedItems,
+  type NoteToolScope,
+} from './scope.js';
+import {
   completedFlag,
   completeTask,
   planTaskCompletion,
@@ -58,6 +65,7 @@ export interface RunOptions {
   buildLedger?: readonly { nodeId: string; itemId?: string; status?: string }[];
   fence?: StructureFingerprint;
   onProgress?: (completed: number, total: number) => void;
+  scope?: NoteToolScope;
 }
 
 export interface WorkspaceToolOutcome {
@@ -81,7 +89,10 @@ export async function runWorkspaceTool(
   const client = ports.core;
   const bodies = ports.bodies;
   if (raw.length > 40000) throw new Error('Tool arguments are too large.');
-  const args = workspaceToolSchema.parse(JSON.parse(raw));
+  const parsed = workspaceToolSchema.parse(JSON.parse(raw));
+  const args = options.scope
+    ? await prepareNoteScopedTool(ports, workspaceId, parsed, signal, options.scope)
+    : parsed;
   if (CONSULT_ONLY_OPERATIONS.has(args.operation) && options.mode !== 'consult')
     throw new WorkspaceToolRefusal('This operation is only available in Design mode.');
   const requestOptions = { signal, forceRefresh: true };
@@ -89,7 +100,10 @@ export async function runWorkspaceTool(
   // The items a read returned content from, checked for a covering lock once the read is done.
   let unboundedReadProvenance = false;
   let contentSources: (string | null | undefined)[] = [];
-  const check = (id: string) => checkItem(ports, workspaceId, id, signal);
+  const check = (id: string) =>
+    options.scope
+      ? checkNoteScopedItem(ports, workspaceId, id, signal, options.scope)
+      : checkItem(ports, workspaceId, id, signal);
   const rawSpec: unknown = args.specJson.trim() ? JSON.parse(args.specJson) : {};
   if (args.operation === 'validate_blueprint') {
     const report = validateBlueprint(rawSpec, { inheritedFields: [], today: '' });
@@ -101,7 +115,7 @@ export async function runWorkspaceTool(
     };
   }
   if (args.operation === 'build_blueprint') {
-    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    const context = await loadPreviewContext(ports, workspaceId, args, signal, options.scope);
     if (options.fence === undefined || context.fingerprint !== options.fence)
       throw new WorkspaceToolRefusal(
         'The destination changed since you approved this. Review the design again before building.',
@@ -157,7 +171,7 @@ export async function runWorkspaceTool(
   let templatePreflight;
   if (args.operation === 'apply_template') {
     applySpecSchema.parse(rawSpec);
-    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    const context = await loadPreviewContext(ports, workspaceId, args, signal, options.scope);
     templatePreflight = context.preflight;
   }
   if (
@@ -171,7 +185,7 @@ export async function runWorkspaceTool(
       'set_recurrence',
     ].includes(args.operation)
   ) {
-    const context = await loadPreviewContext(ports, workspaceId, args, signal);
+    const context = await loadPreviewContext(ports, workspaceId, args, signal, options.scope);
     if (options.fence === undefined || context.fingerprint !== options.fence)
       throw new WorkspaceToolRefusal(
         'The item changed since you approved this. Ask the pet to look again.',
@@ -318,6 +332,18 @@ export async function runWorkspaceTool(
       break;
     }
     case 'list_items': {
+      if (options.scope) {
+        const scoped = await listNoteScopedItems(
+          ports,
+          workspaceId,
+          args.parentId,
+          signal,
+          options.scope,
+        );
+        result = scoped.result;
+        contentSources = [args.parentId, ...scoped.contentSources];
+        break;
+      }
       const children = [];
       let truncated = false;
       for await (const item of client.paginate(
@@ -361,6 +387,18 @@ export async function runWorkspaceTool(
       break;
     }
     case 'search': {
+      if (options.scope) {
+        const scoped = await searchNoteScopedItems(
+          ports,
+          workspaceId,
+          args.query,
+          signal,
+          options.scope,
+        );
+        result = scoped.result;
+        contentSources = scoped.contentSources;
+        break;
+      }
       if (!args.query.trim()) throw new Error('A search query is required.');
       if (z.uuid().safeParse(args.query.trim()).success) {
         const item = await check(args.query.trim());
@@ -437,7 +475,7 @@ export async function runWorkspaceTool(
     }
     case 'save_as_template': {
       const spec = saveSpecSchema.parse(rawSpec);
-      const context = await loadPreviewContext(ports, workspaceId, args, signal);
+      const context = await loadPreviewContext(ports, workspaceId, args, signal, options.scope);
       if (
         options.fence === undefined ||
         context.fingerprint !== options.fence ||

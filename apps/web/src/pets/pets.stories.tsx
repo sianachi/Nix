@@ -804,9 +804,18 @@ function routeQuery(
   connection: ReturnType<typeof petConnectionSchema.parse>,
 ): (endpoint: { operation: string }) => Promise<unknown> {
   return (endpoint) =>
-    endpoint.operation === 'pets.watchRuntime'
-      ? Promise.resolve({ ...connection, revision: 1 })
-      : Promise.resolve(settings);
+    endpoint.operation === 'items.get'
+      ? Promise.resolve({
+          id: '66666666-6666-4666-8666-666666666666',
+          workspaceId: PHONE_WORKSPACE,
+          title: 'Nix documentation',
+          type: 'note',
+        })
+      : endpoint.operation === 'locks.get'
+        ? Promise.resolve({ locked: false, unlockedUntil: null })
+        : endpoint.operation === 'pets.watchRuntime'
+          ? Promise.resolve({ ...connection, revision: 1 })
+          : Promise.resolve(settings);
 }
 
 const phoneClient = {
@@ -983,6 +992,21 @@ export const ConversationPhone = {
     </PhoneFrame>
   ),
 };
+export const NoteConversationPhone280 = {
+  render: (): ReactElement => (
+    <PhoneFrame
+      width={280}
+      initialEntry={`/w/${PHONE_WORKSPACE}/pet?root=66666666-6666-4666-8666-666666666666`}
+    >
+      <PetPage />
+    </PhoneFrame>
+  ),
+};
+export const DarkNoteConversationPhone280 = {
+  ...NoteConversationPhone280,
+  globals: { ground: 'dark' },
+};
+
 export const DarkConversationPhone = { ...ConversationPhone, globals: { ground: 'dark' } };
 
 export const ConversationPhone320 = {

@@ -137,6 +137,12 @@ export interface ConversationProps {
   readonly layout: ConversationLayout;
   readonly runtimeApi: UsePetRuntimeResult;
   readonly onNeedsDecisionChange: (toolIds: readonly string[]) => void;
+  readonly noteScope?: {
+    readonly rootItemId: string;
+    readonly title: string;
+    readonly readOnly: boolean;
+    readonly onReadOnlyChange: (readOnly: boolean) => void;
+  };
   readonly onClose?: () => void;
   /** Moves the conversation to its own page. Offered in the floating panel only; a prop rather
    * than a router call so `Conversation` stays free of the destination it would navigate to. */
@@ -154,6 +160,7 @@ export function Conversation({
   onNeedsDecisionChange,
   onClose,
   onOpenAsPage,
+  noteScope,
 }: ConversationProps): ReactElement {
   const fullscreen = layout === 'fullscreen';
   const smallScreen = useNarrowViewport();
@@ -165,7 +172,7 @@ export function Conversation({
   const client = useApiClient();
   const location = useLocation();
   const [search] = useSearchParams();
-  const currentItem = search.get('item');
+  const currentItem = noteScope?.rootItemId ?? search.get('item');
   const {
     runtime,
     models,
@@ -186,7 +193,7 @@ export function Conversation({
   // in `Companion` above), so without this a half-typed Chat draft would vanish the moment
   // someone opened Design and came back. The draft lives in a small in-memory store rather than
   // here so it also survives the conversation moving between the floating panel and its page.
-  const [draft, setDraft] = usePetDraft(workspaceId, pet.id, mode);
+  const [draft, setDraft] = usePetDraft(workspaceId, pet.id, mode, noteScope?.rootItemId);
   const [sharedByMode, setSharedByMode] = useState<
     Record<PetConversationMode, SharedContext | null>
   >({ chat: null, consult: null });
@@ -204,9 +211,10 @@ export function Conversation({
     setPreviousModelMode(mode);
     setModel(readConversationModel(workspaceId, pet.id, mode));
   }
-  const [workspaceAccess, setWorkspaceAccess] = useState(() =>
+  const [workspaceAccessPreference, setWorkspaceAccess] = useState(() =>
     readWorkspaceAccess(workspaceId, pet.id),
   );
+  const workspaceAccess = noteScope !== undefined || workspaceAccessPreference;
   const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
   const [needsDecisionIds, setNeedsDecisionIds] = useState<readonly string[]>([]);
   const [currentItemTitle, setCurrentItemTitle] = useState<string | null>(null);
@@ -234,7 +242,7 @@ export function Conversation({
     on: boolean;
     exempt: readonly string[];
   }>({ scope: applyScope, on: false, exempt: [] });
-  const applyWithoutAsking = applySwitch.scope === applyScope && applySwitch.on;
+  const applyWithoutAsking = !noteScope && applySwitch.scope === applyScope && applySwitch.on;
   const applyExemptToolIds = applyWithoutAsking ? applySwitch.exempt : [];
   const applyToggle = useRef<HTMLButtonElement>(null);
   const setApplyWithoutAsking = (on: boolean) => {
@@ -454,7 +462,7 @@ export function Conversation({
     // keeps a second press from starting another send while the map is read.
     const firstMessage = !messages.some((message) => message.role === 'user');
     let workspaceMap: Awaited<ReturnType<typeof buildWorkspaceMap>> = undefined;
-    if (firstMessage && workspaceAccess) {
+    if (firstMessage && workspaceAccess && !noteScope) {
       preparing.current = true;
       try {
         workspaceMap = await buildWorkspaceMap(client, workspaceId, new AbortController().signal);
@@ -466,7 +474,11 @@ export function Conversation({
       text: draft,
       model,
       workspaceAccess,
-      ...(shared ? { itemId: shared.itemId, sharedText: shared.sharedText } : {}),
+      ...(noteScope
+        ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
+        : shared
+          ? { itemId: shared.itemId, sharedText: shared.sharedText }
+          : {}),
       ...(workspaceMap?.length ? { workspaceMap } : {}),
     });
     if (ok) {
@@ -486,7 +498,11 @@ export function Conversation({
       text: lastUser.text,
       model,
       workspaceAccess,
-      ...(shared ? { itemId: shared.itemId, sharedText: shared.sharedText } : {}),
+      ...(noteScope
+        ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
+        : shared
+          ? { itemId: shared.itemId, sharedText: shared.sharedText }
+          : {}),
     });
   }
 
@@ -582,6 +598,20 @@ export function Conversation({
 
   const needsWorkspaceAccessForChip = Boolean(shared) && !workspaceAccess;
 
+  if (noteScope && !runtime && error) {
+    return (
+      <div className="flex min-w-0 flex-col gap-2 p-3">
+        <Text role="alert">{error}</Text>
+        <Link
+          to={`/w/${workspaceId}?item=${noteScope.rootItemId}`}
+          className={`underline ${focusRing}`}
+        >
+          Open the note
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={dialog}
@@ -647,19 +677,48 @@ export function Conversation({
                 ) : null}
               </div>
             </div>
-            <div data-context-menu-ignore className="self-start">
-              <Segmented
-                label="Conversation mode"
-                options={CONVERSATION_MODE_OPTIONS}
-                value={mode}
-                onChange={(next) => {
-                  // Another mode is another conversation: the switch never carries over, not even
-                  // on a round trip back to the mode it was turned on in.
-                  setApplyWithoutAsking(false);
-                  onModeChange(next);
-                }}
-              />
-            </div>
+            {noteScope ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Link
+                  to={`/w/${workspaceId}?item=${noteScope.rootItemId}`}
+                  className={`min-w-0 truncate underline ${focusRing}`}
+                >
+                  <Text as="span" variant="note" truncate>
+                    {noteScope.title}
+                  </Text>
+                </Link>
+                <Select
+                  aria-label="Note chat access"
+                  value={noteScope.readOnly ? 'read' : 'edit'}
+                  disabled={running || busy}
+                  className="min-w-0 max-w-full"
+                  onChange={(event) => {
+                    noteScope.onReadOnlyChange(event.currentTarget.value === 'read');
+                  }}
+                >
+                  <option value="read">Read only</option>
+                  <option value="edit">Approved edits</option>
+                </Select>
+                <Text variant="note" tone="muted">
+                  Reads this note and its readable children on demand. Search and results can be
+                  partial. Every change asks first.
+                </Text>
+              </div>
+            ) : (
+              <div data-context-menu-ignore className="min-w-0 self-start">
+                <Segmented
+                  label="Conversation mode"
+                  options={CONVERSATION_MODE_OPTIONS}
+                  value={mode}
+                  onChange={(next) => {
+                    // Another mode is another conversation: the switch never carries over, not even
+                    // on a round trip back to the mode it was turned on in.
+                    setApplyWithoutAsking(false);
+                    onModeChange(next);
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
       </ContextMenu>
@@ -703,6 +762,7 @@ export function Conversation({
             name={pet.name}
             client={client}
             mode={mode}
+            rootItemId={noteScope?.rootItemId}
           />
         </div>
       ) : !runtime ? (
@@ -767,6 +827,7 @@ export function Conversation({
                   onNeedsDecisionChange={reportNeedsDecision}
                   applyWithoutAsking={applyWithoutAsking}
                   applyExemptToolIds={applyExemptToolIds}
+                  noteScope={noteScope}
                 />
               </>
             ) : (
@@ -795,6 +856,7 @@ export function Conversation({
                       onNeedsDecisionChange={reportNeedsDecision}
                       applyWithoutAsking={applyWithoutAsking}
                       applyExemptToolIds={applyExemptToolIds}
+                      noteScope={noteScope}
                     />
                     {messages
                       .slice(splitAt)
@@ -918,28 +980,30 @@ export function Conversation({
                 </Button>
               )}
             </div>
-            <div className="flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain">
-              <Button
-                variant="ghost"
-                className={`shrink-0 ${workspaceAccess ? 'bg-accent/15 text-accent-text' : ''}`}
-                aria-pressed={workspaceAccess}
-                aria-describedby="pet-workspace-access-hint"
-                disabled={running}
-                onClick={() => {
-                  const next = !workspaceAccess;
-                  setWorkspaceAccess(next);
-                  writeWorkspaceAccess(workspaceId, pet.id, next);
-                  // Nothing can be applied without workspace tools, so the switch goes with it.
-                  if (!next) setApplyWithoutAsking(false);
-                }}
-              >
-                Workspace access
-              </Button>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {!noteScope ? (
+                <Button
+                  variant="ghost"
+                  className={`shrink-0 ${workspaceAccess ? 'bg-accent/15 text-accent-text' : ''}`}
+                  aria-pressed={workspaceAccess}
+                  aria-describedby="pet-workspace-access-hint"
+                  disabled={running}
+                  onClick={() => {
+                    const next = !workspaceAccess;
+                    setWorkspaceAccess(next);
+                    writeWorkspaceAccess(workspaceId, pet.id, next);
+                    // Nothing can be applied without workspace tools, so the switch goes with it.
+                    if (!next) setApplyWithoutAsking(false);
+                  }}
+                >
+                  Workspace access
+                </Button>
+              ) : null}
               <Text as="span" variant="note" className="sr-only" id="pet-workspace-access-hint">
                 Lets {pet.name} find and read your notes for this message. Changes ask first unless
                 you turn on applying without asking.
               </Text>
-              {workspaceAccess ? (
+              {workspaceAccess && !noteScope ? (
                 <>
                   <Button
                     ref={applyToggle}

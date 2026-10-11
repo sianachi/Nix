@@ -19,10 +19,10 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// toolVersion 7 makes capability limits explicit and keeps broad requests within the turn budget.
+// toolVersion 8 adds note scopes, formula guidance and calculation-only forms.
 // Older provider threads restart on their next send to receive the current catalog and rules;
 // visible conversation history and its protected-read hold are retained.
-const toolVersion = 7
+const toolVersion = 8
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -39,6 +39,8 @@ type Request struct {
 	Model           string `json:"model"`
 	Mode            string `json:"mode"`
 	WorkspaceAccess bool   `json:"workspaceAccess"`
+	RootItemID      string `json:"rootItemId"`
+	ReadOnly        bool   `json:"readOnly"`
 	ToolID          string `json:"toolId"`
 	ToolResult      string `json:"toolResult"`
 	ToolSuccess     bool   `json:"toolSuccess"`
@@ -113,6 +115,8 @@ type conversation struct {
 	Mode            string     `json:"mode"`
 	Messages        []Message  `json:"messages"`
 	WorkspaceAccess bool       `json:"-"`
+	RootItemID      string     `json:"rootItemId,omitempty"`
+	ReadOnly        bool       `json:"readOnly,omitempty"`
 	Tools           []ToolCall `json:"tools"`
 	// LockedRead is set once a protected tool result reaches this conversation. Later turns
 	// may quote that result, including visible history after an internal provider-thread restart.
@@ -365,7 +369,7 @@ func validRequest(r Request) bool {
 	case "status", "connect", "disconnect", "models":
 		return true
 	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
-		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
+		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && (r.RootItemID == "" || uuid.MatchString(r.RootItemID)) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
 	}
@@ -503,10 +507,7 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 		}
 		a.mu.Unlock()
 	} else {
-		key := r.WorkspaceID + "-" + r.PetID
-		if r.Mode == "consult" {
-			key += "-consult"
-		}
+		key := conversationKey(r)
 		if r.Operation == "history" || r.Operation == "read_history" || r.Operation == "delete_history" {
 			return a.history(key, r)
 		}
@@ -661,11 +662,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	a.mu.Lock()
 	c := a.conversations[key]
 	thread := c.ThreadID
-	if c.ToolVersion != toolVersion {
+	if c.ToolVersion != toolVersion || c.ReadOnly != r.ReadOnly {
 		thread = ""
 	}
 	a.mu.Unlock()
-	base := baseSharedRules + modeRules(r.Mode) + " Nix capabilities: " + catalogFor(r.Mode)
+	base := baseSharedRules + modeRules(r.Mode) + noteScopeRules(r) + " Nix capabilities: " + catalogFor(r.Mode)
 	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": base, "developerInstructions": r.Instructions}
 	if r.Mode == "consult" && r.Model == "" && len(a.consultModels) > 0 {
 		// No explicit model: try the owner's ordered consult preference against what the
@@ -709,7 +710,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	}
 	method := "thread/start"
 	if thread == "" {
-		params["dynamicTools"] = workspaceTools(r.Mode)
+		params["dynamicTools"] = workspaceToolsForRequest(r)
 	}
 	if thread != "" {
 		method = "thread/resume"
@@ -739,6 +740,9 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	if c.ThreadID != "" && c.ToolVersion != 0 && c.ToolVersion != toolVersion {
 		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":tools", Role: "system", Text: "Your pet was updated and starts a fresh conversation."})
 	}
+	if c.ThreadID != "" && c.ReadOnly != r.ReadOnly {
+		c.Messages = append(c.Messages, Message{ID: r.RequestID + ":access", Role: "system", Text: "Chat access changed. The pet will read this note again as needed."})
+	}
 	// Internal provider-thread replacement keeps the visible conversation and its read hold.
 	// Only an explicit conversation reset clears LockedRead.
 	c.ThreadID = thread
@@ -748,6 +752,8 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.State = "thinking"
 	c.Reason = ""
 	c.WorkspaceAccess = r.WorkspaceAccess
+	c.RootItemID = r.RootItemID
+	c.ReadOnly = r.ReadOnly
 	c.Tools = []ToolCall{}
 	c.timing.start(r.Model, "")
 	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text})
@@ -802,7 +808,11 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 // it in its history and resending it every turn would only spend context.
 func turnPrompt(r Request, newThread bool) map[string]any {
 	prompt := map[string]any{"message": r.Text, "workspaceId": r.WorkspaceID, "currentItemId": r.ItemID, "currentItemTitle": r.ItemTitle, "sharedText": r.SharedText, "workspaceAccess": r.WorkspaceAccess, "today": r.Today, "timeZone": r.TimeZone}
-	if newThread && len(r.WorkspaceMap) > 0 {
+	if r.RootItemID != "" {
+		prompt["rootItemId"] = r.RootItemID
+		prompt["readOnly"] = r.ReadOnly
+	}
+	if newThread && r.RootItemID == "" && len(r.WorkspaceMap) > 0 {
 		prompt["workspaceMap"] = r.WorkspaceMap
 	}
 	return prompt
