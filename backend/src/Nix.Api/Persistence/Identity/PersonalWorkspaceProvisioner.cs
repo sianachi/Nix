@@ -119,6 +119,48 @@ public sealed class PersonalWorkspaceProvisioner : IPersonalWorkspaceProvisioner
             displayName);
     }
 
+    /// <inheritdoc />
+    public async ValueTask RefreshEmailAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
+        string issuer,
+        string subject,
+        UserInfoProfile profile,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        var normalizedEmail = NormalizeVerifiedEmail(profile);
+        var updated = await _sql.ExecuteAsync(
+            ProvisioningSql.RefreshEmail,
+            [
+                Uuid("tenant_id", tenantId.Value),
+                Uuid("principal_id", principalId.Value),
+                Text("issuer", issuer),
+                Text("subject", subject),
+                NullableText("email", profile.Email),
+                NullableText("email_normalized", normalizedEmail),
+                Boolean("email_verified", normalizedEmail is not null),
+            ],
+            cancellationToken).ConfigureAwait(false);
+        if (updated != 1)
+        {
+            throw new PersonalWorkspaceProvisioningInvariantException();
+        }
+
+        if (normalizedEmail is not null)
+        {
+            await _sql.ExecuteAsync(
+                ProvisioningSql.RedeemInvitations,
+                [
+                    Uuid("tenant_id", tenantId.Value),
+                    Uuid("principal_id", principalId.Value),
+                    Text("email_normalized", normalizedEmail),
+                    Timestamp("now", _clock.GetUtcNow()),
+                ],
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async ValueTask<AuthenticatedPrincipal> ReadWinnerAsync(
         TenantId tenantId,
         string issuer,

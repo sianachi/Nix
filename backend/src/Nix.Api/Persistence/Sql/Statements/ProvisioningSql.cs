@@ -19,6 +19,16 @@ public static class ProvisioningSql
         RETURNING true
         """;
 
+    /// <summary>Refreshes only the active human bound to the validated external identity.</summary>
+    public const string RefreshEmail = """
+        UPDATE principal
+           SET email = @email, email_normalized = @email_normalized,
+               email_verified = @email_verified
+         WHERE tenant_id = @tenant_id AND principal_id = @principal_id
+           AND external_issuer = @issuer AND external_subject = @subject
+           AND kind = 'user' AND status = 'active'
+        """;
+
     /// <summary>Finds the exact identity after a concurrent winner commits.</summary>
     public const string ReadPrincipal = """
         SELECT principal_id, tenant_id, status, kind, display_name

@@ -49,6 +49,17 @@ public sealed class CompleteBrowserSignInHandler(
                 "The interactive session could not be bound to the active principal.");
         }
 
+        if (command.ExistingPrincipal is not null)
+        {
+            await provisioner.RefreshEmailAsync(
+                command.TenantId,
+                principal.Id,
+                command.Issuer,
+                command.Subject,
+                command.Profile,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         await browserSessions.AddAsync(command.Session, cancellationToken).ConfigureAwait(false);
         return Result.Success(new CompletedBrowserSignIn(principal, command.Session));
     }
