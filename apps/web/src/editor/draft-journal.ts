@@ -326,6 +326,37 @@ export async function listDraftScopes(subject: string): Promise<string[]> {
   });
 }
 
+/** Only a created local note starts from an empty base; every owned struct must be present. */
+function completeLocalUpdate(
+  records: readonly DraftRecord[],
+  docId: string,
+  base?: Uint8Array,
+): Uint8Array {
+  if (records.some((record) => record.docId !== docId))
+    throw new Error('The local note cannot be recovered without its original document identity.');
+  const update = Y.mergeUpdates([
+    ...(base === undefined ? [] : [base]),
+    ...records.map((record) => record.update),
+  ]);
+  const decoded = Y.decodeUpdate(update);
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, update);
+    const vector = Y.decodeStateVector(Y.encodeStateVector(doc));
+    if (
+      decoded.structs.some((struct) => struct instanceof Y.Skip) ||
+      [...Y.parseUpdateMeta(update).to].some(([client, clock]) => vector.get(client) !== clock) ||
+      [...decoded.ds.clients].some(([client, deletions]) =>
+        deletions.some((deletion) => deletion.clock + deletion.len > (vector.get(client) ?? 0)),
+      )
+    )
+      throw new Error("The local note's pending updates require a missing document base.");
+    return Y.encodeStateAsUpdate(doc);
+  } finally {
+    doc.destroy();
+  }
+}
+
 /** Called only after an idempotent create published a local note as a new server item. */
 export async function migrateLocalDrafts(
   fromScope: string,
@@ -362,19 +393,32 @@ export async function migrateLocalDrafts(
     await discardBodyCache(fromScope, epoch);
     return;
   }
+  let sourceUpdate = source?.update;
+  let recoveredWithoutBase = false;
   if (source === null) {
-    const migrated = (await readDrafts(toScope)).some((record) => record.id === publishedId);
+    const sourceDrafts = await readDrafts(fromScope);
+    const targetDrafts = await readDrafts(toScope);
+    const migrated = targetDrafts.some((record) => record.id === publishedId);
     assertCurrent();
-    if (migrated || destination !== null) {
+    if (
+      receipt?.createdItemId !== to[2] &&
+      sourceDrafts.length === 0 &&
+      (migrated || destination !== null)
+    )
       return;
+    if (receipt?.createdItemId === to[2]) {
+      sourceUpdate = completeLocalUpdate(sourceDrafts, `local:${from[2]}`);
+      recoveredWithoutBase = true;
     }
   }
   if (
-    source?.docId !== `local:${from[2]}` ||
+    (source !== null && source.docId !== `local:${from[2]}`) ||
+    sourceUpdate === undefined ||
     (destination !== null && receipt?.createdItemId !== to[2])
   )
     throw new Error('The local note cannot be merged into an existing server document.');
-  const destinationDocId = destination?.docId ?? `local:${to[2]}`;
+  const completeSourceUpdate = sourceUpdate;
+  const placeholderDocId = `local:${to[2]}`;
   await transaction<undefined>(
     'readwrite',
     (store, done) => {
@@ -394,16 +438,62 @@ export async function migrateLocalDrafts(
             return;
           }
           const records = parsed.data;
+          if (
+            records.some(
+              (record) => record.docId !== undefined && record.docId !== `local:${from[2]}`,
+            )
+          ) {
+            store.transaction.abort();
+            return;
+          }
+          let localUpdate: Uint8Array;
+          try {
+            localUpdate = recoveredWithoutBase
+              ? completeLocalUpdate(records, `local:${from[2]}`, completeSourceUpdate)
+              : Y.mergeUpdates([completeSourceUpdate, ...records.map((record) => record.update)]);
+          } catch {
+            store.transaction.abort();
+            return;
+          }
           const existing = store.get(publishedId);
           existing.onsuccess = () => {
             const previous = recordSchema.safeParse(existing.result);
-            const update = Y.mergeUpdates([
-              source.update,
-              ...(destination === null ? [] : [destination.update]),
-              ...records.map((record) => record.update),
-              ...(previous.success ? [previous.data.update] : []),
-            ]);
+            if (
+              existing.result !== undefined &&
+              (!previous.success ||
+                previous.data.scope !== toScope ||
+                previous.data.docId === undefined)
+            ) {
+              store.transaction.abort();
+              return;
+            }
+            const previousDocId = previous.success ? previous.data.docId : undefined;
+            if (
+              destination !== null &&
+              previousDocId !== undefined &&
+              previousDocId !== placeholderDocId &&
+              previousDocId !== destination.docId
+            ) {
+              store.transaction.abort();
+              return;
+            }
+            const destinationDocId = destination?.docId ?? previousDocId ?? placeholderDocId;
+            let update: Uint8Array;
+            try {
+              update = Y.mergeUpdates([
+                localUpdate,
+                ...(destination === null ? [] : [destination.update]),
+                ...(previous.success ? [previous.data.update] : []),
+              ]);
+            } catch {
+              store.transaction.abort();
+              return;
+            }
             if (update.byteLength > MAX_BYTES) {
+              store.transaction.abort();
+              return;
+            }
+            if (!current()) {
               store.transaction.abort();
               return;
             }
