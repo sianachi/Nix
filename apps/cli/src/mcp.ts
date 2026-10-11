@@ -1337,7 +1337,6 @@ export async function createWorkspaceMcpServer(
         requestId: z.string().max(80).optional(),
         toolResult: z.string().max(32_000).optional(),
         toolSuccess: z.boolean().optional(),
-        mode: z.enum(['chat', 'consult']).optional(),
         after: z.number().int().min(0).optional(),
         apiUrl: z.string().trim().min(1).optional(),
       },
@@ -1355,7 +1354,6 @@ export async function createWorkspaceMcpServer(
           ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
           ...(input.toolResult !== undefined ? { toolResult: input.toolResult } : {}),
           ...(input.toolSuccess !== undefined ? { toolSuccess: input.toolSuccess } : {}),
-          ...(input.mode !== undefined ? { mode: input.mode } : {}),
           ...(input.after !== undefined ? { after: input.after } : {}),
         });
       }),
@@ -1371,11 +1369,10 @@ export async function createWorkspaceMcpServer(
         petId: identifier,
         toolId: z.string().max(200),
         decision: z.enum(['approve', 'decline', 'preview']),
-        mode: z.enum(['chat', 'consult']).optional(),
         apiUrl: z.string().trim().min(1).optional(),
       },
     },
-    ({ workspaceId, petId, toolId, decision, mode, apiUrl }) =>
+    ({ workspaceId, petId, toolId, decision, apiUrl }) =>
       toolResult(async () =>
         executePetToolRun(
           await petSessionForMcp(apiUrl, options),
@@ -1383,7 +1380,6 @@ export async function createWorkspaceMcpServer(
           petId,
           toolId,
           decision,
-          mode,
         ),
       ),
   );
@@ -1400,7 +1396,7 @@ export async function createWorkspaceMcpServer(
   server.registerTool(
     'blueprint_validate',
     {
-      description: 'Validate a Design mode blueprint without writing items.',
+      description: 'Validate a blueprint without writing items.',
       inputSchema: { specJson: z.string().min(1), parentId: identifier.optional() },
     },
     ({ specJson, parentId }) =>
@@ -1418,7 +1414,7 @@ export async function createWorkspaceMcpServer(
   server.registerTool(
     'blueprint_describe',
     {
-      description: 'Preview a Design mode blueprint without writing items.',
+      description: 'Preview a blueprint without writing items.',
       inputSchema: { specJson: z.string().min(1), parentId: identifier.optional() },
     },
     ({ specJson, parentId }) =>
@@ -1436,8 +1432,7 @@ export async function createWorkspaceMcpServer(
   server.registerTool(
     'blueprint_build',
     {
-      description:
-        'Build a validated Design mode blueprint as a draft. Requires explicit confirmation.',
+      description: 'Build a validated blueprint as a draft. Requires explicit confirmation.',
       inputSchema: {
         specJson: z.string().min(1),
         parentId: identifier.optional(),

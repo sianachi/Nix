@@ -1,15 +1,14 @@
 import { useSyncExternalStore } from 'react';
-import { type PetConversationMode } from './device-preferences';
 
-// The unsent message, per workspace, pet and mode. Module-level so it survives the conversation
+// The unsent message, per workspace and pet. Module-level so it survives the conversation
 // moving between the floating panel and the page (each mounts its own `Conversation`). In memory
 // only, on purpose: it is an unfinished message rather than a document, so it is never written to
 // storage and a reload dropping it is the intended end of its life.
 const drafts = new Map<string, string>();
 const listeners = new Set<() => void>();
 
-function draftKey(workspaceId: string, petId: string, mode: PetConversationMode): string {
-  return `${workspaceId}:${petId}:${mode}`;
+function draftKey(workspaceId: string, petId: string): string {
+  return `${workspaceId}:${petId}`;
 }
 
 function subscribe(onChange: () => void): () => void {
@@ -31,9 +30,8 @@ function writeDraft(key: string, next: string): void {
 export function usePetDraft(
   workspaceId: string,
   petId: string,
-  mode: PetConversationMode,
 ): readonly [string, (next: string) => void] {
-  const key = draftKey(workspaceId, petId, mode);
+  const key = draftKey(workspaceId, petId);
   const draft = useSyncExternalStore(
     subscribe,
     () => drafts.get(key) ?? '',

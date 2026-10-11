@@ -90,7 +90,7 @@ func TestSharedLogRecordsEveryStepButNoContent(t *testing.T) {
 		t.Fatalf("tool.result fields: %v", result)
 	}
 	started := hasEvent(events, "companion turn.started")
-	if started["thread"] != "new" || started["mode"] != "chat" || started["workspace_access"] != true {
+	if started["thread"] != "new" || started["workspace_access"] != true {
 		t.Fatalf("turn.started fields: %v", started)
 	}
 	if strings.Contains(output, "SECRET") {
@@ -169,7 +169,7 @@ func TestRefusedAndRejectedToolCallsAreLoggedWithTheirReason(t *testing.T) {
 		}
 	}
 	joined := strings.Join(reasons, " | ")
-	for _, want := range []string{"workspace access is off", "not offered in this mode", "unknown_parameter"} {
+	for _, want := range []string{"workspace access is off", "not offered", "unknown_parameter"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing reason %q in %q", want, joined)
 		}

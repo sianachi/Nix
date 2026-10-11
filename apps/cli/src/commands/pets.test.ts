@@ -74,7 +74,7 @@ describe('pet commands', () => {
       'Choose a pet operation',
     );
   });
-  it('forwards a pending tool_claim/tool_result pair and an explicit consult mode', async () => {
+  it('forwards a pending tool_claim/tool_result pair without a conversation mode', async () => {
     const calls: Record<string, unknown>[] = [];
     server.use(
       http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
@@ -115,7 +115,7 @@ describe('pet commands', () => {
     await petCommand(
       undefined,
       'read',
-      { apiUrl: CORE, workspace: WORKSPACE, pet: PET, mode: 'consult' },
+      { apiUrl: CORE, workspace: WORKSPACE, pet: PET },
       { json: true, isTty: false },
       { env: { NIX_SESSION_TOKEN: 'ephemeral-session' } },
     );
@@ -133,13 +133,8 @@ describe('pet commands', () => {
       toolResult: 'done',
       toolSuccess: true,
     });
-    expect(calls[2]).toMatchObject({ workspaceId: WORKSPACE, petId: PET, mode: 'consult' });
+    expect(calls[2]).toMatchObject({ workspaceId: WORKSPACE, petId: PET, mode: '' });
     expect(output).toHaveBeenCalled();
-  });
-  it('rejects a malformed --mode before contacting the service', async () => {
-    await expect(
-      petCommand(undefined, 'read', { mode: 'design' }, { json: true, isTty: false }),
-    ).rejects.toThrow('--mode must be chat or consult');
   });
   it('rejects tool_claim and tool_result before contacting the service when --tool-id is missing', async () => {
     await expect(
@@ -179,14 +174,14 @@ describe('pet commands', () => {
       petCommand(
         undefined,
         'watch',
-        { apiUrl: CORE, workspace: WORKSPACE, pet: PET, mode: 'chat', after: 3 },
+        { apiUrl: CORE, workspace: WORKSPACE, pet: PET, after: 3 },
         { json: true, isTty: false },
         { env: { NIX_SESSION_TOKEN: 'ephemeral-session' } },
       ),
     );
     expect(query?.get('workspaceId')).toBe(WORKSPACE);
     expect(query?.get('petId')).toBe(PET);
-    expect(query?.get('mode')).toBe('chat');
+    expect(query?.has('mode')).toBe(false);
     expect(query?.get('after')).toBe('3');
     expect(result).toMatchObject({ revision: 7 });
   });
@@ -333,7 +328,6 @@ describe('pet tools run', () => {
         PET,
         TOOL,
         'approve',
-        'chat',
         automatic ? { arguments: argumentsText } : undefined,
       );
       expect(calls).toEqual(['read', 'tool_claim', 'tool_result']);
@@ -393,7 +387,7 @@ describe('pet tools run', () => {
       profile: { apiUrl: CORE, token: 'pat' },
       bearerToken: 'session',
     });
-    await executePetToolRun(session, WORKSPACE, PET, TOOL, 'approve', 'chat', {
+    await executePetToolRun(session, WORKSPACE, PET, TOOL, 'approve', {
       arguments: argumentsText,
       fingerprint: 'the earlier snapshot',
     });
@@ -428,7 +422,7 @@ describe('pet tools run', () => {
         bearerToken: 'session',
       });
       await expect(
-        executePetToolRun(session, WORKSPACE, PET, TOOL, 'approve', 'chat', {
+        executePetToolRun(session, WORKSPACE, PET, TOOL, 'approve', {
           arguments: argumentsText,
         }),
       ).rejects.toThrow(

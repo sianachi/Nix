@@ -181,7 +181,7 @@ export const nodeSchema: z.ZodType<Node> = z.lazy(() =>
 );
 
 /**
- * A whole blueprint (architecture 2.3, consult mode only): a design a pet proposes, an owner
+ * A whole blueprint (architecture 2.3): a design a pet proposes, an owner
  * approves, and the build planner (task C.3a) turns into `Step[]`. Tree-wide limits (node count,
  * depth, fields, views, samples, planned writes) are cross-cutting and cannot be expressed as a
  * `.max()` on any one field here - `validateBlueprint` (`validate.ts`) walks the parsed tree to

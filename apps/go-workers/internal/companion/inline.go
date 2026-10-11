@@ -340,7 +340,7 @@ func (a *account) inlineStart(ctx context.Context, r Request, input string, run 
 	// Registered before turn/start so no notification of the turn can arrive unrouted.
 	a.registerInline(thread, run)
 	turnParams := map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": input}}}
-	if effort := a.effortFor(ctx, "chat", r.Model); effort != "" {
+	if effort := a.effortFor(ctx, r.Model); effort != "" {
 		turnParams["effort"] = effort
 	}
 	// Starting a turn is a mutation: finish the bounded handshake even if the browser leaves,

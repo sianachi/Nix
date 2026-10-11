@@ -31,7 +31,6 @@ import * as addFields from './structure/add-fields.js';
 import * as editForm from './structure/edit-form.js';
 import * as setRecurrence from './structure/recurrence.js';
 import {
-  CONSULT_ONLY_OPERATIONS,
   READ_ONLY_OPERATIONS,
   WorkspaceToolRefusal,
   workspaceToolSchema,
@@ -52,7 +51,6 @@ import {
 export { WorkspaceToolRefusal } from './tool-args.js';
 
 export interface RunOptions {
-  mode?: 'chat' | 'consult';
   toolId?: string;
   claimId?: string;
   buildLedger?: readonly { nodeId: string; itemId?: string; status?: string }[];
@@ -82,8 +80,6 @@ export async function runWorkspaceTool(
   const bodies = ports.bodies;
   if (raw.length > 40000) throw new Error('Tool arguments are too large.');
   const args = workspaceToolSchema.parse(JSON.parse(raw));
-  if (CONSULT_ONLY_OPERATIONS.has(args.operation) && options.mode !== 'consult')
-    throw new WorkspaceToolRefusal('This operation is only available in Design mode.');
   const requestOptions = { signal, forceRefresh: true };
   let result: unknown;
   // The items a read returned content from, checked for a covering lock once the read is done.
@@ -91,25 +87,17 @@ export async function runWorkspaceTool(
   let contentSources: (string | null | undefined)[] = [];
   const check = (id: string) => checkItem(ports, workspaceId, id, signal);
   const rawSpec: unknown = args.specJson.trim() ? JSON.parse(args.specJson) : {};
-  if (args.operation === 'validate_blueprint') {
-    const report = validateBlueprint(rawSpec, { inheritedFields: [], today: '' });
-    return {
-      text: JSON.stringify(report),
-      readOnly: true,
-      touchedParents: [],
-      lockedContent: false,
-    };
-  }
   if (args.operation === 'build_blueprint') {
     const context = await loadPreviewContext(ports, workspaceId, args, signal);
     if (options.fence === undefined || context.fingerprint !== options.fence)
       throw new WorkspaceToolRefusal(
         'The destination changed since you approved this. Review the design again before building.',
       );
-    const blueprint = blueprintSchema.parse(rawSpec);
+    // Validate the raw spec before parsing it: validateBlueprint reports a wrong shape as
+    // problems the model can fix, where blueprintSchema.parse would only throw.
     const report =
       context.blueprintReport ??
-      validateBlueprint(blueprint, {
+      validateBlueprint(rawSpec, {
         inheritedFields: context.inheritedFields,
         today: ports.clock.today(),
       });
@@ -117,6 +105,7 @@ export async function runWorkspaceTool(
       throw new WorkspaceToolRefusal(
         report.problems.map((problem) => `${problem.path}: ${problem.message}`).join('\n'),
       );
+    const blueprint = blueprintSchema.parse(rawSpec);
     const plan = planBuild(blueprint, {
       parentId: args.parentId || null,
       sandboxExists: context.sandboxExists ?? false,

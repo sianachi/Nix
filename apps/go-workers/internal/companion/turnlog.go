@@ -46,7 +46,7 @@ func (t *turnTiming) toolClaimed(since time.Time) {
 
 // log writes one timing line for a finished turn identified by key: no message text, no id
 // beyond a short hash of key, matching what the previous account.logTurnLocked always logged.
-func (t *turnTiming) log(logger *slog.Logger, key, mode, status string) {
+func (t *turnTiming) log(logger *slog.Logger, key, status string) {
 	if logger == nil || t.started.IsZero() {
 		return
 	}
@@ -59,12 +59,8 @@ func (t *turnTiming) log(logger *slog.Logger, key, mode, status string) {
 	if !t.firstToolAt.IsZero() {
 		firstTool = t.firstToolAt.Sub(t.started).Milliseconds()
 	}
-	if mode == "" {
-		mode = "chat"
-	}
 	logger.Info("companion turn completed",
 		"conversation", fmt.Sprintf("%x", digest[:4]),
-		"mode", mode,
 		"model", model,
 		"effort", t.effort,
 		"status", status,

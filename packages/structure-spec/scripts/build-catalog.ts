@@ -1,8 +1,8 @@
 /**
  * Generates the pet's capability catalog from `buildCatalog()` and `buildPetTools()` and writes
- * it in the shapes consumers need: the machine JSON `src/generated/catalog.json`, the two plain
- * text catalogs (`chat.txt`, `consult.txt`) and the three typed-tool JSON files (`tools-chat.json`,
- * `tools-consult.json`, `tool-examples.json`) the Go worker embeds. Committed outputs, never
+ * it in the shapes consumers need: the machine JSON `src/generated/catalog.json`, the plain text
+ * catalog (`chat.txt`) and the typed-tool JSON files (`tools-chat.json`, `tool-examples.json`) the
+ * Go worker embeds. Committed outputs, never
  * hand-edited - `pnpm --filter @nix/structure-spec catalog` is the only way they change. CI
  * (`.github/workflows/ci-frontend.yml`) and `scripts/changed-path-checks.sh` both re-run this and
  * diff the result against what is committed.
@@ -24,8 +24,7 @@ import { fileURLToPath } from 'node:url';
 import {
   buildCatalog,
   buildPetTools,
-  renderChat,
-  renderConsult,
+  renderCatalog,
   WORKSPACE_OPERATIONS,
 } from '@nix/structure-spec';
 import { flattenToolExample, TOOL_EXAMPLES } from '@nix/structure-spec/testing';
@@ -38,19 +37,15 @@ const catalogJsonPath = resolve(packageRoot, 'src/generated/catalog.json');
 const patternsPath = resolve(packageRoot, 'catalog/patterns.txt');
 const companionCatalogDir = resolve(repoRoot, 'apps/go-workers/internal/companion/catalog');
 const chatTxtPath = resolve(companionCatalogDir, 'chat.txt');
-const consultTxtPath = resolve(companionCatalogDir, 'consult.txt');
 const toolsChatJsonPath = resolve(companionCatalogDir, 'tools-chat.json');
-const toolsConsultJsonPath = resolve(companionCatalogDir, 'tools-consult.json');
 const toolExamplesJsonPath = resolve(companionCatalogDir, 'tool-examples.json');
 
 async function main(): Promise<void> {
   const catalog = buildCatalog();
   const patterns = await readFile(patternsPath, 'utf8');
 
-  const chat = renderChat(catalog);
-  const consult = renderConsult(catalog, patterns);
-  const toolsChat = buildPetTools('chat');
-  const toolsConsult = buildPetTools('consult');
+  const chat = renderCatalog(catalog, patterns);
+  const toolsChat = buildPetTools();
 
   // The examples every WorkspaceOperation's typed tool call may look like, plus the flat
   // {operation, itemId, ...} shape the Go worker's flattenToolCall must produce from it - written
@@ -70,7 +65,6 @@ async function main(): Promise<void> {
   // `@nix/api-client`'s `generate` script formats its own generated file.
   const catalogJson = JSON.stringify(catalog, null, 2) + '\n';
   const toolsChatJson = JSON.stringify(toolsChat, null, 2) + '\n';
-  const toolsConsultJson = JSON.stringify(toolsConsult, null, 2) + '\n';
   const toolExamplesJson = JSON.stringify(toolExamples, null, 2) + '\n';
 
   await mkdir(dirname(catalogJsonPath), { recursive: true });
@@ -78,13 +72,11 @@ async function main(): Promise<void> {
 
   await writeFile(catalogJsonPath, catalogJson, 'utf8');
   await writeFile(chatTxtPath, chat.trimEnd() + '\n', 'utf8');
-  await writeFile(consultTxtPath, consult.trimEnd() + '\n', 'utf8');
   await writeFile(toolsChatJsonPath, toolsChatJson, 'utf8');
-  await writeFile(toolsConsultJsonPath, toolsConsultJson, 'utf8');
   await writeFile(toolExamplesJsonPath, toolExamplesJson, 'utf8');
 
   process.stdout.write(
-    `Wrote ${catalogJsonPath}\nWrote ${chatTxtPath} (${String(chat.length)} chars)\nWrote ${consultTxtPath} (${String(consult.length)} chars)\nWrote ${toolsChatJsonPath} (${String(toolsChat.length)} tools)\nWrote ${toolsConsultJsonPath} (${String(toolsConsult.length)} tools)\nWrote ${toolExamplesJsonPath} (${String(toolExamples.length)} examples)\n`,
+    `Wrote ${catalogJsonPath}\nWrote ${chatTxtPath} (${String(chat.length)} chars)\nWrote ${toolsChatJsonPath} (${String(toolsChat.length)} tools)\nWrote ${toolExamplesJsonPath} (${String(toolExamples.length)} examples)\n`,
   );
 }
 

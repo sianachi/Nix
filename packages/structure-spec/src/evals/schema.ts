@@ -23,7 +23,7 @@ export const evalExpectationsSchema = z
   .strict();
 export type EvalExpectations = z.infer<typeof evalExpectationsSchema>;
 
-export const consultScenarioSchema = z
+export const designScenarioSchema = z
   .object({
     id: z.string().regex(/^[a-z][a-z0-9-]*$/),
     problem: z.string().min(1),
@@ -45,4 +45,4 @@ export const consultScenarioSchema = z
       }
     }
   });
-export type ConsultScenario = z.infer<typeof consultScenarioSchema>;
+export type DesignScenario = z.infer<typeof designScenarioSchema>;

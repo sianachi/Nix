@@ -13,12 +13,7 @@ import {
   viewSetupSpecSchema,
   updateViewSpecSchema,
 } from '../spec/index.js';
-import {
-  CONSULT_ONLY_OPERATION_NAMES,
-  LIMITS,
-  WORKSPACE_OPERATIONS,
-  type WorkspaceOperation,
-} from './tables.js';
+import { LIMITS, WORKSPACE_OPERATIONS, type WorkspaceOperation } from './tables.js';
 
 /**
  * Generates the model-facing typed tools straight from the same Zod schemas
@@ -383,11 +378,6 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     },
     required: ['parentId', 'spec'],
   }),
-  validate_blueprint: () => ({
-    description: `Check a whole-structure design before building it. Never writes; returns the same problems nix_build_blueprint would refuse on. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint. Design mode only.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}`,
-    properties: { blueprint: blueprintProperty() },
-    required: ['blueprint'],
-  }),
   add_fields: () => ({
     description:
       "Add up to 20 new fields to an item's existing schema. Never removes or retypes an existing field." +
@@ -439,7 +429,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
     required: ['templateId', 'title'],
   }),
   build_blueprint: () => ({
-    description: `Build a validated blueprint under Pet drafts, at parentId (omit for the workspace root). Call nix_validate_blueprint first and fix every problem it reports. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint. Design mode only.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}`,
+    description: `Build a whole design (items, fields, views and samples) in one approval, under Pet drafts unless parentId names a parent. Nix checks it before the owner sees it: a design with problems comes back declined with every problem listed; fix them all and call once more. Up to ${String(LIMITS.viewsPerNode)} views per node, ${String(LIMITS.viewsPerBlueprint)} per blueprint.${TASK_KEYS_DESCRIPTION}${HABIT_DESCRIPTION}`,
     properties: {
       blueprint: blueprintProperty(),
       parentId: stringProperty('The parent item UUID, or omit to build under Pet drafts.'),
@@ -448,7 +438,7 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
   }),
   save_as_template: () => ({
     description:
-      'Save an item and its children as a reusable template named title. Excludes descendants titled "Sample: ..." by default. Design mode only.',
+      'Save an item and its children as a reusable template named title. Excludes descendants titled "Sample: ..." by default.',
     properties: {
       itemId: stringProperty('The source item UUID.'),
       title: stringProperty('The template name.'),
@@ -477,17 +467,11 @@ const TOOL_BUILDS: Readonly<Record<WorkspaceOperation, () => ToolBuild>> = {
 };
 
 /**
- * One typed function tool per operation the given mode offers, each with an exact JSON Schema
- * generated from the Zod schema `@nix/companion/run.ts` parses with. Tool names are
- * `nix_<operation>`. Consult (Design mode) offers every operation; chat omits the three
- * consult-only ones.
+ * One typed function tool per operation, each with an exact JSON Schema generated from the Zod
+ * schema `@nix/companion/run.ts` parses with. Tool names are `nix_<operation>`.
  */
-export function buildPetTools(mode: 'chat' | 'consult'): PetToolDefinition[] {
-  const consultOnly = new Set<string>(CONSULT_ONLY_OPERATION_NAMES);
-  const operations = WORKSPACE_OPERATIONS.filter(
-    (operation) => mode === 'consult' || !consultOnly.has(operation),
-  );
-  return operations.map((operation) => {
+export function buildPetTools(): PetToolDefinition[] {
+  return WORKSPACE_OPERATIONS.map((operation) => {
     const build = TOOL_BUILDS[operation]();
     return {
       name: `nix_${operation}`,

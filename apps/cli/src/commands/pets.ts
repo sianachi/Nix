@@ -43,7 +43,6 @@ export interface PetOptions {
   readonly requestId?: string;
   readonly toolResult?: string;
   readonly toolSuccess?: boolean;
-  readonly mode?: string;
   /** Only used with `--operation watch`: the last known revision to wait past. */
   readonly after?: number;
 }
@@ -96,8 +95,8 @@ export async function petSessionFor(
  * required-field checks and request shape `petCommand` and the `pet_runtime` MCP tool both need,
  * kept in one place so the two surfaces cannot drift apart.
  *
- * @throws When `operation` is unknown, `mode` is neither chat nor consult, a required field for
- * the operation is missing, or Core refuses the call.
+ * @throws When `operation` is unknown, a required field for the operation is missing, or Core
+ * refuses the call.
  */
 export async function executePetRuntime(
   client: NixClient,
@@ -116,7 +115,6 @@ export async function executePetRuntime(
       pets.watchRuntime({
         workspaceId: workspace,
         petId: pet,
-        ...(options.mode ? { mode: options.mode } : {}),
         after: options.after ?? 0,
       }),
     );
@@ -132,7 +130,6 @@ export async function executePetRuntime(
       ...(options.toolId ? { toolId: options.toolId } : {}),
       ...(options.toolResult !== undefined ? { toolResult: options.toolResult } : {}),
       ...(options.toolSuccess !== undefined ? { toolSuccess: options.toolSuccess } : {}),
-      ...(options.mode ? { mode: options.mode } : {}),
       ...(options.requestId
         ? { requestId: options.requestId }
         : operation === 'send'
@@ -145,11 +142,9 @@ export async function executePetRuntime(
 function validatePetRuntimeRequest(
   operation: string,
   options: PetOptions,
-): asserts options is PetOptions & { readonly mode?: 'chat' | 'consult' } {
+): void {
   if (!RUNTIME_OPERATIONS.includes(operation as RuntimeOperation))
     throw new Error(`Choose a pet operation: ${RUNTIME_OPERATIONS.join(', ')}.`);
-  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
-    throw new Error('--mode must be chat or consult.');
   if (operation === 'send' && !options.message?.trim()) throw new Error('Provide --message.');
   if (
     ['read', 'watch', 'send', 'interrupt', 'reset', 'tool_claim', 'tool_result'].includes(
@@ -194,13 +189,12 @@ export async function executePetToolRun(
   petId: string,
   toolId: string,
   decision: PetToolDecision,
-  mode: 'chat' | 'consult' = 'chat',
   /** Eval auto-approval binds execution to the request and preview that passed its holds. */
   autoApproval?: { readonly arguments: string; readonly fingerprint?: string },
 ): Promise<unknown> {
   const client = session.client;
   const runtime = await client.execute(
-    pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+    pets.runtime({ operation: 'read', workspaceId, petId }),
   );
   const tool: PetToolCall | undefined = runtime.tools?.find((entry) => entry.id === toolId);
   if (tool?.status !== 'pending') throw new Error(`Tool ${toolId} is not pending.`);
@@ -252,7 +246,7 @@ export async function executePetToolRun(
 
   const requestId = crypto.randomUUID();
   const claimed = await client.execute(
-    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId, mode }),
+    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId }),
   );
   const receipt = claimed.tools?.find((entry) => entry.id === toolId);
   if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
@@ -280,7 +274,6 @@ export async function executePetToolRun(
         tool.arguments,
         AbortSignal.timeout(90000),
         {
-          mode,
           toolId,
           claimId: requestId,
           ...(autoApproval?.fingerprint !== undefined
@@ -312,7 +305,6 @@ export async function executePetToolRun(
         toolResult,
         toolSuccess,
         toolLockedContent,
-        mode,
       }),
     );
   } catch (reason) {
@@ -366,16 +358,7 @@ export async function petToolRun(
     : options.decline
       ? 'decline'
       : 'preview';
-  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
-    throw new Error('--mode must be chat or consult.');
-  const result = await executePetToolRun(
-    session,
-    options.workspace,
-    options.pet,
-    toolId,
-    decision,
-    options.mode,
-  );
+  const result = await executePetToolRun(session, options.workspace, options.pet, toolId, decision);
   if (decision === 'preview' && hasPreviewModel(result)) {
     if (output.json) printResult(result.preview, output);
     else if (output.isTty) process.stdout.write(`${formatPreview(result.preview)}\n`);

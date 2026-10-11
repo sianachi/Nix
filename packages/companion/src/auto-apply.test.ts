@@ -6,10 +6,9 @@ const everyOperation = workspaceToolSchema.shape.operation.options;
 const alwaysAsk = ['trash_item', 'move_item', 'save_as_template', 'update_view'] as const;
 
 describe('canApplyWithoutAsking', () => {
-  it('never answers for a read or a design check: those have their own switch', () => {
+  it('never answers for a read: reads have their own switch', () => {
     for (const operation of READ_ONLY_OPERATIONS)
       expect(canApplyWithoutAsking(operation)).toBe(false);
-    expect(canApplyWithoutAsking('validate_blueprint')).toBe(false);
   });
 
   it('keeps the audience-changing writes asking and lets every other write run', () => {
@@ -17,7 +16,6 @@ describe('canApplyWithoutAsking', () => {
     const writes = everyOperation.filter(
       (operation) =>
         !READ_ONLY_OPERATIONS.has(operation) &&
-        operation !== 'validate_blueprint' &&
         !(alwaysAsk as readonly string[]).includes(operation),
     );
     expect(writes.length).toBeGreaterThan(5);

@@ -50,7 +50,7 @@ describe('usePetRuntime watch loop', () => {
     client.query
       .mockResolvedValueOnce(connection({ revision: 1 }))
       .mockResolvedValue(connection({ revision: 1 }));
-    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -69,7 +69,7 @@ describe('usePetRuntime watch loop', () => {
       .mockResolvedValueOnce(connection({ revision: 3, reason: 'third' }))
       .mockResolvedValueOnce(connection({ revision: 2, reason: 'stale-second' }))
       .mockResolvedValue(connection({ revision: 3, reason: 'third' }));
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -86,7 +86,7 @@ describe('usePetRuntime watch loop', () => {
 
   it('backs off 1s, 2s, 4s, then caps at 10s after consecutive watch failures', async () => {
     client.query.mockRejectedValue(new Error('network down'));
-    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -132,7 +132,7 @@ describe('usePetRuntime watch loop', () => {
 
   it('shows the load error only after two consecutive failures', async () => {
     client.query.mockRejectedValue(new Error('network down'));
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
@@ -148,7 +148,7 @@ describe('usePetRuntime watch loop', () => {
   it('pauses while the document is hidden and resumes immediately once visible', async () => {
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     client.query.mockResolvedValue(connection({ revision: 1 }));
-    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
@@ -165,7 +165,7 @@ describe('usePetRuntime watch loop', () => {
 
   it('stops watching once a closed panel has settled and is idle', async () => {
     client.query.mockResolvedValue(connection({ revision: 1, state: 'success', tools: [] }));
-    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', false));
+    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, false));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -179,7 +179,7 @@ describe('usePetRuntime watch loop', () => {
 
   it('aborts the in-flight watch on unmount, so a late response is never applied', async () => {
     client.query.mockResolvedValue(connection({ revision: 1 }));
-    const { unmount } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { unmount } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -207,7 +207,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
 
   it('marks a watch failure "load", offering "Retry now" behaviour via retryWatch', async () => {
     client.query.mockRejectedValue(new Error('network down'));
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1001);
     });
@@ -218,7 +218,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
     client.query
       .mockRejectedValueOnce(new Error('down'))
       .mockResolvedValue(connection({ revision: 1 }));
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -240,7 +240,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       if (operation === 'send') return Promise.reject(new Error('boom'));
       return Promise.resolve(connection());
     });
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
     });
@@ -254,7 +254,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       if (operation === 'send') return Promise.reject(new Error('boom'));
       return Promise.resolve(connection());
     });
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -278,7 +278,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       if (operation === 'read') return Promise.reject(new Error('boom'));
       return Promise.resolve(connection());
     });
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await result.current.reload();
     });
@@ -298,7 +298,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       return Promise.resolve(connection());
     });
     client.query.mockResolvedValue(connection());
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     await act(async () => {
       await result.current.send({ text: 'hi', model: '', workspaceAccess: false });
     });
@@ -315,7 +315,7 @@ describe('usePetRuntime errorKind and retryWatch', () => {
   it("sends the owner's day and zone with every message, and a workspace map only when given", async () => {
     client.query.mockResolvedValue(connection());
     vi.setSystemTime(new Date('2026-10-09T12:00:00Z'));
-    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
     const map = [{ id: WORKSPACE_ID, title: 'Tasks', type: 'note', viewKinds: ['board'] }];
     await act(async () => {
       await result.current.send({
@@ -341,25 +341,25 @@ describe('usePetRuntime errorKind and retryWatch', () => {
     expect(sendBodies[1]?.workspaceMap).toBeNull();
   });
 
-  it('ignores a setRuntime call bound to a stale generation once the mode has moved on', async () => {
+  it('ignores a setRuntime call bound to a stale generation once the pet has moved on', async () => {
     client.query.mockResolvedValue(connection());
     const { result, rerender } = renderHook(
-      ({ mode }: { mode: 'chat' | 'consult' }) => usePetRuntime(WORKSPACE_ID, PET_ID, mode, true),
-      { initialProps: { mode: 'chat' } },
+      ({ petId }: { petId: string }) => usePetRuntime(WORKSPACE_ID, petId, true),
+      { initialProps: { petId: PET_ID } },
     );
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
-    // Captured before the mode switch - the same stale reference a `PetWorkTools` instance's
+    // Captured before the pet switch - the same stale reference a `PetWorkTools` instance's
     // in-flight `tool_result` promise would still be holding once it resolves late.
     const staleSetRuntime = result.current.setRuntime;
-    rerender({ mode: 'consult' });
+    rerender({ petId: '99999999-9999-4999-8999-999999999999' });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     act(() => {
-      staleSetRuntime(connection({ revision: 999, reason: 'stale-mode' }) as PetConnection);
+      staleSetRuntime(connection({ revision: 999, reason: 'stale-pet' }) as PetConnection);
     });
-    expect(result.current.runtime?.reason).not.toBe('stale-mode');
+    expect(result.current.runtime?.reason).not.toBe('stale-pet');
   });
 });

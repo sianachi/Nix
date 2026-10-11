@@ -1,7 +1,6 @@
 import { isCanceledError, pets, type PetConnection } from '@nix/api-client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApiClient } from '../api/api-client-provider';
-import type { PetConversationMode } from './device-preferences';
 import { ownerTurnContext } from './turn-context';
 
 /** The floor on how often the watch loop starts a new request, whether that request is the
@@ -42,7 +41,7 @@ export interface UsePetRuntimeResult {
   readonly errorKind: PetRuntimeErrorKind | null;
   readonly busy: boolean;
   /** Applies a newer snapshot received elsewhere (a tool claim or result round trip). Ignored
-   * once the mode, pet or workspace this snapshot belongs to has moved on - see the generation
+   * once the pet or workspace this snapshot belongs to has moved on - see the generation
    * guard in the runtime effect below. */
   readonly setRuntime: (value: PetConnection) => void;
   /** Call whenever the draft that will become the next `send` changes, so a retried send of an
@@ -126,7 +125,7 @@ function hasPendingTool(runtime: PetConnection | null): boolean {
  * unedited draft reaches the worker as the same request, while a retry of an edited draft is a
  * new one.
  *
- * Security S2: switching `mode`, `petId` or `workspaceId` must never show the previous
+ * Security S2: switching `petId` or `workspaceId` must never show the previous
  * conversation. Every time the runtime effect below restarts it clears the exposed `runtime` to
  * `null` immediately (rather than leaving the old snapshot on screen until the next watch
  * response), and bumps `generation` - a response that started under an earlier generation
@@ -136,7 +135,6 @@ function hasPendingTool(runtime: PetConnection | null): boolean {
 export function usePetRuntime(
   workspaceId: string,
   petId: string,
-  mode: PetConversationMode,
   panelOpen: boolean,
 ): UsePetRuntimeResult {
   const client = useApiClient();
@@ -182,7 +180,7 @@ export function usePetRuntime(
 
   // Bound to whichever generation is current at the moment this identity is handed out; a
   // caller that received it earlier (a `PetWorkTools` instance whose in-flight `tool_result`
-  // resolves after a mode switch) keeps calling this exact closure, so it still checks against
+  // resolves after a pet or workspace switch) keeps calling this exact closure, so it still checks against
   // the generation it was minted under rather than whatever generation is live by then.
   const setRuntime = useCallback(
     (value: PetConnection) => {
@@ -203,7 +201,7 @@ export function usePetRuntime(
     revision.current = 0;
     runtimeRef.current = null;
     // S2: clear the exposed runtime before this generation's first watch response can arrive,
-    // never leaving the previous mode's conversation on screen in the meantime. Deferred a
+    // never leaving the previous pet's conversation on screen in the meantime. Deferred a
     // microtask, the same way `use-bookmarks.ts`'s loader defers its own first read: setting
     // state synchronously in an effect body is the cascading render
     // `react-hooks/set-state-in-effect` exists to stop.
@@ -215,7 +213,7 @@ export function usePetRuntime(
       setExposedGeneration(myGeneration);
     });
     void client
-      .execute(pets.runtime({ operation: 'models', mode }), { signal: controller.signal })
+      .execute(pets.runtime({ operation: 'models' }), { signal: controller.signal })
       .then((value) => {
         if (!controller.signal.aborted) setModels(value.models ?? []);
       })
@@ -256,7 +254,7 @@ export function usePetRuntime(
           // generic query cache would otherwise serve the first response straight back for up
           // to 30s without ever reaching the worker again.
           const result = await client.query(
-            pets.watchRuntime({ workspaceId, petId, mode, after: revision.current }),
+            pets.watchRuntime({ workspaceId, petId, after: revision.current }),
             { signal: controller.signal, forceRefresh: true },
           );
           if (isAborted(controller.signal) || myGeneration !== generation.current) break;
@@ -288,7 +286,7 @@ export function usePetRuntime(
       cancelled = true;
       controller.abort();
     };
-  }, [client, workspaceId, petId, mode, applyRaw, reportError]);
+  }, [client, workspaceId, petId, applyRaw, reportError]);
 
   const command = useCallback(
     async (operation: 'send' | 'interrupt' | 'reset' | 'read', input?: PetSendInput) => {
@@ -303,7 +301,6 @@ export function usePetRuntime(
             operation,
             workspaceId,
             petId,
-            mode,
             ...(operation === 'send' && input
               ? {
                   requestId: requestId.current,
@@ -342,7 +339,7 @@ export function usePetRuntime(
         if (!isAborted(controller.signal) && myGeneration === generation.current) setBusy(false);
       }
     },
-    [busy, client, workspaceId, petId, mode, applyRaw, reportError],
+    [busy, client, workspaceId, petId, applyRaw, reportError],
   );
 
   return {

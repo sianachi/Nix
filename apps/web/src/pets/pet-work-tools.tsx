@@ -16,7 +16,7 @@ import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { PetStructurePreview } from './pet-structure-preview';
 import { PetBodyEditPreview } from './pet-body-edit-preview';
 import type { StructureFingerprint } from '@nix/companion';
-import { readReadWithoutAsking, type PetConversationMode } from './device-preferences';
+import { readReadWithoutAsking } from './device-preferences';
 
 interface PreparedPreview {
   model: PreviewModel;
@@ -139,14 +139,7 @@ function ranWithoutAsking(submitted: string | undefined): boolean {
 }
 const DECLINED_FOR_PROBLEMS_PREFIX = 'Declined: the design has problems.';
 
-/** Reads, and checking a design in Design mode, never write. There is nothing here for the
- * owner to approve after the fact - only whether it ran at all, which `readReadWithoutAsking`
- * governs - so these are never shown as a card, and never load a mutation preview. */
-function isAutoReadOperation(operation: WorkspaceToolArgs['operation']): boolean {
-  return READ_ONLY_OPERATIONS.has(operation) || operation === 'validate_blueprint';
-}
-
-/** The base (infinitive), progressive and past forms of one read (or design check)'s sentence
+/** The base (infinitive), progressive and past forms of one read's sentence
  * (UX fix U3): "Search for "x"?" while pending, "Searching for "x"" while running, "Searched for
  * "x"" once done. `base` also backs the declined/failed forms - see `describeReadSentence`. */
 interface ReadPhrase {
@@ -199,12 +192,6 @@ function readPhrase(args: WorkspaceToolArgs): ReadPhrase {
         past: `Read the calendar${range}`,
       };
     }
-    case 'validate_blueprint':
-      return {
-        base: 'Check the design',
-        progressive: 'Checking the design',
-        past: 'Checked the design',
-      };
     default:
       return {
         base: 'Run a read-only request',
@@ -231,10 +218,10 @@ function lowerFirst(text: string): string {
   return text.length ? `${text[0]?.toLowerCase() ?? ''}${text.slice(1)}` : text;
 }
 
-/** The one-line sentence a read (or a design check) is announced by, shaped by its status (UX
+/** The one-line sentence a read is announced by, shaped by its status (UX
  * fix U3): a question while it waits for approval, present-progressive while it runs, past tense
  * once it is done, and "Didn't"/"Couldn't" once it is declined or failed - the same five-way
- * pattern for every read operation and for checking a design. */
+ * pattern for every read operation. */
 function describeReadSentence(
   tool: PetToolCall,
   args: WorkspaceToolArgs,
@@ -284,7 +271,6 @@ export function PetWorkTools({
   workspaceId,
   petId,
   petName = 'your pet',
-  mode = 'chat',
   onChange,
   onNeedsDecisionChange,
   applyWithoutAsking = false,
@@ -295,7 +281,6 @@ export function PetWorkTools({
   readonly workspaceId: string;
   readonly petId: string;
   readonly petName?: string;
-  readonly mode?: PetConversationMode;
   readonly onChange: (value: PetConnection) => void;
   /** Reports the ids of the pending tools that are waiting on the owner - never a read that runs
    * without asking, nor one already decided - so the header, avatar and launcher only say
@@ -316,9 +301,7 @@ export function PetWorkTools({
   const [error, setError] = useState('');
   const [decisions, setDecisions] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<Record<string, string>>({});
-  const [buildLedgers, setBuildLedgers] = useState<
-    Partial<Record<PetConversationMode, BuildLedger>>
-  >({});
+  const [buildLedger, setBuildLedger] = useState<BuildLedger | undefined>(undefined);
   const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
   // Whether a pending write's own preview has problems, reported by each `PetWorkToolCard` once
   // its preview loads. A write with problems is auto-declined (see `hasProblems` below) rather
@@ -342,7 +325,7 @@ export function PetWorkTools({
   }, []);
 
   function decisionKey(tool: PetToolCall) {
-    return `tool:${workspaceId}:${petId}:${mode}:${tool.id}`;
+    return `tool:${workspaceId}:${petId}:${tool.id}`;
   }
   function appliesWithoutAsking(tool: PetToolCall) {
     return applyWithoutAsking && !applyExemptToolIds.includes(tool.id);
@@ -368,7 +351,7 @@ export function PetWorkTools({
         return true;
       }
       if (!parsed.success) return true;
-      if (isAutoReadOperation(parsed.data.operation) && readWithoutAsking) return false;
+      if (READ_ONLY_OPERATIONS.has(parsed.data.operation) && readWithoutAsking) return false;
       return !(
         appliesWithoutAsking(tool) &&
         writeMayRunWithoutAsking(parsed.data) &&
@@ -429,7 +412,6 @@ export function PetWorkTools({
             operation: 'tool_claim',
             workspaceId,
             petId,
-            mode,
             toolId: tool.id,
             requestId,
           }),
@@ -442,7 +424,7 @@ export function PetWorkTools({
         // Another tab or a CLI executor can settle the tool after this panel saw it pending.
         // Reconcile the exact tool once; observing a claim never gives this caller its ownership.
         const observed = await client.execute(
-          pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+          pets.runtime({ operation: 'read', workspaceId, petId }),
           { signal },
         );
         const receipt = observed.tools?.find((value) => value.id === tool.id);
@@ -470,7 +452,7 @@ export function PetWorkTools({
           const { runWorkspaceTool, createCompanionBodies, defaultClock, defaultIds } =
             await import('@nix/companion');
           const args = workspaceToolSchema.parse(JSON.parse(tool.arguments));
-          const ledger = args.operation === 'save_as_template' ? buildLedgers[mode] : undefined;
+          const ledger = args.operation === 'save_as_template' ? buildLedger : undefined;
           const outcome = await runWorkspaceTool(
             {
               core: client,
@@ -483,7 +465,6 @@ export function PetWorkTools({
             tool.arguments,
             signal,
             {
-              mode,
               toolId: tool.id,
               claimId: requestId,
               ...(fence === undefined ? {} : { fence }),
@@ -496,7 +477,7 @@ export function PetWorkTools({
           toolLockedContent = outcome.lockedContent;
           if (args.operation === 'build_blueprint') {
             const build = buildOutcome(outcome.text);
-            if (build?.complete) setBuildLedgers((old) => ({ ...old, [mode]: build.ledger }));
+            if (build?.complete) setBuildLedger(build.ledger);
           }
           if (!outcome.readOnly) {
             client.invalidate(['items']);
@@ -525,7 +506,6 @@ export function PetWorkTools({
           operation: 'tool_result',
           workspaceId,
           petId,
-          mode,
           toolId: tool.id,
           requestId,
           toolResult,
@@ -636,9 +616,9 @@ type Resolver = (
   refusalQuotesLockedContent?: boolean,
 ) => Promise<boolean>;
 
-/** One line: an icon-free status word or two, next to what happened. Used for every read (and
- * design check) - which never need a decision - and for a write once it has one, so a long turn
- * reads as a list of outcomes rather than a stack of forms. */
+/** One line: an icon-free status word or two, next to what happened. Used for every read - which
+ * never needs a decision - and for a write once it has one, so a long turn reads as a list of
+ * outcomes rather than a stack of forms. */
 function ActivityRow({
   sentence,
   status,
@@ -703,7 +683,7 @@ function readStatusText(tool: PetToolCall, autoRun: boolean, submitted: string |
   return 'Stopped';
 }
 
-/** A read, or a design check, running or done. Never a card: there is nothing here for the
+/** A read, running or done. Never a card: there is nothing here for the
  * owner to approve, only whether it ran. */
 function ReadActivityRow({
   tool,
@@ -1161,7 +1141,10 @@ function PetWorkToolCard({
     parsed = workspaceToolSchema.safeParse(null);
   }
   const args = parsed.success ? parsed.data : undefined;
-  const isReadOp = args !== undefined && isAutoReadOperation(args.operation);
+  // Reads never write. There is nothing here for the owner to approve after the fact - only
+  // whether it ran at all, which `readReadWithoutAsking` governs - so they are never shown as a
+  // card, and never load a mutation preview.
+  const isReadOp = args !== undefined && READ_ONLY_OPERATIONS.has(args.operation);
   const isBodyEdit = args !== undefined && BODY_EDIT_OPERATIONS.has(args.operation);
   const settledBodyEdit = isBodyEdit && tool.status !== 'pending';
 
@@ -1173,12 +1156,12 @@ function PetWorkToolCard({
     } catch {
       current = workspaceToolSchema.safeParse(null);
     }
-    // Reads (and design checks) never need a mutation preview - they have nothing to approve,
+    // Reads never need a mutation preview - they have nothing to approve,
     // only whether they ran - so the preview-only `@nix/companion` chunk is never fetched for
     // them at all.
     // A body edit that already has an outcome is never previewed again: a fresh plan would
     // describe the note as it is now, after the edit, not the text that was approved.
-    if (!current.success || isAutoReadOperation(current.data.operation) || settledBodyEdit) {
+    if (!current.success || READ_ONLY_OPERATIONS.has(current.data.operation) || settledBodyEdit) {
       return () => {
         controller.abort();
       };

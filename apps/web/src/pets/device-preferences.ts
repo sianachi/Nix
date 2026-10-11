@@ -1,5 +1,4 @@
 export type PetPlacement = 'left' | 'right';
-export type PetConversationMode = 'chat' | 'consult';
 
 /** Where the chat opens: the floating panel, its own page, or both. A device preference because
  * the right answer depends on the screen in front of the owner, not on the pet. */
@@ -53,23 +52,17 @@ export function writePetPosition(position: PetPosition): void {
   window.dispatchEvent(new Event('nix-pet-device-changed'));
 }
 
-function conversationModelKey(
-  workspaceId: string,
-  petId: string,
-  mode: PetConversationMode,
-): string {
-  return `nix.pet.model.${workspaceId}.${petId}.${mode}`;
+// The ".chat" suffix is kept from when each conversation mode stored its own choice, so a
+// model chosen before Design mode was retired still applies.
+function conversationModelKey(workspaceId: string, petId: string): string {
+  return `nix.pet.model.${workspaceId}.${petId}.chat`;
 }
 
-export function readConversationModel(
-  workspaceId: string,
-  petId: string,
-  mode: PetConversationMode,
-): string {
+export function readConversationModel(workspaceId: string, petId: string): string {
   try {
     const model =
-      localStorage.getItem(conversationModelKey(workspaceId, petId, mode)) ??
-      (mode === 'chat' ? sessionStorage.getItem(`nix.pet.model.${workspaceId}.${petId}`) : null) ??
+      localStorage.getItem(conversationModelKey(workspaceId, petId)) ??
+      sessionStorage.getItem(`nix.pet.model.${workspaceId}.${petId}`) ??
       '';
     return model.length <= 160 ? model : '';
   } catch {
@@ -77,14 +70,9 @@ export function readConversationModel(
   }
 }
 
-export function writeConversationModel(
-  workspaceId: string,
-  petId: string,
-  mode: PetConversationMode,
-  model: string,
-): void {
+export function writeConversationModel(workspaceId: string, petId: string, model: string): void {
   try {
-    localStorage.setItem(conversationModelKey(workspaceId, petId, mode), model);
+    localStorage.setItem(conversationModelKey(workspaceId, petId), model);
   } catch {
     /* The open conversation retains the selection when storage is unavailable. */
   }
@@ -118,7 +106,7 @@ export function readPetSurface(): PetSurface {
   );
 }
 
-/** Whether reads (and, in Design mode, checking a blueprint) run without an approval click.
+/** Whether reads run without an approval click.
  * Defaults on: with `readWithoutAsking` on (owner decision, default on, ADR-0050 amendment 1) a
  * read's result is shared with ChatGPT without a per-read click; consent is the per-message
  * workspace access toggle; reads are Core-authorised, scoped to the workspace, at most 20 per

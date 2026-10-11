@@ -22,7 +22,7 @@ var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 // toolVersion 7 makes capability limits explicit and keeps broad requests within the turn budget.
 // Older provider threads restart on their next send to receive the current catalog and rules;
 // visible conversation history and its protected-read hold are retained.
-const toolVersion = 7
+const toolVersion = 8
 
 type Request struct {
 	TenantID        string `json:"tenantId"`
@@ -110,7 +110,6 @@ type conversation struct {
 	RequestID       string     `json:"requestId"`
 	State           string     `json:"-"`
 	Reason          string     `json:"reason,omitempty"`
-	Mode            string     `json:"mode"`
 	Messages        []Message  `json:"messages"`
 	WorkspaceAccess bool       `json:"-"`
 	Tools           []ToolCall `json:"tools"`
@@ -141,9 +140,6 @@ type account struct {
 	last          time.Time
 	conversations map[string]*conversation
 	models        []Model
-	// consultModels is the owner's ordered model preference for consult (Design mode)
-	// threads, from NIX_COMPANION_CONSULT_MODELS. Empty means the provider default.
-	consultModels []string
 	// changed is closed and replaced every time bumpLocked runs, waking every watcher
 	// blocked on it. Read under mu, then selected on after mu is released.
 	changed chan struct{}
@@ -155,12 +151,10 @@ type account struct {
 	// guarded by mu.
 	inlineStreams int32
 	inline        map[string]*inlineRun
-	// chatEffort and consultEffort are the owner's configured reasoning effort per mode
-	// (NIX_COMPANION_CHAT_EFFORT, default "low"; NIX_COMPANION_CONSULT_EFFORT, default empty
-	// meaning provider default). effortFor only sends one on turn/start when the effective
-	// model actually advertises it.
-	chatEffort    string
-	consultEffort string
+	// chatEffort is the owner's configured reasoning effort (NIX_COMPANION_CHAT_EFFORT,
+	// default "low"). effortFor only sends it on turn/start when the effective model
+	// actually advertises it.
+	chatEffort string
 	// logger receives one line per completed turn (timings only, never content).
 	logger *slog.Logger
 	// trace enables the opt-in full-content trace (diagnostics.go); traceFull remembers which
@@ -176,25 +170,20 @@ type Manager struct {
 	ctx      context.Context
 	accounts map[string]*account
 	launch   func(context.Context, string, string, func(string, json.RawMessage)) (Transport, error)
-	// consultModels, chatEffort and consultEffort are handed to each account this manager
-	// creates; see the matching account fields.
-	consultModels []string
-	chatEffort    string
-	consultEffort string
-	logger        *slog.Logger
-	trace         bool
+	// chatEffort is handed to each account this manager creates; see the matching account
+	// field.
+	chatEffort string
+	logger     *slog.Logger
+	trace      bool
 }
 
-// Options configures New. Root and Binary are required; ConsultModels, ChatEffort and
-// ConsultEffort are each handed to every account this manager creates (see the matching
-// account fields). A nil Logger means slog.Default().
+// Options configures New. Root and Binary are required; ChatEffort is handed to every account
+// this manager creates (see the matching account field). A nil Logger means slog.Default().
 type Options struct {
-	Root          string
-	Binary        string
-	ConsultModels []string
-	ChatEffort    string
-	ConsultEffort string
-	Logger        *slog.Logger
+	Root       string
+	Binary     string
+	ChatEffort string
+	Logger     *slog.Logger
 	// Trace turns on the full-content trace and Codex stderr capture (diagnostics.go).
 	Trace bool
 }
@@ -210,7 +199,7 @@ func New(ctx context.Context, opts Options) (*Manager, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, consultModels: opts.ConsultModels, chatEffort: opts.ChatEffort, consultEffort: opts.ConsultEffort, logger: logger, trace: opts.Trace}
+	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, chatEffort: opts.ChatEffort, logger: logger, trace: opts.Trace}
 	if opts.Trace {
 		m.launch = func(ctx context.Context, binary, home string, notify func(string, json.RawMessage)) (Transport, error) {
 			return launchWith(ctx, binary, home, notify, true)
@@ -273,7 +262,7 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	if len(m.accounts) >= 4 {
 		return nil, errors.New("companion capacity reached")
 	}
-	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), consultModels: m.consultModels, chatEffort: m.chatEffort, consultEffort: m.consultEffort, logger: m.logger, trace: m.trace}
+	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), chatEffort: m.chatEffort, logger: m.logger, trace: m.trace}
 	transport, err := m.launch(m.ctx, m.binary, a.home, a.notify)
 	if err != nil {
 		return nil, err
@@ -503,9 +492,9 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 		}
 		a.mu.Unlock()
 	} else {
-		key := r.WorkspaceID + "-" + r.PetID
-		if r.Mode == "consult" {
-			key += "-consult"
+		key := conversationKey(r)
+		if err := a.foldDesign(key); err != nil {
+			return Response{}, err
 		}
 		if r.Operation == "history" || r.Operation == "read_history" || r.Operation == "delete_history" {
 			return a.history(key, r)
@@ -665,32 +654,8 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		thread = ""
 	}
 	a.mu.Unlock()
-	base := baseSharedRules + modeRules(r.Mode) + " Nix capabilities: " + catalogFor(r.Mode)
-	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": base, "developerInstructions": r.Instructions}
-	if r.Mode == "consult" && r.Model == "" && len(a.consultModels) > 0 {
-		// No explicit model: try the owner's ordered consult preference against what the
-		// provider actually offers; an empty result leaves "model" unset, so the provider
-		// default is used (decision 4, pet-structure-consult-plan.md section 1.4).
-		if err := a.listModels(ctx); err != nil {
-			return err
-		}
-		a.mu.Lock()
-		for _, preferred := range a.consultModels {
-			for _, model := range a.models {
-				if model.ID == preferred {
-					r.Model = preferred
-					break
-				}
-			}
-			if r.Model != "" {
-				break
-			}
-		}
-		a.mu.Unlock()
-		if r.Model != "" {
-			params["model"] = r.Model
-		}
-	} else if r.Model != "" {
+	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": instructions(), "developerInstructions": r.Instructions}
+	if r.Model != "" {
 		if err := a.listModels(ctx); err != nil {
 			return err
 		}
@@ -709,7 +674,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	}
 	method := "thread/start"
 	if thread == "" {
-		params["dynamicTools"] = workspaceTools(r.Mode)
+		params["dynamicTools"] = workspaceTools()
 	}
 	if thread != "" {
 		method = "thread/resume"
@@ -744,7 +709,6 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	c.ThreadID = thread
 	c.ToolVersion = toolVersion
 	c.RequestID = r.RequestID
-	c.Mode = r.Mode
 	c.State = "thinking"
 	c.Reason = ""
 	c.WorkspaceAccess = r.WorkspaceAccess
@@ -758,7 +722,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		return err
 	}
 	turnParams := map[string]any{"threadId": thread, "input": []any{map[string]any{"type": "text", "text": string(prompt)}}}
-	if effort := a.effortFor(ctx, r.Mode, r.Model); effort != "" {
+	if effort := a.effortFor(ctx, r.Model); effort != "" {
 		turnParams["effort"] = effort
 		a.mu.Lock()
 		c.timing.effort = effort
@@ -770,7 +734,7 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		threadKind = "new"
 	}
 	a.record(key, slog.LevelInfo, "turn.started",
-		[]any{"mode", modeName(r.Mode), "model", valueOrDefault(r.Model), "effort", c.timing.effort, "thread", threadKind, "tool_version", toolVersion, "workspace_access", r.WorkspaceAccess, "message_chars", len(r.Text), "shared_chars", len(r.SharedText)},
+		[]any{"model", valueOrDefault(r.Model), "effort", c.timing.effort, "thread", threadKind, "tool_version", toolVersion, "workspace_access", r.WorkspaceAccess, "message_chars", len(r.Text), "shared_chars", len(r.SharedText)},
 		map[string]any{"prompt": json.RawMessage(prompt), "instructions": r.Instructions})
 	a.mu.Unlock()
 	raw, err = a.transport.Call(ctx, "turn/start", turnParams)
@@ -918,7 +882,7 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			a.bumpLocked(c)
 		}
 		if method == "turn/completed" {
-			c.timing.log(a.logger, key, c.Mode, p.Turn.Status)
+			c.timing.log(a.logger, key, p.Turn.Status)
 			if p.Turn.Status != "completed" && p.Turn.Status != "interrupted" {
 				meta := []any{"status", p.Turn.Status}
 				if p.Turn.DurationMs != nil {

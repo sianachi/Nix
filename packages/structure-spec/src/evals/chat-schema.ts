@@ -113,7 +113,6 @@ export const chatCaseSchema = z
     id: z.string().regex(/^[a-z][a-z0-9-]*$/),
     /** Sent as the owner's message. `{node:<id>}` is replaced by that fixture item's title. */
     prompt: z.string().min(1),
-    mode: z.enum(['chat', 'consult']).default('chat'),
     /** Captures this deterministic synthetic fixture leaf before template cases. */
     templateSource: nodeRef.optional(),
     tools: chatToolExpectationsSchema.default({
@@ -154,12 +153,6 @@ export const chatCaseSchema = z
   })
   .strict()
   .superRefine((item, context) => {
-    if (item.approvedOperations.includes('save_as_template') && item.mode !== 'consult')
-      context.addIssue({
-        code: 'custom',
-        path: ['mode'],
-        message: 'Template captures require Design mode.',
-      });
     if (item.templateSource && !item.workspaceAccess)
       context.addIssue({
         code: 'custom',

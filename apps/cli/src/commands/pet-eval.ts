@@ -2,11 +2,11 @@ import { readFile } from 'node:fs/promises';
 import { pets, type PetConnection, type PetToolCall } from '@nix/api-client';
 import {
   blueprintSchema,
-  consultScenarioSchema,
+  designScenarioSchema,
   scoreBlueprint,
   validateBlueprint,
   type Blueprint,
-  type ConsultScenario,
+  type DesignScenario,
   type EvalScore,
   type ValidationReport,
 } from '@nix/structure-spec';
@@ -29,9 +29,11 @@ const MAX_POLLS = 300;
 const MAX_ANSWERS = 8;
 const POLL_INTERVAL_MS = 3_000;
 const BUILD_DECLINE = 'Evaluation run: not building.';
+// The web panel's automatic decline of a design with problems (pet-work-tools.tsx).
+const DECLINED_FOR_PROBLEMS_PREFIX = 'Declined: the design has problems.';
 
 export interface PetEvalOptions {
-  readonly suite: 'consult';
+  readonly suite: 'design';
   readonly scenario?: string;
   readonly model?: string;
   readonly apiUrl?: string;
@@ -56,7 +58,7 @@ export interface EvalRuntime {
 }
 
 function noBlueprintResult(
-  scenario: ConsultScenario,
+  scenario: DesignScenario,
   model: string | null,
   outcome: PetEvalResult['outcome'],
   answersSent: number,
@@ -102,7 +104,7 @@ function noBlueprintResult(
 }
 
 function scoreTool(
-  scenario: ConsultScenario,
+  scenario: DesignScenario,
   model: string | null,
   tool: PetToolCall,
   answersSent: number,
@@ -159,7 +161,7 @@ async function runtime(
   extra: Partial<Parameters<typeof pets.runtime>[0]> = {},
 ): Promise<PetConnection> {
   return session.client.execute(
-    pets.runtime({ operation, workspaceId, petId, mode: 'consult', ...extra }),
+    pets.runtime({ operation, workspaceId, petId, ...extra }),
   );
 }
 
@@ -202,9 +204,11 @@ function localValidation(tool: PetToolCall): ValidationReport {
   }
 }
 
-/** Runs one scripted consult without executing a proposed blueprint build. */
-export async function runConsultScenario(
-  scenario: ConsultScenario,
+/** Runs one scripted design conversation without executing a proposed blueprint build. A
+ * build with problems is declined with them listed once, as the web panel does, and the next
+ * build is scored. */
+export async function runDesignScenario(
+  scenario: DesignScenario,
   options: PetEvalOptions & { workspace: string; pet: string },
   runner: EvalRuntime,
 ): Promise<PetEvalResult> {
@@ -213,6 +217,7 @@ export async function runConsultScenario(
   const seen = new Set<string>();
   const handledTools = new Set<string>();
   let answersSent = 0;
+  let problemDeclines = 0;
   const deadline = Date.now() + 15 * 60 * 1_000;
   const cleared = await runtime(session, options.workspace, options.pet, 'reset');
   for (const message of cleared.messages ?? []) seen.add(message.id);
@@ -238,6 +243,22 @@ export async function runConsultScenario(
           operation = undefined;
         }
         if (operation === 'build_blueprint') {
+          const report = localValidation(tool);
+          if (!report.ok && problemDeclines === 0) {
+            problemDeclines += 1;
+            await postLocalToolResult(
+              session,
+              options.workspace,
+              options.pet,
+              tool,
+              `${DECLINED_FOR_PROBLEMS_PREFIX}\n${report.problems
+                .map((problem) => `${problem.path}: ${problem.modelMessage ?? problem.message}`)
+                .join('\n')}`.slice(0, 16000),
+              false,
+            );
+            handledTools.add(tool.id);
+            continue;
+          }
           try {
             return scoreTool(scenario, model, tool, answersSent);
           } finally {
@@ -251,28 +272,8 @@ export async function runConsultScenario(
             );
           }
         }
-        if (operation === 'validate_blueprint') {
-          const report = localValidation(tool);
-          await postLocalToolResult(
-            session,
-            options.workspace,
-            options.pet,
-            tool,
-            JSON.stringify(report),
-            true,
-          );
-          handledTools.add(tool.id);
-          continue;
-        }
         if (operation === 'list_templates' || operation === 'read_template') {
-          await executePetToolRun(
-            session,
-            options.workspace,
-            options.pet,
-            tool.id,
-            'approve',
-            'consult',
-          );
+          await executePetToolRun(session, options.workspace, options.pet, tool.id, 'approve');
           handledTools.add(tool.id);
           continue;
         }
@@ -321,17 +322,17 @@ export async function runConsultScenario(
   }
 }
 
-async function readScenarios(id: string | undefined): Promise<ConsultScenario[]> {
+async function readScenarios(id: string | undefined): Promise<DesignScenario[]> {
   if (id && !SCENARIOS.some((name) => name === id))
-    throw new Error(`Unknown consult scenario '${id}'. Choose: ${SCENARIOS.join(', ')}.`);
+    throw new Error(`Unknown design scenario '${id}'. Choose: ${SCENARIOS.join(', ')}.`);
   const selected = id ? [id] : SCENARIOS;
   return Promise.all(
     selected.map(async (name) => {
       const file = new URL(
-        `../../../../packages/structure-spec/evals/consult/${name}.json`,
+        `../../../../packages/structure-spec/evals/design/${name}.json`,
         import.meta.url,
       );
-      return consultScenarioSchema.parse(JSON.parse(await readFile(file, 'utf8')));
+      return designScenarioSchema.parse(JSON.parse(await readFile(file, 'utf8')));
     }),
   );
 }
@@ -353,7 +354,7 @@ export async function petEval(
   const results: PetEvalResult[] = [];
   for (const scenario of scenarios) {
     results.push(
-      await runConsultScenario(
+      await runDesignScenario(
         scenario,
         { ...options, workspace: options.workspace, pet: options.pet },
         runner,

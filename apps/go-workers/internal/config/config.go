@@ -10,11 +10,9 @@ import (
 )
 
 type Settings struct {
-	CompanionDataDir       string
-	CompanionBinary        string
-	CompanionConsultModels []string
-	CompanionChatEffort    string
-	CompanionConsultEffort string
+	CompanionDataDir    string
+	CompanionBinary     string
+	CompanionChatEffort string
 	// CompanionTrace turns on the full-content companion trace (NIX_COMPANION_TRACE); see
 	// companion/diagnostics.go. Off by default: it writes prompts and workspace content to disk.
 	CompanionTrace          bool
@@ -109,9 +107,7 @@ func Load(getenv func(string) string) (Settings, error) {
 	settings := Settings{
 		CompanionDataDir:        getenv("NIX_COMPANION_DATA_DIR"),
 		CompanionBinary:         valueOr(getenv("NIX_COMPANION_BINARY"), "codex"),
-		CompanionConsultModels:  parseTrimmedList(getenv("NIX_COMPANION_CONSULT_MODELS")),
 		CompanionChatEffort:     valueOr(getenv("NIX_COMPANION_CHAT_EFFORT"), "low"),
-		CompanionConsultEffort:  getenv("NIX_COMPANION_CONSULT_EFFORT"),
 		CompanionTrace:          getenv("NIX_COMPANION_TRACE") == "true" || getenv("NIX_COMPANION_TRACE") == "1",
 		Address:                 valueOr(getenv("NIX_WORKER_ADDRESS"), ":8301"),
 		InternalSecret:          getenv("NIX_WORKER_INTERNAL_SECRET"),
@@ -160,23 +156,6 @@ func parseOrigins(value string) ([]string, error) {
 		result = append(result, trimmed)
 	}
 	return result, nil
-}
-
-// parseTrimmedList splits a comma-separated environment value into trimmed, nonempty
-// entries, preserving order (used for the ordered consult model preference list, which
-// has no origin or URL shape to validate).
-func parseTrimmedList(value string) []string {
-	if strings.TrimSpace(value) == "" {
-		return nil
-	}
-	parts := strings.Split(value, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			result = append(result, trimmed)
-		}
-	}
-	return result
 }
 
 func parseBase64URL(value string) ([]byte, error) {

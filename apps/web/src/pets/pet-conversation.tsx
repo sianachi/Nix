@@ -9,7 +9,6 @@ import {
   ContextMenu,
   Icon,
   Menu,
-  Segmented,
   Select,
   Text,
   Textarea,
@@ -39,7 +38,6 @@ import {
   writeConversationModel,
   writeReadWithoutAsking,
   writeWorkspaceAccess,
-  type PetConversationMode,
 } from './device-preferences';
 import { usePetDraft } from './pet-drafts';
 import { PetWorkTools } from './pet-work-tools';
@@ -48,11 +46,6 @@ import { PetHistory, exportPetMessages } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
 import { buildWorkspaceMap } from './turn-context';
-
-const CONVERSATION_MODE_OPTIONS: readonly { value: PetConversationMode; label: string }[] = [
-  { value: 'chat', label: 'Chat' },
-  { value: 'consult', label: 'Design' },
-];
 
 /** The composer's textarea grows with its content between one and six rows, rather than
  * scrolling internally past a fixed height. Counting hard line breaks is a close enough
@@ -132,8 +125,6 @@ export interface ConversationProps {
   readonly workspaceId: string;
   readonly pet: PetProfile;
   readonly settings: PetSettings;
-  readonly mode: PetConversationMode;
-  readonly onModeChange: (mode: PetConversationMode) => void;
   readonly layout: ConversationLayout;
   readonly runtimeApi: UsePetRuntimeResult;
   readonly onNeedsDecisionChange: (toolIds: readonly string[]) => void;
@@ -147,8 +138,6 @@ export function Conversation({
   workspaceId,
   pet,
   settings,
-  mode,
-  onModeChange,
   layout,
   runtimeApi,
   onNeedsDecisionChange,
@@ -181,29 +170,11 @@ export function Conversation({
     retryWatch,
   } = runtimeApi;
   const [panel, setPanel] = useState<ConversationPanel>('chat');
-  // Must-fix 17: a draft and a shared context per mode, not one value the other mode's switch
-  // would otherwise clobber - `Conversation` stays mounted across a mode change (see its `key`
-  // in `Companion` above), so without this a half-typed Chat draft would vanish the moment
-  // someone opened Design and came back. The draft lives in a small in-memory store rather than
-  // here so it also survives the conversation moving between the floating panel and its page.
-  const [draft, setDraft] = usePetDraft(workspaceId, pet.id, mode);
-  const [sharedByMode, setSharedByMode] = useState<
-    Record<PetConversationMode, SharedContext | null>
-  >({ chat: null, consult: null });
-  const shared = sharedByMode[mode];
-  function setShared(next: SharedContext | null) {
-    setSharedByMode((old) => ({ ...old, [mode]: next }));
-  }
-  const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id, mode));
-  // The model choice is still per mode, but the conversation no longer remounts to pick up a new
-  // one - adjusted during render, the same way `PetSettingsEditor` picks up a changed `initial`,
-  // rather than through an effect (which would set state synchronously in its own body, the
-  // cascading render `react-hooks/set-state-in-effect` exists to stop).
-  const [previousModelMode, setPreviousModelMode] = useState(mode);
-  if (previousModelMode !== mode) {
-    setPreviousModelMode(mode);
-    setModel(readConversationModel(workspaceId, pet.id, mode));
-  }
+  // The draft lives in a small in-memory store rather than here so it survives the
+  // conversation moving between the floating panel and its page.
+  const [draft, setDraft] = usePetDraft(workspaceId, pet.id);
+  const [shared, setShared] = useState<SharedContext | null>(null);
+  const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id));
   const [workspaceAccess, setWorkspaceAccess] = useState(() =>
     readWorkspaceAccess(workspaceId, pet.id),
   );
@@ -224,11 +195,11 @@ export function Conversation({
   const approvalPending = needsDecisionIds.length > 0;
   // Lane F: run clean changes without a click, for this conversation only. Plain React state on
   // purpose - never stored, never sent to the worker - so closing the panel or reloading always
-  // comes back to asking. The stored scope makes a switch to another mode, pet or workspace
+  // comes back to asking. The stored scope makes a switch to another pet or workspace
   // read as off without an effect: the choice belonged to the conversation it was made in.
   // Writes already waiting when the switch goes on stay the owner's to decide: the switch only
   // covers what arrives after it.
-  const applyScope = `${workspaceId}:${pet.id}:${mode}`;
+  const applyScope = `${workspaceId}:${pet.id}`;
   const [applySwitch, setApplySwitch] = useState<{
     scope: string;
     on: boolean;
@@ -566,12 +537,9 @@ export function Conversation({
 
   // Must-fix 5: "Add a status field to this list" only makes sense with an item open; "Summarize
   // this page" the same.
-  const suggestions =
-    mode === 'consult'
-      ? ['Plan my reading', 'Track a job hunt', 'Weekly meal plan']
-      : currentItem
-        ? ['Summarize this page', 'Find my notes about...', 'Add a status field to this list']
-        : ['Find my notes about...'];
+  const suggestions = currentItem
+    ? ['Summarize this page', 'Find my notes about...', 'Add a status field to this list']
+    : ['Find my notes about...', 'Plan my reading', 'Track a job hunt'];
 
   const dialogClass =
     layout === 'fullscreen'
@@ -647,19 +615,6 @@ export function Conversation({
                 ) : null}
               </div>
             </div>
-            <div data-context-menu-ignore className="self-start">
-              <Segmented
-                label="Conversation mode"
-                options={CONVERSATION_MODE_OPTIONS}
-                value={mode}
-                onChange={(next) => {
-                  // Another mode is another conversation: the switch never carries over, not even
-                  // on a round trip back to the mode it was turned on in.
-                  setApplyWithoutAsking(false);
-                  onModeChange(next);
-                }}
-              />
-            </div>
           </div>
         )}
       </ContextMenu>
@@ -667,7 +622,6 @@ export function Conversation({
         <PetSettingsPanel
           pet={pet}
           workspaceId={workspaceId}
-          mode={mode}
           model={model}
           models={models}
           running={running || busy}
@@ -676,7 +630,7 @@ export function Conversation({
           headingRef={panelHeading}
           onModelChange={(next) => {
             setModel(next);
-            writeConversationModel(workspaceId, pet.id, mode, next);
+            writeConversationModel(workspaceId, pet.id, next);
           }}
           onReadWithoutAskingChange={(next) => {
             setReadWithoutAsking(next);
@@ -702,7 +656,6 @@ export function Conversation({
             petId={pet.id}
             name={pet.name}
             client={client}
-            mode={mode}
           />
         </div>
       ) : !runtime ? (
@@ -745,7 +698,6 @@ export function Conversation({
             {messages.length === 0 ? (
               <>
                 <PetEmptyState
-                  mode={mode}
                   petName={pet.name}
                   workspaceAccess={workspaceAccess}
                   suggestions={suggestions}
@@ -762,7 +714,6 @@ export function Conversation({
                   workspaceId={workspaceId}
                   petId={pet.id}
                   petName={pet.name}
-                  mode={mode}
                   onChange={setRuntime}
                   onNeedsDecisionChange={reportNeedsDecision}
                   applyWithoutAsking={applyWithoutAsking}
@@ -790,7 +741,6 @@ export function Conversation({
                       workspaceId={workspaceId}
                       petId={pet.id}
                       petName={pet.name}
-                      mode={mode}
                       onChange={setRuntime}
                       onNeedsDecisionChange={reportNeedsDecision}
                       applyWithoutAsking={applyWithoutAsking}
@@ -1058,13 +1008,11 @@ function PetMessageRow({
 }
 
 function PetEmptyState({
-  mode,
   petName,
   workspaceAccess,
   suggestions,
   onPick,
 }: {
-  readonly mode: PetConversationMode;
   readonly petName: string;
   readonly workspaceAccess: boolean;
   readonly suggestions: readonly string[];
@@ -1072,12 +1020,9 @@ function PetEmptyState({
 }): ReactElement {
   // Must-fix 13: the chat copy points at "Workspace access" only while it is still off - once
   // it is on, the paragraph would just be describing a control the person already turned on.
-  const copy =
-    mode === 'consult'
-      ? `Describe what you want to keep track of. ${petName} asks a few questions, proposes a design, and builds a draft under Pet drafts for you to try. Nothing is published.`
-      : workspaceAccess
-        ? ''
-        : `Ask a question. Turn on Workspace access below to let ${petName} find and change your notes.`;
+  const copy = workspaceAccess
+    ? ''
+    : `Ask a question. Turn on Workspace access below to let ${petName} find and change your notes, or design something new to keep track of.`;
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
       {copy ? (
@@ -1105,7 +1050,6 @@ function PetEmptyState({
 function PetSettingsPanel({
   pet,
   workspaceId,
-  mode,
   model,
   models,
   running,
@@ -1118,7 +1062,6 @@ function PetSettingsPanel({
 }: {
   readonly pet: PetProfile;
   readonly workspaceId: string;
-  readonly mode: PetConversationMode;
   readonly model: string;
   readonly models: NonNullable<PetConnection['models']>;
   readonly running: boolean;
@@ -1168,9 +1111,7 @@ function PetSettingsPanel({
         onChange={(event) => {
           onReadWithoutAskingChange(event.currentTarget.checked);
         }}
-        label={`Read without asking. When Workspace access is on, ${pet.name} can search and read your workspace${
-          mode === 'consult' ? ', and check designs,' : ''
-        } without asking first. What it reads is sent to ChatGPT. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.`}
+        label={`Read without asking. When Workspace access is on, ${pet.name} can search and read your workspace without asking first. What it reads is sent to ChatGPT. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.`}
       />
       {runtime?.reason && runtime.status === 'connected' ? (
         <Text variant="note" tone="muted">

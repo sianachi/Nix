@@ -250,27 +250,20 @@ describe('workspace-scoped companion tools', () => {
     ).rejects.toThrow();
     expect(execute).not.toHaveBeenCalled();
   });
-  it('keeps blueprint validation local and refuses blueprint tools outside consult mode', async () => {
-    const { ports, query, execute, paginate, signal } = setup();
-    const report = await runWorkspaceTool(
+  it('refuses a wrongly shaped blueprint with its listed problems before writing', async () => {
+    const { ports, execute, signal } = setup();
+    const raw = input('build_blueprint', { parentId: itemId, specJson: '{"version":1}' });
+    const preview = await loadPreviewContext(
       ports,
       workspace,
-      input('validate_blueprint', { specJson: '{}' }),
+      workspaceToolSchema.parse(JSON.parse(raw)),
       signal,
-      { mode: 'consult' },
     );
-    expect(report.text).toContain('"ok":false');
-    expect(report.text).toContain('"problems":');
-    expect(report.readOnly).toBe(true);
-    expect(query).not.toHaveBeenCalled();
-    expect(execute).not.toHaveBeenCalled();
-    expect(paginate).not.toHaveBeenCalled();
-    await expect(
-      runWorkspaceTool(ports, workspace, input('validate_blueprint', { specJson: '{}' }), signal, {
-        mode: 'chat',
-      }),
-    ).rejects.toThrow('only available in Design mode');
-    expect(query).not.toHaveBeenCalled();
+    const refusal = runWorkspaceTool(ports, workspace, raw, signal, {
+      fence: preview.fingerprint,
+    });
+    await expect(refusal).rejects.toBeInstanceOf(WorkspaceToolRefusal);
+    await expect(refusal).rejects.toThrow('title');
     expect(execute).not.toHaveBeenCalled();
   });
   it.each([undefined, 'a'.repeat(64)])(
@@ -294,7 +287,7 @@ describe('workspace-scoped companion tools', () => {
           workspace,
           input('save_as_template', { itemId, title: 'Saved', specJson: '{}' }),
           signal,
-          { mode: 'consult', toolId: 'tool', claimId: 'claim', ...(fence ? { fence } : {}) },
+          { toolId: 'tool', claimId: 'claim', ...(fence ? { fence } : {}) },
         ),
       ).rejects.toThrow('source changed');
       expect(execute).not.toHaveBeenCalled();
@@ -311,10 +304,7 @@ describe('workspace-scoped companion tools', () => {
         root: { id: 'reading-log', title: 'Reading log' },
       }),
     });
-    for (const options of [
-      { mode: 'consult' as const },
-      { mode: 'consult' as const, fence: 'stale' },
-    ]) {
+    for (const options of [{}, { fence: 'stale' }]) {
       await expect(runWorkspaceTool(ports, workspace, raw, signal, options)).rejects.toThrow(
         'destination changed since you approved',
       );
@@ -339,7 +329,6 @@ describe('workspace-scoped companion tools', () => {
       signal,
     );
     const outcome = await runWorkspaceTool(ports, workspace, raw, signal, {
-      mode: 'consult',
       fence: preview.fingerprint,
     });
     expect(JSON.parse(outcome.text)).toMatchObject({ complete: true });
@@ -377,7 +366,6 @@ describe('workspace-scoped companion tools', () => {
     sandboxId = replacement;
     await expect(
       runWorkspaceTool(ports, workspace, raw, signal, {
-        mode: 'consult',
         fence: preview.fingerprint,
       }),
     ).rejects.toThrow('destination changed since you approved');

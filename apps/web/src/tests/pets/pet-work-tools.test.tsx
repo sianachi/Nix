@@ -128,7 +128,6 @@ describe('companion work approvals', () => {
         runtime={saveRuntime}
         workspaceId="11111111-1111-4111-8111-111111111111"
         petId="22222222-2222-4222-8222-222222222222"
-        mode="consult"
         onChange={vi.fn()}
       />,
       { wrapper: MemoryRouter },
@@ -141,7 +140,6 @@ describe('companion work approvals', () => {
       expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
     });
     expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
-      mode: 'consult',
       fence: fingerprint,
     });
   });
@@ -643,7 +641,6 @@ describe('companion work approvals', () => {
       {
         toolId: 'tool-1',
         claimId: claimRequestId,
-        mode: 'chat',
         fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
       },
     );
@@ -767,7 +764,6 @@ describe('companion work approvals', () => {
         runtime={structuredRuntime}
         workspaceId="11111111-1111-4111-8111-111111111111"
         petId="22222222-2222-4222-8222-222222222222"
-        mode="consult"
         onChange={vi.fn()}
       />,
       { wrapper: MemoryRouter },
@@ -777,14 +773,13 @@ describe('companion work approvals', () => {
       expect(client.execute).toHaveBeenCalledTimes(2);
     });
     expect(runWorkspaceToolSpy.mock.calls[0]?.[4]).toMatchObject({
-      mode: 'consult',
       fence: JSON.stringify({ schema: { declared: [] }, views: [] }),
     });
     expect(client.execute.mock.calls[0]?.[0]).toMatchObject({
-      body: { mode: 'consult', operation: 'tool_claim' },
+      body: { operation: 'tool_claim' },
     });
     expect(client.execute.mock.calls[1]?.[0]).toMatchObject({
-      body: { mode: 'consult', operation: 'tool_result' },
+      body: { operation: 'tool_result' },
     });
     await waitFor(() => {
       expect(changed).toHaveBeenCalledExactlyOnceWith({
@@ -994,89 +989,6 @@ describe('companion work approvals', () => {
     });
   });
 
-  it('runs consult blueprint validation without approval buttons or workspace reads', async () => {
-    const validationRuntime = {
-      ...runtime,
-      tools: (runtime.tools ?? []).map((tool) => ({
-        ...tool,
-        arguments: JSON.stringify({
-          operation: 'validate_blueprint',
-          itemId: '',
-          parentId: '',
-          title: '',
-          markdown: '',
-          query: '',
-          propertiesJson: '',
-          specJson: JSON.stringify({
-            version: 1,
-            title: 'Design draft',
-            summary: 'A small design.',
-            root: { id: 'plan', title: 'Plan' },
-          }),
-        }),
-      })),
-    };
-    let finishValidation: (() => void) | undefined;
-    client.execute.mockImplementation(
-      (endpoint: {
-        body: { operation: string; requestId: string; toolResult?: string; toolSuccess?: boolean };
-      }) =>
-        endpoint.body.operation === 'tool_claim'
-          ? new Promise<void>((resolve) => {
-              finishValidation = resolve;
-            }).then(() => ({
-              ...validationRuntime,
-              tools: validationRuntime.tools.map((tool) => ({
-                ...tool,
-                status: 'claimed',
-                claimId: endpoint.body.requestId,
-              })),
-            }))
-          : Promise.resolve({
-              ...validationRuntime,
-              tools: validationRuntime.tools.map((tool) => ({
-                ...tool,
-                status: endpoint.body.operation === 'tool_result' ? 'completed' : 'claimed',
-                claimId: endpoint.body.requestId,
-                ...(endpoint.body.operation === 'tool_result'
-                  ? { result: endpoint.body.toolResult }
-                  : {}),
-              })),
-            }),
-    );
-    render(
-      <PetWorkTools
-        client={client as unknown as NixClient}
-        runtime={validationRuntime}
-        workspaceId="11111111-1111-4111-8111-111111111111"
-        petId="22222222-2222-4222-8222-222222222222"
-        mode="consult"
-        onChange={vi.fn()}
-      />,
-    );
-    await waitFor(() => {
-      expect(client.execute).toHaveBeenCalledTimes(1);
-    });
-    // UX fix U3 / nit: the read sentence carries the per-operation wording now, with no
-    // "(no workspace access)" qualifier.
-    expect(screen.getByText('Checking the design')).toBeVisible();
-    expect(screen.queryByRole('button', { name: 'Approve request' })).not.toBeInTheDocument();
-    expect(client.query).not.toHaveBeenCalled();
-    expect(finishValidation).toBeTypeOf('function');
-    if (finishValidation) finishValidation();
-    await waitFor(() => {
-      expect(client.execute).toHaveBeenCalledTimes(2);
-    });
-    expect(runWorkspaceToolSpy).toHaveBeenCalledOnce();
-    await expect(
-      runWorkspaceToolSpy.mock.results[0]?.value as Promise<unknown>,
-    ).resolves.toMatchObject({
-      text: expect.stringContaining('"ok":true') as unknown,
-      readOnly: true,
-      touchedParents: [],
-    });
-  });
-
   it('announces blueprint step progress and stores only outcome counts in the receipt', async () => {
     const buildId = '33333333-3333-4333-8333-333333333333';
     const buildRuntime = {
@@ -1157,8 +1069,7 @@ describe('companion work approvals', () => {
           runtime={buildRuntime}
           workspaceId="11111111-1111-4111-8111-111111111111"
           petId="22222222-2222-4222-8222-222222222222"
-          mode="consult"
-          onChange={vi.fn()}
+            onChange={vi.fn()}
         />
       </MemoryRouter>,
     );
@@ -1228,8 +1139,7 @@ describe('companion work approvals', () => {
           runtime={incompleteRuntime}
           workspaceId="11111111-1111-4111-8111-111111111111"
           petId="22222222-2222-4222-8222-222222222222"
-          mode="consult"
-          onChange={vi.fn()}
+            onChange={vi.fn()}
         />
       </MemoryRouter>,
     );
