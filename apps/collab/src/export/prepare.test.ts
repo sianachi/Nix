@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { readExportedAt } from './prepare.ts';
+import { readAtSeq, readExportedAt } from './prepare.ts';
 
 describe('durable export timestamps', () => {
   it('normalizes a bounded RFC 3339 job timestamp', () => {
@@ -19,4 +19,18 @@ describe('durable export timestamps', () => {
   ])('rejects an invalid job timestamp: %s', (value) => {
     expect(readExportedAt(value)).toBeNull();
   });
+});
+
+describe('pinned content positions', () => {
+  it('reads a plain non-negative integer', () => {
+    expect(readAtSeq('0')).toBe(0);
+    expect(readAtSeq('4242')).toBe(4242);
+  });
+
+  it.each(['', '-1', '1.5', '1e3', ' 1', '0x10', '1234567890123456', 'abc'])(
+    'rejects %j',
+    (value) => {
+      expect(readAtSeq(value)).toBeNull();
+    },
+  );
 });
