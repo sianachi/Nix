@@ -11,11 +11,13 @@ export function WritingModeControl(): ReactNode {
   return (
     <Popover
       label="Writing mode"
+      className="w-80"
       open={open}
       onOpenChange={setOpen}
       trigger={(trigger) => (
         <Button
           variant="ghost"
+          className="shrink-0 whitespace-nowrap"
           {...trigger}
           aria-label={`Writing mode: ${WRITING_MODES[mode].label}`}
         >
@@ -26,12 +28,12 @@ export function WritingModeControl(): ReactNode {
       )}
     >
       {({ close }) => (
-        <div role="group" aria-label="Writing mode" className="flex max-w-xs flex-col gap-1">
+        <div role="group" aria-label="Writing mode" className="flex w-full shrink-0 flex-col gap-1">
           {WritingModeSchema.options.map((choice) => (
             <Button
               key={choice}
               variant="ghost"
-              className="h-auto flex-col items-start whitespace-normal py-3 text-left"
+              className="h-auto w-full shrink-0 flex-col items-start whitespace-normal py-3 text-left any-pointer-coarse:h-auto any-pointer-coarse:min-h-(--control-lg)"
               aria-pressed={mode === choice}
               onClick={() => {
                 setMode(choice);
