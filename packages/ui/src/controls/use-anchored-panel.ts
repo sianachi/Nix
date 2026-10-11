@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
 
 import { placeFloatingMenu, readViewportBounds } from '../primitives/placement';
 import type { FloatingMenuAnchor } from '../primitives/placement';
@@ -20,6 +20,20 @@ export function useAnchoredPanel(
   anchor: () => FloatingMenuAnchor | null,
   remeasure: unknown,
 ): void {
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (typeof panel.showPopover !== 'function') {
+      panel.removeAttribute('popover');
+      return;
+    }
+    // The top layer escapes chat stacking and ancestor clipping before controls take focus.
+    panel.showPopover();
+    return () => {
+      if (panel.isConnected && panel.matches(':popover-open')) panel.hidePopover();
+    };
+  }, [panelRef]);
+
   const latest = useRef(anchor);
   useEffect(() => {
     latest.current = anchor;

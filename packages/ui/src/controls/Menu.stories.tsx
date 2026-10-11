@@ -1,9 +1,11 @@
 import { type Meta, type StoryObj } from '@storybook/react-vite';
 import { Archive, KeyRound, LogOut, Plus, Settings, Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { expect, fn, userEvent, within } from 'storybook/test';
 
 import { focusRing } from '../primitives/interaction';
 import { Input } from './Input';
+import { Dialog } from './Dialog';
 import { Menu, type MenuEntry } from './Menu';
 
 /**
@@ -52,6 +54,93 @@ export const Open: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'Actions' }));
     await expect(canvas.getByRole('menu', { name: 'Workspace actions' })).toBeInTheDocument();
     await expect(canvas.getByRole('menuitem', { name: 'Delete workspace' })).toBeInTheDocument();
+  },
+};
+
+export const OverFloatingDialog: Story = {
+  render: (args) => (
+    <section
+      role="dialog"
+      aria-label="Conversation"
+      className="fixed inset-4 z-40 overflow-hidden bg-background p-4"
+    >
+      <Menu {...args} />
+    </section>
+  ),
+  play: async ({ canvasElement }) => {
+    const document = canvasElement.ownerDocument;
+    const canvas = within(document.body);
+    const trigger = canvas.getByRole('button', { name: 'Actions' });
+    await userEvent.click(trigger);
+    const action = canvas.getByRole('menuitem', { name: 'New workspace' });
+    const rect = action.getBoundingClientRect();
+    await expect(
+      action.contains(
+        document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
+      ),
+    ).toBe(true);
+    await expect(action).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    await expect(trigger).toHaveFocus();
+    await expect(canvas.getByRole('dialog', { name: 'Conversation' })).toBeVisible();
+    await userEvent.click(trigger);
+  },
+};
+
+export const OverFloatingDialogWithoutPopover: Story = {
+  ...OverFloatingDialog,
+  beforeEach: () => {
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'showPopover');
+    Object.defineProperty(HTMLElement.prototype, 'showPopover', {
+      configurable: true,
+      value: undefined,
+    });
+    return () => {
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, 'showPopover', descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'showPopover');
+    };
+  },
+};
+
+function ModalMenu(args: Parameters<typeof Menu>[0]) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        onClick={() => {
+          setOpen(true);
+        }}
+      >
+        Open settings
+      </button>
+      <Dialog
+        open={open}
+        title="Item settings"
+        onClose={() => {
+          setOpen(false);
+        }}
+      >
+        <Menu {...args} />
+      </Dialog>
+    </>
+  );
+}
+
+export const InsideModal: Story = {
+  render: (args) => <ModalMenu {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body);
+    await userEvent.click(canvas.getByRole('button', { name: 'Open settings' }));
+    const trigger = canvas.getByRole('button', { name: 'Actions' });
+    await userEvent.click(trigger);
+    const action = canvas.getByRole('menuitem', { name: 'New workspace' });
+    await expect(action).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    await expect(trigger).toHaveFocus();
+    await expect(canvas.getByRole('dialog', { name: 'Item settings' })).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Close' }));
+    await expect(canvas.queryByRole('dialog', { name: 'Item settings' })).not.toBeInTheDocument();
+    await expect(canvas.getByRole('button', { name: 'Open settings' })).toHaveFocus();
   },
 };
 

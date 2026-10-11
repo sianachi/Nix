@@ -258,20 +258,10 @@ export function Dialog(props: DialogProps): ReactNode {
       return;
     }
 
-    // The listeners are attached to the element rather than written as JSX handlers. Backdrop
-    // handling needs the native event's target, and Escape containment belongs to the modal layer
-    // without recasting the semantic dialog as a generic keyboard control.
+    // Backdrop handling needs the native event's target; cancel remains browser-owned.
     const onCancel = (event: Event): void => {
       event.preventDefault();
       requestClose();
-    };
-
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        // Do not prevent the default: the browser must still translate this press into the
-        // dialog's native `cancel` event. Only the outer overlay is not entitled to the key.
-        event.stopPropagation();
-      }
     };
 
     // A press that starts inside and finishes on the backdrop is a text selection that overshot,
@@ -291,13 +281,11 @@ export function Dialog(props: DialogProps): ReactNode {
     };
 
     element.addEventListener('cancel', onCancel);
-    element.addEventListener('keydown', onKeyDown);
     element.addEventListener('mousedown', onPointerDown);
     element.addEventListener('click', onClick);
 
     return () => {
       element.removeEventListener('cancel', onCancel);
-      element.removeEventListener('keydown', onKeyDown);
       element.removeEventListener('mousedown', onPointerDown);
       element.removeEventListener('click', onClick);
     };
@@ -306,9 +294,14 @@ export function Dialog(props: DialogProps): ReactNode {
   }, [requestClose]);
 
   return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape containment belongs to the modal dialog.
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
+      // React bubbles child disclosures first, so Escape closes the innermost panel.
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
       // Focus has to land somewhere inside on open, and the element is only a landing spot - there
       // is nothing here to operate, so the 2px accent ring every control wears would be drawn
       // around an entire modal to indicate nothing. The frame and the backdrop already say where
