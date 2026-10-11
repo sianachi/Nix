@@ -24,6 +24,7 @@
 @source '../../../apps/web/src/components';
 /* Graph previews need the same SVG fill, stroke and pointer utilities as the application. */
 @source '../../../apps/web/src/graph';
+@source '../../../apps/web/src/search';
 
 /* The ground: the light technical paper the whole system sits on. */
 body {

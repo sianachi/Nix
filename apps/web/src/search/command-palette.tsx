@@ -2,7 +2,7 @@ import { useDrawerNavigation } from '../layout/viewport';
 import { Dialog, Icon, Input, Listbox, Text, useListbox, type ListboxOption } from '@nix/ui';
 import { search, type SearchHit } from '@nix/api-client';
 import { FileText, Search } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
 import { useHiddenItemPredicate } from '../items/use-hidden-items';
@@ -69,12 +69,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   const [query, setQuery] = useState('');
   const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  // What had the focus when the palette opened, so it can be given back. Without this, closing
-  // drops focus to the body and the next Tab starts at the skip link - which for somebody who hit
-  // Cmd-K mid-sentence and changed their mind means losing their place in the document. `<Dialog>`
-  // makes the same argument at length for the same reason.
-  const returnFocusTo = useRef<HTMLElement | null>(null);
+  const instructionsId = useId();
 
   // Reset on the way out rather than in an effect on the way in: a setState inside an effect body
   // cascades a second render for something the close already knew, and reopening has to start
@@ -85,26 +80,13 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
       setAnswer(null);
     }
     onClose();
-
-    // After `onClose`, so the palette has been asked to unmount before focus moves back.
-    returnFocusTo.current?.focus();
-    returnFocusTo.current = null;
   }, [onClose, preserveQuery]);
 
-  const needle = query.trim();
+  const commandOnly = query.trimStart().startsWith('>');
+  const needle = (commandOnly ? query.trimStart().slice(1) : query).trim();
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    returnFocusTo.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    inputRef.current?.focus();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open || needle.length < MINIMUM_QUERY) {
+    if (!open || commandOnly || needle.length < MINIMUM_QUERY) {
       return;
     }
 
@@ -140,17 +122,17 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [client, needle, open]);
+  }, [client, needle, open, commandOnly]);
 
-  const current = answer !== null && answer.query === needle ? answer : null;
+  const current = !commandOnly && answer !== null && answer.query === needle ? answer : null;
   const allHits = current?.hits ?? EMPTY_HITS;
   const hits = allHits.filter((hit) => !isHidden(hit.id, hit.workspaceId));
-  const matched = filterCommands(commands, query);
+  const matched = filterCommands(commands, needle);
 
   // In flight, and said out loud regardless of how many options happen to be showing. Carried by
   // `emptyMessage` alone, this was invisible whenever a command matched: type "n", the item results
   // for the previous query vanish because they answer a different needle, and nothing explains why.
-  const searching = needle.length >= MINIMUM_QUERY && current === null;
+  const searching = !commandOnly && needle.length >= MINIMUM_QUERY && current === null;
 
   // Commands first, then items, in one list. The index into it is what the keyboard walks, so the
   // two kinds are told apart on the way out rather than on the way in.
@@ -158,9 +140,11 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
     ...matched.map((command) => ({
       id: `command:${command.id}`,
       label: command.label,
-      hint: [command.hint, command.shortcut]
-        .filter((part): part is string => part !== undefined && part !== '')
-        .join(' · '),
+      hint: narrow
+        ? command.shortcut
+        : [command.hint, command.shortcut]
+            .filter((part): part is string => part !== undefined && part !== '')
+            .join(' · '),
       icon: command.icon,
       group: 'Commands',
     })),
@@ -191,12 +175,7 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
   }
 
   const panel = (
-    <div
-      role={narrow ? undefined : 'dialog'}
-      aria-modal={narrow ? undefined : true}
-      aria-label="Search and commands"
-      className="relative max-sm:h-full max-sm:max-h-full max-sm:rounded-none flex max-h-[calc(100dvh-2rem)] w-full max-w-[680px] min-w-0 flex-col overflow-hidden rounded-lg bg-background shadow-lg"
-    >
+    <div className="flex min-h-0 min-w-0 flex-col">
       <div
         className={[
           'flex min-w-0 items-center gap-3 px-3 sm:px-5',
@@ -215,22 +194,13 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
           aria-controls={listbox.id}
           aria-activedescendant={listbox.activeOptionId}
           aria-label="Search items or run a command"
+          aria-describedby={instructionsId}
           placeholder="Search or run a command"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value);
           }}
           onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              // The innermost layer's Escape wins - see `workspace-sidebar.tsx`'s `CreateMenu`
-              // for the full reasoning. This is reachable while the off-canvas drawer is open,
-              // since the header stays interactive by design, so without stopping here Escape
-              // would close both in one keystroke.
-              event.stopPropagation();
-              close();
-              return;
-            }
-
             listbox.onKeyDown(event);
           }}
           className="h-[var(--control-lg)] text-lg"
@@ -244,15 +214,17 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
         emptyMessage={
           current?.failed === true
             ? 'The search could not be run just now. Check your connection and try again.'
-            : needle.length === 0
-              ? 'Type to search this workspace, or to find a command.'
-              : needle.length < MINIMUM_QUERY
-                ? `Type ${String(MINIMUM_QUERY)} letters or more to search items.`
-                : searching
-                  ? 'Searching…'
-                  : allHits.length > 0
-                    ? 'Matching items are hidden. Manage them in Workspace options.'
-                    : `Nothing matches “${needle}”.`
+            : commandOnly
+              ? `No commands match “${needle}”.`
+              : needle.length === 0
+                ? 'Type to search items, or start with > for commands only.'
+                : needle.length < MINIMUM_QUERY
+                  ? `Type ${String(MINIMUM_QUERY)} letters or more to search items.`
+                  : searching
+                    ? 'Searching…'
+                    : allHits.length > 0
+                      ? 'Matching items are hidden. Manage them in Workspace options.'
+                      : `Nothing matches “${needle}”.`
         }
         className="min-h-0 max-h-[calc(100dvh-7rem)] overflow-y-auto"
       />
@@ -285,30 +257,31 @@ export function CommandPalette(props: CommandPaletteProps): ReactNode {
           </Text>
         ) : null}
       </div>
+      <Text
+        id={instructionsId}
+        as="p"
+        variant="caption"
+        tone="muted"
+        className="shrink-0 border-t border-divider px-3 py-2"
+      >
+        {commandOnly ? 'Commands only. Remove > to search items.' : 'Type > for commands only.'}
+        <span className="hidden sm:inline">
+          {' '}
+          Arrow keys to choose · Enter to open · Esc to close
+        </span>
+      </Text>
     </div>
   );
-  if (narrow)
-    return (
-      <Dialog
-        open
-        title="Search and commands"
-        closeLabel="Close search"
-        onClose={close}
-        initialFocus={inputRef}
-        presentation="workspace"
-      >
-        {panel}
-      </Dialog>
-    );
   return (
-    <div className="fixed inset-0 z-30 flex items-start justify-center overflow-y-auto bg-neutral-900/40 px-4 py-4 sm:pt-[12vh]">
-      <button
-        type="button"
-        aria-label="Close search"
-        onClick={close}
-        className="absolute inset-0 cursor-default"
-      />
+    <Dialog
+      open
+      title="Search and commands"
+      closeLabel="Close search"
+      onClose={close}
+      initialFocus={inputRef}
+      presentation={narrow ? 'workspace' : 'standard'}
+    >
       {panel}
-    </div>
+    </Dialog>
   );
 }

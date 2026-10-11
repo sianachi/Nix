@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -116,7 +116,11 @@ describe('Zen on workspace pages', () => {
     await user.click(await screen.findByRole('button', { name: 'Enter Zen mode' }));
     await user.keyboard('{Control>}k{/Control}');
     expect(screen.getByRole('dialog', { name: /Search/ })).toBeInTheDocument();
-    await user.keyboard('{Escape}');
+    // jsdom does not translate Escape into a native dialog cancel.
+    fireEvent(
+      screen.getByRole('dialog', { name: /Search/ }),
+      new Event('cancel', { cancelable: true }),
+    );
     expect(screen.queryByRole('dialog', { name: /Search/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Exit Zen mode' })).toBeInTheDocument();
     screen.getByRole('main').focus();
