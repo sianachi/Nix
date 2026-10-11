@@ -44,6 +44,9 @@ public sealed class TemplateMergePlanner(TemplateDefinitionValidator validator)
 
             if (existing.Type != incoming.Type
                 || existing.Required != incoming.Required
+                || !string.Equals(existing.Expression, incoming.Expression, StringComparison.Ordinal)
+                || existing.Aggregate != incoming.Aggregate
+                || !string.Equals(existing.Source, incoming.Source, StringComparison.Ordinal)
                 || !existing.Options.SequenceEqual(incoming.Options, StringComparer.Ordinal))
             {
                 conflicts.Add($"Property '{incoming.Key}' already exists with an incompatible definition.");
