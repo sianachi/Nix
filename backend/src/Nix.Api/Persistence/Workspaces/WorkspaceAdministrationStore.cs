@@ -335,6 +335,9 @@ public sealed partial class WorkspaceAdministrationStore
         CancellationToken cancellationToken)
     {
         var context = Session;
+        await _sql.ExecuteAsync(WorkspaceAdministrationSql.DeletePurgingWorkspaceSites,
+            [Uuid("tenant_id", context.TenantId.Value), Uuid("workspace_id", workspaceId.Value),
+             Uuid("job_id", jobId)], cancellationToken).ConfigureAwait(false);
         var id = await _sql.ScalarOrDefaultAsync<Guid>(WorkspaceAdministrationSql.FinalizePurge,
             [Uuid("tenant_id", context.TenantId.Value), Uuid("workspace_id", workspaceId.Value),
              Uuid("job_id", jobId)], cancellationToken).ConfigureAwait(false);

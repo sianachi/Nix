@@ -190,6 +190,39 @@ public static class NixTables
     public const string PluginEventInbox = "plugin_event_inbox";
     public const string PluginInvocation = "plugin_invocation";
 
+    /// <summary>A static publication of one item subtree (ADR-0063).</summary>
+    public const string Site = "site";
+
+    /// <summary>A hostname that resolves to a site.</summary>
+    public const string SiteHostname = "site_hostname";
+
+    /// <summary>An item a manager keeps out of a site.</summary>
+    public const string SiteExclusion = "site_exclusion";
+
+    /// <summary>A collection of dated posts.</summary>
+    public const string SiteDatedCollection = "site_dated_collection";
+
+    /// <summary>The stable public path of one item.</summary>
+    public const string SitePage = "site_page";
+
+    /// <summary>A permanent redirect from an old path.</summary>
+    public const string SiteRedirect = "site_redirect";
+
+    /// <summary>One build of a site.</summary>
+    public const string SiteBuild = "site_build";
+
+    /// <summary>One page of a build manifest; immutable.</summary>
+    public const string SiteBuildPage = "site_build_page";
+
+    /// <summary>A file a build may copy; insert-only.</summary>
+    public const string SiteBuildFile = "site_build_file";
+
+    /// <summary>An object a build wrote to the sites bucket.</summary>
+    public const string SiteBuildObject = "site_build_object";
+
+    /// <summary>A set of host-manifest operations a worker applies.</summary>
+    public const string SiteActivation = "site_activation";
+
     /// <summary>
     /// Every table that holds customer data, and therefore every table that must carry an
     /// isolation policy.
@@ -258,6 +291,17 @@ public static class NixTables
         PluginEventReceipt,
         PluginEventInbox,
         PluginInvocation,
+        Site,
+        SiteHostname,
+        SiteExclusion,
+        SiteDatedCollection,
+        SitePage,
+        SiteRedirect,
+        SiteBuild,
+        SiteBuildPage,
+        SiteBuildFile,
+        SiteBuildObject,
+        SiteActivation,
     ];
 
     /// <summary>Pre-authentication capability state with no direct application, collaboration or PUBLIC access.</summary>
@@ -427,6 +471,22 @@ public static class NixTables
             // principal, and an application that can erase that record can erase evidence.
             // Purging rides the principal's own cascade, which does not need this grant.
             [PersonalAccessToken] = ["INSERT", "SELECT", "UPDATE"],
+
+            // Sites are written by Core alone; the collaboration service has no grant on any of
+            // them. A build's manifest rows and the files it may copy are immutable once written,
+            // so the application can add them and read them back but never rewrite what a worker
+            // was told it could publish.
+            [Site] = FullDml,
+            [SiteHostname] = FullDml,
+            [SiteExclusion] = FullDml,
+            [SiteDatedCollection] = FullDml,
+            [SitePage] = FullDml,
+            [SiteRedirect] = FullDml,
+            [SiteBuild] = ImmutableRegistration, // plus column-level UPDATE of its lifecycle columns only
+            [SiteBuildPage] = ImmutableRegistration,
+            [SiteBuildFile] = ImmutableRegistration,
+            [SiteBuildObject] = ReplaceableGrant,
+            [SiteActivation] = FullDml,
         }.ToImmutableDictionary(StringComparer.Ordinal);
 
 }

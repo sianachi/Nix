@@ -137,6 +137,19 @@ public sealed class S3CapabilitySignerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Verified_replacing_uploads_bind_the_checksum_but_not_create_only()
+    {
+        var verified = Signer().PutVerified("sites/_hosts/docs.example.test.json", 42, new string('a', 64)).Url;
+
+        Assert.Contains(
+            "X-Amz-SignedHeaders=content-length%3Bhost%3Bx-amz-checksum-sha256",
+            verified.Query,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("if-none-match", verified.Query, StringComparison.Ordinal);
+        Assert.Throws<ArgumentException>(() => Signer().PutVerified("sites/_hosts/x.json", 42, "not-a-digest"));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("/absolute")]

@@ -23,9 +23,9 @@ public sealed class BrowserAuthCoordinator
     private const string SecureSessionCookieName = "__Host-nix_session";
 
     /// <summary>The protected, short-lived OIDC transaction cookie.</summary>
-    // The transaction cookie is path-scoped to the callback, so it cannot use the __Host prefix
-    // (which browsers accept only with Path=/). __Secure still enforces HTTPS without widening it.
-    private const string SecureLoginCookieName = "__Secure-nix_oidc";
+    // __Host-, so the browser keeps it host-only with Path=/: when user sites are served below the
+    // app's own apex (Nix:Sites:SharedAppDomain), no site can set or shadow it for the callback.
+    private const string SecureLoginCookieName = "__Host-nix_oidc";
 
     private const int MaximumTokenResponseBytes = 32 * 1024;
     private static readonly TimeSpan ProviderDeadline = TimeSpan.FromSeconds(10);

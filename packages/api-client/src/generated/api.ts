@@ -116,6 +116,40 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/items/{itemId}/site': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The site rooted at an item */
+    get: operations['GetItemSite'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/workspaces/{workspaceId}/sites': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The sites of a workspace */
+    get: operations['ListWorkspaceSites'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/health/status': {
     parameters: {
       query?: never;
@@ -2497,6 +2531,330 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/sites': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Make an item's subtree a site
+     * @description Creates a draft site with its default hostname under the sites domain. Nothing is public until it is published. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['CreateSite'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Read a site */
+    get: operations['GetSite'];
+    put?: never;
+    post?: never;
+    /**
+     * Delete a site that is not live
+     * @description Refused while the site is live, building, or still has files being deleted. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    delete: operations['DeleteSite'];
+    options?: never;
+    head?: never;
+    /**
+     * Change a site's settings, republish mode, exclusions or dated collections
+     * @description A field that is left out is left alone. Turning on automatic republish makes the caller the principal the rebuilds run as. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    patch: operations['UpdateSite'];
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/hostnames': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Replace a site's custom hostnames
+     * @description A custom hostname is served only once its ownership is verified; until then it is listed as pending. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    put: operations['SetSiteHostnames'];
+    /**
+     * Attach a custom hostname
+     * @description The hostname is served once a TXT record `_nix-site.<hostname>` holds its token; the response lists the records to create. In a zone the operator's Cloudflare account manages for this workspace, Nix creates them itself. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['AddSiteHostname'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/publish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Build the site and take it live
+     * @description Fixes what the caller can read as an immutable manifest and queues a build. Locked, trashed, excluded and future-dated items are never included. The first publish needs 'acknowledgeDisclosure': search engines and web archives may keep a copy of public content. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['PublishSite'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/rollback': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Serve a previous build again
+     * @description Only a previous build that has not been retired can be served again. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['RollbackSite'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/unpublish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Withdraw the site
+     * @description Removes the host manifests and deletes the builds. Search engines and archives may still hold copies. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['UnpublishSite'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/builds': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A site's builds, newest first */
+    get: operations['ListSiteBuilds'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/builds/{buildId}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One build of a site */
+    get: operations['GetSiteBuild'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/pages': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A site's page paths */
+    get: operations['ListSitePages'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/pages/{itemId}/path': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Set and pin one page's path
+     * @description The old path becomes a permanent redirect. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    put: operations['SetSitePagePath'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/hostnames/{hostname}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Detach a custom hostname
+     * @description Stops serving it and deletes only the DNS records Nix created for it. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    delete: operations['RemoveSiteHostname'];
+    options?: never;
+    head?: never;
+    /**
+     * Make a hostname primary, or choose how an alias answers
+     * @description The primary hostname is canonical once it is served. Other hostnames serve the same build (200) or redirect to the canonical one (308, path and query kept). Canonical links in pages change at the next publish. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    patch: operations['UpdateSiteHostname'];
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/hostnames/{hostname}/verify': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Check a custom hostname's DNS records now
+     * @description Core looks the records up itself; nothing the client reports is trusted. One check per hostname a minute. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['VerifySiteHostname'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/approval': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Ask the operator to approve the first publish
+     * @description Where the deployment requires it, a first publish (and the first after an unpublish) waits for an operator; approval publishes as the manager who asked. Needs workspace manager rights; a caller who cannot read the workspace gets 404.
+     */
+    post: operations['RequestSiteApproval'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/approvals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Sites waiting for an operator's approval
+     * @description Oldest request first, within the operator's organization. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).
+     */
+    get: operations['ListSiteApprovals'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/approval/approve': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Approve a first publish
+     * @description Runs the publish as the manager who asked, re-checking their manager rights; audited. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).
+     */
+    post: operations['ApproveSitePublish'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/sites/{siteId}/approval/reject': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reject a first publish
+     * @description The note is shown to the site's managers; audited. Only an operator of this deployment (Nix:Sites:Operators, else the tenant administrators).
+     */
+    post: operations['RejectSitePublish'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2537,6 +2895,10 @@ export interface components {
       endpoint: string;
       p256dh: string;
       auth: string;
+    };
+    AddSiteHostnameRequest: {
+      hostname: string;
+      serveMode: null | string;
     };
     AggregateGroupResponse: {
       key: null | string;
@@ -3069,6 +3431,13 @@ export interface components {
       properties: null | components['schemas']['JsonObject'];
       /** Format: uuid */
       idempotencyKey?: null | string;
+    };
+    CreateSiteRequest: {
+      /** Format: uuid */
+      rootItemId: string;
+      slug: string;
+      layout: string;
+      settings: null | components['schemas']['SiteSettingsDto'];
     };
     CreateStructuredItemRequest: {
       type: string;
@@ -4241,6 +4610,11 @@ export interface components {
       form: components['schemas']['PublicFormDefinitionResponse'];
       fields: components['schemas']['PublicFormPropertyResponse'][];
     };
+    PublishSiteRequest: {
+      idempotencyKey: string;
+      refreshPaths: boolean;
+      acknowledgeDisclosure: boolean;
+    };
     PushPublicKeyResponse: {
       publicKey: string;
     };
@@ -4321,6 +4695,9 @@ export interface components {
     ReferencesResponse: {
       references: components['schemas']['ReferenceResolutionResponse'][];
     };
+    RejectSiteApprovalRequest: {
+      note: null | string;
+    };
     RelatedItemResponse: {
       item: components['schemas']['SearchHitResponse'];
       /** Format: int32 */
@@ -4347,6 +4724,9 @@ export interface components {
       views: components['schemas']['ViewRequest'][];
       publishInteractiveFormViewId: null | string;
     };
+    RequestSiteApprovalRequest: {
+      acknowledgeDisclosure: boolean;
+    };
     RoleGrantResponse: {
       subjectType: string;
       /** Format: uuid */
@@ -4355,6 +4735,10 @@ export interface components {
       role: string;
       /** Format: date-time */
       grantedAt: string;
+    };
+    RollbackSiteRequest: {
+      /** Format: uuid */
+      buildId: string;
     };
     SaveCanvasLibraryRequest: {
       items: components['schemas']['JsonArray'];
@@ -4431,6 +4815,12 @@ export interface components {
       properties: components['schemas']['PropertyDefinitionRequest'][];
       inherit: boolean;
     };
+    SetSiteHostnamesRequest: {
+      hostnames: string[];
+    };
+    SetSitePagePathRequest: {
+      path: string;
+    };
     SetViewsRequest: {
       views: components['schemas']['ViewRequest'][];
       default: null | string;
@@ -4441,6 +4831,136 @@ export interface components {
       items: components['schemas']['KeptItemResponse'][];
       /** Format: int32 */
       hidden: number | string;
+    };
+    SiteApprovalDto: {
+      state: string;
+      /** Format: date-time */
+      requestedAt: string;
+      /** Format: date-time */
+      decidedAt: null | string;
+      note: null | string;
+    };
+    SiteApprovalListResponse: {
+      approvals: components['schemas']['SiteApprovalResponse'][];
+    };
+    SiteApprovalResponse: {
+      /** Format: uuid */
+      siteId: string;
+      /** Format: uuid */
+      workspaceId: string;
+      slug: string;
+      name: string;
+      hostnames: string[];
+      /** Format: uuid */
+      requestedBy: string;
+      approval: components['schemas']['SiteApprovalDto'];
+      build: null | components['schemas']['SiteBuildResponse'];
+    };
+    SiteBuildListResponse: {
+      builds: components['schemas']['SiteBuildResponse'][];
+    };
+    SiteBuildResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      siteId: string;
+      status: string;
+      origin: string;
+      /** Format: int32 */
+      pageCount: number | string;
+      /** Format: int32 */
+      fileCount: number | string;
+      /** Format: int64 */
+      totalBytes: number | string;
+      loss: string[];
+      failureCode: null | string;
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      activatedAt: null | string;
+    };
+    SiteDatedCollectionDto: {
+      /** Format: uuid */
+      itemId: string;
+      dateProperty: string;
+      tagsProperty: null | string;
+      coverProperty: null | string;
+      summaryProperty: null | string;
+    };
+    SiteDnsRecordDto: {
+      type: string;
+      name: string;
+      value: string;
+      purpose: string;
+    };
+    SiteHostnameResponse: {
+      hostname: string;
+      /** Format: uri */
+      url: string;
+      kind: string;
+      verified: boolean;
+      primary: boolean;
+      serveMode: string;
+      status: string;
+      /** Format: date-time */
+      checkedAt: null | string;
+      checkError: null | string;
+      managed: boolean;
+      records: components['schemas']['SiteDnsRecordDto'][];
+    };
+    SiteListResponse: {
+      sites: components['schemas']['SiteResponse'][];
+    };
+    SiteNavLinkDto: {
+      label: string;
+      path: string;
+    };
+    SitePageListResponse: {
+      pages: components['schemas']['SitePageResponse'][];
+    };
+    SitePageResponse: {
+      /** Format: uuid */
+      itemId: string;
+      path: string;
+      pinned: boolean;
+      title: null | string;
+    };
+    SiteResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      workspaceId: string;
+      /** Format: uuid */
+      rootItemId: string;
+      slug: string;
+      layout: string;
+      settings: components['schemas']['SiteSettingsDto'];
+      republishMode: string;
+      /** Format: int32 */
+      debounceSeconds: number | string;
+      status: string;
+      canManage: boolean;
+      hostnames: components['schemas']['SiteHostnameResponse'][];
+      excludedItemIds: string[];
+      datedCollections: components['schemas']['SiteDatedCollectionDto'][];
+      liveBuild: null | components['schemas']['SiteBuildResponse'];
+      latestBuild: null | components['schemas']['SiteBuildResponse'];
+      /** Format: date-time */
+      createdAt: string;
+      /** Format: date-time */
+      updatedAt: string;
+      primaryHostname: null | string;
+      approvalRequired: boolean;
+      approval: null | components['schemas']['SiteApprovalDto'];
+    };
+    SiteSettingsDto: {
+      name: string;
+      description: string;
+      accent: string;
+      navigation: components['schemas']['SiteNavLinkDto'][];
+      footerText: string;
+      builtWithNix: boolean;
+      language: string;
     };
     StructuredItemResponse: {
       item: components['schemas']['ItemResponse'];
@@ -4818,6 +5338,19 @@ export interface components {
     };
     UpdateItemRequest: {
       title: string;
+    };
+    UpdateSiteHostnameRequest: {
+      serveMode: null | string;
+      primary: null | boolean;
+    };
+    UpdateSiteRequest: {
+      settings: null | components['schemas']['SiteSettingsDto'];
+      layout: null | string;
+      republishMode: null | string;
+      /** Format: int32 */
+      debounceSeconds: null | number | string;
+      excludedItemIds: null | string[];
+      datedCollections: null | components['schemas']['SiteDatedCollectionDto'][];
     };
     UpsertAclEntryRequest: {
       subjectType: string;
@@ -5409,6 +5942,68 @@ export interface operations {
         };
         content: {
           'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetItemSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListWorkspaceSites: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        workspaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteListResponse'];
         };
       };
       /** @description Not Found */
@@ -12201,6 +12796,1043 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['JwksResponse'];
+        };
+      };
+    };
+  };
+  CreateSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateSiteRequest'];
+      };
+    };
+    responses: {
+      /** @description Created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  DeleteSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  UpdateSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateSiteRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetSiteHostnames: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetSiteHostnamesRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  AddSiteHostname: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AddSiteHostnameRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  PublishSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PublishSiteRequest'];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteBuildResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Service Unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RollbackSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RollbackSiteRequest'];
+      };
+    };
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteBuildResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  UnpublishSite: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListSiteBuilds: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteBuildListResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetSiteBuild: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+        buildId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteBuildResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListSitePages: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SitePageListResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  SetSitePagePath: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+        itemId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetSitePagePathRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SitePageResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RemoveSiteHostname: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+        hostname: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  UpdateSiteHostname: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+        hostname: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['UpdateSiteHostnameRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  VerifySiteHostname: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+        hostname: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RequestSiteApproval: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RequestSiteApprovalRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ListSiteApprovals: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteApprovalListResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  ApproveSitePublish: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Accepted */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteApprovalResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RejectSitePublish: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        siteId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RejectSiteApprovalRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SiteApprovalResponse'];
+        };
+      };
+      /** @description Forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
     };

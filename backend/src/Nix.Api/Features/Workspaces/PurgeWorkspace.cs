@@ -14,7 +14,8 @@ public sealed class PurgeWorkspaceHandler(
     WorkspaceAdministrationStore store,
     IWorkerJobStore jobs,
     INixSessionContextAccessor session,
-    TimeProvider clock) : ICommandHandler<PurgeWorkspace, bool>
+    TimeProvider clock,
+    ISiteStore sites) : ICommandHandler<PurgeWorkspace, bool>
 {
     /// <inheritdoc />
     public async ValueTask<Result<bool>> HandleAsync(PurgeWorkspace command, CancellationToken cancellationToken)
@@ -23,6 +24,13 @@ public sealed class PurgeWorkspaceHandler(
         if (!await store.BeginPurgeAsync(command.WorkspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<bool>(WorkspaceAdministrationErrors.PurgeRefused());
+        }
+
+        // Authorized first, so only an owner learns why; the refusal rolls the purge mark back. A
+        // live site would stay on the internet with nothing left that names its objects.
+        if (await sites.HasLiveOrStoredSiteAsync(command.WorkspaceId, null, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<bool>(WorkspaceAdministrationErrors.SitesStillPublished());
         }
 
         var keys = await store.ListPurgeObjectKeysAsync(command.WorkspaceId, cancellationToken)

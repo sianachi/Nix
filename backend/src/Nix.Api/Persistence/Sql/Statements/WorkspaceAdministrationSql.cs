@@ -317,6 +317,23 @@ public static class WorkspaceAdministrationSql
         ORDER BY 1
         """;
 
+    /// <summary>
+    /// Deletes the sites of a purging workspace, from its live cleanup job only, before the
+    /// workspace row: a site's keys restrict rather than cascade. The purge was refused while any
+    /// of them was live or held objects, so these are drafts and drained sites.
+    /// </summary>
+    public const string DeletePurgingWorkspaceSites = """
+        DELETE FROM site s
+        WHERE s.tenant_id = @tenant_id AND s.workspace_id = @workspace_id
+          AND EXISTS (SELECT 1 FROM worker_job job
+                      WHERE job.tenant_id = @tenant_id AND job.job_id = @job_id
+                        AND job.kind = 'object.cleanup' AND job.status = 'running'
+                        AND job.workspace_id = @workspace_id)
+          AND EXISTS (SELECT 1 FROM workspace w
+                      WHERE w.tenant_id = @tenant_id AND w.workspace_id = @workspace_id
+                        AND w.lifecycle_state = 'purging')
+        """;
+
     /// <summary>Deletes a purged workspace only from its live cleanup job.</summary>
     public const string FinalizePurge = """
         WITH purge_job AS MATERIALIZED (

@@ -689,7 +689,7 @@ internal static class ExportEndpoints
         return $"{stem}.{extension}";
     }
 
-    private static bool TryCollaborationBaseUri(IConfiguration configuration, out Uri baseUri)
+    internal static bool TryCollaborationBaseUri(IConfiguration configuration, out Uri baseUri)
     {
         var value = configuration[CollaborationBaseUrlConfigurationKey];
         if (!Uri.TryCreate(value, UriKind.Absolute, out var parsed)
