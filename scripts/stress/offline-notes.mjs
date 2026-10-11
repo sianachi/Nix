@@ -1,4 +1,4 @@
-/* global navigator, WebSocket */
+/* global navigator, WebSocket, URL, fetch, AbortSignal, setTimeout, clearTimeout, setInterval, clearInterval, console */
 
 // Run against a built local PWA with NIX_OFFLINE_WEB_URL, NIX_OFFLINE_PROFILE and
 // NIX_OFFLINE_WORKSPACE. Login uses NIX_OFFLINE_USERNAME/NIX_OFFLINE_PASSWORD or
@@ -73,7 +73,7 @@ async function nixctl(args, stdin) {
 }
 
 const auth = await nixctl(['auth', 'status']);
-localOrigin(auth.apiUrl);
+const callbackOrigin = localOrigin(auth.apiUrl);
 await nixctl(['item', 'ls', '--workspace', workspace]);
 const stateDirectory = process.env.NIX_DEV_STATE_DIR ?? resolve(repository, 'deploy');
 const generated = await readFile(
@@ -167,6 +167,7 @@ async function observePersistence(target) {
       constructor(...args) {
         super(...args);
         this.addEventListener('close', (event) => {
+          // eslint-disable-next-line no-console -- Forward browser socket diagnostics to the runner.
           console.info(
             `${prefix}${JSON.stringify({
               path: new URL(this.url).pathname,
@@ -264,7 +265,7 @@ async function signIn(target, url) {
     await target.locator('button[type="submit"], input[type="submit"]').first().click();
     await target.locator('input[name="password"], input[type="password"]').first().fill(password);
     await target.locator('button[type="submit"], input[type="submit"]').first().click();
-    await target.waitForURL((value) => value.origin === origin);
+    await target.waitForURL((value) => value.origin === origin || value.origin === callbackOrigin);
     await target.goto(url, { waitUntil: 'domcontentloaded' });
   }
   await body(target).waitFor();
