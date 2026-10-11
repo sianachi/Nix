@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { useEffect, type ReactElement } from 'react';
 import { within } from '@testing-library/dom';
 import userEvent from '@testing-library/user-event';
+import { Button } from '@nix/ui';
 
 import { WIDE_ENOUGH_FOR_NON_PHONE_LAYOUT } from '../layout/regions';
 import { ColumnWidthControls } from './column-width';
@@ -19,6 +20,9 @@ import {
   type WritingMode,
 } from './writing-mode';
 import { WritingModeControl } from './writing-mode-control';
+import { MobileNoteToolbar } from './mobile-note-toolbar';
+import { TextWidthControl } from './text-width-control';
+import { useTextWidthPreference } from './text-width-preference';
 
 export default { title: 'Nix/Editor/Writing modes', parameters: { layout: 'padded' } };
 
@@ -32,8 +36,10 @@ function Writing({
   readonly content?: string;
 }): ReactElement {
   const mode = useWritingModePreference((state) => state.mode);
+  const width = useTextWidthPreference((state) => state.width);
   useEffect(() => {
     useWritingModePreference.setState({ mode: initialMode, saved: true });
+    useTextWidthPreference.setState({ width: 'reading', saved: true });
   }, [initialMode]);
   const editor = useEditor({
     extensions: [
@@ -61,21 +67,40 @@ function Writing({
     setEditorWritingMode(editor, mode);
   }, [editor, mode]);
 
+  const formatting = (
+    <EditorToolbar
+      editor={editor}
+      compact={compact}
+      writingMode={mode}
+      writingModeControl={<WritingModeControl />}
+      textWidthControl={compact ? undefined : <TextWidthControl />}
+      onInsertImage={() => undefined}
+      onInsertLink={() => undefined}
+      onUndo={() => undefined}
+      onRedo={() => undefined}
+    />
+  );
   return (
-    <div className={compact ? 'w-80 max-w-full space-y-4' : 'w-full space-y-4'}>
-      <div className="max-w-full overflow-x-auto">
-        <EditorToolbar
+    <div
+      className={compact ? 'relative flex h-96 w-80 max-w-full flex-col gap-4' : 'w-full space-y-4'}
+    >
+      {compact ? (
+        <MobileNoteToolbar
+          formatting={formatting}
           editor={editor}
-          compact={compact}
-          writingMode={mode}
-          writingModeControl={<WritingModeControl />}
-          onInsertImage={() => undefined}
-          onInsertLink={() => undefined}
-          onUndo={() => undefined}
-          onRedo={() => undefined}
+          actions={<Button variant="ghost">Children</Button>}
         />
-      </div>
-      <div className={`w-full ${WRITING_MODES[mode].measure}`}>
+      ) : (
+        formatting
+      )}
+      <div
+        data-text-width={width}
+        className={`min-w-0 w-full ${
+          !compact && width === 'full'
+            ? 'max-w-none [&_.ProseMirror]:max-w-none'
+            : WRITING_MODES[mode].measure
+        }`}
+      >
         <EditorContent editor={editor} />
       </div>
     </div>
@@ -101,6 +126,54 @@ export const ModeChoices = {
       within(canvasElement).getByRole('button', { name: 'Writing mode: Prose' }),
     );
   },
+};
+
+export const PhoneModeChoices = {
+  render: (): ReactElement => <Writing initialMode="collaboration" compact />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await userEvent.click(
+      within(canvasElement).getByRole('button', { name: 'Writing mode: Collaboration' }),
+    );
+    const panel = within(canvasElement).getByRole('dialog', { name: 'Writing mode' });
+    const choices = within(panel).getAllByRole('button');
+    for (const choice of choices) {
+      const label = choice.querySelector('span');
+      const description = label?.nextElementSibling;
+      if (!label || !description) throw new Error('Writing mode needs a label and description.');
+      if (description.getBoundingClientRect().top < label.getBoundingClientRect().bottom) {
+        throw new Error('Writing mode descriptions overlap their labels.');
+      }
+      if (description.getBoundingClientRect().bottom > choice.getBoundingClientRect().bottom) {
+        throw new Error('Writing mode descriptions extend beyond their buttons.');
+      }
+    }
+  },
+};
+
+export const FullPaneWidth = {
+  render: (): ReactElement => <Writing />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    const body = canvas.getByRole('textbox', { name: 'Note body' });
+    await userEvent.click(canvas.getByRole('button', { name: 'Text width' }));
+    await userEvent.click(canvas.getByRole('button', { name: 'Full pane width' }));
+    const surface = body.closest('[data-text-width]');
+    if (
+      !surface ||
+      Math.abs(body.getBoundingClientRect().width - surface.getBoundingClientRect().width) > 1
+    ) {
+      throw new Error('Full pane width must fill the writing surface.');
+    }
+    if (canvas.getByRole('textbox', { name: 'Note body' }) !== body) {
+      throw new Error('Changing text width replaced the note body.');
+    }
+  },
+};
+
+export const PhoneLongWords = {
+  render: (): ReactElement => (
+    <Writing compact content={`<p>${'A-long-unbroken-note-title-'.repeat(12)}</p>`} />
+  ),
 };
 
 export const TouchTypography = {

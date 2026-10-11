@@ -65,7 +65,7 @@ const TABLE_TYPE_STEP =
 export const proseRoot = [
   // A measure. Text that runs the full width of a wide pane is measurably harder to read; 65ch is
   // Tailwind's prose measure and lands near the classic 45-75 character band.
-  `max-w-prose font-body ${DOCUMENT_BODY_STEP} text-foreground`,
+  `min-w-0 max-w-prose break-words font-body ${DOCUMENT_BODY_STEP} text-foreground`,
   '[&[data-writing-mode="planning"]]:max-w-none [&[data-writing-mode="collaboration"]]:max-w-none',
 
   // The caret and the text selection. The selection fill is a fixed ramp step rather than a role

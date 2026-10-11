@@ -91,6 +91,8 @@ import {
   WRITING_MODES,
 } from './writing-mode';
 import { WritingModeControl } from './writing-mode-control';
+import { TextWidthControl } from './text-width-control';
+import { useTextWidthPreference } from './text-width-preference';
 
 /**
  * The note body: a TipTap editor over a Yjs document, synchronised through the collaboration
@@ -498,6 +500,7 @@ export function NoteEditor({
   const [addressRequest, setAddressRequest] = useState<EditorAddressKind | null>(null);
   const keyboardMode = useKeyboardModeStore((state) => state.mode);
   const writingMode = useWritingModePreference((state) => state.mode);
+  const textWidth = useTextWidthPreference((state) => state.width);
   const vimDescriptionId = useId();
   const ghostSetting = useGhostTextPreference((state) => state.setting);
   const mentionSetting = useMentionPreference((state) => state.setting);
@@ -1029,12 +1032,12 @@ export function NoteEditor({
 
   const formatting =
     !localCanWrite || readOnly || stale ? null : (
-      <div className={narrow ? 'flex items-center justify-between' : 'shrink-0 px-8'}>
+      <div className={narrow ? 'flex items-center' : 'min-w-0 shrink-0 px-8'}>
         <div
           className={
             narrow
-              ? 'flex items-center justify-between'
-              : `${noteColumn} flex items-center justify-between gap-2`
+              ? 'flex items-center gap-2'
+              : `${noteColumn} flex min-w-0 flex-wrap items-center justify-between gap-2`
           }
         >
           <EditorToolbar
@@ -1042,6 +1045,7 @@ export function NoteEditor({
             editor={editor}
             writingMode={writingMode}
             writingModeControl={<WritingModeControl />}
+            textWidthControl={narrow ? undefined : <TextWidthControl />}
             onInsertItem={(kind) => {
               if (uploadingFilesRef.current > 0) return;
               insertionRef.current = editor.state.selection.from;
@@ -1091,8 +1095,8 @@ export function NoteEditor({
           offline={offline}
           scope={documentScope(subject, workspaceId, itemId, documentPath ?? 'note')}
         >
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               <Text id={vimDescriptionId} variant="note" className="sr-only">
                 Vim basics starts in Normal mode. Press i to insert text, Escape to return to
                 Normal, and v or V for Visual mode.
@@ -1131,7 +1135,7 @@ export function NoteEditor({
               ) : null}
               <PaneViewport
                 scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
-                className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
+                className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
               >
                 {dropActive ? (
                   <Text
@@ -1220,7 +1224,12 @@ export function NoteEditor({
           */}
                 <div
                   ref={setSurface}
-                  className={`relative h-full ${noteColumn} ${WRITING_MODES[writingMode].measure}`}
+                  data-text-width={narrow ? 'reading' : textWidth}
+                  className={`relative h-full min-w-0 ${noteColumn} ${
+                    !narrow && textWidth === 'full'
+                      ? 'max-w-none [&_.ProseMirror]:max-w-none'
+                      : WRITING_MODES[writingMode].measure
+                  }`}
                 >
                   {bodyUnavailable ? (
                     <Text variant="note" tone="muted" role="status">

@@ -10,8 +10,10 @@ import type * as collabSync from '../../editor/collab-sync';
 import type * as apiClientProvider from '../../api/api-client-provider';
 import { useKeyboardModeStore } from '../../editor/keyboard-mode-store';
 import { useWritingModePreference } from '../../editor/writing-mode';
+import { useTextWidthPreference } from '../../editor/text-width-preference';
 import { NoteEditor } from '../../editor/note-editor';
 import type * as reactRouter from 'react-router';
+import { stubViewport } from '../stub-viewport';
 
 /**
  * The provider is replaced, and the document it is handed is kept.
@@ -139,6 +141,7 @@ beforeEach(() => {
   fileHarness.client.execute.mockClear();
   useKeyboardModeStore.setState({ mode: 'standard', persistence: 'stored' });
   useWritingModePreference.setState({ mode: 'prose', saved: true });
+  useTextWidthPreference.setState({ width: 'reading', saved: true });
 });
 
 /** Renders the editor and returns the shared document it handed the provider. */
@@ -175,6 +178,34 @@ it('changes writing modes while retaining the collaborative body and its connect
   expect(captured).toBe(document);
   expect(body).toHaveTextContent('My plan');
   expect(screen.getByRole('button', { name: 'Task list' })).toBeInTheDocument();
+});
+
+it('changes text width without replacing the editor or its collaborative document', async () => {
+  const document = await open();
+  const body = screen.getByRole('textbox', { name: 'Note body' });
+  body.focus();
+  await userEvent.type(body, 'Keep this work', { skipClick: true });
+  await userEvent.click(screen.getByRole('button', { name: 'Text width' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Full pane width' }));
+  expect(body.closest('[data-text-width]')).toHaveAttribute('data-text-width', 'full');
+  expect(body.closest('[data-text-width]')).toHaveClass('[&_.ProseMirror]:max-w-none');
+  expect(screen.getByRole('textbox', { name: 'Note body' })).toBe(body);
+  expect(captured).toBe(document);
+  expect(body).toHaveTextContent('Keep this work');
+  await userEvent.click(screen.getByRole('button', { name: 'Text width' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Reading width' }));
+  expect(body.closest('[data-text-width]')).toHaveAttribute('data-text-width', 'reading');
+  expect(body.closest('[data-text-width]')).toHaveClass('max-w-prose');
+});
+
+it('keeps the phone writing surface readable when full pane width was selected on desktop', async () => {
+  stubViewport(false);
+  useTextWidthPreference.setState({ width: 'full' });
+  await open();
+  const body = screen.getByRole('textbox', { name: 'Note body' });
+  expect(body.closest('[data-text-width]')).toHaveAttribute('data-text-width', 'reading');
+  expect(screen.queryByRole('button', { name: 'Text width' })).not.toBeInTheDocument();
+  expect(useTextWidthPreference.getState().width).toBe('full');
 });
 
 it('retains the body when a published local note changes editor identity during reconnect', async () => {
