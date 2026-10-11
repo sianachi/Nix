@@ -288,7 +288,7 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   const ownerCandidate = (item as unknown as { readonly id?: unknown }).id;
   const ownerId = typeof ownerCandidate === 'string' ? ownerCandidate : null;
 
-  const canUpload = workspaceId !== null && client !== null;
+  const canUpload = props.allowInputStorage !== false && workspaceId !== null && client !== null;
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   // The address a Remove just cleared, kept until the next edit so the click has a way back.
@@ -349,7 +349,11 @@ export function ImageValue(props: PropertyInputProps): ReactNode {
   }
 
   async function uploadFile(file: File): Promise<void> {
-    if (uploading || workspaceId === null || client === null) return;
+    if (!canUpload) {
+      setRefusal(FILE_REFUSAL);
+      return;
+    }
+    if (uploading) return;
 
     if (!isImageFile(file)) {
       setRefusal(UNSUPPORTED_FILE_REFUSAL);

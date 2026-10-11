@@ -7,6 +7,7 @@ import { aView } from '../../view-fixture';
 import { FormView } from '../../../views/form/form-view';
 import { rememberSubmission } from '../../../views/form/form-memory';
 import { useViewSuggestionPreference } from '../../../settings/suggestion-preferences';
+import { useChoiceOrderPreference } from '../../../settings/suggestion-preferences';
 import { CATEGORY, memoryStorage } from '../suggest/suggest-fixtures';
 
 /**
@@ -23,14 +24,17 @@ vi.mock('../../../workspaces/workspace-context', () => ({
 
 const VIEW = aView({ id: 'intake', kind: 'form', columns: ['category'] });
 
-function renderForm(create = vi.fn((): Promise<string | null> => Promise.resolve(null))) {
+function renderForm(
+  create = vi.fn((): Promise<string | null> => Promise.resolve(null)),
+  view = VIEW,
+) {
   renderAt(
     <FormView
       container={aContainer({
         schema: { properties: [CATEGORY], declared: [CATEGORY], inherit: true },
         create,
       })}
-      view={VIEW}
+      view={view}
       onOpen={vi.fn()}
     />,
   );
@@ -47,6 +51,17 @@ afterEach(() => {
 });
 
 describe('usual values in a form', () => {
+  it('does not record a temporary response in form memory or independent choice history', async () => {
+    useChoiceOrderPreference.getState().setSetting('on');
+    const create = renderForm(undefined, { ...VIEW, mode: 'temporary' });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), {
+      target: { value: 'Bills' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Calculate' }));
+    expect(await screen.findByText('Calculated here. No entry was saved.')).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(localStorage.length).toBe(0);
+  });
   it('offers nothing when suggestions in views are switched off', () => {
     rememberSubmission(WORKSPACE, 'intake', [CATEGORY], { category: 'Bills' });
     rememberSubmission(WORKSPACE, 'intake', [CATEGORY], { category: 'Bills' });

@@ -1,4 +1,4 @@
-import { Button, Field, Input, Text } from '@nix/ui';
+import { Button, Checkbox, Field, Input, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
@@ -20,13 +20,15 @@ import { MemberNames } from '../suggest/member-name';
 import { valueText } from '../suggest/value-text';
 import { useViewSuggestionPreference } from '../../settings/suggestion-preferences';
 import { UsualValueHint, UsualValuesSummary } from './usual-value-hint';
+import { FormResults } from './form-results';
+import { reportFormValidity } from './form-validity';
 
 /**
- * The form view: the container's schema as fields, and every submission a new child.
+ * The form view: schema inputs and formula results, with a choice to save each entry.
  *
  * The intake shape - a daily tracker whose entries are rows, an inventory log fed line by line.
  * Nothing here is new machinery: the fields are `PropertyInput`, the same control the property
- * panel and the list's cells draw, and the submit is the ordinary create every view offers. What
+ * panel and the list's cells draw, and saving uses the ordinary create every view offers. What
  * the kind adds is the arrangement - entry first, entries elsewhere - switchable beside the list
  * the submissions land in. ADR-0040 records the two decisions this kind rests on: a write surface
  * offered on the view axis, and required-ness as this form's own promise.
@@ -116,11 +118,13 @@ function EntryForm({
 }): ReactNode {
   const [title, setTitle] = useState('');
   const [bag, setBag] = useState<Record<string, PropertyValue>>({});
+  const [saveChoice, setSaveChoice] = useState<boolean | null>(null);
+  const saveResponse = saveChoice ?? view.mode !== 'temporary';
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   /** The one sentence about the last submit: saved, blocked by required fields, or refused. */
   const [outcome, setOutcome] = useState<{
-    kind: 'saved' | 'blocked' | 'refused';
+    kind: 'saved' | 'temporary' | 'blocked' | 'refused';
     text: string;
   } | null>(null);
 
@@ -138,6 +142,7 @@ function EntryForm({
   const [blockedAt, setBlockedAt] = useState(0);
 
   const titleRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const fieldsRef = useRef<HTMLDivElement>(null);
 
   const { offered, unavailable } = resolveFields(view, container.schema);
@@ -153,7 +158,9 @@ function EntryForm({
     workspace !== null &&
     offered.some((definition) => definition.type === 'assignee');
   const [usual, setUsual] = useState<ReadonlyMap<string, UsualValue>>(() =>
-    workspace === null ? new Map() : usualValues(workspace.workspaceId, view.id, offered),
+    workspace === null || !saveResponse
+      ? new Map()
+      : usualValues(workspace.workspaceId, view.id, offered),
   );
 
   // Each field's wrapper, so a usual value that is used can hand focus to the control it filled -
@@ -170,7 +177,9 @@ function EntryForm({
   }
 
   function pendingHabit(key: string): UsualValue | undefined {
-    return bag[key] === undefined && viewSuggestions === 'on' ? usual.get(key) : undefined;
+    return saveResponse && bag[key] === undefined && viewSuggestions === 'on'
+      ? usual.get(key)
+      : undefined;
   }
 
   // Three or more waiting values become one summary line rather than a hint under every field.
@@ -220,11 +229,12 @@ function EntryForm({
     if (sending) {
       return;
     }
+    if (!reportFormValidity(formRef.current)) return;
 
     // The form's own required check - see the header for whose rule this is and is not.
     const blockers: Record<string, string> = {};
 
-    if (title.trim().length === 0) {
+    if (saveResponse && title.trim().length === 0) {
       blockers.title = 'An entry needs a title.';
     }
 
@@ -235,7 +245,9 @@ function EntryForm({
         continue;
       }
       if (bag[definition.key] === undefined) {
-        blockers[definition.key] = 'Required before the entry is added.';
+        blockers[definition.key] = saveResponse
+          ? 'Required before the entry is added.'
+          : 'Required before calculating.';
       }
     }
 
@@ -244,8 +256,9 @@ function EntryForm({
       const count = Object.keys(blockers).length;
       setOutcome({
         kind: 'blocked',
-        text:
-          count === 1
+        text: !saveResponse
+          ? 'Some required inputs are still empty.'
+          : count === 1
             ? 'The entry was not added: one field still needs a value.'
             : `The entry was not added: ${String(count)} fields still need values.`,
       });
@@ -264,6 +277,11 @@ function EntryForm({
     }
 
     setFieldErrors({});
+    if (!saveResponse) {
+      setBag(sent);
+      setOutcome({ kind: 'temporary', text: 'Calculated here. No entry was saved.' });
+      return;
+    }
     setOutcome(null);
     setSending(true);
 
@@ -297,6 +315,7 @@ function EntryForm({
 
   return (
     <form
+      ref={formRef}
       aria-label={view.name}
       className="flex min-w-0 w-full max-w-xl flex-col gap-4"
       // The form owns its validation - the per-field sentences below - and the design language
@@ -308,26 +327,47 @@ function EntryForm({
         void submit();
       }}
     >
+      <div className="flex min-w-0 flex-col gap-1">
+        <Checkbox
+          label="Save this entry"
+          checked={saveResponse}
+          disabled={sending}
+          onChange={(event) => {
+            setSaveChoice(event.target.checked);
+            setOutcome(null);
+            setFieldErrors({});
+          }}
+        />
+        <Text variant="note" tone="muted" className="wrap-anywhere">
+          {saveResponse
+            ? 'Saving adds an ordinary child entry to this note. Image uploads are saved immediately.'
+            : 'Inputs stay in this view only and are discarded when you leave. File uploads and input history are off.'}
+        </Text>
+      </div>
       <div ref={fieldsRef} key={submissions} className="flex flex-col gap-4">
-        <Field label="Title" required error={fieldErrors.title ?? null}>
-          {(control) => (
-            <Input
-              {...control}
-              ref={titleRef}
-              value={title}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                // Cleared on the keystroke that answers it, the same trigger `setValue` uses for
-                // every other field - one rule, not two.
-                setFieldErrors((current) =>
-                  'title' in current
-                    ? Object.fromEntries(Object.entries(current).filter(([key]) => key !== 'title'))
-                    : current,
-                );
-              }}
-            />
-          )}
-        </Field>
+        {saveResponse ? (
+          <Field label="Title" required error={fieldErrors.title ?? null}>
+            {(control) => (
+              <Input
+                {...control}
+                ref={titleRef}
+                value={title}
+                onChange={(event) => {
+                  setTitle(event.target.value);
+                  // Cleared on the keystroke that answers it, the same trigger `setValue` uses for
+                  // every other field - one rule, not two.
+                  setFieldErrors((current) =>
+                    'title' in current
+                      ? Object.fromEntries(
+                          Object.entries(current).filter(([key]) => key !== 'title'),
+                        )
+                      : current,
+                  );
+                }}
+              />
+            )}
+          </Field>
+        ) : null}
 
         {summarise ? (
           <UsualValuesSummary
@@ -363,6 +403,7 @@ function EntryForm({
                     property={definition}
                     density="panel"
                     error={fieldErrors[definition.key] ?? null}
+                    allowInputStorage={saveResponse}
                     onCommit={(value) => {
                       setValue(definition.key, value);
                     }}
@@ -386,10 +427,13 @@ function EntryForm({
         </MemberNames>
       </div>
 
+      <FormResults properties={container.schema?.properties ?? []} values={bag} />
+
       {offered.length === 0 ? (
         <Text tone="muted">
-          This one has no properties yet, so entries carry only a title. Add properties under
-          Properties to build the form out.
+          {saveResponse
+            ? 'This one has no properties yet, so entries carry only a title. Add properties under Properties to build the form out.'
+            : 'This form has no editable properties. Add properties under Properties to supply inputs.'}
         </Text>
       ) : null}
 
@@ -404,10 +448,25 @@ function EntryForm({
       {/* aria-disabled rather than disabled: disabling the focused element throws focus to the
           body, and each outcome decides where focus goes instead. The double-submit guard is the
           early return in submit(). */}
-      <div>
+      <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" aria-disabled={sending}>
-          Add entry
+          {saveResponse ? 'Add entry' : 'Calculate'}
         </Button>
+        {!saveResponse ? (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setBag({});
+              setTitle('');
+              setFieldErrors({});
+              setOutcome(null);
+              setSubmissions((current) => current + 1);
+            }}
+          >
+            Clear inputs
+          </Button>
+        ) : null}
       </div>
 
       {/* Two always-mounted regions, so an announcement fires the moment a sentence appears. The
