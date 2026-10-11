@@ -290,7 +290,9 @@ export function PetWorkTools({
   applyWithoutAsking = false,
   applyExemptToolIds = [],
   client,
+  noteScope,
 }: {
+  readonly noteScope?: { readonly rootItemId: string; readonly readOnly: boolean } | undefined;
   readonly runtime: PetConnection;
   readonly workspaceId: string;
   readonly petId: string;
@@ -342,7 +344,7 @@ export function PetWorkTools({
   }, []);
 
   function decisionKey(tool: PetToolCall) {
-    return `tool:${workspaceId}:${petId}:${mode}:${tool.id}`;
+    return `tool:${workspaceId}:${petId}:${mode}${noteScope ? `:note:${noteScope.rootItemId}` : ''}:${tool.id}`;
   }
   function appliesWithoutAsking(tool: PetToolCall) {
     return applyWithoutAsking && !applyExemptToolIds.includes(tool.id);
@@ -430,6 +432,7 @@ export function PetWorkTools({
             workspaceId,
             petId,
             mode,
+            ...(noteScope ? { rootItemId: noteScope.rootItemId } : {}),
             toolId: tool.id,
             requestId,
           }),
@@ -442,7 +445,13 @@ export function PetWorkTools({
         // Another tab or a CLI executor can settle the tool after this panel saw it pending.
         // Reconcile the exact tool once; observing a claim never gives this caller its ownership.
         const observed = await client.execute(
-          pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+          pets.runtime({
+            operation: 'read',
+            workspaceId,
+            petId,
+            mode,
+            ...(noteScope ? { rootItemId: noteScope.rootItemId } : {}),
+          }),
           { signal },
         );
         const receipt = observed.tools?.find((value) => value.id === tool.id);
@@ -484,6 +493,7 @@ export function PetWorkTools({
             signal,
             {
               mode,
+              ...(noteScope ? { scope: noteScope } : {}),
               toolId: tool.id,
               claimId: requestId,
               ...(fence === undefined ? {} : { fence }),
@@ -526,6 +536,7 @@ export function PetWorkTools({
           workspaceId,
           petId,
           mode,
+          ...(noteScope ? { rootItemId: noteScope.rootItemId } : {}),
           toolId: tool.id,
           requestId,
           toolResult,
@@ -597,6 +608,7 @@ export function PetWorkTools({
           tool={tool}
           client={client}
           workspaceId={workspaceId}
+          noteScope={noteScope}
           petName={petName}
           busy={busy}
           readWithoutAsking={readWithoutAsking}
@@ -1125,7 +1137,9 @@ function PetWorkToolCard({
   submitted,
   ownerReason,
   onResolve,
+  noteScope,
 }: {
+  readonly noteScope?: { readonly rootItemId: string; readonly readOnly: boolean } | undefined;
   readonly tool: PetToolCall;
   readonly ownerReason?: string | undefined;
   readonly client: NixClient;
@@ -1149,6 +1163,8 @@ function PetWorkToolCard({
   readonly submitted?: string;
   readonly onResolve: Resolver;
 }): ReactElement {
+  const rootItemId = noteScope?.rootItemId;
+  const readOnly = noteScope?.readOnly ?? true;
   const [state, setState] = useState<ToolPreviewState>({ loading: true });
   const autoDeclineKey = useRef('');
   // Set only once `onResolve` actually started this write on its own (the S3 pattern
@@ -1193,6 +1209,7 @@ function PetWorkToolCard({
           defaultIds,
           describeToolCall,
           loadPreviewContext,
+          prepareNoteScopedTool,
         } = await import('@nix/companion');
         const ports = {
           core: client,
@@ -1201,13 +1218,18 @@ function PetWorkToolCard({
           clock: defaultClock(),
           ids: defaultIds(),
         };
+        const scope = rootItemId ? { rootItemId, readOnly } : undefined;
+        const preparedArgs = scope
+          ? await prepareNoteScopedTool(ports, workspaceId, current.data, controller.signal, scope)
+          : current.data;
         const context = await loadPreviewContext(
           ports,
           workspaceId,
-          current.data,
+          preparedArgs,
           controller.signal,
+          scope,
         );
-        const model = describeToolCall(current.data, context);
+        const model = describeToolCall(preparedArgs, context);
         if (!controller.signal.aborted)
           setState({
             loading: false,
@@ -1219,19 +1241,22 @@ function PetWorkToolCard({
               refusalQuotesLockedContent: context.refusalQuotesLockedContent ?? false,
             },
           });
-      } catch {
+      } catch (reason) {
         if (!controller.signal.aborted)
           setState({
             loading: false,
             arguments: tool.arguments,
-            error: 'The preview could not be loaded. Decline and ask the pet to try again.',
+            error:
+              reason instanceof WorkspaceToolRefusal
+                ? reason.message
+                : 'The preview could not be loaded. Decline and ask the pet to try again.',
           });
       }
     })();
     return () => {
       controller.abort();
     };
-  }, [tool.arguments, workspaceId, client, settledBodyEdit]);
+  }, [tool.arguments, workspaceId, client, settledBodyEdit, rootItemId, readOnly]);
 
   const currentPreview = state.arguments === tool.arguments;
   const model = currentPreview ? state.prepared?.model : undefined;

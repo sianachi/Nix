@@ -1,4 +1,4 @@
-import { items, structure, templates, views, type TemplatePreflight } from '@nix/api-client';
+import { structure, templates, views, type Item, type TemplatePreflight } from '@nix/api-client';
 import { applySpecSchema, saveSpecSchema } from '@nix/structure-spec';
 import type {
   Problem,
@@ -11,6 +11,7 @@ import type { BodyEdit, BodyEditPlan, CompanionPorts } from './ports.js';
 import type { WorkspaceToolArgs } from './tool-args.js';
 import { checkItem, structureFingerprint, type StructureFingerprint } from './guards.js';
 import { WorkspaceToolRefusal } from './tool-args.js';
+import { prepareNoteScopedTool, checkNoteScopedItem, type NoteToolScope } from './scope.js';
 import { validateBlueprint } from '@nix/structure-spec';
 import { findSandbox } from './blueprint/sandbox.js';
 import { anyUnderLock } from './read/locks.js';
@@ -95,12 +96,16 @@ async function destinationPath(
   workspaceId: string,
   parentId: string,
   signal: AbortSignal,
+  scope?: NoteToolScope,
 ): Promise<PreviewDestination> {
   const titles: string[] = [];
   let current: string | null = parentId;
   for (let depth = 0; depth < MAX_DESTINATION_DEPTH && current; depth += 1) {
-    const item = await checkItem(ports, workspaceId, current, signal);
+    const item: Item = scope
+      ? await checkNoteScopedItem(ports, workspaceId, current, signal, scope)
+      : await checkItem(ports, workspaceId, current, signal);
     titles.unshift(item.title);
+    if (item.id === scope?.rootItemId) break;
     current = item.parentId;
   }
   return { title: titles.at(-1) ?? 'Workspace root', path: titles };
@@ -111,11 +116,15 @@ async function itemDestination(
   workspaceId: string,
   itemId: string,
   signal: AbortSignal,
+  scope?: NoteToolScope,
 ): Promise<PreviewDestination> {
-  const item = await checkItem(ports, workspaceId, itemId, signal);
-  const parent = item.parentId
-    ? await destinationPath(ports, workspaceId, item.parentId, signal)
-    : { title: 'Workspace root', path: [] };
+  const item = scope
+    ? await checkNoteScopedItem(ports, workspaceId, itemId, signal, scope)
+    : await checkItem(ports, workspaceId, itemId, signal);
+  const parent =
+    item.parentId && item.id !== scope?.rootItemId
+      ? await destinationPath(ports, workspaceId, item.parentId, signal, scope)
+      : { title: 'Workspace root', path: [] };
   return { title: item.title, path: [...parent.path, item.title] };
 }
 
@@ -134,8 +143,14 @@ export async function loadPreviewContext(
   workspaceId: string,
   args: WorkspaceToolArgs,
   signal: AbortSignal,
+  scope?: NoteToolScope,
 ): Promise<PreviewContext> {
+  if (scope) args = await prepareNoteScopedTool(ports, workspaceId, args, signal, scope);
   const requestOptions = { signal, forceRefresh: true };
+  const check = (id: string) =>
+    scope
+      ? checkNoteScopedItem(ports, workspaceId, id, signal, scope)
+      : checkItem(ports, workspaceId, id, signal);
 
   if (args.operation === 'save_as_template') {
     const spec = saveSpecSchema.parse(args.specJson.trim() ? JSON.parse(args.specJson) : {});
@@ -169,14 +184,12 @@ export async function loadPreviewContext(
   }
 
   if (args.operation === 'build_blueprint') {
-    const parent = args.parentId
-      ? await checkItem(ports, workspaceId, args.parentId, signal)
-      : null;
+    const parent = args.parentId ? await check(args.parentId) : null;
     const sandbox = parent === null ? await findSandbox(ports, workspaceId, signal) : null;
     const destination = parent
-      ? await destinationPath(ports, workspaceId, parent.id, signal)
+      ? await destinationPath(ports, workspaceId, parent.id, signal, scope)
       : sandbox
-        ? await destinationPath(ports, workspaceId, sandbox.id, signal)
+        ? await destinationPath(ports, workspaceId, sandbox.id, signal, scope)
         : { title: 'Pet drafts', path: ['Pet drafts'] };
     const schema = parent
       ? await ports.core.query(structure.effectiveSchema(parent.id), requestOptions)
@@ -213,9 +226,9 @@ export async function loadPreviewContext(
     const catalog = await ports.core.query(templates.listTemplates(workspaceId), requestOptions);
     if (!catalog.templates.some((template) => template.id === args.itemId))
       throw new WorkspaceToolRefusal('The template is outside this workspace. No action was run.');
-    if (args.parentId) await checkItem(ports, workspaceId, args.parentId, signal);
+    if (args.parentId) await check(args.parentId);
     const destination = args.parentId
-      ? await destinationPath(ports, workspaceId, args.parentId, signal)
+      ? await destinationPath(ports, workspaceId, args.parentId, signal, scope)
       : { title: 'Workspace root', path: [] };
     const preflight = await ports.core.execute(
       templates.preflightTemplate(args.itemId, {
@@ -237,8 +250,8 @@ export async function loadPreviewContext(
 
   const edit = bodyEditOf(args);
   if (edit !== undefined) {
-    const item = await checkItem(ports, workspaceId, args.itemId, signal);
-    const destination = await itemDestination(ports, workspaceId, item.id, signal);
+    const item = await check(args.itemId);
+    const destination = await itemDestination(ports, workspaceId, item.id, signal, scope);
     const refused = (path: string, message: string, modelMessage: string): PreviewContext => ({
       destination,
       inheritedFields: [],
@@ -276,7 +289,7 @@ export async function loadPreviewContext(
 
   if (args.operation === 'create_structured' || args.operation === 'create_entries') {
     const destination = args.parentId
-      ? await destinationPath(ports, workspaceId, args.parentId, signal)
+      ? await destinationPath(ports, workspaceId, args.parentId, signal, scope)
       : { title: 'Workspace root', path: [] };
     const parentSchema = args.parentId
       ? await ports.core.query(structure.effectiveSchema(args.parentId), requestOptions)
@@ -294,7 +307,7 @@ export async function loadPreviewContext(
   }
 
   if (args.operation === 'complete_task') {
-    const destination = await itemDestination(ports, workspaceId, args.itemId, signal);
+    const destination = await itemDestination(ports, workspaceId, args.itemId, signal, scope);
     try {
       const plan = await planTaskCompletion(
         ports,
@@ -338,13 +351,13 @@ export async function loadPreviewContext(
     ].includes(args.operation)
   ) {
     if (args.itemId && !['restore_item', 'read_template'].includes(args.operation))
-      await checkItem(ports, workspaceId, args.itemId, signal);
+      await check(args.itemId);
     const destination = args.parentId
-      ? await destinationPath(ports, workspaceId, args.parentId, signal)
+      ? await destinationPath(ports, workspaceId, args.parentId, signal, scope)
       : args.operation !== 'move_item' &&
           args.itemId &&
           !['restore_item', 'read_template'].includes(args.operation)
-        ? await itemDestination(ports, workspaceId, args.itemId, signal)
+        ? await itemDestination(ports, workspaceId, args.itemId, signal, scope)
         : { title: 'Workspace root', path: [] };
     return {
       destination,
@@ -355,9 +368,9 @@ export async function loadPreviewContext(
   }
 
   // Item structure operations: an existing item's own schema, views, and values.
-  const destination = await itemDestination(ports, workspaceId, args.itemId, signal);
+  const destination = await itemDestination(ports, workspaceId, args.itemId, signal, scope);
   const [item, schema, containerViews] = await Promise.all([
-    ports.core.query(items.itemById(args.itemId), requestOptions),
+    check(args.itemId),
     ports.core.query(structure.effectiveSchema(args.itemId), requestOptions),
     ports.core.query(views.containerViewConfigurations(args.itemId), requestOptions),
   ]);

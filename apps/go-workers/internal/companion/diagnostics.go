@@ -155,6 +155,9 @@ func conversationKey(r Request) string {
 	if r.Mode == "consult" {
 		key += "-consult"
 	}
+	if r.RootItemID != "" {
+		key += "-note-" + r.RootItemID
+	}
 	return key
 }
 

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { pets, type NixClient, type PetToolCall } from '@nix/api-client';
 import {
   createCompanionBodies,
@@ -5,6 +6,8 @@ import {
   defaultIds,
   describeToolCall,
   loadPreviewContext,
+  prepareNoteScopedTool,
+  type NoteToolScope,
   runWorkspaceTool,
   workspaceToolSchema,
   WorkspaceToolRefusal,
@@ -29,6 +32,9 @@ const RUNTIME_OPERATIONS = [
   'settings',
   'tool_claim',
   'tool_result',
+  'history',
+  'read_history',
+  'delete_history',
 ] as const;
 type RuntimeOperation = (typeof RUNTIME_OPERATIONS)[number];
 
@@ -39,6 +45,9 @@ export interface PetOptions {
   readonly message?: string;
   readonly model?: string;
   readonly workspaceTools?: boolean;
+  readonly rootItem?: string;
+  readonly allowEdits?: boolean;
+  readonly historyId?: string;
   readonly toolId?: string;
   readonly requestId?: string;
   readonly toolResult?: string;
@@ -116,6 +125,7 @@ export async function executePetRuntime(
       pets.watchRuntime({
         workspaceId: workspace,
         petId: pet,
+        ...(options.rootItem ? { rootItemId: options.rootItem } : {}),
         ...(options.mode ? { mode: options.mode } : {}),
         after: options.after ?? 0,
       }),
@@ -128,7 +138,15 @@ export async function executePetRuntime(
       ...(options.pet ? { petId: options.pet } : {}),
       text: options.message ?? '',
       model: options.model ?? '',
-      workspaceAccess: options.workspaceTools ?? false,
+      workspaceAccess: options.rootItem !== undefined || (options.workspaceTools ?? false),
+      ...(options.rootItem
+        ? {
+            rootItemId: options.rootItem,
+            readOnly: !options.allowEdits,
+            itemId: options.rootItem,
+          }
+        : {}),
+      ...(options.historyId ? { historyId: options.historyId } : {}),
       ...(options.toolId ? { toolId: options.toolId } : {}),
       ...(options.toolResult !== undefined ? { toolResult: options.toolResult } : {}),
       ...(options.toolSuccess !== undefined ? { toolSuccess: options.toolSuccess } : {}),
@@ -142,19 +160,34 @@ export async function executePetRuntime(
   );
 }
 
-function validatePetRuntimeRequest(
+function validatePetRuntimeRequest<T extends PetOptions>(
   operation: string,
-  options: PetOptions,
-): asserts options is PetOptions & { readonly mode?: 'chat' | 'consult' } {
+  options: T,
+): asserts options is T & { readonly mode?: 'chat' | 'consult' } {
   if (!RUNTIME_OPERATIONS.includes(operation as RuntimeOperation))
     throw new Error(`Choose a pet operation: ${RUNTIME_OPERATIONS.join(', ')}.`);
   if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
     throw new Error('--mode must be chat or consult.');
+  if (options.rootItem !== undefined && !z.uuid().safeParse(options.rootItem).success)
+    throw new Error('--root-item must be an item UUID.');
+  if (options.allowEdits && !options.rootItem)
+    throw new Error('--allow-edits requires --root-item.');
+  if (['read_history', 'delete_history'].includes(operation) && !options.historyId)
+    throw new Error('Provide --history-id.');
   if (operation === 'send' && !options.message?.trim()) throw new Error('Provide --message.');
   if (
-    ['read', 'watch', 'send', 'interrupt', 'reset', 'tool_claim', 'tool_result'].includes(
-      operation,
-    ) &&
+    [
+      'read',
+      'watch',
+      'send',
+      'interrupt',
+      'reset',
+      'tool_claim',
+      'tool_result',
+      'history',
+      'read_history',
+      'delete_history',
+    ].includes(operation) &&
     (!options.workspace || !options.pet)
   )
     throw new Error('Provide --workspace and --pet.');
@@ -197,10 +230,17 @@ export async function executePetToolRun(
   mode: 'chat' | 'consult' = 'chat',
   /** Eval auto-approval binds execution to the request and preview that passed its holds. */
   autoApproval?: { readonly arguments: string; readonly fingerprint?: string },
+  scope?: NoteToolScope,
 ): Promise<unknown> {
   const client = session.client;
   const runtime = await client.execute(
-    pets.runtime({ operation: 'read', workspaceId, petId, mode }),
+    pets.runtime({
+      operation: 'read',
+      workspaceId,
+      petId,
+      mode,
+      ...(scope ? { rootItemId: scope.rootItemId } : {}),
+    }),
   );
   const tool: PetToolCall | undefined = runtime.tools?.find((entry) => entry.id === toolId);
   if (tool?.status !== 'pending') throw new Error(`Tool ${toolId} is not pending.`);
@@ -235,8 +275,11 @@ export async function executePetToolRun(
       'This request is unsupported. Decline it so the companion can try a supported operation.';
   } else {
     try {
-      previewContext = await loadPreviewContext(ports, workspaceId, parsed.data, signal);
-      preview = describeToolCall(parsed.data, previewContext);
+      const args = scope
+        ? await prepareNoteScopedTool(ports, workspaceId, parsed.data, signal, scope)
+        : parsed.data;
+      previewContext = await loadPreviewContext(ports, workspaceId, args, signal, scope);
+      preview = describeToolCall(args, previewContext);
     } catch (reason) {
       const message =
         reason instanceof WorkspaceToolRefusal
@@ -252,7 +295,15 @@ export async function executePetToolRun(
 
   const requestId = crypto.randomUUID();
   const claimed = await client.execute(
-    pets.runtime({ operation: 'tool_claim', workspaceId, petId, toolId, requestId, mode }),
+    pets.runtime({
+      operation: 'tool_claim',
+      workspaceId,
+      petId,
+      toolId,
+      requestId,
+      mode,
+      ...(scope ? { rootItemId: scope.rootItemId } : {}),
+    }),
   );
   const receipt = claimed.tools?.find((entry) => entry.id === toolId);
   if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
@@ -281,6 +332,7 @@ export async function executePetToolRun(
         AbortSignal.timeout(90000),
         {
           mode,
+          ...(scope ? { scope } : {}),
           toolId,
           claimId: requestId,
           ...(autoApproval?.fingerprint !== undefined
@@ -313,6 +365,7 @@ export async function executePetToolRun(
         toolSuccess,
         toolLockedContent,
         mode,
+        ...(scope ? { rootItemId: scope.rootItemId } : {}),
       }),
     );
   } catch (reason) {
@@ -360,14 +413,13 @@ export async function petToolRun(
   if (options.approve && options.decline)
     throw new Error('Choose either --approve or --decline, not both.');
   if (!options.workspace || !options.pet) throw new Error('Provide --workspace and --pet.');
+  validatePetRuntimeRequest('read', options);
   const session = await petSessionFor(options.apiUrl, profile, deps);
   const decision: PetToolDecision = options.approve
     ? 'approve'
     : options.decline
       ? 'decline'
       : 'preview';
-  if (options.mode !== undefined && options.mode !== 'chat' && options.mode !== 'consult')
-    throw new Error('--mode must be chat or consult.');
   const result = await executePetToolRun(
     session,
     options.workspace,
@@ -375,6 +427,13 @@ export async function petToolRun(
     toolId,
     decision,
     options.mode,
+    undefined,
+    options.rootItem
+      ? {
+          rootItemId: options.rootItem,
+          readOnly: !options.allowEdits,
+        }
+      : undefined,
   );
   if (decision === 'preview' && hasPreviewModel(result)) {
     if (output.json) printResult(result.preview, output);
