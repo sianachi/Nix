@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -146,7 +146,11 @@ describe('the shell', () => {
     renderAt(<App />);
 
     await user.click(await screen.findByRole('button', { name: /^search/i }));
-    await user.keyboard('{Escape}');
+    // jsdom does not translate Escape into a native dialog cancel.
+    fireEvent(
+      screen.getByRole('dialog', { name: /search/i }),
+      new Event('cancel', { cancelable: true }),
+    );
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: /search/i })).not.toBeInTheDocument();
