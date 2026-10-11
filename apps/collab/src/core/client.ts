@@ -196,13 +196,27 @@ function toProperties(raw: unknown): SchemaSnapshot['properties'] {
     return [];
   }
 
-  return raw.filter(isRecord).map((property) => ({
-    key: text(property.key),
-    label: text(property.label),
-    type: text(property.type),
-    options: Array.isArray(property.options) ? property.options.map(text) : [],
-    required: property.required === true,
-  }));
+  return raw.filter(isRecord).map((property) => {
+    if (
+      (property.expression != null && typeof property.expression !== 'string') ||
+      (property.aggregate != null && typeof property.aggregate !== 'string') ||
+      (property.source != null && typeof property.source !== 'string')
+    ) {
+      throw new Error('Core returned invalid computed property metadata.');
+    }
+    return {
+      key: text(property.key),
+      label: text(property.label),
+      type: text(property.type),
+      options: Array.isArray(property.options) ? property.options.map(text) : [],
+      required: property.required === true,
+      ...(property.expression === undefined
+        ? {}
+        : { expression: nullableText(property.expression) }),
+      ...(property.aggregate === undefined ? {} : { aggregate: nullableText(property.aggregate) }),
+      ...(property.source === undefined ? {} : { source: nullableText(property.source) }),
+    };
+  });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -149,6 +149,11 @@ export interface PropertyDefinition {
   readonly type: string;
   readonly options: readonly string[];
   readonly required: boolean;
+  /** Formula expression; absent/null on older archives and other property types. */
+  readonly expression?: string | null;
+  /** Rollup operation and child property key; a count may omit its source. */
+  readonly aggregate?: string | null;
+  readonly source?: string | null;
 }
 
 /**

@@ -5,7 +5,12 @@ import {
   requiredSchemaVersion,
 } from '@nix/editor-schema';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { SHEET_ITEM_TYPE, SHEET_SCHEMA_VERSION, checkSheetSnapshot } from '@nix/sheet';
+import {
+  PROPERTY_FORMULA_LIMITS,
+  SHEET_ITEM_TYPE,
+  SHEET_SCHEMA_VERSION,
+  checkSheetSnapshot,
+} from '@nix/sheet';
 import { Unzip, UnzipInflate, UnzipPassThrough, type UnzipFile } from 'fflate';
 
 import {
@@ -1268,8 +1273,7 @@ function parseBundle(value: unknown, name: string): ItemBundle {
 // The server's closed set, mirrored (`PropertyType.cs` / `PropertyTypes.TryParse` is the canon).
 // This copy is a validator, so unlike `view-render`'s open rendering set it refuses what it does
 // not know - which means a type added to the canon and not here breaks the archive round trip for
-// exactly the schemas that carry it. `reader.test.ts` enumerates this list against the canon's
-// current fourteen names so the drift is a failing test, not a refused import.
+// exactly the schemas that carry it. `reader.test.ts` enumerates the canon's current names.
 const PROPERTY_TYPES = new Set([
   'text',
   'long_text',
@@ -1287,7 +1291,13 @@ const PROPERTY_TYPES = new Set([
   'priority',
   'estimate',
   'assignee',
+  'formula',
+  'rollup',
+  'datetime',
+  'reminder',
 ]);
+
+const ROLLUP_AGGREGATES = new Set(['count', 'sum', 'min', 'max', 'average', 'any', 'all']);
 
 function parseNullableSchema(value: unknown, owner: string): SchemaSnapshot | null {
   if (value === null || value === undefined) return null;
@@ -1315,11 +1325,32 @@ function parseProperty(value: unknown, owner: string): SchemaSnapshot['propertie
     !PROPERTY_TYPES.has(value.type) ||
     !Array.isArray(value.options) ||
     !value.options.every((option) => typeof option === 'string') ||
-    typeof value.required !== 'boolean'
+    typeof value.required !== 'boolean' ||
+    (value.expression != null && typeof value.expression !== 'string') ||
+    (value.aggregate != null && typeof value.aggregate !== 'string') ||
+    (value.source != null && (typeof value.source !== 'string' || value.source.trim().length === 0))
   ) {
     throw refusal(
       'archive.schema_invalid',
       `The schema on ${owner} contains an unsupported property.`,
+    );
+  }
+  if (
+    (value.type === 'formula'
+      ? !shortText(value.expression, PROPERTY_FORMULA_LIMITS.maxLength)
+      : value.expression != null) ||
+    (value.type === 'rollup'
+      ? typeof value.aggregate !== 'string' ||
+        !ROLLUP_AGGREGATES.has(value.aggregate) ||
+        (value.aggregate !== 'count' && value.source == null) ||
+        value.source === value.key
+      : value.aggregate != null || value.source != null) ||
+    ((value.type === 'formula' || value.type === 'rollup') &&
+      (value.required || value.options.length !== 0))
+  ) {
+    throw refusal(
+      'archive.schema_invalid',
+      `The schema on ${owner} contains an invalid computed property.`,
     );
   }
   return {
@@ -1328,6 +1359,9 @@ function parseProperty(value: unknown, owner: string): SchemaSnapshot['propertie
     type: value.type,
     options: value.options,
     required: value.required,
+    ...(value.expression !== undefined ? { expression: value.expression } : {}),
+    ...(value.aggregate !== undefined ? { aggregate: value.aggregate } : {}),
+    ...(value.source !== undefined ? { source: value.source } : {}),
   };
 }
 
