@@ -136,21 +136,34 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
         var principalId = PrincipalId.Create();
         var link = new PublicFormLink
         {
-            Id = Guid.CreateVersion7(), TenantId = TestTenants.AlphaContext.TenantId,
-            WorkspaceId = created.Value.WorkspaceId, ItemId = created.Value.Id, ViewId = "form",
-            Nonce = "public-form-concurrency", SubmissionPrincipalId = principalId,
-            PublishedBy = TestTenants.AlphaContext.PrincipalId, PublishedAt = DateTimeOffset.UtcNow,
+            Id = Guid.CreateVersion7(),
+            TenantId = TestTenants.AlphaContext.TenantId,
+            WorkspaceId = created.Value.WorkspaceId,
+            ItemId = created.Value.Id,
+            ViewId = "form",
+            Nonce = "public-form-concurrency",
+            SubmissionPrincipalId = principalId,
+            PublishedBy = TestTenants.AlphaContext.PrincipalId,
+            PublishedAt = DateTimeOffset.UtcNow,
         };
         var store = work.Resolve<IPublicFormStore>();
         store.Add(link, new Principal
         {
-            Id = principalId, TenantId = link.TenantId, ExternalSubject = $"nix:public-form:{link.Id:D}",
-            Kind = PrincipalKind.Service, DisplayName = "Public form", Status = PrincipalStatus.Active,
+            Id = principalId,
+            TenantId = link.TenantId,
+            ExternalSubject = $"nix:public-form:{link.Id:D}",
+            Kind = PrincipalKind.Service,
+            DisplayName = "Public form",
+            Status = PrincipalStatus.Active,
         }, new WorkspaceMember
         {
-            WorkspaceId = link.WorkspaceId, TenantId = link.TenantId, SubjectType = SubjectType.Principal,
-            SubjectId = principalId.Value, Role = WorkspaceRoles.ToText(WorkspaceRole.Editor),
-            GrantedBy = link.PublishedBy, GrantedAt = link.PublishedAt,
+            WorkspaceId = link.WorkspaceId,
+            TenantId = link.TenantId,
+            SubjectType = SubjectType.Principal,
+            SubjectId = principalId.Value,
+            Role = WorkspaceRoles.ToText(WorkspaceRole.Editor),
+            GrantedBy = link.PublishedBy,
+            GrantedAt = link.PublishedAt,
         });
         await store.SaveAsync(Cancellation);
         await work.CommitAsync(Cancellation);
@@ -184,8 +197,10 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
             [SelfIssuedTokenService.SigningKeyConfigurationKey] = key.ExportECPrivateKeyPem(),
             ["Nix:Collaboration:BaseUrl"] = "http://127.0.0.1:8100",
             ["Nix:ObjectStorage:Endpoint"] = "http://127.0.0.1:7070",
-            ["Nix:ObjectStorage:Region"] = "us-east-1", ["Nix:ObjectStorage:Bucket"] = "nix-objects",
-            ["Nix:ObjectStorage:AccessKey"] = "form-access", ["Nix:ObjectStorage:SecretKey"] = "form-secret",
+            ["Nix:ObjectStorage:Region"] = "us-east-1",
+            ["Nix:ObjectStorage:Bucket"] = "nix-objects",
+            ["Nix:ObjectStorage:AccessKey"] = "form-access",
+            ["Nix:ObjectStorage:SecretKey"] = "form-secret",
         }, observer);
     }
 
