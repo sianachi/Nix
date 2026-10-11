@@ -7,6 +7,7 @@ import { ApiClientProvider } from '../../api/api-client-provider';
 import { AuthProvider } from '../../auth/auth-provider';
 import { useSessionStore } from '../../auth/session-store';
 import { browserStorage } from '../../lib/browser-storage';
+import { hiddenItemsKey, writeHiddenItems } from '../../lib/view-hidden-items';
 import { itemLandmarksKey } from '../../lib/item-landmarks';
 import { WorkspaceSidebar } from '../../items/workspace-sidebar';
 import { MobileWorkspaceBrowser } from '../../items/mobile-workspace-browser';
@@ -197,6 +198,7 @@ describe('the sidebar row context menu', () => {
       'Open',
       'Open in a new tab',
       expect.stringContaining('Open beside'),
+      'Hide children from tree',
       'Bookmark',
       'Copy link',
       'Automate…',
@@ -289,3 +291,23 @@ describe('the sidebar row context menu', () => {
     expect(beside).toHaveTextContent(/Click/);
   });
 });
+
+it.each(['desktop', 'mobile'] as const)(
+  'toggles children in the %s tree menu without hiding the parent',
+  async (view) => {
+    vi.stubGlobal('localStorage', memoryStorage());
+    signedIn();
+    writeHiddenItems(hiddenItemsKey('test-subject', STUB_WORKSPACE.id) + ':tree-children', []);
+    const user = userEvent.setup();
+    renderSidebar(treeOf(vi.fn(), [{ ...ROOT_A, hasChildren: true }, CHILD]), null, {}, view);
+    const control = view === 'desktop' ? 'Expand First' : 'Browse children of First';
+    expect(screen.getByRole('button', { name: control })).toBeVisible();
+    rightClick('First');
+    await user.click(screen.getByRole('menuitem', { name: 'Hide children from tree' }));
+    expect(screen.getByRole('button', { name: 'First' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: control })).not.toBeInTheDocument();
+    rightClick('First');
+    await user.click(screen.getByRole('menuitem', { name: 'Show children in tree' }));
+    expect(screen.getByRole('button', { name: control })).toBeVisible();
+  },
+);

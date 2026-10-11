@@ -1,3 +1,4 @@
+import { treeChildrenEntry } from '../items/item-menu-entries';
 import { useHiddenItems } from '../items/use-hidden-items';
 import { MobileItemMove } from '../items/mobile-item-move';
 import {
@@ -496,6 +497,7 @@ export function OpenItem({
   onCommit,
 }: OpenItemProps): ReactNode {
   const visibility = useHiddenItems();
+  const treeChildren = useHiddenItems('tree-children');
   const navigate = useNavigate();
   const narrow = useNarrowViewport();
   // Zen draws the item and its sync state alone. Everything it removes below is not rendered
@@ -667,6 +669,7 @@ export function OpenItem({
   );
 
   const actionEntries: MenuAction[] = [
+    treeChildrenEntry(treeChildren, itemId, title),
     ...(visibility.enabled
       ? [
           {

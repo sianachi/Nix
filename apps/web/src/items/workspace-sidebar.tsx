@@ -53,7 +53,7 @@ import { publishNotice } from '../lib/notices';
 import { isApplePlatform } from '../lib/shortcuts';
 import { useAutomateEntry } from '../automations/automate-entry';
 import { useMuteRemindersEntry } from '../settings/mute-reminders-entry';
-import { bookmarkEntry, copyLinkEntry } from './item-menu-entries';
+import { bookmarkEntry, copyLinkEntry, treeChildrenEntry } from './item-menu-entries';
 import { useHiddenItems } from './use-hidden-items';
 import { NewItemDialog, type NewItemDialogMode } from './new-item-dialog';
 import { HiddenItemsPanel } from './hidden-items-panel';
@@ -646,6 +646,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
 
   // Loading/revealing children must not opt the sidebar into showing them.
   const [expanded, setExpanded] = useState(false);
+  const treeChildren = useHiddenItems('tree-children');
+  const childrenHidden = treeChildren.hiddenSet.has(item.id);
   const visibility = useHiddenItems();
   const children = tree.childrenOf(item.id).filter((child) => !visibility.hiddenSet.has(child.id));
   const selected = selectedId === item.id;
@@ -654,7 +656,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
   // item's type: every item can hold children, so the alternative is a control on every row, most
   // of which would open onto nothing. Kept while expanded so emptying an item does not strip the
   // control out from under the pointer that just opened it.
-  const expandable = item.hasChildren || expanded;
+  const expandable = !childrenHidden && (item.hasChildren || expanded);
 
   const [zone, setZone] = useState<DropZone | null>(null);
   const dropping = zone !== null && dragged !== null && dragged !== item.id;
@@ -813,6 +815,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             },
           ]
         : []),
+      treeChildrenEntry(treeChildren, item.id, title),
       bookmarkEntry(item.id),
       ...(props.onChooseIcon === undefined
         ? []
@@ -1106,7 +1109,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
         )}
       </ContextMenu>
 
-      {expanded ? (
+      {expanded && !childrenHidden ? (
         <ul role="group">
           {tree.isLoadingChildren(item.id) && children.length === 0 ? (
             <Text
