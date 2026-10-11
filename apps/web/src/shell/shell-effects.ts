@@ -52,7 +52,7 @@ export function useShellShortcuts(actions: Readonly<Record<ShellShortcutId, () =
       }
       // A dialog is modal: nothing behind it should change while it is open, and a chord that
       // opened search or made a note under the dialog would do exactly that.
-      if (insideAnotherModal(event.target)) {
+      if (hasOpenModal()) {
         return;
       }
       const typing = isTypingTarget(event.target);
@@ -113,8 +113,7 @@ export function useZenEscape(active: boolean, leave: () => void): void {
   }, [active]);
 }
 
-/** Whether a modal dialog is open that the key press did not come from inside. */
-function insideAnotherModal(target: EventTarget | null): boolean {
-  const modal = document.querySelector('dialog[open], [aria-modal="true"]');
-  return modal !== null && !(target instanceof Node && modal.contains(target));
+/** Whether a modal dialog owns the current interaction. */
+function hasOpenModal(): boolean {
+  return document.querySelector('dialog[open], [aria-modal="true"]') !== null;
 }
