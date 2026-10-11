@@ -102,7 +102,7 @@ describe('the capability catalog', () => {
   });
 
   it('gives formula examples whose actual results match the guidance', () => {
-    const text = renderConsult(buildCatalog(), readPatterns());
+    const text = renderCatalog(buildCatalog(), readPatterns());
     const values = new Map<string, number | boolean>([
       ['price', 12.5],
       ['quantity', 3],
