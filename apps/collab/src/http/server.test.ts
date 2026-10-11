@@ -376,6 +376,23 @@ describe('the collaboration service HTTP surface', () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it.each([null, 42, '', 'not-a-uuid'])(
+    'refuses an invalid expected document identity before accessing Postgres: %s',
+    async (expectedDocId) => {
+      const app = track(server({ authorizer: { authorize: () => Promise.resolve(GRANTED) } }));
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/documents/${ITEM}/updates`,
+        headers: { authorization: 'Bearer valid' },
+        payload: { update: 'AAAA', clientId: 'client', expectedDocId },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'invalid_body' });
+    },
+  );
+
   it('refuses a cursor that is not a sequence', async () => {
     const app = track(server({ authorizer: { authorize: () => Promise.resolve(GRANTED) } }));
 

@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { StrictMode } from 'react';
 import { nixExtensions, nixSchema } from '@nix/editor-schema';
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
@@ -9,6 +10,7 @@ import * as Y from 'yjs';
 import { ItemBlockView, NoteSourcesProvider } from '../../editor/note-block-views';
 import { ReferenceResolutionProvider } from '../../editor/reference-resolution';
 import type { CollabSyncOptions } from '../../editor/collab-sync';
+import { openBodyCache, sealItemBodies } from '../../editor/body-cache';
 const harness = vi.hoisted(() => ({
   query: vi.fn(),
   start: vi.fn(),
@@ -16,6 +18,31 @@ const harness = vi.hoisted(() => ({
   flushAndWait: vi.fn(),
   select: vi.fn(),
   parentUpdate: vi.fn(),
+  cached: false,
+  emptyLocal: { account: { subject: 'offline-source-reader' }, notes: [] },
+  cachedLocal: {
+    account: { subject: 'offline-source-reader' },
+    notes: [
+      {
+        id: 'local-alias',
+        workspaceId: 'workspace',
+        parentId: null,
+        title: 'Downloaded source',
+        bodyAvailable: true,
+        canWrite: true,
+        blockedReason: null,
+        publication: {
+          kind: 'published',
+          serverId: '00000000-0000-4000-8000-000000000099',
+          docId: 'source-doc',
+        },
+      },
+    ],
+  },
+}));
+vi.mock('../../offline/offline-store', () => ({
+  subscribeOfflineNotes: () => () => undefined,
+  getOfflineSnapshot: () => (harness.cached ? harness.cachedLocal : harness.emptyLocal),
 }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => harness }));
 vi.mock('../../auth/auth-provider', () => ({
@@ -43,9 +70,11 @@ const extensions = nixExtensions.map((extension) =>
 function Harness({
   twice = false,
   presentation = 'embed',
+  offline = false,
 }: {
   readonly twice?: boolean;
   readonly presentation?: string;
+  readonly offline?: boolean;
 }) {
   const section = { ...embed, attrs: { ...embed.attrs, presentation } };
   const editor = useEditor({
@@ -54,8 +83,13 @@ function Harness({
     content: { type: 'doc', content: twice ? [section, section] : [section] },
   });
   return (
-    <NoteSourcesProvider>
-      <ReferenceResolutionProvider>
+    <NoteSourcesProvider
+      offline={offline}
+      localScope={
+        offline ? { subject: 'offline-source-reader', workspaceId: 'workspace' } : undefined
+      }
+    >
+      <ReferenceResolutionProvider offline={offline}>
         <EditorContent editor={editor} />
       </ReferenceResolutionProvider>
     </NoteSourcesProvider>
@@ -63,6 +97,7 @@ function Harness({
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  harness.cached = false;
   harness.flushAndWait.mockResolvedValue(undefined);
   harness.query.mockResolvedValue({
     references: [
@@ -87,9 +122,59 @@ beforeEach(() => {
     );
     Y.applyUpdate(options.doc, Y.encodeStateAsUpdate(source));
     source.destroy();
-    options.onState('live');
+    options.onState(options.offline ? 'offline' : 'live');
+    if (options.offline) options.onLocalCopy?.();
     return { destroy: harness.destroy, flushAndWait: harness.flushAndWait };
   });
+});
+
+it('renders a downloaded embedded source read-only offline using its published cache scope', async () => {
+  const values = new Map<string, string>();
+  vi.stubGlobal('localStorage', {
+    get length() {
+      return values.size;
+    },
+    clear: () => {
+      values.clear();
+    },
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => [...values.keys()][index] ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  } satisfies Storage);
+  await openBodyCache('offline-source-reader');
+  harness.cached = true;
+  render(<Harness offline />);
+  const body = await screen.findByRole('textbox', { name: 'Embedded note content' });
+  expect(body).toHaveAttribute('contenteditable', 'false');
+  expect(screen.getByText('Offline preview. Open source to edit.')).toBeInTheDocument();
+  expect(harness.query).not.toHaveBeenCalled();
+  const options = harness.start.mock.calls[0]?.[0] as CollabSyncOptions;
+  expect(options.offline).toBe(true);
+  expect(options.cacheScope).toBe(
+    JSON.stringify(['offline-source-reader', 'workspace', target, 'note']),
+  );
+  expect(options.draftScope).toBe(options.cacheScope);
+  const open = screen.getAllByRole('button', { name: 'Open source' })[0];
+  if (open === undefined) throw new Error('Missing source navigation button.');
+  await userEvent.setup().click(open);
+  expect(harness.select).toHaveBeenCalledWith(target);
+  await act(async () => {
+    await sealItemBodies('offline-source-reader', 'workspace', target);
+  });
+  expect(screen.queryByRole('textbox', { name: 'Embedded note content' })).not.toBeInTheDocument();
+  expect(screen.getByText('This source note is no longer available offline.')).toBeInTheDocument();
+});
+
+it('does not open a source connection when an embedded note was not downloaded', () => {
+  render(<Harness offline />);
+  expect(screen.queryByRole('textbox', { name: 'Embedded note content' })).not.toBeInTheDocument();
+  expect(harness.start).not.toHaveBeenCalled();
+  expect(harness.query).not.toHaveBeenCalled();
 });
 afterEach(() => {
   cleanup();

@@ -102,6 +102,7 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
         await M0SchemaSeed.SeedBothTenantsAsync(_fixture);
         await M0SchemaSeed.SeedItemLocksAsync(_fixture);
         await M0SchemaSeed.SeedContentVersionsAsync(_fixture);
+        await M0SchemaSeed.SeedItemCreationReceiptsAsync(_fixture);
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;

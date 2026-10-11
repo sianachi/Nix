@@ -16,6 +16,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import * as Y from 'yjs';
 import { updateYFragment, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
@@ -37,14 +38,19 @@ const FRAGMENT = 'default';
  */
 const COLLAB_TIMEOUT_MS = 30_000;
 
-/** Collab returns at most this many updates a page; the reader pages until it has them all. */
-interface UpdatesPage {
-  readonly docId: string;
-  readonly headSeq: number;
-  readonly schemaVersion: number;
-  readonly updates: readonly { readonly seq: number; readonly update: string }[];
-  readonly hasMore: boolean;
-}
+const sequenceSchema = z
+  .union([z.string().regex(/^\d+$/u), z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)])
+  .transform((value) => BigInt(value));
+const updateSchema = z.object({ seq: sequenceSchema, update: z.string() });
+const updatesPageSchema = z.object({
+  docId: z.string().min(1),
+  headSeq: sequenceSchema,
+  schemaVersion: z.number().int().nonnegative(),
+  updates: z.array(updateSchema),
+  hasMore: z.boolean(),
+  checkpoint: updateSchema.optional(),
+});
+type UpdatesPage = z.infer<typeof updatesPageSchema>;
 
 export interface BodyRead {
   readonly markdown: string;
@@ -67,30 +73,19 @@ export async function readBodyMarkdown(input: {
   readonly fetchImpl?: FetchImpl;
 }): Promise<BodyRead> {
   const fetchImpl = input.fetchImpl ?? globalThis.fetch;
-  const doc = new Y.Doc();
-  let after = 0;
-  let schemaVersion = 0;
-  let sawAny = false;
-
-  for (;;) {
-    const page = await fetchUpdates(fetchImpl, input.collabUrl, input.itemId, input.token, after);
-    schemaVersion = page.schemaVersion;
-    for (const entry of page.updates) {
-      Y.applyUpdate(doc, base64ToBytes(entry.update));
-      after = entry.seq;
-      sawAny = true;
-    }
-    if (!page.hasMore || page.updates.length === 0) {
-      break;
-    }
-  }
+  const { doc, schemaVersion, empty } = await catchUpBody(
+    fetchImpl,
+    input.collabUrl,
+    input.itemId,
+    input.token,
+  );
 
   const json: unknown = yXmlFragmentToProseMirrorRootNode(
     doc.getXmlFragment(FRAGMENT),
     nixSchema,
   ).toJSON();
   const { markdown, losses } = documentToMarkdown(json);
-  return { markdown, schemaVersion, losses, empty: !sawAny };
+  return { markdown, schemaVersion, losses, empty };
 }
 
 export interface BodyWrite {
@@ -136,20 +131,10 @@ export async function writeBodyMarkdown(input: {
 
   // Catch up first, so the delta is computed against the note as it stands and Yjs can merge it
   // with whatever else has happened rather than clobbering it.
-  const doc = new Y.Doc();
-  if (input.assumeEmpty !== true) {
-    let after = 0;
-    for (;;) {
-      const page = await fetchUpdates(fetchImpl, input.collabUrl, input.itemId, input.token, after);
-      for (const entry of page.updates) {
-        Y.applyUpdate(doc, base64ToBytes(entry.update));
-        after = entry.seq;
-      }
-      if (!page.hasMore || page.updates.length === 0) {
-        break;
-      }
-    }
-  }
+  const { doc, docId } =
+    input.assumeEmpty === true
+      ? { doc: new Y.Doc(), docId: undefined }
+      : await catchUpBody(fetchImpl, input.collabUrl, input.itemId, input.token);
 
   const before = Y.encodeStateVector(doc);
   const node = nixSchema.nodeFromJSON(parsed.doc);
@@ -164,7 +149,11 @@ export async function writeBodyMarkdown(input: {
   const response = await fetchImpl(`${input.collabUrl}/documents/${input.itemId}/updates`, {
     method: 'POST',
     headers: { authorization: `Bearer ${input.token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ update: bytesToBase64(delta), clientId: `nixctl-${randomUUID()}` }),
+    body: JSON.stringify({
+      update: bytesToBase64(delta),
+      clientId: `nixctl-${randomUUID()}`,
+      expectedDocId: docId,
+    }),
     signal: AbortSignal.timeout(COLLAB_TIMEOUT_MS),
   });
 
@@ -185,7 +174,7 @@ async function fetchUpdates(
   collabUrl: string,
   itemId: string,
   token: string,
-  after: number,
+  after: bigint,
 ): Promise<UpdatesPage> {
   const response = await fetchImpl(
     `${collabUrl}/documents/${itemId}/updates?after=${String(after)}`,
@@ -197,7 +186,54 @@ async function fetchUpdates(
   if (!response.ok) {
     throw await collabError(response);
   }
-  return (await response.json()) as UpdatesPage;
+  return updatesPageSchema.parse(await response.json());
+}
+
+async function catchUpBody(
+  fetchImpl: FetchImpl,
+  collabUrl: string,
+  itemId: string,
+  token: string,
+): Promise<{ doc: Y.Doc; docId: string; schemaVersion: number; empty: boolean }> {
+  const doc = new Y.Doc();
+  let after = 0n;
+  let schemaVersion = 0;
+  let empty = true;
+  let docId: string | undefined;
+  for (;;) {
+    const page = await fetchUpdates(fetchImpl, collabUrl, itemId, token, after);
+    if (docId !== undefined && docId !== page.docId) {
+      throw new Error(
+        'The note body changed during this read. Retry against its current document.',
+      );
+    }
+    docId = page.docId;
+    schemaVersion = page.schemaVersion;
+    if (after === 0n && page.checkpoint !== undefined) {
+      Y.applyUpdate(doc, base64ToBytes(page.checkpoint.update));
+      after = page.checkpoint.seq;
+      empty = after === 0n;
+    }
+    const previous = after;
+    for (const entry of page.updates) {
+      if (entry.seq <= after) continue;
+      if (entry.seq !== after + 1n) {
+        throw new Error('The note needs a retained checkpoint to continue. Retry this read.');
+      }
+      Y.applyUpdate(doc, base64ToBytes(entry.update));
+      after = entry.seq;
+      empty = false;
+    }
+    if (!page.hasMore || page.updates.length === 0) {
+      if (after < page.headSeq) {
+        throw new Error('The note needs a retained checkpoint to continue. Retry this read.');
+      }
+      return { doc, docId, schemaVersion, empty };
+    }
+    if (after === previous && page.checkpoint === undefined) {
+      throw new Error('The note body catch-up did not advance.');
+    }
+  }
 }
 
 function base64ToBytes(value: string): Uint8Array {

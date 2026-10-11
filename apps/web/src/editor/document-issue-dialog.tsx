@@ -25,6 +25,7 @@ export function DocumentIssueDialog({
   error = null,
   paused = false,
   reloadRequired = false,
+  offline = false,
 }: {
   readonly state: SyncState;
   readonly draftState?: DraftState | undefined;
@@ -34,6 +35,7 @@ export function DocumentIssueDialog({
   readonly error?: string | null;
   readonly paused?: boolean;
   readonly reloadRequired?: boolean;
+  readonly offline?: boolean;
 }): ReactNode {
   const id = useId();
   const snapshot = useSyncExternalStore(
@@ -61,7 +63,7 @@ export function DocumentIssueDialog({
     const connection: DocumentIssue | null | undefined =
       state === 'connecting'
         ? undefined
-        : stale || state === 'live'
+        : stale || state === 'live' || (offline && draftState !== 'error')
           ? null
           : {
               key: state === 'readonly' ? 'read-only' : 'connection',
@@ -75,7 +77,7 @@ export function DocumentIssueDialog({
                       : 'Nix lost its connection. Recent edits have not been confirmed by the server. Keep this tab open; Nix will reconnect automatically.',
             };
     updateDocumentIssues(id, issues, connection, paused);
-  }, [id, state, draftState, noun, stale, refusal, error, paused, reloadRequired]);
+  }, [id, state, draftState, noun, stale, refusal, error, paused, reloadRequired, offline]);
   useEffect(
     () => () => {
       removeDocumentIssues(id);

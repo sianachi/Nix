@@ -87,6 +87,8 @@ export interface CreateItemInput {
   readonly type: string;
   readonly title: string;
   readonly parentId?: string | null | undefined;
+  /** Stable UUID reused with the identical input until an offline creation is confirmed. */
+  readonly idempotencyKey?: string | undefined;
 
   /**
    * Property values to store with the item, checked against the schema in force where it lands.
@@ -111,6 +113,7 @@ export const createItem = (workspaceId: string, input: CreateItemInput): Command
       title: input.title,
       parentId: input.parentId ?? null,
       properties: input.properties ?? null,
+      ...(input.idempotencyKey === undefined ? {} : { idempotencyKey: input.idempotencyKey }),
     } satisfies CreateItemRequestContract,
     invalidates: [workspaceTreeKey(workspaceId)],
   });

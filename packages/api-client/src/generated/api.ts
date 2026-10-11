@@ -466,7 +466,7 @@ export interface paths {
     put?: never;
     /**
      * Create an item
-     * @description Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller, and with 'items.children_protected' (409) when the parent refuses new children.
+     * @description Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller, and with 'items.children_protected' (409) when the parent refuses new children. An optional UUID 'idempotencyKey' safely retries the same creation; reusing it with different input returns 'items.idempotency_conflict' (409).
      */
     post: operations['CreateItem'];
     delete?: never;
@@ -3035,6 +3035,8 @@ export interface components {
       /** Format: uuid */
       parentId: null | string;
       properties: null | components['schemas']['JsonObject'];
+      /** Format: uuid */
+      idempotencyKey?: null | string;
     };
     CreateStructuredItemRequest: {
       type: string;
@@ -6420,6 +6422,15 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ItemResponse'];
+        };
+      };
+      /** @description Bad Request */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
       /** @description Not Found */

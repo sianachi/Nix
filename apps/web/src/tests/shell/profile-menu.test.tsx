@@ -1,12 +1,18 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { CurrentPrincipalState } from '../../session/use-current-principal';
 import { ProfileMenu } from '../../shell/profile-menu';
+import { useSessionStore } from '../../auth/session-store';
+import * as bodies from '../../editor/body-cache';
+import * as collaboration from '../../editor/collab-sync';
+import * as drafts from '../../editor/draft-journal';
+import * as offline from '../../offline/offline-store';
 
 const WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
+const profile = { subject: 'menu-person', name: 'Ada Person', email: 'ada@example.test' };
 
 const auth = vi.hoisted(() => ({
   accountUrl: null as string | null,
@@ -52,6 +58,24 @@ async function openMenu(): Promise<void> {
 
 beforeEach(() => {
   auth.accountUrl = null;
+  auth.signOut.mockReset().mockResolvedValue(undefined);
+  useSessionStore.setState({ status: 'authenticated', profile, error: null });
+  vi.spyOn(bodies, 'bodyCacheAccountEpoch').mockReturnValue('menu-epoch');
+  vi.spyOn(collaboration, 'flushLocalDraftsForAccount').mockResolvedValue(undefined);
+  vi.spyOn(drafts, 'listDraftScopes').mockResolvedValue([]);
+  vi.spyOn(offline, 'readOfflineAccount').mockReturnValue(profile);
+  vi.spyOn(offline, 'loadOfflineNotes').mockResolvedValue(undefined);
+  vi.spyOn(offline, 'getOfflineSnapshot').mockReturnValue({
+    account: profile,
+    notes: [],
+    workspaces: [],
+    status: 'ready',
+    completed: 0,
+    total: 0,
+    pending: 0,
+    error: null,
+    lastSyncedAt: null,
+  });
 });
 
 describe('ProfileMenu', () => {
@@ -94,5 +118,125 @@ describe('ProfileMenu', () => {
     );
     expect(screen.getByRole('link', { name: 'Settings' })).not.toHaveAttribute('target');
     expect(screen.queryByRole('link', { name: /Password and security/ })).toBeNull();
+  });
+
+  it('blocks editing while saving and confirms journaled changes before removing them', async () => {
+    let finishSave: (() => void) | undefined;
+    vi.mocked(collaboration.flushLocalDraftsForAccount).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishSave = resolve;
+      }),
+    );
+    vi.mocked(drafts.listDraftScopes).mockResolvedValue(['pending-scope']);
+    await openMenu();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(screen.getByRole('dialog', { name: 'Checking saved edits' })).toBeVisible();
+    await user.keyboard('{Escape}');
+    expect(screen.getByRole('dialog', { name: 'Checking saved edits' })).toBeVisible();
+    expect(drafts.listDraftScopes).not.toHaveBeenCalled();
+    expect(auth.signOut).not.toHaveBeenCalled();
+    await act(() => {
+      finishSave?.();
+      return Promise.resolve();
+    });
+    expect(
+      await screen.findByRole('dialog', { name: 'Sign out with pending changes?' }),
+    ).toBeVisible();
+    expect(collaboration.flushLocalDraftsForAccount).toHaveBeenCalledWith(profile.subject);
+    await user.click(screen.getByRole('button', { name: 'Sign out and remove local notes' }));
+    expect(auth.signOut).toHaveBeenCalledOnce();
+  });
+
+  it.each(['local save', 'pending inventory', 'note metadata inventory'])(
+    'keeps the current session when %s fails',
+    async (failure) => {
+      if (failure === 'local save')
+        vi.mocked(collaboration.flushLocalDraftsForAccount).mockRejectedValue(
+          new Error('Local save failed.'),
+        );
+      else if (failure === 'pending inventory')
+        vi.mocked(drafts.listDraftScopes).mockRejectedValue(new Error('Pending inventory failed.'));
+      else
+        vi.mocked(offline.loadOfflineNotes).mockRejectedValue(new Error('Note inventory failed.'));
+      await openMenu();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('failed.');
+      expect(auth.signOut).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      expect(useSessionStore.getState().profile).toEqual(profile);
+    },
+  );
+
+  it.each(['another account', 'a fresh session for the same account'])(
+    'cancels a pending save check when %s starts',
+    async (changed) => {
+      let finishSave: (() => void) | undefined;
+      vi.mocked(collaboration.flushLocalDraftsForAccount).mockReturnValue(
+        new Promise<void>((resolve) => {
+          finishSave = resolve;
+        }),
+      );
+      await openMenu();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+      expect(screen.getByRole('dialog', { name: 'Checking saved edits' })).toBeVisible();
+      vi.mocked(bodies.bodyCacheAccountEpoch).mockReturnValue('replacement-epoch');
+      if (changed === 'another account')
+        useSessionStore.setState({ profile: { ...profile, subject: 'another-person' } });
+      await act(() => {
+        finishSave?.();
+        return Promise.resolve();
+      });
+      expect(await screen.findByRole('alert')).toHaveTextContent('account changed');
+      expect(drafts.listDraftScopes).not.toHaveBeenCalled();
+      expect(auth.signOut).not.toHaveBeenCalled();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(['another account', 'a fresh session for the same account'])(
+    'rejects a confirmation from the old session after %s starts',
+    async (changed) => {
+      vi.mocked(drafts.listDraftScopes).mockResolvedValue(['pending-scope']);
+      await openMenu();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }));
+      expect(
+        await screen.findByRole('dialog', { name: 'Sign out with pending changes?' }),
+      ).toBeVisible();
+      vi.mocked(bodies.bodyCacheAccountEpoch).mockReturnValue('replacement-epoch');
+      if (changed === 'another account')
+        useSessionStore.setState({ profile: { ...profile, subject: 'another-person' } });
+      await userEvent
+        .setup()
+        .click(screen.getByRole('button', { name: 'Sign out and remove local notes' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('account changed');
+      expect(auth.signOut).not.toHaveBeenCalled();
+    },
+  );
+
+  it('lets an online account with unavailable offline storage deliberately sign out', async () => {
+    vi.mocked(offline.readOfflineAccount).mockReturnValue(null);
+    await openMenu();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Sign out and remove local notes?' }),
+    ).toBeVisible();
+    expect(offline.loadOfflineNotes).not.toHaveBeenCalled();
+    expect(auth.signOut).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Sign out and remove local notes' }));
+    expect(auth.signOut).toHaveBeenCalledOnce();
+  });
+
+  it('confirms device-wide removal even when this tab found no pending edits', async () => {
+    await openMenu();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Sign out and remove local notes?' }),
+    ).toHaveTextContent('including changes in other tabs');
+    expect(auth.signOut).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Sign out and remove local notes' }));
+    expect(auth.signOut).toHaveBeenCalledOnce();
   });
 });

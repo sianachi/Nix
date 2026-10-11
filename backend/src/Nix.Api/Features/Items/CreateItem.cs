@@ -34,6 +34,9 @@ public sealed record CreateItem(
     ItemId? ParentId,
     JsonObject? Properties) : ICommand<Item>
 {
+    /// <summary>Optional per-principal request identity, independent of the server-minted item ID.</summary>
+    public Guid? IdempotencyKey { get; init; }
+
     /// <summary>Internal capability for validated finance feature dispatches; never request-bound.</summary>
     internal bool FinanceWrite { get; init; }
 
@@ -145,6 +148,11 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
         var context = _session.Current
             ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
 
+        if (command.IdempotencyKey == Guid.Empty)
+        {
+            return Result.Failure<Item>(new NixError("items.invalid_idempotency_key", "A non-empty request UUID is required."));
+        }
+
         if (_topology is not null)
         {
             await _topology.AcquireWorkspaceTopologyAsync(workspaceId, cancellationToken).ConfigureAwait(false);
@@ -159,6 +167,33 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
             // costs an attacker the ability to map the tenant by watching which refusal comes back.
             return Result.Failure<Item>(
                 ItemErrors.WorkspaceNotFound($"No workspace {workspaceId} is visible."));
+        }
+
+        string? creationRequest = null;
+        if (command.IdempotencyKey is { } requestKey)
+        {
+            creationRequest = new JsonObject
+            {
+                ["workspaceId"] = workspaceId.Value,
+                ["parentId"] = parentId?.Value,
+                ["type"] = type,
+                ["title"] = title,
+                ["properties"] = properties?.DeepClone(),
+            }.ToJsonString();
+            var receipt = await _tree.GetCreationReceiptAsync(requestKey, creationRequest, cancellationToken).ConfigureAwait(false);
+            if (receipt is not null)
+            {
+                if (!receipt.MatchesRequest)
+                {
+                    return Result.Failure<Item>(new NixError("items.idempotency_conflict", "This request UUID belongs to a different creation."));
+                }
+
+                var created = await _tree.FindAsync(receipt.ItemId, cancellationToken).ConfigureAwait(false);
+                return created is not null
+                    && await _permissions.CanWriteWorkspaceAsync(created.WorkspaceId, cancellationToken).ConfigureAwait(false)
+                    ? Result.Success(created)
+                    : Result.Failure<Item>(ItemErrors.NotFound("The previously created item is no longer available."));
+            }
         }
 
         if (parentId is { } parent)
@@ -229,6 +264,10 @@ public sealed class CreateItemHandler : ICommandHandler<CreateItem, Item>
         };
 
         await _tree.InsertAsync(item, cancellationToken).ConfigureAwait(false);
+        if (command.IdempotencyKey is { } key)
+        {
+            await _tree.RecordCreationReceiptAsync(key, creationRequest!, item.Id, cancellationToken).ConfigureAwait(false);
+        }
         return Result.Success(item);
     }
 }
@@ -262,14 +301,20 @@ internal static class CreateItemEndpoint
                     request.Type,
                     request.Title,
                     request.ParentId is { } parent ? ItemId.From(parent) : null,
-                    request.Properties),
+                    request.Properties)
+                { IdempotencyKey = request.IdempotencyKey },
                 httpContext.RequestAborted)
             .ConfigureAwait(false);
 
-        return result.Match<Results<Created<ItemResponse>, ProblemHttpResult>>(
-            // A new item is a leaf by construction - nothing can have been parented to it between
-            // the insert and this line - so this is provable rather than worth a query.
-            item => TypedResults.Created($"/api/v1/items/{item.Id}", ItemMapping.ToResponse(item, false)),
-            error => TypedResults.Problem(ItemEndpoints.Problem(httpContext, error)));
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(ItemEndpoints.Problem(httpContext, result.Error));
+        }
+
+        var item = result.Value;
+        var response = request.IdempotencyKey is null
+            ? ItemMapping.ToResponse(item, false)
+            : await ItemMapping.RespondAsync(item, dispatcher, httpContext.RequestAborted).ConfigureAwait(false);
+        return TypedResults.Created($"/api/v1/items/{item.Id}", response);
     }
 }

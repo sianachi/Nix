@@ -77,6 +77,7 @@ interface Harness {
   readonly sockets: FakeSocket[];
   readonly sync: CollabSync;
   readonly tokens: string[];
+  readonly tokenRefreshes: boolean[];
   latest(): FakeSocket;
 }
 
@@ -85,13 +86,15 @@ function harness(): Harness {
   const states: SyncState[] = [];
   const sockets: FakeSocket[] = [];
   const tokens: string[] = [];
+  const tokenRefreshes: boolean[] = [];
   const notices: string[] = [];
 
   const sync = startCollabSync({
     itemId: 'item-1',
     doc,
     fragmentName: 'default',
-    getAccessToken: () => {
+    getAccessToken: (forceRefresh = false) => {
+      tokenRefreshes.push(forceRefresh);
       const token = `token-${String(tokens.length)}`;
       tokens.push(token);
       return Promise.resolve(token);
@@ -117,6 +120,7 @@ function harness(): Harness {
     sockets,
     sync,
     tokens,
+    tokenRefreshes,
     notices,
     latest: () => {
       const socket = sockets[sockets.length - 1];
@@ -129,8 +133,7 @@ function harness(): Harness {
 }
 
 async function settled(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 12; index += 1) await Promise.resolve();
 }
 
 function ready(socket: FakeSocket, mode: 'write' | 'read' = 'write'): void {
@@ -173,6 +176,23 @@ describe('the websocket provider', () => {
     const first = socket.sent[0];
     expect(typeof first).toBe('string');
     expect(JSON.parse(first as string)).toMatchObject({ type: 'auth', token: 'token-0' });
+  });
+
+  it('forces verified token renewal after an unauthenticated socket close', async () => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    expect(h.tokenRefreshes).toEqual([false]);
+    h.latest().open();
+    h.latest().drop(4401);
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(h.tokenRefreshes).toEqual([false, true]);
+    h.latest().open();
+    ready(h.latest());
+    h.latest().drop(1006);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(h.tokenRefreshes).toEqual([false, true, false]);
   });
 
   it('opens sync with step 1 once the server says ready, and reports live', async () => {
@@ -460,7 +480,7 @@ describe('the websocket provider', () => {
     socket.open();
     ready(socket);
     socket.drop(4403);
-    expect(h.states.at(-1)).toBe('offline');
+    expect(h.states.at(-1)).toBe('readonly');
     expect(h.notices).toEqual(['access_revoked']);
   });
 

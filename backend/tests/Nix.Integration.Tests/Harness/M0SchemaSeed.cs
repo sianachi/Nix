@@ -145,6 +145,22 @@ internal static class M0SchemaSeed
         }
     }
 
+    /// <summary>Seeds immutable creation receipts for the current-schema isolation tests.</summary>
+    /// <remarks>Separate from the base seed because upgrade tests also seed older schemas.</remarks>
+    public static async Task SeedItemCreationReceiptsAsync(NixPostgresFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+        await using var connection = await fixture.OpenMigratorConnectionAsync();
+        foreach (var rows in new[] { Alpha, Beta })
+        {
+            await RawSql.ExecuteAsync(connection, transaction: null, $"""
+                INSERT INTO item_creation_receipt (tenant_id, principal_id, request_key, request_hash, item_id)
+                VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, {Literal(rows.ItemId)},
+                    sha256(convert_to(jsonb_build_object()::text, 'UTF8')), {Literal(rows.ItemId)});
+                """);
+        }
+    }
+
     private static string InsertSqlFor(M0TenantRows rows)
     {
         // Insertion order follows the foreign keys: the tenant, then what hangs off it, then the

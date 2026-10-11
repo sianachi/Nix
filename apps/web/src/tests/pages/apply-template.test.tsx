@@ -1,25 +1,16 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
+import { memoryStorage } from '../views/suggest/suggest-fixtures';
 
 beforeEach(() => {
   signedIn();
 
-  Object.defineProperty(globalThis.window, 'localStorage', {
-    configurable: true,
-    value: {
-      getItem: () => null,
-      setItem: () => undefined,
-      removeItem: () => undefined,
-      clear: () => undefined,
-      key: () => null,
-      length: 0,
-    },
-  });
+  vi.stubGlobal('localStorage', memoryStorage());
 });
 
 const PARENT = item({

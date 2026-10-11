@@ -208,6 +208,164 @@ describe.runIf(DB_TESTS_ENABLED)('the document lifecycle, against Postgres', () 
     );
   });
 
+  it('returns a retained checkpoint and its live tail after covered updates are pruned', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const url = `${harness.url.replace('ws://', 'http://')}/documents/${TENANTS.alpha.itemId}/updates`;
+    const authored = new Y.Doc();
+    typeParagraph(authored, 'Retained checkpoint.');
+    const checkpoint = Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64');
+    const written = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({ update: checkpoint, clientId: 'checkpoint-writer' }),
+    });
+    expect(written.status).toBe(202);
+    await verifyPool.query(
+      `DELETE FROM content_update WHERE tenant_id = $1 AND doc_id IN (SELECT doc_id FROM content_doc WHERE tenant_id = $1 AND item_id = $2)`,
+      [TENANTS.alpha.tenantId, TENANTS.alpha.itemId],
+    );
+
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+    typeParagraph(alice.doc, 'Live tail.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) === 1,
+      'the tail to become durable',
+    );
+    const response = await fetch(url, { headers: { authorization: 'Bearer anyone' } });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      checkpoint: { seq: '1', update: checkpoint },
+      headSeq: '2',
+      canWrite: true,
+      updates: [{ seq: '2' }],
+    });
+    const tail = await fetch(`${url}?after=1`, { headers: { authorization: 'Bearer anyone' } });
+    expect(tail.status).toBe(200);
+    expect(await tail.json()).toMatchObject({ headSeq: '2', updates: [{ seq: '2' }] });
+  });
+
+  it('starts an opted-in HTTP download after its checkpoint while preserving the legacy page', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const url = `${harness.url.replace('ws://', 'http://')}/documents/${TENANTS.alpha.itemId}/updates`;
+    const authored = new Y.Doc();
+    typeParagraph(authored, 'Checkpoint with its covered update retained.');
+    const checkpoint = Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64');
+    const written = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({ update: checkpoint, clientId: 'checkpoint-writer' }),
+    });
+    expect(written.status).toBe(202);
+
+    const alice = open(harness.url, TENANTS.alpha.itemId);
+    await alice.ready;
+    typeParagraph(alice.doc, 'Live tail.');
+    await until(
+      async () => (await countUpdates(verifyPool, TENANTS.alpha)) === 2,
+      'the uncovered tail to become durable',
+    );
+
+    const legacy = await fetch(url, { headers: { authorization: 'Bearer anyone' } });
+    expect(legacy.status).toBe(200);
+    expect(await legacy.json()).toMatchObject({
+      checkpoint: { seq: '1', update: checkpoint },
+      headSeq: '2',
+      canWrite: true,
+      updates: [{ seq: '1' }, { seq: '2' }],
+      hasMore: false,
+    });
+
+    const download = await fetch(`${url}?after=0&fromCheckpoint=true`, {
+      headers: { authorization: 'Bearer as-reader' },
+    });
+    expect(download.status).toBe(200);
+    expect(await download.json()).toMatchObject({
+      checkpoint: { seq: '1', update: checkpoint },
+      headSeq: '2',
+      canWrite: false,
+      updates: [{ seq: '2' }],
+      hasMore: false,
+    });
+
+    const next = await fetch(`${url}?after=1&fromCheckpoint=true`, {
+      headers: { authorization: 'Bearer anyone' },
+    });
+    expect(next.status).toBe(200);
+    const nextPage: unknown = await next.json();
+    expect(nextPage).toMatchObject({ headSeq: '2', canWrite: true, updates: [{ seq: '2' }] });
+    expect(nextPage).not.toHaveProperty('checkpoint');
+  });
+
+  it('refuses queued HTTP edits for a replaced body without changing its durable bytes', async () => {
+    const harness = track(await startLiveServer(TENANTS.alpha));
+    const url = `${harness.url.replace('ws://', 'http://')}/documents/${TENANTS.alpha.itemId}/updates`;
+    const authored = new Y.Doc();
+    typeParagraph(authored, 'Original body.');
+    const original = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        update: Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64'),
+        clientId: 'original-writer',
+      }),
+    });
+    expect(original.status).toBe(202);
+    const opened = await fetch(url, { headers: { authorization: 'Bearer anyone' } });
+    expect(opened.status).toBe(200);
+    const oldBody = (await opened.json()) as { docId: string };
+
+    await verifyPool.query('DELETE FROM content_doc WHERE tenant_id = $1 AND item_id = $2', [
+      TENANTS.alpha.tenantId,
+      TENANTS.alpha.itemId,
+    ]);
+    const replacement = new Y.Doc();
+    typeParagraph(replacement, 'Replacement body.');
+    const replaced = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        update: Buffer.from(Y.encodeStateAsUpdate(replacement)).toString('base64'),
+        clientId: 'replacement-writer',
+      }),
+    });
+    expect(replaced.status).toBe(202);
+    const before = await fetch(url, { headers: { authorization: 'Bearer anyone' } });
+    expect(before.status).toBe(200);
+    const beforeBody = (await before.json()) as { docId: string };
+    expect(beforeBody.docId).not.toBe(oldBody.docId);
+
+    typeParagraph(authored, 'Pending offline edits.');
+    const refused = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        update: Buffer.from(Y.encodeStateAsUpdate(authored)).toString('base64'),
+        clientId: 'offline-writer',
+        expectedDocId: oldBody.docId,
+      }),
+    });
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ code: 'document_changed' });
+    expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(1);
+    const after = await fetch(url, { headers: { authorization: 'Bearer anyone' } });
+    expect(after.status).toBe(200);
+    expect(await after.json()).toEqual(beforeBody);
+
+    typeParagraph(replacement, 'Edits for the replacement.');
+    const accepted = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer anyone', 'content-type': 'application/json' },
+      body: JSON.stringify({
+        update: Buffer.from(Y.encodeStateAsUpdate(replacement)).toString('base64'),
+        clientId: 'replacement-writer',
+        expectedDocId: beforeBody.docId.toUpperCase(),
+      }),
+    });
+    expect(accepted.status).toBe(202);
+    expect(await countUpdates(verifyPool, TENANTS.alpha)).toBe(2);
+  });
+
   it('keeps a write another process logged while the document was resident', async () => {
     // The resident session holds the document in memory and snapshots that memory. A write that
     // reaches the log by any other route - another instance, or a REST request racing a load -
