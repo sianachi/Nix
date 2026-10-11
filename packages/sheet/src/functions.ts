@@ -10,7 +10,7 @@ import { type CellValue, isSheetError, sheetError, toBoolean, toNumber, toText }
  * Range semantics follow the incumbents: aggregates skip text and booleans
  * inside ranges but coerce direct scalar arguments; errors always propagate.
  * AND and OR are eager (as in Excel, which does not short-circuit them);
- * only IF is lazy, and it lives in the evaluator for that reason.
+ * IF and IFERROR are lazy and live in the evaluator.
  */
 
 export type SheetFunction = (args: readonly Argument[], ctx: EvaluationContext) => CellValue;
@@ -136,12 +136,84 @@ function finite(value: number): CellValue {
   return Number.isFinite(value) ? value : sheetError('#VALUE!');
 }
 
+/** Argument counts shared by evaluation and formula-authoring diagnostics. Null means variadic. */
+export const FORMULA_FUNCTION_ARITIES: ReadonlyMap<string, readonly [number, number | null]> =
+  new Map<string, readonly [number, number | null]>([
+    ...['SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'AND', 'OR', 'CONCATENATE'].map(
+      (name): [string, readonly [number, null]] => [name, [0, null]],
+    ),
+    ...['NOT', 'ABS', 'INT', 'SQRT', 'LEN', 'TRIM', 'UPPER', 'LOWER', 'ISBLANK', 'VALUE'].map(
+      (name): [string, readonly [number, number]] => [name, [1, 1]],
+    ),
+    ...['MOD', 'POWER', 'CONTAINS', 'DAYS', 'IFERROR'].map(
+      (name): [string, readonly [number, number]] => [name, [2, 2]],
+    ),
+    ...['ROUND', 'ROUNDUP', 'ROUNDDOWN', 'LEFT', 'RIGHT'].map(
+      (name): [string, readonly [number, number]] => [name, [1, 2]],
+    ),
+    ['MID', [3, 3]],
+    ['IF', [1, 3]],
+  ]);
+
+/** A Gregorian ISO day as a day number, without a clock or timezone. */
+function isoDay(value: CellValue): number | null {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
+    return null;
+  }
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthLengths = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const daysInMonth = monthLengths[month - 1];
+  if (year < 1 || daysInMonth === undefined || day < 1 || day > daysInMonth) {
+    return null;
+  }
+  const previousYear = year - 1;
+  let result =
+    365 * previousYear +
+    Math.floor(previousYear / 4) -
+    Math.floor(previousYear / 100) +
+    Math.floor(previousYear / 400) +
+    day;
+  for (let index = 0; index < month - 1; index += 1) {
+    result += monthLengths[index] ?? 0;
+  }
+  return result;
+}
+
 export const SHEET_FUNCTIONS: ReadonlyMap<string, SheetFunction> = new Map<string, SheetFunction>([
+  [
+    'ISBLANK',
+    (args) => {
+      const value = scalarOnly(args[0]);
+      return isSheetError(value) ? value : value === null || value === '';
+    },
+  ],
+  ['VALUE', (args) => numberArg(args[0])],
+  [
+    'CONTAINS',
+    (args) => {
+      const text = textArg(args[0]);
+      const needle = textArg(args[1]);
+      if (typeof text !== 'string') return text;
+      if (typeof needle !== 'string') return needle;
+      return text.toLowerCase().includes(needle.toLowerCase());
+    },
+  ],
+  [
+    'DAYS',
+    (args) => {
+      const end = isoDay(scalarOnly(args[0]));
+      const start = isoDay(scalarOnly(args[1]));
+      return end === null || start === null ? sheetError('#VALUE!') : end - start;
+    },
+  ],
   [
     'SUM',
     (args, ctx) => {
       const folded = foldNumbers(args, ctx);
-      return folded.ok ? folded.sum : folded.error;
+      return folded.ok ? finite(folded.sum) : folded.error;
     },
   ],
   [
