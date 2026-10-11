@@ -337,7 +337,7 @@ function handleConnection(
     // whose credential no longer exists.
     const expiry = current.authorization.tokenExpiresAt;
     if (expiry !== null && expiry <= Date.now()) {
-      close(CLOSE_CODES.revoked, 'The session token has expired. Reconnect.');
+      close(CLOSE_CODES.unauthenticated, 'The session token has expired. Reconnect.');
       return;
     }
 
@@ -349,11 +349,13 @@ function handleConnection(
     }
 
     if (!rechecked.ok) {
-      if (rechecked.reason === 'locked') {
+      if (rechecked.reason === 'unauthenticated') {
+        close(CLOSE_CODES.unauthenticated, 'The token could not be validated. Reconnect.');
+      } else if (rechecked.reason === 'locked') {
         close(CLOSE_CODES.bodyLocked, 'This document was locked. Unlock it to keep editing.');
       } else if (rechecked.reason === 'unavailable') {
         // Still closed - nothing outlives a permission that could not be confirmed - but not as
-        // revoked. A client told "revoked" discards its cached body and its unsaved drafts; one
+        // revoked. A client told "revoked" seals its cached body; one
         // told the server is unavailable keeps them and reconnects.
         close(CLOSE_CODES.unavailable, 'Access could not be confirmed. Reconnect shortly.');
       } else {

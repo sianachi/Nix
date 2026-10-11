@@ -17,7 +17,9 @@ const APP_ROUTE_PREFIXES = ['/w/', '/workspaces/', '/launch/'];
 
 function isAppNavigation(url) {
   return (
-    url.pathname === '/' || APP_ROUTE_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))
+    url.pathname === '/' ||
+    url.pathname === '/offline' ||
+    APP_ROUTE_PREFIXES.some((prefix) => url.pathname.startsWith(prefix))
   );
 }
 

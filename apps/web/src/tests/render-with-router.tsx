@@ -3,6 +3,10 @@ import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router';
 
 import { useSessionStore } from '../auth/session-store';
+import { bodyCacheAccountEpoch, openBodyCache } from '../editor/body-cache';
+import { browserStorage } from '../lib/browser-storage';
+import { vi } from 'vitest';
+import { memoryStorage } from './views/suggest/suggest-fixtures';
 import { stubHealthyCollaboration } from './healthy-collaboration';
 
 /**
@@ -18,7 +22,10 @@ export function renderAt(
   url = '/',
   { collaboration = 'healthy' }: { readonly collaboration?: 'healthy' | 'provided' } = {},
 ): RenderResult {
-  if (collaboration === 'healthy') stubHealthyCollaboration();
+  if (collaboration === 'healthy') {
+    void prepareHealthyAdmission();
+    stubHealthyCollaboration();
+  }
   // A query naming workspace resources is already a workspace-scoped deep link. Older behavior
   // tests predate routed workspaces and spell that link as `/?item=...`; resolve that shorthand
   // here so those tests exercise the resource route instead of the deliberately lossy legacy
@@ -27,6 +34,28 @@ export function renderAt(
     ? `/w/00000000-0000-4000-8000-000000000001${url.slice(1)}`
     : url;
   return render(<MemoryRouter initialEntries={[resolvedUrl]}>{ui}</MemoryRouter>);
+}
+
+/** Models the cache admission skipped by signedIn, bounded to this fixture lifecycle. */
+export function prepareHealthyAdmission(): Promise<void> {
+  const session = useSessionStore.getState();
+  const profile = session.profile;
+  if (session.status !== 'authenticated' || profile === null) return Promise.resolve();
+  if (browserStorage() === undefined) vi.stubGlobal('localStorage', memoryStorage());
+  const storage = browserStorage();
+  const opening = openBodyCache(profile.subject, { reauthorized: true });
+  const epoch = bodyCacheAccountEpoch(profile.subject);
+  return opening.catch((error: unknown) => {
+    const current = useSessionStore.getState();
+    if (
+      current.status !== 'authenticated' ||
+      current.profile !== profile ||
+      browserStorage() !== storage ||
+      bodyCacheAccountEpoch(profile.subject) !== epoch
+    )
+      return;
+    throw error;
+  });
 }
 
 /**

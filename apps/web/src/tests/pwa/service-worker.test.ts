@@ -136,6 +136,7 @@ describe('PWA caching boundaries', () => {
       '/forms/private-link',
       // The object store serves capability URLs from this origin under a deployment-chosen path.
       '/nix-files/5b8f0c9e-object',
+      '/offline/signed-file',
     ]) {
       expect(navigate(runtime, path)).toBeUndefined();
     }
@@ -145,6 +146,19 @@ describe('PWA caching boundaries', () => {
     const runtime = worker({ cached: { '/index.html': new Response('installed shell') } });
     for (const path of ['/', '/w/workspace?item=x', '/workspaces/archived', '/launch/new']) {
       expect(await (await navigate(runtime, path))?.text()).toBe('installed shell');
+    }
+    expect(runtime.fetch).not.toHaveBeenCalled();
+  });
+
+  it('cold-launches the exact offline notes route and selection from the cached shell', async () => {
+    const runtime = worker({ cached: { '/index.html': new Response('installed shell') } });
+    for (const path of [
+      '/offline',
+      '/offline?workspace=&item=',
+      '/offline?workspace=workspace-id&item=note-id',
+    ]) {
+      const response = await navigate(runtime, path);
+      expect(await response?.text()).toBe('installed shell');
     }
     expect(runtime.fetch).not.toHaveBeenCalled();
   });

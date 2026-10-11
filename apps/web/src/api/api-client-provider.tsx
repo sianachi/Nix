@@ -1,7 +1,9 @@
-import { createNixClient, type NixClient } from '@nix/api-client';
-import { createContext, use, useState, type ReactNode } from 'react';
+import { createNixClient, NixApiError, type NixClient } from '@nix/api-client';
+import { createContext, use, useMemo, type ReactNode } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
+import { useSessionStore } from '../auth/session-store';
+import { bodyCacheAccountEpoch } from '../editor/body-cache';
 
 const ApiClientContext = createContext<NixClient | null>(null);
 
@@ -26,17 +28,51 @@ export function useOptionalApiClient(): NixClient | null {
 }
 
 export function ApiClientProvider({ children }: { readonly children: ReactNode }): ReactNode {
-  const { getAccessToken } = useAuth();
-  const [client] = useState(() =>
-    createNixClient({
-      baseUrl: globalThis.location.origin,
-      tokens: {
-        getAccessToken,
-        // Core renews only its own short-lived bearer token from the HttpOnly browser session;
-        // provider tokens never enter this client or JavaScript at all.
-        refreshAccessToken: getAccessToken,
-      },
-    }),
+  const { getAccessToken, handleSessionRefusal } = useAuth();
+  const subject = useSessionStore((state) => state.profile?.subject);
+  const client = useMemo(
+    () =>
+      createNixClient({
+        baseUrl: globalThis.location.origin,
+        tokens: {
+          getAccessToken: async () => {
+            const token = await getAccessToken();
+            if (
+              subject !== undefined &&
+              (token === null || useSessionStore.getState().profile?.subject !== subject)
+            )
+              throw NixApiError.network(new Error('The browser session is unavailable.'));
+            return token;
+          },
+          // Core renews only its own short-lived bearer token from the HttpOnly browser session;
+          // provider tokens never enter this client or JavaScript at all.
+          refreshAccessToken: async () => {
+            const profile = useSessionStore.getState().profile;
+            const epoch = subject === undefined ? null : bodyCacheAccountEpoch(subject);
+            const token = await getAccessToken(true);
+            const session = useSessionStore.getState();
+            if (
+              subject !== undefined &&
+              (session.profile?.subject !== subject ||
+                bodyCacheAccountEpoch(subject) !== epoch ||
+                (token === null &&
+                  (session.profile !== profile || session.status !== 'authenticated')))
+            )
+              throw NixApiError.network(new Error('The browser session is unavailable.'));
+            return token;
+          },
+        },
+        telemetry: {
+          onRequestError: (event) => {
+            if (
+              subject !== undefined &&
+              (event.status === 401 || event.code === 'auth.principal_inactive')
+            )
+              handleSessionRefusal(subject);
+          },
+        },
+      }),
+    [getAccessToken, handleSessionRefusal, subject],
   );
 
   return <ApiClientContext value={client}>{children}</ApiClientContext>;

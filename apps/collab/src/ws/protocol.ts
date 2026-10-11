@@ -46,9 +46,9 @@ export function encodePersisted(barrierId: string): Uint8Array {
  * restarting", which is exactly what draining is to a client.
  */
 export const CLOSE_CODES = {
-  /** No auth frame in time, or a token that did not validate. */
+  /** No auth frame in time, or a token that expired or did not validate. */
   unauthenticated: 4401,
-  /** Authorization was revoked, or the token expired, while the socket was open. */
+  /** Authorization was revoked while the socket was open. */
   revoked: 4403,
   /** No such item, or not one the caller may see. The uniform non-answer. */
   notFound: 4404,

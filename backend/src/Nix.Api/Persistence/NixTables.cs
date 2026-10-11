@@ -64,6 +64,9 @@ public static class NixTables
     /// <summary>The universal object.</summary>
     public const string Item = "item";
 
+    /// <summary>Immutable creation keys retained through item deletion for safe retries.</summary>
+    public const string ItemCreationReceipt = "item_creation_receipt";
+
     /// <summary>Derived ancestor-descendant edges of the item tree.</summary>
     public const string ItemClosure = "item_closure";
 
@@ -204,6 +207,7 @@ public static class NixTables
         WorkspaceMember,
         WorkspaceInvitation,
         Item,
+        ItemCreationReceipt,
         ItemClosure,
         AclEntry,
         AuditEvent,
@@ -322,6 +326,7 @@ public static class NixTables
             [WorkspaceMember] = FullDml,
             [WorkspaceInvitation] = RevocableHistory,
             [Item] = FullDml,
+            [ItemCreationReceipt] = ImmutableRegistration,
 
             // A bookmark is personal state the application both reads and writes on the reader's
             // behalf: keeping one is the whole feature, and there is no other service that owns it.

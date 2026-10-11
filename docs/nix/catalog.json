@@ -26,6 +26,13 @@
       "bytes": 1025210,
       "itemCount": 119,
       "rootId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9"
+    },
+    {
+      "path": "docs/nix/nix-offline-notes-decision.nix",
+      "sha256": "fcf64d3a0101b6fb54577961fbff14786dfcfbb5dd0ecd7cb7407a6cf5ec75d2",
+      "bytes": 4201,
+      "itemCount": 1,
+      "rootId": "b7f57ba9-9ced-4ed6-8a9c-e7d8cbec6220"
     }
   ],
   "pages": [
@@ -1134,6 +1141,26 @@
         "source_paths": "backend/src/Nix.Api/Features\nbackend/openapi/nix-api.json"
       },
       "localProofItemId": "01a12247-5982-73ab-bd73-7771797101c6"
+    },
+    {
+      "slug": "adr-0062-offline-notes",
+      "title": "ADR-0062: Offline notes in the installed web app",
+      "itemId": "b7f57ba9-9ced-4ed6-8a9c-e7d8cbec6220",
+      "archive": "docs/nix/nix-offline-notes-decision.nix",
+      "sources": [
+        "apps/web/src/offline",
+        "apps/web/src/auth/auth-provider.tsx",
+        "apps/web/src/editor/body-cache.ts",
+        "apps/web/src/editor/draft-journal.ts",
+        "apps/web/src/editor/collab-sync.ts",
+        "backend/src/Nix.Api/Features/Items/CreateItem.cs"
+      ],
+      "words": 1007,
+      "properties": {
+        "category": "Architecture decision",
+        "decision_status": "Accepted",
+        "recorded_status": "Accepted by the owner, 2026-10-11; implementation and release evidence are separate."
+      }
     }
   ],
   "documents": [

@@ -19,6 +19,7 @@ const config: StorybookConfig = {
     '../../../apps/web/src/shell/zen-exit.stories.tsx',
     '../../../apps/web/src/editor/*.stories.tsx',
     '../../../apps/web/src/items/*.stories.tsx',
+    '../../../apps/web/src/offline/*.stories.tsx',
     '../../../apps/web/src/graph/*.stories.tsx',
     '../../../apps/web/src/plugins/*.stories.tsx',
     '../../../apps/web/src/pages/*.stories.tsx',

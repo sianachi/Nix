@@ -1923,7 +1923,7 @@
           "Items"
         ],
         "summary": "Create an item",
-        "description": "Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller, and with 'items.children_protected' (409) when the parent refuses new children.",
+        "description": "Creates an item under 'parentId', or at the workspace root when it is null. Fails with 'items.parent_not_found' when the parent does not exist or is not visible to the caller, and with 'items.children_protected' (409) when the parent refuses new children. An optional UUID 'idempotencyKey' safely retries the same creation; reusing it with different input returns 'items.idempotency_conflict' (409).",
         "operationId": "CreateItem",
         "parameters": [
           {
@@ -1953,6 +1953,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ItemResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -12051,6 +12061,13 @@
                 "$ref": "#/components/schemas/JsonObject"
               }
             ]
+          },
+          "idempotencyKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

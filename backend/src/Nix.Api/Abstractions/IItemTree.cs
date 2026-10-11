@@ -29,6 +29,16 @@ namespace Nix.Abstractions;
 /// </remarks>
 public interface IItemTree
 {
+    /// <summary>Locks a scoped creation key and reads its immutable receipt, if already committed.</summary>
+    public ValueTask<ItemCreationReceipt?> GetCreationReceiptAsync(
+        Guid key, string request, CancellationToken cancellationToken) =>
+        ValueTask.FromException<ItemCreationReceipt?>(new NotSupportedException("This item tree does not implement creation receipts."));
+
+    /// <summary>Records a creation in the same transaction as its item; survives item deletion.</summary>
+    public ValueTask RecordCreationReceiptAsync(
+        Guid key, string request, ItemId itemId, CancellationToken cancellationToken) =>
+        ValueTask.FromException(new NotSupportedException("This item tree does not implement creation receipts."));
+
     /// <summary>Finds one item.</summary>
     /// <param name="id">The item.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
@@ -301,3 +311,6 @@ public interface IItemTree
         DateTimeOffset at,
         CancellationToken cancellationToken);
 }
+
+/// <summary>A committed creation and whether its immutable request matches the retry.</summary>
+public sealed record ItemCreationReceipt(ItemId ItemId, bool MatchesRequest);

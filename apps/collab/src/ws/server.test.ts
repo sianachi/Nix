@@ -2,7 +2,7 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 
 import * as decoding from 'lib0/decoding';
 import { WebSocket } from 'ws';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Authorizer, ItemAuthorization } from '../auth/authorize.ts';
 import type { TokenValidator } from '../auth/token.ts';
@@ -163,6 +163,7 @@ afterEach(async () => {
         }),
     ),
   );
+  vi.restoreAllMocks();
 });
 
 describe('the websocket handshake', () => {
@@ -356,10 +357,98 @@ describe('the websocket handshake', () => {
     });
   });
 
-  it('closes a live socket whose authorization was revoked, within the re-check bound', async () => {
-    let granted = true;
+  it('closes an expired token with 4401 and reauthorizes a fresh-token reconnect through Core', async () => {
+    let now = Date.now();
+    vi.spyOn(Date, 'now').mockImplementation(() => now);
+    const expiresAt = now + 60_000;
+    let canWrite = true;
+    const asked: { token: string; itemId: string }[] = [];
     const { url } = await listen({
-      authorizer: { authorize: () => Promise.resolve(granted ? GRANTED : null) },
+      tokens: {
+        validate: (token) =>
+          Promise.resolve({
+            subject: 'someone',
+            expiresAt: token === 'expiring-token' ? expiresAt : expiresAt + 60_000,
+          }),
+      },
+      authorizer: {
+        authorize: (token, itemId) => {
+          asked.push({ token, itemId });
+          return Promise.resolve({ ...GRANTED, canWrite });
+        },
+      },
+      cacheTtlMs: 60_000,
+      reauthMs: 25,
+    });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('expiring-token'));
+    });
+    const ready = JSON.parse((await nextMessage(socket)).data.toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(ready).toMatchObject({ type: 'ready', mode: 'write' });
+
+    const expired = closedWith(socket);
+    now = expiresAt;
+    expect(await expired).toBe(4401);
+
+    canWrite = false;
+    const reconnect = connect(url);
+    reconnect.on('open', () => {
+      reconnect.send(authFrame('fresh-token'));
+    });
+    const freshReady = JSON.parse((await nextMessage(reconnect)).data.toString('utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(freshReady).toMatchObject({ type: 'ready', mode: 'read' });
+    expect(reconnect.readyState).toBe(WebSocket.OPEN);
+    expect(asked).toEqual([
+      { token: 'expiring-token', itemId: ITEM },
+      { token: 'fresh-token', itemId: ITEM },
+    ]);
+  });
+
+  it('closes with 4401 when token validation fails before its recorded expiry', async () => {
+    const expiresAt = Date.now() + 60_000;
+    let valid = true;
+    let asked = 0;
+    const { url } = await listen({
+      tokens: {
+        validate: () => Promise.resolve(valid ? { subject: 'someone', expiresAt } : null),
+      },
+      authorizer: {
+        authorize: () => {
+          asked += 1;
+          return Promise.resolve(GRANTED);
+        },
+      },
+      reauthMs: 25,
+    });
+    const socket = connect(url);
+    socket.on('open', () => {
+      socket.send(authFrame('invalidated-token'));
+    });
+    await nextMessage(socket);
+
+    const invalidated = closedWith(socket);
+    valid = false;
+    expect(await invalidated).toBe(4401);
+    expect(asked).toBe(1);
+  });
+
+  it('closes a live socket whose authorization was revoked with 4403, within the re-check bound', async () => {
+    let granted = true;
+    let asked = 0;
+    const { url } = await listen({
+      authorizer: {
+        authorize: () => {
+          asked += 1;
+          return Promise.resolve(granted ? GRANTED : null);
+        },
+      },
       reauthMs: 25,
     });
     const socket = connect(url);
@@ -370,7 +459,8 @@ describe('the websocket handshake', () => {
 
     granted = false;
 
-    expect(await closedWith(socket)).toBe(CLOSE_CODES.revoked);
+    expect(await closedWith(socket)).toBe(4403);
+    expect(asked).toBeGreaterThanOrEqual(2);
   });
 
   it('closes a live socket when the item moves, even if the actor can access both workspaces', async () => {

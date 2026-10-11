@@ -1,18 +1,22 @@
 import 'fake-indexeddb/auto';
+import * as Y from 'yjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   clearBodyCache,
+  bodyCacheAdmits,
+  bodyCacheAccountAdmits,
+  bodyCacheFenceVersion,
   discardBodyCache,
   documentScope,
   listBodyCacheScopes,
   onBodyForgetting,
   type BodyForgetting,
-  MAX_AGE_MS,
-  MAX_RECORDS,
   openBodyCache,
   pruneBodyCache,
   sealItemBodies,
+  sealBodyCache,
+  reopenRefusedItemBodies,
   readBodyCache,
   writeBodyCache,
   type BodyCacheRecord,
@@ -35,7 +39,7 @@ function record(forScope: string, savedAt = Date.now(), bytes = 4): BodyCacheRec
     docId: `doc-${forScope}`,
     schemaVersion: 1,
     savedAt,
-    update: new Uint8Array(bytes),
+    update: bytes === 4 ? Y.encodeStateAsUpdate(new Y.Doc()) : new Uint8Array(bytes),
   };
 }
 
@@ -74,27 +78,51 @@ describe('the document body store', () => {
     expect(await readBodyCache(scope(ADA, 'b'))).toBeNull();
   });
 
-  it('keeps at most its bound, evicting the least recently saved first', async () => {
+  it('merges same-document snapshots so an older background writer cannot erase confirmed edits', async () => {
+    const doc = new Y.Doc();
+    doc.getText('body').insert(0, 'Base');
+    const older = Y.encodeStateAsUpdate(doc);
+    doc.getText('body').insert(4, ' newer edit');
+    const forScope = scope(ADA, 'concurrent');
+    await writeBodyCache({
+      ...record(forScope),
+      docId: 'same-doc',
+      update: Y.encodeStateAsUpdate(doc),
+    });
+    await writeBodyCache({ ...record(forScope), docId: 'same-doc', update: older });
+    const saved = await readBodyCache(forScope);
+    const reopened = new Y.Doc();
+    if (saved !== null) Y.applyUpdate(reopened, saved.update);
+    expect(reopened.getText('body').toJSON()).toBe('Base newer edit');
+    doc.destroy();
+    reopened.destroy();
+  });
+
+  it('keeps the whole downloaded corpus beyond the former 200-note bound', async () => {
     const now = Date.now();
-    for (let index = 0; index <= MAX_RECORDS; index += 1) {
-      await writeBodyCache(record(scope(ADA, `item-${String(index)}`), now - MAX_RECORDS + index));
+    for (let index = 0; index <= 250; index += 1) {
+      await writeBodyCache(record(scope(ADA, `item-${String(index)}`), now - 250 + index));
     }
 
-    expect(await readBodyCache(scope(ADA, 'item-0'))).toBeNull();
+    expect(await readBodyCache(scope(ADA, 'item-0'))).not.toBeNull();
     expect(await readBodyCache(scope(ADA, 'item-1'))).not.toBeNull();
-    expect(await readBodyCache(scope(ADA, `item-${String(MAX_RECORDS)}`))).not.toBeNull();
+    expect(await readBodyCache(scope(ADA, 'item-250'))).not.toBeNull();
   });
 
   it('refuses a body larger than the per-document limit', async () => {
-    await writeBodyCache(record(scope(ADA, 'huge'), Date.now(), 8 * 1024 * 1024 + 1));
+    await expect(
+      writeBodyCache(record(scope(ADA, 'huge'), Date.now(), 8 * 1024 * 1024 + 1)),
+    ).rejects.toThrow('offline storage limit');
 
     expect(await readBodyCache(scope(ADA, 'huge'))).toBeNull();
   });
 
-  it('does not hand back a copy older than the age limit', async () => {
-    await writeBodyCache(record(scope(ADA, 'old'), Date.now() - MAX_AGE_MS - 1));
+  it('keeps offline copies until an explicit access or account lifecycle change', async () => {
+    await writeBodyCache(record(scope(ADA, 'old'), Date.now() - 90 * 24 * 60 * 60 * 1000));
 
-    expect(await readBodyCache(scope(ADA, 'old'))).toBeNull();
+    expect(await readBodyCache(scope(ADA, 'old'))).not.toBeNull();
+    await pruneBodyCache(ADA, ['workspace-1']);
+    expect(await readBodyCache(scope(ADA, 'old'))).not.toBeNull();
   });
 
   it('is closed after sign-out: nothing to read, and a late write is refused', async () => {
@@ -167,6 +195,91 @@ describe('the document body store', () => {
     expect(await readBodyCache(neighbour)).not.toBeNull();
   });
 
+  it('shares a known refusal with another module realm and keeps it closed after reload', async () => {
+    const refused = scope(ADA, 'refused-shared');
+    await writeBodyCache(record(refused));
+    await sealBodyCache(refused);
+    vi.resetModules();
+    const anotherTab = await import('../../editor/body-cache');
+
+    expect(anotherTab.bodyCacheAdmits(refused)).toBe(false);
+    await anotherTab.writeBodyCache(record(refused));
+    expect(await anotherTab.readBodyCache(refused)).toBeNull();
+    await anotherTab.openBodyCache(ADA);
+    expect(anotherTab.bodyCacheAdmits(refused)).toBe(false);
+  });
+
+  it('keeps ordinary replacement discards recacheable', async () => {
+    const replaced = scope(ADA, 'replaceable');
+    await writeBodyCache(record(replaced));
+    await discardBodyCache(replaced);
+    await writeBodyCache({ ...record(replaced), docId: 'replacement' });
+
+    expect(bodyCacheAdmits(replaced)).toBe(true);
+    expect((await readBodyCache(replaced))?.docId).toBe('replacement');
+  });
+
+  it('closes all cache admission if shared refusal storage is full', async () => {
+    const storage = localStorage;
+    vi.spyOn(storage, 'setItem').mockImplementation(() => {
+      throw new Error('Quota exceeded');
+    });
+
+    await sealBodyCache(scope(ADA, 'quota-refusal'));
+
+    expect(bodyCacheAdmits(scope(ADA, 'quota-refusal'))).toBe(false);
+    expect(bodyCacheAdmits(scope(ADA, 'another-item'))).toBe(false);
+    expect(bodyCacheAccountAdmits(ADA)).toBe(true);
+  });
+
+  it('fails closed without throwing when shared fence storage cannot be read', () => {
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('Storage is blocked');
+    });
+
+    expect(bodyCacheFenceVersion(scope(ADA, 'blocked-storage'))).toBe('storage-unavailable');
+    expect(bodyCacheAdmits(scope(ADA, 'blocked-storage'))).toBe(false);
+  });
+
+  it('retains an older installation’s draft owner when quota closes cache admission', async () => {
+    localStorage.removeItem('nix.draft.owner');
+    const storage = localStorage;
+    const setItem = storage.setItem.bind(storage);
+    vi.spyOn(storage, 'setItem').mockImplementation((key, value) => {
+      if (
+        key.startsWith('nix.body-cache.sealed-item.') ||
+        (key === 'nix.draft.owner' && storage.getItem('nix.body-cache.subject') !== null)
+      )
+        throw new Error('Quota exceeded');
+      setItem(key, value);
+    });
+    await expect(openBodyCache(ADA)).rejects.toThrow('Quota exceeded');
+    await sealBodyCache(scope(ADA, 'upgrade-quota'));
+
+    expect(bodyCacheAdmits(scope(ADA, 'upgrade-quota'))).toBe(false);
+    expect(bodyCacheAccountAdmits(ADA)).toBe(true);
+    await openBodyCache(ADA);
+    expect(bodyCacheAdmits(scope(ADA, 'another-item'))).toBe(false);
+  });
+
+  it('reopens only a refused item after trusted authorization and preserves its fence generation', async () => {
+    const refused = scope(ADA, 'reauthorized');
+    const locked = scope(ADA, 'still-locked');
+    const beforeRefusal = bodyCacheFenceVersion(refused);
+    await sealBodyCache(refused);
+    await sealBodyCache(locked, 'locked');
+    reopenRefusedItemBodies(ADA, 'workspace-1', 'reauthorized');
+    reopenRefusedItemBodies(ADA, 'workspace-1', 'still-locked');
+
+    expect(bodyCacheAdmits(refused)).toBe(true);
+    expect(bodyCacheFenceVersion(refused)).not.toBe(beforeRefusal);
+    expect(bodyCacheAdmits(locked)).toBe(false);
+    await writeBodyCache(record(refused), () => bodyCacheFenceVersion(refused) === beforeRefusal);
+    expect(await readBodyCache(refused)).toBeNull();
+    await writeBodyCache(record(refused));
+    expect(await readBodyCache(refused)).not.toBeNull();
+  });
+
   it('stays closed where the browser offers no storage to record whose it is', async () => {
     vi.stubGlobal('localStorage', undefined);
     await openBodyCache(ADA);
@@ -215,5 +328,21 @@ describe('what derived holders are told', () => {
     await clearBodyCache();
 
     expect(heard).toEqual(['scope', 'item', 'unreachable', 'everything']);
+  });
+
+  it('notifies derived holders when another tab seals an item', () => {
+    const item = JSON.stringify([ADA, 'workspace-1', 'other-tab-refusal']);
+    const key = `nix.body-cache.sealed-item.${item}`;
+    localStorage.setItem(key, '1');
+    const heard: BodyForgetting[] = [];
+    const stop = onBodyForgetting((forgetting) => {
+      heard.push(forgetting);
+    });
+
+    window.dispatchEvent(new StorageEvent('storage', { key, newValue: '1' }));
+
+    expect(heard).toEqual([{ kind: 'item', prefix: `${item.slice(0, -1)},`, sealed: true }]);
+    expect(bodyCacheAdmits(scope(ADA, 'other-tab-refusal'))).toBe(false);
+    stop();
   });
 });

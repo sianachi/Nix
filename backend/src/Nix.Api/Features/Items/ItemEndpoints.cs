@@ -103,8 +103,10 @@ internal static class ItemEndpoints
                 "Creates an item under 'parentId', or at the workspace root when it is null. "
                 + "Fails with 'items.parent_not_found' when the parent does not exist or is not "
                 + "visible to the caller, and with 'items.children_protected' (409) when the "
-                + "parent refuses new children.")
+                + "parent refuses new children. An optional UUID 'idempotencyKey' safely retries "
+                + "the same creation; reusing it with different input returns 'items.idempotency_conflict' (409).")
             .Produces<ItemResponse>(StatusCodes.Status201Created)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict)
             .ProducesProblem(StatusCodes.Status501NotImplemented)
@@ -219,8 +221,9 @@ internal static class ItemEndpoints
         {
             CycleCode or LifecycleConflictCode or SiblingNotInDestinationCode
                 or DeleteProtectedCode or ChildrenProtectedCode or ProtectionManagedCode or ReadOnlyCode
-                or "items.transfer_conflict" =>
+                or "items.transfer_conflict" or "items.idempotency_conflict" =>
                 StatusCodes.Status409Conflict,
+            "items.invalid_idempotency_key" => StatusCodes.Status400BadRequest,
             LockedCode => StatusCodes.Status423Locked,
             _ => StatusCodes.Status404NotFound,
         };
