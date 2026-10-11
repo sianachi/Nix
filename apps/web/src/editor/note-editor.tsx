@@ -24,6 +24,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -43,6 +44,7 @@ import { ItemInsertDialog, type ItemInsertKind } from './item-insert-dialog';
 import { Button } from '@nix/ui';
 import { ColumnControls } from './column-controls';
 import { useSessionStore } from '../auth/session-store';
+import { OfflineNoteAssetsProvider } from '../offline/offline-assets';
 import { BubbleMenu } from './bubble-menu';
 import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
@@ -108,6 +110,9 @@ import { WritingModeControl } from './writing-mode-control';
 
 export interface NoteEditorProps {
   readonly itemId: string;
+  readonly offline?: boolean;
+  readonly localScope?: { readonly subject: string; readonly workspaceId: string };
+  readonly localCanWrite?: boolean;
   readonly mobileActions?: ReactNode;
   /** The details panel's toggle, docked with the writing tools on a phone. */
   readonly mobileDetails?: MobileNoteDetails | undefined;
@@ -454,12 +459,17 @@ export function NoteEditor({
   cacheBody = false,
   hideToolbar = false,
   parentId,
+  offline = false,
+  localScope,
+  localCanWrite = true,
 }: NoteEditorProps): ReactNode {
   const narrow = useDrawerNavigation();
   const { getAccessToken } = useAuth();
   const client = useApiClient();
-  const { workspaceId } = useParams<{ workspaceId: string }>();
+  const { workspaceId: routeWorkspaceId } = useParams<{ workspaceId: string }>();
+  const workspaceId = localScope?.workspaceId ?? routeWorkspaceId;
   const profile = useSessionStore((state) => state.profile);
+  const subject = localScope?.subject ?? profile?.subject;
   const [draftState, setDraftState] = useState<DraftState | undefined>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
   const [readOnly, setReadOnly] = useState(false);
@@ -471,6 +481,8 @@ export function NoteEditor({
   // it did not stick.
   const [refusal, setRefusal] = useState<string | null>(null);
   const [noticeCode, setNoticeCode] = useState<string | null>(null);
+  const bodyUnavailable =
+    noticeCode === 'body_access_unavailable' || noticeCode === 'access_revoked';
   // A stale local copy must remain read-only until the current version is loaded.
   const [stale, setStale] = useState(false);
   const [dropActive, setDropActive] = useState(false);
@@ -659,100 +671,97 @@ export function NoteEditor({
   const hasFilePayload = (event: ReactDragEvent): boolean =>
     event.dataTransfer.types.includes('Files') || event.dataTransfer.files.length > 0;
 
-  const editor = useEditor(
-    {
-      extensions: [
-        ...styledExtensions,
+  const editor = useEditor({
+    extensions: [
+      ...styledExtensions,
 
-        // Editing behaviour, added here rather than in the schema package: the collaboration
-        // service builds the same schema in Node and has no use for a gap cursor.
-        Gapcursor,
-        Dropcursor,
-        // The platform history keys must reach the same client-local Yjs history as the toolbar.
-        // ProseMirror history is intentionally not installed in a collaborative document.
-        CollaborationHistoryKeymap,
-        // A live browser-local preference. The extension stays installed so changing the preset
-        // never rebuilds this editor or its Yjs binding.
-        EmacsKeymap,
-        VimMotions,
-        WritingModeKeymap,
-        // Phrase suggestions as muted text at the caret; a decoration, never document content.
-        // Told what it needs (the preference, the scope) by an effect below, through its storage,
-        // so changing the preference never rebuilds this editor or its Yjs binding.
-        GhostText,
-        // Item titles written but not linked, underlined; decorations again, told what they need
-        // by an effect below.
-        UnlinkedMentions,
-        // Mod-Shift-ArrowUp/Down: the keyboard's way to reorder a block, beside the pointer-only
-        // drag handle below.
-        MoveBlock,
-        // Lets the drag handle select and move a whole block as a node range rather than a text
-        // span - without it, grabbing a block would drag whatever text selection happened to
-        // exist. The handle itself is the <DragHandle> component below, which registers its own
-        // plugin against this editor.
-        NodeRange,
+      // Editing behaviour, added here rather than in the schema package: the collaboration
+      // service builds the same schema in Node and has no use for a gap cursor.
+      Gapcursor,
+      Dropcursor,
+      // The platform history keys must reach the same client-local Yjs history as the toolbar.
+      // ProseMirror history is intentionally not installed in a collaborative document.
+      CollaborationHistoryKeymap,
+      // A live browser-local preference. The extension stays installed so changing the preset
+      // never rebuilds this editor or its Yjs binding.
+      EmacsKeymap,
+      VimMotions,
+      WritingModeKeymap,
+      // Phrase suggestions as muted text at the caret; a decoration, never document content.
+      // Told what it needs (the preference, the scope) by an effect below, through its storage,
+      // so changing the preference never rebuilds this editor or its Yjs binding.
+      GhostText,
+      // Item titles written but not linked, underlined; decorations again, told what they need
+      // by an effect below.
+      UnlinkedMentions,
+      // Mod-Shift-ArrowUp/Down: the keyboard's way to reorder a block, beside the pointer-only
+      // drag handle below.
+      MoveBlock,
+      // Lets the drag handle select and move a whole block as a node range rather than a text
+      // span - without it, grabbing a block would drag whatever text selection happened to
+      // exist. The handle itself is the <DragHandle> component below, which registers its own
+      // plugin against this editor.
+      NodeRange,
 
-        // What columns need from a browser: the names a screen reader hears, the resize
-        // handles, the drop targeting, and the keys that give every gesture a keyboard. The
-        // commands and the repair came in through `styledExtensions` above.
-        ColumnControls,
+      // What columns need from a browser: the names a screen reader hears, the resize
+      // handles, the drop targeting, and the keys that give every gesture a keyboard. The
+      // commands and the repair came in through `styledExtensions` above.
+      ColumnControls,
 
-        // Where you are in a table, drawn: the current row, column and cell get a wash so the
-        // table menu's "delete row" is a thing a person can see the target of.
-        TableControls,
-        // "Narrower"/"Wider"/"Reset" in the table menu and the compact toolbar's table group -
-        // the same `colwidth` change the resize handle makes, run without a drag.
-        ColumnWidthControls,
-      ],
+      // Where you are in a table, drawn: the current row, column and cell get a wash so the
+      // table menu's "delete row" is a thing a person can see the target of.
+      TableControls,
+      // "Narrower"/"Wider"/"Reset" in the table menu and the compact toolbar's table group -
+      // the same `colwidth` change the resize handle makes, run without a drag.
+      ColumnWidthControls,
+    ],
 
-      // No `content`: the Yjs document is the source of truth, and seeding content here would
-      // insert it again on every client that opened the note.
-      onTransaction: ({ transaction }) => {
-        if (insertionRef.current !== null)
-          insertionRef.current = transaction.mapping.map(insertionRef.current);
+    // No `content`: the Yjs document is the source of truth, and seeding content here would
+    // insert it again on every client that opened the note.
+    onTransaction: ({ transaction }) => {
+      if (insertionRef.current !== null)
+        insertionRef.current = transaction.mapping.map(insertionRef.current);
+    },
+    editorProps: {
+      handlePaste: (view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
+        if (files.length === 0) return false;
+        void uploadDroppedFiles(view, files, view.state.selection.from);
+        return true;
       },
-      editorProps: {
-        handlePaste: (view, event) => {
-          const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile);
-          if (files.length === 0) return false;
-          void uploadDroppedFiles(view, files, view.state.selection.from);
-          return true;
-        },
-        // A transcript's timestamp is a link to its recording at a moment (see
-        // `lib/audio-timestamp-link.ts`). Links here do not open on a plain click, but this one
-        // has an answer that is not navigation: play the recording from that line.
-        handleClick: (view, position, event) => {
-          if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return false;
-          const link = view.state.doc
-            .resolve(position)
-            .marks()
-            .find((mark) => mark.type.name === 'link');
-          const href: unknown = link?.attrs.href;
-          const timestamp =
-            typeof href === 'string' ? parseAudioTimestamp(href, window.location.origin) : null;
-          if (timestamp === null) return false;
-          void playRecordingFrom(client, timestamp.itemId, timestamp.seconds).catch(() => {
-            announce('That recording could not be played.');
-          });
-          return true;
-        },
-        attributes: {
-          class: `${proseRoot} min-h-full outline-none`,
-          'data-writing-mode': writingMode,
-          'aria-label': 'Note body',
-          role: 'textbox',
-          'aria-multiline': 'true',
-        },
+      // A transcript's timestamp is a link to its recording at a moment (see
+      // `lib/audio-timestamp-link.ts`). Links here do not open on a plain click, but this one
+      // has an answer that is not navigation: play the recording from that line.
+      handleClick: (view, position, event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return false;
+        const link = view.state.doc
+          .resolve(position)
+          .marks()
+          .find((mark) => mark.type.name === 'link');
+        const href: unknown = link?.attrs.href;
+        const timestamp =
+          typeof href === 'string' ? parseAudioTimestamp(href, window.location.origin) : null;
+        if (timestamp === null) return false;
+        void playRecordingFrom(client, timestamp.itemId, timestamp.seconds).catch(() => {
+          announce('That recording could not be played.');
+        });
+        return true;
       },
-
-      onCreate: ({ editor: created }) => {
-        created.registerPlugin(ySyncPlugin(fragment) as Plugin);
-        created.registerPlugin(yCursorPlugin(awareness) as Plugin);
-        created.registerPlugin(yUndoPlugin() as Plugin);
+      attributes: {
+        class: `${proseRoot} min-h-full outline-none`,
+        'data-writing-mode': writingMode,
+        'aria-label': 'Note body',
+        role: 'textbox',
+        'aria-multiline': 'true',
       },
     },
-    [fragment, awareness, handleFileDrop],
-  );
+
+    onCreate: ({ editor: created }) => {
+      created.registerPlugin(ySyncPlugin(fragment) as Plugin);
+      created.registerPlugin(yCursorPlugin(awareness) as Plugin);
+      created.registerPlugin(yUndoPlugin() as Plugin);
+    },
+  });
 
   const pageGuides = usePageGuidePreference((state) => state.visibility);
   // State rather than a ref, so the overlay renders once the box exists rather than one render late.
@@ -769,9 +778,9 @@ export function NoteEditor({
   }, [editor, writingMode]);
 
   // The server's read-only mode and stale copies cannot save edits.
-  useEffect(() => {
-    editor.setEditable(!readOnly && !stale);
-  }, [editor, stale, readOnly]);
+  useLayoutEffect(() => {
+    editor.setEditable(localCanWrite && !readOnly && !stale);
+  }, [editor, stale, readOnly, localCanWrite]);
 
   // A daily note's template goes in once the server's copy is known to be empty.
   usePendingDailyTemplate({
@@ -779,7 +788,7 @@ export function NoteEditor({
     editor,
     fragment,
     synced,
-    writable: !readOnly && !stale,
+    writable: localCanWrite && !readOnly && !stale,
   });
 
   // The mention underlines' view of this note. The lookup goes through the client like every
@@ -807,30 +816,43 @@ export function NoteEditor({
   // The phrase suggestions' view of this note. `learnable` is the body cache's own permission:
   // only a body the page may keep a local copy of may be learned into the session library.
   useEffect(() => {
-    const scope = documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'note');
+    const scope = documentScope(subject, workspaceId, itemId, documentPath ?? 'note');
     setGhostTextContext(editor, {
       enabled: ghostSetting === 'on' && !stale,
-      subject: profile?.subject,
+      subject,
       workspaceId,
       scope,
       learnable: cacheBody && scope !== undefined,
     });
-    if (ghostSetting !== 'on' || profile?.subject === undefined || workspaceId === undefined) {
+    if (ghostSetting !== 'on' || subject === undefined || workspaceId === undefined) {
       return;
     }
     // On idle, learn the notes this browser already keeps copies of in this workspace.
     const controller = new AbortController();
-    warmPhraseLibrary(profile.subject, workspaceId, scope, controller.signal);
+    warmPhraseLibrary(subject, workspaceId, scope, controller.signal);
     return () => {
       controller.abort();
     };
-  }, [cacheBody, documentPath, editor, ghostSetting, itemId, profile?.subject, stale, workspaceId]);
+  }, [cacheBody, documentPath, editor, ghostSetting, itemId, subject, stale, workspaceId]);
 
   useEffect(() => {
-    setVimEnabled(editor.view, keyboardMode === 'vim');
-    describeEditorWith(editor.view.dom, vimDescriptionId, keyboardMode === 'vim');
+    let described: HTMLElement | null = null;
+    const applyMode = (): void => {
+      if (editor.isDestroyed) return;
+      const view = editor.view;
+      setVimEnabled(view, keyboardMode === 'vim');
+      if (described !== null && described !== view.dom)
+        describeEditorWith(described, vimDescriptionId, false);
+      described = view.dom;
+      describeEditorWith(described, vimDescriptionId, keyboardMode === 'vim');
+    };
+    editor.on('mount', applyMode);
+    editor.on('create', applyMode);
+    if (editor.isInitialized) applyMode();
     return () => {
-      describeEditorWith(editor.view.dom, vimDescriptionId, false);
+      editor.off('mount', applyMode);
+      editor.off('create', applyMode);
+      if (described !== null) describeEditorWith(described, vimDescriptionId, false);
     };
   }, [editor, keyboardMode, vimDescriptionId]);
 
@@ -919,9 +941,10 @@ export function NoteEditor({
   }, [doc, fragment]);
 
   useEffect(() => {
-    const scope = documentScope(profile?.subject, workspaceId, itemId, documentPath ?? 'note');
+    const scope = documentScope(subject, workspaceId, itemId, documentPath ?? 'note');
     const sync = startCollabSync({
       itemId,
+      offline,
       documentPath,
       cacheScope: cacheBody ? scope : undefined,
       ...(scope === undefined ? {} : { draftScope: scope, onDraftState: setDraftState }),
@@ -946,6 +969,14 @@ export function NoteEditor({
       onNotice: (notice) => {
         setNoticeCode(notice.code);
         if (notice.code === LOCAL_COPY_STALE) setStale(true);
+        if (
+          notice.code === 'offline_copy_unavailable' ||
+          notice.code === 'body_access_unavailable' ||
+          notice.code === 'access_revoked'
+        ) {
+          setReadOnly(true);
+          setRefusal(notice.detail);
+        }
         const copy = REFUSAL_COPY[notice.code];
         if (copy !== undefined) {
           setRefusal(copy);
@@ -966,7 +997,8 @@ export function NoteEditor({
     getAccessToken,
     itemId,
     onSync,
-    profile?.subject,
+    subject,
+    offline,
     workspaceId,
   ]);
 
@@ -996,7 +1028,7 @@ export function NoteEditor({
   }, [awareness, doc]);
 
   const formatting =
-    readOnly || stale ? null : (
+    !localCanWrite || readOnly || stale ? null : (
       <div className={narrow ? 'flex items-center justify-between' : 'shrink-0 px-8'}>
         <div
           className={
@@ -1048,102 +1080,112 @@ export function NoteEditor({
     // One resolver per open document. Every reference in the note asks it for its target, and it
     // sends one request for all of them - which is the difference between opening a note with
     // forty links and opening forty connections.
-    <NoteSourcesProvider>
-      <ReferenceResolutionProvider>
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            <Text id={vimDescriptionId} variant="note" className="sr-only">
-              Vim basics starts in Normal mode. Press i to insert text, Escape to return to Normal,
-              and v or V for Visual mode.
-            </Text>
-            {hideToolbar ? null : narrow ? (
-              <MobileNoteToolbar
-                editor={editor}
-                formatting={formatting}
-                actions={mobileActions}
-                details={mobileDetails}
-              />
-            ) : (
-              formatting
-            )}
+    <NoteSourcesProvider
+      offline={offline}
+      {...(subject !== undefined && workspaceId !== undefined
+        ? { localScope: { subject, workspaceId } }
+        : {})}
+    >
+      <ReferenceResolutionProvider offline={offline}>
+        <OfflineNoteAssetsProvider
+          offline={offline}
+          scope={documentScope(subject, workspaceId, itemId, documentPath ?? 'note')}
+        >
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <Text id={vimDescriptionId} variant="note" className="sr-only">
+                Vim basics starts in Normal mode. Press i to insert text, Escape to return to
+                Normal, and v or V for Visual mode.
+              </Text>
+              {hideToolbar ? null : narrow ? (
+                <MobileNoteToolbar
+                  editor={editor}
+                  formatting={formatting}
+                  actions={mobileActions}
+                  details={mobileDetails}
+                />
+              ) : (
+                formatting
+              )}
 
-            <PendingReferenceNotice itemId={itemId} editor={editor} />
-            {writingMode === 'collaboration' && !hideToolbar ? (
-              <div
-                aria-label="Collaboration status"
-                className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 px-5 py-2 sm:px-8"
-              >
-                <Text variant="caption" tone="muted">
-                  {
+              <PendingReferenceNotice itemId={itemId} editor={editor} />
+              {writingMode === 'collaboration' && !hideToolbar ? (
+                <div
+                  aria-label="Collaboration status"
+                  className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 px-5 py-2 sm:px-8"
+                >
+                  <Text variant="caption" tone="muted">
                     {
-                      connecting: 'Connecting to collaborators',
-                      live: 'Live editing',
-                      pending: 'Saving shared changes',
-                      readonly: 'Shared note is read-only',
-                      degraded: 'Connection interrupted',
-                      offline: 'Working offline',
-                    }[syncState]
-                  }
-                </Text>
-                <PresenceList awareness={awareness} />
-              </div>
-            ) : null}
-            <PaneViewport
-              scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
-            >
-              {dropActive ? (
-                <Text
-                  variant="note"
-                  tone="accent"
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                  className="mb-4 rounded-md border border-accent/40 bg-accent/10 px-3 py-2"
-                >
-                  Drop to add files to this note. Images will appear here; other files become links.
-                </Text>
+                      {
+                        connecting: 'Connecting to collaborators',
+                        live: 'Live editing',
+                        pending: 'Saving shared changes',
+                        readonly: 'Shared note is read-only',
+                        degraded: 'Connection interrupted',
+                        offline: 'Working offline',
+                      }[syncState]
+                    }
+                  </Text>
+                  <PresenceList awareness={awareness} />
+                </div>
               ) : null}
-              {uploadingFiles > 0 ? (
-                <Text
-                  variant="note"
-                  tone="muted"
-                  role="status"
-                  aria-live="polite"
-                  aria-atomic="true"
-                  className="mb-4"
-                >
-                  Adding {uploadingFileName ?? 'file'} ({String(uploadingFileIndex)} of{' '}
-                  {String(uploadingFiles)})…
-                </Text>
-              ) : null}
-              {readOnly || stale ? null : (
-                <SlashMenu
-                  editor={editor}
-                  onInsertItem={(kind) => {
-                    if (uploadingFilesRef.current > 0) return;
-                    insertionRef.current = editor.state.selection.from;
-                    setItemRequest(kind);
-                  }}
-                  onPageBreak={() => {
-                    insertPageBreak(editor);
-                  }}
-                  onInsertImage={() => {
-                    insertionRef.current = editor.state.selection.from;
-                    setAddressRequest('image');
-                  }}
-                  onInlineAi={inlineAi.available ? inlineAi.start : undefined}
-                />
-              )}
-              {readOnly || stale ? null : (
-                <ReferenceMenu
-                  editor={editor}
-                  workspaceId={workspaceId}
-                  itemId={itemId}
-                  parentId={parentId}
-                />
-              )}
-              {/*
+              <PaneViewport
+                scrollKey={`${workspaceId ?? ''}:${itemId}:${documentPath ?? 'body'}`}
+                className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-24 pt-4 sm:px-8 sm:pt-6 lg:pb-6"
+              >
+                {dropActive ? (
+                  <Text
+                    variant="note"
+                    tone="accent"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="mb-4 rounded-md border border-accent/40 bg-accent/10 px-3 py-2"
+                  >
+                    Drop to add files to this note. Images will appear here; other files become
+                    links.
+                  </Text>
+                ) : null}
+                {uploadingFiles > 0 ? (
+                  <Text
+                    variant="note"
+                    tone="muted"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="mb-4"
+                  >
+                    Adding {uploadingFileName ?? 'file'} ({String(uploadingFileIndex)} of{' '}
+                    {String(uploadingFiles)})…
+                  </Text>
+                ) : null}
+                {!localCanWrite || readOnly || stale ? null : (
+                  <SlashMenu
+                    editor={editor}
+                    onInsertItem={(kind) => {
+                      if (uploadingFilesRef.current > 0) return;
+                      insertionRef.current = editor.state.selection.from;
+                      setItemRequest(kind);
+                    }}
+                    onPageBreak={() => {
+                      insertPageBreak(editor);
+                    }}
+                    onInsertImage={() => {
+                      insertionRef.current = editor.state.selection.from;
+                      setAddressRequest('image');
+                    }}
+                    onInlineAi={inlineAi.available ? inlineAi.start : undefined}
+                  />
+                )}
+                {!localCanWrite || readOnly || stale ? null : (
+                  <ReferenceMenu
+                    editor={editor}
+                    workspaceId={workspaceId}
+                    itemId={itemId}
+                    parentId={parentId}
+                  />
+                )}
+                {/*
             The block handle: hover a block and a grip appears in the margin; dragging it moves
             the block. The component registers the drag-handle plugin itself and portals this
             content into an element the plugin owns - so its position in this JSX is not its
@@ -1163,210 +1205,222 @@ export function NoteEditor({
             positions is a role-less, name-less div, so nothing here reaches the accessibility
             tree - which is the right outcome.
           */}
-              {readOnly || stale ? null : (
-                <DragHandle
-                  editor={editor}
-                  className="flex cursor-grab items-center justify-center rounded-sm p-1 text-muted hover:bg-foreground/7 hover:text-foreground data-[dragging=true]:cursor-grabbing"
-                >
-                  <Icon icon={GripVertical} size="sm" />
-                </DragHandle>
-              )}
-              {/*
+                {!localCanWrite || readOnly || stale ? null : (
+                  <DragHandle
+                    editor={editor}
+                    className="flex cursor-grab items-center justify-center rounded-sm p-1 text-muted hover:bg-foreground/7 hover:text-foreground data-[dragging=true]:cursor-grabbing"
+                  >
+                    <Icon icon={GripVertical} size="sm" />
+                  </DragHandle>
+                )}
+                {/*
             The positioned box the page guides are measured in. `h-full` keeps what
             `EditorContent` had: the editor fills the viewport, so a click below a short note
             still lands in it.
           */}
-              <div
-                ref={setSurface}
-                className={`relative h-full ${noteColumn} ${WRITING_MODES[writingMode].measure}`}
-              >
-                <EditorContent
-                  editor={editor}
-                  className="h-full"
-                  onDragEnterCapture={(event) => {
-                    if (hasFilePayload(event)) setDropActive(true);
-                  }}
-                  onDragOverCapture={(event) => {
-                    if (hasFilePayload(event)) {
-                      event.preventDefault();
-                      setDropActive(true);
+                <div
+                  ref={setSurface}
+                  className={`relative h-full ${noteColumn} ${WRITING_MODES[writingMode].measure}`}
+                >
+                  {bodyUnavailable ? (
+                    <Text variant="note" tone="muted" role="status">
+                      Nix can no longer show this note. Restore access and reopen it to continue.
+                    </Text>
+                  ) : (
+                    <EditorContent
+                      editor={editor}
+                      className="h-full"
+                      onDragEnterCapture={(event) => {
+                        if (hasFilePayload(event)) setDropActive(true);
+                      }}
+                      onDragOverCapture={(event) => {
+                        if (hasFilePayload(event)) {
+                          event.preventDefault();
+                          setDropActive(true);
+                        }
+                      }}
+                      onDragLeaveCapture={(event) => {
+                        if (
+                          hasFilePayload(event) &&
+                          !event.currentTarget.contains(event.relatedTarget as Node | null)
+                        ) {
+                          setDropActive(false);
+                        }
+                      }}
+                      onDropCapture={(event) => {
+                        setDropActive(false);
+                        if (handleFileDrop(editor.view, event.nativeEvent)) {
+                          event.stopPropagation();
+                        }
+                      }}
+                    />
+                  )}
+                  {/* Where the exported pages would break, drawn over the text as it is written. */}
+                  {!bodyUnavailable && pageGuides === 'shown' ? (
+                    <PageGuides editor={editor} host={surface} />
+                  ) : null}
+                </div>
+                {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
+                {!localCanWrite || readOnly || stale ? null : (
+                  <BubbleMenu
+                    editor={editor}
+                    onOpenInlineAi={
+                      inlineAi.available
+                        ? () => {
+                            inlineAi.start(null);
+                          }
+                        : undefined
                     }
+                  />
+                )}
+                {!localCanWrite || readOnly || stale ? null : (
+                  <InlineAiPanel editor={editor} controller={inlineAi} />
+                )}
+                <MentionBubble editor={editor} />
+                {!localCanWrite || readOnly || stale ? null : <TableMenu editor={editor} />}
+              </PaneViewport>
+
+              {itemRequest !== null && workspaceId !== undefined ? (
+                <ItemInsertDialog
+                  kind={itemRequest}
+                  workspaceId={workspaceId}
+                  parentId={itemId}
+                  onCancel={() => {
+                    setItemRequest(null);
+                    focusAfterDialog(editor);
                   }}
-                  onDragLeaveCapture={(event) => {
-                    if (
-                      hasFilePayload(event) &&
-                      !event.currentTarget.contains(event.relatedTarget as Node | null)
-                    ) {
-                      setDropActive(false);
-                    }
+                  onFiles={(files) => {
+                    void uploadDroppedFiles(
+                      editor.view,
+                      files,
+                      insertionRef.current ?? editor.state.selection.from,
+                    );
                   }}
-                  onDropCapture={(event) => {
-                    setDropActive(false);
-                    if (handleFileDrop(editor.view, event.nativeEvent)) {
-                      event.stopPropagation();
-                    }
+                  onInsert={(id, presentation, label) => {
+                    if (editor.isDestroyed || !editor.isEditable) return false;
+                    const position = insertionRef.current ?? editor.state.selection.from;
+                    const content =
+                      presentation === 'image'
+                        ? { type: 'image', attrs: { fileItemId: id, src: '', alt: label } }
+                        : presentation === 'inline'
+                          ? { type: 'reference', attrs: { kind: 'item', targetId: id, label } }
+                          : { type: 'itemBlock', attrs: { targetId: id, presentation } };
+                    const inserted = editor
+                      .chain()
+                      .setTextSelection(position)
+                      .insertContent(
+                        presentation === 'inline' ? content : [content, { type: 'paragraph' }],
+                      )
+                      .run();
+                    if (inserted) focusAfterDialog(editor);
+                    return inserted;
                   }}
                 />
-                {/* Where the exported pages would break, drawn over the text as it is written. */}
-                {pageGuides === 'shown' ? <PageGuides editor={editor} host={surface} /> : null}
-              </div>
-              {/* After the editable region on purpose: Tab from the text is what reaches its buttons. */}
-              {readOnly || stale ? null : (
-                <BubbleMenu
-                  editor={editor}
-                  onOpenInlineAi={
-                    inlineAi.available
-                      ? () => {
-                          inlineAi.start(null);
-                        }
-                      : undefined
-                  }
+              ) : null}
+              {uploadingFiles > 0 ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    dropAbortRef.current?.abort();
+                  }}
+                >
+                  Cancel upload
+                </Button>
+              ) : null}
+              {uploadingFiles === 0 && retryFiles.length > 0 ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    void uploadDroppedFiles(
+                      editor.view,
+                      retryFiles,
+                      insertionRef.current ?? editor.state.selection.from,
+                    );
+                  }}
+                >
+                  Retry remaining files
+                </Button>
+              ) : null}
+              {addressRequest === null ? null : (
+                <EditorAddressDialog
+                  kind={addressRequest}
+                  onCancel={() => {
+                    setAddressRequest(null);
+                  }}
+                  onSubmit={({ address, description }) => {
+                    if (!editor.isEditable)
+                      throw new Error('This note is read-only. Changes cannot be added.');
+                    const request = addressRequest;
+                    if (editor.isDestroyed) {
+                      return;
+                    }
+
+                    if (request === 'image' && insertionRef.current !== null)
+                      editor.commands.setTextSelection(insertionRef.current);
+                    // Commit before closing. Deferring the document mutation would create a gap where
+                    // changing tabs can unmount this editor after the validated form has disappeared but
+                    // before its command runs, silently losing the submission. The command itself does
+                    // not focus, so it is safe while the modal still makes the editor inert.
+                    if (request === 'image') {
+                      // Leave a text block after the image. Besides giving the writer somewhere obvious
+                      // to continue, this keeps the collaborative selection inside an inline-capable
+                      // node instead of forcing it onto the document boundary.
+                      editor
+                        .chain()
+                        .setImage({ src: address, alt: description })
+                        .createParagraphNear()
+                        .run();
+                    } else {
+                      editor.chain().setLink({ href: address }).run();
+                    }
+
+                    setAddressRequest(null);
+                    focusAfterDialog(editor);
+                  }}
+                  onExistingImage={() => {
+                    setAddressRequest(null);
+                    setItemRequest('image');
+                  }}
+                  onUploadImage={async (file, description) => {
+                    const inserted = await uploadDroppedFiles(
+                      editor.view,
+                      [file],
+                      insertionRef.current ?? editor.state.selection.from,
+                      description,
+                      false,
+                    );
+                    if (!inserted)
+                      throw new Error('The image was not inserted. Retry the upload or cancel.');
+                    focusAfterDialog(editor);
+                  }}
                 />
               )}
-              {readOnly || stale ? null : <InlineAiPanel editor={editor} controller={inlineAi} />}
-              <MentionBubble editor={editor} />
-              {readOnly || stale ? null : <TableMenu editor={editor} />}
-            </PaneViewport>
 
-            {itemRequest !== null && workspaceId !== undefined ? (
-              <ItemInsertDialog
-                kind={itemRequest}
-                workspaceId={workspaceId}
-                parentId={itemId}
-                onCancel={() => {
-                  setItemRequest(null);
-                  focusAfterDialog(editor);
-                }}
-                onFiles={(files) => {
-                  void uploadDroppedFiles(
-                    editor.view,
-                    files,
-                    insertionRef.current ?? editor.state.selection.from,
-                  );
-                }}
-                onInsert={(id, presentation, label) => {
-                  if (editor.isDestroyed || !editor.isEditable) return false;
-                  const position = insertionRef.current ?? editor.state.selection.from;
-                  const content =
-                    presentation === 'image'
-                      ? { type: 'image', attrs: { fileItemId: id, src: '', alt: label } }
-                      : presentation === 'inline'
-                        ? { type: 'reference', attrs: { kind: 'item', targetId: id, label } }
-                        : { type: 'itemBlock', attrs: { targetId: id, presentation } };
-                  const inserted = editor
-                    .chain()
-                    .setTextSelection(position)
-                    .insertContent(
-                      presentation === 'inline' ? content : [content, { type: 'paragraph' }],
-                    )
-                    .run();
-                  if (inserted) focusAfterDialog(editor);
-                  return inserted;
-                }}
-              />
-            ) : null}
-            {uploadingFiles > 0 ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  dropAbortRef.current?.abort();
-                }}
-              >
-                Cancel upload
-              </Button>
-            ) : null}
-            {uploadingFiles === 0 && retryFiles.length > 0 ? (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  void uploadDroppedFiles(
-                    editor.view,
-                    retryFiles,
-                    insertionRef.current ?? editor.state.selection.from,
-                  );
-                }}
-              >
-                Retry remaining files
-              </Button>
-            ) : null}
-            {addressRequest === null ? null : (
-              <EditorAddressDialog
-                kind={addressRequest}
-                onCancel={() => {
-                  setAddressRequest(null);
-                }}
-                onSubmit={({ address, description }) => {
-                  if (!editor.isEditable)
-                    throw new Error('This note is read-only. Changes cannot be added.');
-                  const request = addressRequest;
-                  if (editor.isDestroyed) {
-                    return;
-                  }
-
-                  if (request === 'image' && insertionRef.current !== null)
-                    editor.commands.setTextSelection(insertionRef.current);
-                  // Commit before closing. Deferring the document mutation would create a gap where
-                  // changing tabs can unmount this editor after the validated form has disappeared but
-                  // before its command runs, silently losing the submission. The command itself does
-                  // not focus, so it is safe while the modal still makes the editor inert.
-                  if (request === 'image') {
-                    // Leave a text block after the image. Besides giving the writer somewhere obvious
-                    // to continue, this keeps the collaborative selection inside an inline-capable
-                    // node instead of forcing it onto the document boundary.
-                    editor
-                      .chain()
-                      .setImage({ src: address, alt: description })
-                      .createParagraphNear()
-                      .run();
-                  } else {
-                    editor.chain().setLink({ href: address }).run();
-                  }
-
-                  setAddressRequest(null);
-                  focusAfterDialog(editor);
-                }}
-                onExistingImage={() => {
-                  setAddressRequest(null);
-                  setItemRequest('image');
-                }}
-                onUploadImage={async (file, description) => {
-                  const inserted = await uploadDroppedFiles(
-                    editor.view,
-                    [file],
-                    insertionRef.current ?? editor.state.selection.from,
-                    description,
-                    false,
-                  );
-                  if (!inserted)
-                    throw new Error('The image was not inserted. Retry the upload or cancel.');
-                  focusAfterDialog(editor);
-                }}
-              />
-            )}
-
-            {activeVimMode === null ? null : (
-              <Text
-                variant="caption"
-                as="p"
-                role="status"
-                aria-live="polite"
-                aria-atomic="true"
-                className="px-8 py-1.5 font-heading font-semibold tracking-wider uppercase text-muted"
-              >
-                Vim {vimModeLabel(activeVimMode)}
-              </Text>
-            )}
+              {activeVimMode === null ? null : (
+                <Text
+                  variant="caption"
+                  as="p"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                  className="px-8 py-1.5 font-heading font-semibold tracking-wider uppercase text-muted"
+                >
+                  Vim {vimModeLabel(activeVimMode)}
+                </Text>
+              )}
+            </div>
+            <DocumentIssueDialog
+              noun="note"
+              state={syncState}
+              draftState={draftState}
+              offline={offline}
+              stale={stale}
+              refusal={refusal}
+              paused={addressRequest !== null || itemRequest !== null}
+              reloadRequired={noticeCode === 'schema_version_mismatch'}
+            />
           </div>
-          <DocumentIssueDialog
-            noun="note"
-            state={syncState}
-            draftState={draftState}
-            stale={stale}
-            refusal={refusal}
-            paused={addressRequest !== null || itemRequest !== null}
-            reloadRequired={noticeCode === 'schema_version_mismatch'}
-          />
-        </div>
+        </OfflineNoteAssetsProvider>
       </ReferenceResolutionProvider>
     </NoteSourcesProvider>
   );

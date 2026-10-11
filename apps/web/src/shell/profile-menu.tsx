@@ -4,6 +4,7 @@ import { type ReactNode } from 'react';
 import { Link } from 'react-router';
 
 import { useAuth } from '../auth/auth-provider';
+import { usePendingSignOut } from '../offline/use-pending-sign-out';
 import { ThemeChoice } from '../theme/theme-choice';
 import type { CurrentPrincipalState } from '../session/use-current-principal';
 import { useWorkspace } from '../workspaces/workspace-context';
@@ -26,7 +27,8 @@ export interface ProfileMenuProps {
 }
 
 export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
-  const { accountUrl, signOut } = useAuth();
+  const { accountUrl } = useAuth();
+  const pendingSignOut = usePendingSignOut();
   const { workspaceId } = useWorkspace();
 
   const name = principal.principal?.displayName ?? 'Loading…';
@@ -78,35 +80,43 @@ export function ProfileMenu({ principal }: ProfileMenuProps): ReactNode {
       label: 'Sign out',
       icon: LogOut,
       onSelect: () => {
-        void signOut();
+        void pendingSignOut.requestSignOut();
       },
     },
   ];
 
   return (
-    <Menu
-      label="Account"
-      items={items}
-      renderLink={({ href, children, ...rest }) => (
-        <Link to={href} {...rest}>
-          {children}
-        </Link>
-      )}
-    >
-      {(trigger) => (
-        <button
-          {...trigger}
-          className={[
-            'flex items-center gap-1.5 border border-transparent px-2 py-1',
-            'text-xs text-muted pointer-coarse:min-h-(--control-lg) pointer-coarse:min-w-(--control-lg)',
-            `hover:bg-foreground/7 ${focusRing}`,
-          ].join(' ')}
-        >
-          <Icon icon={User} size="sm" />
-          <span className="max-w-[16ch] truncate max-lg:sr-only">{name}</span>
-          <Icon icon={ChevronDown} size="sm" className="max-lg:hidden" />
-        </button>
-      )}
-    </Menu>
+    <>
+      <Menu
+        label="Account"
+        items={items}
+        renderLink={({ href, children, ...rest }) => (
+          <Link to={href} {...rest}>
+            {children}
+          </Link>
+        )}
+      >
+        {(trigger) => (
+          <button
+            {...trigger}
+            className={[
+              'flex items-center gap-1.5 border border-transparent px-2 py-1',
+              'text-xs text-muted pointer-coarse:min-h-(--control-lg) pointer-coarse:min-w-(--control-lg)',
+              `hover:bg-foreground/7 ${focusRing}`,
+            ].join(' ')}
+          >
+            <Icon icon={User} size="sm" />
+            <span className="max-w-[16ch] truncate max-lg:sr-only">{name}</span>
+            <Icon icon={ChevronDown} size="sm" className="max-lg:hidden" />
+          </button>
+        )}
+      </Menu>
+      {pendingSignOut.error ? (
+        <Text as="p" variant="note" role="alert">
+          {pendingSignOut.error}
+        </Text>
+      ) : null}
+      {pendingSignOut.dialog}
+    </>
   );
 }

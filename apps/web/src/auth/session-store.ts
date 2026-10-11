@@ -26,8 +26,8 @@ export type SessionStatus =
   | 'failed'
   /**
    * Core could not be reached at all - the device is offline, or the server is not answering. Not
-   * a sign-in failure: nothing is known about the session, so neither the login screen nor the
-   * workspace is honest. `unreachable` says which, and restoration is retried.
+   * a sign-in failure. A previously confirmed profile can open downloaded notes locally, without
+   * asserting that the server session is still valid. Restoration is retried.
    */
   | 'unreachable';
 
@@ -66,7 +66,10 @@ export interface SessionState {
   /** Sign-in failed, or a renew failed and the session is gone. */
   readonly signInFailed: (message: string) => void;
   /** The session restore could not reach Core at all. */
-  readonly sessionUnreachable: (cause: Unreachable['cause']) => void;
+  readonly sessionUnreachable: (
+    cause: Unreachable['cause'],
+    cachedProfile?: SessionProfile | null,
+  ) => void;
   /** Ask for the session to be restored again, after the network returns. */
   readonly sessionRetryRequested: () => void;
   /**
@@ -90,7 +93,13 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   sessionRestoreCancelled: () => {
     set((state) =>
-      state.status === 'authenticating' ? { status: 'unknown', profile: null, error: null } : state,
+      state.status === 'authenticating'
+        ? {
+            status: 'unknown',
+            profile: state.unreachable === null ? null : state.profile,
+            error: null,
+          }
+        : state,
     );
   },
 
@@ -104,13 +113,13 @@ export const useSessionStore = create<SessionState>((set) => ({
     set({ status: 'failed', profile: null, error: message, unreachable: null });
   },
 
-  sessionUnreachable: (cause) => {
-    set({
+  sessionUnreachable: (cause, cachedProfile) => {
+    set((state) => ({
       status: 'unreachable',
-      profile: null,
+      profile: cachedProfile === undefined ? state.profile : cachedProfile,
       error: null,
       unreachable: { cause, lastTriedAt: Date.now() },
-    });
+    }));
   },
 
   sessionRetryRequested: () => {

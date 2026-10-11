@@ -1,5 +1,13 @@
 import { registerPendingWork } from '../lib/pending-work';
-import { indexedBodyCache, type BodyCacheStore } from './body-cache';
+import {
+  bodyCacheFenceVersion,
+  bodyCacheSealed,
+  bodyCacheScopeCurrent,
+  bodyCacheScopeEpoch,
+  indexedBodyCache,
+  onBodyForgetting,
+  type BodyCacheStore,
+} from './body-cache';
 import { createDraftJournal, type DraftState, type DraftRecord } from './draft-journal';
 import { SCHEMA_VERSION } from '@nix/editor-schema';
 import * as decoding from 'lib0/decoding';
@@ -92,6 +100,8 @@ export interface ProviderSocket {
 
 export interface CollabSyncOptions {
   readonly draftScope?: string;
+  /** Local-only notes still load and journal edits, but never open a socket. */
+  readonly offline?: boolean;
   /**
    * Keeps a local copy of this body's last confirmed state under this scope, and paints it before
    * the connection opens. See `body-cache.ts` for what the copy may and may not be trusted with.
@@ -107,7 +117,7 @@ export interface CollabSyncOptions {
   readonly documentPath?: string | undefined;
   readonly doc: Y.Doc;
   readonly fragmentName: string;
-  readonly getAccessToken: () => Promise<string | null>;
+  readonly getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
   readonly onState: (state: SyncState) => void;
   readonly baseUrl?: string;
 
@@ -152,12 +162,43 @@ export interface CollabSync {
 
   /** Flushes local frames and resolves only after the server has persisted every prior update. */
   readonly flushAndWait: () => Promise<void>;
+  /** Waits for durable local draft writes, including storage failure reporting. */
+  readonly flushLocal: () => Promise<void>;
+  /** Complete download/replay: initial sync, persistence confirmation, then a durable body copy. */
+  readonly syncAndCache: (signal?: AbortSignal) => Promise<void>;
 
   /** Closes the socket and stops reconnecting. The document itself keeps every edit. */
   destroy: () => void;
 }
 
 const DEFAULT_BASE_URL = '/collab';
+const localProviders = new Map<string, Set<CollabSync>>();
+
+/** Flushes mounted editors before their local note is published under a server identity. */
+export async function flushLocalDraftsForScope(scope: string): Promise<void> {
+  await Promise.all(
+    [...(localProviders.get(scope) ?? [])].map((provider) => provider.flushLocal()),
+  );
+}
+
+/** Drains this account's editors before pending-edit inventory or sign-out. */
+export async function flushLocalDraftsForAccount(subject: string): Promise<void> {
+  const prefix = `${JSON.stringify([subject]).slice(0, -1)},`;
+  await Promise.all(
+    [...localProviders.entries()]
+      .filter(([scope]) => scope.startsWith(prefix))
+      .flatMap(([, providers]) => [...providers].map((provider) => provider.flushLocal())),
+  );
+}
+
+/** Completes durable local writes before the application switches to its offline browser. */
+export async function flushLocalDrafts(): Promise<void> {
+  await Promise.all(
+    [...localProviders.values()].flatMap((providers) =>
+      [...providers].map((provider) => provider.flushLocal()),
+    ),
+  );
+}
 
 export function startCollabSync(options: CollabSyncOptions): CollabSync {
   const {
@@ -188,12 +229,33 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     })
     .catch(() => {
       options.onDraftState?.('error');
+      halted = true;
+      failInitial(
+        'Local drafts could not be read. Keep this device’s data until they can be recovered.',
+      );
     });
   const cacheScope = options.cacheScope;
   const cache: BodyCacheStore | null =
     cacheScope === undefined
       ? null
       : (options.bodyCache ?? (typeof indexedDB === 'undefined' ? null : indexedBodyCache));
+  const sharedScope = options.draftScope ?? cacheScope;
+  const sharedCache = cache === indexedBodyCache || options.bodyCache === undefined;
+  const initialCacheFence =
+    sharedCache && sharedScope !== undefined ? bodyCacheFenceVersion(sharedScope) : null;
+  const initialAccountEpoch =
+    sharedCache && sharedScope !== undefined ? bodyCacheScopeEpoch(sharedScope) : null;
+  let cacheInvalid = false;
+
+  function cacheWriteAdmitted(): boolean {
+    return (
+      !cacheInvalid &&
+      (!sharedCache ||
+        sharedScope === undefined ||
+        (bodyCacheFenceVersion(sharedScope) === initialCacheFence &&
+          bodyCacheScopeCurrent(sharedScope, initialAccountEpoch)))
+    );
+  }
   /** The server document the cached copy was taken from, compared against the one we join. */
   let cachedDocId: string | null = null;
   /** The server document this connection joined, known once `ready` arrives. */
@@ -216,26 +278,45 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
           .read(cacheScope)
           .then((record) => {
             if (record === null || isDestroyed()) return;
+            if (sharedCache && !cacheWriteAdmitted()) return;
             if (record.schemaVersion !== SCHEMA_VERSION) {
+              if (options.offline) {
+                halted = true;
+                failInitial('This offline copy requires a compatible editor version.');
+                onNotice?.({
+                  code: 'offline_copy_unavailable',
+                  detail: initialFailure?.message ?? '',
+                });
+                return;
+              }
               void cache.discard(cacheScope).catch(() => undefined);
               return;
             }
             Y.applyUpdate(doc, record.update, CACHE_ORIGIN);
             cachedDocId = record.docId;
-            options.onLocalCopy?.();
           })
           .catch(() => {
+            if (options.offline) {
+              halted = true;
+              failInitial('This note’s offline copy could not be read. Reconnect before editing.');
+              onNotice?.({
+                code: 'offline_copy_unavailable',
+                detail: initialFailure?.message ?? '',
+              });
+              return;
+            }
             // An unreadable copy is only a slower first paint; drop it and sync normally.
             void cache.discard(cacheScope).catch(() => undefined);
           });
   let localRevision = 0;
   let confirmedRevision = 0;
-  let confirming = false;
+  let confirming: Promise<void> | null = null;
   let writeRefused = false;
   const hasWriteRefusal = (): boolean => writeRefused;
   const browserWindow = typeof window === 'undefined' ? undefined : window;
   const browserDocument = typeof document === 'undefined' ? undefined : document;
   let connecting = false;
+  let forceTokenRefresh = false;
   const restoreOrigin = Symbol('restored-draft');
 
   const ownsAwareness = options.awareness === undefined;
@@ -250,9 +331,97 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
 
   /** Whether local edits exist the server has not seen - the honest half of "saved". */
   let unsynced = false;
+  let initialFailure: Error | null = null;
+  const initialWaiters = new Set<{ resolve: () => void; reject: (error: Error) => void }>();
+
+  function failInitial(message: string): void {
+    initialFailure = new Error(message);
+    for (const waiter of initialWaiters) waiter.reject(initialFailure);
+    initialWaiters.clear();
+  }
+
+  const localReady = Promise.all([draftsReady, cacheReady])
+    .then(async () => {
+      if (isDestroyed()) return;
+      if (halted) return;
+      if (initialCacheFence === 'storage-unavailable') {
+        halted = true;
+        mode = 'read';
+        failInitial('This device’s offline storage could not be read. Reconnect before editing.');
+        onState('readonly');
+        onNotice?.({ code: 'offline_copy_unavailable', detail: initialFailure?.message ?? '' });
+        return;
+      }
+      if (
+        sharedScope !== undefined &&
+        sharedCache &&
+        (bodyCacheSealed(sharedScope) || !cacheWriteAdmitted())
+      ) {
+        halted = true;
+        mode = 'read';
+        failInitial(
+          'Access to this note was refused. Pending edits remain on this device for export and recovery.',
+        );
+        onState('readonly');
+        onNotice?.({ code: 'body_access_unavailable', detail: initialFailure?.message ?? '' });
+        return;
+      }
+      if (
+        options.offline &&
+        cachedDocId === null &&
+        !restoredDrafts.some(
+          (record) =>
+            options.draftScope !== undefined &&
+            record.id === `${options.draftScope}:published-local` &&
+            record.docId === `local:${itemId}`,
+        )
+      ) {
+        halted = true;
+        failInitial('This note has not finished downloading. Reconnect before editing.');
+        onNotice?.({ code: 'offline_copy_unavailable', detail: initialFailure?.message ?? '' });
+        return;
+      }
+      for (const record of restoredDrafts) {
+        if (record.docId !== undefined && cachedDocId !== null && record.docId !== cachedDocId) {
+          halted = true;
+          failInitial('A local draft belongs to a different document.');
+          onNotice?.({ code: 'local_copy_stale', detail: initialFailure?.message ?? '' });
+          options.onDraftState?.('error');
+          return;
+        }
+        try {
+          Y.applyUpdate(doc, record.update, restoreOrigin);
+        } catch {
+          halted = true;
+          failInitial('A saved draft could not be recovered.');
+          options.onDraftState?.('error');
+          onNotice?.({ code: 'local_draft_unreadable', detail: initialFailure?.message ?? '' });
+          return;
+        }
+      }
+      if (restoredDrafts.length > 0) {
+        localRevision += 1;
+        unsynced = true;
+        report();
+      }
+      if (cachedDocId !== null) await draft?.bindDocument(cachedDocId, cacheWriteAdmitted);
+      if (
+        cachedDocId !== null ||
+        restoredDrafts.some((record) => record.id === `${options.draftScope ?? ''}:published-local`)
+      )
+        options.onLocalCopy?.();
+    })
+    .catch((cause: unknown) => {
+      options.onDraftState?.('error');
+      failInitial(cause instanceof Error ? cause.message : 'Local document recovery failed.');
+    });
 
   function isDestroyed(): boolean {
     return destroyed;
+  }
+
+  function isHalted(): boolean {
+    return halted;
   }
 
   function report(): void {
@@ -266,8 +435,44 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     }
   }
 
+  const stopBodyForgetting = onBodyForgetting((forgetting) => {
+    if (!sharedCache || sharedScope === undefined) return;
+    const matches =
+      forgetting.kind === 'item'
+        ? forgetting.sealed && sharedScope.startsWith(forgetting.prefix)
+        : forgetting.kind === 'everything' &&
+          forgetting.sealed &&
+          forgetting.subject !== undefined &&
+          sharedScope.startsWith(`${JSON.stringify([forgetting.subject]).slice(0, -1)},`) &&
+          (forgetting.epoch === undefined || forgetting.epoch === initialAccountEpoch);
+    if (!matches) return;
+    haltForAccess();
+  });
+
+  function haltForAccess(): void {
+    if (cacheInvalid) return;
+    cacheInvalid = true;
+    halted = true;
+    mode = 'read';
+    ready = false;
+    initialSynced = false;
+    if (snapshotTimer !== null) clearTimeout(snapshotTimer);
+    snapshotTimer = null;
+    rejectBarriers('Access to the document was refused.');
+    failInitial('Access to the note was refused. Pending edits remain on this device.');
+    onState('readonly');
+    onNotice?.({ code: 'body_access_unavailable', detail: initialFailure?.message ?? '' });
+    socket?.close(1000, 'Access to the note was refused.');
+  }
+
+  function ensureAccess(): boolean {
+    if (cacheWriteAdmitted()) return true;
+    haltForAccess();
+    return false;
+  }
+
   function sendFrame(bytes: Uint8Array): void {
-    if (socket !== null && ready && socket.readyState === 1) {
+    if (ensureAccess() && ready && socket?.readyState === 1) {
       socket.send(bytes);
     }
   }
@@ -306,10 +511,57 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     barriers.clear();
   }
 
+  function persistenceBarrier(): Promise<void> {
+    const current = socket;
+    if (current === null || !ready || current.readyState !== 1)
+      return Promise.reject(new Error('The document is not connected.'));
+    barrierSequence += 1;
+    const barrierId = `${String(doc.clientID)}-${String(barrierSequence)}`;
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        barriers.delete(barrierId);
+        reject(new Error('The document changes were not confirmed in time.'));
+      }, BARRIER_TIMEOUT_MS);
+      barriers.set(barrierId, { resolve, reject, timer });
+      const encoder = encoding.createEncoder();
+      encoding.writeVarUint(encoder, MESSAGE_PERSISTENCE_BARRIER);
+      encoding.writeVarString(encoder, barrierId);
+      try {
+        current.send(encoding.toUint8Array(encoder));
+      } catch (reason) {
+        clearTimeout(timer);
+        barriers.delete(barrierId);
+        reject(reason instanceof Error ? reason : new Error('The document could not be saved.'));
+      }
+    });
+  }
+
+  async function cacheConfirmed(update: Uint8Array): Promise<void> {
+    if (cache === null || cacheScope === undefined || serverDocId === null)
+      throw new Error('The document has no offline storage or confirmed identity.');
+    if (!cacheWriteAdmitted()) throw new Error('This provider’s offline access was refused.');
+    if (update.byteLength > SNAPSHOT_MAX_BYTES)
+      throw new Error('This note exceeds the 8 MiB offline storage limit.');
+    const savedAt = Date.now();
+    const docId = serverDocId;
+    try {
+      await cache.write(
+        { scope: cacheScope, docId, schemaVersion: SCHEMA_VERSION, savedAt, update },
+        cacheWriteAdmitted,
+      );
+      const saved = await cache.read(cacheScope);
+      if (!cacheWriteAdmitted() || saved?.docId !== docId || saved.savedAt < savedAt)
+        throw new Error('The document could not be retained on this device.');
+    } catch (cause) {
+      options.onDraftState?.('error');
+      throw cause;
+    }
+  }
+
   function flushPending(): void {
     flushTimer = null;
 
-    if (pending.length === 0) {
+    if (pending.length === 0 || !ensureAccess()) {
       return;
     }
 
@@ -347,6 +599,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     localRevision += 1;
     if (origin !== restoreOrigin) draft?.append(update);
     pending.push(update);
+    if (!ensureAccess()) return;
 
     if (socket === null || !ready || socket.readyState !== 1 || mode === 'read') {
       unsynced = true;
@@ -396,6 +649,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     }
     if (
       cache === null ||
+      !cacheWriteAdmitted() ||
       cacheScope === undefined ||
       serverDocId === null ||
       !snapshotDirty ||
@@ -406,17 +660,25 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     const update = Y.encodeStateAsUpdate(doc);
     if (update.byteLength > SNAPSHOT_MAX_BYTES) {
       oversize = true;
+      options.onDraftState?.('error');
+      onNotice?.({
+        code: 'offline_document_too_large',
+        detail: 'This note exceeds the 8 MiB offline storage limit.',
+      });
       return;
     }
     snapshotDirty = false;
     void cache
-      .write({
-        scope: cacheScope,
-        docId: serverDocId,
-        schemaVersion: SCHEMA_VERSION,
-        savedAt: Date.now(),
-        update,
-      })
+      .write(
+        {
+          scope: cacheScope,
+          docId: serverDocId,
+          schemaVersion: SCHEMA_VERSION,
+          savedAt: Date.now(),
+          update,
+        },
+        cacheWriteAdmitted,
+      )
       .catch(() => {
         // The copy is derived and only speeds up the next open; a refused write loses nothing.
         snapshotDirty = true;
@@ -438,14 +700,20 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     snapshotTimer = setTimeout(saveSnapshot, overdue ? 0 : SNAPSHOT_QUIET_MS);
   }
 
-  function discardCache(): void {
+  function discardCache(refused = false, reason: 'refused' | 'locked' = 'refused'): void {
     cachedDocId = null;
     if (snapshotTimer !== null) {
       clearTimeout(snapshotTimer);
       snapshotTimer = null;
     }
+    if (refused && sharedScope !== undefined && sharedCache && typeof indexedDB !== 'undefined') {
+      void indexedBodyCache.seal?.(sharedScope, reason).catch(() => undefined);
+      return;
+    }
     if (cache !== null && cacheScope !== undefined)
-      void cache.discard(cacheScope).catch(() => undefined);
+      void (
+        refused && cache.seal ? cache.seal(cacheScope, reason) : cache.discard(cacheScope)
+      ).catch(() => undefined);
   }
 
   function scheduleReconnect(delayMs: number): void {
@@ -459,15 +727,20 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   }
 
   async function connect(): Promise<void> {
-    if (destroyed || halted || connecting) {
+    if (options.offline || destroyed || halted || connecting) {
       return;
     }
 
     connecting = true;
-    await draftsReady;
-    if (cacheReady !== undefined) await cacheReady;
-    const token = await getAccessToken().catch(() => null);
+    await localReady;
+    if (isHalted()) {
+      connecting = false;
+      return;
+    }
+    const token = await getAccessToken(forceTokenRefresh).catch(() => null);
+    if (token !== null) forceTokenRefresh = false;
     connecting = false;
+    if (!ensureAccess()) return;
     if (isDestroyed()) {
       // destroy() may have run while the token was being fetched; the narrowing above
       // cannot see that, so the check goes through a call the compiler treats as opaque.
@@ -505,6 +778,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       ready = false;
       initialSynced = false;
       rejectBarriers('The document disconnected before its changes were confirmed.');
+      failInitial('The document disconnected before its download was confirmed.');
 
       if (destroyed || halted) {
         return;
@@ -519,6 +793,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       );
 
       const verdict = classifyClose(event.code);
+      if (event.code === CLOSE_UNAUTHENTICATED) forceTokenRefresh = true;
       onState(verdict.state);
       if (event.code === CLOSE_SCHEMA_MISMATCH) {
         onNotice?.({
@@ -533,14 +808,18 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         event.code === CLOSE_BODY_LOCKED
       ) {
         // No body this device may no longer read stays readable from it.
-        discardCache();
-      }
-      if (event.code === CLOSE_REVOKED) {
-        restoredDrafts = [];
-        void draft?.discard().catch(() => {
-          options.onDraftState?.('error');
+        cacheInvalid = true;
+        discardCache(true, event.code === CLOSE_BODY_LOCKED ? 'locked' : 'refused');
+        halted = true;
+        mode = 'read';
+        onState('readonly');
+        onNotice?.({
+          code: event.code === CLOSE_REVOKED ? 'access_revoked' : 'body_access_unavailable',
+          detail:
+            event.code === CLOSE_BODY_LOCKED
+              ? 'This note is locked. Pending edits remain on this device.'
+              : 'Access to this note is unavailable. Pending edits remain on this device.',
         });
-        onNotice?.({ code: 'access_revoked', detail: 'Access to this document was revoked.' });
       }
       scheduleReconnect(verdict.delayMs ?? retryMs);
       if (verdict.delayMs === undefined) {
@@ -550,16 +829,28 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   }
 
   function handleMessage(from: ProviderSocket, data: unknown): void {
+    if (destroyed || halted || from !== socket || !ensureAccess()) return;
     if (typeof data === 'string') {
       const frame = JSON.parse(data) as { type?: string; mode?: string; docId?: unknown };
       if (frame.type === 'ready') {
         const joined = typeof frame.docId === 'string' ? frame.docId : null;
-        if (cachedDocId !== null && joined !== cachedDocId) {
+        const draftIdentities = restoredDrafts.map((record) => record.docId);
+        const localIdentity = `local:${itemId}`;
+        if (
+          (cachedDocId !== null && joined !== cachedDocId) ||
+          (serverDocId !== null && joined !== serverDocId) ||
+          draftIdentities.some((identity) =>
+            identity === undefined
+              ? cachedDocId === null
+              : identity !== joined && identity !== localIdentity,
+          )
+        ) {
           // The copy painted on open belongs to a different server document than the one this
           // item now has - or the service did not say which document it joined, which is the same
           // question left unanswered. Syncing would push its content into the new one, so stop here, drop
           // the copy, and ask for a reload, which opens the current document from scratch.
           halted = true;
+          failInitial('The local copy belongs to another document.');
           discardCache();
           onState('degraded');
           onNotice?.({
@@ -570,34 +861,16 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
           return;
         }
         serverDocId = joined;
+        if (joined !== null)
+          void draft?.bindDocument(joined, cacheWriteAdmitted).catch(() => {
+            options.onDraftState?.('error');
+          });
+        initialFailure = null;
         initialSynced = false;
         ready = true;
         writeRefused = false;
         retryMs = minRetryMs;
         mode = frame.mode === 'read' ? 'read' : 'write';
-        if (mode === 'write' && restoredDrafts.length > 0) {
-          for (const record of restoredDrafts) {
-            try {
-              Y.applyUpdate(doc, record.update, restoreOrigin);
-              pending.push(record.update);
-            } catch {
-              writeRefused = true;
-              options.onDraftState?.('error');
-              onNotice?.({
-                code: 'local_draft_unreadable',
-                detail:
-                  'A saved draft could not be recovered. Keep this device’s data until the draft is recovered.',
-              });
-            }
-          }
-          localRevision += 1;
-          restoredDrafts = [];
-        } else if (mode === 'read') {
-          restoredDrafts = [];
-          void draft?.discard().catch(() => {
-            options.onDraftState?.('error');
-          });
-        }
 
         // Both sides open with sync step 1: the server's pulls this document's offline
         // edits, and this one pulls everything the server holds.
@@ -632,7 +905,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     }
 
     const bytes = toBytes(data);
-    if (bytes === null) {
+    if (bytes === null || !ready) {
       return;
     }
 
@@ -644,11 +917,13 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_SYNC);
         const kind = syncProtocol.readSyncMessage(decoder, encoder, doc, REMOTE_ORIGIN);
-        if (encoding.length(encoder) > 1) {
+        if (mode === 'write' && encoding.length(encoder) > 1) {
           from.send(encoding.toUint8Array(encoder));
         }
         if (kind === syncProtocol.messageYjsSyncStep2) {
           initialSynced = true;
+          for (const waiter of initialWaiters) waiter.resolve();
+          initialWaiters.clear();
           options.onInitialSync?.();
           // The first copy of a document this device has none of is worth making even if the
           // server sent it as one unchanged-looking state; an existing copy waits for a change.
@@ -675,9 +950,6 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
           // The server stopped accepting this session's writes - a revoked grant, told
           // honestly instead of silently dropping edits.
           mode = 'read';
-          void draft?.discard().catch(() => {
-            options.onDraftState?.('error');
-          });
           report();
         }
         if (typeof notice.code === 'string') {
@@ -699,8 +971,8 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     }
   }
 
-  onState('connecting');
-  void connect();
+  onState(options.offline ? 'offline' : 'connecting');
+  if (!options.offline) void connect();
 
   const sync: CollabSync = {
     awareness,
@@ -717,25 +989,62 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       }
       flushPending();
 
-      barrierSequence += 1;
-      const barrierId = `${String(doc.clientID)}-${String(barrierSequence)}`;
-      return new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          barriers.delete(barrierId);
-          reject(new Error('The document changes were not confirmed in time.'));
-        }, BARRIER_TIMEOUT_MS);
-        barriers.set(barrierId, { resolve, reject, timer });
-        const encoder = encoding.createEncoder();
-        encoding.writeVarUint(encoder, MESSAGE_PERSISTENCE_BARRIER);
-        encoding.writeVarString(encoder, barrierId);
-        try {
-          current.send(encoding.toUint8Array(encoder));
-        } catch (reason) {
-          clearTimeout(timer);
-          barriers.delete(barrierId);
-          reject(reason instanceof Error ? reason : new Error('The document could not be saved.'));
-        }
+      return persistenceBarrier();
+    },
+    async flushLocal(): Promise<void> {
+      await localReady;
+      await draft?.snapshot();
+      if (destroyed) unregisterLocalProvider();
+      else if (halted && !cacheInvalid && initialFailure !== null) throw initialFailure;
+    },
+    async syncAndCache(signal?: AbortSignal): Promise<void> {
+      if (options.offline) throw new Error('This local note has not been published.');
+      signal?.throwIfAborted();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let waiter: { resolve: () => void; reject: (error: Error) => void } | undefined;
+      let aborted: (() => void) | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error('The offline download did not finish in time.'));
+        }, 30_000);
+        aborted = () => {
+          reject(new Error('The offline download was cancelled.'));
+        };
+        signal?.addEventListener('abort', aborted, { once: true });
       });
+      const operation = async (): Promise<void> => {
+        await localReady;
+        if (destroyed) throw new Error('The document was closed.');
+        if (initialFailure !== null) throw initialFailure;
+        if (!initialSynced)
+          await new Promise<void>((resolve, reject) => {
+            waiter = { resolve, reject };
+            initialWaiters.add(waiter);
+          });
+        signal?.throwIfAborted();
+        if (hasWriteRefusal()) throw new Error('The server refused an edit.');
+        if (mode === 'read' && localRevision !== confirmedRevision)
+          throw new Error('This note is read-only. Pending edits remain saved on this device.');
+        while (localRevision !== confirmedRevision) {
+          signal?.throwIfAborted();
+          if (isDestroyed() || isHalted())
+            throw new Error('The document was closed before its changes were confirmed.');
+          await confirm();
+        }
+        signal?.throwIfAborted();
+        const update = Y.encodeStateAsUpdate(doc);
+        await persistenceBarrier();
+        if (hasWriteRefusal()) throw new Error('The server refused an edit.');
+        signal?.throwIfAborted();
+        await cacheConfirmed(update);
+      };
+      try {
+        await Promise.race([operation(), timeout]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        if (waiter !== undefined) initialWaiters.delete(waiter);
+        if (aborted !== undefined) signal?.removeEventListener('abort', aborted);
+      }
     },
     destroy(): void {
       // Last chance for anything still waiting on the flush timer. Closing the editor is exactly
@@ -752,6 +1061,11 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       saveSnapshot();
 
       destroyed = true;
+      stopBodyForgetting();
+      // Keep a closing editor in the flush registry until its final owner edits are durable.
+      // Refusal can unmount it synchronously while its IndexedDB writes are still queued.
+      void (draft?.snapshot() ?? Promise.resolve()).then(unregisterLocalProvider, () => undefined);
+      failInitial('The document was closed before its download completed.');
       unregisterPending();
       clearInterval(confirmationTimer);
       browserWindow?.removeEventListener('online', resume);
@@ -769,20 +1083,39 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       socket = null;
     },
   };
+
+  function unregisterLocalProvider(): void {
+    if (options.draftScope === undefined) return;
+    const providers = localProviders.get(options.draftScope);
+    providers?.delete(sync);
+    if (providers?.size === 0) localProviders.delete(options.draftScope);
+  }
   async function confirm(): Promise<void> {
-    if (localRevision === confirmedRevision || confirming || destroyed) return;
-    confirming = true;
-    const revision = localRevision;
-    try {
+    if (confirming !== null) return confirming;
+    if (localRevision === confirmedRevision || destroyed) return;
+    confirming = (async () => {
+      if (!initialSynced || serverDocId === null)
+        throw new Error('The initial document sync has not completed.');
+      await draft?.bindDocument(serverDocId, cacheWriteAdmitted);
       const records = (await draft?.snapshot()) ?? [];
+      const revision = localRevision;
+      const update = cache === null ? null : Y.encodeStateAsUpdate(doc);
       if (hasWriteRefusal()) throw new Error('The server refused an edit.');
       await sync.flushAndWait();
       if (hasWriteRefusal()) throw new Error('The server refused an edit.');
-      await draft?.acknowledge(records);
+      if (update !== null) await cacheConfirmed(update);
+      await draft?.acknowledge(records, cacheWriteAdmitted);
+      restoredDrafts = restoredDrafts.filter(
+        (record) =>
+          !records.some((acked) => acked.id === record.id && acked.revision === record.revision),
+      );
       confirmedRevision = revision;
       markSnapshotDirty();
+    })();
+    try {
+      await confirming;
     } finally {
-      confirming = false;
+      confirming = null;
     }
   }
   const unregisterPending = registerPendingWork(async () => {
@@ -796,7 +1129,7 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
     void confirm().catch(() => undefined);
   }, 2_000);
   const resume = (): void => {
-    if (destroyed || connecting) return;
+    if (options.offline || destroyed || connecting) return;
     if (retryTimer !== null) {
       clearTimeout(retryTimer);
       retryTimer = null;
@@ -817,6 +1150,11 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   };
   browserWindow?.addEventListener('online', resume);
   browserDocument?.addEventListener('visibilitychange', visible);
+  if (options.draftScope !== undefined) {
+    const providers = localProviders.get(options.draftScope) ?? new Set<CollabSync>();
+    providers.add(sync);
+    localProviders.set(options.draftScope, providers);
+  }
   return sync;
 }
 

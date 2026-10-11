@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as Y from 'yjs';
-import { prosemirrorJSONToYDoc, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
+import {
+  prosemirrorJSONToYDoc,
+  updateYFragment,
+  yXmlFragmentToProseMirrorRootNode,
+} from 'y-prosemirror';
 import { nixSchema } from '@nix/editor-schema';
 import { markdownToDocument } from '@nix/markdown';
 import { readBodyMarkdown, writeBodyMarkdown } from './body.ts';
@@ -19,17 +23,35 @@ function updateFor(prose: unknown): string {
   return Buffer.from(Y.encodeStateAsUpdate(ydoc)).toString('base64');
 }
 
-function updatesPage(updates: { seq: number; update: string }[], hasMore = false): Response {
+function updatesPage(
+  updates: { seq: number | string; update: string }[],
+  hasMore = false,
+  checkpoint?: { seq: string; update: string },
+): Response {
   return new Response(
     JSON.stringify({
       docId: 'd1',
-      headSeq: updates.at(-1)?.seq ?? 0,
+      headSeq: updates.at(-1)?.seq ?? checkpoint?.seq ?? 0,
       schemaVersion: 2,
       updates,
       hasMore,
+      ...(checkpoint === undefined ? {} : { checkpoint }),
     }),
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
+}
+
+function checkpointAndTail(): { checkpoint: string; tail: string } {
+  const ydoc = prosemirrorJSONToYDoc(nixSchema, doc('Retained checkpoint'), 'default');
+  const checkpoint = Buffer.from(Y.encodeStateAsUpdate(ydoc)).toString('base64');
+  const before = Y.encodeStateVector(ydoc);
+  updateYFragment(
+    ydoc,
+    ydoc.getXmlFragment('default'),
+    nixSchema.nodeFromJSON(doc('Retained checkpoint and tail')),
+    { mapping: new Map(), isOMark: new Map() },
+  );
+  return { checkpoint, tail: Buffer.from(Y.encodeStateAsUpdate(ydoc, before)).toString('base64') };
 }
 
 /** Canonicalise a prose doc through the schema so a comparison is over meaning, not defaults. */
@@ -88,9 +110,188 @@ describe('readBodyMarkdown', () => {
     expect(body.markdown.trim()).toBe('page one only');
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
+
+  it('reads a retained checkpoint and its tail after covered updates were pruned', async () => {
+    const { checkpoint, tail } = checkpointAndTail();
+    const body = await readBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      fetchImpl: () =>
+        Promise.resolve(
+          updatesPage([{ seq: '13', update: tail }], false, { seq: '12', update: checkpoint }),
+        ),
+    });
+    expect(body.markdown.trim()).toBe('Retained checkpoint and tail');
+    expect(body.empty).toBe(false);
+  });
+
+  it('reads a checkpoint-only body without reporting it empty', async () => {
+    const { checkpoint } = checkpointAndTail();
+    const body = await readBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      fetchImpl: () => Promise.resolve(updatesPage([], false, { seq: '12', update: checkpoint })),
+    });
+    expect(body.markdown.trim()).toBe('Retained checkpoint');
+    expect(body.empty).toBe(false);
+  });
+
+  it('skips checkpoint-covered pages and advances without losing sequence precision', async () => {
+    const { checkpoint, tail } = checkpointAndTail();
+    const fetchImpl = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(
+        updatesPage([{ seq: '1', update: checkpoint }], true, {
+          seq: '9007199254740992',
+          update: checkpoint,
+        }),
+      )
+      .mockResolvedValueOnce(updatesPage([{ seq: '9007199254740993', update: tail }]));
+    const body = await readBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      fetchImpl,
+    });
+    expect(body.markdown.trim()).toBe('Retained checkpoint and tail');
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      `${COLLAB}/documents/${ITEM}/updates?after=9007199254740992`,
+      expect.anything(),
+    );
+  });
+
+  it('refuses invalid catch-up data and a document identity change during pagination', async () => {
+    await expect(
+      readBodyMarkdown({
+        collabUrl: COLLAB,
+        itemId: ITEM,
+        token: TOKEN,
+        fetchImpl: () => Promise.resolve(new Response('{"checkpoint":{"seq":"-1"}}')),
+      }),
+    ).rejects.toThrow();
+    const fetchImpl = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(
+        updatesPage([{ seq: 1, update: updateFor(doc('First document')) }], true),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            docId: 'replaced',
+            headSeq: '1',
+            schemaVersion: 2,
+            updates: [],
+            hasMore: false,
+          }),
+        ),
+      );
+    await expect(
+      readBodyMarkdown({ collabUrl: COLLAB, itemId: ITEM, token: TOKEN, fetchImpl }),
+    ).rejects.toThrow('changed during this read');
+  });
 });
 
 describe('writeBodyMarkdown', () => {
+  it('guards the caught-up document identity and surfaces replacement refusals', async () => {
+    const fetchImpl = vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/updates?after=')) {
+        return Promise.resolve(updatesPage([{ seq: 1, update: updateFor(doc('Current body')) }]));
+      }
+      if (typeof init?.body !== 'string') throw new Error('Expected a JSON update.');
+      const posted: unknown = JSON.parse(init.body);
+      expect(posted).toMatchObject({ expectedDocId: 'd1' });
+      return Promise.resolve(
+        new Response('{"detail":"The note body was replaced. Recover the pending draft."}', {
+          status: 409,
+        }),
+      );
+    });
+    await expect(
+      writeBodyMarkdown({
+        collabUrl: COLLAB,
+        itemId: ITEM,
+        token: TOKEN,
+        markdown: 'Must not enter a different document.',
+        fetchImpl,
+      }),
+    ).rejects.toThrow('The note body was replaced. Recover the pending draft.');
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['gap', 'pruned tail'])(
+    'refuses an incomplete %s before posting a write',
+    async (kind) => {
+      const { checkpoint, tail } = checkpointAndTail();
+      const fetchImpl = vi
+        .fn<() => Promise<Response>>()
+        .mockResolvedValueOnce(updatesPage([{ seq: '1', update: checkpoint }], true))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              docId: 'd1',
+              headSeq: '3',
+              schemaVersion: 2,
+              updates: kind === 'gap' ? [{ seq: '3', update: tail }] : [],
+              hasMore: false,
+            }),
+          ),
+        );
+      await expect(
+        writeBodyMarkdown({
+          collabUrl: COLLAB,
+          itemId: ITEM,
+          token: TOKEN,
+          markdown: 'Must not overwrite missing content.',
+          fetchImpl,
+        }),
+      ).rejects.toThrow('retained checkpoint');
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('preserves document identities when replacing a pruned checkpoint and tail', async () => {
+    const { checkpoint, tail } = checkpointAndTail();
+    let posted: string | undefined;
+    await writeBodyMarkdown({
+      collabUrl: COLLAB,
+      itemId: ITEM,
+      token: TOKEN,
+      markdown: 'Changed after retention.',
+      fetchImpl: (url, init) => {
+        if (url.includes('/updates?after='))
+          return Promise.resolve(
+            updatesPage([{ seq: '13', update: tail }], false, { seq: '12', update: checkpoint }),
+          );
+        if (typeof init?.body !== 'string') throw new Error('Expected a JSON update.');
+        const body: unknown = JSON.parse(init.body);
+        if (
+          typeof body !== 'object' ||
+          body === null ||
+          !('update' in body) ||
+          typeof body.update !== 'string'
+        )
+          throw new Error('Expected a base64 update.');
+        posted = body.update;
+        return Promise.resolve(new Response('{"seq":"14"}', { status: 202 }));
+      },
+    });
+    expect(posted).toBeDefined();
+    if (posted === undefined) throw new Error('The write did not post an update.');
+    const reconstructed = new Y.Doc();
+    for (const update of [checkpoint, tail, posted])
+      Y.applyUpdate(reconstructed, new Uint8Array(Buffer.from(update, 'base64')));
+    const expected: unknown = nixSchema.nodeFromJSON(doc('Changed after retention.')).toJSON();
+    expect(
+      yXmlFragmentToProseMirrorRootNode(
+        reconstructed.getXmlFragment('default'),
+        nixSchema,
+      ).toJSON(),
+    ).toEqual(expected);
+  });
+
   it('posts a delta that reconstructs the intended body over the current state', async () => {
     const starting = updateFor(doc('the old body'));
     let posted: string | null = null;
@@ -201,9 +402,12 @@ describe('writeBodyMarkdown', () => {
       unsupportedImageAddresses: 5,
       inlineImagesFlattened: 6,
     };
-    const fetchImpl = vi.fn(() =>
-      Promise.resolve(new Response(JSON.stringify({ seq: '1' }), { status: 202 })),
-    );
+    const fetchImpl = vi.fn((_url: string, init?: RequestInit) => {
+      if (typeof init?.body !== 'string') throw new Error('Expected a JSON update.');
+      const posted: unknown = JSON.parse(init.body);
+      expect(posted).not.toHaveProperty('expectedDocId');
+      return Promise.resolve(new Response(JSON.stringify({ seq: '1' }), { status: 202 }));
+    });
 
     const result = await writeBodyMarkdown({
       collabUrl: COLLAB,

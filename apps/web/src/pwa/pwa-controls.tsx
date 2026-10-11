@@ -129,7 +129,7 @@ export function PwaControls({ compact = false }: { readonly compact?: boolean })
         >
           {offline ? (
             <Text variant="caption" role="status">
-              Offline. Reconnect to open documents and sync changes.
+              Offline. Open notes saved on this device. Changes sync when you reconnect.
             </Text>
           ) : (
             <Text variant="caption" tone="muted">

@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
-import { updatesAfter } from '../../db/documents.ts';
+import { snapshotAtOrBefore, updatesAfter } from '../../db/documents.ts';
 import { withTenantScope } from '../../db/tenant-scope.ts';
 import { strategyFor } from '../../documents/body-kinds.ts';
 import { LIMITS, rejection } from '../../documents/limits.ts';
 import { CATCH_UP_LIMIT, applyUpdate, openDocument } from '../../documents/service.ts';
 import { establish, refreshResident, type RouteDependencies } from '../context.ts';
-import { decodeBase64, parseAfterCursor } from '../params.ts';
+import { decodeBase64, isUuid, parseAfterCursor } from '../params.ts';
 import { problem } from '../replies.ts';
 
 /** The update log over plain HTTP: catch up from a sequence, and append one update. */
@@ -19,7 +19,10 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
       return reply;
     }
 
-    const { after } = request.query as { after?: string };
+    const { after, fromCheckpoint } = request.query as {
+      after?: string;
+      fromCheckpoint?: string;
+    };
     const afterSeq = parseAfterCursor(after);
     if (afterSeq === null) {
       return problem(reply, 400, 'invalid_cursor', "'after' must be a non-negative integer.");
@@ -38,11 +41,15 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
         return problem(reply, 404, 'document_not_found', 'No document body is visible.');
       }
 
+      const checkpoint =
+        afterSeq === 0n
+          ? await snapshotAtOrBefore(sql, context.scope.tenantId, doc.doc_id, BigInt(doc.head_seq))
+          : null;
       const rows = await updatesAfter(
         sql,
         context.scope.tenantId,
         doc.doc_id,
-        afterSeq,
+        fromCheckpoint === 'true' && checkpoint !== null ? BigInt(checkpoint.seq) : afterSeq,
         CATCH_UP_LIMIT,
       );
 
@@ -50,6 +57,16 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
         docId: doc.doc_id,
         headSeq: doc.head_seq,
         schemaVersion: doc.schema_version,
+        canWrite: context.canWrite,
+        // Retained checkpoints cover pruned log rows; keep the legacy update page for older readers.
+        ...(checkpoint === null
+          ? {}
+          : {
+              checkpoint: {
+                seq: checkpoint.seq,
+                update: Buffer.from(checkpoint.yjs_state).toString('base64'),
+              },
+            }),
         // Base64 rather than a binary body, because a catch-up returns many updates and a
         // multipart response would be a bespoke framing for both sides to get wrong.
         updates: rows.map((row) => ({
@@ -77,7 +94,8 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
       return problem(reply, refusal.status, refusal.code, refusal.detail);
     }
 
-    const body = request.body as { update?: unknown; clientId?: unknown } | undefined;
+    const body = request.body as
+      { update?: unknown; clientId?: unknown; expectedDocId?: unknown } | undefined;
     if (typeof body?.update !== 'string' || typeof body.clientId !== 'string') {
       return problem(
         reply,
@@ -86,6 +104,14 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
         'Expected { update: base64 string, clientId: string }.',
       );
     }
+
+    if (
+      body.expectedDocId !== undefined &&
+      (typeof body.expectedDocId !== 'string' || !isUuid(body.expectedDocId))
+    ) {
+      return problem(reply, 400, 'invalid_body', "'expectedDocId' must be a UUID.");
+    }
+    const expectedDocId = body.expectedDocId?.toLowerCase();
 
     // Applied before any database work: backpressure that costs a round trip is not much
     // backpressure.
@@ -115,6 +141,10 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
         return null;
       }
 
+      if (expectedDocId !== undefined && expectedDocId !== doc.doc_id) {
+        return { kind: 'document_changed' } as const;
+      }
+
       const applied = await applyUpdate(sql, {
         tenantId: context.scope.tenantId,
         doc,
@@ -132,11 +162,19 @@ export function registerUpdateRoutes(app: FastifyInstance, deps: RouteDependenci
         strategy: strategyFor(context.bodyKind),
       });
 
-      return { docId: doc.doc_id, applied };
+      return { kind: 'applied', docId: doc.doc_id, applied } as const;
     });
 
     if (outcome === null) {
       return problem(reply, 404, 'document_not_found', 'No document body is visible.');
+    }
+    if (outcome.kind === 'document_changed') {
+      return problem(
+        reply,
+        409,
+        'document_changed',
+        'The document body changed before this upload.',
+      );
     }
     const { docId, applied } = outcome;
     if (!applied.ok) {

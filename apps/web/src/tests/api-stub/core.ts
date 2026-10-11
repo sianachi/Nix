@@ -1,4 +1,5 @@
 import { vi } from 'vitest';
+import { useSessionStore } from '../../auth/session-store';
 import type { TemplateInitialization } from '@nix/api-client';
 import { item, STUB_WORKSPACE_ID } from './resources/items';
 import type { StubItem } from './resources/items';
@@ -872,6 +873,21 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
             ? await request.clone().text()
             : await request.clone().blob());
       const parsedUrl = new URL(url, globalThis.location.origin);
+
+      if (parsedUrl.pathname === '/auth/session' && method === 'GET') {
+        const profile = useSessionStore.getState().profile ?? {
+          subject: 'test-subject',
+          name: 'Test Person',
+          email: null,
+        };
+        return json({
+          authenticated: true,
+          configured: true,
+          profile: { subject: profile.subject, name: profile.name },
+          accessToken: 'core-session-token',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+        });
+      }
 
       if (parsedUrl.pathname === '/auth/token' && method === 'POST') {
         return Promise.resolve(

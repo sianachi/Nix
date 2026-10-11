@@ -1,3 +1,4 @@
+import { createNixClient } from '@nix/api-client';
 import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5,8 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderAt, signedIn } from '../../render-with-router';
 import { aContainer } from '../../container-fixture';
 import { aView } from '../../view-fixture';
-import { ApiClientProvider } from '../../../api/api-client-provider';
-import { AuthProvider } from '../../../auth/auth-provider';
+import { ApiClientOverrideProvider } from '../../../api/api-client-provider';
 import type { View } from '../../../views/core/container-model';
 import { QueryView } from '../../../views/query/query-view';
 import { hiddenItemsKey, readHiddenItems, writeHiddenItems } from '../../../lib/view-hidden-items';
@@ -56,17 +56,6 @@ function stubRun(body: unknown, status = 200): void {
     'fetch',
     vi.fn((input: string | URL) => {
       const url = typeof input === 'string' ? input : input.href;
-      if (url.endsWith('/auth/token')) {
-        return Promise.resolve(
-          new Response(
-            JSON.stringify({
-              accessToken: 'core-session-token',
-              expiresAt: '2099-01-01T00:00:00.000Z',
-            }),
-            { headers: { 'content-type': 'application/json' } },
-          ),
-        );
-      }
       if (!url.includes('/query?view=')) {
         return Promise.reject(new Error(`Unexpected request: ${url}`));
       }
@@ -94,12 +83,17 @@ function results(rows: readonly unknown[], truncated = false): unknown {
 }
 
 function renderQueryView(view: View = OVERDUE_VIEW, onOpen = vi.fn()): ReturnType<typeof vi.fn> {
+  const client = createNixClient({
+    baseUrl: window.location.origin,
+    tokens: {
+      getAccessToken: () => Promise.resolve('query-view-test-token'),
+      refreshAccessToken: () => Promise.resolve(null),
+    },
+  });
   renderAt(
-    <AuthProvider>
-      <ApiClientProvider>
-        <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
-      </ApiClientProvider>
-    </AuthProvider>,
+    <ApiClientOverrideProvider client={client}>
+      <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
+    </ApiClientOverrideProvider>,
   );
   return onOpen;
 }

@@ -145,7 +145,12 @@ export function learnBody(scope: string, text: string): void {
 export function libraryModels(subject: string, workspaceId: string, except?: string): NgramModel[] {
   const models: NgramModel[] = [];
   for (const [scope, body] of library) {
-    if (scope !== except && body.subject === subject && body.workspaceId === workspaceId) {
+    if (
+      scope !== except &&
+      body.subject === subject &&
+      body.workspaceId === workspaceId &&
+      bodyCacheAdmits(scope)
+    ) {
       models.push(body.model);
     }
   }

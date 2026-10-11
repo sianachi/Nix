@@ -5,6 +5,7 @@ import { ItemDialogProvider } from '../items/item-dialog-provider';
 import { MobileNavigation } from './mobile-navigation';
 import { petAttentionText, usePetAttention } from '../pets/pet-attention';
 import { PwaControls } from '../pwa/pwa-controls';
+import { OfflineStatus } from '../offline/offline-status';
 import { useRememberLocation } from '../pwa/use-remember-location';
 import { focusRing } from '@nix/ui';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
@@ -654,6 +655,7 @@ export function AppShell(): ReactNode {
             clears this region's measured height, clears the player too. Hidden while the software
             keyboard is up, when the room is better spent on the text being typed. */}
         {keyboardVisible || zen ? null : <MiniPlayer onOpen={openPinned} />}
+        {zen ? null : <OfflineStatus />}
         {zen ? null : <PwaControls compact={keyboardVisible} />}
         {navRendered ? (
           <MobileNavigation

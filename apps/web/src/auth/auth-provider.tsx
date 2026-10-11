@@ -3,15 +3,38 @@ import { clearAudioPositions } from '../lib/audio-positions';
 import { forgetThumbnails } from '../lib/thumbnail-cache';
 import { clearPendingDailyTemplate } from '../lib/pending-daily-template';
 import { clearPetDrafts } from '../pets/pet-drafts';
-import { clearBodyCache, openBodyCache } from '../editor/body-cache';
+import {
+  bodyCacheAccountEpoch,
+  bodyCacheCleanupCurrent,
+  clearBodyCache,
+  openBodyCache,
+  sealAccountBodies,
+} from '../editor/body-cache';
 import { clearFrecency } from '../lib/frecency';
 import { clearSuggestionDismissals } from '../lib/suggestion-dismissals';
 import { clearDrafts } from '../editor/draft-journal';
 import { clearInterruptedImport } from '../import/import-interrupted-notice';
-import { createContext, use, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { z } from 'zod';
 
 import { getServiceWorkerRegistration } from '../pwa/register-service-worker';
+import { clearOfflineNoteAssets } from '../offline/offline-assets';
+import {
+  clearOfflineData,
+  forgetOfflineAccount,
+  readOfflineAccount,
+  rememberOfflineAccount,
+  setOfflineProgress,
+} from '../offline/offline-store';
 import { useSessionStore, type SessionProfile } from './session-store';
 
 /**
@@ -60,7 +83,9 @@ export interface AuthContextValue {
   /** Revokes the local browser session and clears its cookie. */
   readonly signOut: () => Promise<void>;
   /** Returns a current short-lived Core access token without exposing the session cookie. */
-  readonly getAccessToken: () => Promise<string | null>;
+  readonly getAccessToken: (forceRefresh?: boolean) => Promise<string | null>;
+  /** Closes local account access after an authoritative global session refusal. */
+  readonly handleSessionRefusal: (subject: string) => void;
   /** Whether Core has the interactive provider and its signing key configured. */
   readonly isConfigured: boolean;
   /**
@@ -89,11 +114,6 @@ const browserSessionSchema = z.object({
     .catch(null),
 });
 
-const browserTokenSchema = z.object({
-  accessToken: z.string().min(1),
-  expiresAt: z.iso.datetime({ offset: true }),
-});
-
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function useAuth(): AuthContextValue {
@@ -114,7 +134,7 @@ interface AccessTokenState {
   readonly expiresAt: number;
 }
 
-/** Core could not be reached: no response arrived, or a proxy answered for it. */
+/** Session access is unavailable because transport failed or Core could not serve the request. */
 class CoreUnreachable extends Error {
   constructor(readonly reason: 'offline' | 'server') {
     super(reason === 'offline' ? 'This device is offline.' : 'The Nix server is not answering.');
@@ -186,6 +206,11 @@ async function clearRetiredRecordings(): Promise<void> {
   });
 }
 
+function closeOfflineAccess(subject: string | undefined, epoch: string | null): void {
+  forgetOfflineAccount(subject, epoch);
+  if (subject !== undefined) void sealAccountBodies(subject, epoch).catch(() => undefined);
+}
+
 export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   // True until Core answers so the login screen never flashes a false configuration warning while
   // the session gate is still restoring. The response is authoritative before the gate settles.
@@ -193,6 +218,14 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const [accountUrl, setAccountUrl] = useState<string | null>(null);
   const accessTokenRef = useRef<AccessTokenState | null>(null);
   const refreshRef = useRef<Promise<string | null> | null>(null);
+  const signingOutRef = useRef(false);
+  const sessionGeneration = useRef(0);
+  const restoreController = useRef<AbortController | null>(null);
+  const invalidateSessionRequests = useCallback((): void => {
+    sessionGeneration.current += 1;
+    restoreController.current?.abort();
+    refreshRef.current = null;
+  }, []);
 
   const signInStarted = useSessionStore((state) => state.signInStarted);
   const sessionRestoreCancelled = useSessionStore((state) => state.sessionRestoreCancelled);
@@ -202,6 +235,16 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   const sessionUnreachable = useSessionStore((state) => state.sessionUnreachable);
   const sessionRetryRequested = useSessionStore((state) => state.sessionRetryRequested);
   const restoreAttempt = useSessionStore((state) => state.restoreAttempt);
+  const closeSession = useCallback(
+    (subject: string, reason: string): void => {
+      if (useSessionStore.getState().profile?.subject !== subject) return;
+      invalidateSessionRequests();
+      accessTokenRef.current = null;
+      closeOfflineAccess(subject, bodyCacheAccountEpoch(subject));
+      signedOut(reason);
+    },
+    [invalidateSessionRequests, signedOut],
+  );
 
   useEffect(() => {
     // A remounted provider must not replace a definitive in-memory state with a second restore.
@@ -212,8 +255,27 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
     }
 
     const controller = new AbortController();
-    const isAborted = (): boolean => controller.signal.aborted;
+    restoreController.current = controller;
+    const generation = sessionGeneration.current;
+    const isAborted = (): boolean =>
+      controller.signal.aborted || generation !== sessionGeneration.current;
     let settled = false;
+    let admissionSubject = readOfflineAccount()?.subject ?? null;
+    let admissionEpoch = admissionSubject === null ? null : bodyCacheAccountEpoch(admissionSubject);
+    const admissionChanged = (): boolean => {
+      if (isAborted()) return true;
+      if (
+        (readOfflineAccount()?.subject ?? null) === admissionSubject &&
+        (admissionSubject === null || admissionEpochCurrent())
+      )
+        return false;
+      settled = true;
+      accessTokenRef.current = null;
+      signInFailed('The account changed in another tab. Reload to restore its session.');
+      return true;
+    };
+    const admissionEpochCurrent = (): boolean =>
+      admissionSubject !== null && bodyCacheAccountEpoch(admissionSubject) === admissionEpoch;
     signInStarted();
 
     void fetch('/auth/session', {
@@ -230,9 +292,15 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         throw controller.signal.aborted ? cause : new CoreUnreachable(networkCause());
       })
       .then(async (response) => {
-        // A proxy answering for a Core that is down or restarting.
-        if (response.status === 502 || response.status === 503 || response.status === 504) {
+        if (admissionChanged()) return null;
+        // Unavailable or rate-limited session responses cannot establish an account refusal.
+        if (!response.ok && response.status !== 401 && response.status !== 403) {
           throw new CoreUnreachable('server');
+        }
+        if (response.status === 401 || response.status === 403) {
+          closeOfflineAccess(admissionSubject ?? undefined, admissionEpoch);
+          admissionSubject = null;
+          admissionEpoch = null;
         }
         if (!response.ok) {
           throw new Error('Core could not restore the browser session.');
@@ -241,7 +309,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         return browserSessionSchema.parse(await readJson(response));
       })
       .then(async (session) => {
-        if (controller.signal.aborted) {
+        if (session === null || admissionChanged()) {
           return;
         }
 
@@ -262,32 +330,75 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
           // Opened before the workspace can mount an editor: a different person than the store
           // last belonged to clears it first. A store that cannot be opened stays closed, which
           // costs only the instant first paint.
-          await openBodyCache(profile.subject).catch(() => undefined);
-          // Read through a call: the narrowing above cannot see an abort during the await.
-          if (isAborted()) return;
+          const opening = openBodyCache(profile.subject, { reauthorized: true });
+          const openedEpoch = bodyCacheAccountEpoch(profile.subject);
+          if (admissionSubject === profile.subject) admissionEpoch = openedEpoch;
+          await opening.catch(() => undefined);
+          if (admissionChanged()) return;
+          if (bodyCacheAccountEpoch(profile.subject) !== openedEpoch) {
+            signInFailed('The account changed in another tab. Reload to restore its session.');
+            return;
+          }
+          const remembering = rememberOfflineAccount(profile);
+          admissionSubject = profile.subject;
+          admissionEpoch = openedEpoch;
+          const superseded = await remembering.then(
+            () => false,
+            (error: unknown) => {
+              if (isAborted()) return true;
+              const storedSubject = readOfflineAccount()?.subject;
+              if (
+                (storedSubject !== undefined && storedSubject !== profile.subject) ||
+                bodyCacheAccountEpoch(profile.subject) !== openedEpoch
+              ) {
+                signInFailed('The account changed in another tab. Reload to restore its session.');
+                return true;
+              }
+              forgetOfflineAccount(profile.subject, openedEpoch);
+              admissionSubject = readOfflineAccount()?.subject ?? null;
+              admissionEpoch =
+                admissionSubject === null ? null : bodyCacheAccountEpoch(admissionSubject);
+              setOfflineProgress({
+                status: 'error',
+                error: error instanceof Error ? error.message : 'Offline storage is unavailable.',
+              });
+              return false;
+            },
+          );
+          if (superseded || admissionChanged()) return;
           signInSucceeded(profile);
           return;
         }
 
         accessTokenRef.current = null;
+        closeOfflineAccess(admissionSubject ?? undefined, admissionEpoch);
         signedOut();
       })
-      .catch((error: unknown) => {
-        if (controller.signal.aborted) {
+      .catch(async (error: unknown) => {
+        if (admissionChanged()) {
           return;
         }
 
         settled = true;
         accessTokenRef.current = null;
         if (error instanceof CoreUnreachable) {
-          sessionUnreachable(error.reason);
+          const cached = readOfflineAccount();
+          if (cached !== null) {
+            const opening = openBodyCache(cached.subject);
+            admissionEpoch = bodyCacheAccountEpoch(cached.subject);
+            await opening.catch(() => undefined);
+          }
+          if (admissionChanged()) return;
+          sessionUnreachable(error.reason, cached);
           return;
         }
+        closeOfflineAccess(admissionSubject ?? undefined, admissionEpoch);
         signInFailed(error instanceof Error ? error.message : 'Session could not be restored.');
       });
 
     return () => {
       controller.abort();
+      if (restoreController.current === controller) restoreController.current = null;
       if (!settled) {
         sessionRestoreCancelled();
       }
@@ -318,7 +429,28 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
   }, [restoreAttempt, sessionRetryRequested, status]);
 
   useEffect(() => {
-    const clearSession = (): void => {
+    const clearSession = (event: Event): void => {
+      const detail =
+        event instanceof CustomEvent
+          ? z
+              .object({ subject: z.string().optional(), epoch: z.string().nullable().optional() })
+              .safeParse(event.detail)
+          : null;
+      const notice = detail?.success ? detail.data : undefined;
+      const subject =
+        notice?.subject ??
+        useSessionStore.getState().profile?.subject ??
+        readOfflineAccount()?.subject;
+      const epoch =
+        notice?.epoch ?? (subject === undefined ? null : bodyCacheAccountEpoch(subject));
+      if (
+        notice?.subject !== undefined &&
+        (useSessionStore.getState().profile?.subject !== notice.subject ||
+          !bodyCacheCleanupCurrent(notice.subject, notice.epoch ?? null))
+      )
+        return;
+      invalidateSessionRequests();
+      forgetOfflineAccount(subject, epoch);
       accessTokenRef.current = null;
       refreshRef.current = null;
       signedOut();
@@ -333,17 +465,22 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       void forgetThumbnails();
       // The signing-out tab already cleared the shared store; clearing here as well stops this
       // tab's editors from writing a copy back after it did.
-      if (typeof indexedDB !== 'undefined') void clearBodyCache().catch(() => undefined);
+      if (typeof indexedDB !== 'undefined')
+        void clearBodyCache(subject, epoch).catch(() => undefined);
+      if (typeof indexedDB !== 'undefined')
+        void clearOfflineData(subject, epoch).catch(() => undefined);
+      if (typeof indexedDB !== 'undefined')
+        void clearOfflineNoteAssets(subject, epoch).catch(() => undefined);
       void clearRetiredRecordings().catch(() => undefined);
     };
     window.addEventListener('nix:signed-out-elsewhere', clearSession);
     return () => {
       window.removeEventListener('nix:signed-out-elsewhere', clearSession);
     };
-  }, [signedOut]);
+  }, [invalidateSessionRequests, signedOut]);
 
-  // Load-bearing identity: ApiClientProvider creates one client and retains these functions as its
-  // token contract. They read mutable refs so renewal never requires recreating that client.
+  // ApiClientProvider retains these functions until account identity changes. They read refs so
+  // renewing the same person's token does not recreate their client or its subscriptions.
   const value = useMemo<AuthContextValue>(
     () => ({
       isConfigured: configured,
@@ -362,6 +499,27 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
       },
 
       signOut: async () => {
+        const subject =
+          useSessionStore.getState().profile?.subject ?? readOfflineAccount()?.subject;
+        const epoch = subject === undefined ? null : bodyCacheAccountEpoch(subject);
+        signingOutRef.current = true;
+        const pushToken = accessTokenRef.current?.value ?? null;
+        invalidateSessionRequests();
+        accessTokenRef.current = null;
+        forgetOfflineAccount(subject, epoch);
+        const localClearing =
+          typeof indexedDB === 'undefined'
+            ? Promise.resolve(true)
+            : Promise.all([
+                clearBodyCache(subject, epoch),
+                clearDrafts(subject, epoch),
+                clearOfflineData(subject, epoch),
+                clearOfflineNoteAssets(subject, epoch),
+                clearRetiredRecordings(),
+              ]).then(
+                () => true,
+                () => false,
+              );
         clearInterruptedImport();
         clearFrecency();
         clearSuggestionDismissals();
@@ -370,13 +528,8 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         clearPetDrafts();
         clearPendingDailyTemplate();
         await forgetThumbnails();
-        await unsubscribePushBeforeSignOut(accessTokenRef.current?.value ?? null);
-        const draftsCleared =
-          typeof indexedDB === 'undefined' ||
-          (await Promise.all([clearDrafts(), clearBodyCache(), clearRetiredRecordings()]).then(
-            () => true,
-            () => false,
-          ));
+        await unsubscribePushBeforeSignOut(pushToken);
+        const draftsCleared = await localClearing;
         try {
           await fetch('/auth/logout', {
             method: 'POST',
@@ -388,6 +541,7 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
           accessTokenRef.current = null;
           refreshRef.current = null;
           signedOut();
+          signingOutRef.current = false;
           if (!draftsCleared)
             signInFailed(
               'Signed out. Local drafts, saved pages and recordings could not be cleared. Clear this site’s storage before sharing this device.',
@@ -395,9 +549,31 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
         }
       },
 
-      getAccessToken: async () => {
+      handleSessionRefusal: (subject) => {
+        closeSession(subject, 'Your session is no longer valid. Sign in again to continue.');
+      },
+
+      getAccessToken: async (forceRefresh = false) => {
+        if (signingOutRef.current || useSessionStore.getState().status !== 'authenticated')
+          return null;
+        const generation = sessionGeneration.current;
+        const profile = useSessionStore.getState().profile;
+        const subject = profile?.subject;
+        if (subject === undefined) return null;
+        const epoch = bodyCacheAccountEpoch(subject);
+        const hasCurrentSession = (): boolean =>
+          generation === sessionGeneration.current &&
+          !signingOutRef.current &&
+          useSessionStore.getState().status === 'authenticated' &&
+          useSessionStore.getState().profile?.subject === subject &&
+          bodyCacheAccountEpoch(subject) === epoch;
+        const renewalUnreachable = (cause: 'offline' | 'server'): void => {
+          if (!hasCurrentSession() || useSessionStore.getState().profile !== profile) return;
+          accessTokenRef.current = null;
+          sessionUnreachable(cause, profile);
+        };
         const current = accessTokenRef.current;
-        if (current !== null && current.expiresAt - Date.now() > 30_000) {
+        if (!forceRefresh && current !== null && current.expiresAt - Date.now() > 30_000) {
           return current.value;
         }
 
@@ -405,39 +581,80 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
           return refreshRef.current;
         }
 
-        const refresh = fetch('/auth/token', {
-          method: 'POST',
+        // Renew token and identity together: another tab may have changed the shared BFF cookie.
+        const refresh = fetch('/auth/session', {
+          method: 'GET',
           credentials: 'include',
           cache: 'no-store',
           headers: { Accept: 'application/json' },
         })
+          .catch(() => {
+            throw new CoreUnreachable(networkCause());
+          })
           .then(async (response) => {
-            if (response.status === 401) {
-              accessTokenRef.current = null;
-              signedOut('Your session expired. Sign in again to continue.');
+            if (!hasCurrentSession()) return null;
+            if (response.status === 401 || response.status === 403) {
+              closeSession(subject, 'Your session expired. Sign in again to continue.');
               return null;
             }
 
             if (!response.ok) {
-              return null;
+              throw new CoreUnreachable('server');
             }
 
-            const token = browserTokenSchema.parse(await readJson(response));
+            const parsed = await readJson(response).then(
+              (data) => browserSessionSchema.safeParse(data),
+              () => null,
+            );
+            if (!hasCurrentSession()) return null;
+            if (!parsed?.success) {
+              closeSession(subject, 'Core returned an invalid session. Sign in again to continue.');
+              return null;
+            }
+            const session = parsed.data;
+            if (
+              !session.authenticated ||
+              session.profile === null ||
+              session.accessToken === null ||
+              session.expiresAt === null
+            ) {
+              closeSession(subject, 'Your session expired. Sign in again to continue.');
+              return null;
+            }
+            if (session.profile.subject !== subject) {
+              closeSession(
+                subject,
+                'The account changed in another tab. Sign in again to continue.',
+              );
+              return null;
+            }
             accessTokenRef.current = {
-              value: token.accessToken,
-              expiresAt: Date.parse(token.expiresAt),
+              value: session.accessToken,
+              expiresAt: Date.parse(session.expiresAt),
             };
-            return token.accessToken;
+            return session.accessToken;
           })
-          .catch(() => null)
+          .catch((cause: unknown) => {
+            if (cause instanceof CoreUnreachable) renewalUnreachable(cause.reason);
+            return null;
+          })
           .finally(() => {
-            refreshRef.current = null;
+            if (refreshRef.current === refresh) refreshRef.current = null;
           });
         refreshRef.current = refresh;
         return refresh;
       },
     }),
-    [accountUrl, configured, signInFailed, signInStarted, signedOut],
+    [
+      accountUrl,
+      configured,
+      closeSession,
+      invalidateSessionRequests,
+      signInFailed,
+      signInStarted,
+      signedOut,
+      sessionUnreachable,
+    ],
   );
 
   return <AuthContext value={value}>{children}</AuthContext>;

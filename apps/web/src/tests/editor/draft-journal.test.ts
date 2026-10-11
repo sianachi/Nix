@@ -1,11 +1,26 @@
+import 'fake-indexeddb/auto';
 import * as Y from 'yjs';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createDraftJournal,
   type DraftJournalStore,
   type DraftRecord,
   type DraftState,
+  clearDrafts,
+  acknowledgeDrafts,
+  readDrafts,
+  writeDraft,
+  listDraftScopes,
+  migrateLocalDrafts,
 } from '../../editor/draft-journal';
+import {
+  clearBodyCache,
+  documentScope,
+  openBodyCache,
+  readBodyCache,
+  writeBodyCache,
+  sealItemBodies,
+} from '../../editor/body-cache';
 
 function storage(): DraftJournalStore {
   const records = new Map<string, DraftRecord>();
@@ -76,7 +91,7 @@ describe('pending note drafts', () => {
     store.write = () => Promise.reject(new Error('Quota exceeded'));
     const journal = createDraftJournal('note', (state) => states.push(state), store);
     journal.append(update('Keep in the open tab'));
-    await journal.snapshot();
+    await expect(journal.snapshot()).rejects.toThrow('Quota exceeded');
     expect(states).toEqual(['saving', 'error']);
   });
   it('discards and disables the journal when editing permission is revoked', async () => {
@@ -86,5 +101,133 @@ describe('pending note drafts', () => {
     await journal.discard();
     journal.append(update('After revocation'));
     expect(await journal.snapshot()).toEqual([]);
+  });
+});
+
+describe('account-scoped draft persistence', () => {
+  beforeEach(async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+      removeItem: (key: string) => values.delete(key),
+    });
+    await clearBodyCache();
+    await clearDrafts();
+    await openBodyCache('alice');
+  });
+
+  const scope = (itemId: string): string =>
+    documentScope('alice', 'workspace', itemId, 'note') ?? '';
+
+  it('rejects a late write after sign-out and does not expose another account’s pending scopes', async () => {
+    const journal = createDraftJournal(scope('late'), () => undefined);
+    journal.append(update('Written before sign-out'));
+    await journal.snapshot();
+    expect(await listDraftScopes('alice')).toEqual([scope('late')]);
+    expect(await listDraftScopes('bob')).toEqual([]);
+    await sealItemBodies('alice', 'workspace', 'late');
+    expect(await listDraftScopes('alice')).toEqual([scope('late')]);
+    await expect(acknowledgeDrafts(await readDrafts(scope('late')))).rejects.toThrow('closed');
+    expect(await readDrafts(scope('late'))).toHaveLength(1);
+    await clearBodyCache();
+    await expect(
+      writeDraft({
+        id: 'late',
+        scope: scope('late'),
+        revision: 1,
+        update: update('After sign-out'),
+      }),
+    ).rejects.toThrow('closed');
+  });
+
+  it('recovers more than 128 editor instances without discarding their updates', async () => {
+    for (let index = 0; index < 129; index += 1)
+      await writeDraft({
+        id: String(index),
+        scope: scope('many'),
+        revision: 0,
+        docId: 'doc',
+        update: update(String(index)),
+      });
+    expect(await readDrafts(scope('many'))).toHaveLength(129);
+  });
+
+  it('publishes a local note’s complete state and pending edits once, preserving retries', async () => {
+    const localId = 'local-note';
+    const fromScope = scope(localId);
+    const toScope = scope('server-note');
+    const doc = new Y.Doc();
+    doc.getText('note').insert(0, 'Initial text');
+    const base = Y.encodeStateAsUpdate(doc);
+    const vector = Y.encodeStateVector(doc);
+    doc.getText('note').insert(12, ' and offline edit');
+    await writeBodyCache({
+      scope: fromScope,
+      docId: `local:${localId}`,
+      schemaVersion: 1,
+      savedAt: Date.now(),
+      update: base,
+    });
+    await writeDraft({
+      id: 'local-edit',
+      scope: fromScope,
+      revision: 1,
+      docId: `local:${localId}`,
+      update: Y.encodeStateAsUpdate(doc, vector),
+    });
+    await migrateLocalDrafts(fromScope, toScope);
+    await migrateLocalDrafts(fromScope, toScope);
+    const records = await readDrafts(toScope);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.docId).toBe('local:server-note');
+    const reopened = new Y.Doc();
+    for (const record of records) Y.applyUpdate(reopened, record.update);
+    expect(reopened.getText('note').toJSON()).toBe('Initial text and offline edit');
+    expect(await readDrafts(fromScope)).toEqual([]);
+    expect(await readBodyCache(fromScope)).toBeNull();
+    await writeDraft({ id: 'late-source', scope: fromScope, revision: 1, update: update('Late') });
+    expect(await readDrafts(fromScope)).toEqual([]);
+    expect(await readDrafts(toScope)).toHaveLength(2);
+    doc.destroy();
+    reopened.destroy();
+  });
+
+  it('merges an already-downloaded created item only with its matching creation receipt', async () => {
+    const fromScope = scope('receipt-local');
+    const toScope = scope('receipt-server');
+    await writeBodyCache({
+      scope: fromScope,
+      docId: 'local:receipt-local',
+      schemaVersion: 1,
+      savedAt: Date.now(),
+      update: update('Local text'),
+    });
+    await writeBodyCache({
+      scope: toScope,
+      docId: 'actual-server-doc',
+      schemaVersion: 1,
+      savedAt: Date.now(),
+      update: update('Server text'),
+    });
+    await expect(migrateLocalDrafts(fromScope, toScope)).rejects.toThrow(
+      'existing server document',
+    );
+    await migrateLocalDrafts(fromScope, toScope, { createdItemId: 'receipt-server' });
+    await writeDraft({
+      id: 'late-receipt-source',
+      scope: fromScope,
+      revision: 1,
+      docId: 'local:receipt-local',
+      update: update('Late edit'),
+    });
+    const records = await readDrafts(toScope);
+    expect(records.every((record) => record.docId === 'actual-server-doc')).toBe(true);
+    const doc = new Y.Doc();
+    for (const record of records) Y.applyUpdate(doc, record.update);
+    expect(doc.getText('note').toJSON()).toContain('Local text');
+    expect(doc.getText('note').toJSON()).toContain('Server text');
+    expect(doc.getText('note').toJSON()).toContain('Late edit');
+    doc.destroy();
   });
 });

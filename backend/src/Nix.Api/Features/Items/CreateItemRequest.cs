@@ -7,6 +7,7 @@ namespace Nix.Features.Items;
 /// The kind to create, which says how the item's own body is drawn. <c>note</c> today. It says
 /// nothing about what the item may contain: every item can hold children and offer views.
 /// </param>
+/// <param name="IdempotencyKey">Optional request identity for safely retrying an offline creation.</param>
 /// <param name="Title">The display name.</param>
 /// <param name="Properties">
 /// Values to give the item on creation, or absent for none. Checked against the schema it is about
@@ -25,4 +26,5 @@ internal sealed record CreateItemRequest(
     string Type,
     string Title,
     Guid? ParentId,
-    System.Text.Json.Nodes.JsonObject? Properties);
+    System.Text.Json.Nodes.JsonObject? Properties,
+    Guid? IdempotencyKey = null);
