@@ -161,6 +161,7 @@ beforeEach(() => {
 afterEach(() => {
   active?.destroy();
   active = null;
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -509,20 +510,63 @@ describe('the websocket provider', () => {
     expect(h.notices).toContain('schema_version_mismatch');
   });
 
-  it('reconnects promptly when the app returns to the foreground', async () => {
+  it.each(['visibilitychange', 'online'])(
+    'keeps a responsive connection during %s without restarting synchronization',
+    async (eventName) => {
+      const h = harness();
+      active = h.sync;
+      await settled();
+      const socket = h.latest();
+      socket.open();
+      ready(socket);
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      const target = eventName === 'visibilitychange' ? document : window;
+      target.dispatchEvent(new Event(eventName));
+      target.dispatchEvent(new Event(eventName));
+      const probes = socket.binaryFramesSent().filter((frame) => frame[0] === 3);
+      expect(probes).toHaveLength(1);
+      const probe = probes[0];
+      if (probe === undefined) throw new Error('No connection probe was sent.');
+      socket.receiveBinary(probe);
+      await settled();
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(socket.closedWith).toBeNull();
+      expect(h.sockets).toHaveLength(1);
+      expect(h.tokens).toEqual(['token-0']);
+    },
+  );
+
+  it('reconnects a disconnected note promptly when the app returns to the foreground', async () => {
     const h = harness();
     active = h.sync;
     await settled();
     h.latest().open();
     ready(h.latest());
-    const old = h.latest();
+    h.latest().drop(1006);
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     await settled();
-    expect(old.closedWith).toBe(1000);
     expect(h.sockets).toHaveLength(2);
     expect(h.tokens).toEqual(['token-0', 'token-1']);
-    vi.restoreAllMocks();
+  });
+
+  it('reconnects a half-open note when the foreground connection probe times out', async () => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    await settled();
+
+    expect(socket.closedWith).toBe(1000);
+    expect(h.sockets).toHaveLength(2);
+    expect(h.tokens).toEqual(['token-0', 'token-1']);
   });
 
   it('stops entirely on destroy: socket closed, no reconnect', async () => {

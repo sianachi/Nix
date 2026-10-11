@@ -117,3 +117,23 @@ export const Downloading = {
     await within(canvasElement).findByRole('complementary', { name: 'Offline notes status' });
   },
 };
+export const CollapsedStatus = {
+  render: (): ReactNode => <Fixture downloading />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    const collapse = await canvas.findByRole('button', { name: 'Collapse offline sync status' });
+    collapse.click();
+    await canvas.findByRole('button', { name: 'Show offline sync status' });
+  },
+};
+export const CollapsedError = {
+  ...CollapsedStatus,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await CollapsedStatus.play({ canvasElement });
+    setOfflineProgress({
+      status: 'error',
+      error: 'Storage is full. Pending edits remain saved on this device.',
+    });
+    await within(canvasElement).findByRole('alert');
+  },
+};
