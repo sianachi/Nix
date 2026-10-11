@@ -1096,16 +1096,26 @@ describe('nixctl mcp workspace tools', () => {
     try {
       const result = await connected.client.callTool({
         name: 'pet_runtime',
-        arguments: { operation: 'watch', workspaceId, petId, mode: 'chat', after: 5 },
+        arguments: {
+          operation: 'watch',
+          workspaceId,
+          petId,
+          mode: 'chat',
+          after: 5,
+          rootItemId: workspaceId,
+        },
       });
       expect(result.isError).not.toBe(true);
-      const watchCall = requests.find((request) => request.url.includes('/pets/runtime/watch'));
+      const watchCall = requests.find((request) =>
+        request.url.includes('/pets/runtime/note/watch'),
+      );
       expect(watchCall?.method).toBe('GET');
       const query = new URL(watchCall?.url ?? '').searchParams;
       expect(query.get('workspaceId')).toBe(workspaceId);
       expect(query.get('petId')).toBe(petId);
       expect(query.get('mode')).toBe('chat');
       expect(query.get('after')).toBe('5');
+      expect(query.get('rootItemId')).toBe(workspaceId);
     } finally {
       await connected.close();
     }

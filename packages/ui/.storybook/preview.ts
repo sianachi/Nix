@@ -1,6 +1,8 @@
 import { type Decorator, type Preview } from '@storybook/react-vite';
 import { createElement } from 'react';
 
+import { initializeExcalidrawAssets } from '../../../apps/web/src/lib/excalidraw-assets';
+
 // The product typeface, self-hosted (no font CDN, ever) - the same weights
 // apps/web imports in its Tailwind entry, so stories render in the letterforms
 // the product ships.
@@ -9,6 +11,17 @@ import '@fontsource/nunito-sans/600.css';
 import '@fontsource/nunito-sans/700.css';
 
 import './tailwind.css';
+
+initializeExcalidrawAssets();
+
+// Match the application's touch-editing type floor, including portal content.
+document.body.classList.add(
+  '[@media(any-pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-2xs:var(--text-lg)]',
+  '[@media(any-pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-xs:var(--text-lg)]',
+  '[@media(any-pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-sm:var(--text-lg)]',
+  '[@media(any-pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-base:var(--text-lg)]',
+  '[@media(any-pointer:coarse)]:[&_:is(input,textarea,select,[contenteditable=true])]:[--text-md:var(--text-lg)]',
+);
 
 /**
  * `a11y.test: 'error'` makes an axe finding fail the story under the Vitest

@@ -1,4 +1,4 @@
-import { Button, Text } from '@nix/ui';
+import { Button, Checkbox, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { PropertyInput, isKnownPropertyType } from '../../properties/property-input';
@@ -11,6 +11,7 @@ import type {
 import { resolveLoadState } from '../core/view-chrome';
 import type { ViewRendererProps } from '../core/view-kinds';
 import { reportFormValidity } from './form-validity';
+import { FormResults } from './form-results';
 
 type FormPage = InteractiveFormDefinition['pages'][number];
 
@@ -74,14 +75,16 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
   const answersRef = useRef(answers);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
-  const [complete, setComplete] = useState(false);
+  const [completion, setCompletion] = useState<'saved' | 'temporary' | null>(null);
+  const [saveChoice, setSaveChoice] = useState<boolean | null>(null);
+  const saveResponse = saveChoice ?? view.mode !== 'temporary';
   const [outcome, setOutcome] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const pageHeaderRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     pageHeaderRef.current?.focus();
-  }, [pageIndex, complete]);
+  }, [pageIndex, completion]);
 
   const definitions = new Map(
     (container.schema?.properties ?? []).map((property) => [property.key, property]),
@@ -98,10 +101,21 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
   }
   const definition = form;
 
-  const visiblePages = resolveFlow(definition.pages, answers).pages;
+  const flow = resolveFlow(definition.pages, answers);
+  const visiblePages = flow.pages;
+  const properties: Record<string, PropertyValue> = {};
+  for (const block of visiblePages.flatMap((entry) => entry.blocks)) {
+    if (
+      block.kind === 'field' &&
+      block.propertyKey !== null &&
+      flow.answers[block.id] !== undefined
+    ) {
+      properties[block.propertyKey] = flow.answers[block.id] ?? null;
+    }
+  }
   const page = visiblePages[Math.min(pageIndex, Math.max(0, visiblePages.length - 1))];
 
-  if (complete) {
+  if (completion !== null) {
     return (
       <section
         ref={pageHeaderRef}
@@ -110,11 +124,25 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
         className="flex min-w-0 w-full max-w-xl flex-col gap-2 border border-divider p-3"
       >
         <Text variant="h3" as="h2" className="wrap-anywhere">
-          {definition.confirmationTitle}
+          {completion === 'saved' ? definition.confirmationTitle : 'Results ready'}
         </Text>
         <Text tone="muted" className="wrap-anywhere">
-          {definition.confirmationMessage}
+          {completion === 'saved'
+            ? definition.confirmationMessage
+            : 'No response was saved. These answers stay here until you leave or clear them.'}
         </Text>
+        <FormResults properties={container.schema?.properties ?? []} values={properties} />
+        {completion === 'temporary' ? (
+          <Button
+            variant="secondary"
+            className="self-start"
+            onClick={() => {
+              setCompletion(null);
+            }}
+          >
+            Edit answers
+          </Button>
+        ) : null}
         <Button
           variant="secondary"
           className="self-start"
@@ -122,10 +150,10 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
             setAnswers({});
             answersRef.current = {};
             setPageIndex(0);
-            setComplete(false);
+            setCompletion(null);
           }}
         >
-          Add another response
+          {completion === 'saved' ? 'Add another response' : 'Clear inputs and start again'}
         </Button>
       </section>
     );
@@ -178,6 +206,12 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
     const shownBlocks = flow.pages.flatMap((entry) => entry.blocks);
     if (!validate(shownBlocks)) return;
 
+    if (!saveResponse) {
+      setOutcome(null);
+      setCompletion('temporary');
+      return;
+    }
+
     const properties: Record<string, PropertyValue> = {};
     for (const block of shownBlocks) {
       if (
@@ -204,7 +238,7 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
         setOutcome(refusal);
         return;
       }
-      setComplete(true);
+      setCompletion('saved');
     } catch {
       setOutcome('The response could not be sent. Check the connection and try again.');
     } finally {
@@ -227,6 +261,22 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
         }
       }}
     >
+      <div className="flex min-w-0 flex-col gap-1">
+        <Checkbox
+          label="Save this response"
+          checked={saveResponse}
+          disabled={sending}
+          onChange={(event) => {
+            setSaveChoice(event.target.checked);
+            setOutcome(null);
+          }}
+        />
+        <Text variant="note" tone="muted" className="wrap-anywhere">
+          {saveResponse
+            ? 'Saving adds an ordinary child entry to this note. Image uploads are saved immediately.'
+            : 'Inputs stay in this view only. File uploads and input history are off.'}
+        </Text>
+      </div>
       <header
         ref={pageHeaderRef}
         tabIndex={-1}
@@ -252,6 +302,7 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
           definition={block.propertyKey === null ? undefined : definitions.get(block.propertyKey)}
           value={answers[block.id]}
           error={errors[block.id] ?? null}
+          allowInputStorage={saveResponse}
           onValue={(value) => {
             const next = { ...answersRef.current, [block.id]: value };
             answersRef.current = next;
@@ -277,7 +328,13 @@ export function InteractiveFormView({ container, view }: ViewRendererProps): Rea
           </Button>
         )}
         <Button type="submit" aria-disabled={sending}>
-          {sending ? 'Sending…' : last ? 'Send response' : 'Continue'}
+          {sending
+            ? 'Sending…'
+            : last
+              ? saveResponse
+                ? 'Send response'
+                : 'Show results'
+              : 'Continue'}
         </Button>
       </div>
     </form>
@@ -289,6 +346,7 @@ function InteractiveBlock({
   definition,
   value,
   error,
+  allowInputStorage,
   onValue,
 }: {
   readonly block: FormBlock;
@@ -303,6 +361,7 @@ function InteractiveBlock({
     | undefined;
   readonly value: PropertyValue | undefined;
   readonly error: string | null;
+  readonly allowInputStorage: boolean;
   readonly onValue: (value: PropertyValue) => void;
 }): ReactNode {
   if (block.kind === 'heading')
@@ -331,6 +390,7 @@ function InteractiveBlock({
         item={{ title: '', properties: value === undefined ? {} : { [definition.key]: value } }}
         property={{ ...definition, label: block.text, required: block.required }}
         error={error}
+        allowInputStorage={allowInputStorage}
         onCommit={onValue}
       />
     </div>

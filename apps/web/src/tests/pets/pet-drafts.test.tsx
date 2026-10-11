@@ -9,10 +9,12 @@ it('shares the draft across surfaces, isolates workspace and mode, and clears it
   });
   const b = renderHook(() => usePetDraft('workspace', 'pet', 'chat'));
   const other = renderHook(() => usePetDraft('other', 'pet', 'chat'));
+  const note = renderHook(() => usePetDraft('workspace', 'pet', 'chat', 'note'));
   const consult = renderHook(() => usePetDraft('workspace', 'pet', 'consult'));
   expect(b.result.current[0]).toBe('Private draft');
   expect(other.result.current[0]).toBe('');
   expect(consult.result.current[0]).toBe('');
+  expect(note.result.current[0]).toBe('');
   act(clearPetDrafts);
   expect(a.result.current[0]).toBe('');
   expect(b.result.current[0]).toBe('');

@@ -784,10 +784,11 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
               <Button
                 {...trigger}
                 variant="secondary"
+                className="min-w-0 max-w-full"
                 disabled={!canEditProperty(activeProperty)}
                 aria-label={`Edit ${activeColumn?.label ?? 'property'} for ${(activeItem?.title ?? '') || 'Untitled'}`}
               >
-                Edit {activeColumn?.label ?? 'property'}
+                <span className="truncate">Edit {activeColumn?.label ?? 'property'}</span>
               </Button>
             )}
           >
@@ -857,6 +858,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
         ) : (
           <Button
             variant="secondary"
+            className="min-w-0 max-w-full"
             disabled={!canEditProperty(activeProperty)}
             aria-label={`Edit ${activeColumn?.label ?? 'property'} for ${(activeItem?.title ?? '') || 'Untitled'}`}
             onClick={() => {
@@ -864,7 +866,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                 beginEdit('open', cellText(activeItem, activeColumn));
             }}
           >
-            Edit {activeColumn?.label ?? 'property'}
+            <span className="truncate">Edit {activeColumn?.label ?? 'property'}</span>
           </Button>
         )}
 

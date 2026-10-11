@@ -370,11 +370,11 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 // The Phase D tool version bump (consult mode, validate_blueprint, build_blueprint,
 // save_as_template) must restart any thread that still carries the old schema.
 // TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
-// relative to toolVersion; this pins the constant to 7 for explicit capability and turn limits, so a future bump
+// relative to toolVersion; this pins the constant to 8 for scoped note conversations, so a future bump
 // that forgets to change it would not silently pass either test.
-func TestToolVersionSevenRestartsThreads(t *testing.T) {
-	if toolVersion != 7 {
-		t.Fatalf("capability limits expect toolVersion 7, got %d", toolVersion)
+func TestToolVersionEightRestartsThreads(t *testing.T) {
+	if toolVersion != 8 {
+		t.Fatalf("scoped conversations expect toolVersion 8, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
@@ -394,8 +394,8 @@ func TestToolVersionSevenRestartsThreads(t *testing.T) {
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
 		t.Fatalf("no system notice appended on the version 7 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 7 {
-		t.Fatalf("conversation not recorded at tool version 7: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 8 {
+		t.Fatalf("conversation not recorded at tool version 8: %d", a.conversations[key].ToolVersion)
 	}
 }
 

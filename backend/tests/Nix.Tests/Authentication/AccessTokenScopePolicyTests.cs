@@ -148,8 +148,10 @@ public sealed class AccessTokenScopePolicyTests
         ["SavePetSettings"] = Requirement.Write,
         ["GetPetConnection"] = Requirement.InteractiveOnly,
         ["PetRuntime"] = Requirement.InteractiveOnly,
+        ["PetNoteRuntime"] = Requirement.InteractiveOnly,
         ["PetInlineWrite"] = Requirement.InteractiveOnly,
         ["WatchPetRuntime"] = Requirement.InteractiveOnly,
+        ["WatchPetNoteRuntime"] = Requirement.InteractiveOnly,
 
         // Reading either is a normal Read; a PAT-driven automation should never be able to
         // change where reminders are pushed or which devices receive them.
@@ -395,6 +397,8 @@ public sealed class AccessTokenScopePolicyTests
     [InlineData("GET", "/api/v1/me/tokens")]
     [InlineData("GET", "/api/v1/me/pets/connection")]
     [InlineData("POST", "/api/v1/me/pets/runtime")]
+    [InlineData("POST", "/api/v1/me/pets/runtime/note")]
+    [InlineData("GET", "/api/v1/me/pets/runtime/note/watch")]
     [InlineData("POST", "/api/v1/me/pets/inline")]
     [InlineData("POST", "/api/v1/me/tokens")]
     [InlineData("DELETE", "/api/v1/me/tokens/00000000-0000-0000-0000-000000000001")]

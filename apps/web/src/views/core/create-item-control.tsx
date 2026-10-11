@@ -160,14 +160,14 @@ export function CreateItemControl(props: CreateItemControlProps): ReactNode {
           // 24px floor; the pseudo-element widens the hit target past it without changing what is
           // drawn, the same technique as @nix/ui's PaneDivider and the calendar's all-day chips.
           'relative before:absolute before:-inset-y-0.5 before:inset-x-0',
-          'flex items-center gap-1 rounded-sm px-2 py-1 text-xs text-muted',
+          'flex min-w-0 max-w-full items-center gap-1 rounded-sm px-2 py-1 text-left text-xs text-muted',
           'hover:bg-foreground/7 hover:text-foreground',
           'focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
           className ?? '',
         ].join(' ')}
       >
-        <Icon icon={Plus} size="sm" />
-        {compact ? null : label}
+        <Icon icon={Plus} size="sm" className="shrink-0" />
+        {compact ? null : <span className="min-w-0 wrap-anywhere">{label}</span>}
       </button>
     );
   }

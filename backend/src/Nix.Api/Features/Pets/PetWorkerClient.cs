@@ -8,6 +8,7 @@ using Nix.Domain.Items;
 using Nix.Domain.Primitives;
 using Nix.Domain.Tenancy;
 using Nix.Features.Items;
+using Nix.Features.Locks;
 using Nix.Features.Workspaces;
 using Nix.Messaging;
 using Nix.Persistence.Workspaces;
@@ -38,8 +39,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
     /// <summary>The GET watch path: builds the same worker request <see cref="ExecuteAsync"/>'s
     /// "read" builds - same identity derivation, same workspace permission checks, same persona
     /// handling - with operation "watch" and the client's last known revision.</summary>
-    public Task<Result<PetConnectionResponse>> ExecuteWatchAsync(Guid workspaceId, Guid petId, string mode, long after, CancellationToken cancellationToken) =>
-        ExecuteCoreAsync(new PetRuntimeRequest("watch", workspaceId, petId, Mode: mode), after, cancellationToken);
+    public Task<Result<PetConnectionResponse>> ExecuteWatchAsync(Guid workspaceId, Guid petId, string mode, long after, CancellationToken cancellationToken, Guid? rootItemId = null) =>
+        ExecuteCoreAsync(new PetRuntimeRequest("watch", workspaceId, petId, Mode: mode, RootItemId: rootItemId), after, cancellationToken);
 
     private async Task<Result<PetConnectionResponse>> ExecuteCoreAsync(PetRuntimeRequest request, long after, CancellationToken cancellationToken)
     {
@@ -50,6 +51,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             || request.ToolResult is null || request.ToolResult.Length > 32000
             || request.Operation is "tool_claim" or "tool_result" && (request.RequestId is null || request.RequestId == Guid.Empty || request.ToolId.Length == 0)
             || request.Mode is null || request.Mode is not ("" or "chat" or "consult")
+            || request.RootItemId == Guid.Empty
+            || request.RootItemId is { } scopeRoot && request.ItemId is { } sharedItem && scopeRoot != sharedItem
             || !IsValidTurnContext(request))
         {
             return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Check the message and try again."));
@@ -70,6 +73,22 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                 || !await permissions.CanReadWorkspaceAsync(workspace.Id, cancellationToken).ConfigureAwait(false))
             {
                 return Result.Failure<PetConnectionResponse>(new("pets.not_found", "Workspace is unavailable."));
+            }
+
+            if (request.RootItemId is { } rootItemId)
+            {
+                var root = await dispatcher.QueryAsync<GetItem, Result<Item>>(new(new ItemId(rootItemId)), cancellationToken).ConfigureAwait(false);
+                if (root.IsFailure || root.Value.WorkspaceId.Value != request.WorkspaceId)
+                {
+                    return Result.Failure<PetConnectionResponse>(new("pets.not_found", "The conversation item is unavailable."));
+                }
+
+                var rootLock = await dispatcher.QueryAsync<GetItemLock, Result<ItemLockState>>(
+                    new(new ItemId(rootItemId)), cancellationToken).ConfigureAwait(false);
+                if (rootLock.IsFailure || rootLock.Value is { Locked: true, UnlockedUntil: null })
+                {
+                    return Result.Failure<PetConnectionResponse>(new("pets.not_found", "The conversation item is unavailable."));
+                }
             }
 
             var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), cancellationToken).ConfigureAwait(false);
@@ -122,7 +141,8 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.WorkspaceId?.ToString() ?? "", request.PetId?.ToString() ?? "", request.Operation,
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
-            request.Mode, after, request.Today, request.TimeZone, request.WorkspaceMap, request.ToolLockedContent), PetJsonContext.Default.PetWorkerRequest);
+            request.Mode, after, request.Today, request.TimeZone, request.RootItemId is null ? request.WorkspaceMap : null, request.ToolLockedContent,
+            request.RootItemId?.ToString(), request.ReadOnly), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

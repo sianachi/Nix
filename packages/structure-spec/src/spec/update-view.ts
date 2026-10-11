@@ -44,7 +44,10 @@ export const updateViewSpecSchema = z
         endDateProperty: reference.optional(),
         sortBy: reference.optional(),
         sortDescending: z.boolean().optional(),
-        mode: z.enum(['day', 'week', 'month', 'quarter']).nullable().optional(),
+        mode: z
+          .enum(['day', 'week', 'month', 'quarter', 'temporary', 'saved'])
+          .nullable()
+          .optional(),
         coverProperty: reference.optional(),
         cardSize: z.enum(['small', 'medium', 'large']).nullable().optional(),
         layout: z.enum(['list', 'grid']).nullable().optional(),

@@ -322,6 +322,62 @@ describe('durable offline notes', () => {
     run.sync.destroy();
   });
 
+  it('confirms an edit made while the earlier journal snapshot is being read', async () => {
+    const original = docWith('Saved');
+    const cache = memoryCache(recordOf(original));
+    const run = start(cache, new Y.Doc(), { draftScope: SCOPE });
+    try {
+      await vi.waitFor(() => {
+        expect(run.sockets).toHaveLength(1);
+      });
+      const socket = run.latest();
+      socket.open();
+      socket.ready();
+      socket.receiveStep2(original);
+      run.doc.getText('body').insert(5, ' first');
+      await run.sync.flushLocal();
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- Called below with the actual index receiver.
+      const getAll = IDBIndex.prototype.getAll;
+      let reads = 0;
+      vi.spyOn(IDBIndex.prototype, 'getAll').mockImplementation(function (
+        this: IDBIndex,
+        query?: IDBValidKey | IDBKeyRange | null,
+        count?: number,
+      ) {
+        const request = getAll.call(this, query, count);
+        if (this.name === 'scope' && ++reads === 2)
+          request.addEventListener('success', () => {
+            run.doc.getText('body').insert(run.doc.getText('body').length, ' later');
+          });
+        return request;
+      });
+      const send = socket.send.bind(socket);
+      vi.spyOn(socket, 'send').mockImplementation((data) => {
+        send(data);
+        if (typeof data !== 'string' && data[0] === 3)
+          queueMicrotask(() => {
+            socket.acknowledgeBarrier();
+          });
+      });
+
+      await run.sync.syncAndCache();
+
+      expect(await readDrafts(SCOPE)).toEqual([]);
+      const retained = cache.records.get(SCOPE);
+      if (retained === undefined) throw new Error('The confirmed note was not retained.');
+      const reopened = new Y.Doc();
+      try {
+        Y.applyUpdate(reopened, retained.update);
+        expect(reopened.getText('body').toJSON()).toBe('Saved first later');
+      } finally {
+        reopened.destroy();
+      }
+    } finally {
+      run.sync.destroy();
+      vi.restoreAllMocks();
+    }
+  });
+
   it('downloads a read-only note without replying with local document bytes', async () => {
     const cache = memoryCache();
     const run = start(cache);

@@ -60,7 +60,7 @@ export function DriveMoveDialog(props: DriveMoveDialogProps): ReactNode {
         </>
       }
     >
-      <fieldset className="flex flex-col gap-1">
+      <fieldset className="flex min-w-0 flex-col gap-1">
         <legend className="sr-only">Choose a destination</legend>
 
         {parent !== undefined ? (
@@ -112,17 +112,17 @@ function DestinationOption({
   readonly onSelect: () => void;
 }): ReactNode {
   return (
-    <label htmlFor={id} className="flex items-center gap-2 rounded p-2 hover:bg-accent/10">
+    <label htmlFor={id} className="flex min-w-0 items-center gap-2 rounded p-2 hover:bg-accent/10">
       <input
         id={id}
         type="radio"
         name="drive-move-target"
         checked={checked}
         onChange={onSelect}
-        className={focusRing}
+        className={`${focusRing} shrink-0`}
       />
       <Icon icon={icon} size="sm" />
-      <Text variant="body" as="span">
+      <Text variant="body" as="span" className="min-w-0 flex-1">
         {label}
       </Text>
     </label>

@@ -28,7 +28,7 @@ export function Money({
   readonly round?: boolean;
 }): ReactNode {
   return (
-    <span className="break-words tabular-nums">
+    <span className="wrap-anywhere tabular-nums">
       {round ? formatMoneyRound(amount, currency) : formatMoney(amount, currency, { signed })}
     </span>
   );
@@ -51,7 +51,7 @@ export function Tile({
       <Text variant="caption" tone="muted">
         {label}
       </Text>
-      <Text as="p" variant="h4" className="break-words">
+      <Text as="p" variant="h4">
         {value}
       </Text>
       {caption === undefined ? null : (

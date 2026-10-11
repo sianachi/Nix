@@ -51,11 +51,13 @@ const VIEW: View = {
 function Example({
   properties = [DONE, AISLE],
   refuse,
+  lines = LINES,
 }: {
   readonly properties?: readonly PropertyDefinition[];
   readonly refuse?: string;
+  readonly lines?: readonly Item[];
 }): ReactNode {
-  const [children, setChildren] = useState<readonly Item[]>(LINES);
+  const [children, setChildren] = useState<readonly Item[]>(lines);
   const container = storyContainer(children, properties, {
     setProperties: (itemId, values) => {
       if (refuse !== undefined) return Promise.resolve(refuse);
@@ -87,6 +89,17 @@ export const TicksRefused = {
   render: (): ReactNode => <Example refuse="This item is read-only." />,
 };
 export const NothingToTick = { render: (): ReactNode => <Example properties={[AISLE]} /> };
+export const LongLabels = {
+  render: (): ReactNode => (
+    <Example
+      lines={[
+        storyItem('long', 'SuppliesForTheEditorialReviewAndPublicationDecision', 1, {
+          aisle: 'PublishingTeamResponsibleForTheEditorialReview',
+        }),
+      ]}
+    />
+  ),
+};
 export const DarkShopping = { ...Shopping, globals: { ground: 'dark' } };
 export const DarkNothingToTick = { ...NothingToTick, globals: { ground: 'dark' } };
 export const Phone = { ...Shopping, parameters: { viewport: { defaultViewport: 'mobile1' } } };

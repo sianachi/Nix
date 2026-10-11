@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PetConnection } from '@nix/api-client';
+import { NixApiError, type PetConnection } from '@nix/api-client';
 import { usePetRuntime } from '../../pets/use-pet-runtime';
 
 const client = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn() }));
@@ -361,5 +361,74 @@ describe('usePetRuntime errorKind and retryWatch', () => {
       staleSetRuntime(connection({ revision: 999, reason: 'stale-mode' }) as PetConnection);
     });
     expect(result.current.runtime?.reason).not.toBe('stale-mode');
+  });
+  it('keeps watches and commands rooted on the note and sends the chosen access mode', async () => {
+    const root = '66666666-6666-4666-8666-666666666666';
+    client.query.mockResolvedValue(connection());
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true, root));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(client.query.mock.calls[0]?.[0]).toHaveProperty('query.rootItemId', root);
+    expect(client.query.mock.calls[0]?.[0]).toHaveProperty(
+      'path',
+      '/api/v1/me/pets/runtime/note/watch',
+    );
+    await act(async () => {
+      await result.current.send({ text: 'Read this', model: '', workspaceAccess: true });
+    });
+    expect(client.execute.mock.calls.at(-1)?.[0]).toHaveProperty('body.rootItemId', root);
+    expect(client.execute.mock.calls.at(-1)?.[0]).toHaveProperty('body.readOnly', true);
+    expect(client.execute.mock.calls.at(-1)?.[0]).toHaveProperty(
+      'path',
+      '/api/v1/me/pets/runtime/note',
+    );
+    await act(async () => {
+      await result.current.send({
+        text: 'Append a summary',
+        model: '',
+        workspaceAccess: true,
+        readOnly: false,
+      });
+    });
+    expect(client.execute.mock.calls.at(-1)?.[0]).toHaveProperty('body.rootItemId', root);
+    expect(client.execute.mock.calls.at(-1)?.[0]).toHaveProperty('body.readOnly', false);
+  });
+
+  it('removes exposed note history when Core refuses its root', async () => {
+    client.query
+      .mockResolvedValueOnce(
+        connection({
+          revision: 1,
+          messages: [{ id: 'private', role: 'assistant', text: 'Private material' }],
+        }),
+      )
+      .mockRejectedValue(NixApiError.fromStatus(404));
+    const { result } = renderHook(() =>
+      usePetRuntime(WORKSPACE_ID, PET_ID, 'chat', true, '66666666-6666-4666-8666-666666666666'),
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.runtime?.messages).toHaveLength(1);
+    const staleSetRuntime = result.current.setRuntime;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(result.current.runtime).toBeNull();
+    expect(result.current.error).toContain('no longer available');
+    act(() => {
+      staleSetRuntime(
+        connection({ revision: 999, reason: 'Late private snapshot' }) as PetConnection,
+      );
+    });
+    expect(result.current.runtime).toBeNull();
+    const sentBefore = client.execute.mock.calls.length;
+    await act(async () => {
+      expect(
+        await result.current.send({ text: 'Try again', model: '', workspaceAccess: true }),
+      ).toBe(false);
+    });
+    expect(client.execute.mock.calls).toHaveLength(sentBefore);
   });
 });

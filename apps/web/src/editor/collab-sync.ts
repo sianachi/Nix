@@ -1097,8 +1097,8 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
       if (!initialSynced || serverDocId === null)
         throw new Error('The initial document sync has not completed.');
       await draft?.bindDocument(serverDocId, cacheWriteAdmitted);
-      const records = (await draft?.snapshot()) ?? [];
       const revision = localRevision;
+      const records = (await draft?.snapshot()) ?? [];
       const update = cache === null ? null : Y.encodeStateAsUpdate(doc);
       if (hasWriteRefusal()) throw new Error('The server refused an edit.');
       await sync.flushAndWait();
@@ -1128,8 +1128,24 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
   const confirmationTimer = setInterval(() => {
     void confirm().catch(() => undefined);
   }, 2_000);
+  let checkingConnection = false;
   const resume = (): void => {
-    if (options.offline || destroyed || connecting) return;
+    if (options.offline || destroyed || halted || connecting) return;
+    if (socket?.readyState === 1 && ready) {
+      if (checkingConnection) return;
+      checkingConnection = true;
+      const current = socket;
+      void persistenceBarrier()
+        .catch(() => {
+          if (socket !== current || destroyed || halted) return;
+          current.close(1000, 'The editor did not respond.');
+          resume();
+        })
+        .finally(() => {
+          checkingConnection = false;
+        });
+      return;
+    }
     if (retryTimer !== null) {
       clearTimeout(retryTimer);
       retryTimer = null;

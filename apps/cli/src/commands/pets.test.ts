@@ -197,6 +197,63 @@ describe('pet commands', () => {
   });
 });
 
+describe('note-scoped pet commands', () => {
+  it('roots sends on the note, defaults to read-only, and requires an explicit edit choice', async () => {
+    const rootItem = '66666666-6666-4666-8666-666666666666';
+    const payloads: unknown[] = [];
+    server.use(
+      http.post(`${CORE}/api/v1/me/pets/runtime/note`, async ({ request }) => {
+        payloads.push(await request.json());
+        return HttpResponse.json(runtimeResponse([]));
+      }),
+    );
+    for (const allowEdits of [false, true]) {
+      await capture(() =>
+        petCommand(
+          undefined,
+          'send',
+          {
+            apiUrl: CORE,
+            workspace: WORKSPACE,
+            pet: PET,
+            message: 'Explain this note',
+            rootItem,
+            allowEdits,
+          },
+          outputOptions(true),
+          { env: { NIX_SESSION_TOKEN: 'ephemeral-session' } },
+        ),
+      );
+    }
+    expect(payloads[0]).toMatchObject({
+      rootItemId: rootItem,
+      itemId: rootItem,
+      readOnly: true,
+      workspaceAccess: true,
+    });
+    expect(payloads[1]).toMatchObject({ rootItemId: rootItem, readOnly: false });
+  });
+
+  it('rejects malformed roots and edits without a note before contacting Core', async () => {
+    await expect(
+      petCommand(
+        undefined,
+        'send',
+        { workspace: WORKSPACE, pet: PET, message: 'Hi', rootItem: 'outside' },
+        outputOptions(true),
+      ),
+    ).rejects.toThrow('--root-item must be an item UUID.');
+    await expect(
+      petCommand(
+        undefined,
+        'send',
+        { workspace: WORKSPACE, pet: PET, message: 'Hi', allowEdits: true },
+        outputOptions(true),
+      ),
+    ).rejects.toThrow('--allow-edits requires --root-item.');
+  });
+});
+
 async function withProfile(): Promise<{ env: NodeJS.ProcessEnv; done: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), 'nixctl-pets-'));
   const env: NodeJS.ProcessEnv = { XDG_CONFIG_HOME: dir };
