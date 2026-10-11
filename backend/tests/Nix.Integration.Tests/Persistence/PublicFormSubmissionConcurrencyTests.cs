@@ -50,10 +50,8 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
             new(link.ItemId, [Form("temporary")], "form"), Cancellation)).IsSuccess);
 
         var observer = new SubmissionLockInterceptor(pauseAfterLock: false);
-        await using var factory = Host(observer);
-        using var client = factory.CreateClient();
-        using var content = new StringContent("""{"answers":{}}""", Encoding.UTF8, "application/json");
-        var submit = client.PostAsync(FormPath(link), content, Cancellation);
+        using var submitCancellation = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        var submit = SubmitAsync(link, observer, submitCancellation.Token);
         try
         {
             try
@@ -73,7 +71,7 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
         }
         finally
         {
-            client.CancelPendingRequests();
+            await submitCancellation.CancelAsync();
             try
             {
                 using var response = await submit;
@@ -89,10 +87,8 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
     {
         var link = await CreatePublishedFormAsync();
         var observer = new SubmissionLockInterceptor(pauseAfterLock: true);
-        await using var factory = Host(observer);
-        using var client = factory.CreateClient();
-        using var content = new StringContent("""{"answers":{}}""", Encoding.UTF8, "application/json");
-        var submit = client.PostAsync(FormPath(link), content, Cancellation);
+        using var submitCancellation = CancellationTokenSource.CreateLinkedTokenSource(Cancellation);
+        var submit = SubmitAsync(link, observer, submitCancellation.Token);
         try
         {
             await observer.Locked.Task.WaitAsync(TimeSpan.FromSeconds(20), Cancellation);
@@ -124,7 +120,7 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
         finally
         {
             observer.Release.TrySetResult();
-            client.CancelPendingRequests();
+            await submitCancellation.CancelAsync();
             try
             {
                 using var response = await submit;
@@ -212,6 +208,14 @@ public sealed class PublicFormSubmissionConcurrencyTests(NixPostgresFixture fixt
         var tokens = new PublicFormTokenService(new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?> { [PublicFormTokenService.SigningKeyConfiguration] = SigningKey }).Build());
         return new Uri($"/public/v1/forms/{tokens.Create(link.TenantId, link.Id, link.SubmissionPrincipalId, link.Nonce)}", UriKind.Relative);
+    }
+
+    private async Task<HttpResponseMessage> SubmitAsync(PublicFormLink link, SubmissionLockInterceptor observer, CancellationToken cancellation)
+    {
+        await using var factory = Host(observer);
+        using var client = factory.CreateClient();
+        using var content = new StringContent("""{"answers":{}}""", Encoding.UTF8, "application/json");
+        return await client.PostAsync(FormPath(link), content, cancellation);
     }
 
     private WebApplicationFactory<Program> Host(SubmissionLockInterceptor observer)
