@@ -17,7 +17,7 @@ import {
 import { validateBlueprint } from '../blueprint/validate.js';
 import { validateSpec } from '../validate/spec.js';
 import { buildPetTools, normalizeForCodex } from './tools.js';
-import { CONSULT_ONLY_OPERATION_NAMES, WORKSPACE_OPERATIONS, LIMITS } from './tables.js';
+import { WORKSPACE_OPERATIONS, LIMITS } from './tables.js';
 import { flattenToolExample, TOOL_EXAMPLES } from './tool-examples.js';
 
 /**
@@ -26,13 +26,13 @@ import { flattenToolExample, TOOL_EXAMPLES } from './tool-examples.js';
  */
 const CODEX_SCHEMA_BUDGET = 4800;
 
-function toolNames(mode: 'chat' | 'consult'): string[] {
-  return buildPetTools(mode).map((tool) => tool.name);
+function toolNames(): string[] {
+  return buildPetTools().map((tool) => tool.name);
 }
 
 describe('buildPetTools', () => {
   it('keeps per-call and total capacity guidance after provider schema normalization', () => {
-    const tools = new Map(buildPetTools('consult').map((tool) => [tool.name, tool]));
+    const tools = new Map(buildPetTools().map((tool) => [tool.name, tool]));
     expect(tools.get('nix_create_structured')?.description).toContain('up to 6 views per call');
     expect(tools.get('nix_create_structured')?.description).toContain('at most 12 views total');
     expect(tools.get('nix_add_view')?.description).toContain('up to 4 views per call');
@@ -43,7 +43,6 @@ describe('buildPetTools', () => {
       'add_view',
       'add_fields',
       'edit_form',
-      'validate_blueprint',
       'build_blueprint',
     ]) {
       expect(tools.get(`nix_${operation}`)?.description).toContain(
@@ -53,10 +52,8 @@ describe('buildPetTools', () => {
         'omit key or set it to that type',
       );
     }
-    for (const operation of ['validate_blueprint', 'build_blueprint']) {
-      expect(tools.get(`nix_${operation}`)?.description).toContain('child node.habit');
-      expect(tools.get(`nix_${operation}`)?.description).toContain('no column mappings');
-    }
+    expect(tools.get('nix_build_blueprint')?.description).toContain('child node.habit');
+    expect(tools.get('nix_build_blueprint')?.description).toContain('no column mappings');
     const views = (count: number) => Array.from({ length: count }, () => ({ kind: 'list' }));
     expect(
       structuredSpecSchema.safeParse({
@@ -80,55 +77,42 @@ describe('buildPetTools', () => {
     ).toBe(false);
   });
 
-  it('names every tool nix_<operation>, offering every operation in consult and omitting the three consult-only ones in chat', () => {
-    const consultOnly = new Set<string>(CONSULT_ONLY_OPERATION_NAMES);
-    const chatOperations = WORKSPACE_OPERATIONS.filter((operation) => !consultOnly.has(operation));
-
-    expect(toolNames('chat')).toEqual(chatOperations.map((operation) => `nix_${operation}`));
-    expect(toolNames('consult')).toEqual(
-      WORKSPACE_OPERATIONS.map((operation) => `nix_${operation}`),
-    );
+  it('names every tool nix_<operation>, offering every operation', () => {
+    expect(toolNames()).toEqual(WORKSPACE_OPERATIONS.map((operation) => `nix_${operation}`));
   });
 
   it('offers exactly one tool per operation, with no duplicates', () => {
-    for (const mode of ['chat', 'consult'] as const) {
-      const names = toolNames(mode);
-      expect(new Set(names).size).toBe(names.length);
-    }
+    const names = toolNames();
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('every tool has a non-empty description and a well-formed object inputSchema', () => {
-    for (const mode of ['chat', 'consult'] as const) {
-      for (const tool of buildPetTools(mode)) {
-        expect(tool.description.length).toBeGreaterThan(0);
-        expect(tool.inputSchema.type).toBe('object');
-        expect(tool.inputSchema.additionalProperties).toBe(false);
-        expect(Array.isArray(tool.inputSchema.required)).toBe(true);
-        expect(typeof tool.inputSchema.properties).toBe('object');
-      }
+    for (const tool of buildPetTools()) {
+      expect(tool.description.length).toBeGreaterThan(0);
+      expect(tool.inputSchema.type).toBe('object');
+      expect(tool.inputSchema.additionalProperties).toBe(false);
+      expect(Array.isArray(tool.inputSchema.required)).toBe(true);
+      expect(typeof tool.inputSchema.properties).toBe('object');
     }
   });
 
   it('keeps every tool schema at or under the Codex 4800-byte budget once normalized', () => {
     const sizes: Record<string, number> = {};
-    for (const mode of ['chat', 'consult'] as const) {
-      for (const tool of buildPetTools(mode)) {
-        const size = JSON.stringify(normalizeForCodex(tool.inputSchema)).length;
-        sizes[`${mode}:${tool.name}`] = size;
-        expect(
-          size,
-          `${mode} ${tool.name} is ${String(size)} bytes, want <= ${String(CODEX_SCHEMA_BUDGET)}`,
-        ).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
-      }
+    for (const tool of buildPetTools()) {
+      const size = JSON.stringify(normalizeForCodex(tool.inputSchema)).length;
+      sizes[tool.name] = size;
+      expect(
+        size,
+        `${tool.name} is ${String(size)} bytes, want <= ${String(CODEX_SCHEMA_BUDGET)}`,
+      ).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
     }
-    // nix_validate_blueprint and nix_build_blueprint carry the largest schema in the catalog (the
+    // nix_build_blueprint carries the largest schema in the catalog (the
     // recursive blueprint tree) - printed here as a record of the measured size after L1.2's
     // reduction (omitting the interactive_form view kind's `form` detail from the advertised
     // blueprint schema only; blueprintSchema itself, and what validateBlueprint accepts, is
     // unchanged). Before that reduction the wrapped tool was over budget (5823 bytes for the
     // blueprint sub-schema alone, per the plan's own measurement).
-    expect(sizes['consult:nix_validate_blueprint']).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
-    expect(sizes['consult:nix_build_blueprint']).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
+    expect(sizes.nix_build_blueprint).toBeLessThanOrEqual(CODEX_SCHEMA_BUDGET);
   });
 
   it('generates each spec parameter from the exact schema object run.ts parses with (import identity)', () => {
@@ -143,9 +127,9 @@ describe('buildPetTools', () => {
       ['apply_template', 'spec', applySpecSchema],
       ['save_as_template', 'spec', saveSpecSchema],
     ];
-    const consultTools = new Map(buildPetTools('consult').map((tool) => [tool.name, tool]));
+    const tools = new Map(buildPetTools().map((tool) => [tool.name, tool]));
     for (const [operation, property, schema] of bySpecSchema) {
-      const tool = consultTools.get(`nix_${operation}`);
+      const tool = tools.get(`nix_${operation}`);
       expect(tool, `nix_${operation} is missing`).toBeDefined();
       const expected = normalizeForCodex(
         z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any', cycles: 'ref' }),
@@ -156,28 +140,24 @@ describe('buildPetTools', () => {
   });
 
   it("omits the interactive_form view kind's form detail from the blueprint tools only, never from add_view or edit_form", () => {
-    const consultTools = new Map(buildPetTools('consult').map((tool) => [tool.name, tool]));
-    const addView = consultTools.get('nix_add_view');
-    const editForm = consultTools.get('nix_edit_form');
-    const buildBlueprint = consultTools.get('nix_build_blueprint');
-    const validateBlueprintTool = consultTools.get('nix_validate_blueprint');
+    const tools = new Map(buildPetTools().map((tool) => [tool.name, tool]));
+    const addView = tools.get('nix_add_view');
+    const editForm = tools.get('nix_edit_form');
+    const buildBlueprint = tools.get('nix_build_blueprint');
     expect(addView).toBeDefined();
     expect(editForm).toBeDefined();
     expect(buildBlueprint).toBeDefined();
-    expect(validateBlueprintTool).toBeDefined();
 
     // add_view and edit_form keep the interactive_form view kind's own form detail (a
     // paragraph block, part of formSpecSchema's block union) in full.
     expect(JSON.stringify(addView?.inputSchema)).toContain('"paragraph"');
     expect(JSON.stringify(editForm?.inputSchema)).toContain('"paragraph"');
 
-    // The blueprint tools still name interactive_form as a valid view kind; they just no
+    // The blueprint tool still names interactive_form as a valid view kind; they just no
     // longer carry that kind's own form (pages/blocks/conditions) detail.
-    for (const tool of [buildBlueprint, validateBlueprintTool]) {
-      const json = JSON.stringify(tool?.inputSchema);
-      expect(json).toContain('interactive_form');
-      expect(json).not.toContain('"paragraph"');
-    }
+    const json = JSON.stringify(buildBlueprint?.inputSchema);
+    expect(json).toContain('interactive_form');
+    expect(json).not.toContain('"paragraph"');
   });
 });
 
@@ -226,7 +206,7 @@ describe('flattenToolExample (TS reference implementation)', () => {
   });
 
   it('types complete_task.completed as a boolean and requires both calendar bounds', () => {
-    const tools = buildPetTools('chat');
+    const tools = buildPetTools();
     const task = tools.find((tool) => tool.name === 'nix_complete_task');
     const calendar = tools.find((tool) => tool.name === 'nix_read_calendar');
     const taskProperties = task?.inputSchema.properties as Record<string, { type?: string }>;
@@ -350,8 +330,8 @@ describe('every tool example is accepted by the same validator run.ts calls', ()
     expect(report.ok, JSON.stringify(report.problems)).toBe(true);
   });
 
-  it('validate_blueprint and build_blueprint share one blueprint that validateBlueprint accepts', () => {
-    const example = TOOL_EXAMPLES.validate_blueprint as { blueprint: unknown };
+  it('build_blueprint carries a blueprint that validateBlueprint accepts', () => {
+    const example = TOOL_EXAMPLES.build_blueprint as { blueprint: unknown };
     const parsed = blueprintSchema.parse(example.blueprint);
     const report = validateBlueprint(parsed, { inheritedFields: [], today: '2026-09-27' });
     expect(report.ok, JSON.stringify(report.problems)).toBe(true);

@@ -87,43 +87,42 @@ type argMapping struct {
 // reuse query for what they locate (a section's heading, a passage's find text) and markdown for
 // what replaces it.
 var toolArgSpecs = map[string]map[string]argMapping{
-	"list_items":         {"parentId": {"parentId", argString}},
-	"search":             {"query": {"query", argString}},
-	"read_item":          {"itemId": {"itemId", argString}},
-	"read_note":          {"itemId": {"itemId", argString}},
-	"read_structure":     {"itemId": {"itemId", argString}},
-	"read_view":          {"itemId": {"itemId", argString}, "query": {"query", argObjectJSON}},
-	"create_note":        {"title": {"title", argString}, "markdown": {"markdown", argString}, "parentId": {"parentId", argString}},
-	"append_note":        {"itemId": {"itemId", argString}, "markdown": {"markdown", argString}},
-	"replace_section":    {"itemId": {"itemId", argString}, "heading": {"query", argString}, "markdown": {"markdown", argString}},
-	"replace_passage":    {"itemId": {"itemId", argString}, "find": {"query", argString}, "replace": {"markdown", argString}},
-	"rename_item":        {"itemId": {"itemId", argString}, "title": {"title", argString}},
-	"move_item":          {"itemId": {"itemId", argString}, "parentId": {"parentId", argString}},
-	"set_properties":     {"itemId": {"itemId", argString}, "properties": {"propertiesJson", argObjectJSON}},
-	"trash_item":         {"itemId": {"itemId", argString}},
-	"restore_item":       {"itemId": {"itemId", argString}},
-	"create_structured":  {"title": {"title", argString}, "spec": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
-	"add_view":           {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
-	"update_view":        {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
-	"create_entries":     {"parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
-	"validate_blueprint": {"blueprint": {"specJson", argObjectJSON}},
-	"add_fields":         {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
-	"edit_form":          {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
-	"set_recurrence":     {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
-	"list_templates":     {"query": {"query", argString}},
-	"read_template":      {"templateId": {"itemId", argString}},
-	"apply_template":     {"templateId": {"itemId", argString}, "title": {"title", argString}, "parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
-	"build_blueprint":    {"blueprint": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
-	"save_as_template":   {"itemId": {"itemId", argString}, "title": {"title", argString}, "spec": {"specJson", argObjectJSON}},
-	"read_calendar":      {"from": {"specJson", argSpecField}, "to": {"specJson", argSpecField}},
-	"complete_task":      {"itemId": {"itemId", argString}, "completed": {"specJson", argSpecField}},
+	"list_items":        {"parentId": {"parentId", argString}},
+	"search":            {"query": {"query", argString}},
+	"read_item":         {"itemId": {"itemId", argString}},
+	"read_note":         {"itemId": {"itemId", argString}},
+	"read_structure":    {"itemId": {"itemId", argString}},
+	"read_view":         {"itemId": {"itemId", argString}, "query": {"query", argObjectJSON}},
+	"create_note":       {"title": {"title", argString}, "markdown": {"markdown", argString}, "parentId": {"parentId", argString}},
+	"append_note":       {"itemId": {"itemId", argString}, "markdown": {"markdown", argString}},
+	"replace_section":   {"itemId": {"itemId", argString}, "heading": {"query", argString}, "markdown": {"markdown", argString}},
+	"replace_passage":   {"itemId": {"itemId", argString}, "find": {"query", argString}, "replace": {"markdown", argString}},
+	"rename_item":       {"itemId": {"itemId", argString}, "title": {"title", argString}},
+	"move_item":         {"itemId": {"itemId", argString}, "parentId": {"parentId", argString}},
+	"set_properties":    {"itemId": {"itemId", argString}, "properties": {"propertiesJson", argObjectJSON}},
+	"trash_item":        {"itemId": {"itemId", argString}},
+	"restore_item":      {"itemId": {"itemId", argString}},
+	"create_structured": {"title": {"title", argString}, "spec": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
+	"add_view":          {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"update_view":       {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"create_entries":    {"parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
+	"add_fields":        {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"edit_form":         {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"set_recurrence":    {"itemId": {"itemId", argString}, "spec": {"specJson", argObjectJSON}},
+	"list_templates":    {"query": {"query", argString}},
+	"read_template":     {"templateId": {"itemId", argString}},
+	"apply_template":    {"templateId": {"itemId", argString}, "title": {"title", argString}, "parentId": {"parentId", argString}, "spec": {"specJson", argObjectJSON}},
+	"build_blueprint":   {"blueprint": {"specJson", argObjectJSON}, "parentId": {"parentId", argString}},
+	"save_as_template":  {"itemId": {"itemId", argString}, "title": {"title", argString}, "spec": {"specJson", argObjectJSON}},
+	"read_calendar":     {"from": {"specJson", argSpecField}, "to": {"specJson", argSpecField}},
+	"complete_task":     {"itemId": {"itemId", argString}, "completed": {"specJson", argSpecField}},
 }
 
 // flattenToolCall translates one typed nix_<operation> call's native-JSON arguments into the
 // flat {operation, itemId, parentId, title, markdown, query, propertiesJson, specJson} shape
 // @nix/companion/run.ts has always parsed, so Core, the OpenAPI contract, @nix/companion, nixctl
 // and the web executor stay unchanged (L1 goal). tool must already be one of the conversation
-// mode's tool names (toolRequest checks that before calling this). On success it returns the flat
+// typed tool names (toolRequest checks that before calling this). On success it returns the flat
 // arguments, marshaled, and an empty reason; on a malformed call it returns nil and a
 // model-readable reason naming the offending key and tool, to be sent back exactly like a
 // validateToolArguments failure ("No action ran and no approval was requested.").
@@ -280,16 +279,13 @@ func (a *account) listModels(ctx context.Context) error {
 }
 
 // effortFor decides the "effort" value, if any, to send on turn/start: the owner's configured
-// value for mode (chatEffort/consultEffort), only when the effective model - explicitModel, or
+// chatEffort, only when the effective model - explicitModel, or
 // else whichever model model/list marked default - actually advertises it. Loads the model list
 // once if it has not been loaded yet. Never fails the turn: any problem (the list call failing,
 // no default model, the value not being advertised) means an empty result, which send() must
 // treat as "omit effort", not as a reason to fail.
-func (a *account) effortFor(ctx context.Context, mode, explicitModel string) string {
+func (a *account) effortFor(ctx context.Context, explicitModel string) string {
 	configured := a.chatEffort
-	if mode == "consult" {
-		configured = a.consultEffort
-	}
 	if configured == "" {
 		return ""
 	}
@@ -352,11 +348,11 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 		if c.ThreadID != p.ThreadID || c.State != "thinking" {
 			continue
 		}
-		// Accept p.Tool only when it is one of this conversation mode's typed tool names
-		// (catalog.go's toolNamesFor); nix_workspace and anything else the provider might
-		// send is rejected here, before any of the checks below run.
-		if _, allowed := toolNamesFor(c.Mode)[p.Tool]; !allowed {
-			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", truncateUTF8(p.Tool, 80), "reason", "not offered in this mode"}, map[string]any{"arguments": traceRaw(p.Arguments)})
+		// Accept p.Tool only when it is one of the typed tool names (catalog.go's
+		// toolNamesChat); nix_workspace and anything else the provider might send is rejected
+		// here, before any of the checks below run.
+		if _, allowed := toolNamesChat[p.Tool]; !allowed {
+			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", truncateUTF8(p.Tool, 80), "reason", "not offered"}, map[string]any{"arguments": traceRaw(p.Arguments)})
 			return false
 		}
 		flatArguments, reason := flattenToolCall(p.Tool, p.Arguments)
@@ -370,19 +366,13 @@ func (a *account) toolRequest(id json.RawMessage, method string, raw json.RawMes
 			}
 			return false
 		}
-		// The only operation allowed without workspace access is local blueprint
-		// validation in Design mode. Reject everything else before returning a tool
-		// error, preserving the no-consent boundary for workspace operations.
+		// No operation runs without workspace access. Reject before returning a tool error,
+		// preserving the no-consent boundary for workspace operations.
 		if !c.WorkspaceAccess {
-			var args struct {
-				Operation string `json:"operation"`
-			}
-			if c.Mode != "consult" || json.Unmarshal(flatArguments, &args) != nil || args.Operation != "validate_blueprint" {
-				a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", p.Tool, "reason", "workspace access is off for this message"}, map[string]any{"arguments": traceRaw(p.Arguments)})
-				return false
-			}
+			a.record(key, slog.LevelWarn, "tool.rejected", []any{"tool", p.Tool, "reason", "workspace access is off for this message"}, map[string]any{"arguments": traceRaw(p.Arguments)})
+			return false
 		}
-		if reason := validateToolArguments(flatArguments, c.Mode); reason != "" {
+		if reason := validateToolArguments(flatArguments); reason != "" {
 			a.record(key, slog.LevelWarn, "tool.refused", []any{"tool", p.Tool, "stage", "validation", "reason", reason}, map[string]any{"arguments": traceRaw(p.Arguments), "flat": traceRaw(flatArguments)})
 			if peer, ok := a.transport.(toolTransport); ok {
 				_ = peer.Reply(id, toolOutput(false, reason+" No action ran and no approval was requested."))
@@ -461,7 +451,7 @@ func toolIdentity(raw string) (string, bool) {
 		return "", false
 	}
 	operation, _ := args["operation"].(string)
-	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "read_view" || operation == "list_templates" || operation == "read_template" || operation == "validate_blueprint" || operation == "read_calendar"
+	readOnly := operation == "list_items" || operation == "search" || operation == "read_item" || operation == "read_note" || operation == "read_structure" || operation == "read_view" || operation == "list_templates" || operation == "read_template" || operation == "read_calendar"
 	if properties, ok := args["propertiesJson"].(string); ok && properties != "" {
 		var object map[string]any
 		decoder := json.NewDecoder(strings.NewReader(properties))
@@ -511,7 +501,7 @@ func modelParamForItemID(operation string) string {
 	return "itemId"
 }
 
-func validateToolArguments(raw json.RawMessage, mode string) string {
+func validateToolArguments(raw json.RawMessage) string {
 	var p struct {
 		Operation  string `json:"operation"`
 		ItemID     string `json:"itemId"`
@@ -547,11 +537,6 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 	}
 	if p.ItemID != "" && !uuid.MatchString(p.ItemID) {
 		return fmt.Sprintf("%s must be a Nix item UUID.", modelParamForItemID(p.Operation))
-	}
-	for _, consultOnly := range consultOnlyOperations {
-		if p.Operation == consultOnly && mode != "consult" {
-			return "This operation is only available in Design mode."
-		}
 	}
 	switch p.Operation {
 	case "list_items":
@@ -652,10 +637,6 @@ func validateToolArguments(raw json.RawMessage, mode string) string {
 		}
 		if p.Spec != "" && !isJSONObject(p.Spec) {
 			return "nix_apply_template requires spec (a JSON object) when supplied."
-		}
-	case "validate_blueprint":
-		if !isJSONObject(p.Spec) {
-			return "nix_validate_blueprint requires blueprint (a JSON object)."
 		}
 	case "build_blueprint":
 		if !isJSONObject(p.Spec) {

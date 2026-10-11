@@ -146,23 +146,13 @@ func resultKind(success bool, result string) string {
 // problems back instead of asking the owner (apps/web/src/pets/pet-work-tools.tsx).
 const declinedForProblems = "Declined: the design has problems."
 
-// conversationKey is the conversation a request addresses, matching handle's key.
+// conversationKey is the conversation a request addresses: one per pet per workspace. A stale
+// client may still send mode "consult"; it addresses the same conversation.
 func conversationKey(r Request) string {
 	if r.WorkspaceID == "" || r.PetID == "" {
 		return ""
 	}
-	key := r.WorkspaceID + "-" + r.PetID
-	if r.Mode == "consult" {
-		key += "-consult"
-	}
-	return key
-}
-
-func modeName(mode string) string {
-	if mode == "" {
-		return "chat"
-	}
-	return mode
+	return r.WorkspaceID + "-" + r.PetID
 }
 
 func valueOrDefault(model string) string {

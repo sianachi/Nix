@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root"
 umask 077
-report_dir="${REPORT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/nix-pet-consult.XXXXXX")}"
+report_dir="${REPORT_DIR:-$(mktemp -d "${TMPDIR:-/tmp}/nix-pet-design.XXXXXX")}"
 mkdir -p "$report_dir"
 transcript="$report_dir/commands.log"
 : > "$transcript"
@@ -55,14 +55,14 @@ if [[ -n "$build_only_file" ]]; then
     const result = require(process.argv[1]);
     if (result.complete !== true || !result.rootId) throw Error("Fallback blueprint build did not complete");
   ' "$report_dir/fallback-build.json"
-  printf 'Fallback build ran live; consult interview, tool approvals, template save, and apply remain open. Report: %s\n' "$transcript"
+  printf 'Fallback build ran live; design interview, tool approvals, template save, and apply remain open. Report: %s\n' "$transcript"
   exit 2
 fi
 
 pet() {
   local output="$1"
   shift
-  run "$output" pet --api-url "$NIX_API_URL" --workspace "$WORKSPACE" --pet "$PET" --mode consult "$@"
+  run "$output" pet --api-url "$NIX_API_URL" --workspace "$WORKSPACE" --pet "$PET" "$@"
 }
 read_pet() {
   pet "$report_dir/pet-read.json" read
@@ -150,21 +150,24 @@ pet "$report_dir/initial-send.json" send --workspace-tools --message \
 list_id="$(find_tool_with_replies list_templates)"
 preview_tool "$list_id" "$report_dir/list-preview.json"
 approve_tool "$list_id" "$report_dir/list-result.json"
-validate_id="$(find_tool_with_replies validate_blueprint)"
-preview_tool "$validate_id" "$report_dir/validate-preview.json"
-approve_tool "$validate_id" "$report_dir/validate-result.json"
-node -e '
-  const fs = require("node:fs");
-  const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-  const tool = result.tools?.find(x => x.id === process.argv[2]);
-  if (!tool || tool.status !== "completed") throw Error("Validation tool did not complete");
-  const report = JSON.parse(tool.result);
-  if (report.ok !== true) throw Error(`Blueprint validation failed: ${JSON.stringify(report.problems)}`);
-' "$report_dir/validate-result.json" "$validate_id"
-
-build_id="$(find_tool_with_replies build_blueprint)"
-preview_tool "$build_id" "$report_dir/build-preview.json"
-approve_tool "$build_id" "$report_dir/build-result.json"
+# A build with problems is refused with them listed, and the pet may build once more.
+for attempt in 1 2; do
+  build_id="$(find_tool_with_replies build_blueprint)"
+  pet "$report_dir/build-preview-$attempt.json" tools run "$build_id"
+  approve_tool "$build_id" "$report_dir/build-result-$attempt.json"
+  if node -e '
+    const fs = require("node:fs");
+    const result = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const tool = result.tools?.find(x => x.id === process.argv[2]);
+    process.exit(tool?.status === "completed" ? 0 : 1);
+  ' "$report_dir/build-result-$attempt.json" "$build_id"; then
+    break
+  fi
+  if ((attempt == 2)); then
+    printf 'The pet did not produce a buildable design in two attempts. See %s.\n' "$transcript" >&2
+    exit 1
+  fi
+done
 
 # Derive the model's planned root title from the exact approved tool arguments.
 read_pet
@@ -226,4 +229,4 @@ template_id="$(node -e 'const rows=require(process.argv[1]).templates ?? [];cons
 run "$report_dir/applied.json" template apply "$template_id" --mode create --parent "$sandbox_id" --title 'Job hunt 2'
 run "$report_dir/draft-children-after-apply.json" item ls --workspace "$WORKSPACE" --parent "$sandbox_id"
 node -e 'const rows=require(process.argv[1]).items ?? [];if(!rows.some(x=>x.title==="Job hunt 2"))throw Error("Applied Job hunt 2 tree missing")' "$report_dir/draft-children-after-apply.json"
-printf 'D.6 live consult-to-template acceptance passed. Commands and outputs: %s\n' "$transcript"
+printf 'D.6 live design-to-template acceptance passed. Commands and outputs: %s\n' "$transcript"

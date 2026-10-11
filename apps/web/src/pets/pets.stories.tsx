@@ -578,7 +578,6 @@ function blueprintToolStory(
     <MemoryRouter>
       <PetWorkTools
         client={blueprintCardClient}
-        mode="consult"
         workspaceId="11111111-1111-4111-8111-111111111111"
         petId="22222222-2222-4222-8222-222222222222"
         onChange={() => undefined}
@@ -864,12 +863,10 @@ function stubPhoneSurface(): () => void {
  */
 function PhoneFrame({
   children,
-  initialEntry = `/w/${PHONE_WORKSPACE}`,
   width = 390,
   height = 844,
 }: {
   readonly children: ReactNode;
-  readonly initialEntry?: string;
   readonly width?: number;
   readonly height?: number;
 }): ReactElement {
@@ -894,7 +891,7 @@ function PhoneFrame({
       style={{ width, height, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
       className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-divider"
     >
-      <MemoryRouter initialEntries={[initialEntry]}>
+      <MemoryRouter initialEntries={[`/w/${PHONE_WORKSPACE}`]}>
         <Routes>
           <Route
             path="/w/:workspaceId"
@@ -928,18 +925,6 @@ export const CompanionPhone = {
   ),
 };
 export const DarkCompanionPhone = { ...CompanionPhone, globals: { ground: 'dark' } };
-
-export const DesignConversationPhone = {
-  render: (): ReactElement => (
-    <PhoneFrame initialEntry={`/w/${PHONE_WORKSPACE}?pet=design`}>
-      <PetCompanion />
-    </PhoneFrame>
-  ),
-};
-export const DarkDesignConversationPhone = {
-  ...DesignConversationPhone,
-  globals: { ground: 'dark' },
-};
 
 /**
  * Follows the phone's default page preference with a native click (no test-only dependency), so
@@ -1042,15 +1027,13 @@ function desktopClient(connection: ReturnType<typeof petConnectionSchema.parse>)
 function DesktopFrame({
   connection,
   children,
-  initialEntry = `/w/${PHONE_WORKSPACE}`,
 }: {
   readonly connection: ReturnType<typeof petConnectionSchema.parse>;
   readonly children: ReactNode;
-  readonly initialEntry?: string;
 }): ReactElement {
   return (
     <div className="relative h-[42rem] w-full">
-      <MemoryRouter initialEntries={[initialEntry]}>
+      <MemoryRouter initialEntries={[`/w/${PHONE_WORKSPACE}`]}>
         <Routes>
           <Route
             path="/w/:workspaceId"
@@ -1144,18 +1127,6 @@ export const EmptyChat = {
   ),
 };
 export const DarkEmptyChat = { ...EmptyChat, globals: { ground: 'dark' } };
-
-export const EmptyDesign = {
-  render: (): ReactElement => (
-    <DesktopFrame
-      connection={emptyChatConnection}
-      initialEntry={`/w/${PHONE_WORKSPACE}?pet=design`}
-    >
-      <PetCompanion />
-    </DesktopFrame>
-  ),
-};
-export const DarkEmptyDesign = { ...EmptyDesign, globals: { ground: 'dark' } };
 
 const markdownConversationConnection = petConnectionSchema.parse({
   provider: 'chatgpt',

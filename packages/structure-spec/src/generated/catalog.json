@@ -446,26 +446,16 @@
     "identityRoles": ["name", "email"],
     "titleModes": ["generated", "field"]
   },
-  "structureOperations": {
-    "chat": [
-      "create_structured",
-      "add_view",
-      "create_entries",
-      "add_fields",
-      "edit_form",
-      "update_view",
-      "set_recurrence"
-    ],
-    "consult": [
-      "create_structured",
-      "add_view",
-      "create_entries",
-      "add_fields",
-      "edit_form",
-      "update_view",
-      "set_recurrence"
-    ]
-  },
+  "structureOperations": [
+    "create_structured",
+    "add_view",
+    "create_entries",
+    "add_fields",
+    "edit_form",
+    "update_view",
+    "set_recurrence",
+    "build_blueprint"
+  ],
   "limits": {
     "rawToolCallBytes": 40000,
     "specJsonChars": 24000,

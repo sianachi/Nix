@@ -62,7 +62,7 @@ async function run(scenario = 'reading-log') {
   });
   await petEval(
     undefined,
-    { suite: 'consult', scenario, apiUrl: CORE, workspace: WORKSPACE, pet: PET },
+    { suite: 'design', scenario, apiUrl: CORE, workspace: WORKSPACE, pet: PET },
     OUTPUT,
     { env: { NIX_SESSION_TOKEN: 'session' }, sleep: () => Promise.resolve() },
   );
@@ -114,7 +114,7 @@ describe('pet eval', () => {
       toolSuccess: false,
     });
     expect(calls.filter((call) => call.operation === 'reset')).toHaveLength(2);
-    expect(calls.every((call) => call.mode === 'consult')).toBe(true);
+    expect(calls.every((call) => call.mode === '')).toBe(true);
     expect(calls.find((call) => call.operation === 'send')).toMatchObject({ model: '' });
   });
 
@@ -139,12 +139,10 @@ describe('pet eval', () => {
     expect(process.exitCode).toBe(0);
   });
 
-  it('runs blueprint validation locally and posts its report before the build proposal', async () => {
+  it('declines a build with problems once, listing them, then scores the corrected build', async () => {
     const calls: Record<string, unknown>[] = [];
-    const validate = tool('validate-1', 'validate_blueprint', {
-      specJson: JSON.stringify(blueprint),
-    });
-    const build = tool('build-1', 'build_blueprint', { specJson: JSON.stringify(blueprint) });
+    const broken = tool('build-1', 'build_blueprint', { specJson: JSON.stringify({ version: 1 }) });
+    const build = tool('build-2', 'build_blueprint', { specJson: JSON.stringify(blueprint) });
     let reads = 0;
     server.use(
       http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
@@ -152,10 +150,10 @@ describe('pet eval', () => {
         calls.push(body);
         if (body.operation === 'read') {
           reads += 1;
-          return HttpResponse.json(connection({ tools: [reads <= 2 ? validate : build] }));
+          return HttpResponse.json(connection({ tools: [reads === 1 ? broken : build] }));
         }
         if (body.operation === 'tool_claim') {
-          const claimedTool = body.toolId === validate.id ? validate : build;
+          const claimedTool = body.toolId === broken.id ? broken : build;
           return HttpResponse.json(
             connection({ tools: [{ ...claimedTool, status: 'claimed', claimId: body.requestId }] }),
           );
@@ -165,11 +163,11 @@ describe('pet eval', () => {
     );
     const [result] = await run();
     expect(result).toMatchObject({ outcome: 'blueprint', gate: true });
-    const validateResult = calls.find(
-      (call) => call.operation === 'tool_result' && call.toolId === 'validate-1',
+    const declined = calls.find(
+      (call) => call.operation === 'tool_result' && call.toolId === 'build-1',
     );
-    expect(validateResult?.toolSuccess).toBe(true);
-    expect(JSON.parse(String(validateResult?.toolResult))).toMatchObject({ ok: true });
+    expect(declined?.toolSuccess).toBe(false);
+    expect(String(declined?.toolResult)).toMatch(/^Declined: the design has problems\.\n.*title/s);
     expect(calls.filter((call) => call.operation === 'tool_result')).toHaveLength(2);
   });
 

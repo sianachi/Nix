@@ -6,11 +6,9 @@ export {
   type CatalogSmartList,
   type CatalogViewKind,
   buildCatalog,
-  renderChat,
-  renderConsult,
+  renderCatalog,
 } from './build.js';
 export {
-  CONSULT_ONLY_OPERATION_NAMES,
   FORM_RULES,
   HABIT,
   INIT_RULE_KINDS,

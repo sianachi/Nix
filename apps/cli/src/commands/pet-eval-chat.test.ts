@@ -216,7 +216,6 @@ describe('pet eval chat', () => {
     const chatCase = chatCaseSchema.parse({
       id: 'uncertain-save',
       prompt: 'Capture the synthetic note.',
-      mode: 'consult',
       templateSource: 'task-dentist',
       approvedOperations: ['save_as_template'],
     });
@@ -463,7 +462,7 @@ describe('pet eval chat', () => {
     },
   );
 
-  it('routes every request and cleanup to the case conversation mode', async () => {
+  it('sends no conversation mode on any request or cleanup', async () => {
     const calls = scriptedRuntime(
       [toolCall('bad', { operation: 'create_note', title: 'Outside' })],
       'Cannot change that.',
@@ -471,7 +470,6 @@ describe('pet eval chat', () => {
     const chatCase = chatCaseSchema.parse({
       id: 'design-route',
       prompt: 'Check.',
-      mode: 'consult',
       tools: { require: ['create_note'] },
     });
     const [result] = await runChatSuite(
@@ -481,7 +479,7 @@ describe('pet eval chat', () => {
     );
     expect(result?.pass).toBe(true);
     expect(calls.length).toBeGreaterThan(4);
-    expect(calls.every((call) => call.mode === 'consult')).toBe(true);
+    expect(calls.every((call) => call.mode === '')).toBe(true);
   });
 
   it('explicit fixture approvals require writes enabled and never cross the fixture boundary', async () => {
@@ -848,7 +846,7 @@ describe('pet eval chat', () => {
     ]);
     expect(calls.find((call) => call.operation === 'send')).toMatchObject({
       text: 'What is on Tasks?',
-      mode: 'chat',
+      mode: '',
       workspaceAccess: true,
     });
     expect(calls.filter((call) => call.operation === 'reset')).toHaveLength(2);

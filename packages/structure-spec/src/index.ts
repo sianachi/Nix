@@ -50,7 +50,6 @@ export * from './spec/index.js';
 export {
   buildCatalog,
   buildPetTools,
-  CONSULT_ONLY_OPERATION_NAMES,
   FORM_RULES,
   HABIT,
   INIT_RULE_KINDS,
@@ -62,8 +61,7 @@ export {
   QUERY_OPERATORS,
   READ_ONLY_OPERATION_NAMES,
   RECURRENCE,
-  renderChat,
-  renderConsult,
+  renderCatalog,
   TEMPLATE_INPUT_TYPES,
   VIEW_KIND_RULES,
   WORKSPACE_OPERATIONS,
@@ -98,8 +96,8 @@ export { validateUpdateView } from './validate/update-view.js';
 
 export * from './blueprint/index.js';
 
-export { consultScenarioSchema, evalExpectationsSchema } from './evals/schema.js';
-export type { ConsultScenario, EvalExpectations, Predicate } from './evals/schema.js';
+export { designScenarioSchema, evalExpectationsSchema } from './evals/schema.js';
+export type { DesignScenario, EvalExpectations, Predicate } from './evals/schema.js';
 export { scoreBlueprint } from './evals/score.js';
 export { chatCaseSchema, chatSuiteSchema, chatAssertionSchema } from './evals/chat-schema.js';
 export type { ChatAssertion, ChatCase } from './evals/chat-schema.js';

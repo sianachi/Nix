@@ -150,7 +150,6 @@ describe('companion on a phone', () => {
     await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
     const title = await screen.findByRole('heading', { name: 'Cat' });
     expect(fireEvent.contextMenu(screen.getByRole('button', { name: 'Close' }))).toBe(true);
-    expect(fireEvent.contextMenu(screen.getByRole('button', { name: 'Chat' }))).toBe(true);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(fireEvent.contextMenu(title, { clientX: 20, clientY: 30 })).toBe(false);
     expect(screen.getByRole('menu', { name: 'Conversation actions' })).toBeVisible();
@@ -323,9 +322,8 @@ describe('companion on a phone', () => {
     });
   });
 
-  it('keeps a mobile Design deep link open in StrictMode and switches histories', async () => {
+  it('keeps the mobile template-library deep link open in StrictMode', async () => {
     stubViewport(390);
-    const user = userEvent.setup();
     render(
       <StrictMode>
         <MemoryRouter initialEntries={['/?pet=design']}>
@@ -336,13 +334,7 @@ describe('companion on a phone', () => {
 
     const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
     expect(dialog).toHaveAttribute('aria-modal', 'true');
-    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-current', 'true');
-
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
-    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-current', 'true');
-    await user.click(screen.getByRole('button', { name: 'Design' }));
-    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByRole('dialog', { name: 'Conversation with Cat' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Design' })).not.toBeInTheDocument();
   });
 
   it('clamps a stored off-screen position into view on a phone', async () => {

@@ -16,7 +16,6 @@ import {
   readDevicePreference,
   readPetPosition,
   writePetPosition,
-  type PetConversationMode,
 } from './device-preferences';
 import { chatOpensAsPage, launcherFloats, pageIsAvailable } from './pet-surface';
 import { useZenActive } from '../lib/zen-mode';
@@ -75,13 +74,13 @@ function Companion({
   readonly pet: PetProfile;
   readonly settings: PetSettings;
 }) {
+  // `?pet=design` (the template library's "Design one with your pet") opens the conversation.
   const [search] = useSearchParams();
   const designEntry = search.get('pet') === 'design';
-  const [mode, setMode] = useState<PetConversationMode>(designEntry ? 'consult' : 'chat');
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const client = useApiClient();
-  const runtimeApi = usePetRuntime(workspaceId, pet.id, mode, open);
+  const runtimeApi = usePetRuntime(workspaceId, pet.id, open);
   // The ids of the pending tools `PetWorkTools` itself reports as actually waiting on the owner
   // - never any `pending` tool, which would also badge an auto-run read - see must-fix 1. Only
   // one `PetWorkTools` instance is ever mounted at a time (the hidden one below while the panel
@@ -134,9 +133,8 @@ function Companion({
   const narrow = useNarrowViewport();
   const surface = usePetSurface();
   const opensAsPage = chatOpensAsPage(surface, narrow);
-  // `?pet=design` keeps its meaning on the page: the page reads the same parameter.
   const openPage = () => {
-    void navigate(`${petPageHref(workspaceId)}${mode === 'consult' ? '?pet=design' : ''}`);
+    void navigate(petPageHref(workspaceId));
   };
   useBackDismiss(open && narrow, () => {
     setOpen(false);
@@ -153,8 +151,7 @@ function Companion({
     let active = true;
     queueMicrotask(() => {
       if (!active) return;
-      setMode('consult');
-      if (opensAsPage) void navigate(`${petPageHref(workspaceId)}?pet=design`, { replace: true });
+      if (opensAsPage) void navigate(petPageHref(workspaceId), { replace: true });
       else setOpen(true);
     });
     return () => {
@@ -305,16 +302,11 @@ function Companion({
       }
     >
       {open ? (
-        // Must-fix 17: kept mounted across a mode switch (the key no longer includes `mode`) so
-        // the draft and shared selection survive it; `Conversation` itself keeps those two
-        // per-mode rather than as a single value that would otherwise leak across modes.
         <Conversation
           key={`${workspaceId}:${pet.id}`}
           workspaceId={workspaceId}
           pet={pet}
           settings={settings}
-          mode={mode}
-          onModeChange={setMode}
           layout={narrow ? 'fullscreen' : 'floating'}
           runtimeApi={runtimeApi}
           onNeedsDecisionChange={setNeedsDecisionIds}
@@ -325,7 +317,7 @@ function Companion({
           }}
         />
       ) : runtimeApi.runtime ? (
-        // Auto-run reads (READ_ONLY_OPERATIONS / validate_blueprint under readWithoutAsking)
+        // Auto-run reads (READ_ONLY_OPERATIONS under readWithoutAsking)
         // must still run while the panel is closed, so a closed panel never stalls a turn on a
         // read - see `ReadActivityRow`'s own auto-run effect. `hidden` keeps this out of both
         // the visual layout and the accessibility tree while the panel is closed.
@@ -336,7 +328,6 @@ function Companion({
             workspaceId={workspaceId}
             petId={pet.id}
             petName={pet.name}
-            mode={mode}
             onChange={runtimeApi.setRuntime}
             onNeedsDecisionChange={setNeedsDecisionIds}
           />

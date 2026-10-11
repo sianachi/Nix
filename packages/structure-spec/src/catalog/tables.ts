@@ -222,7 +222,7 @@ export interface CatalogLimits {
 
 /**
  * The size limits the pet's tools and blueprints are held to, as constants a later task's Zod
- * schemas import rather than repeating as literals - the source `renderConsult`'s blueprint
+ * schemas import rather than repeating as literals - the source `renderCatalog`'s blueprint
  * summary and any future validator both read.
  */
 export const LIMITS = {
@@ -293,54 +293,36 @@ export const NEVER_OPERATIONS = [
   'Delete a view',
 ] as const satisfies readonly string[];
 
-export interface StructureOperationsByMode {
-  readonly chat: readonly string[];
-  readonly consult: readonly string[];
-}
-
 /**
  * The typed tool operations that build or extend an item's structure - as opposed to the plain
  * item operations (`create_note`, `set_properties`, ...) and the template operations
- * (`list_templates`, `read_template`, `apply_template`) - named once per mode so the catalog text
+ * (`list_templates`, `read_template`, `apply_template`) - named once so the catalog text
  * (`build.ts`) states them instead of a hand-typed sentence.
  *
  * This package is the source of truth for the list; the Go worker does not read it. Its
- * `catalog_test.go` keeps its own hand-typed `structureOperationsInChatMode` fixture and checks
- * that each name is still a `workspaceTools()` tool and still mentioned in the embedded catalog
- * text, so that fixture drifting out of step with this list fails a test instead of going
- * unnoticed - but a structure operation added here and forgotten there is not caught either way.
- * Consult mode carries the same set for now; a later task (D.1b) grows it alongside the
- * consult-only tool enum (`validate_blueprint`, `build_blueprint`, `save_as_template`).
+ * `catalog_test.go` keeps its own hand-typed `structureOperations` fixture and checks that each
+ * name is still a `workspaceTools()` tool and still mentioned in the embedded catalog text, so
+ * that fixture drifting out of step with this list fails a test instead of going unnoticed - but
+ * a structure operation added here and forgotten there is not caught either way.
  */
-export const STRUCTURE_OPERATIONS = {
-  chat: [
-    'create_structured',
-    'add_view',
-    'create_entries',
-    'add_fields',
-    'edit_form',
-    'update_view',
-    'set_recurrence',
-  ],
-  consult: [
-    'create_structured',
-    'add_view',
-    'create_entries',
-    'add_fields',
-    'edit_form',
-    'update_view',
-    'set_recurrence',
-  ],
-} as const satisfies StructureOperationsByMode;
+export const STRUCTURE_OPERATIONS = [
+  'create_structured',
+  'add_view',
+  'create_entries',
+  'add_fields',
+  'edit_form',
+  'update_view',
+  'set_recurrence',
+  'build_blueprint',
+] as const satisfies readonly string[];
 
 /**
  * Every operation a pet tool may name, in the order `@nix/companion`'s `workspaceToolSchema`
  * declares its flat `operation` enum. This package is the source of truth for that order:
  * `buildPetTools` (`tools.ts`) derives one typed function tool per operation from it,
  * `@nix/companion/tool-args.ts` imports it to build `workspaceToolSchema`, and the Go worker's
- * generated `tools-chat.json` / `tools-consult.json` (`scripts/build-catalog.ts`) are the same
- * tools serialized for the provider. Consult mode offers every operation; chat omits the three
- * consult-only ones (`CONSULT_ONLY_OPERATION_NAMES`).
+ * generated `tools-chat.json` (`scripts/build-catalog.ts`) is the same tools serialized for the
+ * provider. Every conversation offers every operation.
  */
 export const WORKSPACE_OPERATIONS = [
   'list_items',
@@ -361,7 +343,6 @@ export const WORKSPACE_OPERATIONS = [
   'create_structured',
   'add_view',
   'create_entries',
-  'validate_blueprint',
   'add_fields',
   'edit_form',
   'update_view',
@@ -388,11 +369,4 @@ export const READ_ONLY_OPERATION_NAMES = [
   'list_templates',
   'read_template',
   'read_calendar',
-] as const satisfies readonly WorkspaceOperation[];
-
-/** Operations only offered in consult (Design mode) conversations. */
-export const CONSULT_ONLY_OPERATION_NAMES = [
-  'validate_blueprint',
-  'build_blueprint',
-  'save_as_template',
 ] as const satisfies readonly WorkspaceOperation[];

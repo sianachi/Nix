@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { blueprintSchema } from '../blueprint/schema.js';
 import { validateBlueprint } from '../blueprint/validate.js';
-import { consultScenarioSchema, type ConsultScenario } from './schema.js';
+import { designScenarioSchema, type DesignScenario } from './schema.js';
 import { scoreBlueprint } from './score.js';
 
 const names = [
@@ -18,12 +18,12 @@ const names = [
   'personal-finance-goals',
 ];
 const context = { inheritedFields: [], today: '2026-09-26' };
-function readScenario(name: string): ConsultScenario {
-  const path = fileURLToPath(new URL(`../../evals/consult/${name}.json`, import.meta.url));
-  return consultScenarioSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
+function readScenario(name: string): DesignScenario {
+  const path = fileURLToPath(new URL(`../../evals/design/${name}.json`, import.meta.url));
+  return designScenarioSchema.parse(JSON.parse(readFileSync(path, 'utf8')));
 }
 
-describe('consult evaluation', () => {
+describe('design evaluation', () => {
   it('parses every named scenario and its interview patterns', () => {
     for (const name of names) expect(readScenario(name).id).toBe(name);
   });

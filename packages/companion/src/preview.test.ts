@@ -254,6 +254,15 @@ describe('describeToolCall - spec operations', () => {
     );
     expect(plan.steps[0]).toMatchObject({ kind: 'createItem', parentId: 'chosen-parent' });
   });
+  it('a wrongly shaped blueprint yields listed problems, so the pet can fix it', () => {
+    const model = describeToolCall(
+      args({ operation: 'build_blueprint', specJson: JSON.stringify({ version: 1 }) }),
+      context(),
+    );
+    expect(model.headline).toBe('I cannot run this request as written.');
+    expect(model.tree).toEqual([]);
+    expect(model.problems.map((problem) => problem.path).join(' ')).toContain('title');
+  });
   it('an invalid specJson yields problems and no steps', () => {
     const model = describeToolCall(
       args({

@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { MemoryRouter, Route, Routes } from 'react-router';
 import { PetCompanion } from '../../pets/pet-companion';
 import { PetConnectionPanel } from '../../pets/pet-connection-panel';
 
@@ -45,8 +45,7 @@ const connected = {
 };
 
 function OpenedPetPage() {
-  const { search } = useLocation();
-  return <h1>{search === '?pet=design' ? 'Design companion page' : 'Companion page'}</h1>;
+  return <h1>Companion page</h1>;
 }
 
 describe('companion workflow', () => {
@@ -70,7 +69,7 @@ describe('companion workflow', () => {
     client.query.mockResolvedValue(connected);
   });
 
-  it('opens the current Design conversation as a page through the actions menu', async () => {
+  it('opens the conversation as a page through the actions menu', async () => {
     localStorage.setItem('nix.pet.surface', 'both');
     const user = userEvent.setup();
     render(
@@ -83,11 +82,10 @@ describe('companion workflow', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
-    await user.click(screen.getByRole('button', { name: 'Design' }));
     await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
     await user.click(screen.getByRole('menuitem', { name: 'Open as page' }));
 
-    expect(await screen.findByRole('heading', { name: 'Design companion page' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Companion page' })).toBeVisible();
   });
 
   it('opens upward when a moved companion is near the bottom of the screen', async () => {
@@ -161,7 +159,7 @@ describe('companion workflow', () => {
       ([endpoint]) => (endpoint as { body?: { operation?: string } }).body?.operation === 'send',
     );
     expect(call?.[0]).toMatchObject({
-      body: { sharedText: '', mode: 'chat' },
+      body: { sharedText: '', mode: '' },
     });
     view.unmount();
   });
@@ -225,25 +223,11 @@ describe('companion workflow', () => {
     Object.assign(client, { paginate: undefined, cache: undefined });
   });
 
-  it('switches to Design with its own messages and sends mode on every runtime call', async () => {
-    // The connection now streams through the watch loop (`client.query`, `pets.watchRuntime`)
-    // rather than the old read poll, so the mode-scoped fixture keys off the watch's own
-    // `query.mode` instead of an `execute` command's body.
-    client.query.mockImplementation((endpoint: { query?: { mode?: string } }) =>
-      Promise.resolve({
-        ...connected,
-        messages:
-          endpoint.query?.mode === 'consult'
-            ? [
-                {
-                  id: 'design-reply',
-                  role: 'assistant',
-                  text: 'Design conversation',
-                },
-              ]
-            : [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation' }],
-      }),
-    );
+  it('has one conversation: no mode switch, and no mode on any runtime call', async () => {
+    client.query.mockResolvedValue({
+      ...connected,
+      messages: [{ id: 'chat-reply', role: 'assistant', text: 'Chat conversation' }],
+    });
     const user = userEvent.setup();
     render(
       <MemoryRouter>
@@ -252,38 +236,23 @@ describe('companion workflow', () => {
     );
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     expect(await screen.findByText('Chat conversation')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Design' }));
-    expect(await screen.findByText('Design conversation')).toBeVisible();
-    expect(screen.queryByText('Chat conversation')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
-    expect(await screen.findByText('Chat conversation')).toBeVisible();
-    const scopedCalls = client.execute.mock.calls.filter(([endpoint]) =>
-      ['read', 'models'].includes(
-        (endpoint as { body?: { operation?: string } }).body?.operation ?? '',
-      ),
+    expect(screen.queryByRole('button', { name: 'Design' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Conversation mode' })).not.toBeInTheDocument();
+    const calls = [...client.execute.mock.calls, ...client.query.mock.calls].map(
+      ([endpoint]) => endpoint as { body?: { mode?: string }; query?: { mode?: string } },
     );
-    expect(scopedCalls.length).toBeGreaterThan(0);
-    expect(
-      scopedCalls.every(([endpoint]) =>
-        ['chat', 'consult'].includes((endpoint as { body: { mode: string } }).body.mode),
-      ),
-    ).toBe(true);
-    expect(
-      scopedCalls.some(
-        ([endpoint]) => (endpoint as { body: { mode: string } }).body.mode === 'consult',
-      ),
-    ).toBe(true);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((endpoint) => !endpoint.body?.mode && !endpoint.query?.mode)).toBe(true);
   });
 
-  it('opens in Design from the template library entry point', async () => {
+  it('opens the conversation from the template library entry point', async () => {
     render(
       <MemoryRouter initialEntries={['/w/33333333-3333-4333-8333-333333333333?pet=design']}>
         <PetCompanion />
       </MemoryRouter>,
     );
     expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Design' })).toHaveAttribute('aria-current', 'true');
-    expect(screen.getByText(/Describe what you want to keep track of/)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Plan my reading' })).toBeVisible();
   });
 
   async function openSettings(user: ReturnType<typeof userEvent.setup>) {
@@ -291,13 +260,10 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
   }
 
-  it('remembers model choices separately for Chat and Design', async () => {
+  it('remembers the model choice under the key it was always stored under', async () => {
     client.execute.mockResolvedValue({
       ...connected,
-      models: [
-        { id: 'chat-model', name: 'Chat model', default: false },
-        { id: 'design-model', name: 'Design model', default: false },
-      ],
+      models: [{ id: 'chat-model', name: 'Chat model', default: false }],
     });
     const user = userEvent.setup();
     render(
@@ -308,20 +274,11 @@ describe('companion workflow', () => {
     await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     await openSettings(user);
     await user.selectOptions(screen.getByRole('combobox', { name: 'Model' }), 'chat-model');
-    await user.click(screen.getByRole('button', { name: 'Back' }));
-    await user.click(screen.getByRole('button', { name: 'Design' }));
-    await openSettings(user);
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('');
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Model' }), 'design-model');
-    await user.click(screen.getByRole('button', { name: 'Back' }));
-    await user.click(screen.getByRole('button', { name: 'Chat' }));
-    await openSettings(user);
-    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('chat-model');
     expect(
       localStorage.getItem(
-        'nix.pet.model.33333333-3333-4333-8333-333333333333.44444444-4444-4444-8444-444444444444.consult',
+        'nix.pet.model.33333333-3333-4333-8333-333333333333.44444444-4444-4444-8444-444444444444.chat',
       ),
-    ).toBe('design-model');
+    ).toBe('chat-model');
   });
 
   it('prioritises replies and keeps secondary controls tucked into the overflow menu', async () => {
@@ -677,18 +634,7 @@ describe('companion workflow', () => {
     expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
     expect(toggle).toHaveFocus();
 
-    // Another mode is another conversation: the switch reads as off there.
-    await user.click(toggle);
-    expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await user.click(within(dialog).getByRole('button', { name: 'Design' }));
-    expect(within(dialog).getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-    expect(within(dialog).queryByRole('button', { name: 'Turn off' })).not.toBeInTheDocument();
-
     // Turning workspace access off takes the switch with it.
-    await user.click(within(dialog).getByRole('button', { name: 'Chat' }));
     await user.click(within(dialog).getByRole('button', { name: 'Apply without asking' }));
     expect(within(dialog).getByRole('button', { name: 'Turn off' })).toBeVisible();
     await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));

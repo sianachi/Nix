@@ -72,7 +72,6 @@ export const TOOL_EXAMPLES: Readonly<
     parentId: EXAMPLE_ITEM_ID,
     spec: { entries: [{ title: 'The Hobbit' }] },
   },
-  validate_blueprint: { blueprint: EXAMPLE_BLUEPRINT },
   add_fields: {
     itemId: EXAMPLE_ITEM_ID,
     spec: { fields: [{ label: 'Rating', type: 'number' }] },

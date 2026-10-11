@@ -344,8 +344,7 @@ export async function declineReason(
   const args = parsed.data;
   if (args.operation === 'read_template' && !fixture.templates?.has(args.itemId))
     return 'the template was not captured by this fixture';
-  if (READ_ONLY_OPERATIONS.has(args.operation) || args.operation === 'validate_blueprint')
-    return undefined;
+  if (READ_ONLY_OPERATIONS.has(args.operation)) return undefined;
   if (!allowWrites) return 'writes are not allowed in this run';
   const approved = new Set<string>(approvedOperations);
   if (!canApplyWithoutAsking(args.operation) && !approved.has(args.operation))
@@ -433,7 +432,7 @@ async function runtime(
   extra: Partial<Parameters<typeof pets.runtime>[0]> = {},
 ): Promise<PetConnection> {
   return session.client.execute(
-    pets.runtime({ operation, workspaceId, petId, mode: 'chat', ...extra }),
+    pets.runtime({ operation, workspaceId, petId, ...extra }),
   );
 }
 
@@ -443,11 +442,9 @@ async function declineTool(
   petId: string,
   tool: PetToolCall,
   reason: string,
-  mode: 'chat' | 'consult' = 'chat',
 ): Promise<void> {
   const requestId = crypto.randomUUID();
   const claimed = await runtime(session, workspaceId, petId, 'tool_claim', {
-    mode,
     toolId: tool.id,
     requestId,
   });
@@ -455,7 +452,6 @@ async function declineTool(
   if (receipt?.status !== 'claimed' || receipt.claimId !== requestId)
     throw new Error(`Tool ${tool.id} was claimed elsewhere.`);
   await runtime(session, workspaceId, petId, 'tool_result', {
-    mode,
     toolId: tool.id,
     requestId,
     toolResult: `${DECLINED_PREFIX}: ${reason}. Do not retry it.`,
@@ -515,10 +511,7 @@ function resolveFixtureJson(value: unknown, fixture: ChatFixture): unknown {
 }
 
 function isWrite(operation: string): boolean {
-  return (
-    !READ_ONLY_OPERATIONS.has(operation as Parameters<typeof READ_ONLY_OPERATIONS.has>[0]) &&
-    operation !== 'validate_blueprint'
-  );
+  return !READ_ONLY_OPERATIONS.has(operation as Parameters<typeof READ_ONLY_OPERATIONS.has>[0]);
 }
 
 async function checkAssertion(
@@ -697,14 +690,13 @@ async function stopEvaluationTurn(
   session: Session,
   workspaceId: string,
   petId: string,
-  mode: ChatCase['mode'],
   sleep: ChatEvalRuntime['sleep'],
 ): Promise<void> {
   try {
-    let connection = await runtime(session, workspaceId, petId, 'interrupt', { mode });
+    let connection = await runtime(session, workspaceId, petId, 'interrupt');
     for (let attempt = 0; connection.state === 'thinking' && attempt < 10; attempt += 1) {
       await sleep(POLL_INTERVAL_MS);
-      connection = await runtime(session, workspaceId, petId, 'read', { mode });
+      connection = await runtime(session, workspaceId, petId, 'read');
     }
     if (connection.state === 'thinking') throw new RetainEvaluationFixture();
   } catch {
@@ -731,19 +723,16 @@ export async function runChatCase(
   let answer = '';
   let retained = false;
   const prompt = await replaceNodeTitles(chatCase.prompt, fixture, session);
-  await runtime(session, options.workspace, options.pet, 'reset', { mode: chatCase.mode });
+  await runtime(session, options.workspace, options.pet, 'reset');
   try {
     await runtime(session, options.workspace, options.pet, 'send', {
-      mode: chatCase.mode,
       text: prompt,
       workspaceAccess: chatCase.workspaceAccess,
       requestId: crypto.randomUUID(),
       ...(options.model === undefined ? {} : { model: options.model }),
     });
     while (Date.now() - started < CASE_TIMEOUT_MS) {
-      const connection = await runtime(session, options.workspace, options.pet, 'read', {
-        mode: chatCase.mode,
-      });
+      const connection = await runtime(session, options.workspace, options.pet, 'read');
       const tool = connection.tools?.find(
         (entry) => entry.status === 'pending' && !handled.has(entry.id),
       );
@@ -757,7 +746,6 @@ export async function runChatCase(
             options.pet,
             tool,
             'the tool budget is spent',
-            chatCase.mode,
           );
           tools.push({
             operation,
@@ -790,7 +778,7 @@ export async function runChatCase(
                 chatCase.approvedOperations,
               );
         if (reason !== undefined) {
-          await declineTool(session, options.workspace, options.pet, tool, reason, chatCase.mode);
+          await declineTool(session, options.workspace, options.pet, tool, reason);
           tools.push({
             operation,
             decision: 'declined',
@@ -808,7 +796,6 @@ export async function runChatCase(
             options.pet,
             tool.id,
             'approve',
-            chatCase.mode,
             canApplyWithoutAsking(operation as Parameters<typeof canApplyWithoutAsking>[0]) ||
               new Set<string>(chatCase.approvedOperations).has(operation)
               ? { arguments: tool.arguments, ...(fingerprint === undefined ? {} : { fingerprint }) }
@@ -868,11 +855,11 @@ export async function runChatCase(
     throw error;
   } finally {
     if (outcome !== 'done' && outcome !== 'error')
-      await stopEvaluationTurn(session, options.workspace, options.pet, chatCase.mode, sleep);
+      await stopEvaluationTurn(session, options.workspace, options.pet, sleep);
     // Keep the settled conversation as recovery evidence for an uncertain capture. A reset
     // failure must not replace its retention error and cause the suite to delete the source.
     if (!retained)
-      await runtime(session, options.workspace, options.pet, 'reset', { mode: chatCase.mode });
+      await runtime(session, options.workspace, options.pet, 'reset');
   }
 
   const attempted = tools.map((tool) => tool.operation);

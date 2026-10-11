@@ -51,7 +51,7 @@ function matches(predicate: Predicate, bp: Blueprint, nodes: Node[], depths: num
   }
 }
 
-/** A reproducible quality score for a proposed consult blueprint. The validator gate is independent. */
+/** A reproducible quality score for a proposed design blueprint. The validator gate is independent. */
 export function scoreBlueprint(
   bp: Blueprint | null,
   expectations: EvalExpectations,

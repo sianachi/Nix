@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import {
-  CONSULT_ONLY_OPERATION_NAMES,
   READ_ONLY_OPERATION_NAMES,
   WORKSPACE_OPERATIONS,
 } from '@nix/structure-spec';
@@ -10,8 +9,7 @@ export const workspaceToolSchema = z
   .object({
     // Sourced from @nix/structure-spec's WORKSPACE_OPERATIONS (packages/structure-spec/src/
     // catalog/tables.ts), which is also what the pet's typed nix_<operation> tools
-    // (buildPetTools) and the Go worker's generated tools-chat.json/tools-consult.json are built
-    // from, so this flat enum cannot drift out of step with either.
+    // (buildPetTools) and the Go worker's generated tools-chat.json are built from, so this flat enum cannot drift out of step with either.
     operation: z.enum(WORKSPACE_OPERATIONS),
     itemId: optionalId,
     parentId: optionalId,
@@ -40,7 +38,6 @@ export const workspaceToolSchema = z
       'list_templates',
       'create_structured',
       'create_entries',
-      'validate_blueprint',
       'build_blueprint',
       'read_calendar',
     ];
@@ -91,11 +88,7 @@ export const workspaceToolSchema = z
         }
       }
     }
-    if (
-      args.operation === 'validate_blueprint' ||
-      args.operation === 'build_blueprint' ||
-      args.operation === 'save_as_template'
-    ) {
+    if (args.operation === 'build_blueprint' || args.operation === 'save_as_template') {
       if (!args.specJson.trim() && args.operation !== 'save_as_template') required('specJson');
       else if (args.specJson.trim()) {
         try {
@@ -195,10 +188,4 @@ export class WorkspaceToolRefusal extends Error {
  * READ_ONLY_OPERATION_NAMES, the same list `buildPetTools`' tool descriptions read. */
 export const READ_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set(
   READ_ONLY_OPERATION_NAMES,
-);
-
-/** Operations only offered in consult mode. Sourced from @nix/structure-spec's
- * CONSULT_ONLY_OPERATION_NAMES, the same list `buildPetTools` filters chat mode's tools by. */
-export const CONSULT_ONLY_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new Set(
-  CONSULT_ONLY_OPERATION_NAMES,
 );

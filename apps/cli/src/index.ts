@@ -230,7 +230,6 @@ export function buildProgram(): Command {
     .option('--request-id <id>', 'the claim request identity, shared by tool_claim and tool_result')
     .option('--tool-result <text>', 'the outcome text to post with tool_result')
     .option('--tool-success', 'mark the posted tool_result a success')
-    .option('--mode <mode>', 'chat or consult')
     .option(
       '--after <revision>',
       'with --operation watch: the last known revision to wait past',
@@ -273,8 +272,8 @@ export function buildProgram(): Command {
   pet
     .command('eval')
     .description('Run a scripted companion evaluation against the connected provider.')
-    .requiredOption('--suite <name>', 'evaluation suite: consult or chat')
-    .option('--scenario <id>', 'consult: run one scenario')
+    .requiredOption('--suite <name>', 'evaluation suite: design or chat')
+    .option('--scenario <id>', 'design: run one scenario')
     .option('--case <id>', 'chat: run one case')
     .option('--runs <count>', 'chat: repeat the suite this many times', '1')
     .option(
@@ -310,9 +309,9 @@ export function buildProgram(): Command {
         );
         return;
       }
-      if (options.suite !== 'consult') throw new Error('Choose --suite consult or --suite chat.');
+      if (options.suite !== 'design') throw new Error('Choose --suite design or --suite chat.');
       await run(() =>
-        petEval(flags.profile, { ...options, suite: 'consult' }, outputOptions(flags.json)),
+        petEval(flags.profile, { ...options, suite: 'design' }, outputOptions(flags.json)),
       );
     });
 
@@ -1224,21 +1223,14 @@ export function buildProgram(): Command {
 
   const blueprint = program
     .command('blueprint')
-    .description('Inspect and build a Design mode blueprint.');
+    .description('Inspect and build a blueprint.');
   blueprint
     .command('catalog')
     .description('Print the generated structure catalog.')
-    .option('--text <mode>', 'rendered chat or consult catalog')
-    .action(async (options: { text?: string }, command: Command) => {
+    .option('--text', 'print the rendered catalog text the pet reads', false)
+    .action(async (options: { text: boolean }, command: Command) => {
       const flags = globalFlags(command);
-      await run(async () => {
-        if (options.text && options.text !== 'chat' && options.text !== 'consult')
-          throw new Error('--text must be chat or consult.');
-        await blueprintCatalog(
-          options.text as 'chat' | 'consult' | undefined,
-          outputOptions(flags.json),
-        );
-      });
+      await run(() => blueprintCatalog(options.text, outputOptions(flags.json)));
     });
   blueprint
     .command('validate <file>')

@@ -184,26 +184,19 @@ func TestUnsupportedToolNamesAreRejectedBeforeFlattening(t *testing.T) {
 	}
 }
 
-func TestOnlyLocalBlueprintValidationCanRunWithoutWorkspaceAccess(t *testing.T) {
+func TestNoToolRunsWithoutWorkspaceAccess(t *testing.T) {
 	a := &account{transport: &toolPeer{}, home: t.TempDir(), conversations: map[string]*conversation{"x": {
-		ThreadID: "thread", State: "thinking", Mode: "consult", WorkspaceAccess: false,
+		ThreadID: "thread", State: "thinking", WorkspaceAccess: false,
 	}}}
-	call := func(id, tool string) bool {
-		args := `{"blueprint":{}}`
-		raw := json.RawMessage(fmt.Sprintf(`{"threadId":"thread","tool":%q,"callId":%q,"arguments":%s}`, tool, id, args))
-		return a.toolRequest(json.RawMessage(`1`), "item/tool/call", raw)
-	}
-	if !call("local", "nix_validate_blueprint") || len(a.snapshot("x").Tools) != 1 {
-		t.Fatal("local blueprint validation was refused without workspace access")
-	}
-	if call("workspace", "nix_build_blueprint") || len(a.snapshot("x").Tools) != 1 {
-		t.Fatal("workspace write reached the approval flow without workspace access")
+	raw := json.RawMessage(`{"threadId":"thread","tool":"nix_build_blueprint","callId":"design","arguments":{"blueprint":{}}}`)
+	if a.toolRequest(json.RawMessage(`1`), "item/tool/call", raw) || len(a.snapshot("x").Tools) != 0 {
+		t.Fatal("a design build reached the approval flow without workspace access")
 	}
 }
 
 func TestSpecJsonLimitsAndDepth(t *testing.T) {
 	oversized := `{"operation":"create_structured","parentId":"","title":"Plan","specJson":"` + strings.Repeat("a", 24001) + `"}`
-	if got := validateToolArguments(json.RawMessage(oversized), "chat"); got != "The design is too large. Use fewer items and fields." {
+	if got := validateToolArguments(json.RawMessage(oversized)); got != "The design is too large. Use fewer items and fields." {
 		t.Fatalf("oversized specJson not refused with the exact message: %q", got)
 	}
 	deep := strings.Repeat(`{"a":`, 25) + "1" + strings.Repeat("}", 25)
@@ -211,7 +204,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := validateToolArguments(json.RawMessage(deepArgs), "chat"); got != "The design is too large. Use fewer items and fields." {
+	if got := validateToolArguments(json.RawMessage(deepArgs)); got != "The design is too large. Use fewer items and fields." {
 		t.Fatalf("depth-25 specJson not refused with the exact message: %q", got)
 	}
 	atLimit := strings.Repeat(`{"a":`, 24) + "1" + strings.Repeat("}", 24)
@@ -219,7 +212,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := validateToolArguments(json.RawMessage(atLimitArgs), "chat"); got != "" {
+	if got := validateToolArguments(json.RawMessage(atLimitArgs)); got != "" {
 		t.Fatalf("depth-24 specJson wrongly refused: %q", got)
 	}
 	shallow := `{"a":1}`
@@ -231,7 +224,7 @@ func TestSpecJsonLimitsAndDepth(t *testing.T) {
 		t.Fatalf("brackets inside a string counted as nesting: %d", jsonDepth(bracketsInString))
 	}
 	alongsideMarkdown := `{"operation":"create_note","title":"Plan","markdown":"body","specJson":"{}"}`
-	if got := validateToolArguments(json.RawMessage(alongsideMarkdown), "chat"); got != "Put markdown inside spec entries, not alongside it." {
+	if got := validateToolArguments(json.RawMessage(alongsideMarkdown)); got != "Put markdown inside spec entries, not alongside it." {
 		t.Fatalf("markdown alongside specJson not refused: %q", got)
 	}
 }
@@ -247,37 +240,32 @@ func TestNewOperationsAcceptValidArguments(t *testing.T) {
 		fmt.Sprintf(`{"operation":"read_template","itemId":%q}`, itemID),
 		fmt.Sprintf(`{"operation":"apply_template","itemId":%q,"title":"Plan"}`, itemID),
 	} {
-		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "" {
+		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
 			t.Fatalf("valid arguments refused: %s -> %q", raw, got)
 		}
 	}
 }
 
-// TestConsultOnlyOperationsAreRefusedInChat covers owner decision 7 (pet-structure-consult-plan.md
-// section 1.4): validate_blueprint, build_blueprint and save_as_template are refused outside
-// Design mode, and accepted with minimal valid arguments in it.
-func TestConsultOnlyOperationsAreRefusedInChat(t *testing.T) {
+// TestDesignOperationsAreAcceptedInTheOneConversation proves the design tools that once
+// belonged to Design mode are accepted with minimal valid arguments, and that the retired
+// validate_blueprint is refused as unsupported.
+func TestDesignOperationsAreAcceptedInTheOneConversation(t *testing.T) {
 	itemID := "11111111-1111-4111-8111-111111111111"
 	for _, raw := range []string{
-		`{"operation":"validate_blueprint","specJson":"{}"}`,
 		`{"operation":"build_blueprint","specJson":"{}"}`,
 		fmt.Sprintf(`{"operation":"save_as_template","itemId":%q,"title":"Job hunt"}`, itemID),
 	} {
-		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "This operation is only available in Design mode." {
-			t.Fatalf("consult-only operation accepted in chat: %s -> %q", raw, got)
-		}
-		if got := validateToolArguments(json.RawMessage(raw), "consult"); got != "" {
-			t.Fatalf("consult-only operation refused in consult with valid arguments: %s -> %q", raw, got)
+		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
+			t.Fatalf("design operation refused with valid arguments: %s -> %q", raw, got)
 		}
 	}
-	// The empty mode ("" defaults to chat, architecture section 6) refuses them too.
-	if got := validateToolArguments(json.RawMessage(`{"operation":"build_blueprint","specJson":"{}"}`), ""); got != "This operation is only available in Design mode." {
-		t.Fatalf("consult-only operation accepted with an empty mode: %q", got)
+	if got := validateToolArguments(json.RawMessage(`{"operation":"validate_blueprint","specJson":"{}"}`)); got != "Unsupported workspace operation." {
+		t.Fatalf("retired validate_blueprint not refused as unsupported: %q", got)
 	}
 }
 
-func TestConsultSaveDescriptionMatchesCaptureContract(t *testing.T) {
-	tools := workspaceTools("consult")
+func TestSaveDescriptionMatchesCaptureContract(t *testing.T) {
+	tools := workspaceTools()
 	var saveDescription string
 	for _, entry := range tools {
 		tool := entry.(map[string]any)
@@ -286,16 +274,16 @@ func TestConsultSaveDescriptionMatchesCaptureContract(t *testing.T) {
 		}
 	}
 	if saveDescription == "" {
-		t.Fatal("nix_save_as_template is missing from workspaceTools(\"consult\")")
+		t.Fatal("nix_save_as_template is missing from workspaceTools()")
 	}
 	if !strings.Contains(saveDescription, "Sample:") {
 		t.Fatalf("nix_save_as_template's description does not explain the Sample: exclusion: %q", saveDescription)
 	}
-	if !strings.Contains(consultRules, "Title every fictional sample node and sample container with the prefix Sample:") {
-		t.Fatal("consult instructions omit the capture exclusion naming rule")
+	if !strings.Contains(designRules, "Title every fictional sample node and sample container with the prefix Sample:") {
+		t.Fatal("design instructions omit the capture exclusion naming rule")
 	}
-	if !strings.Contains(consultRules, "omit spec for default sample exclusion") {
-		t.Fatal("consult instructions omit how to accept nix_save_as_template's default sample exclusion")
+	if !strings.Contains(designRules, "omit spec for default sample exclusion") {
+		t.Fatal("design instructions omit how to accept nix_save_as_template's default sample exclusion")
 	}
 }
 
@@ -371,21 +359,13 @@ func jsonEqual(a, b string) bool {
 // right shape and the flat shape being accepted are two different guarantees, and this is the
 // second one.
 func TestFlattenedFixturesAreAcceptedByValidateToolArguments(t *testing.T) {
-	consultOnly := map[string]bool{}
-	for _, operation := range consultOnlyOperations {
-		consultOnly[operation] = true
-	}
 	for _, fixture := range toolExamples {
 		t.Run(fixture.Operation, func(t *testing.T) {
-			mode := "chat"
-			if consultOnly[fixture.Operation] {
-				mode = "consult"
-			}
 			encoded, err := json.Marshal(fixture.Flat)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := validateToolArguments(json.RawMessage(encoded), mode); got != "" {
+			if got := validateToolArguments(json.RawMessage(encoded)); got != "" {
 				t.Fatalf("fixture flattened result refused: %s -> %q", encoded, got)
 			}
 		})
@@ -403,7 +383,7 @@ func TestUnknownOperationIsRefusedAsUnsupported(t *testing.T) {
 		`{"operation":"delete_item_permanently"}`,
 		`{"operation":""}`,
 	} {
-		if got := validateToolArguments(json.RawMessage(raw), "chat"); got != "Unsupported workspace operation." {
+		if got := validateToolArguments(json.RawMessage(raw)); got != "Unsupported workspace operation." {
 			t.Fatalf("non-enum operation not refused as unsupported: %s -> %q", raw, got)
 		}
 	}
@@ -461,7 +441,7 @@ func TestFlattenToolCallMapsTemplateIdToItemId(t *testing.T) {
 
 func TestReadSchemaIsNoLongerAnOperation(t *testing.T) {
 	itemID := "11111111-1111-4111-8111-111111111111"
-	got := validateToolArguments(json.RawMessage(fmt.Sprintf(`{"operation":"read_schema","itemId":%q}`, itemID)), "chat")
+	got := validateToolArguments(json.RawMessage(fmt.Sprintf(`{"operation":"read_schema","itemId":%q}`, itemID)))
 	if got != "Unsupported workspace operation." {
 		t.Fatalf("read_schema still accepted: %q", got)
 	}
@@ -480,7 +460,6 @@ func TestNewReadOperationsAreReadOnly(t *testing.T) {
 		`{"operation":"read_structure","itemId":"11111111-1111-4111-8111-111111111111"}`,
 		`{"operation":"list_templates"}`,
 		`{"operation":"read_template","itemId":"11111111-1111-4111-8111-111111111111"}`,
-		`{"operation":"validate_blueprint"}`,
 	} {
 		_, readOnly := toolIdentity(raw)
 		if !readOnly {
@@ -505,14 +484,8 @@ func TestNewReadOperationsAreReadOnly(t *testing.T) {
 	}
 }
 
-func TestChatCatalogIsEmbeddedAndBounded(t *testing.T) {
-	if chatCatalog == "" {
-		t.Fatal("chat catalog is empty")
-	}
-	if len(chatCatalog) > 3000 {
-		t.Fatalf("chat catalog exceeds the 3000 byte budget: %d", len(chatCatalog))
-	}
-	for _, word := range []string{"Property types", "View kinds", "Recipes", "Never"} {
+func TestCatalogCarriesEverySection(t *testing.T) {
+	for _, word := range []string{"Property types", "View kinds", "Recipes", "Never", "Blueprint schema", "Patterns"} {
 		if !strings.Contains(chatCatalog, word) {
 			t.Fatalf("chat catalog missing section %q", word)
 		}
@@ -526,17 +499,16 @@ var validFlatTargets = map[string]bool{
 	"query": true, "propertiesJson": true, "specJson": true,
 }
 
-// TestToolArgSpecsMatchGeneratedSchemas walks workspaceTools("consult") (a superset of every
-// operation chat also offers) and checks tools.go's hand-written toolArgSpecs against the
+// TestToolArgSpecsMatchGeneratedSchemas walks workspaceTools() and checks tools.go's hand-written toolArgSpecs against the
 // generated schema directly, rather than trusting the tool-examples.json fixture alone to catch
 // every drift: for every tool, the key set of inputSchema.properties must equal the key set of
 // toolArgSpecs[operation], a property typed "object" must map to argObjectJSON and any other
-// property must map to argString, toolArgSpecs must have exactly one entry per consult tool, and
+// property must map to argString, toolArgSpecs must have exactly one entry per tool, and
 // every argMapping's flat target must be one of flatToolArgs' own field names.
 func TestToolArgSpecsMatchGeneratedSchemas(t *testing.T) {
-	tools := workspaceTools("consult")
+	tools := workspaceTools()
 	if len(toolArgSpecs) != len(tools) {
-		t.Fatalf("toolArgSpecs has %d entries, want %d (one per consult tool)", len(toolArgSpecs), len(tools))
+		t.Fatalf("toolArgSpecs has %d entries, want %d (one per tool)", len(toolArgSpecs), len(tools))
 	}
 	for _, entry := range tools {
 		tool, ok := entry.(map[string]any)
@@ -612,14 +584,13 @@ func TestRefusalMessagesUseTypedVocabulary(t *testing.T) {
 		want string
 	}{
 		{`{"operation":"create_structured","title":"Plan","specJson":"[]"}`, "nix_create_structured requires spec"},
-		{`{"operation":"validate_blueprint","specJson":""}`, "nix_validate_blueprint requires blueprint"},
 		{`{"operation":"build_blueprint","specJson":""}`, "nix_build_blueprint requires blueprint"},
 		{fmt.Sprintf(`{"operation":"set_properties","itemId":%q,"propertiesJson":""}`, itemID), "nix_set_properties requires properties"},
 		{`{"operation":"read_template","itemId":""}`, "nix_read_template requires the exact templateId UUID"},
 		{`{"operation":"apply_template","itemId":""}`, "nix_apply_template requires the exact templateId UUID"},
 		{`{"operation":"read_item","itemId":""}`, "nix_read_item requires the exact itemId UUID"},
 	} {
-		got := validateToolArguments(json.RawMessage(tc.raw), "consult")
+		got := validateToolArguments(json.RawMessage(tc.raw))
 		if !strings.Contains(got, tc.want) {
 			t.Fatalf("%s: got %q, want it to contain %q", tc.raw, got, tc.want)
 		}
@@ -639,7 +610,7 @@ func TestRefusalMessagesUseTypedVocabulary(t *testing.T) {
 func TestToolIdentityReadOnlyOperationsArePinned(t *testing.T) {
 	want := map[string]bool{
 		"list_items": true, "search": true, "read_item": true, "read_note": true,
-		"read_structure": true, "read_view": true, "list_templates": true, "read_template": true, "validate_blueprint": true,
+		"read_structure": true, "read_view": true, "list_templates": true, "read_template": true,
 		"read_calendar": true,
 	}
 	for operation := range want {
@@ -648,7 +619,7 @@ func TestToolIdentityReadOnlyOperationsArePinned(t *testing.T) {
 			t.Fatalf("%q should be read-only", operation)
 		}
 	}
-	for _, entry := range workspaceTools("consult") {
+	for _, entry := range workspaceTools() {
 		tool := entry.(map[string]any)
 		operation := operationFromToolName(tool["name"].(string))
 		if want[operation] {
@@ -771,10 +742,8 @@ func TestBodyEditArgumentsAreValidated(t *testing.T) {
 		fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":"teh plan","markdown":"the plan"}`, itemID),
 		fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":" (draft)","markdown":""}`, itemID),
 	} {
-		for _, mode := range []string{"chat", "consult"} {
-			if got := validateToolArguments(json.RawMessage(raw), mode); got != "" {
-				t.Fatalf("%s: valid arguments refused: %s -> %q", mode, raw, got)
-			}
+		if got := validateToolArguments(json.RawMessage(raw)); got != "" {
+			t.Fatalf("valid arguments refused: %s -> %q", raw, got)
 		}
 	}
 	for _, tc := range []struct {
@@ -788,7 +757,7 @@ func TestBodyEditArgumentsAreValidated(t *testing.T) {
 		{fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":"","markdown":"x"}`, itemID), "requires the exact text to find"},
 		{fmt.Sprintf(`{"operation":"replace_passage","itemId":%q,"query":%q,"markdown":"x"}`, itemID, strings.Repeat("a", 241)), "limited to 240 characters"},
 	} {
-		if got := validateToolArguments(json.RawMessage(tc.raw), "chat"); !strings.Contains(got, tc.want) {
+		if got := validateToolArguments(json.RawMessage(tc.raw)); !strings.Contains(got, tc.want) {
 			t.Fatalf("%s: got %q, want it to contain %q", tc.raw, got, tc.want)
 		}
 	}
@@ -868,7 +837,7 @@ func TestReadCalendarAndCompleteTaskValidation(t *testing.T) {
 		{fmt.Sprintf(`{"operation":"complete_task","itemId":%q,"specJson":"{\"completed\":\"yes\"}"}`, itemID), "requires completed"},
 		{`{"operation":"complete_task","itemId":"","specJson":"{\"completed\":true}"}`, "requires the exact itemId UUID"},
 	} {
-		got := validateToolArguments(json.RawMessage(tc.raw), "chat")
+		got := validateToolArguments(json.RawMessage(tc.raw))
 		if tc.want == "" && got != "" {
 			t.Fatalf("%s refused: %q", tc.raw, got)
 		}

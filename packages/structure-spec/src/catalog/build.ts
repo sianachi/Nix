@@ -30,7 +30,6 @@ import {
   type HabitRules,
   type QueryOperatorRule,
   type RecurrenceRules,
-  type StructureOperationsByMode,
   type ViewKindRequirement,
   type ViewKindRule,
 } from './tables.js';
@@ -85,7 +84,7 @@ export interface Catalog {
   readonly viewKinds: readonly CatalogViewKind[];
   readonly queryOperators: readonly QueryOperatorRule[];
   readonly formRules: FormRules;
-  readonly structureOperations: StructureOperationsByMode;
+  readonly structureOperations: readonly string[];
   readonly limits: CatalogLimits;
   readonly templateInputTypes: readonly string[];
   readonly initRuleKinds: readonly string[];
@@ -190,25 +189,16 @@ function viewKindLine(kind: CatalogViewKind): string {
 }
 
 /**
- * The chat-mode catalog text: field types, view kinds and their requirements, recipes and the
- * never-ops, at most 3000 characters. Chat pets review and refine existing structure and never
- * design a system from scratch, so they need the vocabulary but not formulas, forms, recurrence,
- * habits or the blueprint schema.
+ * The pet's catalog text: field types, view kinds and their requirements, recipes, the
+ * never-ops, formulas, rollups, form rules, smart lists, recurrence, habits, the template
+ * vocabulary, the blueprint schema summary and the efficiency patterns, at most 12000
+ * characters. One conversation both refines existing structure and designs whole systems, so it
+ * carries the full vocabulary.
  */
-export function renderChat(catalog: Catalog): string {
-  return renderShared(catalog, false);
-}
-
-/**
- * The text both modes open with. Chat names the recipes by id only: each sets up the view kind of
- * the same name, which the view-kind lines above it already describe, and the chat text's hard
- * 3000-character ceiling is better spent on the kinds than on a second description of each one.
- * Consult, with room to spare, keeps every recipe's own sentence.
- */
-function renderShared(catalog: Catalog, recipeDetail: boolean): string {
+export function renderCatalog(catalog: Catalog, patterns: string): string {
   const lines: string[] = [];
   lines.push('Section: Structure operations');
-  lines.push(catalog.structureOperations.chat.join(', '));
+  lines.push(catalog.structureOperations.join(', '));
   lines.push(
     `Per call: create_structured ${String(catalog.limits.viewsPerNode)} views, add_view ${String(catalog.limits.viewsPerAddView)}; ${String(catalog.limits.viewsPerContainer)} total per item. Read structure for remaining capacity.`,
   );
@@ -221,7 +211,7 @@ function renderShared(catalog: Catalog, recipeDetail: boolean): string {
   lines.push('Section: Property types');
   lines.push(
     catalog.propertyTypes
-      .map((type) => (recipeDetail ? `${type.type} (${type.label})` : type.type))
+      .map((type) => `${type.type} (${type.label})`)
       .join(', '),
   );
   lines.push(
@@ -236,27 +226,15 @@ function renderShared(catalog: Catalog, recipeDetail: boolean): string {
   lines.push('');
   lines.push('Section: Recipes');
   lines.push(
-    recipeDetail
-      ? catalog.recipes
-          .map((recipe) => `${recipe.id}: ${recipe.label} - ${recipe.detail}`)
-          .join('\n')
-      : `${catalog.recipes.map((recipe) => recipe.id).join(', ')}. Each sets up the view kind it names; query is a smart list.`,
+    catalog.recipes.map((recipe) => `${recipe.id}: ${recipe.label} - ${recipe.detail}`).join('\n'),
   );
   lines.push('');
   lines.push('Section: Never');
   for (const rule of catalog.neverOperations) {
     lines.push(`- ${rule}`);
   }
-  return lines.join('\n');
-}
+  lines.push('');
 
-/**
- * The consult-mode catalog text: everything the chat text carries plus formulas, rollups, form
- * rules, smart lists, recurrence, habits, the template vocabulary, the blueprint schema summary
- * and the efficiency patterns, at most 12000 characters.
- */
-export function renderConsult(catalog: Catalog, patterns: string): string {
-  const lines: string[] = [renderShared(catalog, true), ''];
 
   lines.push('Section: Query operators');
   for (const operator of catalog.queryOperators) {

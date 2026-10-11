@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { FORMULA_FUNCTION_NAMES } from '@nix/sheet';
 import { describe, expect, it } from 'vitest';
 
-import { buildCatalog, renderChat, renderConsult } from './build.js';
+import { buildCatalog, renderCatalog } from './build.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..', '..');
@@ -15,51 +15,40 @@ function readPatterns(): string {
 }
 
 describe('the capability catalog', () => {
-  it('renders chat text at most 3000 chars and consult text at most 12000 chars', () => {
-    const catalog = buildCatalog();
-    const chat = renderChat(catalog);
-    const consult = renderConsult(catalog, readPatterns());
-    expect(chat.length).toBeLessThanOrEqual(3000);
-    expect(consult.length).toBeLessThanOrEqual(12000);
+  it('renders the catalog text at most 12000 chars', () => {
+    expect(renderCatalog(buildCatalog(), readPatterns()).length).toBeLessThanOrEqual(12000);
   });
 
   it('documents the exact blueprint field and kind-specific view syntax', () => {
-    const consult = renderConsult(buildCatalog(), readPatterns());
-    expect(consult).toContain('Do not use name for a field');
-    expect(consult).toContain('do not use properties or entries for blueprint node values');
-    expect(consult).toContain('under values, keyed by field key');
-    expect(consult).toContain('On a list, groupBy draws sections');
-    expect(consult).toContain('- board: groupBy');
+    const text = renderCatalog(buildCatalog(), readPatterns());
+    expect(text).toContain('Do not use name for a field');
+    expect(text).toContain('do not use properties or entries for blueprint node values');
+    expect(text).toContain('under values, keyed by field key');
+    expect(text).toContain('On a list, groupBy draws sections');
+    expect(text).toContain('- board: groupBy');
   });
 
   it('discloses call limits, fixed task keys, and actual Gallery, Query and Habit settings', () => {
-    const catalog = buildCatalog();
-    for (const text of [renderChat(catalog), renderConsult(catalog, readPatterns())]) {
-      expect(text).toContain('create_structured 6 views, add_view 4; 12 total per item');
-      expect(text).toContain(
-        'Task field keys equal their type: due_date, start_date, completion, priority, estimate, reminder',
-      );
-      expect(text).toContain('columns are not configurable');
-      expect(text).toContain('not column mappings');
-      expect(text).toContain('columns (field keys)');
-      expect(text).toContain(
-        'Columns may include title; it is an item-title marker, never a form field',
-      );
-    }
-    const consult = renderConsult(catalog, readPatterns());
-    expect(consult).toContain(
-      'Configure child node.habit with frequency, weekdays, target and unit',
+    const text = renderCatalog(buildCatalog(), readPatterns());
+    expect(text).toContain('create_structured 6 views, add_view 4; 12 total per item');
+    expect(text).toContain(
+      'Task field keys equal their type: due_date, start_date, completion, priority, estimate, reminder',
     );
+    expect(text).toContain('columns are not configurable');
+    expect(text).toContain('not column mappings');
+    expect(text).toContain('columns (field keys)');
+    expect(text).toContain(
+      'Columns may include title; it is an item-title marker, never a form field',
+    );
+    expect(text).toContain('Configure child node.habit with frequency, weekdays, target and unit');
   });
 
-  it('offers the same read-only review and requested refinement workflow in both modes', () => {
-    const catalog = buildCatalog();
-    for (const text of [renderChat(catalog), renderConsult(catalog, readPatterns())]) {
-      expect(text).toContain('Read configuration with nix_read_structure');
-      expect(text).toContain('bounded results with nix_read_view');
-      expect(text).toContain('Reviews only read');
-      expect(text).toContain('requested refinements use nix_update_view, then read back');
-    }
+  it('offers the read-only review and requested refinement workflow', () => {
+    const text = renderCatalog(buildCatalog(), readPatterns());
+    expect(text).toContain('Read configuration with nix_read_structure');
+    expect(text).toContain('bounded results with nix_read_view');
+    expect(text).toContain('Reviews only read');
+    expect(text).toContain('requested refinements use nix_update_view, then read back');
   });
 
   it('names every property type in PROPERTY_TYPES except assignee', () => {
@@ -90,22 +79,16 @@ describe('the capability catalog', () => {
     ]);
   });
 
-  it('names every structure operation of the mode in the rendered text, not hand-typed', () => {
+  it('names every structure operation in the rendered text, not hand-typed', () => {
     const catalog = buildCatalog();
-    const chat = renderChat(catalog);
-    const consult = renderConsult(catalog, readPatterns());
+    const text = renderCatalog(catalog, readPatterns());
 
-    // create_structured, add_view and create_entries: the Go worker's TestCatalogNamesEveryOperationInItsMode
-    // cross-checks this same set against workspaceTools()'s enum, so a structure operation added
-    // to one side and forgotten on the other fails a build.
-    expect(catalog.structureOperations.chat.length).toBeGreaterThan(0);
-    for (const operation of catalog.structureOperations.chat) {
-      expect(chat, `chat catalog should name structure operation '${operation}'`).toContain(
-        operation,
-      );
-      expect(consult, `consult catalog should name structure operation '${operation}'`).toContain(
-        operation,
-      );
+    // The Go worker's TestCatalogNamesEveryStructureOperation cross-checks this same set against
+    // workspaceTools()'s enum, so a structure operation added to one side and forgotten on the
+    // other fails a build.
+    expect(catalog.structureOperations.length).toBeGreaterThan(0);
+    for (const operation of catalog.structureOperations) {
+      expect(text, `catalog should name structure operation '${operation}'`).toContain(operation);
     }
   });
 

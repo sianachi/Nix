@@ -288,7 +288,6 @@ function legacyHeadline(args: PreviewToolArgs): string {
     case 'edit_form':
     case 'update_view':
     case 'set_recurrence':
-    case 'validate_blueprint':
     case 'build_blueprint':
     case 'save_as_template':
       throw new Error(`${args.operation} is a spec operation and has no legacy headline.`);
@@ -379,31 +378,13 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
       neverDoes: NEVER_DOES.slice(),
     };
   }
-  if (args.operation === 'validate_blueprint') {
-    const report = validateBlueprint(JSON.parse(args.specJson), { inheritedFields: [], today: '' });
-    return {
-      headline: report.ok
-        ? 'I will validate this design without changing anything.'
-        : 'I cannot validate this design as written.',
-      destination: { title: 'Local validation', path: [] },
-      counts: {
-        ...emptyCounts(),
-        fields: report.stats.fields,
-        views: report.stats.views,
-        entries: report.stats.entries,
-      },
-      tree: [],
-      notes: [],
-      warnings: report.warnings,
-      problems: report.problems,
-      neverDoes: NEVER_DOES.slice(),
-    };
-  }
   if (args.operation === 'build_blueprint') {
-    const blueprint = blueprintSchema.parse(JSON.parse(args.specJson));
+    // Validate the raw spec before parsing it, so a wrong shape becomes listed problems the pet
+    // can fix rather than a preview that fails to load.
+    const raw: unknown = JSON.parse(args.specJson);
     const report =
       context.blueprintReport ??
-      validateBlueprint(blueprint, { inheritedFields: context.inheritedFields, today: '' });
+      validateBlueprint(raw, { inheritedFields: context.inheritedFields, today: '' });
     if (!report.ok)
       return {
         headline: 'I cannot run this request as written.',
@@ -420,6 +401,7 @@ export function describeToolCall(args: PreviewToolArgs, context: PreviewContext)
         problems: report.problems,
         neverDoes: NEVER_DOES.slice(),
       };
+    const blueprint = blueprintSchema.parse(raw);
     const plan = planBlueprintPreview(blueprint, args.parentId, context);
     const model = describeBlueprint(blueprint, report, { destination: context.destination });
     return {

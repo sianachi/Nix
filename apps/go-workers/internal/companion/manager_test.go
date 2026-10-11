@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -284,11 +283,9 @@ func TestCodexHandshakeWithoutUserCredentials(t *testing.T) {
 	if _, err = transport.Call(context.Background(), "model/list", map[string]any{"limit": 100}); err != nil {
 		t.Fatal(err)
 	}
-	// Thread creation validates both modes' tool schemas without a model turn.
-	for _, mode := range []string{"chat", "consult"} {
-		if _, err = transport.Call(context.Background(), "thread/start", map[string]any{"dynamicTools": workspaceTools(mode), "sandbox": "read-only", "approvalPolicy": "on-request"}); err != nil {
-			t.Fatalf("%s tool schema: %v", mode, err)
-		}
+	// Thread creation validates the tool schemas without a model turn.
+	if _, err = transport.Call(context.Background(), "thread/start", map[string]any{"dynamicTools": workspaceTools(), "sandbox": "read-only", "approvalPolicy": "on-request"}); err != nil {
+		t.Fatalf("tool schema: %v", err)
 	}
 }
 
@@ -367,35 +364,36 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 	}
 }
 
-// The Phase D tool version bump (consult mode, validate_blueprint, build_blueprint,
-// save_as_template) must restart any thread that still carries the old schema.
+// The single-conversation tool version bump (Design mode retired, nix_build_blueprint and
+// nix_save_as_template offered to every conversation, nix_validate_blueprint removed) must
+// restart any thread that still carries the old schema.
 // TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
-// relative to toolVersion; this pins the constant to 7 for explicit capability and turn limits, so a future bump
-// that forgets to change it would not silently pass either test.
-func TestToolVersionSevenRestartsThreads(t *testing.T) {
-	if toolVersion != 7 {
-		t.Fatalf("capability limits expect toolVersion 7, got %d", toolVersion)
+// relative to toolVersion; this pins the constant to 8, so a future bump that forgets to change
+// it would not silently pass either test.
+func TestToolVersionEightRestartsThreads(t *testing.T) {
+	if toolVersion != 8 {
+		t.Fatalf("one conversation expects toolVersion 8, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	a.conversations[key] = &conversation{ToolVersion: 6, LockedRead: true, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi"}}}
+	a.conversations[key] = &conversation{ToolVersion: 7, LockedRead: true, ThreadID: "old-thread", Messages: []Message{{ID: "seed", Role: "user", Text: "hi"}}}
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 5 conversation should start a fresh thread on the version 6 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 7 conversation should start a fresh thread on the version 8 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
 	if !got.LockedRead {
 		t.Fatal("tool migration cleared the visible conversation read hold")
 	}
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 7 bump: %+v", got.Messages)
+		t.Fatalf("no system notice appended on the version 8 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 7 {
-		t.Fatalf("conversation not recorded at tool version 7: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 8 {
+		t.Fatalf("conversation not recorded at tool version 8: %d", a.conversations[key].ToolVersion)
 	}
 }
 
@@ -432,132 +430,94 @@ func TestFailedSendNeverDuplicatesTheVersionNotice(t *testing.T) {
 	}
 }
 
-// TestConsultUsesItsOwnConversationKeyAndToolSet proves chat and consult are two separate
-// conversations for the same pet, each starting its own provider thread with its own
-// dynamicTools, per pet-structure-consult-architecture.md section 6.
-func TestConsultUsesItsOwnConversationKeyAndToolSet(t *testing.T) {
+// TestStaleConsultModeAddressesTheOneConversation proves a client still sending mode "consult"
+// (a tab open across the upgrade) reaches the pet's only conversation, not a second one.
+func TestStaleConsultModeAddressesTheOneConversation(t *testing.T) {
 	f := &fakeTransport{}
 	a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
 	r := request()
 	if _, err := a.handle(context.Background(), r); err != nil {
 		t.Fatal(err)
 	}
-	consultRequest := r
-	consultRequest.Mode = "consult"
-	consultRequest.RequestID = "66666666-6666-4666-8666-666666666666"
-	if _, err := a.handle(context.Background(), consultRequest); err != nil {
-		t.Fatal(err)
-	}
-
-	chatKey := r.WorkspaceID + "-" + r.PetID
-	consultKey := chatKey + "-consult"
-	if len(a.conversations) != 2 {
-		t.Fatalf("expected two conversations, got %d", len(a.conversations))
-	}
-	if _, ok := a.conversations[chatKey]; !ok {
-		t.Fatal("chat conversation missing")
-	}
-	if _, ok := a.conversations[consultKey]; !ok {
-		t.Fatal("consult conversation missing")
-	}
-
-	starts := 0
-	var chatParams, consultParams map[string]any
-	for i, call := range f.calls {
-		if call != "thread/start" {
-			continue
-		}
-		starts++
-		if starts == 1 {
-			chatParams, _ = f.params[i].(map[string]any)
-		} else {
-			consultParams, _ = f.params[i].(map[string]any)
-		}
-	}
-	if starts != 2 {
-		t.Fatalf("expected two thread starts, got %d: %v", starts, f.calls)
-	}
-	chatTools, _ := chatParams["dynamicTools"].([]any)
-	consultTools, _ := consultParams["dynamicTools"].([]any)
-	if len(chatTools) == 0 || len(consultTools) == 0 {
-		t.Fatal("dynamicTools missing from a thread start")
-	}
-	if reflect.DeepEqual(chatTools, consultTools) {
-		t.Fatal("chat and consult received the same tool set")
-	}
-}
-
-// TestConsultModelPreferenceFallsBackToProviderDefault covers owner decision 4
-// (pet-structure-consult-plan.md section 1.4): an unset model in consult mode picks the
-// first NIX_COMPANION_CONSULT_MODELS entry the provider actually offers, and leaves the
-// model unset (provider default) when none of them are offered.
-func TestConsultModelPreferenceFallsBackToProviderDefault(t *testing.T) {
-	defaultProvider := &fakeTransport{}
-	defaultAccount := &account{transport: defaultProvider, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected"}
-	defaultRequest := request()
-	defaultRequest.Mode = "consult"
-	if _, err := defaultAccount.handle(context.Background(), defaultRequest); err != nil {
-		t.Fatal(err)
-	}
-	defaultStart := startParams(t, defaultProvider)
-	if _, ok := defaultStart["model"]; ok {
-		t.Fatalf("empty preference must use the provider default: %+v", defaultStart)
-	}
-	for _, call := range defaultProvider.calls {
-		if call == "model/list" {
-			t.Fatal("provider default must not require a model list request")
-		}
-	}
-
-	preferred := &modelListTransport{models: []string{"gpt-5"}}
-	a := &account{transport: preferred, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", consultModels: []string{"gpt-5-mini", "gpt-5"}}
-	r := request()
-	r.Mode = "consult"
-	if _, err := a.handle(context.Background(), r); err != nil {
-		t.Fatal(err)
-	}
-	start := startParams(t, &preferred.fakeTransport)
-	if start["model"] != "gpt-5" {
-		t.Fatalf("expected the first available preferred model, got %+v", start)
-	}
-
-	none := &modelListTransport{models: []string{"other-model"}}
-	b := &account{transport: none, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", consultModels: []string{"gpt-5-mini", "gpt-5"}}
-	r2 := request()
-	r2.Mode = "consult"
-	if _, err := b.handle(context.Background(), r2); err != nil {
-		t.Fatal(err)
-	}
-	start2 := startParams(t, &none.fakeTransport)
-	if _, ok := start2["model"]; ok {
-		t.Fatalf("no preferred model available should leave the provider default: %+v", start2)
-	}
-}
-
-// modelListTransport answers model/list with a fixed set of model ids, so consult model
-// preference can be tested without a real Codex process.
-type modelListTransport struct {
-	fakeTransport
-	models []string
-}
-
-func (m *modelListTransport) Call(ctx context.Context, method string, params any) (json.RawMessage, error) {
-	if method != "model/list" {
-		return m.fakeTransport.Call(ctx, method, params)
-	}
-	m.mu.Lock()
-	m.calls = append(m.calls, method)
-	m.params = append(m.params, params)
-	m.mu.Unlock()
-	data := make([]map[string]any, 0, len(m.models))
-	for _, id := range m.models {
-		data = append(data, map[string]any{"model": id, "displayName": id, "isDefault": false})
-	}
-	raw, err := json.Marshal(map[string]any{"data": data})
+	stale := r
+	stale.Mode = "consult"
+	stale.Operation = "read"
+	got, err := a.handle(context.Background(), stale)
 	if err != nil {
-		return nil, err
+		t.Fatal(err)
 	}
-	return raw, nil
+	if len(a.conversations) != 1 {
+		t.Fatalf("expected one conversation, got %d", len(a.conversations))
+	}
+	if len(got.Messages) != 1 || got.Messages[0].Text != r.Text {
+		t.Fatalf("stale consult read did not see the conversation: %+v", got.Messages)
+	}
+}
+
+// TestFoldDesignMovesDesignThreadsIntoHistory proves what the retired Design conversation left
+// on disk (its live conversation and its archived threads) becomes ordinary, readable history
+// of the pet's one conversation, and that the move happens once.
+func TestFoldDesignMovesDesignThreadsIntoHistory(t *testing.T) {
+	home := t.TempDir()
+	r := request()
+	key := r.WorkspaceID + "-" + r.PetID
+	write := func(path string, value any) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(home, key+"-consult.json"), conversation{Messages: []Message{{ID: "live", Role: "user", Text: "Design a reading log"}}})
+	archivedID := "77777777-7777-4777-8777-777777777777"
+	write(filepath.Join(home, key+"-consult-history", archivedID+".json"), archivedConversation{HistoryEntry: HistoryEntry{archivedID, "Design a garden", "2026-10-01T00:00:00Z"}, Messages: []Message{{ID: "old", Role: "user", Text: "Design a garden"}}})
+
+	a := &account{transport: &fakeTransport{}, home: home, conversations: map[string]*conversation{}, status: "connected"}
+	list := r
+	list.Operation = "history"
+	got, err := a.handle(context.Background(), list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := map[string]bool{}
+	for _, entry := range got.History {
+		titles[entry.Title] = true
+	}
+	if len(got.History) != 2 || !titles["Design a reading log"] || !titles["Design a garden"] {
+		t.Fatalf("history after fold = %+v", got.History)
+	}
+	for _, gone := range []string{key + "-consult.json", key + "-consult-history"} {
+		if _, err := os.Stat(filepath.Join(home, gone)); !os.IsNotExist(err) {
+			t.Fatalf("%s still exists after the fold: %v", gone, err)
+		}
+	}
+	read := r
+	read.Operation = "read_history"
+	read.HistoryID = archivedID
+	archived, err := a.handle(context.Background(), read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archived.Messages) != 1 || archived.Messages[0].Text != "Design a garden" {
+		t.Fatalf("moved archive not readable: %+v", archived.Messages)
+	}
+	// A request that saw the old files before another folded them must not fail.
+	if err := a.foldDesign(key); err != nil {
+		t.Fatalf("fold after fold: %v", err)
+	}
+	again, err := a.handle(context.Background(), list)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.History) != 2 {
+		t.Fatalf("a second request changed history: %+v", again.History)
+	}
 }
 
 func startParams(t *testing.T, f *fakeTransport) map[string]any {
@@ -623,7 +583,7 @@ func (m *modelListEffortTransport) Call(ctx context.Context, method string, para
 }
 
 // TestEffortIsSentOnlyWhenTheEffectiveModelAdvertisesIt covers config.go's
-// NIX_COMPANION_CHAT_EFFORT / NIX_COMPANION_CONSULT_EFFORT plumbed through to effortFor: a
+// NIX_COMPANION_CHAT_EFFORT plumbed through to effortFor: a
 // configured value reaches turn/start only when the effective model (the request's explicit
 // model, else whichever model/list marks default) actually advertises it; otherwise turn/start
 // omits "effort" rather than failing the turn.
@@ -666,19 +626,6 @@ func TestEffortIsSentOnlyWhenTheEffectiveModelAdvertisesIt(t *testing.T) {
 		}
 	})
 
-	t.Run("consult effort follows the consult setting, not the chat one", func(t *testing.T) {
-		f := &modelListEffortTransport{modelID: "gpt-5", supportedEfforts: []string{"high"}}
-		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", chatEffort: "low", consultEffort: "high"}
-		r := request()
-		r.Mode = "consult"
-		if _, err := a.handle(context.Background(), r); err != nil {
-			t.Fatal(err)
-		}
-		if got := turnStartParams(t, &f.fakeTransport)["effort"]; got != "high" {
-			t.Fatalf("effort = %v, want \"high\"", got)
-		}
-	})
-
 	t.Run("effort omitted when the model list call fails", func(t *testing.T) {
 		f := &failingModelListTransport{}
 		a := &account{transport: f, home: t.TempDir(), conversations: map[string]*conversation{}, status: "connected", chatEffort: "low"}
@@ -708,8 +655,9 @@ func (f *failingModelListTransport) Call(ctx context.Context, method string, par
 	return f.fakeTransport.Call(ctx, method, params)
 }
 
-// TestInvalidModeIsRefused covers owner decision 4's neighbour, validRequest's mode gate:
-// only the empty string, "chat" and "consult" are accepted.
+// TestInvalidModeIsRefused covers validRequest's mode gate: only the empty string, "chat" and
+// "consult" are accepted. The worker ignores mode; "consult" stays valid for clients still
+// sending it, and the field stays on the wire until an API-breaking change removes it.
 func TestInvalidModeIsRefused(t *testing.T) {
 	r := request()
 	r.Mode = "supervisor"
@@ -747,39 +695,6 @@ func TestModeJSONContractAllowsStatusAndConnect(t *testing.T) {
 		if _, err := a.handle(context.Background(), got); err != nil {
 			t.Fatalf("%s request failed: %v", operation, err)
 		}
-	}
-}
-
-// TestResetInOneModeKeepsTheOther proves the mode-scoped conversation key means a chat
-// reset cannot wipe the consult conversation for the same pet, and vice versa.
-func TestResetInOneModeKeepsTheOther(t *testing.T) {
-	a := &account{home: t.TempDir(), transport: &fakeTransport{}, conversations: map[string]*conversation{}, status: "connected"}
-	r := request()
-	r.Operation = "read"
-	if _, err := a.handle(context.Background(), r); err != nil {
-		t.Fatal(err)
-	}
-	chatKey := r.WorkspaceID + "-" + r.PetID
-	a.conversations[chatKey].Messages = []Message{{ID: "one", Role: "user", Text: "Chat message"}}
-
-	consultRead := r
-	consultRead.Mode = "consult"
-	if _, err := a.handle(context.Background(), consultRead); err != nil {
-		t.Fatal(err)
-	}
-	consultKey := chatKey + "-consult"
-	a.conversations[consultKey].Messages = []Message{{ID: "two", Role: "user", Text: "Consult message"}}
-
-	reset := r
-	reset.Operation = "reset"
-	if _, err := a.handle(context.Background(), reset); err != nil {
-		t.Fatal(err)
-	}
-	if len(a.snapshot(chatKey).Messages) != 0 {
-		t.Fatal("chat conversation was not reset")
-	}
-	if len(a.snapshot(consultKey).Messages) != 1 {
-		t.Fatal("consult conversation was wiped by a chat reset")
 	}
 }
 

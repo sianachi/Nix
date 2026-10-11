@@ -1314,28 +1314,13 @@
     "approvedOperations": ["trash_item"]
   },
   {
-    "id": "capability-design-validate",
-    "prompt": "In Design mode, propose a small blueprint for a delivery checklist: root Delivery checklist has Status with exactly Open, Closed and a Completion field, plus a checklist view using Completion as doneProperty. Include one sample child named Inspect parcel with Status Open. Validate this exact blueprint with the design validator and report the returned validation result. Do not build, save a template or write anything.",
-    "tools": {
-      "require": ["validate_blueprint"],
-      "requireSuccessful": ["validate_blueprint"],
-      "max": 6,
-      "forbid": ["build_blueprint", "save_as_template"]
-    },
-    "answerChecks": {
-      "all": ["valid|no[^.]*problem|passed", "checklist", "Completion"]
-    },
-    "noWrites": true,
-    "mode": "consult"
-  },
-  {
     "id": "capability-design-build-readback",
-    "prompt": "In Design mode, validate and build exactly one blueprint directly inside {node:home} titled Delivery design trial. The root has Status with exactly Open, Closed and a Completion field, with one checklist view named Delivery checks using Completion as doneProperty. Include exactly one sample child named Inspect parcel with Status Open. Validate first, fix any reported problem, then build under the specified fixture parent. Read back the created schema, view and child. Do not use the workspace root, Pet drafts or save a template.",
+    "prompt": "Build exactly one blueprint directly inside {node:home} titled Delivery design trial. The root has Status with exactly Open, Closed and a Completion field, with one checklist view named Delivery checks using Completion as doneProperty. Include exactly one sample child named Inspect parcel with Status Open. If Nix declines the build with problems, fix every reported problem and build once more under the specified fixture parent. Read back the created schema, view and child. Do not use the workspace root, Pet drafts or save a template.",
     "tools": {
-      "require": ["validate_blueprint", "build_blueprint", "read_structure", "read_view"],
-      "requireSuccessful": ["validate_blueprint", "build_blueprint", "read_structure", "read_view"],
+      "require": ["build_blueprint", "read_structure", "read_view"],
+      "requireSuccessful": ["build_blueprint", "read_structure", "read_view"],
       "max": 12,
-      "inOrder": ["validate_blueprint", "build_blueprint", "read_structure", "read_view"],
+      "inOrder": ["build_blueprint", "read_structure", "read_view"],
       "forbid": ["save_as_template", "create_structured", "create_note"]
     },
     "asserts": [
@@ -1372,8 +1357,7 @@
     ],
     "answerChecks": {
       "all": ["Delivery design trial", "Delivery checks", "Inspect parcel", "Open"]
-    },
-    "mode": "consult"
+    }
   },
   {
     "id": "capability-add-view-capacity",
@@ -1597,7 +1581,6 @@
         "Action items"
       ]
     },
-    "mode": "consult",
     "templateSource": "meeting-note",
     "approvedOperations": ["save_as_template"]
   }

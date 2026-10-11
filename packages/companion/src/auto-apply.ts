@@ -14,15 +14,12 @@ const ALWAYS_ASK_OPERATIONS: ReadonlySet<WorkspaceToolArgs['operation']> = new S
 /** Whether a pending write may run without a click once its preview has loaded clean. Reads
  * are governed separately (`readWithoutAsking`); this only answers for writes. Lives in this
  * package rather than the web app so the eval harness (docs/plans/pet-tool-use-plan.md, F.2)
- * applies the same rule when it is built. Checking a design (`validate_blueprint`) writes
- * nothing and runs with reads. A preview with problems, no preview at all, and text with an
+ * applies the same rule when it is built. A preview with problems, no preview at all, and text with an
  * external link (`hasExternalLink`) are the caller's own checks: this function only knows the
  * operation. */
 export function canApplyWithoutAsking(operation: WorkspaceToolArgs['operation']): boolean {
   return (
-    !READ_ONLY_OPERATIONS.has(operation) &&
-    operation !== 'validate_blueprint' &&
-    !ALWAYS_ASK_OPERATIONS.has(operation)
+!READ_ONLY_OPERATIONS.has(operation) && !ALWAYS_ASK_OPERATIONS.has(operation)
   );
 }
 

@@ -139,18 +139,12 @@ export async function evaluateBlueprint(
   };
 }
 
-export async function blueprintCatalog(
-  textMode: 'chat' | 'consult' | undefined,
-  output: OutputOptions,
-): Promise<void> {
-  const path =
-    textMode === 'chat'
-      ? '../../../../apps/go-workers/internal/companion/catalog/chat.txt'
-      : textMode === 'consult'
-        ? '../../../../apps/go-workers/internal/companion/catalog/consult.txt'
-        : '../../../../packages/structure-spec/src/generated/catalog.json';
+export async function blueprintCatalog(text: boolean, output: OutputOptions): Promise<void> {
+  const path = text
+    ? '../../../../apps/go-workers/internal/companion/catalog/chat.txt'
+    : '../../../../packages/structure-spec/src/generated/catalog.json';
   const contents = await readFile(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
-  if (textMode) process.stdout.write(contents);
+  if (text) process.stdout.write(contents);
   else printResult(JSON.parse(contents), output);
 }
 

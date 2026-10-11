@@ -1,11 +1,10 @@
 import { type PetProfile, type PetSettings } from '@nix/api-client';
 import { Text, focusRing } from '@nix/ui';
-import { useState, type ReactElement } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { type ReactElement } from 'react';
+import { Link } from 'react-router';
 
 import { EmptyPanel, ErrorPanel, LoadingPanel } from '../components/states/status-panels';
 import { paneColumn } from '../layout/regions';
-import { type PetConversationMode } from '../pets/device-preferences';
 import { Conversation } from '../pets/pet-conversation';
 import { usePetRuntime } from '../pets/use-pet-runtime';
 import { usePetSettings } from '../pets/use-pet-settings';
@@ -66,11 +65,7 @@ function PetConversationPane({
   readonly pet: PetProfile;
   readonly settings: PetSettings;
 }): ReactElement {
-  const [search] = useSearchParams();
-  const [mode, setMode] = useState<PetConversationMode>(
-    search.get('pet') === 'design' ? 'consult' : 'chat',
-  );
-  const runtimeApi = usePetRuntime(workspaceId, pet.id, mode, true);
+  const runtimeApi = usePetRuntime(workspaceId, pet.id, true);
   return (
     <div className={paneColumn}>
       <Text variant="h1" as="h1" className="sr-only">
@@ -80,8 +75,6 @@ function PetConversationPane({
         workspaceId={workspaceId}
         pet={pet}
         settings={settings}
-        mode={mode}
-        onModeChange={setMode}
         layout="page"
         runtimeApi={runtimeApi}
         onNeedsDecisionChange={ignoreDecisions}

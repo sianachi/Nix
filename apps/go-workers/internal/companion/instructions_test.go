@@ -5,41 +5,41 @@ import (
 	"testing"
 )
 
-// TestChatCapabilitySentenceNamesEveryStructureOperation guards against the drift the
-// orchestrator found in D.1b: the chat base instructions once named only create_structured,
+// TestCapabilitySentenceNamesEveryStructureOperation guards against the drift the
+// orchestrator found in D.1b: the base instructions once named only create_structured,
 // add_view and create_entries even after B.4 added add_fields, edit_form and set_recurrence
-// to workspaceTools("chat"). chatRules now builds its sentence from the catalog's own
+// to workspaceTools(). capabilityRules now builds its sentence from the catalog's own
 // "Structure operations" line (structureOperations), so this test pins that every operation
 // the catalog and the enum agree on is also named in the sentence the model reads.
-func TestChatCapabilitySentenceNamesEveryStructureOperation(t *testing.T) {
-	sentence := chatRules()
-	names := toolNamesFor("chat")
-
-	for _, operation := range structureOperationsInChatMode {
-		if _, ok := names["nix_"+operation]; !ok {
-			t.Fatalf("%q is not in workspaceTools(\"chat\")'s tool names; the fixture list is stale", operation)
+func TestCapabilitySentenceNamesEveryStructureOperation(t *testing.T) {
+	sentence := capabilityRules()
+	for _, operation := range structureOperationsFixture {
+		if _, ok := toolNamesChat["nix_"+operation]; !ok {
+			t.Fatalf("%q is not in workspaceTools()'s tool names; the fixture list is stale", operation)
 		}
 		if !strings.Contains(sentence, "nix_"+operation) {
-			t.Errorf("chat capability sentence does not name structure tool %q: %q", "nix_"+operation, sentence)
+			t.Errorf("capability sentence does not name structure tool %q: %q", "nix_"+operation, sentence)
 		}
 	}
 }
 
-func TestModeRulesSelectsConsultOnlyForConsult(t *testing.T) {
-	if modeRules("consult") != consultRules {
-		t.Fatal("consult mode did not receive consultRules")
-	}
-	for _, mode := range []string{"", "chat", "unknown"} {
-		if modeRules(mode) != chatRules() {
-			t.Fatalf("mode %q did not fall back to chatRules", mode)
+// TestInstructionsDesignFromTheConversation pins that the one conversation carries the design
+// workflow and the catalog, names the design tools it offers, and no longer points anywhere else.
+func TestInstructionsDesignFromTheConversation(t *testing.T) {
+	text := instructions()
+	for _, want := range []string{designRules, capabilityRules(), chatCatalog, "nix_build_blueprint", "nix_save_as_template", "nothing was built: fix every listed problem and call it once more"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("instructions omit %.80q", want)
 		}
 	}
-}
-
-func TestConsultRulesNamesEveryConsultOnlyOperation(t *testing.T) {
-	for _, operation := range consultOnlyOperations {
-		if !strings.Contains(consultRules, operation) {
-			t.Errorf("consult rules do not mention consult-only operation %q", operation)
+	for _, retired := range []string{"Design tab", "Design mode", "nix_validate_blueprint"} {
+		if strings.Contains(text, retired) {
+			t.Errorf("instructions still mention %q", retired)
+		}
+	}
+	for _, tool := range []string{"nix_build_blueprint", "nix_save_as_template", "nix_list_templates", "nix_apply_template"} {
+		if _, ok := toolNamesChat[tool]; !ok {
+			t.Errorf("%s is named in the design rules but not offered", tool)
 		}
 	}
 }
@@ -47,22 +47,21 @@ func TestConsultRulesNamesEveryConsultOnlyOperation(t *testing.T) {
 // TestChatRulesDescribeBodyEditsButNeverWholeBodyReplace pins lane C's sentence: the two
 // block-granular edits are named, and the pet still says it cannot replace a whole body.
 func TestChatRulesDescribeBodyEditsButNeverWholeBodyReplace(t *testing.T) {
-	sentence := chatRules()
+	sentence := capabilityRules()
 	for _, want := range []string{"nix_replace_section", "nix_replace_passage", "cannot administer workspaces, replace a whole note body"} {
 		if !strings.Contains(sentence, want) {
 			t.Errorf("chat rules do not contain %q: %q", want, sentence)
 		}
 	}
-	names := toolNamesFor("chat")
 	for _, tool := range []string{"nix_replace_section", "nix_replace_passage"} {
-		if _, ok := names[tool]; !ok {
+		if _, ok := toolNamesChat[tool]; !ok {
 			t.Errorf("%s is named in the chat rules but not offered in chat", tool)
 		}
 	}
 }
 
 // TestBaseRulesExplainTurnContextAndNewTools pins the B.1 and B.2 rule sentences and the one
-// sentence each for nix_read_calendar and nix_complete_task, in the rules every mode shares.
+// sentence each for nix_read_calendar and nix_complete_task, in the shared rules.
 func TestBaseRulesExplainTurnContextAndNewTools(t *testing.T) {
 	for _, phrase := range []string{
 		"today and timeZone are the owner's; use them for relative dates",
@@ -81,9 +80,9 @@ func TestBaseRulesExplainTurnContextAndNewTools(t *testing.T) {
 	}
 }
 
-func TestViewReviewUsesEvidenceAndReadsOnlyInBothModes(t *testing.T) {
-	for _, mode := range []string{"chat", "consult"} {
-		rules := baseSharedRules + modeRules(mode)
+func TestViewReviewUsesEvidenceAndReadsOnly(t *testing.T) {
+	rules := instructions()
+	{
 		for _, phrase := range []string{
 			"Review with reads only: do not create or change anything, even when changes can apply without asking",
 			"read the named item's configuration with nix_read_structure first",
@@ -100,7 +99,7 @@ func TestViewReviewUsesEvidenceAndReadsOnlyInBothModes(t *testing.T) {
 			"Never invent settings, item values, visual appearance, rendered layout or behavior",
 		} {
 			if !strings.Contains(rules, phrase) {
-				t.Errorf("%s review instructions omit %q", mode, phrase)
+				t.Errorf("review instructions omit %q", phrase)
 			}
 		}
 	}
@@ -122,10 +121,10 @@ func TestViewReviewKeepsWorkspaceAccessAndApprovalBoundaries(t *testing.T) {
 			t.Errorf("review boundary instructions omit %q", phrase)
 		}
 	}
-	if !strings.Contains(consultRules, "When workspaceAccess is true, first call nix_list_templates") {
+	if !strings.Contains(designRules, "When workspaceAccess is true, first call nix_list_templates") {
 		t.Error("Design instructions browse templates without the workspace-access guard")
 	}
-	if !strings.Contains(consultRules, "When the owner requests the build and workspaceAccess is true") {
+	if !strings.Contains(designRules, "When the owner requests the build and workspaceAccess is true") {
 		t.Error("Design instructions do not distinguish a requested build from a review")
 	}
 }

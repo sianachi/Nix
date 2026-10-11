@@ -21,9 +21,6 @@ func TestLoadUsesSafeDefaults(t *testing.T) {
 	if settings.CompanionChatEffort != "low" {
 		t.Fatalf("chat effort default = %q, want \"low\"", settings.CompanionChatEffort)
 	}
-	if settings.CompanionConsultEffort != "" {
-		t.Fatalf("consult effort default = %q, want \"\" (provider default)", settings.CompanionConsultEffort)
-	}
 	if settings.CompanionTrace {
 		t.Fatal("the full-content companion trace must be off by default")
 	}
@@ -46,41 +43,18 @@ func TestLoadEnablesTheCompanionTraceOnlyWhenAsked(t *testing.T) {
 	}
 }
 
-func TestLoadReadsConfiguredReasoningEfforts(t *testing.T) {
+func TestLoadReadsConfiguredReasoningEffort(t *testing.T) {
 	settings, err := Load(func(key string) string {
-		switch key {
-		case "NIX_COMPANION_CHAT_EFFORT":
+		if key == "NIX_COMPANION_CHAT_EFFORT" {
 			return "minimal"
-		case "NIX_COMPANION_CONSULT_EFFORT":
-			return "high"
-		default:
-			return ""
-		}
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if settings.CompanionChatEffort != "minimal" {
-		t.Fatalf("chat effort = %q, want \"minimal\"", settings.CompanionChatEffort)
-	}
-	if settings.CompanionConsultEffort != "high" {
-		t.Fatalf("consult effort = %q, want \"high\"", settings.CompanionConsultEffort)
-	}
-}
-
-func TestLoadPreservesOrderedConsultModelPreferences(t *testing.T) {
-	settings, err := Load(func(key string) string {
-		if key == "NIX_COMPANION_CONSULT_MODELS" {
-			return " model-b, ,model-a, model-c "
 		}
 		return ""
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"model-b", "model-a", "model-c"}
-	if !reflect.DeepEqual(settings.CompanionConsultModels, want) {
-		t.Fatalf("consult model preferences = %q, want %q", settings.CompanionConsultModels, want)
+	if settings.CompanionChatEffort != "minimal" {
+		t.Fatalf("chat effort = %q, want \"minimal\"", settings.CompanionChatEffort)
 	}
 }
 

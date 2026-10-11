@@ -363,7 +363,6 @@ func TestTurnCompletionLogsTimingsWithoutContent(t *testing.T) {
 	c.ThreadID = "thread"
 	c.RequestID = r.RequestID
 	c.State = "thinking"
-	c.Mode = "chat"
 	c.timing.started = time.Now().Add(-1500 * time.Millisecond)
 	c.timing.firstToolAt = c.timing.started.Add(400 * time.Millisecond)
 	c.timing.toolCount = 2
@@ -377,7 +376,7 @@ func TestTurnCompletionLogsTimingsWithoutContent(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &line); err != nil {
 		t.Fatalf("log line is not one JSON object: %q", out.String())
 	}
-	if line["msg"] != "companion turn completed" || line["mode"] != "chat" || line["model"] != "default" || line["effort"] != "low" || line["status"] != "completed" {
+	if line["msg"] != "companion turn completed" || line["model"] != "default" || line["effort"] != "low" || line["status"] != "completed" {
 		t.Fatalf("unexpected fields: %v", line)
 	}
 	if line["tool_calls"] != float64(2) || line["pending_ms"] != float64(250) || line["first_tool_ms"] != float64(400) {
