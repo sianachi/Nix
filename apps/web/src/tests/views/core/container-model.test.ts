@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyFilters,
+  applyTitleSearch,
   readDateValue,
   readPropertyText,
   readSelectValue,
@@ -33,6 +34,29 @@ function itemOf(properties: Record<string, unknown>, overrides: Partial<Item> = 
     ...overrides,
   };
 }
+
+describe('searching loaded item titles', () => {
+  const items = [
+    itemOf({}, { title: 'Water plants' }),
+    itemOf({ title: 'Water' }, { title: 'Read' }),
+  ];
+
+  it('matches title substrings without case or surrounding spaces', () => {
+    expect(applyTitleSearch(items, '  PLANTS ')).toEqual([items[0]]);
+    expect(applyTitleSearch(items, 'missing')).toEqual([]);
+  });
+
+  it('preserves the loaded array when search is blank', () => {
+    expect(applyTitleSearch(items, '   ')).toBe(items);
+  });
+
+  it('reads only the title and accepts untitled query results', () => {
+    expect(applyTitleSearch([{ title: null }, { title: 'Water plants' }], 'Water')).toEqual([
+      { title: 'Water plants' },
+    ]);
+    expect(applyTitleSearch(items, 'Water')).toEqual([items[0]]);
+  });
+});
 
 describe('reading a property as text', () => {
   it('reads a string straight through', () => {

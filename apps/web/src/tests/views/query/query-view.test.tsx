@@ -9,6 +9,8 @@ import { aView } from '../../view-fixture';
 import { ApiClientOverrideProvider } from '../../../api/api-client-provider';
 import type { View } from '../../../views/core/container-model';
 import { QueryView } from '../../../views/query/query-view';
+import { ViewTools } from '../../../views/core/view-tools';
+import { useViewState } from '../../../views/core/view-state';
 import { hiddenItemsKey, readHiddenItems, writeHiddenItems } from '../../../lib/view-hidden-items';
 
 /**
@@ -82,7 +84,11 @@ function results(rows: readonly unknown[], truncated = false): unknown {
   };
 }
 
-function renderQueryView(view: View = OVERDUE_VIEW, onOpen = vi.fn()): ReturnType<typeof vi.fn> {
+function renderQueryView(
+  view: View = OVERDUE_VIEW,
+  onOpen = vi.fn(),
+  url = '/',
+): ReturnType<typeof vi.fn> {
   const client = createNixClient({
     baseUrl: window.location.origin,
     tokens: {
@@ -90,10 +96,20 @@ function renderQueryView(view: View = OVERDUE_VIEW, onOpen = vi.fn()): ReturnTyp
       refreshAccessToken: () => Promise.resolve(null),
     },
   });
+  function Subject() {
+    const state = useViewState();
+    return (
+      <>
+        <ViewTools view={view} schema={[]} viewState={state} onSave={() => Promise.resolve(null)} />
+        <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
+      </>
+    );
+  }
   renderAt(
     <ApiClientOverrideProvider client={client}>
-      <QueryView container={aContainer({ itemId: SMART_LIST })} view={view} onOpen={onOpen} />
+      <Subject />
     </ApiClientOverrideProvider>,
+    url,
   );
   return onOpen;
 }
@@ -103,6 +119,28 @@ beforeEach(() => {
 });
 
 describe('the smart list', () => {
+  it('searches only loaded titles and clears search without changing server filters', async () => {
+    const user = userEvent.setup();
+    stubRun(
+      results(
+        [row(ROW_ONE, 'Water plants', '2026-08-10'), row(ROW_TWO, 'Read', '2026-08-10')],
+        true,
+      ),
+    );
+    renderQueryView(OVERDUE_VIEW, vi.fn(), '/?search=missing');
+    expect(
+      await screen.findByText(
+        'No loaded results match this title search. Clear the search above to see them.',
+      ),
+    ).toBeVisible();
+    expect(screen.getByText(/the first 2 were loaded/)).toBeVisible();
+    expect(screen.queryByText('All matches are hidden for you.')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Clear search' }));
+    expect(screen.getByRole('button', { name: 'Water plants' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Read' })).toBeVisible();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('opens row actions through its context menu', async () => {
     const user = userEvent.setup();
     stubRun(results([row(ROW_ONE, 'Water plants', '2026-08-10')]));

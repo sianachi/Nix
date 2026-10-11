@@ -36,6 +36,7 @@ const MODE_PARAM = 'mode';
 export const SORT_PARAM = 'sort';
 export const DIRECTION_PARAM = 'dir';
 export const FILTER_PREFIX = 'f.';
+export const SEARCH_PARAM = 'search';
 
 export const SortDirectionSchema = z.enum(['ascending', 'descending']);
 
@@ -70,6 +71,7 @@ export interface ViewState {
 
   /** Every active property filter, in the order the URL happened to carry them. */
   readonly filters: readonly ViewFilter[];
+  readonly search: string;
 }
 
 export interface ViewStateControl extends ViewState {
@@ -81,6 +83,7 @@ export interface ViewStateControl extends ViewState {
   readonly clearSort: () => void;
   readonly setFilter: (propertyKey: string, values: readonly string[]) => void;
   readonly clearFilters: () => void;
+  readonly setSearch: (search: string) => void;
 }
 
 /**
@@ -159,6 +162,7 @@ export function clearViewState(params: URLSearchParams, pane = 0): void {
   params.delete(paneParam(MODE_PARAM, pane));
   params.delete(paneParam(SORT_PARAM, pane));
   params.delete(paneParam(DIRECTION_PARAM, pane));
+  params.delete(paneParam(SEARCH_PARAM, pane));
 
   const prefix = paneFilterPrefix(pane);
   for (const name of [...params.keys()]) {
@@ -181,6 +185,7 @@ export function parseViewState(params: URLSearchParams, pane = 0): ViewState {
     sortBy: sortBy !== null && sortBy.length > 0 ? sortBy : null,
     direction: parseDirection(params.get(paneParam(DIRECTION_PARAM, pane))),
     filters: parseFilters(params, pane),
+    search: params.get(paneParam(SEARCH_PARAM, pane)) ?? '',
   };
 }
 
@@ -279,5 +284,16 @@ export function useViewState(): ViewStateControl {
     }, false);
   }, [pane, write]);
 
-  return { ...state, selectView, setMode, setSort, clearSort, setFilter, clearFilters };
+  const setSearch = useCallback(
+    (search: string): void => {
+      write((next) => {
+        const name = paneParam(SEARCH_PARAM, pane);
+        if (search.length === 0) next.delete(name);
+        else next.set(name, search);
+      }, false);
+    },
+    [pane, write],
+  );
+
+  return { ...state, selectView, setMode, setSort, clearSort, setFilter, clearFilters, setSearch };
 }

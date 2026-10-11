@@ -128,7 +128,7 @@ describe('clearing one pane’s view state', () => {
     // the second pane would silently discard the first pane's board, its sort and its filters -
     // a change to a part of the screen the person was not looking at.
     const params = new URLSearchParams(
-      'view=board&sort=owner&dir=descending&f.status=open&view2=calendar&sort2=due&f2.status=done',
+      'view=board&sort=owner&dir=descending&f.status=open&view2=calendar&sort2=due&f2.status=done&search=first&search2=second',
     );
 
     clearViewState(params, 1);
@@ -137,21 +137,27 @@ describe('clearing one pane’s view state', () => {
     expect(params.get('sort')).toBe('owner');
     expect(params.get('dir')).toBe('descending');
     expect(params.getAll('f.status')).toEqual(['open']);
+    expect(params.get('search')).toBe('first');
 
     expect(params.get('view2')).toBeNull();
     expect(params.get('sort2')).toBeNull();
     expect(params.getAll('f2.status')).toEqual([]);
+    expect(params.get('search2')).toBeNull();
   });
 
   it('clears the first pane without touching the second', () => {
-    const params = new URLSearchParams('view=board&f.status=open&view2=calendar&f2.status=done');
+    const params = new URLSearchParams(
+      'view=board&f.status=open&view2=calendar&f2.status=done&search=first&search2=second',
+    );
 
     clearViewState(params, 0);
 
     expect(params.get('view')).toBeNull();
     expect(params.getAll('f.status')).toEqual([]);
+    expect(params.get('search')).toBeNull();
     expect(params.get('view2')).toBe('calendar');
     expect(params.getAll('f2.status')).toEqual(['done']);
+    expect(params.get('search2')).toBe('second');
   });
 
   it('defaults to the first pane, so every existing caller is unchanged', () => {
@@ -290,7 +296,7 @@ describe('closing a pane', () => {
     // The failure this guards: leave `item` and `item3` behind and `parsePanes` stops at the gap,
     // so closing the middle pane would take the third one with it.
     const params = new URLSearchParams(
-      `item=${first}&item2=${second}&item3=${third}&view3=calendar&f3.status=done`,
+      `item=${first}&search=first&item2=${second}&search2=closed&item3=${third}&view3=calendar&f3.status=done&search3=third`,
     );
 
     closePaneParams(params, 1, 3);
@@ -299,6 +305,9 @@ describe('closing a pane', () => {
     // The third pane's whole state moves down with it, not just its item.
     expect(params.get('view2')).toBe('calendar');
     expect(params.getAll('f2.status')).toEqual(['done']);
+    expect(params.get('search')).toBe('first');
+    expect(params.get('search2')).toBe('third');
+    expect(params.get('search3')).toBeNull();
     expect(params.get('view3')).toBeNull();
     expect(params.get('item3')).toBeNull();
   });
