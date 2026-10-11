@@ -213,6 +213,44 @@ describe('the Core template client', () => {
     });
   });
 
+  it('preserves computed metadata in draft and export schemas', async () => {
+    const properties = [
+      { ...PROPERTY, key: 'total', type: 'formula', expression: '[amount] * 2' },
+      { ...PROPERTY, key: 'amount_sum', type: 'rollup', aggregate: 'sum', source: 'amount' },
+      { ...PROPERTY, key: 'count', type: 'rollup', aggregate: 'count', source: null },
+    ];
+    const schema = { properties, declared: properties.slice(1), inherit: true };
+    const draft = await draftClient(draftResponse({ schema })).beginDraft(
+      'token',
+      TEMPLATE,
+      'draft-one',
+    );
+    const exported = await exportClient(
+      { default: 'list', views: [{ id: 'list', name: 'List', kind: 'list' }] },
+      'user',
+      properties,
+    ).getTemplateExport('token', TEMPLATE);
+
+    expect(draft.root.schema).toEqual(schema);
+    expect(exported.items[0]?.schema?.properties).toEqual(properties);
+  });
+
+  it.each(['expression', 'aggregate', 'source'])(
+    'refuses a malformed computed %s field from Core',
+    async (field) => {
+      const property = { ...PROPERTY, [field]: 7 };
+      const client = draftClient(
+        draftResponse({
+          schema: { properties: [property], declared: [property], inherit: false },
+        }),
+      );
+      await expect(client.beginDraft('token', TEMPLATE, 'draft-one')).rejects.toMatchObject({
+        status: 502,
+        code: 'template.core_contract_invalid',
+      });
+    },
+  );
+
   it('maps a malformed nested draft schema from begin to a stable upstream contract error', async () => {
     const client = draftClient(
       draftResponse({
@@ -405,7 +443,11 @@ function draftClient(response: Readonly<Record<string, unknown>>) {
   });
 }
 
-function exportClient(views: unknown, origin = 'user') {
+function exportClient(
+  views: unknown,
+  origin = 'user',
+  properties: readonly unknown[] = [{ key: 'mood', label: 'Mood', type: 'text', required: false }],
+) {
   return createCoreTemplateClient({
     coreBaseUrl: 'https://core.test',
     internalSecret: 'secret',
@@ -434,14 +476,7 @@ function exportClient(views: unknown, origin = 'user') {
                 seq: '1',
                 properties: {},
                 schema: {
-                  properties: [
-                    {
-                      key: 'mood',
-                      label: 'Mood',
-                      type: 'text',
-                      required: false,
-                    },
-                  ],
+                  properties,
                   inherit: false,
                 },
                 views,

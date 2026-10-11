@@ -2,6 +2,64 @@ import { describe, expect, it } from 'vitest';
 
 import { createCoreClient } from './client.ts';
 
+describe('Core property snapshots', () => {
+  it('preserves formula and rollup definitions in effective and declared archive schemas', async () => {
+    const properties = [
+      {
+        key: 'total',
+        label: 'Total',
+        type: 'formula',
+        options: [],
+        required: false,
+        expression: '[amount] * 2',
+        aggregate: null,
+        source: null,
+      },
+      {
+        key: 'amount_sum',
+        label: 'Amount sum',
+        type: 'rollup',
+        options: [],
+        required: false,
+        expression: null,
+        aggregate: 'sum',
+        source: 'amount',
+      },
+      { key: 'name', label: 'Name', type: 'text', options: [], required: false },
+    ];
+    const schema = { properties, declared: properties.slice(1), inherit: true };
+    const client = createCoreClient({
+      coreBaseUrl: 'https://core.test',
+      fetch: () => Promise.resolve(new Response(JSON.stringify(schema))),
+    });
+
+    expect(await client.getSchema('token', 'item')).toEqual(schema);
+  });
+
+  it.each(['expression', 'aggregate', 'source'])(
+    'refuses malformed computed %s metadata without dropping it',
+    async (field) => {
+      const property = {
+        key: 'name',
+        label: 'Name',
+        type: 'text',
+        options: [],
+        required: false,
+        [field]: 7,
+      };
+      const schema = { properties: [property], declared: [property], inherit: true };
+      const client = createCoreClient({
+        coreBaseUrl: 'https://core.test',
+        fetch: () => Promise.resolve(new Response(JSON.stringify(schema))),
+      });
+
+      await expect(client.getSchema('token', 'item')).rejects.toThrow(
+        'Core returned invalid computed property metadata.',
+      );
+    },
+  );
+});
+
 describe('Core view snapshots', () => {
   it('preserves composition, filters and interactive form configuration for archive round trips', async () => {
     const client = createCoreClient({

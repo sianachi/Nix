@@ -775,6 +775,9 @@ function parseProperty(value: unknown): PropertyDefinition {
         ? []
         : requiredArray(body.options, (option) => requiredText(option, true)),
     required: requiredBoolean(body.required),
+    ...(body.expression === undefined ? {} : { expression: nullableText(body.expression) }),
+    ...(body.aggregate === undefined ? {} : { aggregate: nullableText(body.aggregate) }),
+    ...(body.source === undefined ? {} : { source: nullableText(body.source) }),
   };
 }
 
