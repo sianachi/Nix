@@ -88,6 +88,28 @@ beforeEach(() => {
 });
 
 describe('the picture property, with somewhere to upload to', () => {
+  it('keeps a temporary form input address-only even with an authenticated workspace', () => {
+    const onCommit = vi.fn();
+    render(
+      <PropertyInput
+        item={itemWith({})}
+        property={coverProperty()}
+        onCommit={onCommit}
+        allowInputStorage={false}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Choose image' })).not.toBeInTheDocument();
+    fireEvent.drop(screen.getByRole('textbox', { name: 'Cover' }), {
+      dataTransfer: {
+        getData: () => '',
+        files: [new File(['image'], 'cover.png', { type: 'image/png' })],
+      },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Pictures are added by address here.');
+    expect(beginUploadMock).not.toHaveBeenCalled();
+    expect(uploadAndCompleteFileMock).not.toHaveBeenCalled();
+    expect(onCommit).not.toHaveBeenCalled();
+  });
   it('offers a file picker alongside the address box', () => {
     render(<PropertyInput item={itemWith({})} property={coverProperty()} onCommit={vi.fn()} />);
 

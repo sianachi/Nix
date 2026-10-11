@@ -438,6 +438,7 @@ export function InteractiveFormRespondentPreview({
               }}
               property={{ ...property, key: block.id, label: block.text, required: block.required }}
               error={errors[block.id] ?? null}
+              allowInputStorage={false}
               onCommit={(value) => {
                 setAnswers((current) => ({ ...current, [block.id]: value }));
                 setErrors((current) =>
