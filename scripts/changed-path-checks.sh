@@ -77,6 +77,7 @@ has_sensitive_backend=false
 has_workflow_script=false
 has_compose=false
 has_catalog=false
+has_rabbitmq=false
 frontend_packages=()
 
 add_frontend_package() {
@@ -92,6 +93,7 @@ for path in "${paths[@]}"; do
     apps/web/*) has_frontend=true; has_frontend_sources=true; add_frontend_package '@nix/web' ;;
     apps/collab/*) has_frontend=true; has_frontend_sources=true; add_frontend_package '@nix/collab' ;;
     apps/cli/*) has_frontend=true; has_frontend_sources=true; add_frontend_package '@nix/cli' ;;
+    apps/sites/*) has_frontend=true; has_frontend_sources=true; add_frontend_package '@nix/sites' ;;
     packages/*/*)
       has_frontend=true; has_frontend_sources=true
       package_name=${path#packages/}
@@ -102,6 +104,7 @@ for path in "${paths[@]}"; do
     apps/go-workers/*) has_workers=true ;;
   esac
   case "$path" in
+    deploy/rabbitmq/*) has_rabbitmq=true ;;
     deploy/compose/*|deploy/compose.prod*|deploy/Caddyfile.prod|deploy/docker/*|deploy/k8s/deploy*|.github/workflows/ci-deploy.yml) has_compose=true ;;
     backend/openapi/*)
       has_openapi=true; has_backend=true; has_frontend=true; has_frontend_sources=true
@@ -187,6 +190,10 @@ fi
 if [ "$has_compose" = true ]; then
   emit 'bash deploy/compose/check.test.sh'
   emit 'bash deploy/k8s/deploy.test.sh'
+fi
+
+if [ "$has_rabbitmq" = true ]; then
+  emit 'node --test deploy/rabbitmq/definitions.test.mjs'
 fi
 
 if [ "$has_workers" = true ]; then

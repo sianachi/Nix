@@ -114,7 +114,7 @@ rabbitmqctl set_permissions --vhost /nix nix-api \
   '^(amq\.gen-[A-Za-z0-9_-]+|nix\.commands\.v1|nix\.workspace\.v1)$' \
   '^(amq\.gen-[A-Za-z0-9_-]+|nix\.api\.results\.v1|nix\.capabilities\.v1)$'
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.commands.v1 \
-  '^(import|template|file|object|export|calendar|notify)\..+$' "$no_resources"
+  '^(import|template|file|object|export|calendar|notify|site)\..+$' "$no_resources"
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.workspace.v1 \
   '^.+$' "$no_resources"
 rabbitmqctl set_topic_permissions --vhost /nix nix-api nix.capabilities.v1 \
@@ -149,6 +149,27 @@ rabbitmqctl set_permissions --vhost /nix nix-notify "$no_resources" \
 rabbitmqctl set_topic_permissions --vhost /nix nix-notify nix.results.v1 \
   '^job\.result$' "$no_resources"
 
+# The sites worker is optional: a deployment that does not run it leaves the password unset and the
+# account is removed, so no credential outlives the role.
+if [ -n "${NIX_RABBITMQ_SITES_PASSWORD:-}" ]; then
+  if [ "$NIX_RABBITMQ_SITES_PASSWORD" = "$NIX_RABBITMQ_API_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_SITES_PASSWORD" = "$NIX_RABBITMQ_IMPORT_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_SITES_PASSWORD" = "$NIX_RABBITMQ_EXPORT_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_SITES_PASSWORD" = "$NIX_RABBITMQ_PLUGIN_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_SITES_PASSWORD" = "$NIX_RABBITMQ_CALENDAR_PASSWORD" ] \
+    || [ "$NIX_RABBITMQ_SITES_PASSWORD" = "$NIX_RABBITMQ_NOTIFY_PASSWORD" ]; then
+    echo "The sites worker password must be distinct from service passwords." >&2
+    exit 1
+  fi
+  ensure_user nix-sites "$NIX_RABBITMQ_SITES_PASSWORD"
+  rabbitmqctl set_permissions --vhost /nix nix-sites "$no_resources" \
+    '^nix\.results\.v1$' '^nix\.worker\.sites\.v1$'
+  rabbitmqctl set_topic_permissions --vhost /nix nix-sites nix.results.v1 \
+    '^job\.result$' "$no_resources"
+else
+  delete_user nix-sites
+fi
+
 # The all-in-one local binary needs the union of worker permissions. Production never sets this
 # value: its role-specific deployments use the dedicated accounts above.
 if [ -n "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}" ]; then
@@ -171,6 +192,30 @@ if [ -n "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}" ]; then
     '^worker\.export$' "$no_resources"
 else
   delete_user nix-worker-dev
+fi
+
+# A small single-node deployment (deploy/k8s/worker.yaml) runs every Go worker role in one
+# process, which needs the union of the role accounts' permissions under its own identity. Unset,
+# the account is removed, as with the sites worker.
+if [ -n "${NIX_RABBITMQ_WORKER_PASSWORD:-}" ]; then
+  for service_password in "$NIX_RABBITMQ_API_PASSWORD" "$NIX_RABBITMQ_IMPORT_PASSWORD" \
+    "$NIX_RABBITMQ_EXPORT_PASSWORD" "$NIX_RABBITMQ_PLUGIN_PASSWORD" "$NIX_RABBITMQ_CALENDAR_PASSWORD" \
+    "$NIX_RABBITMQ_NOTIFY_PASSWORD" "${NIX_RABBITMQ_SITES_PASSWORD:-}" "${NIX_RABBITMQ_DEV_WORKER_PASSWORD:-}"; do
+    if [ "$NIX_RABBITMQ_WORKER_PASSWORD" = "$service_password" ]; then
+      echo "The combined worker password must be distinct from service passwords." >&2
+      exit 1
+    fi
+  done
+  ensure_user nix-worker "$NIX_RABBITMQ_WORKER_PASSWORD"
+  rabbitmqctl set_permissions --vhost /nix nix-worker "$no_resources" \
+    '^(nix\.results\.v1|nix\.capabilities\.v1)$' \
+    '^nix\.worker\.(import|export|plugin-events|calendar|notify)\.v1$'
+  rabbitmqctl set_topic_permissions --vhost /nix nix-worker nix.results.v1 \
+    '^job\.result$' "$no_resources"
+  rabbitmqctl set_topic_permissions --vhost /nix nix-worker nix.capabilities.v1 \
+    '^worker\.export$' "$no_resources"
+else
+  delete_user nix-worker
 fi
 
 # The management UI is exposed on loopback in development only. Production omits this account and

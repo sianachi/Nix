@@ -13,6 +13,7 @@ test('every worker command family is routed to its durable queue', () => {
     ['nix.worker.export.v1', ['export.#']],
     ['nix.worker.calendar.v1', ['calendar.#']],
     ['nix.worker.notify.v1', ['notify.#']],
+    ['nix.worker.sites.v1', ['site.#']],
   ]);
 
   for (const [queue, routingKeys] of expected) {
@@ -31,7 +32,7 @@ test('every worker command family is routed to its durable queue', () => {
 test('the API publisher may emit every command family bound by the topology', () => {
   assert.match(
     bootstrap,
-    /\^\(import\|template\|file\|object\|export\|calendar\|notify\)\\\.\.\+\$/,
+    /\^\(import\|template\|file\|object\|export\|calendar\|notify\|site\)\\\.\.\+\$/,
   );
 });
 
@@ -42,6 +43,7 @@ test('worker queues retain commands and dead-letter refused deliveries', () => {
     'nix.worker.plugin-events.v1',
     'nix.worker.calendar.v1',
     'nix.worker.notify.v1',
+    'nix.worker.sites.v1',
     'nix.api.results.v1',
   ]) {
     const queue = definitions.queues.find((candidate) => candidate.name === name);
@@ -72,6 +74,7 @@ test('authoritative queues cannot lose work to the quorum default delivery limit
     'nix.worker.plugin-events.v1',
     'nix.worker.calendar.v1',
     'nix.worker.notify.v1',
+    'nix.worker.sites.v1',
   ]) {
     assert.match(name, new RegExp(policy.pattern, 'u'), `${name} is protected`);
   }
@@ -129,4 +132,12 @@ test('index retirement preserves plugin events and disables the old broker princ
   assert.doesNotMatch(bootstrap, /ensure_user nix-index|NIX_RABBITMQ_INDEX_PASSWORD/);
   assert.match(bootstrap, /rabbit_binding:remove/);
   assert.doesNotMatch(bootstrap, /delete_queue|purge_queue/);
+});
+
+test('the optional sites worker account exists only when its password is set', () => {
+  assert.match(bootstrap, /if \[ -n "\$\{NIX_RABBITMQ_SITES_PASSWORD:-\}" \]; then/);
+  assert.match(bootstrap, /ensure_user nix-sites "\$NIX_RABBITMQ_SITES_PASSWORD"/);
+  assert.match(bootstrap, /delete_user nix-sites/);
+  assert.doesNotMatch(bootstrap, /: "\$\{NIX_RABBITMQ_SITES_PASSWORD:\?/);
+  assert.match(bootstrap, /nix-sites "\$no_resources" \\\n\s+'\^nix\\\.results\\\.v1\$' '\^nix\\\.worker\\\.sites\\\.v1\$'/);
 });
