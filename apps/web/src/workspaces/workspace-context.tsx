@@ -3,6 +3,8 @@ import { createContext, use, useEffect, useRef, useState, type ReactNode } from 
 import { Outlet, useParams } from 'react-router';
 
 import { useApiClient } from '../api/api-client-provider';
+import { cacheKeysOverlap } from '../api/use-cache-invalidation';
+import { cancelItemChildrenRefresh, notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { useSessionStore } from '../auth/session-store';
 import { pruneBodyCache } from '../editor/body-cache';
 import { useTabStore } from '../tabs/tab-store';
@@ -253,6 +255,18 @@ export function WorkspaceProvider({
     useTabStore.getState().workspaceChanged(workspace.id);
     rememberLastWorkspaceId(workspace.id);
   }, [workspace.id]);
+
+  const client = useApiClient();
+  useEffect(() => {
+    const unsubscribe = client.cache.subscribeInvalidation((prefix) => {
+      if (prefix[0] === 'items' || cacheKeysOverlap(prefix, ['workspaces', workspace.id, 'items']))
+        notifyItemChildrenChanged(workspace.id, null);
+    });
+    return () => {
+      unsubscribe();
+      cancelItemChildrenRefresh(workspace.id);
+    };
+  }, [client, workspace.id]);
 
   return (
     <WorkspaceContext

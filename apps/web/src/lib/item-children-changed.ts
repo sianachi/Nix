@@ -31,6 +31,23 @@ const detailSchema = z.object({
   removedItemIds: z.array(z.string()).default([]),
   restoredItemIds: z.array(z.string()).default([]),
 });
+const pending = new Map<
+  string,
+  {
+    parentId: string | null;
+    quiet: ReturnType<typeof setTimeout>;
+    deadline: ReturnType<typeof setTimeout>;
+  }
+>();
+let subscribers = 0;
+
+export function cancelItemChildrenRefresh(workspaceId: string): void {
+  const entry = pending.get(workspaceId);
+  if (entry === undefined) return;
+  clearTimeout(entry.quiet);
+  clearTimeout(entry.deadline);
+  pending.delete(workspaceId);
+}
 /** A null parent requests a workspace-wide refresh after a multi-container change. */
 export function notifyItemChildrenChanged(
   workspaceId: string,
@@ -40,6 +57,28 @@ export function notifyItemChildrenChanged(
     readonly restoredItemIds?: readonly string[];
   } = {},
 ): void {
+  if ((change.removedItemIds?.length ?? 0) === 0 && (change.restoredItemIds?.length ?? 0) === 0) {
+    const previous = pending.get(workspaceId);
+    const nextParent = previous === undefined || previous.parentId === parentId ? parentId : null;
+    const flush = (): void => {
+      const entry = pending.get(workspaceId);
+      if (entry === undefined) return;
+      clearTimeout(entry.quiet);
+      clearTimeout(entry.deadline);
+      pending.delete(workspaceId);
+      window.dispatchEvent(
+        new CustomEvent(eventName, { detail: { workspaceId, parentId: entry.parentId } }),
+      );
+    };
+    if (previous !== undefined) clearTimeout(previous.quiet);
+    pending.set(workspaceId, {
+      parentId: nextParent,
+      quiet: setTimeout(flush, 150),
+      deadline: previous?.deadline ?? setTimeout(flush, 1_000),
+    });
+    return;
+  }
+  cancelItemChildrenRefresh(workspaceId);
   window.dispatchEvent(
     new CustomEvent(eventName, { detail: { workspaceId, parentId, ...change } }),
   );
@@ -52,8 +91,12 @@ export function onItemChildrenChanged(
     const parsed = detailSchema.safeParse(event.detail);
     if (parsed.success) listener(parsed.data);
   };
+  subscribers += 1;
   window.addEventListener(eventName, receive);
   return () => {
     window.removeEventListener(eventName, receive);
+    subscribers -= 1;
+    if (subscribers === 0)
+      for (const workspaceId of pending.keys()) cancelItemChildrenRefresh(workspaceId);
   };
 }

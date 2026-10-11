@@ -117,7 +117,11 @@ export function useQueryResults(itemId: string, viewId: string): QueryResultsSta
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
       const message = isNixApiError(reason) ? refusal(reason) : 'Core could not be reached.';
-      reportFailed(message, 'error');
+      const refused =
+        isNixApiError(reason) &&
+        (reason.status === 403 || reason.status === 404 || reason.status === 423);
+      if (refused) setResults(null);
+      reportFailed(message, 'error', { blocking: refused });
     }
   }, [client, itemId, viewId, beginLoad, reportLoaded, reportFailed]);
 
