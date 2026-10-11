@@ -1869,6 +1869,7 @@ function GraphDrawing({
       <div className="flex flex-wrap items-center gap-3">
         <Input
           type="search"
+          className="min-w-0 max-w-full"
           aria-label="Find in graph"
           placeholder="Find in graph"
           value={filter.search}
@@ -1884,6 +1885,7 @@ function GraphDrawing({
           }}
         />
         <Select
+          className="min-w-0 max-w-full"
           aria-label="Kind of item"
           value={filter.type ?? ''}
           onChange={(event) => {

@@ -14,7 +14,7 @@ const labels = {
   sortBy: 'Sort by',
   sortDescending: 'Descending sort',
   sorts: 'Sort order',
-  mode: 'Date mode',
+  mode: 'View mode',
   coverProperty: 'Cover',
   cardSize: 'Card size',
   layout: 'Layout',

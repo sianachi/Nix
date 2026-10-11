@@ -217,9 +217,12 @@ export function SchemaEditor({
         )}
 
         {draft.map((property, index) => (
-          <div key={index} className="flex flex-col gap-2 border border-divider p-3">
-            <div className="flex items-end gap-2">
-              <Field label="Name" className="flex-1">
+          <div
+            key={index}
+            className="@container/field flex min-w-0 flex-col gap-2 border border-divider p-3"
+          >
+            <div className="flex min-w-0 flex-wrap items-end gap-2">
+              <Field label="Name" className="flex-1 basis-full @md/field:basis-0">
                 {(control) => (
                   <Input
                     {...control}
@@ -237,7 +240,7 @@ export function SchemaEditor({
                 )}
               </Field>
 
-              <Field label="Type" className="w-[190px]">
+              <Field label="Type" className="flex-1">
                 {(control) => (
                   <Select
                     {...control}

@@ -578,6 +578,37 @@ describe('workspace-scoped companion tools', () => {
     expect(outcome.touchedParents).toEqual([null]);
   });
 
+  it.each(['create_structured', 'add_view', 'add_fields'] as const)(
+    'refuses an invented property function in %s without a write',
+    async (operation) => {
+      const { ports, execute, signal } = setup();
+      const fields = [
+        { key: 'total', label: 'Total', type: 'formula', formula: 'PROPERTY("price")' },
+      ];
+      const spec =
+        operation === 'create_structured'
+          ? { recipe: 'list', fields }
+          : operation === 'add_view'
+            ? { fields, views: [{ kind: 'list' }] }
+            : { fields };
+      const args = input(operation, {
+        itemId: operation === 'create_structured' ? '' : itemId,
+        title: 'Totals',
+        specJson: JSON.stringify(spec),
+      });
+      const preview = await loadPreviewContext(
+        ports,
+        workspace,
+        workspaceToolSchema.parse(JSON.parse(args)),
+        signal,
+      );
+      await expect(
+        runWorkspaceTool(ports, workspace, args, signal, { fence: preview.fingerprint }),
+      ).rejects.toThrow('PROPERTY is not a supported function');
+      expect(execute).not.toHaveBeenCalled();
+    },
+  );
+
   it('refuses add_view when the approved fingerprint is stale', async () => {
     const { ports, execute, signal } = setup();
     await expect(

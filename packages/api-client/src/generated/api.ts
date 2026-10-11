@@ -1325,6 +1325,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/pets/runtime/note': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['PetNoteRuntime'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/me/pets/inline': {
     parameters: {
       query?: never;
@@ -1353,6 +1369,22 @@ export interface paths {
       cookie?: never;
     };
     get: operations['WatchPetRuntime'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/pets/runtime/note/watch': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['WatchPetNoteRuntime'];
     put?: never;
     post?: never;
     delete?: never;
@@ -4039,6 +4071,10 @@ export interface components {
       workspaceMap?: null | components['schemas']['PetWorkspaceMapEntry'][];
       /** @default false */
       toolLockedContent: boolean;
+      /** Format: uuid */
+      rootItemId?: null | string;
+      /** @default false */
+      readOnly: boolean;
     };
     PetSettings: {
       enabled: boolean;
@@ -8875,6 +8911,57 @@ export interface operations {
       };
     };
   };
+  PetNoteRuntime: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PetRuntimeRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Conflict */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
   PetInlineWrite: {
     parameters: {
       query?: never;
@@ -8949,6 +9036,7 @@ export interface operations {
         petId: string;
         mode?: string;
         after?: number | string;
+        rootItemId?: string;
       };
       header?: never;
       path?: never;
@@ -8963,6 +9051,59 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+      /** @description Too Many Requests */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  WatchPetNoteRuntime: {
+    parameters: {
+      query: {
+        workspaceId: string;
+        petId: string;
+        rootItemId: string;
+        mode?: string;
+        after?: number | string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
       /** @description Too Many Requests */

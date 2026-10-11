@@ -21,6 +21,8 @@ export default mergeConfig(
   viteConfig,
   defineConfig({
     plugins: [storybookTest({ configDir: storybookDir })],
+    // Discovering this during a story reloads the browser and interrupts its assertions.
+    optimizeDeps: { include: ['storybook/test'] },
     test: {
       name: 'storybook',
       setupFiles: ['./.storybook/vitest.setup.ts'],

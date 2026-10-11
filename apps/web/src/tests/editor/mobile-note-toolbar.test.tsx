@@ -1,14 +1,41 @@
 import { nixEditingExtensions } from '@nix/editor-schema';
 import { Editor } from '@tiptap/core';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MobileNoteToolbar } from '../../editor/mobile-note-toolbar';
 import { useMobileToolbarPreference } from '../../editor/mobile-toolbar-preference';
 import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
 
 beforeEach(() => {
   useMobileToolbarPreference.setState({ visibility: 'always', saved: true });
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it('keeps the dock inside the visual viewport after zooming or opening the keyboard', async () => {
+  const viewport = new EventTarget();
+  Object.assign(viewport, { width: 180, height: 300, offsetLeft: 50, offsetTop: 20 });
+  vi.stubGlobal('visualViewport', viewport);
+  const bounds = new DOMRect(10, 0, 320, 600);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(bounds);
+  render(<MobileNoteToolbar formatting={<button>Bold</button>} />);
+  const dock = screen.getByRole('group', { name: 'Formatting actions' }).parentElement
+    ?.parentElement;
+  await waitFor(() => {
+    expect(dock?.style.getPropertyValue('--viewport-inset-left')).toBe('40px');
+    expect(dock?.style.getPropertyValue('--viewport-inset-right')).toBe('100px');
+    expect(dock?.style.getPropertyValue('--keyboard-inset')).toBe('280px');
+  });
+  Object.assign(viewport, { width: 320, height: 600, offsetLeft: 10, offsetTop: 0 });
+  viewport.dispatchEvent(new Event('resize'));
+  await waitFor(() => {
+    expect(dock?.style.getPropertyValue('--viewport-inset-left')).toBe('0px');
+    expect(dock?.style.getPropertyValue('--viewport-inset-right')).toBe('0px');
+    expect(dock?.style.getPropertyValue('--keyboard-inset')).toBe('0px');
+  });
 });
 it('opens item actions in a separate sheet', async () => {
   render(

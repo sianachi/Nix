@@ -42,7 +42,7 @@ interface Page {
   readonly headSeq: string;
   readonly schemaVersion: number;
   readonly canWrite: boolean;
-  readonly checkpoint?: { readonly seq: string; readonly update: string };
+  readonly checkpoint?: { readonly seq: string; readonly update: string } | undefined;
   readonly updates: readonly { readonly seq: string; readonly update: string }[];
   readonly hasMore: boolean;
 }
@@ -423,6 +423,92 @@ describe('stateless offline body synchronization', () => {
     expect(await readBodyCache(scope())).not.toBeNull();
   });
 
+  it('checks the saved sequence and downloads only new updates on subsequent passes', async () => {
+    const server = document('Base');
+    const checkpoint = base64(Y.encodeStateAsUpdate(server));
+    const before = Y.encodeStateVector(server);
+    server.getText('body').insert(4, ' remote edit');
+    const tail = base64(Y.encodeStateAsUpdate(server, before));
+    const remote = transport(server, {
+      getPage: (request, count) => {
+        if (count === 1) {
+          expect(request.searchParams.get('fromCheckpoint')).toBe('true');
+          return page(server, { checkpoint: { seq: '10', update: checkpoint } });
+        }
+        expect(request.searchParams.has('fromCheckpoint')).toBe(false);
+        return page(server, {
+          headSeq: '11',
+          checkpoint: undefined,
+          updates: count === 2 ? [{ seq: '11', update: tail }] : [],
+        });
+      },
+    });
+    await synchronize(remote.client);
+    const refreshed = document();
+    await synchronize(remote.client, refreshed);
+    const reopened = document();
+    await synchronize(remote.client, reopened);
+
+    expect(remote.gets.map((request) => request.searchParams.get('after'))).toEqual([
+      '0',
+      '10',
+      '11',
+    ]);
+    expect(remote.uploads).toEqual([]);
+    expect(refreshed.getText('body').toJSON()).toBe('Base remote edit');
+    expect(reopened.getText('body').toJSON()).toBe('Base remote edit');
+    expect((await readBodyCache(scope()))?.serverSeq).toBe('11');
+  });
+
+  it('falls back to the retained checkpoint when the saved sequence falls behind pruning', async () => {
+    const server = document('Base');
+    const checkpoint = base64(Y.encodeStateAsUpdate(server));
+    server.getText('body').insert(4, ' after pruning');
+    const remote = transport(server, {
+      getPage: (_request, count) =>
+        count === 1
+          ? page(server, { checkpoint: { seq: '10', update: checkpoint } })
+          : count === 2
+            ? page(server, {
+                headSeq: '12',
+                checkpoint: undefined,
+                updates: [{ seq: '12', update: base64(Y.encodeStateAsUpdate(server)) }],
+              })
+            : page(server, {
+                headSeq: '12',
+                checkpoint: { seq: '12', update: base64(Y.encodeStateAsUpdate(server)) },
+              }),
+    });
+    await synchronize(remote.client);
+    const refreshed = document();
+    await synchronize(remote.client, refreshed);
+
+    expect(remote.gets.map((request) => request.searchParams.get('after'))).toEqual([
+      '0',
+      '10',
+      '0',
+    ]);
+    expect(refreshed.getText('body').toJSON()).toBe('Base after pruning');
+    expect((await readBodyCache(scope()))?.serverSeq).toBe('12');
+  });
+
+  it('refuses a replaced document before using a saved sequence or uploading pending edits', async () => {
+    const server = document('Original');
+    const remote = transport(server, {
+      getPage: (_request, count) =>
+        page(server, { docId: count === 1 ? DOC_ID : REPLACEMENT_DOC_ID }),
+    });
+    const local = document();
+    await synchronize(remote.client, local);
+    await pending(local);
+
+    await expect(synchronize(remote.client)).rejects.toThrow(/body changed/iu);
+    expect(remote.gets[1]?.searchParams.get('after')).toBe('10');
+    expect(remote.uploads).toEqual([]);
+    expect(await readDrafts(scope())).toHaveLength(1);
+    expect(bodyCacheSealed(scope())).toBe(true);
+  });
+
   it('restarts bootstrap when retention leaves a gap instead of caching incomplete content', async () => {
     const server = document('All text after pruning');
     const old = document('Older checkpoint');
@@ -781,35 +867,73 @@ describe('stateless offline body synchronization', () => {
     expect(await readBodyCache(scope())).not.toBeNull();
   });
 
-  it('retains pending edits after a committed upload loses its response and safely retries', async () => {
-    const server = document('Base');
-    const editing = document();
-    Y.applyUpdate(editing, Y.encodeStateAsUpdate(server));
-    await cache(server);
-    await pending(editing);
-    let lost = true;
-    const remote = transport(server, {
-      onPost: () => {
-        if (lost) {
-          lost = false;
-          return Promise.reject(new TypeError('Upload response lost'));
-        }
-        return Promise.resolve();
-      },
-    });
+  it.each(['insert', 'delete'] as const)(
+    'does not re-upload a durable %s after losing its acknowledgement',
+    async (edit) => {
+      const server = document('Base');
+      const editing = document();
+      Y.applyUpdate(editing, Y.encodeStateAsUpdate(server));
+      let lost = true;
+      let committed = false;
+      const remote = transport(server, {
+        getPage: (request) => {
+          const headSeq = committed ? '11' : '10';
+          return request.searchParams.get('after') === '0'
+            ? page(server, {
+                headSeq,
+                checkpoint: { seq: headSeq, update: base64(Y.encodeStateAsUpdate(server)) },
+              })
+            : page(server, {
+                headSeq,
+                checkpoint: undefined,
+                updates: committed
+                  ? [{ seq: '11', update: base64(Y.encodeStateAsUpdate(server)) }]
+                  : [],
+              });
+        },
+        onPost: () => {
+          committed = true;
+          if (lost) {
+            lost = false;
+            return Promise.reject(new TypeError('Upload response lost'));
+          }
+          return Promise.resolve();
+        },
+      });
+      await synchronize(remote.client);
+      if (edit === 'insert') await pending(editing);
+      else {
+        const before = Y.encodeStateVector(editing);
+        editing.getText('body').delete(1, 2);
+        await writeDraft({
+          id: `${scope()}:deletion`,
+          scope: scope(),
+          docId: DOC_ID,
+          revision: 1,
+          update: Y.encodeStateAsUpdate(editing, before),
+        });
+      }
+      await expect(synchronize(remote.client)).rejects.toThrow();
+      expect(await readDrafts(scope())).toHaveLength(1);
+      await synchronize(remote.client);
 
-    await expect(synchronize(remote.client)).rejects.toThrow();
-    expect(await readDrafts(scope())).toHaveLength(1);
-    await synchronize(remote.client);
-
-    expect(server.getText('body').toJSON()).toBe('Base offline edit');
-    expect(await readDrafts(scope())).toEqual([]);
-    const saved = await readBodyCache(scope());
-    if (saved === null) throw new Error('The confirmed note was not retained.');
-    const reopened = document();
-    Y.applyUpdate(reopened, saved.update);
-    expect(reopened.getText('body').toJSON()).toBe('Base offline edit');
-  });
+      expect(remote.uploads).toHaveLength(1);
+      expect(remote.gets.map((request) => request.searchParams.get('after'))).toEqual([
+        '0',
+        '10',
+        '10',
+      ]);
+      expect(server.getText('body').toJSON()).toBe(edit === 'insert' ? 'Base offline edit' : 'Be');
+      expect(await readDrafts(scope())).toEqual([]);
+      const saved = await readBodyCache(scope());
+      if (saved === null) throw new Error('The confirmed note was not retained.');
+      const reopened = document();
+      Y.applyUpdate(reopened, saved.update);
+      expect(reopened.getText('body').toJSON()).toBe(
+        edit === 'insert' ? 'Base offline edit' : 'Be',
+      );
+    },
+  );
 
   it('preserves a later draft revision and incorporates remote edits after an upload', async () => {
     const server = document('Base');

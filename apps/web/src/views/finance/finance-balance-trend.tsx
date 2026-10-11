@@ -30,7 +30,7 @@ export function FinanceBalanceTrend({
   return (
     <section
       aria-labelledby="balance-trend-title"
-      className="flex flex-col gap-3 rounded-lg border border-divider p-4"
+      className="flex min-w-0 flex-col gap-3 rounded-lg border border-divider p-4"
     >
       <Text as="h3" variant="h3" id="balance-trend-title">
         Cash and card position, month by month
@@ -40,8 +40,8 @@ export function FinanceBalanceTrend({
         are not cash held. Remaining loans are shown under Accounts. Dashed segments are forecasts;
         solid segments are closed months.
       </Text>
-      <div className="flex gap-3">
-        <div className="flex flex-col justify-between py-3 text-right">
+      <div className="flex min-w-0 gap-3">
+        <div className="flex min-w-0 max-w-1/3 flex-col justify-between py-3 text-right">
           <Text variant="bodySmall">
             <Money amount={high} currency={currency} round />
           </Text>
@@ -50,7 +50,7 @@ export function FinanceBalanceTrend({
           </Text>
         </div>
         <svg
-          className="h-48 min-w-0 flex-1 text-accent-text"
+          className="h-48 min-w-0 flex-1 basis-0 text-accent-text"
           viewBox="0 0 600 200"
           preserveAspectRatio="xMidYMid meet"
           role="img"

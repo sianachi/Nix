@@ -183,6 +183,42 @@ it('does not show another account’s offline error status', () => {
   expect(screen.queryByText('Private note download failed.')).not.toBeInTheDocument();
 });
 
+it('collapses routine sync details and allows reopening them', async () => {
+  if (state.snapshot === undefined) throw new Error('Offline fixture missing.');
+  state.snapshot = { ...state.snapshot, pending: 2 };
+  renderAt(<OfflineStatus />, '/');
+  const user = userEvent.setup();
+  expect(screen.getByRole('status')).toHaveTextContent('2 pending changes saved on this device.');
+  await user.click(screen.getByRole('button', { name: 'Collapse offline sync status' }));
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'Notes on this device' })).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Show offline sync status' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await user.click(screen.getByRole('button', { name: 'Show offline sync status' }));
+  expect(screen.getByRole('status')).toHaveTextContent('2 pending changes');
+});
+
+it('keeps new storage errors visible while sync details are collapsed', async () => {
+  renderAt(<OfflineStatus />, '/');
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Collapse offline sync status' }));
+  act(() => {
+    if (state.snapshot === undefined) throw new Error('Offline fixture missing.');
+    state.snapshot = {
+      ...state.snapshot,
+      status: 'error',
+      error: 'Device storage is full. Pending edits are preserved.',
+    };
+    for (const listener of state.listeners) listener();
+  });
+
+  expect(screen.getByRole('alert')).toHaveTextContent('Device storage is full.');
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+});
+
 describe('notes saved on this device', () => {
   it('finds an unopened nested note by title without querying Core', async () => {
     renderPage();

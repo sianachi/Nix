@@ -154,6 +154,26 @@ export function StructuredViewConfiguration({
         </Field>
       ) : null}
 
+      {view.kind === 'form' || view.kind === 'interactive_form' ? (
+        <Field
+          label="Default response mode"
+          hint="The person filling the form can choose whether to save each response."
+        >
+          {(control) => (
+            <Select
+              {...control}
+              value={view.mode === 'temporary' ? 'temporary' : 'saved'}
+              onChange={(event) => {
+                onChange({ ...view, mode: event.target.value });
+              }}
+            >
+              <option value="saved">Save entries</option>
+              <option value="temporary">Temporary calculations</option>
+            </Select>
+          )}
+        </Field>
+      ) : null}
+
       {showColumns ? <ViewColumns view={view} fields={fields} onChange={onChange} /> : null}
 
       {showSort ? <SortChoice view={view} fields={fields} onChange={onChange} /> : null}
@@ -321,13 +341,13 @@ function ViewColumns({
   const unselected = available.filter((field) => !selected.includes(field.key));
 
   return (
-    <fieldset className="flex flex-col gap-2">
+    <fieldset className="flex min-w-0 flex-col gap-2">
       <legend className="text-sm font-semibold">Visible fields and order</legend>
       {selected.map((key, index) => {
         const label = available.find((field) => field.key === key)?.label ?? key;
         return (
           <div key={key} className="flex items-center gap-2 rounded-md bg-background px-2 py-1">
-            <Text variant="bodySmall" className="flex-1">
+            <Text variant="bodySmall" className="min-w-0 flex-1">
               {label}
             </Text>
             <Button

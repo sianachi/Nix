@@ -133,8 +133,8 @@ export function ViewEditor({
 
         {draft.map((view, index) => (
           <div key={view.id} className="flex flex-col gap-2 border border-divider p-3">
-            <div className="flex items-center gap-2">
-              <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className="min-w-0 flex-1 basis-full">
                 <Text variant="bodySmall" className="truncate">
                   {view.name}
                 </Text>

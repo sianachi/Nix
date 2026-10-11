@@ -28,8 +28,8 @@ const perKind: Readonly<Record<string, readonly string[]>> = {
   timeline: ['dateProperty', 'endDateProperty', 'mode'],
   gallery: ['columns', 'coverProperty', 'cardSize'],
   sheet: ['columns'],
-  form: ['columns'],
-  interactive_form: [],
+  form: ['columns', 'mode'],
+  interactive_form: ['mode'],
   query: [],
   chart: ['groupBy', 'groupOrder', 'measure', 'measureProperty', 'chart'],
   habit_tracker: [],
@@ -196,8 +196,10 @@ export function validateUpdateView(raw: unknown, context: ValidationContext): Va
   if (
     mode !== undefined &&
     mode !== null &&
-    ((target.kind === 'calendar' && mode === 'quarter') ||
-      (target.kind === 'timeline' && mode === 'day'))
+    ((target.kind === 'calendar' && !['day', 'week', 'month'].includes(mode)) ||
+      (target.kind === 'timeline' && !['week', 'month', 'quarter'].includes(mode)) ||
+      (['form', 'interactive_form'].includes(target.kind) &&
+        !['saved', 'temporary'].includes(mode)))
   )
     problems.push({
       path: 'patch.mode',

@@ -803,9 +803,18 @@ function routeQuery(
   connection: ReturnType<typeof petConnectionSchema.parse>,
 ): (endpoint: { operation: string }) => Promise<unknown> {
   return (endpoint) =>
-    endpoint.operation === 'pets.watchRuntime'
-      ? Promise.resolve({ ...connection, revision: 1 })
-      : Promise.resolve(settings);
+    endpoint.operation === 'items.get'
+      ? Promise.resolve({
+          id: '66666666-6666-4666-8666-666666666666',
+          workspaceId: PHONE_WORKSPACE,
+          title: 'Nix documentation',
+          type: 'note',
+        })
+      : endpoint.operation === 'locks.get'
+        ? Promise.resolve({ locked: false, unlockedUntil: null })
+        : endpoint.operation === 'pets.watchRuntime'
+          ? Promise.resolve({ ...connection, revision: 1 })
+          : Promise.resolve(settings);
 }
 
 const phoneClient = {
@@ -863,10 +872,12 @@ function stubPhoneSurface(): () => void {
  */
 function PhoneFrame({
   children,
+  initialEntry = `/w/${PHONE_WORKSPACE}`,
   width = 390,
   height = 844,
 }: {
   readonly children: ReactNode;
+  readonly initialEntry?: string;
   readonly width?: number;
   readonly height?: number;
 }): ReactElement {
@@ -889,9 +900,9 @@ function PhoneFrame({
   return (
     <div
       style={{ width, height, transform: 'translateZ(0)' }} // design-token-exempt: simulates a fixed device viewport for a story.
-      className="relative flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-divider"
+      className="relative flex h-full max-h-[calc(100dvh-var(--spacing)*8)] min-h-0 max-w-full flex-col overflow-hidden rounded-lg border border-divider"
     >
-      <MemoryRouter initialEntries={[`/w/${PHONE_WORKSPACE}`]}>
+      <MemoryRouter initialEntries={[initialEntry]}>
         <Routes>
           <Route
             path="/w/:workspaceId"
@@ -968,6 +979,21 @@ export const ConversationPhone = {
     </PhoneFrame>
   ),
 };
+export const NoteConversationPhone280 = {
+  render: (): ReactElement => (
+    <PhoneFrame
+      width={280}
+      initialEntry={`/w/${PHONE_WORKSPACE}/pet?root=66666666-6666-4666-8666-666666666666`}
+    >
+      <PetPage />
+    </PhoneFrame>
+  ),
+};
+export const DarkNoteConversationPhone280 = {
+  ...NoteConversationPhone280,
+  globals: { ground: 'dark' },
+};
+
 export const DarkConversationPhone = { ...ConversationPhone, globals: { ground: 'dark' } };
 
 export const ConversationPhone320 = {

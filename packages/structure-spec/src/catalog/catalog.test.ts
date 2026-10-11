@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { FORMULA_FUNCTION_NAMES } from '@nix/sheet';
+import { FORMULA_FUNCTION_NAMES, evaluatePropertyFormulas } from '@nix/sheet';
 import { describe, expect, it } from 'vitest';
 
 import { buildCatalog, renderCatalog } from './build.js';
@@ -99,6 +99,27 @@ describe('the capability catalog', () => {
     // that could grow, shrink or duplicate independently of what a formula can actually call.
     expect(catalog.formulaFunctions).toEqual(FORMULA_FUNCTION_NAMES);
     expect(new Set(catalog.formulaFunctions).size).toBe(catalog.formulaFunctions.length);
+  });
+
+  it('gives formula examples whose actual results match the guidance', () => {
+    const text = renderConsult(buildCatalog(), readPatterns());
+    const values = new Map<string, number | boolean>([
+      ['price', 12.5],
+      ['quantity', 3],
+      ['completion', true],
+    ]);
+    for (const [expression, expected] of [
+      ['[price] * [quantity]', 37.5],
+      ['IF([completion], "Done", "Open")', 'Done'],
+      ['IFERROR(ROUND([price] * [quantity], 2), 0)', 37.5],
+    ] as const) {
+      expect(text).toContain(expression);
+      const result = evaluatePropertyFormulas({
+        formulas: [{ key: 'result', expression }],
+        read: (key) => values.get(key),
+      });
+      expect(result.values.get('result')).toBe(expected);
+    }
   });
 
   it('never offers the assignee property type or the drive and finances recipes', () => {

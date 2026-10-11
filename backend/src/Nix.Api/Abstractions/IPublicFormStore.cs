@@ -21,6 +21,9 @@ public interface IPublicFormStore
         PrincipalId principalId,
         CancellationToken cancellationToken);
 
+    /// <summary>Locks topology then the response parent until submission commits; false if unavailable.</summary>
+    public ValueTask<bool> LockSubmissionAsync(PublicFormLink link, CancellationToken cancellationToken);
+
     /// <summary>Finds the capability for an item view and tracks it for rotation or revocation.</summary>
     public ValueTask<PublicFormLink?> FindForUpdateAsync(
         ItemId itemId,

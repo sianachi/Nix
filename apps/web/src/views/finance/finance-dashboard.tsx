@@ -174,7 +174,7 @@ export function FinanceDashboard({
                   <div className="min-w-0">
                     <Button
                       variant="ghost"
-                      className="h-auto min-h-(--control-md) max-w-full justify-start break-words px-0 text-left"
+                      className="h-auto min-h-(--control-md) max-w-full justify-start px-0 text-left wrap-anywhere"
                       onClick={() => {
                         if (onHistory === undefined) onSection('budget');
                         else
@@ -287,7 +287,7 @@ export function FinanceDashboard({
                 {dashboard.cards.map((card) => (
                   <li key={card.accountId} className="rounded-lg bg-surface-raised p-3">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-                      <Text as="p" variant="bodySmall" className="min-w-0 break-words font-medium">
+                      <Text as="p" variant="bodySmall" className="min-w-0 font-medium">
                         {card.name}
                       </Text>
                       {card.closing < 0 ? (

@@ -90,6 +90,7 @@ export interface ToolbarProps {
   readonly compact?: boolean | undefined;
   readonly writingMode?: WritingMode;
   readonly writingModeControl?: ReactNode;
+  readonly textWidthControl?: ReactNode;
 
   /** Opens the editor-owned image form without making this toolbar own modal state. */
   readonly onInsertImage: () => void;
@@ -115,6 +116,7 @@ export function EditorToolbar({
   compact = false,
   writingMode = 'prose',
   writingModeControl,
+  textWidthControl,
   onInsertImage,
   onInsertItem,
   onPageBreak,
@@ -518,6 +520,7 @@ export function EditorToolbar({
         {writingModeControl}
         <Button
           variant="ghost"
+          className="shrink-0 whitespace-nowrap"
           onClick={() => {
             setMoreOpen(true);
           }}
@@ -538,7 +541,7 @@ export function EditorToolbar({
                 <Button
                   key={control.id}
                   variant="ghost"
-                  className="justify-start"
+                  className="h-auto min-h-(--control-lg) min-w-0 justify-start whitespace-normal text-left any-pointer-coarse:h-auto"
                   disabled={control.enabled === false}
                   aria-pressed={control.active}
                   onClick={() => {
@@ -629,6 +632,7 @@ export function EditorToolbar({
       ) : null}
       {writingMode === 'poetry' ? <Group controls={poetry} label="Poetry tools" /> : null}
       {writingModeControl}
+      {textWidthControl}
       <Popover
         label="Insert content"
         open={insertOpen}

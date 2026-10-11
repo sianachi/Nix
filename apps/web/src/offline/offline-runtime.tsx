@@ -773,7 +773,7 @@ export function OfflineRuntime(): null {
       if (disposed || status !== 'authenticated' || subject === undefined) return;
       automaticTimer = setTimeout(synchronize, 5 * 60_000);
     };
-    const synchronize = (): void => {
+    const synchronize = (queueActive = false): void => {
       if (disposed) return;
       if (!navigator.onLine || status !== 'authenticated' || subject === undefined) {
         if (readOfflineAccount() !== null) setOfflineProgress({ status: 'offline' });
@@ -781,7 +781,7 @@ export function OfflineRuntime(): null {
         return;
       }
       if (active !== null) {
-        rerun = true;
+        rerun ||= queueActive;
         return;
       }
       clearTimeout(automaticTimer);
@@ -838,6 +838,12 @@ export function OfflineRuntime(): null {
       active?.abort();
       if (readOfflineAccount() !== null) setOfflineProgress({ status: 'offline', error: null });
     };
+    const wentOnline = (): void => {
+      synchronize(active?.signal.aborted === true);
+    };
+    const requested = (): void => {
+      synchronize(true);
+    };
     const readPending = (): void => {
       if (subject === undefined) return;
       const accountEpoch = bodyCacheAccountEpoch(subject);
@@ -867,18 +873,18 @@ export function OfflineRuntime(): null {
       void browserFeatures.storage.persist().catch(() => false);
     synchronize();
     readPending();
-    window.addEventListener('online', synchronize);
+    window.addEventListener('online', wentOnline);
     window.addEventListener('offline', wentOffline);
-    window.addEventListener(SYNC_EVENT, synchronize);
+    window.addEventListener(SYNC_EVENT, requested);
     window.addEventListener('nix:offline-drafts-changed', updatePending);
     return () => {
       disposed = true;
       active?.abort();
       clearTimeout(automaticTimer);
       clearTimeout(pendingTimer);
-      window.removeEventListener('online', synchronize);
+      window.removeEventListener('online', wentOnline);
       window.removeEventListener('offline', wentOffline);
-      window.removeEventListener(SYNC_EVENT, synchronize);
+      window.removeEventListener(SYNC_EVENT, requested);
       window.removeEventListener('nix:offline-drafts-changed', updatePending);
     };
   }, [client, getAccessToken, status, subject]);

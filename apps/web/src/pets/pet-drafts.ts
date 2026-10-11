@@ -30,8 +30,9 @@ function writeDraft(key: string, next: string): void {
 export function usePetDraft(
   workspaceId: string,
   petId: string,
+  rootItemId?: string,
 ): readonly [string, (next: string) => void] {
-  const key = draftKey(workspaceId, petId);
+  const key = `${draftKey(workspaceId, petId)}${rootItemId ? `:note:${rootItemId}` : ''}`;
   const draft = useSyncExternalStore(
     subscribe,
     () => drafts.get(key) ?? '',

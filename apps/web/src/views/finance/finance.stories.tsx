@@ -5,8 +5,10 @@ import {
   type CashFlow,
   type Finance,
   type FinanceDashboard,
+  type QueryEndpoint,
 } from '@nix/api-client';
 import type { ReactElement } from 'react';
+import { waitFor, within } from '@testing-library/dom';
 
 import { ApiClientOverrideProvider } from '../../api/api-client-provider';
 import { AccountDialog, LineDialog, SettingsDialog } from './finance-setup';
@@ -16,6 +18,10 @@ import { FinanceCashFlow } from './finance-cashflow';
 import { FinanceBudget } from './finance-budget';
 import { BudgetActualDialog } from './budget-actual-dialog';
 import { QuickAddDialog } from './finance-transactions';
+import { FinanceBalanceTrend } from './finance-balance-trend';
+import { FinanceView } from './finance-view';
+import { storyContainer } from '../core/story-container';
+import { recordStoryView } from '../list/record-view-story';
 import type { FinanceState } from './use-finance';
 
 const ROOT = 'c1111111-1111-4111-8111-111111111111';
@@ -351,6 +357,15 @@ export const BudgetGridMonth = {
       </Stage>
     </ApiClientOverrideProvider>
   ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await within(canvasElement).findByRole('region', { name: 'Budget figures' });
+    await waitFor(() => {
+      const root = canvasElement.ownerDocument.documentElement;
+      if (root.scrollWidth > root.clientWidth + 1) {
+        throw new Error('Budget columns or their accessible labels escape the screen.');
+      }
+    });
+  },
 };
 
 export const BudgetGridClosedMonth = {
@@ -366,6 +381,7 @@ export const BudgetGridClosedMonth = {
       </Stage>
     </ApiClientOverrideProvider>
   ),
+  play: BudgetGridMonth.play,
 };
 
 export const BudgetGridOneAccount = {
@@ -489,5 +505,47 @@ export const MonthlyEmergencyTargets = {
         <FinanceCashFlow state={state} finance={finance} month="2027-04" />
       </Stage>
     </ApiClientOverrideProvider>
+  ),
+};
+
+export const NarrowFinances = {
+  render: (): ReactElement => (
+    <ApiClientOverrideProvider
+      client={{
+        ...monthClient,
+        query<T>(endpoint: QueryEndpoint<T>): Promise<T> {
+          if (endpoint.operation === 'finance.read') {
+            return Promise.resolve(
+              endpoint.schema.parse({ ...finance, closedMonths: [finance.currentMonth] }),
+            );
+          }
+          return monthClient.query(endpoint);
+        },
+      }}
+    >
+      <div className="max-w-sm">
+        <FinanceView
+          container={storyContainer([], [], { itemId: ROOT })}
+          view={recordStoryView('finance')}
+          onOpen={() => undefined}
+        />
+      </div>
+    </ApiClientOverrideProvider>
+  ),
+};
+
+export const NarrowLargeBalanceTrend = {
+  render: (): ReactElement => (
+    <div className="max-w-xs">
+      <FinanceBalanceTrend
+        months={cashFlow.months.map((row, index) => ({
+          ...row,
+          netPosition: index === 0 ? -12_345_678_901_234 : 98_765_432_109_876,
+        }))}
+        month="2026-09"
+        currency="GBP"
+        onMonth={() => undefined}
+      />
+    </div>
   ),
 };
