@@ -52,7 +52,20 @@ export const nixExtensions: Extensions = [
   // Blocks.
   Heading.configure({ levels: [1, 2, 3] }),
   Blockquote,
-  CodeBlock,
+  CodeBlock.extend({
+    addAttributes() {
+      return {
+        ...this.parent?.(),
+        /**
+         * Version 6. A Mermaid block's captured picture (ADR-0063): the file item holding it, and
+         * the SHA-256 of the source it was drawn from. Neither travels through HTML, so a pasted
+         * copy captures its own picture rather than sharing, and overwriting, this one's file.
+         */
+        renderFileId: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
+        renderSourceHash: { default: null, parseHTML: () => null, renderHTML: () => ({}) },
+      };
+    },
+  }),
   HorizontalRule,
   Callout,
   Image.extend({

@@ -21,8 +21,11 @@ import { nixExtensions } from './extensions.js';
  * Version 2 added composition (columns), collapsible sections, references, the two computed
  * blocks, token-named colour and the comment mark - all at once, because each bump costs a
  * corpus-wide pin rewrite and a lockout window for tabs left open across a deploy.
+ *
+ * Version 6 added a Mermaid code block's captured picture (`codeBlock.renderFileId` and
+ * `renderSourceHash`, ADR-0063).
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 /**
  * The ProseMirror schema, derived from the extension list.

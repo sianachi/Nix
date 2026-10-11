@@ -86,6 +86,11 @@ export const SCHEMA_MIGRATIONS: readonly SchemaMigration[] = [
     to: 5,
     describe: 'Text block alignment; existing content is unchanged.',
   },
+  {
+    from: 5,
+    to: 6,
+    describe: 'Captured Mermaid pictures on code blocks; existing content is unchanged.',
+  },
 ];
 
 /** What became of one document. */

@@ -262,7 +262,7 @@ describe('the schema version', () => {
     // document carries a pin that has to be raised past it by a job at deploy (ADR-0024).
     // If this assertion fails, the question is whether that was done - not whether to
     // update the number.
-    expect(SCHEMA_VERSION).toBe(5);
+    expect(SCHEMA_VERSION).toBe(6);
   });
 
   it('still opens a document written before the bump, unchanged', () => {
@@ -284,13 +284,13 @@ describe('the schema version', () => {
     expect(requiredSchemaVersion(parsed.document)).toBe(1);
   });
 
-  it('needs version 5 for the complete block and alignment fixture', () => {
+  it('needs version 6 for the complete block, alignment and capture fixture', () => {
     const parsed = parseDocument(FIXTURE_DOCUMENT);
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
 
-    expect(requiredSchemaVersion(parsed.document)).toBe(5);
+    expect(requiredSchemaVersion(parsed.document)).toBe(6);
   });
 });
 

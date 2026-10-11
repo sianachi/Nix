@@ -82,6 +82,11 @@ import { renderToggleButton, toggleSummaryView } from './toggle-button';
 import { setVimEnabled, vimModeLabel, vimStatusMode, VimMotions } from './vim-motions';
 import { isImageFile, mediaTypeForFile } from '../lib/file-kind';
 import { MermaidCodeBlockView } from '../plugins/mermaid-js-viewer';
+import {
+  MermaidCaptureContext,
+  storeCapture,
+  type MermaidCaptureUpload,
+} from '../plugins/mermaid-capture';
 import { PendingReferenceNotice } from './pending-reference-notice';
 import { usePendingDailyTemplate } from './use-pending-daily-template';
 import {
@@ -516,6 +521,13 @@ export function NoteEditor({
   // plugin-registration time, before any socket exists, and it survives reconnects. Same
   // reasoning as `doc` above: constructed with useState so it is guaranteed to happen once.
   const [awareness] = useState(() => new Awareness(doc));
+
+  // Mermaid capture uploads only from a live, synced, writable session (ADR-0063).
+  const captureDiagram = useMemo<MermaidCaptureUpload | null>(() => {
+    if (offline || readOnly || stale || !synced || workspaceId === undefined) return null;
+    return (svg, renderFileId) =>
+      storeCapture(client, { workspaceId, pageItemId: itemId, svg, renderFileId });
+  }, [client, itemId, offline, readOnly, stale, synced, workspaceId]);
 
   const uploadDroppedFiles = useCallback(
     async (
@@ -1236,33 +1248,35 @@ export function NoteEditor({
                       Nix can no longer show this note. Restore access and reopen it to continue.
                     </Text>
                   ) : (
-                    <EditorContent
-                      editor={editor}
-                      className="h-full"
-                      onDragEnterCapture={(event) => {
-                        if (hasFilePayload(event)) setDropActive(true);
-                      }}
-                      onDragOverCapture={(event) => {
-                        if (hasFilePayload(event)) {
-                          event.preventDefault();
-                          setDropActive(true);
-                        }
-                      }}
-                      onDragLeaveCapture={(event) => {
-                        if (
-                          hasFilePayload(event) &&
-                          !event.currentTarget.contains(event.relatedTarget as Node | null)
-                        ) {
+                    <MermaidCaptureContext.Provider value={captureDiagram}>
+                      <EditorContent
+                        editor={editor}
+                        className="h-full"
+                        onDragEnterCapture={(event) => {
+                          if (hasFilePayload(event)) setDropActive(true);
+                        }}
+                        onDragOverCapture={(event) => {
+                          if (hasFilePayload(event)) {
+                            event.preventDefault();
+                            setDropActive(true);
+                          }
+                        }}
+                        onDragLeaveCapture={(event) => {
+                          if (
+                            hasFilePayload(event) &&
+                            !event.currentTarget.contains(event.relatedTarget as Node | null)
+                          ) {
+                            setDropActive(false);
+                          }
+                        }}
+                        onDropCapture={(event) => {
                           setDropActive(false);
-                        }
-                      }}
-                      onDropCapture={(event) => {
-                        setDropActive(false);
-                        if (handleFileDrop(editor.view, event.nativeEvent)) {
-                          event.stopPropagation();
-                        }
-                      }}
-                    />
+                          if (handleFileDrop(editor.view, event.nativeEvent)) {
+                            event.stopPropagation();
+                          }
+                        }}
+                      />
+                    </MermaidCaptureContext.Provider>
                   )}
                   {/* Where the exported pages would break, drawn over the text as it is written. */}
                   {!bodyUnavailable && pageGuides === 'shown' ? (
