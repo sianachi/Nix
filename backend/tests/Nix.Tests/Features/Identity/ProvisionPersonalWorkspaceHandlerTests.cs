@@ -35,6 +35,17 @@ public sealed class ProvisionPersonalWorkspaceHandlerTests
 
         public CancellationToken CancellationToken { get; private set; }
 
+        public ValueTask RefreshEmailAsync(
+            TenantId tenantId,
+            PrincipalId principalId,
+            string issuer,
+            string subject,
+            UserInfoProfile profile,
+            CancellationToken cancellationToken)
+        {
+            return ValueTask.CompletedTask;
+        }
+
         public ValueTask<AuthenticatedPrincipal> ProvisionAsync(
             TenantId tenantId,
             string issuer,

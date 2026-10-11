@@ -3,6 +3,7 @@ using Nix.Authentication;
 using Nix.Domain.Identity;
 using Nix.Domain.Provisioning;
 using Nix.Domain.Tenancy;
+using Nix.Features.Identity;
 using Nix.Integration.Tests.Harness;
 using Nix.Persistence.Identity;
 
@@ -228,6 +229,82 @@ public sealed class PersonalWorkspaceProvisionerIntegrationTests : IAsyncLifetim
                 $"SELECT count(*) FROM workspace_invitation WHERE invitation_id = '{invitationId:D}'::uuid AND status = 'pending'"));
             Assert.Equal(0, await RawSql.CountAsync(assertionConnection, null,
                 $"SELECT count(*) FROM workspace_member WHERE workspace_id = '{M0SchemaSeed.Alpha.WorkspaceId:D}'::uuid AND subject_id = '{principal.Id.Value:D}'::uuid"));
+        }
+    }
+
+    [Theory]
+    [InlineData("https://another-issuer.test", "later-verified")]
+    [InlineData("https://issuer.alpha.test", "another-subject")]
+    public async Task Email_refresh_cannot_update_another_external_identity(string issuer, string subject)
+    {
+        var token = Token("later-verified");
+        var profile = new UserInfoProfile("Later Person", "pending-alpha@example.test", EmailVerified: false);
+        var principal = await ProvisionAndCommitAsync(token, profile);
+        var unitOfWork = await _fixture.Application.BeginUnitOfWorkAsync(
+            NixSessionContext.ForTenant(token.TenantId, principal.Id), Cancellation);
+        await using (unitOfWork.ConfigureAwait(false))
+        {
+            await Assert.ThrowsAsync<PersonalWorkspaceProvisioningInvariantException>(async () =>
+                await unitOfWork.Resolve<PersonalWorkspaceProvisioner>().RefreshEmailAsync(
+                    token.TenantId, principal.Id, issuer, subject,
+                    profile with { EmailVerified = true }, Cancellation));
+        }
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                $"SELECT count(*) FROM principal WHERE principal_id = '{principal.Id.Value:D}'::uuid AND NOT email_verified AND email_normalized IS NULL"));
+            Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                $"SELECT count(*) FROM workspace_invitation WHERE invitation_id = '{M0SchemaSeed.Alpha.InvitationId:D}'::uuid AND status = 'pending'"));
+        }
+    }
+
+    [Fact]
+    public async Task Later_verified_email_is_refreshed_and_redeems_a_pending_workspace_invitation_once()
+    {
+        var token = Token("later-verified");
+        var profile = new UserInfoProfile("Later Person", " Pending-Alpha@Example.Test ", EmailVerified: false);
+        var principal = await ProvisionAndCommitAsync(token, profile);
+
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            foreach (var verified in new[] { false, true, true, false })
+            {
+                var unitOfWork = await _fixture.Application.BeginUnitOfWorkAsync(
+                    NixSessionContext.ForTenant(token.TenantId, principal.Id), Cancellation);
+                await using (unitOfWork.ConfigureAwait(false))
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    var session = new BrowserSession
+                    {
+                        Id = BrowserSessionId.Create(),
+                        TenantId = token.TenantId,
+                        PrincipalId = principal.Id,
+                        TokenHash = Guid.NewGuid().ToString("N") + Guid.NewGuid().ToString("N"),
+                        CreatedAt = now,
+                        ExpiresAt = now.AddHours(8),
+                    };
+                    var result = await unitOfWork.Resolve<Nix.Messaging.ICommandHandler<CompleteBrowserSignIn, CompletedBrowserSignIn>>().HandleAsync(
+                        new CompleteBrowserSignIn(token.TenantId, token.Registration.Issuer, token.Subject,
+                            profile with { EmailVerified = verified }, principal, session), Cancellation);
+                    Assert.True(result.IsSuccess);
+                    await unitOfWork.CommitAsync(Cancellation);
+                }
+
+                Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                    $"SELECT count(*) FROM principal WHERE principal_id = '{principal.Id.Value:D}'::uuid AND email_verified = {(verified ? "true" : "false")} AND {(verified ? "email_normalized = 'pending-alpha@example.test'" : "email_normalized IS NULL")}"));
+                if (verified)
+                {
+                    Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                        $"SELECT count(*) FROM workspace_invitation WHERE invitation_id = '{M0SchemaSeed.Alpha.InvitationId:D}'::uuid AND status = 'accepted' AND accepted_by_principal_id = '{principal.Id.Value:D}'::uuid"));
+                    Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                        $"SELECT count(*) FROM workspace_member WHERE workspace_id = '{M0SchemaSeed.Alpha.WorkspaceId:D}'::uuid AND subject_id = '{principal.Id.Value:D}'::uuid"));
+                    Assert.Equal(1, await RawSql.CountAsync(connection, null,
+                        $"SELECT count(*) FROM audit_event WHERE actor_id = '{principal.Id.Value:D}'::uuid AND action = 'workspace.invitation_redeemed'"));
+                }
+            }
         }
     }
 

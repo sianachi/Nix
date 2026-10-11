@@ -6,6 +6,15 @@ namespace Nix.Abstractions;
 /// <summary>Persists the durable identity and personal workspace for a validated external subject.</summary>
 public interface IPersonalWorkspaceProvisioner
 {
+    /// <summary>Refreshes a validated existing human's email and redeems matching invitations.</summary>
+    public ValueTask RefreshEmailAsync(
+        TenantId tenantId,
+        PrincipalId principalId,
+        string issuer,
+        string subject,
+        UserInfoProfile profile,
+        CancellationToken cancellationToken);
+
     /// <summary>Creates or observes the single winning personal-workspace foundation.</summary>
     public ValueTask<AuthenticatedPrincipal> ProvisionAsync(
         TenantId tenantId,

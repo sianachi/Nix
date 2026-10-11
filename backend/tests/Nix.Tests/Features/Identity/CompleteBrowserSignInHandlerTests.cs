@@ -7,8 +7,10 @@ namespace Nix.Tests.Features.Identity;
 
 public sealed class CompleteBrowserSignInHandlerTests
 {
-    [Fact]
-    public async Task A_missing_principal_is_provisioned_and_the_same_session_is_stored()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Sign_in_persists_the_provider_profile_and_stores_the_same_session(bool existing)
     {
         var tenantId = TenantId.From(Guid.NewGuid());
         var principalId = PrincipalId.Create();
@@ -28,7 +30,7 @@ public sealed class CompleteBrowserSignInHandlerTests
             "https://issuer.example.test",
             "subject-1",
             profile,
-            ExistingPrincipal: null,
+            ExistingPrincipal: existing ? principal : null,
             session);
 
         var result = await handler.HandleAsync(command, cancellation.Token);
@@ -39,6 +41,7 @@ public sealed class CompleteBrowserSignInHandlerTests
         Assert.Equal(cancellation.Token, sessions.CancellationToken);
         Assert.Equal(command.Subject, provisioner.Subject);
         Assert.Equal(profile, provisioner.Profile);
+        Assert.Equal(existing, provisioner.Refreshed);
     }
 
     [Fact]
@@ -83,9 +86,25 @@ public sealed class CompleteBrowserSignInHandlerTests
 
     private sealed class FakeProvisioner(AuthenticatedPrincipal result) : IPersonalWorkspaceProvisioner
     {
+        public bool Refreshed { get; private set; }
+
         public string? Subject { get; private set; }
 
         public UserInfoProfile? Profile { get; private set; }
+
+        public ValueTask RefreshEmailAsync(
+            TenantId tenantId,
+            PrincipalId principalId,
+            string issuer,
+            string subject,
+            UserInfoProfile profile,
+            CancellationToken cancellationToken)
+        {
+            Refreshed = true;
+            Subject = subject;
+            Profile = profile;
+            return ValueTask.CompletedTask;
+        }
 
         public ValueTask<AuthenticatedPrincipal> ProvisionAsync(
             TenantId tenantId,
