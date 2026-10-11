@@ -33,6 +33,13 @@
       "bytes": 4201,
       "itemCount": 1,
       "rootId": "b7f57ba9-9ced-4ed6-8a9c-e7d8cbec6220"
+    },
+    {
+      "path": "docs/nix/nix-formula-language.nix",
+      "sha256": "2479167da1358521ab8dddaf8be027491b01ec6532009a6fc019611224137f7a",
+      "bytes": 14246,
+      "itemCount": 6,
+      "rootId": "6ce456e5-a60d-4dd2-a5bf-829e2c8424a3"
     }
   ],
   "pages": [
@@ -1160,6 +1167,132 @@
         "category": "Architecture decision",
         "decision_status": "Accepted",
         "recorded_status": "Accepted by the owner, 2026-10-11; implementation and release evidence are separate."
+      }
+    },
+    {
+      "slug": "formula-language",
+      "title": "Nix formula language",
+      "itemId": "6ce456e5-a60d-4dd2-a5bf-829e2c8424a3",
+      "archive": "docs/nix/nix-formula-language.nix",
+      "sources": [
+        "packages/sheet/src/tokenizer.ts",
+        "packages/sheet/src/parser.ts",
+        "packages/sheet/src/evaluator.ts",
+        "packages/sheet/src/functions.ts",
+        "packages/sheet/src/properties.ts",
+        "packages/sheet/src/values.ts",
+        "packages/sheet/src/limits.ts",
+        "apps/web/src/properties/computed.ts",
+        "apps/web/src/views/core/schema-editor.tsx"
+      ],
+      "words": 306,
+      "properties": {
+        "guide_section": "Overview"
+      }
+    },
+    {
+      "slug": "formula-getting-started",
+      "title": "Getting started with formula fields",
+      "itemId": "bdf3f198-64a6-4f9a-a176-e3dc60b04a4a",
+      "archive": "docs/nix/nix-formula-language.nix",
+      "sources": [
+        "packages/sheet/src/tokenizer.ts",
+        "packages/sheet/src/parser.ts",
+        "packages/sheet/src/evaluator.ts",
+        "packages/sheet/src/functions.ts",
+        "packages/sheet/src/properties.ts",
+        "packages/sheet/src/values.ts",
+        "packages/sheet/src/limits.ts",
+        "apps/web/src/properties/computed.ts",
+        "apps/web/src/views/core/schema-editor.tsx"
+      ],
+      "words": 421,
+      "properties": {
+        "guide_section": "Getting started"
+      }
+    },
+    {
+      "slug": "formula-syntax-values",
+      "title": "Syntax and values",
+      "itemId": "c7e7819a-05a1-4c22-862a-2eb533925cf4",
+      "archive": "docs/nix/nix-formula-language.nix",
+      "sources": [
+        "packages/sheet/src/tokenizer.ts",
+        "packages/sheet/src/parser.ts",
+        "packages/sheet/src/evaluator.ts",
+        "packages/sheet/src/functions.ts",
+        "packages/sheet/src/properties.ts",
+        "packages/sheet/src/values.ts",
+        "packages/sheet/src/limits.ts",
+        "apps/web/src/properties/computed.ts",
+        "apps/web/src/views/core/schema-editor.tsx"
+      ],
+      "words": 580,
+      "properties": {
+        "guide_section": "Language"
+      }
+    },
+    {
+      "slug": "formula-functions",
+      "title": "Function reference",
+      "itemId": "e96d12ad-e1db-47f4-b28d-42b55ac1964d",
+      "archive": "docs/nix/nix-formula-language.nix",
+      "sources": [
+        "packages/sheet/src/tokenizer.ts",
+        "packages/sheet/src/parser.ts",
+        "packages/sheet/src/evaluator.ts",
+        "packages/sheet/src/functions.ts",
+        "packages/sheet/src/properties.ts",
+        "packages/sheet/src/values.ts",
+        "packages/sheet/src/limits.ts",
+        "apps/web/src/properties/computed.ts",
+        "apps/web/src/views/core/schema-editor.tsx"
+      ],
+      "words": 1070,
+      "properties": {
+        "guide_section": "Reference"
+      }
+    },
+    {
+      "slug": "formula-recipes",
+      "title": "Worked examples",
+      "itemId": "e40e4562-2367-434a-8b66-1da2b23a6abf",
+      "archive": "docs/nix/nix-formula-language.nix",
+      "sources": [
+        "packages/sheet/src/tokenizer.ts",
+        "packages/sheet/src/parser.ts",
+        "packages/sheet/src/evaluator.ts",
+        "packages/sheet/src/functions.ts",
+        "packages/sheet/src/properties.ts",
+        "packages/sheet/src/values.ts",
+        "packages/sheet/src/limits.ts",
+        "apps/web/src/properties/computed.ts",
+        "apps/web/src/views/core/schema-editor.tsx"
+      ],
+      "words": 421,
+      "properties": {
+        "guide_section": "Examples"
+      }
+    },
+    {
+      "slug": "formula-errors-limits",
+      "title": "Errors and limits",
+      "itemId": "1be4f3d0-37bc-43a7-bf7b-92d5414f0c75",
+      "archive": "docs/nix/nix-formula-language.nix",
+      "sources": [
+        "packages/sheet/src/tokenizer.ts",
+        "packages/sheet/src/parser.ts",
+        "packages/sheet/src/evaluator.ts",
+        "packages/sheet/src/functions.ts",
+        "packages/sheet/src/properties.ts",
+        "packages/sheet/src/values.ts",
+        "packages/sheet/src/limits.ts",
+        "apps/web/src/properties/computed.ts",
+        "apps/web/src/views/core/schema-editor.tsx"
+      ],
+      "words": 504,
+      "properties": {
+        "guide_section": "Troubleshooting"
       }
     }
   ],
