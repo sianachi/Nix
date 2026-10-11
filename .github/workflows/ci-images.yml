@@ -1,7 +1,7 @@
 # Multi-architecture release images, published to GitHub Container Registry.
 #
-# Builds the six images of deploy/docker/build-and-push.sh (api, migrator,
-# collab, worker, web, release-tools) for linux/amd64 and linux/arm64. Each
+# Builds the seven images of deploy/docker/build-and-push.sh (api, migrator,
+# collab, worker, web, sites, release-tools) for linux/amd64 and linux/arm64. Each
 # architecture builds on its own native runner rather than under QEMU emulation, which is several
 # times slower for the .NET and Go compiles. The per-architecture digests are
 # then stitched into one multi-arch manifest per image, so a plain `docker pull`
@@ -131,6 +131,7 @@ jobs:
             plan collab deploy/docker/node.Dockerfile collab $node_root deploy/template-sync/ apps/collab/ apps/web/package.json
             plan worker deploy/docker/go-workers.Dockerfile '' apps/go-workers/
             plan web deploy/docker/web.Dockerfile web $node_root apps/web/ apps/collab/package.json
+            plan sites deploy/docker/sites.Dockerfile sites $node_root apps/sites/
             plan release-tools deploy/docker/release-tools.Dockerfile release-tools $node_root deploy/template-sync/ \
               apps/cli/ apps/web/package.json apps/collab/package.json deploy/compose/smoke.mjs deploy/compose/nixctl.sh \
               deploy/compose/verify-artifact.py deploy/docker/release-tools-entrypoint.sh

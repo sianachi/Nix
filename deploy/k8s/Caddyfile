@@ -7,21 +7,44 @@
 # The CSP here must stay in step with the meta tag in apps/web/index.html, including the
 # script hash covering the inline theme script - change one without the other and you have
 # two policies. Provider communication is server-side through Core.
+#
+# Client address: Cloudflare -> Traefik -> this Caddy -> Core. Caddy takes the visitor from
+# CF-Connecting-IP, but only when the peer is in NIX_TRUSTED_PROXY_CIDR (the pod network, where
+# Traefik runs; set by deploy/k8s/web.yaml). That header is trustworthy only because the ingress
+# admits Cloudflare alone (the nix-cloudflare-only middleware in deploy/k8s/cloudflare-only.yaml).
+# Core then receives that address as the sole X-Forwarded-For hop, from a pod-network peer it trusts.
+{
+	servers {
+		trusted_proxies static {$NIX_TRUSTED_PROXY_CIDR}
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
 :8090 {
 	root * /srv/nix/web
 	encode zstd gzip
 	# This stable URL announces each new build to installed clients.
 	header /service-worker.js Cache-Control "no-store"
 
+	# Browser capability URLs for the in-cluster object store (deploy/k8s/objectstore.yaml), as in
+	# the Docker production: the bucket path and the signed Host header pass through unchanged.
+	# Only the Nix bucket is routed; the sites bucket is reachable from the sites server alone.
+	handle /{$NIX_OBJECT_STORE_BUCKET}/* {
+		reverse_proxy nix-versitygw:7070
+	}
+
 	# Core keeps its /api prefix - its routes are already under /api/v1.
 	handle /api/* {
 		reverse_proxy nix-api:8080 {
 			flush_interval -1
+			header_up X-Forwarded-For {client_ip}
 		}
 	}
 
 	handle /auth/* {
-		reverse_proxy nix-api:8080
+		reverse_proxy nix-api:8080 {
+			header_up X-Forwarded-For {client_ip}
+		}
 	}
 
 	# Collab's own routes are /documents/...; the prefix is stripped.

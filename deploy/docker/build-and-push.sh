@@ -20,9 +20,9 @@ cd "$(git rev-parse --show-toplevel)"
 
 : "${REGISTRY:?set REGISTRY, e.g. ghcr.io/you/nix}"
 PLATFORM="${PLATFORM:-linux/arm64}"
-TAG="${TAG:-$(git rev-parse --short HEAD)}"
+TAG="${TAG:-$(git rev-parse HEAD)}"  # full SHA, the tag CI publishes
 
-echo "Building $REGISTRY/{api,migrator,collab,worker,web,release-tools}:$TAG for $PLATFORM"
+echo "Building $REGISTRY/{api,migrator,collab,worker,web,sites,release-tools}:$TAG for $PLATFORM"
 
 docker buildx build --platform "$PLATFORM" --target api \
   -f deploy/docker/backend.Dockerfile -t "$REGISTRY/api:$TAG" --push .
@@ -39,6 +39,9 @@ docker buildx build --platform "$PLATFORM" \
 docker buildx build --platform "$PLATFORM" --target web \
   -f deploy/docker/web.Dockerfile \
   -t "$REGISTRY/web:$TAG" --push .
+
+docker buildx build --platform "$PLATFORM" --target sites \
+  -f deploy/docker/sites.Dockerfile -t "$REGISTRY/sites:$TAG" --push .
 
 docker buildx build --platform "$PLATFORM" --target release-tools \
   -f deploy/docker/release-tools.Dockerfile -t "$REGISTRY/release-tools:$TAG" --push .

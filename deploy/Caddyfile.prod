@@ -54,3 +54,10 @@
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 }
+
+# Nix sites (ADR-0063): the tunnel's wildcard hostname reaches this listener with the original
+# Host header, and Caddy picks this block over the catch-all above for <slug>.$NIX_SITES_DOMAIN.
+# The sites server sets its own CSP and never a cookie; none of the app's headers apply here.
+http://*.{$NIX_SITES_DOMAIN}:8090 {
+	reverse_proxy nix-sites-serve:8400
+}

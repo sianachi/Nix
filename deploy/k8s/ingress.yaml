@@ -1,24 +1,32 @@
 # Rendered with envsubst by deploy/k8s/deploy.sh - needs $DOMAIN.
 #
-# One host, one backend. All path routing happens inside Caddy (deploy/k8s/Caddyfile), which
-# is what keeps the browser's view identical to development. Traefik proxies WebSocket
-# upgrades without extra configuration, so the editor socket at /collab/documents/:id/ws works
-# through this as written - verify with deploy/k8s/verify.sh rather than trusting this comment.
+# Three hosts. The apex is the app: all of its path routing happens inside Caddy
+# (deploy/k8s/Caddyfile), which keeps the browser's view identical to development. Traefik
+# proxies WebSocket upgrades without extra configuration, so the editor socket at
+# /collab/documents/:id/ws works through this as written - verify with deploy/k8s/verify.sh
+# rather than trusting this comment.
 #
-# Requires cert-manager with a ClusterIssuer named letsencyrpt-prod, or plain HTTP for a first
-# bring-up (drop the tls: block and cert-manager annotation, and drop HSTS from the Caddyfile
-# until the host is HTTPS-only).
+# Every other single-label subdomain goes to the anonymous sites server, which never reaches Core
+# or the app's cookies. An exact host rule wins over the wildcard, so a name that must hit something
+# else gets its own rule above it: auth.$DOMAIN, the identity provider (infrastructure slugs such as
+# auth and www are never claimable as sites).
+#
+# TLS terminates at Cloudflare (proxied DNS for $DOMAIN and *.$DOMAIN, SSL mode Full (strict)).
+# The origin certificate in secret nix-tls is a Cloudflare Origin CA certificate covering both
+# names, loaded by deploy/k8s/create-secrets.sh --tls-only. Let's Encrypt HTTP-01 cannot issue
+# the wildcard, so cert-manager is deliberately not used here.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: nix
   namespace: nix
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Only Cloudflare's edge may reach the origin (deploy/k8s/cloudflare-only.yaml).
+    traefik.ingress.kubernetes.io/router.middlewares: nix-cloudflare-only@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
-    - hosts: ["${DOMAIN}"]
+    - hosts: ["${DOMAIN}", "*.${DOMAIN}"]
       secretName: nix-tls
   rules:
     - host: "${DOMAIN}"
@@ -28,3 +36,19 @@ spec:
             pathType: Prefix
             backend:
               service: { name: nix-web, port: { number: 8090 } }
+    # The identity provider (deploy/k8s/zitadel.yaml). "auth" is a reserved site slug, and this exact
+    # host wins over the wildcard below.
+    - host: "auth.${DOMAIN}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: nix-zitadel, port: { number: 8080 } }
+    - host: "*.${DOMAIN}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: nix-sites-serve, port: { number: 8400 } }

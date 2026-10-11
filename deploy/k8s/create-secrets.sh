@@ -12,8 +12,10 @@
 # up in your shell history. Consider sealed-secrets or an external-secrets operator instead
 # once this is more than a first bring-up.
 #
-# Existing clusters can update either external service secret without touching database or signing
-# secrets by running this script with `--rabbitmq-only` or `--object-store-only`.
+# Existing clusters can update an external service secret without touching database or signing
+# secrets by running this script with `--rabbitmq-only`, `--object-store-only`, `--sites-only`,
+# `--tls-only` or `--zitadel-only` (creates the identity provider's secret only when missing). Production values (keys, certificate paths) come from the operator's local,
+# uncommitted environment, never from this repository.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
@@ -21,8 +23,8 @@ kubectl get namespace nix >/dev/null 2>&1 || kubectl apply -f deploy/k8s/namespa
 
 create_rabbitmq_secret() {
   local update_existing="$1"
-  local rabbitmq_api_password rabbitmq_import_password rabbitmq_export_password rabbitmq_plugin_password rabbitmq_calendar_password rabbitmq_notify_password
-  local rabbitmq_api_url rabbitmq_import_url rabbitmq_export_url rabbitmq_plugin_url rabbitmq_calendar_url rabbitmq_notify_url rabbitmq_url
+  local rabbitmq_api_password rabbitmq_import_password rabbitmq_export_password rabbitmq_plugin_password rabbitmq_calendar_password rabbitmq_notify_password rabbitmq_sites_password rabbitmq_worker_password
+  local rabbitmq_api_url rabbitmq_import_url rabbitmq_export_url rabbitmq_plugin_url rabbitmq_calendar_url rabbitmq_notify_url rabbitmq_sites_url rabbitmq_worker_url rabbitmq_url
 
   rabbitmq_api_password="$(openssl rand -hex 24)"
   rabbitmq_import_password="$(openssl rand -hex 24)"
@@ -30,6 +32,8 @@ create_rabbitmq_secret() {
   rabbitmq_plugin_password="$(openssl rand -hex 24)"
   rabbitmq_calendar_password="$(openssl rand -hex 24)"
   rabbitmq_notify_password="$(openssl rand -hex 24)"
+  rabbitmq_sites_password="$(openssl rand -hex 24)"
+  rabbitmq_worker_password="$(openssl rand -hex 24)"
 
   # The defaults are intentionally plaintext only across the namespace-internal NetworkPolicy.
   # Supplying all full amqps:// URLs moves application traffic to an external TLS broker while
@@ -40,7 +44,10 @@ create_rabbitmq_secret() {
   rabbitmq_plugin_url="${NIX_RABBITMQ_PLUGIN_URL:-amqp://nix-plugin:$rabbitmq_plugin_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_calendar_url="${NIX_RABBITMQ_CALENDAR_URL:-amqp://nix-calendar:$rabbitmq_calendar_password@nix-rabbitmq:5672/%2Fnix}"
   rabbitmq_notify_url="${NIX_RABBITMQ_NOTIFY_URL:-amqp://nix-notify:$rabbitmq_notify_password@nix-rabbitmq:5672/%2Fnix}"
-  for rabbitmq_url in "$rabbitmq_api_url" "$rabbitmq_import_url" "$rabbitmq_export_url" "$rabbitmq_plugin_url" "$rabbitmq_calendar_url" "$rabbitmq_notify_url"; do
+  rabbitmq_sites_url="${NIX_RABBITMQ_SITES_URL:-amqp://nix-sites:$rabbitmq_sites_password@nix-rabbitmq:5672/%2Fnix}"
+  # The combined Go worker (deploy/k8s/worker.yaml) connects as nix-worker.
+  rabbitmq_worker_url="${NIX_RABBITMQ_WORKER_URL:-amqp://nix-worker:$rabbitmq_worker_password@nix-rabbitmq:5672/%2Fnix}"
+  for rabbitmq_url in "$rabbitmq_api_url" "$rabbitmq_import_url" "$rabbitmq_export_url" "$rabbitmq_plugin_url" "$rabbitmq_calendar_url" "$rabbitmq_notify_url" "$rabbitmq_sites_url" "$rabbitmq_worker_url"; do
     case "$rabbitmq_url" in
       amqp://* | amqps://*) ;;
       *)
@@ -58,12 +65,16 @@ create_rabbitmq_secret() {
     --from-literal=plugin-password="$rabbitmq_plugin_password"
     --from-literal=calendar-password="$rabbitmq_calendar_password"
     --from-literal=notify-password="$rabbitmq_notify_password"
+    --from-literal=sites-password="$rabbitmq_sites_password"
+    --from-literal=worker-password="$rabbitmq_worker_password"
     --from-literal=api-url="$rabbitmq_api_url"
     --from-literal=import-url="$rabbitmq_import_url"
     --from-literal=export-url="$rabbitmq_export_url"
     --from-literal=plugin-url="$rabbitmq_plugin_url"
     --from-literal=calendar-url="$rabbitmq_calendar_url"
     --from-literal=notify-url="$rabbitmq_notify_url"
+    --from-literal=sites-url="$rabbitmq_sites_url"
+    --from-literal=worker-url="$rabbitmq_worker_url"
   )
   if [ "$update_existing" = true ]; then
     kubectl "${rabbitmq_secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
@@ -75,11 +86,17 @@ create_rabbitmq_secret() {
 create_object_store_secret() {
   local update_existing="$1"
 
-  : "${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT to the production S3 endpoint}"
-  : "${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN to the browser-reachable HTTPS origin}"
-  : "${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}"
-  : "${NIX_OBJECT_STORE_ACCESS_KEY:?set NIX_OBJECT_STORE_ACCESS_KEY}"
-  : "${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}"
+  # Defaults describe the in-cluster versitygw (deploy/k8s/objectstore.yaml): browsers reach it on
+  # the app origin through Caddy, and the generated pair becomes its root account. Set every value
+  # to point at an external S3 store instead. Re-running rotates the generated pair.
+  if [ -z "${NIX_OBJECT_STORE_PUBLIC_ORIGIN:-}" ]; then
+    : "${DOMAIN:?set DOMAIN (the app origin serves capability URLs) or NIX_OBJECT_STORE_PUBLIC_ORIGIN}"
+  fi
+  NIX_OBJECT_STORE_ENDPOINT="${NIX_OBJECT_STORE_ENDPOINT:-http://nix-versitygw:7070}"
+  NIX_OBJECT_STORE_PUBLIC_ORIGIN="${NIX_OBJECT_STORE_PUBLIC_ORIGIN:-https://$DOMAIN}"
+  NIX_OBJECT_STORE_BUCKET="${NIX_OBJECT_STORE_BUCKET:-nix-worker-jobs}"
+  NIX_OBJECT_STORE_ACCESS_KEY="${NIX_OBJECT_STORE_ACCESS_KEY:-nix-root-$(openssl rand -hex 8)}"
+  NIX_OBJECT_STORE_SECRET_KEY="${NIX_OBJECT_STORE_SECRET_KEY:-$(openssl rand -hex 32)}"
 
   local -a object_store_secret_args=(
     -n nix create secret generic nix-object-store
@@ -118,7 +135,73 @@ create_calendar_secret() {
   fi
 }
 
+# Sites (ADR-0063). Core signs the sites worker's uploads with the object-store key above. Serve
+# gets a separate key that can only read the sites bucket: by default a generated versitygw account
+# that deploy/k8s/job-storage-init.yaml creates and scopes with a bucket policy; on an external store
+# such as Cloudflare R2, supply an "Object Read only" token scoped to the bucket. The reserved
+# owners are optional workspace UUIDs allowed to claim the slugs nix and osinachi.
+create_sites_secret() {
+  local update_existing="$1"
+
+  NIX_SITES_READ_ACCESS_KEY="${NIX_SITES_READ_ACCESS_KEY:-nix-sites-read-$(openssl rand -hex 6)}"
+  NIX_SITES_READ_SECRET_KEY="${NIX_SITES_READ_SECRET_KEY:-$(openssl rand -hex 32)}"
+  if [ "$NIX_SITES_READ_ACCESS_KEY" = "${NIX_OBJECT_STORE_ACCESS_KEY:-}" ]; then
+    echo "NIX_SITES_READ_ACCESS_KEY must not be the object store's write key." >&2
+    exit 1
+  fi
+
+  local -a sites_secret_args=(
+    -n nix create secret generic nix-sites
+    --from-literal=bucket="${NIX_SITES_BUCKET:-nix-sites}"
+    --from-literal=read-access-key="$NIX_SITES_READ_ACCESS_KEY"
+    --from-literal=read-secret-key="$NIX_SITES_READ_SECRET_KEY"
+  )
+  # An empty value would fail Core's Guid binding, so an unset owner leaves the key out.
+  if [ -n "${NIX_SITES_RESERVED_OWNER_NIX:-}" ]; then
+    sites_secret_args+=(--from-literal=reserved-owner-nix="$NIX_SITES_RESERVED_OWNER_NIX")
+  fi
+  if [ -n "${NIX_SITES_RESERVED_OWNER_OSINACHI:-}" ]; then
+    sites_secret_args+=(--from-literal=reserved-owner-osinachi="$NIX_SITES_RESERVED_OWNER_OSINACHI")
+  fi
+  if [ "$update_existing" = true ]; then
+    kubectl "${sites_secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
+  else
+    kubectl "${sites_secret_args[@]}"
+  fi
+}
+
+# Cloudflare Origin CA certificate for $DOMAIN and *.$DOMAIN (which covers auth.$DOMAIN), read
+# from local files.
+create_tls_secret() {
+  : "${NIX_ORIGIN_TLS_CERT_FILE:?set NIX_ORIGIN_TLS_CERT_FILE to the origin certificate PEM}"
+  : "${NIX_ORIGIN_TLS_KEY_FILE:?set NIX_ORIGIN_TLS_KEY_FILE to its private key PEM}"
+  kubectl -n nix create secret tls nix-tls \
+    --cert="$NIX_ORIGIN_TLS_CERT_FILE" --key="$NIX_ORIGIN_TLS_KEY_FILE" \
+    --dry-run=client -o yaml | kubectl apply -f -
+}
+
+# Zitadel (deploy/k8s/zitadel.yaml). Created once and never rotated here: the masterkey encrypts
+# Zitadel's stored secrets, so replacing it makes the instance unreadable. The first administrator's
+# password is generated unless NIX_ZITADEL_ADMIN_PASSWORD is set, and must be changed at first sign-in.
+create_zitadel_secret() {
+  if kubectl -n nix get secret nix-zitadel >/dev/null 2>&1; then
+    echo "secret nix-zitadel already exists - leaving it (its masterkey must never change)."
+    return 0
+  fi
+  local admin_password="${NIX_ZITADEL_ADMIN_PASSWORD:-$(openssl rand -hex 12)Aa1!}"
+  kubectl -n nix create secret generic nix-zitadel \
+    --from-literal=masterkey="$(openssl rand -hex 16)" \
+    --from-literal=db-password="$(openssl rand -hex 24)" \
+    --from-literal=admin-username="${NIX_ZITADEL_ADMIN_USERNAME:-admin}" \
+    --from-literal=admin-password="$admin_password"
+  echo "Zitadel administrator: kubectl -n nix get secret nix-zitadel -o jsonpath='{.data.admin-password}' | base64 -d"
+}
+
 case "${1:-}" in
+  --zitadel-only)
+    create_zitadel_secret
+    exit 0
+    ;;
   --rabbitmq-only)
     create_rabbitmq_secret true
     echo "RabbitMQ service credentials rotated. Run deploy/k8s/deploy.sh to roll them out."
@@ -134,9 +217,19 @@ case "${1:-}" in
     echo "Calendar OAuth clients updated. Run deploy/k8s/deploy.sh to roll them out."
     exit 0
     ;;
+  --sites-only)
+    create_sites_secret true
+    echo "Sites configuration updated. Run deploy/k8s/deploy.sh to roll it out."
+    exit 0
+    ;;
+  --tls-only)
+    create_tls_secret
+    echo "Origin certificate updated."
+    exit 0
+    ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--calendar-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--calendar-only|--sites-only|--tls-only|--zitadel-only]" >&2
     exit 2
     ;;
 esac
@@ -165,6 +258,9 @@ kubectl -n nix create secret generic nix-internal \
 create_rabbitmq_secret false
 create_object_store_secret false
 create_calendar_secret false
+create_sites_secret false
+create_tls_secret
+create_zitadel_secret
 
 auth_key_file="$(mktemp)"
 trap 'rm -f "$auth_key_file"' EXIT
