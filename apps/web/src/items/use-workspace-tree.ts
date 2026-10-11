@@ -221,6 +221,7 @@ export function useWorkspaceTree(): WorkspaceTree {
   const { workspaceId } = useWorkspace();
   const activeRequests = useRef(new Set<AbortController>());
   const activeLoad = useRef<AbortController | null>(null);
+  const activeRefresh = useRef<AbortController | null>(null);
   const mounted = useRef(true);
   const deletedSubtrees = useRef(new Map<string, ReadonlySet<string>>());
   const deletedIds = useRef(new Set<string>());
@@ -283,13 +284,21 @@ export function useWorkspaceTree(): WorkspaceTree {
    */
   const absorb = useCallback(
     (parentId: string | null, children: readonly TreeItem[], revision: number): void => {
-      const visible =
-        revision === readRevision.current
-          ? children
-          : parentId !== null && deletedIds.current.has(parentId)
-            ? []
-            : children.filter((item) => !deletedIds.current.has(item.id));
-      setItems((current) => [...current.filter((item) => item.parentId !== parentId), ...visible]);
+      if (revision !== readRevision.current) return;
+      setItems((current) => {
+        if (parentId !== null && !current.some((item) => item.id === parentId)) return current;
+        const nextIds = new Set(children.map((item) => item.id));
+        const removed = itemSubtreeIds(
+          current,
+          current
+            .filter((item) => item.parentId === parentId && !nextIds.has(item.id))
+            .map((item) => item.id),
+        );
+        return [
+          ...current.filter((item) => item.parentId !== parentId && !removed.has(item.id)),
+          ...children,
+        ];
+      });
     },
     [],
   );
@@ -305,17 +314,20 @@ export function useWorkspaceTree(): WorkspaceTree {
 
     try {
       const roots = await fetchChildren(null, controller.signal);
-      if (controller.signal.aborted || !mounted.current) return;
+      if (controller.signal.aborted || !mounted.current || revision !== readRevision.current)
+        return;
 
-      setItems(
-        revision === readRevision.current
-          ? roots
-          : roots.filter((item) => !deletedIds.current.has(item.id)),
-      );
+      setItems(roots);
       setExpanded(new Set());
       setStatus('ready');
     } catch (reason) {
-      if (controller.signal.aborted || isCanceledError(reason) || !mounted.current) return;
+      if (
+        controller.signal.aborted ||
+        isCanceledError(reason) ||
+        !mounted.current ||
+        revision !== readRevision.current
+      )
+        return;
       setError(apiFailure(reason, 'Core could not be reached.'));
       setStatus('error');
     } finally {
@@ -323,6 +335,96 @@ export function useWorkspaceTree(): WorkspaceTree {
       if (activeLoad.current === controller) activeLoad.current = null;
     }
   }, [fetchChildren]);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    activeRefresh.current?.abort();
+    activeLoad.current?.abort();
+    const controller = new AbortController();
+    activeRefresh.current = controller;
+    activeRequests.current.add(controller);
+    const revision = ++readRevision.current;
+    setLoadingChildren(new Set());
+    revealsRef.current.clear();
+    bumpReveals();
+    const parents: (string | null)[] = [null, ...expanded];
+    const loaded = new Map<string | null, readonly TreeItem[]>();
+    try {
+      // Read only branches already on screen, with at most four requests in flight.
+      await Promise.all(
+        Array.from({ length: Math.min(4, parents.length) }, async () => {
+          while (parents.length > 0 && requestCanCommit(controller.signal, mounted.current)) {
+            const parentId = parents.shift();
+            if (parentId === undefined) return;
+            try {
+              const children = await fetchChildren(parentId, controller.signal);
+              if (
+                !requestCanCommit(controller.signal, mounted.current) ||
+                revision !== readRevision.current
+              )
+                return;
+              loaded.set(parentId, children);
+              if (parentId !== null) markLocked(parentId, false);
+            } catch (reason) {
+              if (
+                !requestCanCommit(controller.signal, mounted.current) ||
+                isCanceledError(reason) ||
+                revision !== readRevision.current
+              )
+                return;
+              if (
+                parentId !== null &&
+                (isLockedListing(reason) ||
+                  (isNixApiError(reason) && (reason.status === 403 || reason.status === 404)))
+              ) {
+                loaded.set(parentId, []);
+                absorb(parentId, [], revision);
+                markLocked(parentId, isLockedListing(reason));
+              } else throw reason;
+            }
+          }
+        }),
+      );
+      if (controller.signal.aborted || !mounted.current || revision !== readRevision.current)
+        return;
+      // Apply the whole read together so a moved expanded branch cannot lose its children.
+      setItems((current) => {
+        const next = [
+          ...current.filter((item) => !loaded.has(item.parentId)),
+          ...[...loaded.values()].flat(),
+        ];
+        const children = new Map<string | null, TreeItem[]>();
+        for (const item of next) {
+          const siblings = children.get(item.parentId) ?? [];
+          siblings.push(item);
+          children.set(item.parentId, siblings);
+        }
+        const visible = new Set<string>();
+        const pending: (string | null)[] = [null];
+        for (const parentId of pending)
+          for (const item of children.get(parentId) ?? []) {
+            if (visible.has(item.id)) continue;
+            visible.add(item.id);
+            pending.push(item.id);
+          }
+        return next.filter((item) => visible.has(item.id));
+      });
+      setError(null);
+      setStatus('ready');
+    } catch (reason) {
+      if (!controller.signal.aborted && mounted.current && revision === readRevision.current) {
+        if (isNixApiError(reason) && (reason.status === 403 || reason.status === 404)) {
+          setItems([]);
+          setExpanded(new Set());
+          setStatus('error');
+        }
+        setError(apiFailure(reason, 'The workspace could not be refreshed.'));
+      }
+      controller.abort();
+    } finally {
+      activeRequests.current.delete(controller);
+      if (activeRefresh.current === controller) activeRefresh.current = null;
+    }
+  }, [absorb, bumpReveals, expanded, fetchChildren, markLocked]);
 
   useEffect(() => {
     mounted.current = true;
@@ -349,12 +451,17 @@ export function useWorkspaceTree(): WorkspaceTree {
 
       try {
         const children = await fetchChildren(itemId, controller.signal);
-        if (!controller.signal.aborted && mounted.current) {
+        if (!controller.signal.aborted && mounted.current && revision === readRevision.current) {
           absorb(itemId, children, revision);
           markLocked(itemId, false);
         }
       } catch (reason) {
-        if (!controller.signal.aborted && !isCanceledError(reason) && mounted.current) {
+        if (
+          !controller.signal.aborted &&
+          !isCanceledError(reason) &&
+          mounted.current &&
+          revision === readRevision.current
+        ) {
           if (isLockedListing(reason)) {
             markLocked(itemId, true);
             // Not a failure: the item is locked and its contents stay hidden until it is opened
@@ -371,7 +478,10 @@ export function useWorkspaceTree(): WorkspaceTree {
         }
       } finally {
         activeRequests.current.delete(controller);
-        if (requestCanCommit(controller.signal, mounted.current)) {
+        if (
+          requestCanCommit(controller.signal, mounted.current) &&
+          revision === readRevision.current
+        ) {
           setLoadingChildren((current) => {
             const next = new Set(current);
             next.delete(itemId);
@@ -413,10 +523,10 @@ export function useWorkspaceTree(): WorkspaceTree {
           );
           bumpReveals();
         }
-        if (detail.parentId === null) void load();
+        if (detail.parentId === null) void refresh();
         else void expand(detail.parentId);
       }),
-    [bumpReveals, expand, load, workspaceId],
+    [bumpReveals, expand, refresh, workspaceId],
   );
 
   const toggle = useCallback(
@@ -459,6 +569,8 @@ export function useWorkspaceTree(): WorkspaceTree {
       activeRequests.current.add(controller);
 
       const settle = (outcome: RevealOutcome): void => {
+        if (controller.signal.aborted || !mounted.current || revision !== readRevision.current)
+          return;
         revealsRef.current.set(itemId, outcome);
         bumpReveals();
       };
@@ -500,6 +612,8 @@ export function useWorkspaceTree(): WorkspaceTree {
             }
             throw reason;
           }
+          if (controller.signal.aborted || !mounted.current || revision !== readRevision.current)
+            return;
           found.push(loaded);
 
           if (loaded.parentId !== null) {
@@ -515,13 +629,8 @@ export function useWorkspaceTree(): WorkspaceTree {
           return;
         }
 
-        if (
-          revision !== readRevision.current &&
-          found.some((item) => deletedIds.current.has(item.id))
-        ) {
-          settle('missing');
+        if (controller.signal.aborted || !mounted.current || revision !== readRevision.current)
           return;
-        }
 
         setItems((current) => {
           const known = new Set(current.map((entry) => entry.id));
@@ -537,6 +646,11 @@ export function useWorkspaceTree(): WorkspaceTree {
           try {
             siblings = await fetchChildren(parentId, controller.signal);
           } catch (reason) {
+            if (
+              !requestCanCommit(controller.signal, mounted.current) ||
+              revision !== readRevision.current
+            )
+              return;
             // A locked ancestor withholds its other children. The path to the revealed item is
             // already known, so it is shown on its own rather than the reveal failing.
             if (isLockedListing(reason)) {
@@ -545,15 +659,15 @@ export function useWorkspaceTree(): WorkspaceTree {
             }
             throw reason;
           }
-          if (!controller.signal.aborted && mounted.current) absorb(parentId, siblings, revision);
+          if (
+            !requestCanCommit(controller.signal, mounted.current) ||
+            revision !== readRevision.current
+          )
+            return;
+          absorb(parentId, siblings, revision);
         }
 
-        if (!controller.signal.aborted && mounted.current)
-          settle(
-            revision !== readRevision.current && deletedIds.current.has(itemId)
-              ? 'missing'
-              : 'found',
-          );
+        settle('found');
       }
     },
     [absorb, bumpReveals, client, fetchChildren, markLocked],

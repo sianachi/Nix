@@ -4,6 +4,7 @@ import { Download, File as FileIcon, Info, Upload } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { cacheKeysOverlap, useCacheInvalidation } from '../api/use-cache-invalidation';
 import { useOverlayDetails } from '../layout/viewport';
 import { findBuiltInFileViewer } from '../plugins/built-in-file-viewers';
 import { FileDetails } from './file-details';
@@ -63,6 +64,13 @@ export function FileViewer({
   const [downloading, setDownloading] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const replacementRef = useRef<HTMLInputElement>(null);
+  const [revision, setRevision] = useState(0);
+  useCacheInvalidation(
+    (prefix) => cacheKeysOverlap(prefix, ['files', itemId]),
+    () => {
+      setRevision((current) => current + 1);
+    },
+  );
 
   const visibleRecord = record?.itemId === itemId ? record : null;
   const visibleError = error?.itemId === itemId ? error.message : null;
@@ -81,21 +89,37 @@ export function FileViewer({
   useEffect(() => {
     const controller = new AbortController();
     void client
-      .query(fileResources.fileByItem(itemId), { signal: controller.signal })
-      .then(setRecord)
+      .query(fileResources.fileByItem(itemId), {
+        signal: controller.signal,
+        forceRefresh: true,
+      })
+      .then((next) => {
+        if (!controller.signal.aborted) {
+          setRecord(next);
+          setError(null);
+        }
+      })
       .catch((reason: unknown) => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
+          if (
+            isNixApiError(reason) &&
+            (reason.status === 403 || reason.status === 404 || reason.status === 423)
+          ) {
+            setRecord(null);
+            setPreview(null);
+          }
           setError({
             itemId,
             message: isNixApiError(reason)
               ? (reason.detail ?? 'The file metadata is unavailable.')
               : 'The file metadata is unavailable.',
           });
+        }
       });
     return () => {
       controller.abort();
     };
-  }, [client, itemId]);
+  }, [client, itemId, revision]);
 
   useEffect(() => {
     if ((!currentPreviewable && currentViewer === null) || currentVersionId === undefined) return;

@@ -1,9 +1,10 @@
 import { createNixClient, NixApiError, type NixClient } from '@nix/api-client';
-import { createContext, use, useMemo, type ReactNode } from 'react';
+import { createContext, use, useEffect, useMemo, type ReactNode } from 'react';
 
 import { useAuth } from '../auth/auth-provider';
 import { useSessionStore } from '../auth/session-store';
 import { bodyCacheAccountEpoch } from '../editor/body-cache';
+import { connectCacheInvalidationChannel } from './cache-invalidation-channel';
 
 const ApiClientContext = createContext<NixClient | null>(null);
 
@@ -74,6 +75,20 @@ export function ApiClientProvider({ children }: { readonly children: ReactNode }
       }),
     [getAccessToken, handleSessionRefusal, subject],
   );
+
+  useEffect(() => {
+    if (subject === undefined) return;
+    const epoch = bodyCacheAccountEpoch(subject);
+    if (epoch === null) return;
+    return connectCacheInvalidationChannel(
+      client,
+      subject,
+      epoch,
+      () =>
+        useSessionStore.getState().profile?.subject === subject &&
+        bodyCacheAccountEpoch(subject) === epoch,
+    );
+  }, [client, subject]);
 
   return <ApiClientContext value={client}>{children}</ApiClientContext>;
 }

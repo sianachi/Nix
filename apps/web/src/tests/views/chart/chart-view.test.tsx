@@ -1,5 +1,5 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
-import { itemChartSchema, NixApiError } from '@nix/api-client';
+import { createNixClient, itemChartSchema, NixApiError } from '@nix/api-client';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { ChartView } from '../../../views/chart/chart-view';
@@ -20,9 +20,16 @@ const query = vi.hoisted(() => vi.fn());
 // One client for the whole run, as the provider gives in the app: a new object per render would
 // make every render look like a new client and read the chart again.
 const client = vi.hoisted((): { current: unknown } => ({ current: null }));
+const cache = createNixClient({
+  baseUrl: 'http://localhost',
+  tokens: {
+    getAccessToken: () => Promise.resolve(null),
+    refreshAccessToken: () => Promise.resolve(null),
+  },
+}).cache;
 
 vi.mock('../../../api/api-client-provider', () => ({
-  useApiClient: () => (client.current ??= { query }),
+  useApiClient: () => (client.current ??= { query, cache }),
 }));
 
 function chartOf(over: Record<string, unknown> = {}): Record<string, unknown> {
@@ -227,7 +234,10 @@ describe('the chart view', () => {
     );
 
     expect(await screen.findByRole('columnheader', { name: 'Share (%)' })).toBeVisible();
-    expect(query).toHaveBeenLastCalledWith(expect.anything(), { forceRefresh: true });
+    expect(query).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ forceRefresh: true }),
+    );
   });
 
   it('points an unfinished chart at its settings instead of offering a retry', async () => {

@@ -47,10 +47,8 @@ import {
  * choice is the whole gesture. A control that fired a request per character would put a write
  * behind every letter of a note's owner.
  *
- * **A field always shows what the item holds.** The draft below is what somebody is part-way
- * through typing, not a second copy of the value: it is replaced whenever the stored value moves,
- * so a write the server refused leaves the field showing the value that is really there with the
- * refusal beside it, rather than a screenful of text that was never stored.
+ * Typed drafts keep unsent edits when the stored value moves. A field with no unsent changes follows
+ * the refreshed value, and the refreshed value becomes the baseline for cancelling an edit.
  *
  * **Two densities, one set of controls.** The same control is drawn in a property panel, where it
  * needs its own label and its own frame, and in a table cell, where the column header is already
@@ -318,9 +316,8 @@ interface Draft {
 /**
  * A field's draft, and the value it last handed over.
  *
- * Both are replaced whenever the stored value moves - after a write lands, after a reload, after a
- * refusal put the old value back. That comparison happens during render rather than in an effect,
- * so no render ever shows a draft belonging to a value that is no longer there.
+ * An unsent edit survives a refreshed stored value. The refreshed value becomes the baseline for
+ * committing or cancelling the edit; a field with no unsent changes follows the stored value.
  */
 function useDraft(stored: string, onCommit: (value: PropertyValue) => void): Draft {
   const [draft, setDraft] = useState(stored);
@@ -329,7 +326,7 @@ function useDraft(stored: string, onCommit: (value: PropertyValue) => void): Dra
 
   if (stored !== seen) {
     setSeen(stored);
-    setDraft(stored);
+    if (draft === sent) setDraft(stored);
     setSent(stored);
   }
 
@@ -895,12 +892,17 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
 
   const [draft, setDraft] = useState(local);
   const [draftZone, setDraftZone] = useState(zone);
-  const [seen, setSeen] = useState(local);
+  const storedKey = `${local}|${zone}`;
+  const [seen, setSeen] = useState(storedKey);
+  const [sent, setSent] = useState(storedKey);
 
-  if (local !== seen) {
-    setSeen(local);
-    setDraft(local);
-    setDraftZone(zone);
+  if (storedKey !== seen) {
+    setSeen(storedKey);
+    if (`${draft}|${draftZone}` === sent) {
+      setDraft(local);
+      setDraftZone(zone);
+    }
+    setSent(storedKey);
   }
 
   // Something is stored and it is not a timestamp. Showing an empty field over it would claim the
@@ -915,13 +917,16 @@ function TimestampValue(props: PropertyInputProps): ReactNode {
   }
 
   function commit(nextLocal: string, nextZone: string): void {
+    const key = `${nextLocal}|${nextZone}`;
     if (nextLocal.length === 0) {
+      setSent(key);
       onCommit(null);
       return;
     }
 
     const written = writeTimestampValue(nextLocal, nextZone);
     if (written !== null) {
+      setSent(key);
       onCommit(written);
     }
   }
@@ -1013,15 +1018,10 @@ function ReminderValue(props: PropertyInputProps): ReactNode {
   const zone = readerZone();
   const local = stored === null ? '' : stored.at.setZone(zone).toFormat("yyyy-MM-dd'T'HH:mm");
 
-  const [draft, setDraft] = useState(local);
-  const [seen, setSeen] = useState(local);
+  const { draft, setDraft, send } = useDraft(local, onCommit);
   // When the field was drawn, for saying a reminder's time has passed. Read once rather than on
   // every render, which is what a render has to be: the same output for the same input.
   const [openedAt] = useState(() => Date.now());
-  if (local !== seen) {
-    setSeen(local);
-    setDraft(local);
-  }
 
   if (stored === null && raw.length > 0) {
     return (
@@ -1035,11 +1035,11 @@ function ReminderValue(props: PropertyInputProps): ReactNode {
   function commit(nextLocal: string): void {
     if (nextLocal === local) return;
     if (nextLocal.length === 0) {
-      onCommit(null);
+      send(nextLocal, null);
       return;
     }
     const written = writeTimestampValue(nextLocal, zone);
-    if (written !== null) onCommit(written);
+    if (written !== null) send(nextLocal, written);
   }
 
   const passed = stored !== null && stored.at.toMillis() <= openedAt;
@@ -1081,7 +1081,7 @@ function ReminderValue(props: PropertyInputProps): ReactNode {
             aria-label={`Clear reminder for ${controlLabel}`}
             onClick={() => {
               setDraft('');
-              onCommit(null);
+              send('', null);
             }}
           >
             Clear

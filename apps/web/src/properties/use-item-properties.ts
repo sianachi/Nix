@@ -3,10 +3,12 @@ import {
   isNixApiError,
   items as coreItems,
   structure as coreStructure,
+  type NixClient,
 } from '@nix/api-client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { cacheKeysOverlap, useCacheInvalidation } from '../api/use-cache-invalidation';
 import { decorateItem, keepComputed } from './computed';
 import {
   EffectiveSchemaSchema,
@@ -63,11 +65,21 @@ export function useItemProperties(itemId: string | null): ItemProperties {
   const [schema, setSchema] = useState<EffectiveSchema | null>(null);
   const [item, setItem] = useState<Item | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loadedItem = useRef<{ readonly client: NixClient; readonly itemId: string } | null>(null);
+  const accessRevision = useRef(0);
 
-  // Bumped by `retry`, and nothing reads its value beyond that - it exists only to give the effect
-  // below a new dependency to fire on, since asking to load the same `itemId` again is otherwise
-  // indistinguishable from not having asked.
+  // A retry or invalidation refreshes the same item without replacing its mounted controls.
   const [attempt, setAttempt] = useState(0);
+
+  useCacheInvalidation(
+    (prefix) =>
+      itemId !== null &&
+      (prefix[0] === 'items' ||
+        (item !== null && cacheKeysOverlap(prefix, ['workspaces', item.workspaceId, 'items']))),
+    () => {
+      setAttempt((current) => current + 1);
+    },
+  );
 
   useEffect(() => {
     // A box rather than a bare flag: the cleanup writes it and the async body reads it, and a
@@ -84,6 +96,7 @@ export function useItemProperties(itemId: string | null): ItemProperties {
       }
 
       if (itemId === null) {
+        loadedItem.current = null;
         setSchema(null);
         setItem(null);
         setError(null);
@@ -91,23 +104,42 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         return;
       }
 
-      setLoading(true);
+      const background =
+        loadedItem.current?.client === client && loadedItem.current.itemId === itemId;
+      setLoading(!background);
       setError(null);
+      const refuse = (message: string): void => {
+        if (!live.current || controller.signal.aborted) return;
+        accessRevision.current += 1;
+        loadedItem.current = null;
+        setSchema(null);
+        setItem(null);
+        setError(message);
+        setLoading(false);
+        controller.abort();
+      };
       void (async () => {
         // Both at once: the panel cannot draw a field without knowing the property exists, and
         // cannot fill it without the value. Sequencing them would make opening a note two round
         // trips deep for one panel.
         //
-        // The item's own outcome is kept apart from the schema's, unlike the schema-only version
-        // this replaced. A note with no declared schema is a normal, empty panel - `queryOrNull`
-        // still folds that refusal away below - but a note whose *item* request failed is not
-        // empty, it is broken, and folding that into the same null left the panel with no way to
-        // tell "still loading" from "never coming".
+        // An initial item failure is shown to the reader. A transient background failure retains
+        // authorized values being edited; a confirmed item or schema refusal removes them.
         const [nextSchema, itemOutcome] = await Promise.all([
-          queryOrNull(
-            client.query(coreStructure.effectiveSchema(itemId), { signal: controller.signal }),
+          queryOutcome(
+            client.query(coreStructure.effectiveSchema(itemId), {
+              signal: controller.signal,
+              forceRefresh: true,
+            }),
+            refuse,
           ),
-          queryOutcome(client.query(coreItems.itemById(itemId), { signal: controller.signal })),
+          queryOutcome(
+            client.query(coreItems.itemById(itemId), {
+              signal: controller.signal,
+              forceRefresh: true,
+            }),
+            refuse,
+          ),
         ]);
 
         // Dropped if the item changed while this was in flight. Without the guard, opening two
@@ -117,12 +149,15 @@ export function useItemProperties(itemId: string | null): ItemProperties {
           return;
         }
 
-        setSchema(nextSchema === null ? null : EffectiveSchemaSchema.parse(nextSchema));
-
         if (itemOutcome.ok) {
+          if (nextSchema.ok) setSchema(EffectiveSchemaSchema.parse(nextSchema.value));
+          else if (!background) setSchema(null);
+          loadedItem.current = { client, itemId };
           setItem(ItemSchema.parse(itemOutcome.value));
           setError(null);
-        } else {
+        } else if (!background) {
+          loadedItem.current = null;
+          setSchema(null);
           setItem(null);
           setError(itemOutcome.message);
         }
@@ -130,9 +165,12 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         setLoading(false);
       })().catch((reason: unknown) => {
         if (!controller.signal.aborted && live.current && !isCanceledError(reason)) {
-          setSchema(null);
-          setItem(null);
-          setError('This item could not be loaded.');
+          if (!background) {
+            loadedItem.current = null;
+            setSchema(null);
+            setItem(null);
+            setError('This item could not be loaded.');
+          }
           setLoading(false);
         }
       });
@@ -153,6 +191,7 @@ export function useItemProperties(itemId: string | null): ItemProperties {
       if (itemId === null) {
         return 'There is nothing open to write to.';
       }
+      const revision = accessRevision.current;
 
       try {
         // The response carries the item as it now stands, so the panel reflects what was stored
@@ -161,6 +200,7 @@ export function useItemProperties(itemId: string | null): ItemProperties {
         const written = ItemSchema.parse(
           await client.execute(coreStructure.setItemProperties(itemId, changes)),
         );
+        if (revision !== accessRevision.current) return null;
         // The write answers with the item and not with a fresh fold of its children, so the
         // rollups come back null; keeping the last folded values is more honest than blanking the
         // panel's rollup rows on every edit.
@@ -193,34 +233,28 @@ export function useItemProperties(itemId: string | null): ItemProperties {
   return { loading, schema, item: computed, error, retry, write };
 }
 
-/** Reads a response the panel can do without, reporting a refusal as an absent value. */
-async function queryOrNull<TValue>(request: Promise<TValue>): Promise<TValue | null> {
-  try {
-    return await request;
-  } catch (reason) {
-    if (isCanceledError(reason)) {
-      throw reason;
-    }
-    return null;
-  }
-}
-
 type QueryOutcome<TValue> =
   { readonly ok: true; readonly value: TValue } | { readonly ok: false; readonly message: string };
 
 /** Reads a response the panel cannot do without, keeping the refusal reason rather than folding it away. */
-async function queryOutcome<TValue>(request: Promise<TValue>): Promise<QueryOutcome<TValue>> {
+async function queryOutcome<TValue>(
+  request: Promise<TValue>,
+  refuse: (message: string) => void,
+): Promise<QueryOutcome<TValue>> {
   try {
     return { ok: true, value: await request };
   } catch (reason) {
     if (isCanceledError(reason)) {
       throw reason;
     }
-    return {
-      ok: false,
-      message: isNixApiError(reason)
-        ? (reason.detail ?? 'This item could not be loaded.')
-        : 'This item could not be loaded.',
-    };
+    const message = isNixApiError(reason)
+      ? (reason.detail ?? 'This item could not be loaded.')
+      : 'This item could not be loaded.';
+    if (
+      isNixApiError(reason) &&
+      (reason.status === 403 || reason.status === 404 || reason.status === 423)
+    )
+      refuse(message);
+    return { ok: false, message };
   }
 }

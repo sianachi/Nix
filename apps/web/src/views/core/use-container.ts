@@ -283,6 +283,24 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     activeLoad.current?.abort();
     const controller = new AbortController();
     activeLoad.current = controller;
+    let refusalReason: unknown;
+    const currentRead = (): boolean =>
+      !controller.signal.aborted && activeLoad.current === controller;
+    const discardRefused = (reason: unknown): void => {
+      if (
+        !currentRead() ||
+        !isNixApiError(reason) ||
+        (reason.status !== 403 && reason.status !== 404 && reason.status !== 423)
+      )
+        return;
+      refusalReason = reason;
+      setChildren([]);
+      storeSchema(null);
+      storeViews(null);
+      setTruncated(false);
+      setLocked(false);
+      reportFailed(reason.detail ?? 'This item could not be read.', 'error', { blocking: true });
+    };
 
     beginLoad();
 
@@ -310,8 +328,13 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           // screen can draw its switcher and say the contents are locked.
           if (isNixApiError(reason) && reason.code === 'items.locked') {
             withheld = true;
+            if (currentRead()) {
+              setChildren([]);
+              setLocked(true);
+            }
             return;
           }
+          discardRefused(reason);
           throw reason;
         }
       })();
@@ -320,7 +343,10 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
         containerId === null
           ? Promise.resolve(null)
           : client
-              .query(coreStructure.effectiveSchema(containerId), { signal: controller.signal })
+              .query(coreStructure.effectiveSchema(containerId), {
+                signal: controller.signal,
+                forceRefresh: true,
+              })
               .then((value) => {
                 const parsed = EffectiveSchemaSchema.safeParse(value);
                 if (parsed.success) return parsed.data;
@@ -334,7 +360,8 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
                 return null;
               })
               .catch((reason: unknown) => {
-                if (isNixApiError(reason) && reason.status === 404) return null;
+                if (isNixApiError(reason) && reason.code === 'http.404') return null;
+                discardRefused(reason);
                 throw reason;
               });
       const viewsRead =
@@ -343,6 +370,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           : client
               .query(coreViews.containerViewConfigurations(containerId), {
                 signal: controller.signal,
+                forceRefresh: true,
               })
               .then((value) => {
                 const parsed = ContainerViewsSchema.safeParse(value);
@@ -357,11 +385,21 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
                 return null;
               })
               .catch((reason: unknown) => {
-                if (isNixApiError(reason) && reason.status === 404) return null;
+                if (isNixApiError(reason) && reason.code === 'http.404') return null;
+                discardRefused(reason);
                 throw reason;
               });
 
-      const [, nextSchema, nextViews] = await Promise.all([childRead, schemaRead, viewsRead]);
+      const [childOutcome, schemaOutcome, viewsOutcome] = await Promise.allSettled([
+        childRead,
+        schemaRead,
+        viewsRead,
+      ]);
+      if (childOutcome.status === 'rejected') throw childOutcome.reason;
+      if (schemaOutcome.status === 'rejected') throw schemaOutcome.reason;
+      if (viewsOutcome.status === 'rejected') throw viewsOutcome.reason;
+      const nextSchema = schemaOutcome.value;
+      const nextViews = viewsOutcome.value;
       if (controller.signal.aborted || activeLoad.current !== controller) return;
       setChildren(loaded);
       setLocked(withheld);
@@ -375,10 +413,21 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
     } catch (reason) {
       if (controller.signal.aborted || activeLoad.current !== controller || isCanceledError(reason))
         return;
-      const message = isNixApiError(reason)
-        ? (reason.detail ?? 'This item\u2019s contents could not be loaded.')
+      const failure = refusalReason ?? reason;
+      const message = isNixApiError(failure)
+        ? (failure.detail ?? 'This item\u2019s contents could not be loaded.')
         : 'Core could not be reached.';
-      reportFailed(message, 'error');
+      const refused =
+        isNixApiError(failure) &&
+        (failure.status === 403 || failure.status === 404 || failure.status === 423);
+      if (refused) {
+        setChildren([]);
+        storeSchema(null);
+        storeViews(null);
+        setTruncated(false);
+        setLocked(false);
+      }
+      reportFailed(message, 'error', { blocking: refused });
     } finally {
       if (activeLoad.current === controller) activeLoad.current = null;
     }
@@ -661,7 +710,6 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
           coreViews.setContainerViews(containerId, { views: body.views, default: body.default }),
           { signal: controller.signal },
         );
-        if (!controller.signal.aborted) await load();
         return null;
       } catch (reason) {
         return isNixApiError(reason)
@@ -671,7 +719,7 @@ export function useContainer(containerId: string | null, createChild?: CreateChi
         activeRequests.current.delete(controller);
       }
     },
-    [client, containerId, load, views],
+    [client, containerId, views],
   );
 
   const appendViewSetup = useCallback(
