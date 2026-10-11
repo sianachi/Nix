@@ -120,7 +120,7 @@ describe('the schema version a document requires', () => {
   });
 
   it('rises to what the shipped fixture actually uses', () => {
-    expect(requiredSchemaVersion(parse(FIXTURE_DOCUMENT))).toBe(5);
+    expect(requiredSchemaVersion(parse(FIXTURE_DOCUMENT))).toBe(6);
   });
 
   it('requires version 3 for an image backed by a durable file item', () => {
@@ -132,6 +132,39 @@ describe('the schema version a document requires', () => {
     });
 
     expect(requiredSchemaVersion(document)).toBe(3);
+  });
+});
+
+describe('a captured Mermaid picture', () => {
+  it('requires version 6 only once a code block carries one', () => {
+    const block = (attrs: Record<string, unknown>) => {
+      const parsed = parseDocument({
+        type: 'doc',
+        content: [{ type: 'codeBlock', attrs, content: [{ type: 'text', text: 'graph TD' }] }],
+      });
+      if (!parsed.ok) throw new Error(parsed.error);
+      return parsed.document;
+    };
+
+    expect(requiredSchemaVersion(block({ language: 'mermaid' }))).toBe(BASE_SCHEMA_VERSION);
+    expect(
+      requiredSchemaVersion(
+        block({ language: 'mermaid', renderFileId: 'f', renderSourceHash: 'a'.repeat(64) }),
+      ),
+    ).toBe(6);
+  });
+
+  it('is not copied through HTML', () => {
+    const codeBlock = nixSchema.nodes.codeBlock;
+    const node = codeBlock?.create({
+      language: 'mermaid',
+      renderFileId: 'file-item',
+      renderSourceHash: 'source-hash',
+    });
+    if (codeBlock === undefined || node === undefined) throw new Error('No code block.');
+    const dom = JSON.stringify(codeBlock.spec.toDOM?.(node));
+    expect(dom).not.toContain('file-item');
+    expect(dom).not.toContain('source-hash');
   });
 });
 
