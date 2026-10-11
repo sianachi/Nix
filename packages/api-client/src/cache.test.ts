@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createServerCache, type CacheLoader, type ServerCache } from './cache.js';
-import { NixErrorKind } from './errors.js';
+import { NixApiError, NixErrorKind } from './errors.js';
 import { captureFailure } from './testing/failure.js';
 
 interface Deferred<T> {
@@ -131,6 +131,112 @@ describe('stale while revalidate', () => {
     expect(onCacheRevalidateError).toHaveBeenCalledTimes(1);
     expect(cache.peek<string>(['items'])?.data).toBe('cached');
   });
+});
+
+describe('refused refreshes', () => {
+  it.each([403, 404, 423])('discards cached data after a current %i response', async (status) => {
+    const cache = createServerCache();
+    await cache.read(['items', 'a'], () => Promise.resolve('previously visible'));
+    await cache.read(['items', 'b'], () => Promise.resolve('still visible'));
+    const changed = vi.fn();
+    const invalidated = vi.fn();
+    cache.subscribe(changed);
+    cache.subscribeInvalidation(invalidated);
+    const refusal = NixApiError.fromStatus(status);
+    const load = vi.fn<CacheLoader<string>>(() => Promise.reject(refusal));
+
+    expect(await captureFailure(cache.read(['items', 'a'], load, { forceRefresh: true }))).toBe(
+      refusal,
+    );
+
+    expect(cache.peek(['items', 'a'])).toBeUndefined();
+    expect(cache.peek(['items', 'b'])?.data).toBe('still visible');
+    expect(changed.mock.calls).toEqual([[['items', 'a']]]);
+    expect(invalidated).not.toHaveBeenCalled();
+    expect(await captureFailure(cache.read(['items', 'a'], load))).toBe(refusal);
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([403, 404, 423])(
+    'discards cached data when background revalidation receives a %i problem',
+    async (status) => {
+      const onCacheRevalidateError = vi.fn();
+      const cache = createServerCache({
+        staleAfterMs: 0,
+        telemetry: { onCacheRevalidateError },
+      });
+      await cache.read(['items', 'a'], () => Promise.resolve('previously visible'));
+      const changed = vi.fn();
+      const invalidated = vi.fn();
+      cache.subscribe(changed);
+      cache.subscribeInvalidation(invalidated);
+      const refusal = NixApiError.fromProblemDetails(status, { code: 'items.refused', status });
+      const stale = await cache.read(['items', 'a'], () => Promise.reject(refusal));
+      await stale.revalidation;
+
+      expect(stale.servedFromCache).toBe(true);
+      expect(cache.peek(['items', 'a'])).toBeUndefined();
+      expect(changed.mock.calls).toEqual([[['items', 'a']]]);
+      expect(invalidated).not.toHaveBeenCalled();
+      expect(onCacheRevalidateError.mock.calls).toEqual([
+        [{ key: ['items', 'a'], error: refusal }],
+      ]);
+    },
+  );
+
+  it('retains cached data after a temporary server failure', async () => {
+    const cache = createServerCache();
+    await cache.read(['items', 'a'], () => Promise.resolve('available offline'));
+    const changed = vi.fn();
+    const invalidated = vi.fn();
+    cache.subscribe(changed);
+    cache.subscribeInvalidation(invalidated);
+    const unavailable = NixApiError.fromStatus(503);
+    const load = vi.fn<CacheLoader<string>>(() => Promise.reject(unavailable));
+
+    expect(await captureFailure(cache.read(['items', 'a'], load, { forceRefresh: true }))).toBe(
+      unavailable,
+    );
+    const remounted = await cache.read(['items', 'a'], load);
+
+    expect(remounted.data).toBe('available offline');
+    expect(remounted.servedFromCache).toBe(true);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(changed).not.toHaveBeenCalled();
+    expect(invalidated).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404, 423])(
+    'keeps newer cached data when an older request returns %i',
+    async (status) => {
+      const cache = createServerCache();
+      await cache.read(['items', 'a'], () => Promise.resolve('original'));
+      const gate = deferred<string>();
+      const original = captureFailure(
+        cache.read(['items', 'a'], () => gate.promise, { forceRefresh: true }),
+      );
+      cache.invalidate(['items', 'a']);
+      await cache.read(['items', 'a'], () => Promise.resolve('latest'), { forceRefresh: true });
+      const changed = vi.fn();
+      const invalidated = vi.fn();
+      cache.subscribe(changed);
+      cache.subscribeInvalidation(invalidated);
+      const refusal = NixApiError.fromStatus(status);
+      gate.reject(refusal);
+
+      expect(await original).toBe(refusal);
+      const load = vi.fn<CacheLoader<string>>(() => Promise.resolve('unexpected reload'));
+      const remounted = await cache.read(['items', 'a'], load);
+
+      expect(remounted.data).toBe('latest');
+      expect(remounted.servedFromCache).toBe(true);
+      expect(cache.peek(['items', 'a'])).toMatchObject({ data: 'latest', stale: false });
+      expect(load).not.toHaveBeenCalled();
+      expect(changed).not.toHaveBeenCalled();
+      expect(invalidated).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('invalidation', () => {

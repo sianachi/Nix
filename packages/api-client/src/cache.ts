@@ -26,7 +26,7 @@
  * interested caller leaves is the underlying request actually aborted.
  */
 
-import { NixApiError } from './errors.js';
+import { isNixApiError, NixApiError } from './errors.js';
 import { report, type NixTelemetry } from './telemetry.js';
 
 export type CacheKey = readonly string[];
@@ -161,7 +161,18 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
         return data;
       },
       (error: unknown) => {
-        if (flights.get(id) === flight) flights.delete(id);
+        if (flights.get(id) === flight) {
+          flights.delete(id);
+          if (
+            flight.state !== 'removed' &&
+            isNixApiError(error) &&
+            (error.status === 403 || error.status === 404 || error.status === 423) &&
+            store.read(id) !== undefined
+          ) {
+            store.remove(id);
+            notify(id);
+          }
+        }
         throw error;
       },
     );
@@ -232,8 +243,7 @@ export function createServerCache(options: ServerCacheOptions = {}): ServerCache
     return share(id, load, undefined).then(
       () => undefined,
       (error: unknown) => {
-        // A failed background refresh keeps the stale data on screen, but it
-        // is never invisible: it goes out as telemetry.
+        // Temporary failures retain cached data; refusals remove it in start.
         report(telemetry?.onCacheRevalidateError, { key, error });
       },
     );
