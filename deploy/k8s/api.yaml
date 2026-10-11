@@ -28,6 +28,7 @@ spec:
       annotations:
         nix.io/rabbitmq-secret-version: "${RABBITMQ_SECRET_VERSION}"
         nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
+        nix.io/sites-secret-version: "${SITES_SECRET_VERSION}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -84,12 +85,14 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-internal, key: public-forms-signing-key } }
             # Core sits behind Caddy and Traefik. Without this every request appears
             # to come from the proxy and both rate limiters collapse into one global
-            # bucket: ten bad tokens from anyone would 429 everyone. Confirm $POD_CIDR
-            # with: kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
+            # bucket: ten bad tokens from anyone would 429 everyone. Caddy (a pod-network
+            # peer) replaces X-Forwarded-For with the Cloudflare visitor address, so one
+            # hop is read. Confirm $POD_CIDR with:
+            #   kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
             - name: Nix__ForwardedHeaders__KnownNetworks
               value: "${POD_CIDR}"
             - name: Nix__ForwardedHeaders__ForwardLimit
-              value: "2"          # Traefik, then Caddy
+              value: "1"          # Caddy's single, rewritten hop
             - name: Nix__RateLimits__WritesPerMinute
               value: "120"
             - name: Nix__RateLimits__PublicFormSubmissionsPerMinute
@@ -120,6 +123,21 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-client-secret, optional: true } }
             - name: Nix__Calendar__Microsoft__Tenant
               valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-tenant, optional: true } }
+            # Sites (ADR-0063): the app at the apex, sites one label below it. Core signs the
+            # sites bucket with the object store's write key; serve reads it with its own read key.
+            - name: Nix__Sites__Domain
+              value: "${DOMAIN}"
+            - name: Nix__Sites__SharedAppDomain
+              value: "true"
+            - name: Nix__Sites__PublicScheme
+              value: https
+            - name: Nix__Sites__Bucket
+              valueFrom: { secretKeyRef: { name: nix-sites, key: bucket } }
+            # The deployment owner's reserved slugs: each maps to the one workspace that may claim it.
+            - name: Nix__Sites__ReservedSlugOwners__nix
+              valueFrom: { secretKeyRef: { name: nix-sites, key: reserved-owner-nix, optional: true } }
+            - name: Nix__Sites__ReservedSlugOwners__osinachi
+              valueFrom: { secretKeyRef: { name: nix-sites, key: reserved-owner-osinachi, optional: true } }
             - name: Nix__AccessTokens__Issuer
               value: "https://${DOMAIN}"
             - name: Nix__AccessTokens__Audience

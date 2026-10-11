@@ -139,7 +139,10 @@ if args[0]=='ps':
 elif 'config' in args and '--format' in args:
  c=json.load(open(os.environ['COMPOSE_TEST_CONFIG']))
  c['services']['nix-api']['environment']['Nix__Bff__PublicOrigin']='https://production.example'
+ c['services']['nix-api']['environment']['Nix__Sites__Domain']=os.environ.get('SITES_DOMAIN','')
  print(json.dumps(c))
+elif args[-2:]==['config','--services']:
+ print('nix-api\nnix-sites-worker\nnix-sites-serve' if os.environ.get('SITES_PROFILE') else 'nix-api')
 elif 'config' in args and '--images' in args:
  print('localhost/nix/api:test\nghcr.io/sianachi/nix/worker:test')
 elif 'run' in args and args[-1]=='nix-migrate' and os.environ.get('FAIL_MIGRATION'):
@@ -194,7 +197,24 @@ assert len([call for call in calls if call.startswith('stop retired-')]) == 7
 assert not any(' stop ' in call and 'nix-indexer' in call for call in calls)
 assert not any(' up ' in call and 'nix-opensearch' in call for call in calls)
 assert all(':/config/nixctl/config.json:ro' in calls[i] for i in smokes)
+# Sites are not enabled in the example env, so the rollout leaves them alone.
+assert not any(s in call.split() for call in calls for s in ('nix-sites-worker', 'nix-sites-serve'))
 PYCODE
+# Enabled by profile or by domain, sites are pre-pulled, stopped with the writers and rolled with --wait.
+for enable in SITES_PROFILE=1 SITES_DOMAIN=sites.example.test; do
+ : > "$DOCKER_TEST_LOG"
+ env "$enable" PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-sites"
+ python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
+import sys
+calls=open(sys.argv[1]).read().splitlines()
+pull=next(s for s in calls if '--images' in s)
+stop=next(s for s in calls if ' stop nix-web ' in s)
+roll=next(s for s in calls if ' up ' in s and s.endswith(' nix-web cloudflared'))
+for service in ['nix-sites-worker', 'nix-sites-serve']:
+ assert service in pull.split() and service in stop.split() and service in roll.split(), service
+assert '--wait' in roll.split()
+PYCODE
+done
 # The drift preview must run before the first `up` can recreate a service.
 python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
 import sys

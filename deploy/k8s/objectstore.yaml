@@ -1,0 +1,68 @@
+# In-cluster object store: versitygw on the posix backend, as in the Docker production. Applied
+# verbatim by deploy/k8s/deploy.sh, then deploy/k8s/job-storage-init.yaml creates the buckets.
+#
+# The root account is the nix-object-store access/secret key: Core signs every capability URL with
+# it. Internal IAM (--iam-dir) adds one more account, the sites server's read key, which can only
+# read the sites bucket through a bucket policy (job-storage-init.yaml). Browsers reach the Nix
+# bucket only through Caddy's /{bucket}/* route on the app origin (deploy/k8s/Caddyfile); the sites
+# bucket is never routed.
+#
+# Objects and the IAM file share one retained volume. versitygw keeps object metadata in extended
+# attributes, so backups must preserve xattrs (deploy/k8s/backup.yaml uses tar --xattrs).
+apiVersion: v1
+kind: Service
+metadata: { name: nix-versitygw, namespace: nix }
+spec:
+  selector: { app: nix-versitygw }
+  ports: [{ port: 7070, targetPort: 7070 }]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: { name: nix-versitygw, namespace: nix }
+spec:
+  serviceName: nix-versitygw
+  replicas: 1
+  selector: { matchLabels: { app: nix-versitygw } }
+  template:
+    metadata:
+      labels: { app: nix-versitygw }
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: versitygw
+          image: versity/versitygw:v1.7.0
+          args: ["--iam-dir", "/iam", "--health", "/health", "posix", "/data"]
+          ports: [{ containerPort: 7070 }]
+          env:
+            - name: ROOT_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: access-key } }
+            - name: ROOT_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: secret-key } }
+          readinessProbe: { httpGet: { path: /health, port: 7070 }, periodSeconds: 5 }
+          livenessProbe: { httpGet: { path: /health, port: 7070 }, periodSeconds: 10 }
+          resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { cpu: "1", memory: 512Mi } }
+          volumeMounts:
+            - { name: data, mountPath: /data, subPath: objects }
+            - { name: data, mountPath: /iam, subPath: iam }
+          securityContext: { allowPrivilegeEscalation: false }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: local-path-retain
+        resources: { requests: { storage: 20Gi } }
+---
+# Callers: Core and the workers (capability URLs and internal reads), Caddy (browser capability
+# route), the sites server (read key) and the storage-init Job. Backups read the volume directly.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: versitygw-ingress, namespace: nix }
+spec:
+  podSelector: { matchLabels: { app: nix-versitygw } }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - { key: app, operator: In, values: [nix-api, nix-collab, nix-web, nix-worker, nix-sites-worker, nix-sites-serve, nix-storage-init] }
+      ports: [{ protocol: TCP, port: 7070 }]

@@ -10,7 +10,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata: { name: nix-web, namespace: nix }
 spec:
-  replicas: 2
+  replicas: 1
   selector: { matchLabels: { app: nix-web } }
   template:
     metadata:
@@ -26,6 +26,11 @@ spec:
             # upload requests without broadening connect-src to arbitrary hosts.
             - name: NIX_OBJECT_STORE_PUBLIC_ORIGIN
               valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
+            - name: NIX_OBJECT_STORE_BUCKET
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: bucket } }
+            # Peers allowed to name the visitor in CF-Connecting-IP: the pod network, where Traefik runs.
+            - name: NIX_TRUSTED_PROXY_CIDR
+              value: "${POD_CIDR}"
           volumeMounts:
             - { name: caddyfile, mountPath: /etc/caddy, readOnly: true }
             - { name: caddy-data, mountPath: /data }
@@ -34,7 +39,7 @@ spec:
             httpGet: { path: /, port: 8090 }
             periodSeconds: 5
           resources:
-            requests: { cpu: 50m, memory: 64Mi }
+            requests: { cpu: 50m, memory: 48Mi }
             limits: { memory: 256Mi }
       volumes:
         - name: caddyfile

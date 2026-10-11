@@ -53,7 +53,7 @@ spec:
             httpGet: { path: /healthz, port: 8100 }
             periodSeconds: 5
           resources:
-            requests: { cpu: 250m, memory: 384Mi }
+            requests: { cpu: 200m, memory: 320Mi }
             # Above NIX_COLLAB_MAX_RESIDENT_MB with headroom for the pool and the runtime.
             limits: { memory: 768Mi }
           securityContext:
