@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Glang is a small systems language whose compiler is written in Glang. Reaching self-hosting was the goal; keeping the compiler small enough to read in an afternoon is the constraint."
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "rust"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "fn main() -> i32 {\n    let greeting = \"hello, glang\";\n    print(greeting);\n    return 0;\n}"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "The roadmap below is published straight from the project's own tracker."
+          }
+        ]
+      }
+    ]
+  }
+}

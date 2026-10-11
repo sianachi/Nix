@@ -10,6 +10,8 @@ export default tseslint.config(
       '**/build/**',
       '**/coverage/**',
       '**/storybook-static/**',
+      // Byte-exact site renderer output, compared by golden tests; not source.
+      '**/__golden__/**',
       '**/node_modules/**',
       // Written by `openapi-typescript` from the committed Core contract. Restyling it would be
       // undone by the next `pnpm --filter @nix/api-client generate`, and the file is not ours to

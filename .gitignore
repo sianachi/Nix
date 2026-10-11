@@ -84,3 +84,7 @@ deploy/.dev-access-token-key.pem
 /apps/go-workers/nix-worker.exe
 /.local/companion/
 /.local/logs/
+# The site renderer's docs fixture and its golden output are source, not documentation.
+!/packages/site-render/src/__fixtures__/docs
+!/packages/site-render/src/__golden__/docs
+!/packages/site-render/src/__golden__/docs/changelog/tag/release/

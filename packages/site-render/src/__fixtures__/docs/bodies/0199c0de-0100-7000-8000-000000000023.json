@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Sheets are items with a grid body and a formula engine that handles references, ranges and dates."
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Formulas"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Formulas in properties read other properties of the same item. Rollups read children."
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "plaintext"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "if(prop(\"Due\") < today(), \"Overdue\", \"On track\")"
+          }
+        ]
+      },
+      {
+        "type": "callout",
+        "attrs": {
+          "tone": "warning"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Sheets are in beta. Very large sheets (over 50,000 cells) still load slowly on phones."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

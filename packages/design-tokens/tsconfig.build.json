@@ -5,9 +5,9 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  // Only the print palette is built. `theme.css` is served from source through the package's
+  // Only the print and site palettes are built. `theme.css` is served from source through the package's
   // `exports` - Tailwind reads it as CSS and there is nothing to compile - and `theme-sheet.ts` is
   // a test helper that must never reach a runtime.
-  "include": ["src/print.ts"],
+  "include": ["src/print.ts", "src/site.ts"],
   "exclude": ["src/**/*.test.ts"]
 }

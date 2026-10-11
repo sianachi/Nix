@@ -14,6 +14,10 @@
       "types": "./dist/print.d.ts",
       "default": "./dist/print.js"
     },
+    "./site": {
+      "types": "./dist/site.d.ts",
+      "default": "./dist/site.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

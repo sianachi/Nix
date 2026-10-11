@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 6,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "The first time a Jetson refuses to boot after a bad flash, it feels final. It almost never is. The board keeps a recovery path in its boot ROM that no update can overwrite."
+          }
+        ]
+      },
+      {
+        "type": "image",
+        "attrs": {
+          "src": null,
+          "alt": "A Jetson module on the bench, connected for recovery mode",
+          "fileItemId": "0199c0de-0200-7000-8000-000000000707"
+        }
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Recovery mode"
+          }
+        ]
+      },
+      {
+        "type": "orderedList",
+        "attrs": {
+          "start": 1
+        },
+        "content": [
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Power the board off."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Hold the recovery button and power it on."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Connect it to a Linux host over USB."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "bash"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "lsusb | grep -i nvidia\nsudo ./flash.sh jetson-orin-nano-devkit internal"
+          }
+        ]
+      },
+      {
+        "type": "callout",
+        "attrs": {
+          "tone": "warning"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Flash from a host running the exact JetPack release you are installing. Mixing versions is the usual cause of a second brick."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "The boot chain, briefly"
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "mermaid",
+          "renderFileId": "0199c0de-0200-7000-8000-000000000708",
+          "renderSourceHash": "8583c0c5719f8c03fb82fe2926f1d5d66d866694005266aaf7efa7d6fb4d0692"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "flowchart LR\n  ROM --> MB1 --> MB2 --> UEFI --> Kernel"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Once you know the chain, a failure stops being mysterious: the serial console tells you which stage stopped."
+          }
+        ]
+      }
+    ]
+  }
+}
