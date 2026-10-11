@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
@@ -25,9 +25,18 @@ import { App } from '../../app';
  * is a clipping rectangle, not `display: none`, so the node stays in the accessibility tree, which
  * is the whole point of choosing it over removal.
  */
+const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollIntoView');
 beforeEach(() => {
   signedIn();
   stubViewport(true);
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    value: vi.fn(),
+  });
+});
+afterEach(() => {
+  if (originalScroll === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+  else Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll);
 });
 
 const ROOT = item({
@@ -52,6 +61,29 @@ function graphTree(): HTMLElement {
 }
 
 describe('the graph destination', () => {
+  it('opens a note deep link as its focused neighborhood on a phone', async () => {
+    stubViewport(false);
+    stubCoreApi({ items: [ROOT, CHILD, OTHER] });
+    renderAt(<App />, `/w/00000000-0000-4000-8000-000000000001/graph?focus=${CHILD.id}`);
+
+    await screen.findByRole('tree', { name: /workspace graph/i });
+    expect(screen.getByRole('combobox', { name: 'Graph layout' })).toHaveValue('focused');
+    expect(screen.getByRole('combobox', { name: 'Focus item' })).toHaveValue(CHILD.id);
+    expect(within(graphTree()).getAllByRole('treeitem')).toHaveLength(2);
+    expect(within(graphTree()).queryByRole('button', { name: /Roadmap/ })).not.toBeInTheDocument();
+    expect(screen.getByText('Showing Retention policy')).toBeInTheDocument();
+  });
+
+  it('reports a focus outside the returned graph while keeping the partial warning', async () => {
+    stubCoreApi({ items: [ROOT], graphTruncated: { nodes: true } });
+    renderAt(<App />, `/w/00000000-0000-4000-8000-000000000001/graph?focus=${OTHER.id}`);
+    await screen.findByRole('tree', { name: /workspace graph/i });
+    expect(screen.getByText(/This item is not in the visible graph/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Some items, and any references to them, are not drawn/),
+    ).toBeInTheDocument();
+  });
+
   it('names every readable item, so the graph is not only a picture', async () => {
     stubCoreApi({ items: [ROOT, CHILD, OTHER] });
     renderAt(<App />, '/graph');

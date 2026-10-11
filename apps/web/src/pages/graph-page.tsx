@@ -1,6 +1,7 @@
 import { isNixApiError, items as coreItems, type GraphNode } from '@nix/api-client';
 import { Button, Text } from '@nix/ui';
 import type { ReactElement, ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { useApiClient } from '../api/api-client-provider';
 
@@ -72,6 +73,7 @@ function moveRefusal(reason: unknown): string {
 }
 
 export function GraphPage(): ReactElement {
+  const [searchParams] = useSearchParams();
   const { status, graph, error, reload, refresh } = useWorkspaceGraph();
   const { openPreview } = useOpenItem();
   const openDialog = useItemDialog();
@@ -202,6 +204,7 @@ export function GraphPage(): ReactElement {
       )}
 
       <GraphExplorer
+        initialFocusId={searchParams.get('focus')}
         workspaceId={graph.workspaceId}
         onMove={(itemId, parentId) => {
           void move(itemId, parentId);
