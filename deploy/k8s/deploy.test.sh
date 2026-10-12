@@ -308,6 +308,9 @@ assert_before "apply-file:deploy/k8s/objectstore.yaml" "wait:-n nix wait --for=c
 assert_before "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order" "apply-stdin:nix-api-data-protection,nix-api,nix-api"
 grep -Fq 'handle /{$NIX_OBJECT_STORE_BUCKET}/*' "$repo_root/deploy/k8s/Caddyfile"
 grep -Fq 'name: NIX_OBJECT_STORE_BUCKET' "$RENDERED_WEB"
+# Site builds upload through the app origin, so the sites bucket needs the same route.
+grep -Fq 'handle /{$NIX_SITES_BUCKET}/*' "$repo_root/deploy/k8s/Caddyfile"
+grep -A1 -F 'name: NIX_SITES_BUCKET' "$RENDERED_WEB" | grep -Fq 'name: nix-sites, key: bucket'
 # Zitadel: own database created before it starts, invite-only, served at auth.$DOMAIN.
 assert_before "wait:-n nix wait --for=condition=complete job/nix-db-seed" "wait:-n nix wait --for=condition=complete job/nix-zitadel-db-render-order"
 grep -Fq 'ZITADEL_EXTERNALDOMAIN: "auth.nix.example.test"' "$RENDERED_ZITADEL"

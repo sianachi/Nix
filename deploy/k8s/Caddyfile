@@ -28,8 +28,12 @@
 
 	# Browser capability URLs for the in-cluster object store (deploy/k8s/objectstore.yaml), as in
 	# the Docker production: the bucket path and the signed Host header pass through unchanged.
-	# Only the Nix bucket is routed; the sites bucket is reachable from the sites server alone.
 	handle /{$NIX_OBJECT_STORE_BUCKET}/* {
+		reverse_proxy nix-versitygw:7070
+	}
+	# Core signs the sites worker's build uploads on this same origin. The sites bucket admits no
+	# anonymous request, and only the sites worker is ever handed a capability for it.
+	handle /{$NIX_SITES_BUCKET}/* {
 		reverse_proxy nix-versitygw:7070
 	}
 
