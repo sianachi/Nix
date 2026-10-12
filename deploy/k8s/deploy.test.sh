@@ -283,6 +283,15 @@ grep -Fq 'key: reserved-owner-nix, optional: true' "$RENDERED_API"
 grep -Fq 'hosts: ["nix.example.test", "*.nix.example.test"]' "$RENDERED_INGRESS"
 grep -Fq 'host: "*.nix.example.test"' "$RENDERED_INGRESS"
 grep -Fq 'service: { name: nix-sites-serve, port: { number: 8400 } }' "$RENDERED_INGRESS"
+# Custom hostnames: one host-less rule at the lowest priority, so it never outranks a named host.
+custom_ingress="$(awk '/name: nix-sites-custom-hosts/,0' "$RENDERED_INGRESS")"
+grep -Fq 'traefik.ingress.kubernetes.io/router.priority: "1"' <<<"$custom_ingress"
+grep -Fq 'nix-cloudflare-only@kubernetescrd' <<<"$custom_ingress"
+grep -Fq 'service: { name: nix-sites-serve, port: { number: 8400 } }' <<<"$custom_ingress"
+if grep -Eq '^ *- host:|hosts:' <<<"$custom_ingress"; then
+  echo 'The custom-hostname Ingress must not name a host.' >&2
+  exit 1
+fi
 assert_before "apply-stdin:nix-sites-worker,nix-sites-worker" "rollout:-n nix rollout status deployment/nix-sites-serve"
 # Every first-party image the manifests pull is one CI publishes (ci-images.yml plan lines).
 published="$(sed -nE 's/^ *plan ([a-z-]+) deploy\/docker\/.*/\1/p' "$repo_root/.github/workflows/ci-images.yml" | sort -u)"
@@ -301,7 +310,7 @@ fi
 grep -Fq 'name: NIX_TRUSTED_PROXY_CIDR' "$RENDERED_WEB"
 grep -Fq 'value: "10.42.0.0/16"' "$RENDERED_WEB"
 grep -Fq 'router.middlewares: nix-cloudflare-only@kubernetescrd' "$RENDERED_INGRESS"
-test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix,nix-sites'
+test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix,nix-sites,nix-sites-custom-hosts'
 grep -Fq 'client_ip_headers CF-Connecting-IP' "$repo_root/deploy/k8s/Caddyfile"
 # In-cluster object store: buckets and the sites read account exist before anything uses them.
 assert_before "apply-file:deploy/k8s/objectstore.yaml" "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order"
@@ -434,7 +443,7 @@ if grep -Fq 'nix-template-boot' "$KUBECTL_LOG"; then
   exit 1
 fi
 assert_before "rollout:-n nix rollout status deployment/nix-zitadel --timeout=900s" "apply-file:deploy/k8s/cloudflare-only.yaml"
-test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix,nix-sites'
+test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix,nix-sites,nix-sites-custom-hosts'
 grep -Fq 'host: "auth.nix.example.test"' "$RENDERED_INGRESS"
 if (PATH="$fake_bin:$PATH" REGISTRY=r TAG=t OIDC_CLIENT_ID=c DOMAIN=nix.example.test \
   NIX_DEPLOY_TARGET=kubernetes bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null 2>&1); then
