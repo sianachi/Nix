@@ -20,6 +20,7 @@ export RENDERED_ALL="$test_root/all.yaml"
 export RENDERED_ZITADEL="$test_root/zitadel.yaml"
 export RENDERED_BACKUP="$test_root/backup.yaml"
 export OFFSITE_ENV_COPY="$test_root/offsite.env"
+export EXEC_STDIN="$test_root/exec-stdin.sql"
 
 cat > "$fake_bin/git" <<EOF
 #!/usr/bin/env bash
@@ -136,6 +137,12 @@ if [[ " $* " == *" apply -f - "* ]]; then
   if [[ "$payload" == *"name: nix-web"* && "$payload" == *"containerPort: 8090"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_WEB"
   fi
+  exit 0
+fi
+
+if [[ " $* " == *" exec "* ]]; then
+  printf 'exec:%s\n' "$*" >> "$KUBECTL_LOG"
+  cat > "$EXEC_STDIN"
   exit 0
 fi
 
@@ -575,6 +582,34 @@ if grep -q -- '-value' <<<"$offsite_output" || grep -q -- '-value' "$KUBECTL_LOG
 fi
 if (PATH="$fake_bin:$PATH" RESTIC_REPOSITORY=r bash "$repo_root/deploy/k8s/create-secrets.sh" --backup-offsite-only >/dev/null 2>&1); then
   echo 'create-secrets.sh accepted incomplete offsite credentials.' >&2
+  exit 1
+fi
+# Identity bootstrap is opt-in, runs after migrations and before presets, and needs its values.
+: > "$KUBECTL_LOG"
+run_deploy
+if grep -Fq 'exec:' "$KUBECTL_LOG"; then
+  echo 'Deployment bootstrapped identity without NIX_BOOTSTRAP_IDENTITY=true.' >&2
+  exit 1
+fi
+: > "$KUBECTL_LOG"
+NIX_BOOTSTRAP_IDENTITY=true NIX_BOOTSTRAP_TENANT_NAME='Example Tenant' NIX_BOOTSTRAP_OIDC_PROJECT_ID=project-id run_deploy
+assert_before "wait:-n nix wait --for=condition=complete job/nix-migrate-documents-render-order" "exec:-n nix exec -i statefulset/postgres"
+assert_before "exec:-n nix exec -i statefulset/postgres" "create-configmap:nix-template-presets"
+grep -Fq 'exec:-n nix exec -i statefulset/postgres -c postgres -- psql -X -v ON_ERROR_STOP=1 -U postgres -d nix -v tenant_name=Example Tenant -v tenant_id= -v oidc_issuer=https://identity.example.test -v oidc_client_id=web-client -v oidc_project_id=project-id -f -' "$KUBECTL_LOG"
+cmp -s "$EXEC_STDIN" "$repo_root/deploy/seed/bootstrap_identity.sql"
+for incomplete in NIX_BOOTSTRAP_TENANT_NAME NIX_BOOTSTRAP_OIDC_PROJECT_ID; do
+  : > "$KUBECTL_LOG"
+  if (export NIX_BOOTSTRAP_IDENTITY=true NIX_BOOTSTRAP_TENANT_NAME=t NIX_BOOTSTRAP_OIDC_PROJECT_ID=p; unset "$incomplete"; run_deploy 2>/dev/null); then
+    echo "Identity bootstrap ran without $incomplete." >&2
+    exit 1
+  fi
+  if [ -s "$KUBECTL_LOG" ]; then
+    echo "Deployment touched the cluster before validating $incomplete." >&2
+    exit 1
+  fi
+done
+if NIX_BOOTSTRAP_IDENTITY=yes run_deploy 2>/dev/null; then
+  echo 'Deployment accepted an invalid NIX_BOOTSTRAP_IDENTITY.' >&2
   exit 1
 fi
 echo "deployment render-order self-test passed"
