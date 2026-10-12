@@ -31,6 +31,8 @@ material and live in `docs/agent-guides/`.
 | `backend/**`, `Nix.slnx`, `Nix.Frontend/**` | `backend.md` |
 | `apps/web/**`, `packages/**` | `frontend.md` |
 | `apps/go-workers/**` | `workers.md` |
+| `apps/sites/**` (sites build worker and serving process) | `workers.md` for job, lease and transfer rules, plus `frontend.md` for TypeScript conventions |
+| Sites publishing: eligibility, manifests, hostnames, `packages/site-render` | `architecture-and-security.md` in addition to the area guide |
 | Auth, RLS, permissions, migrations, `/internal`, tokens | `architecture-and-security.md` in addition to the area guide |
 | CI, scripts, validation, commits, reviews | `workflow-and-validation.md` |
 | `deploy/**`, `.github/workflows/ci-images.yml`, production releases | `workflow-and-validation.md` and the release runbook `deploy/README.md` |
@@ -56,8 +58,14 @@ the cases that require broader proof. It does not replace CI or judgment.
 - OpenAPI is a contract seam: explicitly generated `backend/openapi/nix-api.json`
   and generated API-client code are never hand-edited.
 - Production runs CI-published images from `ghcr.io/sianachi/nix`, tagged with the
-  full commit SHA. Do not build release images on the production host except
-  through the fallback documented in `deploy/README.md`.
+  full commit SHA, on two paths: Docker Compose (`deploy/compose/release.sh`) and
+  Kubernetes (`deploy/k8s/deploy.sh`). Build release images only through CI, or the
+  fallback documented in `deploy/README.md`.
+- Published sites are static builds. Core alone decides what a build contains, the
+  build worker renders and uploads through capabilities Core signs, and anonymous
+  readers reach only the serving process and object storage, never Core or Postgres.
+- Site content is edited in Nix. `docs/site/` is a one-way snapshot refreshed with
+  `scripts/export-site-content.sh`; edit the workspace, then re-export.
 
 The previous complete policy is preserved as a native reference note. Read it with
 `go -C apps/go-workers run ./cmd/nix-docs read docs/agent-guides/legacy-full-standards.md`. Prefer the
