@@ -34,6 +34,47 @@ describe('site paths', () => {
     expect(() => parseSitePages([root], manifest)).toThrow(/lists 2 pages/);
   });
 
+  it('publishes a file item with nothing under it as an attachment, not a page', () => {
+    const site = aSite('docs');
+    const pages = [
+      ...site.pages,
+      aPage({
+        itemId: 'svg',
+        path: '/lists/one/diagram/',
+        title: 'diagram.svg',
+        type: 'file',
+        parentItemId: 'l1',
+        ordinal: 6,
+      }),
+      aPage({
+        itemId: 'box',
+        path: '/lists/box/',
+        title: 'box.pdf',
+        type: 'file',
+        parentItemId: 'lists',
+        ordinal: 7,
+      }),
+      aPage({
+        itemId: 'in',
+        path: '/lists/box/in/',
+        title: 'Inside',
+        parentItemId: 'box',
+        ordinal: 8,
+      }),
+    ];
+    const { files } = renderSite({
+      ...site,
+      manifest: { ...site.manifest, pageCount: pages.length },
+      pages,
+    });
+    const paths = files.map((file) => file.path);
+    expect(paths).not.toContain('lists/one/diagram/index.html');
+    expect(fileText(files, 'lists/one/index.html')).not.toContain('diagram.svg');
+    // A file item that holds children keeps its place in the tree.
+    expect(paths).toContain('lists/box/index.html');
+    expect(paths).toContain('lists/box/in/index.html');
+  });
+
   it('refuses a manifest over the page cap or with a bad accent', () => {
     expect(() => parseSiteManifest({ ...aManifest(), pageCount: 5_001 })).toThrow(
       SiteManifestError,
