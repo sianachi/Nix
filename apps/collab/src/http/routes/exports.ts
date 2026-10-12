@@ -1,11 +1,13 @@
 import { Readable } from 'node:stream';
 
-import { exportFileName, writeArchive } from '@nix/export';
+import { exportFileName, writeArchive, type ItemBundle } from '@nix/export';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
+import { ContentPositionUnavailableError } from '../../export/assemble.ts';
 import { STREAM_MEDIA_TYPE, writeBundleStream } from '../../export/ndjson.ts';
 import {
   prepareExport,
+  readAtSeq,
   readExportedAt,
   readScope,
   type PreparedExport,
@@ -63,7 +65,28 @@ export function registerExportRoutes(app: FastifyInstance, deps: RouteDependenci
       return problem(reply, 404, 'document_not_found', 'No such item.');
     }
 
-    const query = request.query as { scope?: string; exportedAt?: string; expandEmbeds?: string };
+    const query = request.query as {
+      scope?: string;
+      exportedAt?: string;
+      expandEmbeds?: string;
+      atSeq?: string;
+    };
+
+    // A pinned content position is for site builds, which read one page at a time.
+    let atSeq: number | undefined;
+    if (query.atSeq !== undefined) {
+      const parsed = readAtSeq(query.atSeq);
+      if (parsed === null || (query.scope ?? 'item') !== 'item') {
+        return problem(
+          reply,
+          400,
+          'invalid_at_seq',
+          "'atSeq' must be a non-negative integer and is allowed only with scope=item.",
+        );
+      }
+      atSeq = parsed;
+    }
+
     const prepared = await establishExport(
       request,
       reply,
@@ -71,9 +94,37 @@ export function registerExportRoutes(app: FastifyInstance, deps: RouteDependenci
       query.scope,
       query.exportedAt,
       query.expandEmbeds === 'true',
+      atSeq,
     );
     if (prepared === null) {
       return reply;
+    }
+
+    if (atSeq !== undefined) {
+      // The one body is read before the first byte is sent, so a pruned position is a 409 rather
+      // than a stream that stops after the manifest.
+      const collected: ItemBundle[] = [];
+      try {
+        for await (const bundle of prepared.bundles) collected.push(bundle);
+      } catch (error) {
+        if (error instanceof ContentPositionUnavailableError) {
+          return problem(
+            reply,
+            409,
+            'content_position_unavailable',
+            'The body at that content position is no longer available.',
+          );
+        }
+        throw error;
+      }
+      return exportHeaders(reply, prepared, STREAM_MEDIA_TYPE, null).send(
+        Readable.from(
+          writeBundleStream({
+            manifest: prepared.manifest,
+            bundles: Readable.from(collected),
+          }),
+        ),
+      );
     }
 
     return exportHeaders(reply, prepared, STREAM_MEDIA_TYPE, null).send(
@@ -95,6 +146,7 @@ async function establishExport(
   rawScope: string | undefined,
   rawExportedAt?: string,
   expandEmbeds = false,
+  atSeq?: number,
 ): Promise<PreparedExport | null> {
   const context = await establish(request, reply, deps);
   if (context === null) {
@@ -131,6 +183,7 @@ async function establishExport(
     scope,
     includeDeleted: false,
     expandEmbeds,
+    atSeq,
     exportedAt,
   });
 

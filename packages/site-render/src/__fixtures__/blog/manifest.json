@@ -1,0 +1,48 @@
+{
+  "formatVersion": 1,
+  "siteId": "0199c0de-0200-7000-8000-000000000900",
+  "buildId": "0199c0de-0200-7000-8000-000000000901",
+  "workspaceId": "0199c0de-0200-7000-8000-000000000902",
+  "rootItemId": "0199c0de-0200-7000-8000-000000000001",
+  "layout": "blog",
+  "settings": {
+    "name": "Osinachi Nwagboso",
+    "description": "Software engineer in Birmingham, UK, working on IoT, edge computing, backends and applied AI with .NET, Python, TypeScript and Go.",
+    "accent": "#416180",
+    "navigation": [
+      {
+        "label": "Projects",
+        "path": "/projects/"
+      },
+      {
+        "label": "Blog",
+        "path": "/blog/"
+      },
+      {
+        "label": "Uses",
+        "path": "/uses/"
+      }
+    ],
+    "footerText": "Written and published with Nix.",
+    "builtWithNix": true,
+    "language": "en-GB"
+  },
+  "canonicalOrigin": "https://nwagboso.com",
+  "builtAt": "2026-10-11T12:00:00Z",
+  "datedCollections": [
+    {
+      "itemId": "0199c0de-0200-7000-8000-000000000030",
+      "dateProperty": "published",
+      "tagsProperty": "tags",
+      "coverProperty": "cover",
+      "summaryProperty": "summary"
+    }
+  ],
+  "redirects": [
+    {
+      "from": "/writing/ai-as-a-layer/",
+      "toItemId": "0199c0de-0200-7000-8000-000000000031"
+    }
+  ],
+  "pageCount": 21
+}

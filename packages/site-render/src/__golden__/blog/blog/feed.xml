@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-GB" xml:base="https://nwagboso.com/">
+<title>Osinachi Nwagboso: Blog</title>
+<id>https://nwagboso.com/blog/</id>
+<link rel="self" type="application/atom+xml" href="https://nwagboso.com/blog/feed.xml"/>
+<link rel="alternate" type="text/html" href="https://nwagboso.com/blog/"/>
+<updated>2026-09-28T00:00:00Z</updated>
+<generator uri="https://github.com/sianachi/nix">Nix</generator>
+<entry>
+<title>AI as a layer of abstraction</title>
+<id>https://nwagboso.com/blog/ai-as-a-layer-of-abstraction/</id>
+<link rel="alternate" type="text/html" href="https://nwagboso.com/blog/ai-as-a-layer-of-abstraction/"/>
+<published>2026-09-28T00:00:00Z</published>
+<updated>2026-09-28T00:00:00Z</updated>
+<summary>Language models are the newest layer between us and the machine. Like every layer before them, they leak; what matters is whether you can see it.</summary>
+<category term="ai"/>
+<category term="engineering"/>
+<content type="html">&lt;p&gt;Every generation of tools has moved us one layer further from the machine. Assemblers spared us opcodes, compilers spared us registers, and frameworks spared us the plumbing. Language models feel like the next layer, and like every layer before them, they leak.&lt;/p&gt;
+&lt;h2 id=&quot;what-a-good-layer-does&quot;&gt;What a good layer does&lt;a class=&quot;nix-anchor&quot; href=&quot;#what-a-good-layer-does&quot; aria-label=&quot;Link to What a good layer does&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;p&gt;A good abstraction lets you forget the layer below &lt;em&gt;most&lt;/em&gt; of the time, and tells you clearly when you cannot. The trouble with a model as a layer is the second half: when it is wrong, it is wrong fluently.&lt;/p&gt;
+&lt;blockquote&gt;&lt;p&gt;The useful question is not whether the layer leaks, but whether you can see the leak.&lt;/p&gt;&lt;/blockquote&gt;
+&lt;h2 id=&quot;how-i-use-it&quot;&gt;How I use it&lt;a class=&quot;nix-anchor&quot; href=&quot;#how-i-use-it&quot; aria-label=&quot;Link to How I use it&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;&lt;p&gt;For code I could write myself, faster.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;For a first draft I will rewrite, never a final one.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Never for a decision I cannot check.&lt;/p&gt;&lt;/li&gt;&lt;/ul&gt;
+&lt;p&gt;There is a longer version of this argument in my &lt;span class=&quot;nix-ref-text&quot;&gt;reading notes&lt;/span&gt;, which are not published yet.&lt;/p&gt;</content>
+</entry>
+<entry>
+<title>Why Your Jetson Won&#39;t Stay Bricked (Probably)</title>
+<id>https://nwagboso.com/blog/why-your-jetson-wont-stay-bricked/</id>
+<link rel="alternate" type="text/html" href="https://nwagboso.com/blog/why-your-jetson-wont-stay-bricked/"/>
+<published>2026-09-14T00:00:00Z</published>
+<updated>2026-09-14T00:00:00Z</updated>
+<summary>A bad flash feels final. It almost never is: the boot ROM keeps a recovery path that no update can overwrite.</summary>
+<category term="edge"/>
+<category term="hardware"/>
+<category term="iot"/>
+<content type="html">&lt;p&gt;The first time a Jetson refuses to boot after a bad flash, it feels final. It almost never is. The board keeps a recovery path in its boot ROM that no update can overwrite.&lt;/p&gt;
+&lt;figure class=&quot;nix-figure&quot;&gt;&lt;img src=&quot;/_nix/assets/4333ab0ef607681a4eed2f5a81e23bfeb4565b38a62ca3770e85f728fa792a73.jpg&quot; alt=&quot;A Jetson module on the bench, connected for recovery mode&quot; width=&quot;1600&quot; height=&quot;1000&quot; loading=&quot;lazy&quot; decoding=&quot;async&quot;&gt;&lt;/figure&gt;
+&lt;h2 id=&quot;recovery-mode&quot;&gt;Recovery mode&lt;a class=&quot;nix-anchor&quot; href=&quot;#recovery-mode&quot; aria-label=&quot;Link to Recovery mode&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;ol&gt;&lt;li&gt;&lt;p&gt;Power the board off.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Hold the recovery button and power it on.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Connect it to a Linux host over USB.&lt;/p&gt;&lt;/li&gt;&lt;/ol&gt;
+&lt;pre class=&quot;nix-code&quot; data-language=&quot;bash&quot; tabindex=&quot;0&quot;&gt;&lt;code class=&quot;hljs&quot;&gt;lsusb | grep -i nvidia
+&lt;span class=&quot;hljs-built_in&quot;&gt;sudo&lt;/span&gt; ./flash.sh jetson-orin-nano-devkit internal&lt;/code&gt;&lt;/pre&gt;
+&lt;aside class=&quot;nix-callout nix-callout-warning&quot; aria-label=&quot;Warning&quot;&gt;&lt;p class=&quot;nix-callout-label&quot;&gt;Warning&lt;/p&gt;&lt;p&gt;Flash from a host running the exact JetPack release you are installing. Mixing versions is the usual cause of a second brick.&lt;/p&gt;&lt;/aside&gt;
+&lt;h2 id=&quot;the-boot-chain-briefly&quot;&gt;The boot chain, briefly&lt;a class=&quot;nix-anchor&quot; href=&quot;#the-boot-chain-briefly&quot; aria-label=&quot;Link to The boot chain, briefly&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;figure class=&quot;nix-figure nix-diagram&quot;&gt;&lt;img src=&quot;/_nix/assets/b51dd2a5506454fbf14eeda3bb00cdd23387e88bc864add3354a917215303115.svg&quot; alt=&quot;Diagram&quot; width=&quot;702&quot; height=&quot;63&quot; loading=&quot;lazy&quot; decoding=&quot;async&quot;&gt;&lt;/figure&gt;&lt;details class=&quot;nix-details nix-diagram-source&quot;&gt;&lt;summary&gt;Diagram source&lt;/summary&gt;&lt;pre class=&quot;nix-code&quot; data-language=&quot;mermaid&quot; tabindex=&quot;0&quot;&gt;&lt;code&gt;flowchart LR
+  ROM --&amp;gt; MB1 --&amp;gt; MB2 --&amp;gt; UEFI --&amp;gt; Kernel&lt;/code&gt;&lt;/pre&gt;&lt;/details&gt;
+&lt;p&gt;Once you know the chain, a failure stops being mysterious: the serial console tells you which stage stopped.&lt;/p&gt;</content>
+</entry>
+<entry>
+<title>The admin panel has no password</title>
+<id>https://nwagboso.com/blog/the-admin-panel-has-no-password/</id>
+<link rel="alternate" type="text/html" href="https://nwagboso.com/blog/the-admin-panel-has-no-password/"/>
+<published>2026-08-30T00:00:00Z</published>
+<updated>2026-08-30T00:00:00Z</updated>
+<summary>Most home networks hold one device whose settings page opens with no login at all. Here is why, and how to find yours.</summary>
+<category term="security"/>
+<category term="iot"/>
+<content type="html">&lt;p&gt;Scan a home network and you will find at least one device whose web admin page opens straight to the settings. No login, no warning. It is usually something nobody remembers installing.&lt;/p&gt;
+&lt;h2 id=&quot;why-it-keeps-happening&quot;&gt;Why it keeps happening&lt;a class=&quot;nix-anchor&quot; href=&quot;#why-it-keeps-happening&quot; aria-label=&quot;Link to Why it keeps happening&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;p&gt;Devices ship with the panel open so setup is easy, and the step that closes it is optional. Optional security steps are skipped steps.&lt;/p&gt;
+&lt;h2 id=&quot;what-to-do-on-your-own-network&quot;&gt;What to do on your own network&lt;a class=&quot;nix-anchor&quot; href=&quot;#what-to-do-on-your-own-network&quot; aria-label=&quot;Link to What to do on your own network&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;ul class=&quot;nix-tasks&quot;&gt;&lt;li class=&quot;nix-task nix-task-done&quot;&gt;&lt;span class=&quot;nix-task-box&quot; role=&quot;img&quot; aria-label=&quot;Done&quot;&gt;&lt;/span&gt;&lt;div&gt;&lt;p&gt;List every device that answers on port 80 or 443&lt;/p&gt;&lt;/div&gt;&lt;/li&gt;&lt;li class=&quot;nix-task nix-task-done&quot;&gt;&lt;span class=&quot;nix-task-box&quot; role=&quot;img&quot; aria-label=&quot;Done&quot;&gt;&lt;/span&gt;&lt;div&gt;&lt;p&gt;Set a password on each admin page&lt;/p&gt;&lt;/div&gt;&lt;/li&gt;&lt;li class=&quot;nix-task&quot;&gt;&lt;span class=&quot;nix-task-box&quot; role=&quot;img&quot; aria-label=&quot;Not done&quot;&gt;&lt;/span&gt;&lt;div&gt;&lt;p&gt;Move devices onto their own network segment&lt;/p&gt;&lt;/div&gt;&lt;/li&gt;&lt;/ul&gt;
+&lt;p class=&quot;nix-notice&quot;&gt;A linked section is not published.&lt;/p&gt;</content>
+</entry>
+<entry>
+<title>Kubernetes made my life easier</title>
+<id>https://nwagboso.com/blog/kubernetes-made-my-life-easier/</id>
+<link rel="alternate" type="text/html" href="https://nwagboso.com/blog/kubernetes-made-my-life-easier/"/>
+<published>2026-07-19T00:00:00Z</published>
+<updated>2026-07-19T00:00:00Z</updated>
+<summary>I resisted Kubernetes for my side projects for years. Too much machinery for three services. Then I ran three services by hand for a year. Restarts...</summary>
+<category term="devops"/>
+<category term="engineering"/>
+<content type="html">&lt;p&gt;I resisted Kubernetes for my side projects for years. Too much machinery for three services. Then I ran three services by hand for a year.&lt;/p&gt;
+&lt;h2 id=&quot;what-changed&quot;&gt;What changed&lt;a class=&quot;nix-anchor&quot; href=&quot;#what-changed&quot; aria-label=&quot;Link to What changed&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;&lt;p&gt;Restarts, rollouts and health checks stopped being scripts I maintained.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Every service declares what it needs in one place.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Moving to a new machine became a matter of pointing the cluster at it.&lt;/p&gt;&lt;/li&gt;&lt;/ul&gt;
+&lt;pre class=&quot;nix-code&quot; data-language=&quot;yaml&quot; tabindex=&quot;0&quot;&gt;&lt;code class=&quot;hljs&quot;&gt;&lt;span class=&quot;hljs-attr&quot;&gt;apiVersion:&lt;/span&gt; &lt;span class=&quot;hljs-string&quot;&gt;apps/v1&lt;/span&gt;
+&lt;span class=&quot;hljs-attr&quot;&gt;kind:&lt;/span&gt; &lt;span class=&quot;hljs-string&quot;&gt;Deployment&lt;/span&gt;
+&lt;span class=&quot;hljs-attr&quot;&gt;metadata:&lt;/span&gt;
+  &lt;span class=&quot;hljs-attr&quot;&gt;name:&lt;/span&gt; &lt;span class=&quot;hljs-string&quot;&gt;jobbie-api&lt;/span&gt;
+&lt;span class=&quot;hljs-attr&quot;&gt;spec:&lt;/span&gt;
+  &lt;span class=&quot;hljs-attr&quot;&gt;replicas:&lt;/span&gt; &lt;span class=&quot;hljs-number&quot;&gt;2&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+&lt;p&gt;It is still too much for a single static site. It is about right for anything with a database and a worker.&lt;/p&gt;</content>
+</entry>
+</feed>

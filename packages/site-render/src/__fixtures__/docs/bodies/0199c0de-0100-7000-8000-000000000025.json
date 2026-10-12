@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Plugins add blocks, views and automations. Each runs in its own sandbox with only the permissions you grant."
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "A first plugin"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "A plugin is a small package with a manifest and an entry point:"
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "typescript"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "import { definePlugin } from '@nix/plugin';\n\nexport default definePlugin({\n  name: 'word-count',\n  blocks: {\n    count: ({ item }) => `${item.text.split(/\\s+/).length} words`,\n  },\n});"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Plugins run in an isolated worker. They can only read what their manifest asks for, and you approve that when you install one."
+          }
+        ]
+      }
+    ]
+  }
+}

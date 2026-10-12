@@ -10,6 +10,20 @@ namespace Nix.Authentication;
 public static class WorkerExportDelegationPolicy
 {
     /// <summary>
+    /// Whether a running job of this kind may hold a delegation at all: an export, and a site
+    /// build, which reads each page's body from the collaboration service at a pinned position
+    /// under a token of exactly the same shape (ADR-0063). Every other job kind gets none.
+    /// </summary>
+    /// <param name="jobKind">The kind of the job whose lease the token names.</param>
+    /// <returns>Whether a delegation is honoured.</returns>
+    public static bool Delegates(string jobKind)
+    {
+        ArgumentNullException.ThrowIfNull(jobKind);
+        return jobKind.StartsWith("export.", StringComparison.Ordinal)
+            || string.Equals(jobKind, "site.build", StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Rejects every route that Collaboration does not need before any principal or database work
     /// is attempted. Item ancestry is deliberately checked later, after RLS has been established.
     /// </summary>

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Three short pages take you from nothing to a workspace you can use every day. Start with installation, then make your first workspace, then learn the handful of shortcuts that make Nix fast."
+          }
+        ]
+      }
+    ]
+  }
+}

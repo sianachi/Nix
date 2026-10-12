@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Every generation of tools has moved us one layer further from the machine. Assemblers spared us opcodes, compilers spared us registers, and frameworks spared us the plumbing. Language models feel like the next layer, and like every layer before them, they leak."
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "What a good layer does"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "A good abstraction lets you forget the layer below "
+          },
+          {
+            "type": "text",
+            "text": "most",
+            "marks": [
+              {
+                "type": "italic"
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": " of the time, and tells you clearly when you cannot. The trouble with a model as a layer is the second half: when it is wrong, it is wrong fluently."
+          }
+        ]
+      },
+      {
+        "type": "blockquote",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "The useful question is not whether the layer leaks, but whether you can see the leak."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "How I use it"
+          }
+        ]
+      },
+      {
+        "type": "bulletList",
+        "content": [
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "For code I could write myself, faster."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "For a first draft I will rewrite, never a final one."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "listItem",
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Never for a decision I cannot check."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "There is a longer version of this argument in my "
+          },
+          {
+            "type": "reference",
+            "attrs": {
+              "targetId": "0199c0de-0200-7000-8000-000000000999",
+              "label": "reading notes",
+              "kind": "item"
+            }
+          },
+          {
+            "type": "text",
+            "text": ", which are not published yet."
+          }
+        ]
+      }
+    ]
+  }
+}

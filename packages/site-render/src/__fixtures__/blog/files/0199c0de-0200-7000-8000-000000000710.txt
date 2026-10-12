@@ -1,0 +1,2 @@
+Shell: zsh with a short prompt.
+Editor: one, configured once.

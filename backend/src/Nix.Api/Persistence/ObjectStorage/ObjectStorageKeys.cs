@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using Nix.Domain.Files;
 using Nix.Domain.Importing;
+using Nix.Domain.Sites;
 using Nix.Domain.Tenancy;
 
 namespace Nix.Persistence.ObjectStorage;
@@ -135,6 +136,73 @@ public static class ObjectStorageKeys
 
         return $"exports/results/{tenantId}/{exportId:D}/{attemptId:D}.{extension}";
     }
+
+    /// <summary>The prefix every object of one build lives under, in the sites bucket.</summary>
+    public static string SiteBuildPrefix(Guid siteId, Guid buildId)
+    {
+        RequireIdentity(siteId, buildId);
+        return $"sites/{siteId:D}/builds/{buildId:D}/";
+    }
+
+    /// <summary>The prefix the content-addressed images of one site live under, shared by its builds.</summary>
+    public static string SiteAssetsPrefix(Guid siteId)
+    {
+        RequireIdentity(siteId, siteId);
+        return $"sites/{siteId:D}/assets/";
+    }
+
+    /// <summary>
+    /// The key of one file of a build. The path is the worker's, so it is validated here and not
+    /// trusted: relative, at most eight segments, each beginning with a letter, digit or underscore.
+    /// </summary>
+    public static string SiteBuild(Guid siteId, Guid buildId, string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        var segments = path.Split('/');
+        if (path.Length > 400 || segments.Length > 8 || !segments.All(IsSiteSegment))
+        {
+            throw new ArgumentException("The site file path is invalid.", nameof(path));
+        }
+
+        return SiteBuildPrefix(siteId, buildId) + path;
+    }
+
+    /// <summary>The key of one content-addressed image of a site.</summary>
+    public static string SiteAsset(Guid siteId, string sha256, string extension)
+    {
+        ArgumentNullException.ThrowIfNull(sha256);
+        ArgumentNullException.ThrowIfNull(extension);
+        if (!SiteRules.IsSha256(sha256) || extension is not ("png" or "jpg" or "webp" or "svg" or "pdf" or "txt" or "csv"))
+        {
+            throw new ArgumentException("The site asset identity is invalid.");
+        }
+
+        return $"{SiteAssetsPrefix(siteId)}{sha256}.{extension}";
+    }
+
+    /// <summary>The key of the host manifest that maps one hostname to a build.</summary>
+    public static string SiteHost(string hostname)
+    {
+        if (!SiteRules.IsHostname(hostname))
+        {
+            throw new ArgumentException("The site hostname is invalid.", nameof(hostname));
+        }
+
+        return SiteRules.HostKey(hostname);
+    }
+
+    private static void RequireIdentity(Guid first, Guid second)
+    {
+        if (first == Guid.Empty || second == Guid.Empty)
+        {
+            throw new ArgumentException("The site object identity is invalid.");
+        }
+    }
+
+    private static bool IsSiteSegment(string segment) =>
+        segment.Length is > 0 and <= 100
+        && (char.IsAsciiLetterOrDigit(segment[0]) || segment[0] == '_')
+        && segment.All(character => char.IsAsciiLetterOrDigit(character) || character is '_' or '.' or '~' or '-');
 
     public static bool BelongsTo(TenantId tenantId, string key)
     {

@@ -1,0 +1,26 @@
+{
+  "name": "@nix/sites",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Nix sites: the build worker that renders a published subtree to static files, and the anonymous process that serves them",
+  "scripts": {
+    "dev:worker": "node --watch --experimental-strip-types src/worker/index.ts",
+    "start:worker": "node --experimental-strip-types src/worker/index.ts",
+    "dev:serve": "node --watch --experimental-strip-types src/serve/index.ts",
+    "start:serve": "node --experimental-strip-types src/serve/index.ts",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nix/export": "workspace:*",
+    "@nix/site-render": "workspace:*",
+    "amqplib": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

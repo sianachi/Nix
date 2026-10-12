@@ -104,3 +104,4 @@ export {
   type ReadArchiveOptions,
   type ReadArchiveResult,
 } from './reader.js';
+export { BundleStreamError, readBundleStream, type BundleStream } from './bundle-stream.js';

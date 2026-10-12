@@ -99,8 +99,9 @@ public sealed class BrowserAuthLifecycleTests : IAsyncLifetime
         var login = await _client.GetAsync(new Uri("/auth/login?returnTo=%2F", UriKind.Relative), Cancellation);
         Assert.Equal(HttpStatusCode.Redirect, login.StatusCode);
         Assert.Contains(login.Headers.GetValues("Set-Cookie"), value =>
-            value.StartsWith("__Secure-nix_oidc=", StringComparison.Ordinal)
-            && value.Contains("path=/auth/callback", StringComparison.OrdinalIgnoreCase)
+            value.StartsWith("__Host-nix_oidc=", StringComparison.Ordinal)
+            && value.Contains("path=/;", StringComparison.OrdinalIgnoreCase)
+            && !value.Contains("domain=", StringComparison.OrdinalIgnoreCase)
             && value.Contains("secure", StringComparison.OrdinalIgnoreCase)
             && value.Contains("httponly", StringComparison.OrdinalIgnoreCase)
             && value.Contains("samesite=lax", StringComparison.OrdinalIgnoreCase));

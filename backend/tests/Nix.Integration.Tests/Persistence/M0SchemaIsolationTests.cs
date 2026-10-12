@@ -103,6 +103,7 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
         await M0SchemaSeed.SeedItemLocksAsync(_fixture);
         await M0SchemaSeed.SeedContentVersionsAsync(_fixture);
         await M0SchemaSeed.SeedItemCreationReceiptsAsync(_fixture);
+        await M0SchemaSeed.SeedSitesAsync(_fixture);
     }
 
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -395,6 +396,29 @@ public sealed class M0SchemaIsolationTests : IAsyncLifetime
                 Assert.Equal(["SELECT"], application);
                 Assert.Equal(["DELETE", "INSERT", "SELECT", "UPDATE"], collaboration);
             }
+        }
+    }
+
+    [Fact]
+    public async Task The_runtime_role_may_update_only_a_site_build_s_lifecycle_columns()
+    {
+        // The header, page count, publisher, job and idempotency key are what a worker was told
+        // to publish; only the columns its seal, activation and retirement move are writable.
+        var connection = await _fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            var updatable = await RawSql.TextListAsync(
+                connection,
+                $"""
+                SELECT column_name FROM information_schema.column_privileges
+                WHERE table_schema = 'public' AND table_name = '{NixTables.SiteBuild}'
+                  AND grantee = '{NixDatabaseRoles.Application}' AND privilege_type = 'UPDATE'
+                ORDER BY column_name
+                """);
+
+            Assert.Equal(
+                ["activated_at", "build_index_sha256", "file_count", "loss", "purge_id", "sealed_at", "status", "total_bytes"],
+                updatable);
         }
     }
 

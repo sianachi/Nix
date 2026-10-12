@@ -54,6 +54,9 @@ export interface PrepareRequest {
   readonly includeDeleted: boolean;
   readonly expandEmbeds?: boolean | undefined;
 
+  /** Read the body at this content position; only meaningful for `scope: 'item'`. */
+  readonly atSeq?: number | undefined;
+
   /** Injected, so an export of unchanged content is byte-identical to the last one. */
   readonly exportedAt: Date;
 }
@@ -110,6 +113,7 @@ export async function prepareExport(request: PrepareRequest): Promise<PreparedEx
         tenantId: request.tenant.tenantId,
         items: tree.items,
         metadata,
+        atSeq: request.atSeq,
         resolveEmbeddedItem:
           request.expandEmbeds === true
             ? async (id) => {
@@ -127,6 +131,12 @@ export async function prepareExport(request: PrepareRequest): Promise<PreparedEx
 /** Whether a query-string scope is one of the two this service serves. */
 export function readScope(value: unknown): ExportScope | null {
   return value === 'item' || value === 'subtree' ? value : null;
+}
+
+/** A non-negative safe integer log position, or null. */
+export function readAtSeq(value: unknown): number | null {
+  if (typeof value !== 'string' || !/^\d{1,15}$/.test(value)) return null;
+  return Number(value);
 }
 
 /** Parses the durable job timestamp used to keep retries byte-stable where the format permits. */

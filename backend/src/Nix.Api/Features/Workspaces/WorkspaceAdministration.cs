@@ -101,6 +101,9 @@ internal static class WorkspaceAdministrationErrors
     internal static NixError RestoreRefused() => new(
         "workspaces.restore_refused",
         "Only an owner or tenant administrator can restore an archived workspace.");
+    internal static NixError SitesStillPublished() => new(
+        "workspaces.sites_published",
+        "A site in this workspace is still published or its files are still being deleted. Unpublish its sites first.");
     internal static NixError PurgeRefused() => new(
         "workspaces.purge_refused",
         "Only an owner or tenant administrator can permanently delete an archived workspace.");

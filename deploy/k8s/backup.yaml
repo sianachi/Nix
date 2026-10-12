@@ -1,24 +1,35 @@
-# Postgres holds everything durable. Derived data (closure, snapshots, search, links,
-# embeddings) is rebuildable by design, so a logical dump is sufficient. Test a restore -
-# an untested backup is a hypothesis.
+# Nightly on-node backup, applied by deploy/k8s/deploy.sh. Postgres holds everything durable for
+# Nix and Zitadel; derived data (closure, snapshots, search, links, embeddings) is rebuildable by
+# design, so logical dumps are sufficient. The object store volume is archived with its extended
+# attributes (versitygw keeps object metadata there) and its IAM file.
+#
+# This lands on a second volume of the same node: it covers mistakes and bad migrations, not the
+# loss of the node. Copying /backup off the node is still owed (see deploy/backup/README.md).
+# Test a restore - an untested backup is a hypothesis.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: { name: nix-backup, namespace: nix }
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: local-path
-  resources: { requests: { storage: 20Gi } }
+  storageClassName: local-path-retain
+  resources: { requests: { storage: 40Gi } }
 ---
 apiVersion: batch/v1
 kind: CronJob
 metadata: { name: nix-backup, namespace: nix }
 spec:
   schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      backoffLimit: 1
       template:
+        metadata: { labels: { app: nix-backup } }
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: Never
+          automountServiceAccountToken: false
           containers:
             - name: dump
               image: pgvector/pgvector:pg16
@@ -27,9 +38,28 @@ spec:
                 - { name: PGUSER, value: postgres }
                 - name: PGPASSWORD
                   valueFrom: { secretKeyRef: { name: nix-db, key: superuser-password } }
+                - { name: KEEP_DAYS, value: "14" }
               command: ["/bin/bash", "-ec"]
-              args: ["pg_dump -Fc -d nix > /backup/nix-$(date +%F).dump"]
-              volumeMounts: [{ name: backup, mountPath: /backup }]
+              args:
+                - |
+                  day="$(date +%F)"
+                  out="/backup/$day"
+                  mkdir -p "$out.partial"
+                  pg_dumpall --roles-only > "$out.partial/roles.sql"
+                  pg_dump -Fc -d nix > "$out.partial/nix.dump"
+                  pg_dump -Fc -d zitadel > "$out.partial/zitadel.dump"
+                  tar --xattrs --xattrs-include='*' -C /objects -czf "$out.partial/objects.tar.gz" .
+                  (cd "$out.partial" && sha256sum ./* > SHA256SUMS)
+                  rm -rf "$out" && mv "$out.partial" "$out"
+                  find /backup -mindepth 1 -maxdepth 1 -type d -mtime +"$KEEP_DAYS" -exec rm -rf {} +
+                  ls -l "$out"
+              resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 512Mi } }
+              volumeMounts:
+                - { name: backup, mountPath: /backup }
+                - { name: objects, mountPath: /objects, readOnly: true }
           volumes:
             - name: backup
               persistentVolumeClaim: { claimName: nix-backup }
+            # The versitygw StatefulSet's volume (objects/ and iam/); same node, so RWO allows it.
+            - name: objects
+              persistentVolumeClaim: { claimName: data-nix-versitygw-0, readOnly: true }

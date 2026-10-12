@@ -50,6 +50,66 @@ public sealed class VersityImmutableUploadTests
         await DeleteAsync(signer, client, checksumKey, cancellationToken);
     }
 
+    [Fact]
+    public async Task PutVerified_replaces_an_object_and_still_rejects_a_bad_body_checksum_on_local_Versity()
+    {
+        if (Environment.GetEnvironmentVariable("NIX_TEST_VERSITY_UPLOAD_PROOFS") != "1")
+        {
+            throw SkipException.ForSkip("Set NIX_TEST_VERSITY_UPLOAD_PROOFS=1 to run against local Versity.");
+        }
+
+        var signer = new S3CapabilitySigner(new ObjectStorageOptions
+        {
+            Endpoint = new Uri(Environment.GetEnvironmentVariable("NIX_VERSITY_ENDPOINT") ?? "http://localhost:7070"),
+            Region = Environment.GetEnvironmentVariable("NIX_VERSITY_REGION") ?? "us-east-1",
+            Bucket = Environment.GetEnvironmentVariable("NIX_VERSITY_BUCKET") ?? "nix-worker-jobs",
+            AccessKey = Environment.GetEnvironmentVariable("NIX_VERSITY_ACCESS_KEY") ?? "nix-dev-access",
+            SecretKey = Environment.GetEnvironmentVariable("NIX_VERSITY_SECRET_KEY") ?? "nix-dev-secret-key",
+            CapabilitySeconds = 300,
+        }, TimeProvider.System);
+        using var client = new HttpClient();
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var key = $"sites-proofs/_hosts/{Guid.NewGuid():N}.json";
+        var first = Encoding.UTF8.GetBytes("""{"version":1,"generation":1}""");
+        var second = Encoding.UTF8.GetBytes("""{"version":1,"generation":2}""");
+        var spoof = Encoding.UTF8.GetBytes("""{"version":1,"generation":3}""");
+        var firstDigest = Convert.ToHexStringLower(SHA256.HashData(first));
+        var secondDigest = Convert.ToHexStringLower(SHA256.HashData(second));
+
+        using var created = await ReplacingPutAsync(signer, client, key, first, firstDigest, cancellationToken);
+        Assert.True(created.IsSuccessStatusCode, $"Versity rejected the initial PUT with {(int)created.StatusCode}.");
+        using var replaced = await ReplacingPutAsync(signer, client, key, second, secondDigest, cancellationToken);
+        Assert.True(replaced.IsSuccessStatusCode, $"Versity refused a replacing PUT with {(int)replaced.StatusCode}.");
+        using var current = await client.GetAsync(signer.Get(key).Url, cancellationToken);
+        Assert.Equal(second, await current.Content.ReadAsByteArrayAsync(cancellationToken));
+
+        using var badChecksum = await ReplacingPutAsync(signer, client, key, spoof, secondDigest, cancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, badChecksum.StatusCode);
+        using var unchanged = await client.GetAsync(signer.Get(key).Url, cancellationToken);
+        Assert.Equal(second, await unchanged.Content.ReadAsByteArrayAsync(cancellationToken));
+
+        await DeleteAsync(signer, client, key, cancellationToken);
+    }
+
+    private static async Task<HttpResponseMessage> ReplacingPutAsync(
+        S3CapabilitySigner signer,
+        HttpClient client,
+        string key,
+        byte[] body,
+        string declaredSha256,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Put, signer.PutVerified(key, body.Length, declaredSha256).Url)
+        {
+            Content = new ByteArrayContent(body),
+        };
+        request.Headers.TryAddWithoutValidation(
+            "x-amz-checksum-sha256",
+            Convert.ToBase64String(Convert.FromHexString(declaredSha256)));
+        request.Content.Headers.ContentLength = body.Length;
+        return await client.SendAsync(request, cancellationToken);
+    }
+
     private static async Task<HttpResponseMessage> PutAsync(
         S3CapabilitySigner signer,
         HttpClient client,

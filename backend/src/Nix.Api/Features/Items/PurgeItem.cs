@@ -17,7 +17,8 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
     private readonly TimeProvider _clock;
     private readonly IItemLocks _locks;
     private readonly IFinanceMutationGuard? _financeGuard;
-    public PurgeItemHandler(IItemTree tree, IPermissionResolver permissions, INixSessionContextAccessor session, TimeProvider clock, IItemLocks locks, IFinanceMutationGuard? financeGuard = null) => (_tree, _permissions, _session, _clock, _locks, _financeGuard) = (tree, permissions, session, clock, locks, financeGuard);
+    private readonly ISiteStore? _sites;
+    public PurgeItemHandler(IItemTree tree, IPermissionResolver permissions, INixSessionContextAccessor session, TimeProvider clock, IItemLocks locks, IFinanceMutationGuard? financeGuard = null, ISiteStore? sites = null) => (_tree, _permissions, _session, _clock, _locks, _financeGuard, _sites) = (tree, permissions, session, clock, locks, financeGuard, sites);
 
     public async ValueTask<Result<ItemId>> HandleAsync(PurgeItem command, CancellationToken cancellationToken)
     {
@@ -46,6 +47,12 @@ public sealed class PurgeItemHandler : ICommandHandler<PurgeItem, ItemId>
             {
                 return Result.Failure<ItemId>(ItemErrors.NotFound($"No deleted item {command.ItemId} is visible."));
             }
+        }
+        // The root of a live site, or of one whose files are still being deleted, stays until the
+        // site is unpublished and drained, as a workspace purge does.
+        if (_sites is not null && await _sites.HasLiveOrStoredSiteAsync(item.WorkspaceId, item.Id, cancellationToken).ConfigureAwait(false))
+        {
+            return Result.Failure<ItemId>(ItemErrors.LifecycleConflict("This item is the root of a published site. Unpublish the site before deleting it permanently."));
         }
         // Purging moves the item's children up to its parent, out from under its lock and any lock
         // above it. Whoever does that must have those locks open, the rule a move follows.

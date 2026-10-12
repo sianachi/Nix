@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Bring an existing notes folder into Nix. Markdown files become items, folders become parents, and images come along."
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "bash"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "nixctl import ./notes --into \"Imported notes\""
+          }
+        ]
+      }
+    ]
+  }
+}

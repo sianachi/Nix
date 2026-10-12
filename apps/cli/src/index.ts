@@ -96,6 +96,8 @@ import {
 } from './commands/recurrence.ts';
 import { runSearch } from './commands/search.ts';
 import { runExport } from './commands/export.ts';
+import * as siteCommands from './commands/sites.ts';
+import { registerSiteHostingCommands } from './commands/site-hostnames.ts';
 import { runImport } from './commands/import.ts';
 import {
   cancelDocumentImport,
@@ -2645,6 +2647,182 @@ export function buildProgram(): Command {
     .action(async (itemId: string, _options: unknown, command: Command) => {
       const flags = globalFlags(command);
       await run(() => closeLock(flags.profile, itemId, outputOptions(flags.json)));
+    });
+
+  // Sites publish an item's subtree as a static website. Core decides who may manage them; the
+  // publish of a site that is not live, auto mode, a rollback, an unpublish and a delete each need
+  // --yes.
+  const site = program.command('site').description('Publish an item and its subtree as a website.');
+
+  site
+    .command('create <rootItemId>')
+    .description('Make an item a draft site. Nothing is public until it is published.')
+    .requiredOption('--slug <slug>', 'the first label of the default hostname')
+    .option('--layout <layout>', 'docs or blog', 'docs')
+    .action(
+      async (rootItemId: string, options: { slug: string; layout: string }, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          siteCommands.createSite(flags.profile, rootItemId, options, outputOptions(flags.json)),
+        );
+      },
+    );
+
+  site
+    .command('get [siteId]')
+    .description('Read a site, by id or by its root item.')
+    .option('--item <itemId>', 'the root item instead of the site id')
+    .action(async (siteId: string | undefined, options: { item?: string }, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        siteCommands.getSite(
+          flags.profile,
+          { siteId, itemId: options.item },
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  site
+    .command('update <siteId>')
+    .description('Change settings, the republish mode, exclusions or dated collections.')
+    .option('--name <name>', 'the site name')
+    .option('--description <text>', 'the one-line description')
+    .option('--accent <hex>', 'the accent colour as #rrggbb')
+    .option('--layout <layout>', 'docs or blog')
+    .option(
+      '--mode <mode>',
+      'manual, auto or on_release; auto publishes every saved edit on its own and needs --yes',
+    )
+    .option('--debounce <seconds>', 'settle time before an automatic rebuild, 60 to 3600')
+    .option(
+      '--exclude <itemId>',
+      'an item to leave out; repeat; replaces the list',
+      collectOptional,
+    )
+    .option(
+      '--dated <spec>',
+      'add or replace a dated collection <itemId>:<dateProp>[:<tagsProp>[:<coverProp>[:<summaryProp>]]]; repeat; others are kept',
+      collectOptional,
+    )
+    .option('--undated <itemId>', 'stop treating a collection as dated; repeat', collectOptional)
+    .option('--yes', 'confirm switching to auto mode', false)
+    .action(async (siteId: string, options: siteCommands.UpdateSiteOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        siteCommands.updateSite(flags.profile, siteId, options, outputOptions(flags.json)),
+      );
+    });
+
+  site
+    .command('publish <siteId>')
+    .description(
+      'Build the site and take it live. Publishing a site that is not live (a draft or an unpublished site) needs --yes.',
+    )
+    .option(
+      '--refresh-paths',
+      're-derive the paths of pages whose path is not pinned; each old path keeps redirecting to the new one',
+      false,
+    )
+    .option('--yes', 'confirm the content becomes public', false)
+    .option('--wait', 'wait until the build is live or has failed', false)
+    .option('--timeout <seconds>', 'how long --wait waits', '600')
+    .action(async (siteId: string, options: siteCommands.PublishOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        siteCommands.publishSite(flags.profile, siteId, options, outputOptions(flags.json)),
+      );
+    });
+
+  site
+    .command('builds <siteId>')
+    .description("A site's builds, newest first.")
+    .action(async (siteId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => siteCommands.listBuilds(flags.profile, siteId, outputOptions(flags.json)));
+    });
+
+  site
+    .command('build <siteId> <buildId>')
+    .description('One build: status, page count and what could not be published.')
+    .action(async (siteId: string, buildId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        siteCommands.getBuild(flags.profile, siteId, buildId, outputOptions(flags.json)),
+      );
+    });
+
+  site
+    .command('pages <siteId>')
+    .description("A site's page paths.")
+    .action(async (siteId: string, _options: unknown, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() => siteCommands.listPages(flags.profile, siteId, outputOptions(flags.json)));
+    });
+
+  site
+    .command('path <siteId> <itemId> <path>')
+    .description('Set and pin one page path; the old path becomes a permanent redirect.')
+    .action(
+      async (siteId: string, itemId: string, path: string, _options: unknown, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          siteCommands.setPath(flags.profile, siteId, itemId, path, outputOptions(flags.json)),
+        );
+      },
+    );
+
+  site
+    .command('rollback <siteId> <buildId>')
+    .description('Serve a previous build again, exactly as it was then.')
+    .option('--yes', 'confirm re-serving that content', false)
+    .action(
+      async (siteId: string, buildId: string, options: ConfirmCliOptions, command: Command) => {
+        const flags = globalFlags(command);
+        await run(() =>
+          siteCommands.rollbackSite(
+            flags.profile,
+            siteId,
+            buildId,
+            options.yes === true,
+            outputOptions(flags.json),
+          ),
+        );
+      },
+    );
+
+  site
+    .command('unpublish <siteId>')
+    .description('Take the site down and delete its builds. Copies others made may remain.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(async (siteId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        siteCommands.unpublishSite(
+          flags.profile,
+          siteId,
+          options.yes === true,
+          outputOptions(flags.json),
+        ),
+      );
+    });
+
+  registerSiteHostingCommands(site, { flags: globalFlags, run, output: outputOptions });
+
+  site
+    .command('delete <siteId>')
+    .description('Delete a site that is not live.')
+    .option('--yes', 'confirm this destructive operation', false)
+    .action(async (siteId: string, options: ConfirmCliOptions, command: Command) => {
+      const flags = globalFlags(command);
+      await run(() =>
+        siteCommands.deleteSite(
+          flags.profile,
+          siteId,
+          options.yes === true,
+          outputOptions(flags.json),
+        ),
+      );
     });
 
   return program;

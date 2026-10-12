@@ -352,39 +352,53 @@ internal static class RunItemChartEndpoint
             .ConfigureAwait(false);
 
         return result.Match<Results<Ok<ChartResponse>, ProblemHttpResult>>(
-            chart => TypedResults.Ok(
-                new ChartResponse(
-                    itemId,
-                    view,
-                    chart.GroupBy,
-                    chart.Measure,
-                    chart.MeasureProperty,
-                    [
-                        .. chart.Buckets.Select(bucket =>
-                            new ChartBucketResponse(
-                                bucket.Value,
-                                bucket.Children,
-                                bucket.Total,
-                                [.. bucket.Cells.Select(cell => new ChartCellResponse(cell.Children, cell.Total))])),
-                    ],
-                    chart.Children,
-                    chart.DistinctValues,
-                    chart.Truncated,
-                    chart.Kind,
-                    chart.Period,
-                    chart.SplitBy,
-                    chart.From,
-                    chart.To,
-                    [
-                        .. chart.Series.Select(series =>
-                            new ChartSeriesResponse(series.Value, series.Other, series.Children, series.Total)),
-                    ],
-                    chart.OtherSeries,
-                    chart.Unplaced,
-                    chart.OutsideWindow,
-                    chart.Stacked,
-                    chart.Cumulative,
-                    chart.RollingAverage)),
+            chart => TypedResults.Ok(ChartMapping.ToResponse(itemId, view, chart)),
             error => TypedResults.Problem(ChartEndpoints.Problem(httpContext, error)));
+    }
+}
+
+/// <summary>Maps a drawn chart onto its published shape; shared by the endpoint and by site builds.</summary>
+internal static class ChartMapping
+{
+    /// <summary>Maps one chart.</summary>
+    /// <param name="itemId">The container the chart was drawn for.</param>
+    /// <param name="view">The chart view's identifier.</param>
+    /// <param name="chart">The drawn chart.</param>
+    /// <returns>The published shape.</returns>
+    internal static ChartResponse ToResponse(Guid itemId, string view, ItemChart chart)
+    {
+        ArgumentNullException.ThrowIfNull(chart);
+        return new ChartResponse(
+            itemId,
+            view,
+            chart.GroupBy,
+            chart.Measure,
+            chart.MeasureProperty,
+            [
+                .. chart.Buckets.Select(bucket =>
+                    new ChartBucketResponse(
+                        bucket.Value,
+                        bucket.Children,
+                        bucket.Total,
+                        [.. bucket.Cells.Select(cell => new ChartCellResponse(cell.Children, cell.Total))])),
+            ],
+            chart.Children,
+            chart.DistinctValues,
+            chart.Truncated,
+            chart.Kind,
+            chart.Period,
+            chart.SplitBy,
+            chart.From,
+            chart.To,
+            [
+                .. chart.Series.Select(series =>
+                    new ChartSeriesResponse(series.Value, series.Other, series.Children, series.Total)),
+            ],
+            chart.OtherSeries,
+            chart.Unplaced,
+            chart.OutsideWindow,
+            chart.Stacked,
+            chart.Cumulative,
+            chart.RollingAverage);
     }
 }

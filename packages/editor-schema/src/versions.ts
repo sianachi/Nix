@@ -59,6 +59,7 @@ export const ATTRIBUTE_MIN_VERSION: Readonly<Record<string, number>> = Object.fr
   'paragraph.textAlign': 5,
   'heading.textAlign': 5,
   'detailsSummary.textAlign': 5,
+  'codeBlock.renderFileId': 6,
 });
 
 /** The two tables {@link requiredSchemaVersion} consults, together. */
@@ -107,6 +108,13 @@ export function requiredSchemaVersion(
     const fileItemId: unknown = node.type.name === 'image' ? attributes.fileItemId : null;
     if (typeof fileItemId === 'string' && fileItemId.length > 0) {
       const attributeMinimum = ATTRIBUTE_MIN_VERSION['image.fileItemId'];
+      if (attributeMinimum !== undefined && attributeMinimum > required)
+        required = attributeMinimum;
+    }
+
+    const renderFileId: unknown = node.type.name === 'codeBlock' ? attributes.renderFileId : null;
+    if (renderFileId !== null && renderFileId !== undefined) {
+      const attributeMinimum = ATTRIBUTE_MIN_VERSION['codeBlock.renderFileId'];
       if (attributeMinimum !== undefined && attributeMinimum > required)
         required = attributeMinimum;
     }

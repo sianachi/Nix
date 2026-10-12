@@ -6,14 +6,15 @@ import { ErrorPanel } from '../components/states/status-panels';
 import { settingsPanelWidth } from '../layout/regions';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
+import { SitePane } from '../sites/site-pane';
 import type { ItemProperties } from '../properties/use-item-properties';
 import type { ContainerData } from '../views/core/use-container';
 import { SchemaEditor } from '../views/core/schema-editor';
 import { ViewEditor } from '../views/core/view-editor';
 
 /**
- * One panel, four panes: what this item *is*, what its children may carry, how they are shown, and
- * what elsewhere points at it.
+ * One panel, five panes: what this item *is*, what its children may carry, how they are shown,
+ * what elsewhere points at it, and whether it is published as a site.
  *
  * **The rename is the point.** Two surfaces were called Properties - the values on this item, and
  * the schema it gives its children - and they are different questions with the same answer only by
@@ -24,7 +25,7 @@ import { ViewEditor } from '../views/core/view-editor';
  * reopening it to continue.
  */
 
-export type Pane = 'details' | 'fields' | 'views' | 'links';
+export type Pane = 'details' | 'fields' | 'views' | 'links' | 'site';
 
 const PANES = [
   { value: 'details', label: 'Details' },
@@ -34,6 +35,8 @@ const PANES = [
   // what it is. It sits here rather than in a surface of its own because it is another way of
   // configuring nothing and reading something, which is what this panel already is.
   { value: 'links', label: 'Links' },
+  // Publishing this item and everything inside it as a website (ADR-0063).
+  { value: 'site', label: 'Site' },
 ] as const;
 
 export interface ItemPanelProps {
@@ -44,6 +47,10 @@ export interface ItemPanelProps {
 
   readonly onClose: () => void;
   readonly overlay?: boolean;
+
+  /** The pane to show, when the caller steers it (the Site menu entry does). */
+  readonly pane?: Pane;
+  readonly onPaneChange?: (pane: Pane) => void;
 }
 
 export function ItemPanel({
@@ -51,8 +58,12 @@ export function ItemPanel({
   details,
   onClose,
   overlay = false,
+  pane: steeredPane,
+  onPaneChange,
 }: ItemPanelProps): ReactNode {
-  const [pane, setPane] = useState<Pane>('details');
+  const [ownPane, setOwnPane] = useState<Pane>('details');
+  const pane = steeredPane ?? ownPane;
+  const setPane = onPaneChange ?? setOwnPane;
 
   return (
     // The panel clips and the pane content inside it scrolls, rather than the panel itself
@@ -90,6 +101,10 @@ export function ItemPanel({
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 pb-3">
         {pane === 'details' ? (
           <DetailsPane container={container} details={details} />
+        ) : pane === 'site' ? (
+          details.item === null ? null : (
+            <SitePane itemId={details.item.id} title={details.item.title} />
+          )
         ) : pane === 'links' ? (
           <BacklinksPane itemId={details.item?.id ?? null} />
         ) : pane === 'fields' ? (

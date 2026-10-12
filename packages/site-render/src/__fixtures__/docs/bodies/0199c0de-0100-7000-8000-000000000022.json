@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "A canvas is an item whose body is a drawing surface. Place notes, shapes, images and other items on it, and connect them."
+          }
+        ]
+      },
+      {
+        "type": "heading",
+        "attrs": {
+          "level": 1
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "Placing items"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Drag any item from the sidebar onto a canvas to place a live card for it. Editing the card edits the item."
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "json"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "{\n  \"kind\": \"card\",\n  \"itemId\": \"0199c0de-0000-7000-8000-000000000021\",\n  \"x\": 120,\n  \"y\": 80\n}"
+          }
+        ]
+      }
+    ]
+  }
+}
