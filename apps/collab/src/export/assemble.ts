@@ -422,8 +422,11 @@ export function lockedOmissions(
  * `content_position_unavailable`, so a site build fails rather than publishing a different body.
  */
 export class ContentPositionUnavailableError extends Error {
-  constructor(readonly seq: number) {
+  readonly seq: number;
+
+  constructor(seq: number) {
     super(`The content at position ${String(seq)} cannot be reconstructed.`);
+    this.seq = seq;
     this.name = 'ContentPositionUnavailableError';
   }
 }
