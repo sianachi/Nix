@@ -55,4 +55,16 @@ describe('collectFileReferences', () => {
       { pageItemId: 'p', fileItemId: 'f3', kind: 'embed' },
     ]);
   });
+
+  it('treats a reference to an attached file item as a possible download, not a page link', () => {
+    const page = aPage({ itemId: 'p', path: '/' });
+    const cv = aPage({ itemId: 'cv', path: '/cv/', type: 'file', parentItemId: 'p', ordinal: 1 });
+    const body = prose({
+      type: 'paragraph',
+      content: [{ type: 'reference', attrs: { targetId: 'cv', kind: 'item', label: 'CV' } }],
+    });
+    expect(collectFileReferences([page, cv], new Map([['p', body]]))).toEqual([
+      { pageItemId: 'p', fileItemId: 'cv', kind: 'link' },
+    ]);
+  });
 });

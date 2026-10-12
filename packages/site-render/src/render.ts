@@ -10,7 +10,12 @@ import type { PublishedDownload } from './downloads.js';
 import { notice, renderProse, type ProseAsset, type ProseDownload } from './html/prose.js';
 import { renderViewHtml } from './html/views.js';
 import type { StrippedImage } from './images.js';
-import { SiteManifestError, type SiteBuildManifest, type SitePage } from './manifest.js';
+import {
+  SiteManifestError,
+  publishedPages,
+  type SiteBuildManifest,
+  type SitePage,
+} from './manifest.js';
 import { buildSearchIndex } from './search.js';
 import type { SiteModel, SiteNode } from './site-model.js';
 import { renderRobots, renderSitemap } from './sitemap.js';
@@ -128,7 +133,7 @@ function buildTree(
 export function renderSite(input: RenderSiteInput): RenderedSite {
   const { manifest } = input;
   const report = createLossReport();
-  const { nodes, byItem } = buildTree(manifest, input.pages);
+  const { nodes, byItem } = buildTree(manifest, publishedPages(input.pages));
   const root = byItem.get(manifest.rootItemId);
   if (root === undefined) {
     throw new SiteManifestError('The root item is not among the pages.');
