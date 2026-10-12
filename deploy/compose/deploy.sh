@@ -24,6 +24,21 @@ print(s["nix-api"]["environment"]["Nix__Bff__PublicOrigin"])
 print(registry + "/release-tools:" + tag)
 print(s["nix-api"]["environment"].get("Nix__Sites__Domain") or "")')
 { read -r NIX_SMOKE_ORIGIN; read -r release_tools_image; read -r sites_domain || true; } <<< "$release_config"
+# Fresh installs only: NIX_BOOTSTRAP_IDENTITY=true runs nix-identity-bootstrap after the migrator,
+# creating the tenant and its identity providers from the env file's NIX_BOOTSTRAP_* and NIX_OIDC_*
+# values (deploy/seed/bootstrap_identity.sql). Checked here, before any writer stops.
+bootstrap_identity=${NIX_BOOTSTRAP_IDENTITY:-false}
+case "$bootstrap_identity" in
+  true)
+    "${compose[@]}" --profile bootstrap config --format json | python3 -c '
+import json, sys
+e = json.load(sys.stdin)["services"]["nix-identity-bootstrap"]["environment"]
+missing = [k for k in ("NIX_BOOTSTRAP_TENANT_NAME", "NIX_BOOTSTRAP_OIDC_PROJECT_ID") if not (e.get(k) or "").strip()]
+if missing:
+    sys.exit("NIX_BOOTSTRAP_IDENTITY=true needs " + ", ".join(missing) + " in the env file.")' ;;
+  false) ;;
+  *) echo 'NIX_BOOTSTRAP_IDENTITY must be true or false' >&2; exit 2 ;;
+esac
 # Sites (ADR-0063) roll with the release when the env file enables them: COMPOSE_PROFILES=sites
 # (visible only without --profile flags) or NIX_SITES_DOMAIN. Otherwise they are left alone.
 sites_services=()
@@ -73,6 +88,9 @@ done
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
 "${compose[@]}" run --rm --no-deps nix-migrate
+if [ "$bootstrap_identity" = true ]; then
+  "${compose[@]}" --profile bootstrap run --rm --no-deps nix-identity-bootstrap
+fi
 "${compose[@]}" run --rm --no-deps nix-template-presets
 "${compose[@]}" run --rm --no-deps nix-api-init
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-collab-migrate

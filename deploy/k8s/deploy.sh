@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Applies a Nix release to k3s, in the order that keeps a bad step from reaching users:
-# database -> object store -> seed -> identity database -> migrations -> preset reconciliation ->
+# database -> object store -> seed -> identity database -> migrations -> identity bootstrap (opt-in) ->
+# preset reconciliation ->
 # workloads (with Zitadel) -> ingress -> worker -> managed templates.
 #
 # Run deploy/k8s/create-secrets.sh once per cluster before the first run of this script.
@@ -27,6 +28,12 @@
 # (create-secrets.sh --backup-offsite-only) and makes the nightly backup Job fail without it.
 # The Job pushes off the node whenever that secret exists, whatever this flag says.
 #
+# Identity bootstrap (opt-in): a fresh install has no tenant or identity_provider row, so nobody can
+# sign in. Once OIDC_CLIENT_ID is the real application id, deploy once with NIX_BOOTSTRAP_IDENTITY=true,
+# NIX_BOOTSTRAP_TENANT_NAME and NIX_BOOTSTRAP_OIDC_PROJECT_ID (the identity provider's project id,
+# the audience of machine tokens); NIX_BOOTSTRAP_TENANT_ID is optional. After migrations it runs
+# deploy/seed/bootstrap_identity.sql in the postgres pod against OIDC_ISSUER/OIDC_CLIENT_ID. Idempotent.
+#
 # NIX_SITES_REQUIRE_OPERATOR_APPROVAL (default true) holds a site's first publish for an operator.
 #
 # POD_CIDR defaults to k3s's stock Flannel range (10.42.0.0/16) - confirm yours with:
@@ -50,6 +57,15 @@ case "$NIX_TEMPLATE_BOOT_ENABLED" in
   true) require_template_boot_config ;;
   false) ;;
   *) echo "NIX_TEMPLATE_BOOT_ENABLED must be true or false" >&2; exit 1 ;;
+esac
+NIX_BOOTSTRAP_IDENTITY="${NIX_BOOTSTRAP_IDENTITY:-false}"
+case "$NIX_BOOTSTRAP_IDENTITY" in
+  true)
+    : "${NIX_BOOTSTRAP_TENANT_NAME:?set NIX_BOOTSTRAP_TENANT_NAME when NIX_BOOTSTRAP_IDENTITY=true}"
+    : "${NIX_BOOTSTRAP_OIDC_PROJECT_ID:?set NIX_BOOTSTRAP_OIDC_PROJECT_ID when NIX_BOOTSTRAP_IDENTITY=true}"
+    ;;
+  false) ;;
+  *) echo "NIX_BOOTSTRAP_IDENTITY must be true or false" >&2; exit 1 ;;
 esac
 SITES_REQUIRE_OPERATOR_APPROVAL="${NIX_SITES_REQUIRE_OPERATOR_APPROVAL:-true}"
 case "$SITES_REQUIRE_OPERATOR_APPROVAL" in
@@ -201,6 +217,16 @@ echo "== Migrations (tag $TAG) =="
 render deploy/k8s/job-migrate.yaml | kubectl apply -f -
 kubectl -n nix wait --for=condition=complete "job/nix-migrate-$TAG" --timeout=300s
 kubectl -n nix wait --for=condition=complete "job/nix-migrate-documents-$TAG" --timeout=300s
+
+if [ "$NIX_BOOTSTRAP_IDENTITY" = true ]; then
+  echo "== Identity bootstrap =="
+  kubectl -n nix exec -i statefulset/postgres -c postgres -- \
+    psql -X -v ON_ERROR_STOP=1 -U postgres -d nix \
+    -v tenant_name="$NIX_BOOTSTRAP_TENANT_NAME" -v tenant_id="${NIX_BOOTSTRAP_TENANT_ID:-}" \
+    -v oidc_issuer="$OIDC_ISSUER" -v oidc_client_id="$OIDC_CLIENT_ID" \
+    -v oidc_project_id="$NIX_BOOTSTRAP_OIDC_PROJECT_ID" \
+    -f - < deploy/seed/bootstrap_identity.sql
+fi
 
 echo "== Template presets (tag $TAG) =="
 kubectl -n nix delete "job/nix-template-presets-$TAG" --ignore-not-found
