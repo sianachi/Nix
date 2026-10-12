@@ -4,7 +4,14 @@
 # attributes (versitygw keeps object metadata there) and its IAM file.
 #
 # This lands on a second volume of the same node: it covers mistakes and bad migrations, not the
-# loss of the node. Copying /backup off the node is still owed (see deploy/backup/README.md).
+# loss of the node. For that, the offsite container pushes the verified day directory to an
+# encrypted restic repository (Cloudflare R2) with the Compose conventions of
+# deploy/compose/offsite.sh: the same environment names, path /backup/<dir>, tag kind=nightly,
+# nightly retention (7 daily, 4 weekly, 6 monthly, pruned) and `restic check` after every push,
+# reading a 5% data sample on Sundays. Host nix-k8s keeps its retention group apart from Compose's.
+# It runs only when the nix-backup-offsite secret exists (create-secrets.sh --backup-offsite-only);
+# deploy.sh with NIX_BACKUP_OFFSITE=true renders OFFSITE_REQUIRED so a missing secret fails the Job.
+# Initialize the repository once with deploy/compose/offsite.sh init; the Job never creates one.
 # Test a restore - an untested backup is a hypothesis.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -30,7 +37,7 @@ spec:
         spec:
           restartPolicy: Never
           automountServiceAccountToken: false
-          containers:
+          initContainers:
             - name: dump
               image: pgvector/pgvector:pg16
               env:
@@ -53,13 +60,70 @@ spec:
                   rm -rf "$out" && mv "$out.partial" "$out"
                   find /backup -mindepth 1 -maxdepth 1 -type d -mtime +"$KEEP_DAYS" -exec rm -rf {} +
                   ls -l "$out"
+                  printf '%s\n' "$day" > /backup/LATEST
               resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 512Mi } }
               volumeMounts:
                 - { name: backup, mountPath: /backup }
                 - { name: objects, mountPath: /objects, readOnly: true }
           volumes:
+            - name: restic-scratch
+              emptyDir: { sizeLimit: 256Mi }
+            - name: restic-cache
+              emptyDir: { sizeLimit: 512Mi }
             - name: backup
               persistentVolumeClaim: { claimName: nix-backup }
             # The versitygw StatefulSet's volume (objects/ and iam/); same node, so RWO allows it.
             - name: objects
               persistentVolumeClaim: { claimName: data-nix-versitygw-0, readOnly: true }
+          containers:
+            - name: offsite
+              image: restic/restic:0.19.1@sha256:136600b6ff6843d61d355f7f71f460a166429f35de6fd11b568fece3c9a4d510
+              # RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION.
+              envFrom: [{ secretRef: { name: nix-backup-offsite, optional: true } }]
+              env:
+                - { name: OFFSITE_REQUIRED, value: "${BACKUP_OFFSITE}" }
+                - { name: RESTIC_CACHE_DIR, value: /cache }
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  if [ -z "${RESTIC_REPOSITORY:-}" ]; then
+                    if [ "$OFFSITE_REQUIRED" = true ]; then
+                      echo 'offsite: NIX_BACKUP_OFFSITE=true but secret nix-backup-offsite is missing' >&2
+                      exit 1
+                    fi
+                    echo 'offsite: not configured (no nix-backup-offsite secret); local backup only'
+                    exit 0
+                  fi
+                  for key in RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION; do
+                    eval "value=\${$key:-}"
+                    [ -n "$value" ] || { echo "offsite: FAILED - nix-backup-offsite does not set $key" >&2; exit 1; }
+                  done
+                  fail() { echo "offsite: FAILED - $*" >&2; exit 1; }
+                  name="$(cat /backup/LATEST)"
+                  case "$name" in *[!0-9-]* | '') fail "unexpected backup directory name: $name" ;; esac
+                  (cd "/backup/$name" && sha256sum -c SHA256SUMS >/dev/null) || fail "/backup/$name does not match its SHA256SUMS"
+                  status=0
+                  restic cat config >/dev/null || status=$?
+                  [ "$status" -ne 10 ] || fail 'the repository does not exist; initialize it once with deploy/compose/offsite.sh init'
+                  [ "$status" -eq 0 ] || fail "could not open the repository (restic exit $status)"
+                  echo "offsite: pushing /backup/$name"
+                  restic backup --host nix-k8s --tag kind=nightly "/backup/$name" || fail "restic backup of /backup/$name failed"
+                  restic forget --host nix-k8s --tag kind=nightly --group-by host \
+                    --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune || fail 'restic forget failed'
+                  subset=''
+                  [ "$(date +%u)" != 7 ] || subset='--read-data-subset=5%'
+                  restic check $subset || fail 'restic check failed'
+                  echo "offsite: pushed /backup/$name"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65532
+                runAsGroup: 65532
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+                seccompProfile: { type: RuntimeDefault }
+              resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 1Gi } }
+              volumeMounts:
+                - { name: backup, mountPath: /backup, readOnly: true }
+                - { name: restic-scratch, mountPath: /tmp }
+                - { name: restic-cache, mountPath: /cache }

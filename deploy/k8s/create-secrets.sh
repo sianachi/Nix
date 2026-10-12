@@ -14,7 +14,7 @@
 #
 # Existing clusters can update an external service secret without touching database or signing
 # secrets by running this script with `--rabbitmq-only`, `--object-store-only`, `--sites-only`,
-# `--tls-only`, `--sites-cloudflare-only`, `--push-only` (creates the Web Push key pair only when
+# `--tls-only`, `--backup-offsite-only`, `--sites-cloudflare-only`, `--push-only` (creates the Web Push key pair only when
 # missing) or `--zitadel-only` (creates the identity provider's secret only when missing). Production values (keys, certificate paths) come from the operator's local,
 # uncommitted environment, never from this repository.
 set -euo pipefail
@@ -263,7 +263,39 @@ create_zitadel_secret() {
   echo "Zitadel administrator: kubectl -n nix get secret nix-zitadel -o jsonpath='{.data.admin-password}' | base64 -d"
 }
 
+# Off-node backup (deploy/k8s/backup.yaml): restic's own variables, the names Compose's
+# offsite.sh credentials file uses, read from the operator's environment. Values go to kubectl
+# through a mode-600 temporary env file, never argv or output. Re-running replaces the secret;
+# RESTIC_PASSWORD must stay the repository's password.
+create_backup_offsite_secret() {
+  local key
+  for key in RESTIC_REPOSITORY RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+    if [ -z "${!key:-}" ]; then
+      echo "set $key in the environment (AWS_DEFAULT_REGION defaults to auto)" >&2
+      exit 1
+    fi
+  done
+  offsite_env_file="$(umask 077 && mktemp)"
+  trap 'rm -f "$offsite_env_file"' EXIT
+  {
+    printf 'RESTIC_REPOSITORY=%s\n' "$RESTIC_REPOSITORY"
+    printf 'RESTIC_PASSWORD=%s\n' "$RESTIC_PASSWORD"
+    printf 'AWS_ACCESS_KEY_ID=%s\n' "$AWS_ACCESS_KEY_ID"
+    printf 'AWS_SECRET_ACCESS_KEY=%s\n' "$AWS_SECRET_ACCESS_KEY"
+    printf 'AWS_DEFAULT_REGION=%s\n' "${AWS_DEFAULT_REGION:-auto}"
+  } > "$offsite_env_file"
+  kubectl -n nix create secret generic nix-backup-offsite --from-env-file="$offsite_env_file" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  rm -f "$offsite_env_file"
+  echo "secret nix-backup-offsite applied."
+}
+
 case "${1:-}" in
+  --backup-offsite-only)
+    create_backup_offsite_secret
+    echo "The next nightly backup pushes off the node. Deploy with NIX_BACKUP_OFFSITE=true to require it."
+    exit 0
+    ;;
   --zitadel-only)
     create_zitadel_secret
     exit 0
@@ -304,7 +336,7 @@ case "${1:-}" in
     ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--calendar-only|--sites-only|--sites-cloudflare-only|--push-only|--tls-only|--zitadel-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--backup-offsite-only|--object-store-only|--calendar-only|--sites-only|--sites-cloudflare-only|--push-only|--tls-only|--zitadel-only]" >&2
     exit 2
     ;;
 esac
