@@ -35,6 +35,14 @@ spec:
             - { name: NIX_TEMPLATE_BOOT_OIDC_AUDIENCE, value: "${TEMPLATE_BOOT_OIDC_AUDIENCE}" }
             - { name: NIX_TEMPLATE_BOOT_OIDC_SCOPE, value: "${TEMPLATE_BOOT_OIDC_SCOPE}" }
             - { name: NIX_TEMPLATE_BOOT_SERVICE_KEY_FILE, value: /var/run/secrets/nix/service-account-key.json }
+            - { name: NIX_TEMPLATE_BOOT_REVISION, value: "${TAG}" }
+            # Core signs template uploads for the object store; the script PUTs only to these origins.
+            - name: NIX_OBJECT_STORE_ENDPOINT
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+            - name: NIX_OBJECT_STORE_PUBLIC_ORIGIN
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
+            - name: NIX_TEMPLATE_BOOT_OBJECT_ORIGINS
+              value: "$(NIX_OBJECT_STORE_ENDPOINT),$(NIX_OBJECT_STORE_PUBLIC_ORIGIN)"
             - name: NIX_TEMPLATE_BOOT_HEALTH_URLS
               value: http://nix-api:8080/healthz,http://nix-collab:8100/healthz
             - { name: NIX_TEMPLATE_BOOT_HEALTH_TIMEOUT_MS, value: "180000" }

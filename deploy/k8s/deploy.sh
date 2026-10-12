@@ -15,6 +15,12 @@
 # for an external identity provider. OIDC_CLIENT_ID is the Zitadel application's client id: on a
 # first install deploy once with a placeholder, create the application, then deploy again.
 #
+# Managed templates need a workspace, a Zitadel project and a service-account key that a first install
+# does not have yet. Set NIX_TEMPLATE_BOOT_ENABLED=false until they exist; the step is then skipped
+# and everything else, the Ingress included, is applied. TEMPLATE_BOOT_* is required otherwise.
+#
+# NIX_SITES_REQUIRE_OPERATOR_APPROVAL (default true) holds a site's first publish for an operator.
+#
 # POD_CIDR defaults to k3s's stock Flannel range (10.42.0.0/16) - confirm yours with:
 #   kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
 set -euo pipefail
@@ -31,11 +37,21 @@ source deploy/k8s/template-boot-config.sh
 : "${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID}"
 : "${DOMAIN:?set DOMAIN, e.g. nix.example.com}"
 OIDC_ISSUER="${OIDC_ISSUER:-https://auth.$DOMAIN}"
-require_template_boot_config
+NIX_TEMPLATE_BOOT_ENABLED="${NIX_TEMPLATE_BOOT_ENABLED:-true}"
+case "$NIX_TEMPLATE_BOOT_ENABLED" in
+  true) require_template_boot_config ;;
+  false) ;;
+  *) echo "NIX_TEMPLATE_BOOT_ENABLED must be true or false" >&2; exit 1 ;;
+esac
+SITES_REQUIRE_OPERATOR_APPROVAL="${NIX_SITES_REQUIRE_OPERATOR_APPROVAL:-true}"
+case "$SITES_REQUIRE_OPERATOR_APPROVAL" in
+  true | false) ;;
+  *) echo "NIX_SITES_REQUIRE_OPERATOR_APPROVAL must be true or false" >&2; exit 1 ;;
+esac
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
-export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN
+export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -196,21 +212,25 @@ kubectl -n nix rollout status deployment/nix-sites-serve --timeout=180s
 kubectl -n nix rollout status deployment/nix-zitadel --timeout=900s
 kubectl apply -f deploy/k8s/backup.yaml
 
-kubectl -n nix get "persistentvolumeclaim/$TEMPLATE_BOOT_PVC" >/dev/null
-kubectl -n nix get "secret/$TEMPLATE_BOOT_SERVICE_KEY_SECRET" >/dev/null
+if [ "$NIX_TEMPLATE_BOOT_ENABLED" = true ]; then
+  kubectl -n nix get "persistentvolumeclaim/$TEMPLATE_BOOT_PVC" >/dev/null
+  kubectl -n nix get "secret/$TEMPLATE_BOOT_SERVICE_KEY_SECRET" >/dev/null
 
-kubectl -n nix create configmap nix-template-boot-script \
-  --from-file=sync-managed-templates.mjs=deploy/template-sync/sync-managed-templates.mjs \
-  --dry-run=client -o yaml | kubectl apply -f -
+  kubectl -n nix create configmap nix-template-boot-script \
+    --from-file=sync-managed-templates.mjs=deploy/template-sync/sync-managed-templates.mjs \
+    --dry-run=client -o yaml | kubectl apply -f -
 
-echo "== Managed templates (tag $TAG) =="
-kubectl -n nix delete "job/nix-template-boot-$TAG" --ignore-not-found
-render deploy/k8s/job-template-sync.yaml | kubectl apply -f -
-if ! kubectl -n nix wait --for=condition=complete "job/nix-template-boot-$TAG" --timeout=300s; then
-  kubectl -n nix describe "job/nix-template-boot-$TAG" >&2 || true
-  kubectl -n nix get pods -l job-name="nix-template-boot-$TAG" -o wide >&2 || true
-  kubectl -n nix logs -l job-name="nix-template-boot-$TAG" --all-containers --tail=200 >&2 || true
-  exit 1
+  echo "== Managed templates (tag $TAG) =="
+  kubectl -n nix delete "job/nix-template-boot-$TAG" --ignore-not-found
+  render deploy/k8s/job-template-sync.yaml | kubectl apply -f -
+  if ! kubectl -n nix wait --for=condition=complete "job/nix-template-boot-$TAG" --timeout=300s; then
+    kubectl -n nix describe "job/nix-template-boot-$TAG" >&2 || true
+    kubectl -n nix get pods -l job-name="nix-template-boot-$TAG" -o wide >&2 || true
+    kubectl -n nix logs -l job-name="nix-template-boot-$TAG" --all-containers --tail=200 >&2 || true
+    exit 1
+  fi
+else
+  echo "== Managed templates skipped (NIX_TEMPLATE_BOOT_ENABLED=false) =="
 fi
 
 echo "== Ingress =="

@@ -23,7 +23,7 @@ spec:
             - name: NIX_MIGRATOR_CONNECTION_STRING
               valueFrom: { secretKeyRef: { name: nix-connections, key: migrator } }
           resources:
-            requests: { cpu: 100m, memory: 128Mi }
+            requests: { cpu: 50m, memory: 128Mi }
             limits: { memory: 512Mi }
 ---
 # The second migration job is easy to forget and its absence is silent:
@@ -48,5 +48,5 @@ spec:
             - name: NIX_COLLAB_MIGRATOR_CONNECTION_STRING
               valueFrom: { secretKeyRef: { name: nix-connections, key: collab-migrator } }
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
+            requests: { cpu: 50m, memory: 256Mi }
             limits: { memory: 1Gi }
