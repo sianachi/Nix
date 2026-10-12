@@ -8,7 +8,9 @@
     // build step, so imports carry their .ts extension and this has to allow them. There is
     // no dist to keep in step with source, which for a service is one fewer thing to get
     // wrong; the packages it imports are built normally.
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    // Node strips types without compiling, so parameter properties and enums cannot be used.
+    "erasableSyntaxOnly": true
   },
   "include": ["src/**/*.ts", "vitest.config.ts"]
 }
