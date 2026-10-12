@@ -243,7 +243,11 @@ describe('the site commands over a stubbed Core', () => {
       updateSite(
         'default',
         SITE,
-        { nav: ['Get started=/getting-started/', 'Blog=/blog/'], footer: 'Hi', builtWithNix: false },
+        {
+          nav: ['Get started=/getting-started/', 'Blog=/blog/'],
+          footer: 'Hi',
+          builtWithNix: false,
+        },
         json,
         { env },
       ),
