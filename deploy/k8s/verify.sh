@@ -174,4 +174,24 @@ else
   echo "SITE_HOST not set - skipping the published-site check."
 fi
 
+echo "== Off-node backup =="
+# The nightly Job succeeds only after its offsite push, forget and check, so with the secret present
+# its last success is the age of the newest offsite snapshot.
+if kubectl -n nix get secret nix-backup-offsite >/dev/null 2>&1; then
+  last_backup="$(kubectl -n nix get cronjob nix-backup -o jsonpath='{.status.lastSuccessfulTime}')"
+  offsite_since="$(kubectl -n nix get secret nix-backup-offsite -o jsonpath='{.metadata.creationTimestamp}')"
+  # RFC 3339 UTC timestamps order as strings; a success before the secret existed pushed nothing.
+  if [ -z "$last_backup" ] || [[ "$last_backup" < "$offsite_since" ]]; then
+    echo "WARNING: offsite configured but no nix-backup run has succeeded since."
+  else
+    backup_age_hours=$(( ($(date -u +%s) - $(date -u -d "$last_backup" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$last_backup" +%s)) / 3600 ))
+    echo "last successful offsite snapshot $last_backup (${backup_age_hours}h ago)"
+    if [ "$backup_age_hours" -gt 36 ]; then
+      echo "WARNING: the last offsite snapshot is older than 36 hours - check: kubectl -n nix logs -l app=nix-backup -c offsite"
+    fi
+  fi
+else
+  echo "nix-backup-offsite not configured - backups stay on the node."
+fi
+
 echo "Automated checks done. Remaining: sign in, two-browser edit, PDF export, deep-route reload."
