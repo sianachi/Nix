@@ -29,6 +29,8 @@ export interface SiteModel {
   readonly theme: { readonly css: string; readonly js: string };
   readonly asset: (fileItemId: string) => ProseAsset | null;
   readonly download: (fileItemId: string) => ProseDownload | null;
+  /** The generated link-preview image for a page, or null when none is drawn. */
+  readonly preview: (path: string, title: string, caption: string) => ProseAsset | null;
 }
 
 export function isEntry(node: SiteNode): boolean {
@@ -68,6 +70,33 @@ export function formatDate(value: string | null): string {
     return '';
   }
   return `${String(Number(match[3]))} ${MONTHS[Number(match[2]) - 1] ?? ''} ${match[1] ?? ''}`;
+}
+
+/** An RFC 3339 instant from a manifest date; a bare day is read as midnight UTC. */
+export function rfc3339(value: string | null, fallback: string): string {
+  if (value === null || value.length === 0) {
+    return fallback;
+  }
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value;
+}
+
+/**
+ * When a page last really changed: Core's `updatedAt` (the later of the item's own change and its
+ * body's last update), or the publication date when that is later (a post dated ahead of its last
+ * edit). Compared as instants, not strings, since the two may be written in different offsets.
+ */
+export function modifiedAt(node: SiteNode): string {
+  const updated = rfc3339(node.page.updatedAt, '');
+  const published = rfc3339(node.page.publishedAt, '');
+  return Date.parse(published) > Date.parse(updated) ? published : updated;
+}
+
+/** The latest of some RFC 3339 instants, or empty for none. */
+export function latest(values: readonly string[]): string {
+  return values.reduce(
+    (best, value) => (best === '' || Date.parse(value) > Date.parse(best) ? value : best),
+    '',
+  );
 }
 
 /** The date part, for `<time datetime>`. */

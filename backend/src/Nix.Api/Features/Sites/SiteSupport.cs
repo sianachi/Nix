@@ -384,7 +384,9 @@ public sealed class SiteViews(ISiteStore sites, IPermissionResolver permissions,
             [.. (dto.Navigation ?? []).Select(link => new SiteNavLink(link?.Label ?? string.Empty, link?.Path ?? string.Empty))],
             dto.FooterText ?? string.Empty,
             dto.BuiltWithNix,
-            dto.Language);
+            dto.Language,
+            dto.Noindex,
+            string.IsNullOrWhiteSpace(dto.Author) ? null : dto.Author.Trim());
         return settings.Validate() is { } refusal
             ? Result.Failure<SiteSettingsDto>(SiteErrors.Invalid(refusal))
             : Result.Success(new SiteSettingsDto(
@@ -394,6 +396,8 @@ public sealed class SiteViews(ISiteStore sites, IPermissionResolver permissions,
                 [.. settings.Navigation.Select(link => new SiteNavLinkDto(link.Label, link.Path))],
                 settings.FooterText,
                 settings.BuiltWithNix,
-                settings.Language));
+                settings.Language,
+                settings.Noindex,
+                settings.Author));
     }
 }

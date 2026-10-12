@@ -173,6 +173,32 @@ public sealed class SiteEligibilityTests(NixPostgresFixture fixture) : IAsyncLif
     }
 
     [Fact]
+    public async Task A_page_was_last_modified_when_its_body_last_changed_unless_the_item_changed_later()
+    {
+        var item = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var body = new DateTimeOffset(2026, 3, 4, 10, 0, 0, TimeSpan.Zero);
+        await Sql($"UPDATE item SET last_modified_at = '{item:O}' WHERE id = '{Root.Value}'");
+        await Sql($"UPDATE content_update SET created_at = '{body:O}' WHERE doc_id = (SELECT doc_id FROM content_doc WHERE item_id = '{Root.Value}')");
+
+        Assert.Equal(body, await RootModifiedAsync());
+
+        // A head update pruned by retention falls back to the item's own time.
+        await Sql($"DELETE FROM content_update WHERE doc_id = (SELECT doc_id FROM content_doc WHERE item_id = '{Root.Value}')");
+        Assert.Equal(item, await RootModifiedAsync());
+    }
+
+    private async Task<DateTimeOffset> RootModifiedAsync()
+    {
+        var pages = await _scenario.ReadAsync(SiteScenario.Manager, async unit =>
+        {
+            var store = unit.Resolve<ISiteStore>();
+            var site = await store.FindAsync(_siteId, Cancellation);
+            return await store.EligiblePagesAsync(site!, DateTimeOffset.UtcNow, Cancellation);
+        });
+        return pages.Single(page => page.Id == Root).LastModifiedAt;
+    }
+
+    [Fact]
     public async Task A_chart_is_withheld_when_any_active_child_of_its_container_is_not_eligible()
     {
         var container = await _scenario.CreateItemAsync("Chart container", Root, "folder");

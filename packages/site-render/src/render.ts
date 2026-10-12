@@ -25,6 +25,12 @@ import { renderBlogPages } from './theme/layout-blog.js';
 import { renderDocsPages } from './theme/layout-docs.js';
 import { renderShell } from './theme/shell.js';
 import { glyph } from './theme/parts.js';
+import {
+  PREVIEW_HEIGHT,
+  PREVIEW_WIDTH,
+  previewSvg,
+  type PreviewRasterizer,
+} from './theme/preview-image.js';
 
 /**
  * A whole site, rendered: every file a build writes, in a stable order.
@@ -37,6 +43,12 @@ import { glyph } from './theme/parts.js';
  * Pure apart from reading the theme's font files from `@fontsource/nunito-sans`.
  */
 
+/**
+ * The most link-preview cards one build draws (about 12 ms and 50 KB each). Pages past the cap
+ * share the home page's card, and the build reports it.
+ */
+export const MAX_PREVIEW_IMAGES = 500;
+
 export interface RenderSiteInput {
   readonly manifest: SiteBuildManifest;
   /** Parsed by `parseSitePages`, so paths, parents and the root are already checked. */
@@ -47,6 +59,11 @@ export interface RenderSiteInput {
   readonly assets: ReadonlyMap<string, StrippedImage>;
   /** Attached PDF, text and CSV files, by file item; absent for none. */
   readonly downloads?: ReadonlyMap<string, PublishedDownload>;
+  /**
+   * Draws each page's link-preview card (`loadPreviewRasterizer`). Absent, pages without a cover
+   * carry no `og:image`; passed in rather than loaded here so rendering stays synchronous.
+   */
+  readonly previews?: PreviewRasterizer;
 }
 
 export interface RenderedFile {
@@ -188,6 +205,43 @@ export function renderSite(input: RenderSiteInput): RenderedSite {
   ).slice(0, 16);
   const themeDir = `_nix/theme/${themeHash}/`;
 
+  // Link-preview cards, content-addressed like any image, so an unchanged page uploads nothing.
+  const previewFiles = new Map<string, Uint8Array>();
+  let homePreview: ProseAsset | null = null;
+  const preview = (path: string, title: string, caption: string): ProseAsset | null => {
+    if (input.previews === undefined) {
+      return null;
+    }
+    if (previewFiles.size >= MAX_PREVIEW_IMAGES && path !== '/') {
+      report
+        .for(manifest.rootItemId)
+        .note(
+          'view-rows-truncated',
+          `Only the first ${String(MAX_PREVIEW_IMAGES)} pages have their own link-preview image; the rest share the home page's.`,
+        );
+      return homePreview;
+    }
+    const png = input.previews(
+      previewSvg({
+        siteName: manifest.settings.name,
+        title,
+        caption,
+        accent: manifest.settings.accent,
+      }),
+    );
+    const digest = sha256(png);
+    previewFiles.set(digest, png);
+    const card = {
+      url: `/_nix/assets/${digest}.png`,
+      width: PREVIEW_WIDTH,
+      height: PREVIEW_HEIGHT,
+    };
+    if (path === '/') {
+      homePreview = card;
+    }
+    return card;
+  };
+
   const model: SiteModel = {
     manifest,
     root,
@@ -196,6 +250,7 @@ export function renderSite(input: RenderSiteInput): RenderedSite {
     theme: { css: `/${themeDir}site.css`, js: `/${themeDir}site.js` },
     asset,
     download,
+    preview,
   };
 
   const context = {
@@ -317,6 +372,14 @@ export function renderSite(input: RenderSiteInput): RenderedSite {
     if (image !== undefined && path !== null && !assetPaths.has(path)) {
       assetPaths.add(path);
       add(path, image.mediaType, image.bytes, 'asset');
+    }
+  }
+
+  for (const [digest, png] of previewFiles) {
+    const path = `_nix/assets/${digest}.png`;
+    if (!assetPaths.has(path)) {
+      assetPaths.add(path);
+      add(path, 'image/png', png, 'asset');
     }
   }
 

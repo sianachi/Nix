@@ -1,25 +1,27 @@
 import { escapeHtml } from './html/escape.js';
-import { entriesOf, type SiteModel, type SiteNode } from './site-model.js';
+import {
+  entriesOf,
+  latest,
+  modifiedAt,
+  rfc3339,
+  type SiteModel,
+  type SiteNode,
+} from './site-model.js';
 import { absolute } from './theme/shell.js';
 import { entryTags, summaryOf } from './theme/parts.js';
 
 /**
  * One Atom feed per dated collection, at `<collection path>feed.xml`, newest entry first.
- * Dates are the manifest's own; a bare day is read as midnight UTC.
+ * Dates are the manifest's own; a bare day is read as midnight UTC. An entry's `<updated>` is its
+ * last real change (the same instant the sitemap's `lastmod` uses), and the feed's is the latest
+ * of those.
  */
-
-export function rfc3339(value: string | null, fallback: string): string {
-  if (value === null || value.length === 0) {
-    return fallback;
-  }
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00Z` : value;
-}
 
 export function renderFeed(model: SiteModel, collection: SiteNode): string {
   const { builtAt, settings } = model.manifest;
   const entries = entriesOf(collection);
   const url = absolute(model, collection.page.path);
-  const updated = rfc3339(entries[0]?.page.publishedAt ?? null, builtAt);
+  const updated = latest(entries.map(modifiedAt)) || builtAt;
   const items = entries
     .map((entry) => {
       const link = absolute(model, entry.page.path);
@@ -30,7 +32,7 @@ export function renderFeed(model: SiteModel, collection: SiteNode): string {
 <id>${escapeHtml(link)}</id>
 <link rel="alternate" type="text/html" href="${escapeHtml(link)}"/>
 <published>${escapeHtml(published)}</published>
-<updated>${escapeHtml(published)}</updated>
+<updated>${escapeHtml(modifiedAt(entry))}</updated>
 ${summary.length > 0 ? `<summary>${escapeHtml(summary)}</summary>\n` : ''}${entryTags(entry)
         .map((tag) => `<category term="${escapeHtml(tag)}"/>\n`)
         .join('')}<content type="html">${escapeHtml(entry.prose?.html ?? '')}</content>

@@ -4,14 +4,14 @@
 <id>https://nwagboso.com/blog/</id>
 <link rel="self" type="application/atom+xml" href="https://nwagboso.com/blog/feed.xml"/>
 <link rel="alternate" type="text/html" href="https://nwagboso.com/blog/"/>
-<updated>2026-09-28T00:00:00Z</updated>
+<updated>2026-10-06T09:00:00Z</updated>
 <generator uri="https://github.com/sianachi/nix">Nix</generator>
 <entry>
 <title>AI as a layer of abstraction</title>
 <id>https://nwagboso.com/blog/ai-as-a-layer-of-abstraction/</id>
 <link rel="alternate" type="text/html" href="https://nwagboso.com/blog/ai-as-a-layer-of-abstraction/"/>
 <published>2026-09-28T00:00:00Z</published>
-<updated>2026-09-28T00:00:00Z</updated>
+<updated>2026-10-06T09:00:00Z</updated>
 <summary>Language models are the newest layer between us and the machine. Like every layer before them, they leak; what matters is whether you can see it.</summary>
 <category term="ai"/>
 <category term="engineering"/>
@@ -28,7 +28,7 @@
 <id>https://nwagboso.com/blog/why-your-jetson-wont-stay-bricked/</id>
 <link rel="alternate" type="text/html" href="https://nwagboso.com/blog/why-your-jetson-wont-stay-bricked/"/>
 <published>2026-09-14T00:00:00Z</published>
-<updated>2026-09-14T00:00:00Z</updated>
+<updated>2026-10-06T09:00:00Z</updated>
 <summary>A bad flash feels final. It almost never is: the boot ROM keeps a recovery path that no update can overwrite.</summary>
 <category term="edge"/>
 <category term="hardware"/>
@@ -50,7 +50,7 @@
 <id>https://nwagboso.com/blog/the-admin-panel-has-no-password/</id>
 <link rel="alternate" type="text/html" href="https://nwagboso.com/blog/the-admin-panel-has-no-password/"/>
 <published>2026-08-30T00:00:00Z</published>
-<updated>2026-08-30T00:00:00Z</updated>
+<updated>2026-10-06T09:00:00Z</updated>
 <summary>Most home networks hold one device whose settings page opens with no login at all. Here is why, and how to find yours.</summary>
 <category term="security"/>
 <category term="iot"/>
@@ -66,7 +66,7 @@
 <id>https://nwagboso.com/blog/kubernetes-made-my-life-easier/</id>
 <link rel="alternate" type="text/html" href="https://nwagboso.com/blog/kubernetes-made-my-life-easier/"/>
 <published>2026-07-19T00:00:00Z</published>
-<updated>2026-07-19T00:00:00Z</updated>
+<updated>2026-10-06T09:00:00Z</updated>
 <summary>I resisted Kubernetes for my side projects for years. Too much machinery for three services. Then I ran three services by hand for a year. Restarts...</summary>
 <category term="devops"/>
 <category term="engineering"/>
