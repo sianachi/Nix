@@ -28,6 +28,8 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
             - name: NIX_OBJECT_STORE_BUCKET
               valueFrom: { secretKeyRef: { name: nix-object-store, key: bucket } }
+            - name: NIX_SITES_BUCKET
+              valueFrom: { secretKeyRef: { name: nix-sites, key: bucket } }
             # Peers allowed to name the visitor in CF-Connecting-IP: the pod network, where Traefik runs.
             - name: NIX_TRUSTED_PROXY_CIDR
               value: "${POD_CIDR}"
