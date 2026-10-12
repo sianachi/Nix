@@ -72,12 +72,19 @@ export function subscribeToMermaidTheme(onChange: () => void): () => void {
 
 let pending = Promise.resolve();
 
-export function renderMermaid(source: string, id: string): Promise<string> {
+/**
+ * Renders a diagram to an SVG string. `capture` draws it for publishing instead of for this
+ * screen: Mermaid's neutral theme and a system font stack, independent of the viewer's theme, so
+ * the picture reads the same on any page that shows it.
+ */
+export function renderMermaid(source: string, id: string, capture = false): Promise<string> {
   // Mermaid keeps its configuration and diagram databases shared across asynchronous renders.
   const result = pending.then(async () => {
     const fontDocument: { readonly fonts?: FontFaceSet } = document;
     await fontDocument.fonts?.ready;
-    const themeVariables = mermaidThemeVariables();
+    const themeVariables = capture
+      ? { darkMode: false, fontFamily: 'Arial, Helvetica, sans-serif', lineColor: undefined }
+      : mermaidThemeVariables();
     mermaid.initialize({
       securityLevel: 'strict',
       startOnLoad: false,
@@ -92,7 +99,7 @@ export function renderMermaid(source: string, id: string): Promise<string> {
         'maxTextSize',
         'maxEdges',
       ],
-      theme: 'base',
+      theme: capture ? 'neutral' : 'base',
       themeVariables,
     });
     const { svg } = await mermaid.render(id, source);

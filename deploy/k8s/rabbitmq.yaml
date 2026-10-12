@@ -45,6 +45,11 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: calendar-password } }
             - name: NIX_RABBITMQ_NOTIFY_PASSWORD
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: notify-password } }
+            - name: NIX_RABBITMQ_SITES_PASSWORD
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: sites-password } }
+            # The combined Go worker's account (deploy/k8s/worker.yaml).
+            - name: NIX_RABBITMQ_WORKER_PASSWORD
+              valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: worker-password } }
           livenessProbe:
             exec: { command: [rabbitmq-diagnostics, -q, ping] }
             periodSeconds: 10
@@ -60,7 +65,7 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 12
           resources:
-            requests: { cpu: 100m, memory: 256Mi }
+            requests: { cpu: 100m, memory: 192Mi }
             limits: { cpu: "1", memory: 768Mi }
           volumeMounts:
             - { name: data, mountPath: /var/lib/rabbitmq }
@@ -93,5 +98,5 @@ spec:
         - podSelector: { matchLabels: { app: nix-api } }
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [nix-import-worker, nix-export-worker, nix-plugin-worker, nix-calendar-worker, nix-notify-worker] }
+              - { key: app, operator: In, values: [nix-worker, nix-sites-worker] }
       ports: [{ protocol: TCP, port: 5672 }]

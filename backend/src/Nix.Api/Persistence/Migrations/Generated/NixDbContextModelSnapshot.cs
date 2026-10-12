@@ -2966,6 +2966,745 @@ namespace Nix.Persistence.Migrations.Generated
                         });
                 });
 
+            modelBuilder.Entity("Nix.Domain.Sites.Site", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ApprovalDecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approval_decided_at");
+
+                    b.Property<Guid?>("ApprovalDecidedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approval_decided_by");
+
+                    b.Property<string>("ApprovalNote")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("approval_note");
+
+                    b.Property<DateTimeOffset?>("ApprovalRequestedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("approval_requested_at");
+
+                    b.Property<Guid?>("ApprovalRequestedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("approval_requested_by");
+
+                    b.Property<string>("ApprovalState")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("approval_state");
+
+                    b.Property<Guid?>("AutoPrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("auto_principal_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by");
+
+                    b.Property<int>("DebounceSeconds")
+                        .HasColumnType("integer")
+                        .HasColumnName("debounce_seconds");
+
+                    b.Property<string>("Layout")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("layout");
+
+                    b.Property<Guid?>("LiveBuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("live_build_id");
+
+                    b.Property<string>("PrimaryHostname")
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)")
+                        .HasColumnName("primary_hostname");
+
+                    b.Property<string>("RepublishMode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("republish_mode");
+
+                    b.Property<Guid>("RootItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("root_item_id");
+
+                    b.Property<string>("Settings")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("settings");
+
+                    b.Property<string>("Slug")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("slug");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<Guid>("WorkspaceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("workspace_id");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_site");
+
+                    b.HasIndex("Slug")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_slug");
+
+                    b.HasIndex("TenantId", "ApprovalRequestedAt")
+                        .HasDatabaseName("ix_site_approval_pending")
+                        .HasFilter("approval_state = 'pending'");
+
+                    b.HasIndex("TenantId", "AutoPrincipalId")
+                        .HasDatabaseName("ix_site_auto_principal")
+                        .HasFilter("auto_principal_id IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CreatedBy")
+                        .HasDatabaseName("ix_site_created_by");
+
+                    b.HasIndex("TenantId", "RootItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_root");
+
+                    b.HasIndex("TenantId", "WorkspaceId")
+                        .HasDatabaseName("ix_site_workspace");
+
+                    b.ToTable("site", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_bounded", "slug ~ '^[a-z0-9](-?[a-z0-9]){1,39}$' AND layout IN ('docs', 'blog') AND republish_mode IN ('manual', 'auto', 'on_release') AND status IN ('draft', 'published', 'unpublished') AND debounce_seconds BETWEEN 60 AND 3600 AND (republish_mode <> 'auto' OR auto_principal_id IS NOT NULL) AND (status = 'published') = (live_build_id IS NOT NULL) AND pg_column_size(settings) <= 16384 AND (primary_hostname IS NULL OR char_length(primary_hostname) BETWEEN 3 AND 253) AND (approval_state IS NULL OR approval_state IN ('pending', 'approved', 'rejected')) AND (approval_state IS NULL OR (approval_requested_by IS NOT NULL AND approval_requested_at IS NOT NULL)) AND (approval_note IS NULL OR char_length(approval_note) <= 500)");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteActivation", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("AppliedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("applied_at");
+
+                    b.Property<Guid>("BuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("build_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("Generation")
+                        .HasColumnType("integer")
+                        .HasColumnName("generation");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("job_id");
+
+                    b.Property<string>("Ops")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("ops");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_site_activation");
+
+                    b.HasIndex("TenantId", "BuildId")
+                        .HasDatabaseName("ix_site_activation_build");
+
+                    b.HasIndex("TenantId", "JobId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_activation_job");
+
+                    b.HasIndex("TenantId", "SiteId", "Generation")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_activation_generation");
+
+                    b.ToTable("site_activation", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_activation_bounded", "reason IN ('publish', 'rollback', 'unpublish', 'hostnames') AND generation >= 1 AND jsonb_typeof(ops) = 'array'");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuild", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset?>("ActivatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("activated_at");
+
+                    b.Property<string>("BuildIndexSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("build_index_sha256");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("FileCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("file_count");
+
+                    b.Property<string>("Header")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("header");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<Guid>("JobId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("job_id");
+
+                    b.Property<string>("Loss")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("loss");
+
+                    b.Property<string>("Origin")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("origin");
+
+                    b.Property<int>("PageCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("page_count");
+
+                    b.Property<Guid>("PublisherId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("publisher_id");
+
+                    b.Property<Guid?>("PurgeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("purge_id");
+
+                    b.Property<DateTimeOffset?>("SealedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sealed_at");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("status");
+
+                    b.Property<long>("TotalBytes")
+                        .HasColumnType("bigint")
+                        .HasColumnName("total_bytes");
+
+                    b.HasKey("TenantId", "Id")
+                        .HasName("pk_site_build");
+
+                    b.HasIndex("TenantId", "JobId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_build_job");
+
+                    b.HasIndex("TenantId", "PublisherId")
+                        .HasDatabaseName("ix_site_build_publisher");
+
+                    b.HasIndex("TenantId", "PurgeId")
+                        .HasDatabaseName("ix_site_build_purge")
+                        .HasFilter("purge_id IS NOT NULL");
+
+                    b.HasIndex("TenantId", "SiteId", "CreatedAt")
+                        .IsDescending(false, false, true)
+                        .HasDatabaseName("ix_site_build_site_created");
+
+                    b.HasIndex("TenantId", "SiteId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_build_idempotency");
+
+                    b.ToTable("site_build", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_build_bounded", "status IN ('queued', 'sealed', 'live', 'superseded', 'failed', 'purged') AND origin IN ('manual', 'auto') AND page_count BETWEEN 0 AND 5000 AND file_count >= 0 AND total_bytes >= 0 AND char_length(idempotency_key) BETWEEN 1 AND 160 AND jsonb_typeof(loss) = 'array' AND (build_index_sha256 IS NULL OR build_index_sha256 ~ '^[0-9a-f]{64}$')");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuildFile", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("BuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("build_id");
+
+                    b.Property<Guid>("SourceItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_item_id");
+
+                    b.Property<Guid>("FileItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_item_id");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("byte_length");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("FileVersionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("file_version_id");
+
+                    b.Property<string>("MediaType")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("media_type");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.HasKey("TenantId", "BuildId", "SourceItemId", "FileItemId")
+                        .HasName("pk_site_build_file");
+
+                    b.ToTable("site_build_file", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_build_file_bounded", "sha256 ~ '^[0-9a-f]{64}$' AND ((media_type IN ('image/png', 'image/jpeg', 'image/webp') AND byte_length BETWEEN 1 AND 10485760) OR (media_type = 'image/svg+xml' AND byte_length BETWEEN 1 AND 2097152) OR (media_type IN ('application/pdf', 'text/plain', 'text/csv') AND byte_length BETWEEN 1 AND 20971520))");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuildObject", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("BuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("build_id");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(700)
+                        .HasColumnType("character varying(700)")
+                        .HasColumnName("key");
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint")
+                        .HasColumnName("byte_length");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("sha256");
+
+                    b.HasKey("TenantId", "BuildId", "Key")
+                        .HasName("pk_site_build_object");
+
+                    b.HasIndex("TenantId", "Key")
+                        .HasDatabaseName("ix_site_build_object_asset")
+                        .HasFilter("kind = 'asset'");
+
+                    b.ToTable("site_build_object", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_build_object_bounded", "kind IN ('build', 'asset') AND sha256 ~ '^[0-9a-f]{64}$' AND byte_length BETWEEN 0 AND 52428800 AND char_length(key) BETWEEN 1 AND 700");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuildPage", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("BuildId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("build_id");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("integer")
+                        .HasColumnName("ordinal");
+
+                    b.Property<string>("Chart")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("chart");
+
+                    b.Property<long?>("ContentSeq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("content_seq");
+
+                    b.Property<Guid?>("DatedCollectionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("dated_collection_id");
+
+                    b.Property<Guid?>("DocId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("doc_id");
+
+                    b.Property<DateTimeOffset>("ItemCreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("item_created_at");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<DateTimeOffset>("ItemUpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("item_updated_at");
+
+                    b.Property<Guid?>("ParentItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("parent_item_id");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("path");
+
+                    b.Property<string>("Properties")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("PropertyFiles")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("property_files");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<string>("Schema")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("schema");
+
+                    b.Property<long>("Seq")
+                        .HasColumnType("bigint")
+                        .HasColumnName("seq");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("title");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("type");
+
+                    b.Property<string>("Views")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("views");
+
+                    b.HasKey("TenantId", "BuildId", "Ordinal")
+                        .HasName("pk_site_build_page");
+
+                    b.HasIndex("TenantId", "BuildId", "ItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_build_page_item");
+
+                    b.ToTable("site_build_page", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_build_page_bounded", "ordinal >= 0 AND path ~ '^/([a-z0-9][a-z0-9-]{0,79}/)*$' AND char_length(title) <= 500 AND jsonb_typeof(properties) = 'object' AND jsonb_typeof(property_files) = 'array'");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteDatedCollectionSetting", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<string>("CoverProperty")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("cover_property");
+
+                    b.Property<string>("DateProperty")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("date_property");
+
+                    b.Property<string>("SummaryProperty")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("summary_property");
+
+                    b.Property<string>("TagsProperty")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("tags_property");
+
+                    b.HasKey("TenantId", "SiteId", "ItemId")
+                        .HasName("pk_site_dated_collection");
+
+                    b.HasIndex("TenantId", "ItemId")
+                        .HasDatabaseName("ix_site_dated_collection_item");
+
+                    b.ToTable("site_dated_collection", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_dated_collection_bounded", "char_length(date_property) BETWEEN 1 AND 128 AND (tags_property IS NULL OR char_length(tags_property) BETWEEN 1 AND 128) AND (cover_property IS NULL OR char_length(cover_property) BETWEEN 1 AND 128) AND (summary_property IS NULL OR char_length(summary_property) BETWEEN 1 AND 128)");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteExclusion", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.HasKey("TenantId", "SiteId", "ItemId")
+                        .HasName("pk_site_exclusion");
+
+                    b.HasIndex("TenantId", "ItemId")
+                        .HasDatabaseName("ix_site_exclusion_item");
+
+                    b.ToTable("site_exclusion", (string)null);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteHostname", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<string>("Hostname")
+                        .HasMaxLength(253)
+                        .HasColumnType("character varying(253)")
+                        .HasColumnName("hostname");
+
+                    b.Property<string>("CheckError")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("check_error");
+
+                    b.Property<int>("CheckFailures")
+                        .HasColumnType("integer")
+                        .HasColumnName("check_failures");
+
+                    b.Property<DateTimeOffset?>("CheckedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("checked_at");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("ManagedRecords")
+                        .HasColumnType("jsonb")
+                        .HasColumnName("managed_records");
+
+                    b.Property<string>("ServeMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasDefaultValue("serve")
+                        .HasColumnName("serve_mode");
+
+                    b.Property<string>("VerificationToken")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("verification_token");
+
+                    b.Property<DateTimeOffset?>("VerifiedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("verified_at");
+
+                    b.HasKey("TenantId", "SiteId", "Hostname")
+                        .HasName("pk_site_hostname");
+
+                    b.HasIndex("Hostname")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_hostname_verified")
+                        .HasFilter("verified_at IS NOT NULL");
+
+                    b.HasIndex("TenantId", "SiteId")
+                        .HasDatabaseName("ix_site_hostname_site");
+
+                    b.ToTable("site_hostname", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_hostname_bounded", "char_length(hostname) BETWEEN 3 AND 253 AND hostname = lower(hostname) AND kind IN ('default', 'custom') AND (kind = 'custom' OR verified_at IS NOT NULL) AND serve_mode IN ('serve', 'redirect') AND (kind = 'default' OR (verification_token IS NOT NULL AND verification_token ~ '^[0-9a-f]{32}$')) AND check_failures BETWEEN 0 AND 10 AND (check_error IS NULL OR char_length(check_error) <= 64) AND (managed_records IS NULL OR (jsonb_typeof(managed_records) = 'object' AND pg_column_size(managed_records) <= 2048))");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SitePage", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Path")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("path");
+
+                    b.Property<bool>("Pinned")
+                        .HasColumnType("boolean")
+                        .HasColumnName("pinned");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("TenantId", "SiteId", "ItemId")
+                        .HasName("pk_site_page");
+
+                    b.HasIndex("TenantId", "ItemId")
+                        .HasDatabaseName("ix_site_page_item");
+
+                    b.HasIndex("TenantId", "SiteId", "Path")
+                        .IsUnique()
+                        .HasDatabaseName("ux_site_page_path");
+
+                    b.ToTable("site_page", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_page_path", "path ~ '^/([a-z0-9][a-z0-9-]{0,79}/)*$' AND char_length(path) <= 512");
+                        });
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteRedirect", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("SiteId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("site_id");
+
+                    b.Property<string>("FromPath")
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("from_path");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("ItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("item_id");
+
+                    b.HasKey("TenantId", "SiteId", "FromPath")
+                        .HasName("pk_site_redirect");
+
+                    b.HasIndex("TenantId", "ItemId")
+                        .HasDatabaseName("ix_site_redirect_item");
+
+                    b.ToTable("site_redirect", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_site_redirect_path", "from_path ~ '^/([a-z0-9][a-z0-9-]{0,79}/)+$' AND char_length(from_path) <= 512");
+                        });
+                });
+
             modelBuilder.Entity("Nix.Domain.Templates.TemplateApplication", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4478,6 +5217,187 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.Site", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "AutoPrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("fk_site_auto_principal");
+
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "CreatedBy")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_created_by");
+
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RootItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_root_item");
+
+                    b.HasOne("Nix.Domain.Tenancy.Workspace", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkspaceId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_workspace");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteActivation", b =>
+                {
+                    b.HasOne("Nix.Domain.Sites.SiteBuild", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_activation_build");
+
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_activation_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuild", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PublisherId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_build_publisher");
+
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_build_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuildFile", b =>
+                {
+                    b.HasOne("Nix.Domain.Sites.SiteBuild", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_build_file_build");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuildObject", b =>
+                {
+                    b.HasOne("Nix.Domain.Sites.SiteBuild", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_build_object_build");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteBuildPage", b =>
+                {
+                    b.HasOne("Nix.Domain.Sites.SiteBuild", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "BuildId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_build_page_build");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteDatedCollectionSetting", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_dated_collection_item");
+
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_dated_collection_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteExclusion", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_exclusion_item");
+
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_exclusion_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteHostname", b =>
+                {
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_hostname_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SitePage", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_page_item");
+
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_page_site");
+                });
+
+            modelBuilder.Entity("Nix.Domain.Sites.SiteRedirect", b =>
+                {
+                    b.HasOne("Nix.Domain.Items.Item", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "ItemId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_redirect_item");
+
+                    b.HasOne("Nix.Domain.Sites.Site", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "SiteId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_site_redirect_site");
                 });
 
             modelBuilder.Entity("Nix.Domain.Templates.TemplateApplication", b =>

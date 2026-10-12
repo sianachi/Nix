@@ -28,9 +28,11 @@ services:
       AWS_SECRET_ACCESS_KEY: ${NIX_OBJECT_STORE_SECRET_KEY:?set NIX_OBJECT_STORE_SECRET_KEY}
       AWS_DEFAULT_REGION: ${NIX_OBJECT_STORE_REGION:-us-east-1}
       NIX_BUCKET: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
+      # The sites bucket is created only when sites are enabled.
+      NIX_SITES_BUCKET: ${NIX_SITES_DOMAIN:+${NIX_SITES_BUCKET:-nix-sites}}
     entrypoint: ["/bin/sh", "-ec"]
     command:
-      - 'aws --endpoint-url http://nix-versitygw:7070 s3api head-bucket --bucket "$$NIX_BUCKET" >/dev/null 2>&1 || aws --endpoint-url http://nix-versitygw:7070 s3api create-bucket --bucket "$$NIX_BUCKET"'
+      - 'for bucket in "$$NIX_BUCKET" $$NIX_SITES_BUCKET; do aws --endpoint-url http://nix-versitygw:7070 s3api head-bucket --bucket "$$bucket" >/dev/null 2>&1 || aws --endpoint-url http://nix-versitygw:7070 s3api create-bucket --bucket "$$bucket"; done'
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
@@ -71,6 +73,8 @@ services:
       NIX_RABBITMQ_PLUGIN_PASSWORD: ${NIX_RABBITMQ_PLUGIN_PASSWORD:?set NIX_RABBITMQ_PLUGIN_PASSWORD}
       NIX_RABBITMQ_CALENDAR_PASSWORD: ${NIX_RABBITMQ_CALENDAR_PASSWORD:?set NIX_RABBITMQ_CALENDAR_PASSWORD}
       NIX_RABBITMQ_NOTIFY_PASSWORD: ${NIX_RABBITMQ_NOTIFY_PASSWORD:?set NIX_RABBITMQ_NOTIFY_PASSWORD}
+      # Optional: unset removes the nix-sites account (deploy/rabbitmq/start.sh).
+      NIX_RABBITMQ_SITES_PASSWORD: ${NIX_RABBITMQ_SITES_PASSWORD:-}
     volumes:
       - nix-rabbitmq-data:/var/lib/rabbitmq
       - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
@@ -192,6 +196,10 @@ services:
       Nix__Calendar__Microsoft__ClientId: ${NIX_CALENDAR_MICROSOFT_CLIENT_ID:-}
       Nix__Calendar__Microsoft__ClientSecret: ${NIX_CALENDAR_MICROSOFT_CLIENT_SECRET:-}
       Nix__Calendar__Microsoft__Tenant: ${NIX_CALENDAR_MICROSOFT_TENANT:-common}
+      # Sites (ADR-0063). An empty domain turns the feature off; see compose.prod.env.example.
+      Nix__Sites__Domain: ${NIX_SITES_DOMAIN:-}
+      Nix__Sites__Bucket: ${NIX_SITES_BUCKET:-nix-sites}
+      Nix__Sites__PublicScheme: https
       Nix__AccessTokens__Issuer: ${NIX_CORE_TOKEN_ISSUER:?set NIX_CORE_TOKEN_ISSUER}
       Nix__AccessTokens__Audience: ${NIX_CORE_TOKEN_AUDIENCE:?set NIX_CORE_TOKEN_AUDIENCE}
       Nix__AccessTokens__KeyId: ${NIX_CORE_TOKEN_KEY_ID:?set NIX_CORE_TOKEN_KEY_ID}
@@ -466,6 +474,78 @@ services:
         aliases:
           - nix-notify-worker
 
+  # Sites (ADR-0063), off unless the env file sets COMPOSE_PROFILES=sites and NIX_SITES_DOMAIN.
+  nix-sites-worker:
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/sites:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    profiles: [sites]
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nix-api:
+        condition: service_started
+      nix-collab:
+        condition: service_healthy
+    environment:
+      NIX_SITES_API_URL: http://nix-api:8080
+      NIX_SITES_COLLAB_URL: http://nix-collab:8100
+      NIX_SITES_INTERNAL_SECRET: ${NIX_INTERNAL_SECRET:?set NIX_INTERNAL_SECRET}
+      NIX_SITES_RABBITMQ_URL: ${NIX_RABBITMQ_SITES_URL:-amqp://nix-sites:${NIX_RABBITMQ_SITES_PASSWORD:-}@rabbitmq:5672/%2Fnix}
+      NIX_SITES_OBJECT_ORIGINS: ${NIX_OBJECT_STORE_ENDPOINT:?set NIX_OBJECT_STORE_ENDPOINT},${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
+      NIX_SITES_WORKER_ADDRESS: ":8301"
+      NIX_SITES_CONCURRENCY: "1"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8301/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    mem_limit: 768m
+    cpus: 1
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # Anonymous: no Core secret, no database, no broker. Reached only through nix-web's sites host.
+  nix-sites-serve:
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/sites:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    profiles: [sites]
+    restart: unless-stopped
+    command: ["node", "--experimental-strip-types", "src/serve/index.ts"]
+    depends_on:
+      nix-versitygw:
+        condition: service_healthy
+    environment:
+      NIX_SITES_SERVE_ADDRESS: ":8400"
+      NIX_SITES_ALLOWED_SUFFIX: ${NIX_SITES_DOMAIN:-}
+      NIX_SITES_S3_ENDPOINT: http://nix-versitygw:7070
+      NIX_SITES_S3_REGION: ${NIX_OBJECT_STORE_REGION:-us-east-1}
+      NIX_SITES_S3_BUCKET: ${NIX_SITES_BUCKET:-nix-sites}
+      NIX_SITES_S3_ACCESS_KEY: ${NIX_SITES_READ_ACCESS_KEY:-}
+      NIX_SITES_S3_SECRET_KEY: ${NIX_SITES_READ_SECRET_KEY:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8400/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    mem_limit: 256m
+    cpus: 1
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        aliases:
+          - nix-sites-serve
+
   nix-web:
     image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
     restart: unless-stopped
@@ -477,6 +557,8 @@ services:
     environment:
       NIX_OBJECT_STORE_PUBLIC_ORIGIN: ${NIX_OBJECT_STORE_PUBLIC_ORIGIN:?set NIX_OBJECT_STORE_PUBLIC_ORIGIN}
       NIX_OBJECT_STORE_BUCKET: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
+      # Unset keeps the sites host block on a name that never resolves.
+      NIX_SITES_DOMAIN: ${NIX_SITES_DOMAIN:-sites.invalid}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - nix-caddy-data:/data

@@ -1,0 +1,46 @@
+{
+  "name": "@nix/site-render",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A published Nix site, rendered: static HTML, feeds, sitemap and search index from a build manifest, with no browser",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./svg": {
+      "types": "./dist/svg.d.ts",
+      "default": "./dist/svg.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "nix-site-render": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc --project tsconfig.build.json"
+  },
+  "dependencies": {
+    "@fontsource/nunito-sans": "^5.3.0",
+    "@nix/chart-render": "workspace:*",
+    "@nix/design-tokens": "workspace:*",
+    "@nix/export": "workspace:*",
+    "@nix/view-render": "workspace:*",
+    "highlight.js": "^11.12.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.4"
+  }
+}

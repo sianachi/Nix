@@ -1,0 +1,483 @@
+[
+  {
+    "ordinal": 0,
+    "itemId": "0199c0de-0100-7000-8000-000000000001",
+    "parentItemId": null,
+    "path": "/",
+    "title": "One workspace. Everything is an item.",
+    "type": "note",
+    "seq": "0",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000001",
+      "seq": 41
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 1,
+    "itemId": "0199c0de-0100-7000-8000-000000000010",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000001",
+    "path": "/getting-started/",
+    "title": "Getting started",
+    "type": "note",
+    "seq": "1024",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": {
+      "views": [
+        {
+          "id": "v-gs",
+          "name": "Pages",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null
+        }
+      ],
+      "default": "v-gs"
+    },
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000010",
+      "seq": 50
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 2,
+    "itemId": "0199c0de-0100-7000-8000-000000000011",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000010",
+    "path": "/getting-started/install/",
+    "title": "Install",
+    "type": "note",
+    "seq": "2048",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000011",
+      "seq": 51
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 3,
+    "itemId": "0199c0de-0100-7000-8000-000000000012",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000010",
+    "path": "/getting-started/first-workspace/",
+    "title": "Your first workspace",
+    "type": "note",
+    "seq": "3072",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000012",
+      "seq": 52
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 4,
+    "itemId": "0199c0de-0100-7000-8000-000000000013",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000010",
+    "path": "/getting-started/shortcuts/",
+    "title": "Keyboard shortcuts",
+    "type": "note",
+    "seq": "4096",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000013",
+      "seq": 53
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 5,
+    "itemId": "0199c0de-0100-7000-8000-000000000020",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000001",
+    "path": "/features/",
+    "title": "Features",
+    "type": "note",
+    "seq": "5120",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": {
+      "properties": [
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Stable", "Beta"],
+          "required": false
+        }
+      ],
+      "declared": [],
+      "inherit": true
+    },
+    "views": {
+      "views": [
+        {
+          "id": "v-board",
+          "name": "By status",
+          "kind": "board",
+          "columns": ["status"],
+          "groupBy": "status",
+          "groupOrder": ["Stable", "Beta"],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null
+        }
+      ],
+      "default": "v-board"
+    },
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000020",
+      "seq": 60
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 6,
+    "itemId": "0199c0de-0100-7000-8000-000000000021",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000020",
+    "path": "/features/items-and-views/",
+    "title": "Items and views",
+    "type": "note",
+    "seq": "6144",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Stable"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000021",
+      "seq": 61
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 7,
+    "itemId": "0199c0de-0100-7000-8000-000000000022",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000020",
+    "path": "/features/canvas/",
+    "title": "Canvas",
+    "type": "note",
+    "seq": "7168",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Stable"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000022",
+      "seq": 62
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 8,
+    "itemId": "0199c0de-0100-7000-8000-000000000023",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000020",
+    "path": "/features/sheets-and-formulas/",
+    "title": "Sheets and formulas",
+    "type": "note",
+    "seq": "8192",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Beta"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000023",
+      "seq": 63
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 9,
+    "itemId": "0199c0de-0100-7000-8000-000000000024",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000020",
+    "path": "/features/collaboration/",
+    "title": "Collaboration and offline",
+    "type": "note",
+    "seq": "9216",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Stable"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000024",
+      "seq": 64
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 10,
+    "itemId": "0199c0de-0100-7000-8000-000000000025",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000020",
+    "path": "/features/plugins/",
+    "title": "Plugins",
+    "type": "note",
+    "seq": "10240",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Beta"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000025",
+      "seq": 65
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 11,
+    "itemId": "0199c0de-0100-7000-8000-000000000030",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000001",
+    "path": "/self-hosting/",
+    "title": "Self-hosting",
+    "type": "note",
+    "seq": "11264",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": {
+      "views": [
+        {
+          "id": "v-self",
+          "name": "Pages",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null
+        }
+      ],
+      "default": "v-self"
+    },
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000030",
+      "seq": 70
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 12,
+    "itemId": "0199c0de-0100-7000-8000-000000000031",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000030",
+    "path": "/self-hosting/backups/",
+    "title": "Backups",
+    "type": "note",
+    "seq": "12288",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000031",
+      "seq": 71
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 13,
+    "itemId": "0199c0de-0100-7000-8000-000000000032",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000030",
+    "path": "/self-hosting/reverse-proxy/",
+    "title": "Reverse proxy",
+    "type": "note",
+    "seq": "13312",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000032",
+      "seq": 72
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 14,
+    "itemId": "0199c0de-0100-7000-8000-000000000040",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000001",
+    "path": "/changelog/",
+    "title": "Changelog",
+    "type": "note",
+    "seq": "14336",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000040",
+      "seq": 80
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 15,
+    "itemId": "0199c0de-0100-7000-8000-000000000041",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000040",
+    "path": "/changelog/2026-10-06/",
+    "title": "October 2026: queries, charts and a faster editor",
+    "type": "note",
+    "seq": "15360",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T10:00:00Z",
+    "properties": {
+      "tags": ["release", "sites"]
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000041",
+      "seq": 81
+    },
+    "datedCollectionId": "0199c0de-0100-7000-8000-000000000040",
+    "publishedAt": "2026-10-06",
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 16,
+    "itemId": "0199c0de-0100-7000-8000-000000000042",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000040",
+    "path": "/changelog/2026-09-24/",
+    "title": "September 2026: calendar sync and reminders",
+    "type": "note",
+    "seq": "16384",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-09-24T10:00:00Z",
+    "properties": {
+      "tags": ["release", "editor"]
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000042",
+      "seq": 82
+    },
+    "datedCollectionId": "0199c0de-0100-7000-8000-000000000040",
+    "publishedAt": "2026-09-24",
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 17,
+    "itemId": "0199c0de-0100-7000-8000-000000000043",
+    "parentItemId": "0199c0de-0100-7000-8000-000000000040",
+    "path": "/changelog/2026-08-20/",
+    "title": "August 2026: Markdown import",
+    "type": "note",
+    "seq": "17408",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-08-20T10:00:00Z",
+    "properties": {
+      "tags": ["editor"]
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0101-7000-8000-000000000043",
+      "seq": 83
+    },
+    "datedCollectionId": "0199c0de-0100-7000-8000-000000000040",
+    "publishedAt": "2026-08-20",
+    "propertyFiles": []
+  }
+]

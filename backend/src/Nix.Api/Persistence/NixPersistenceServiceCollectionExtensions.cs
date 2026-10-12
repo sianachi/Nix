@@ -33,6 +33,7 @@ using Nix.Features.Properties;
 using Nix.Features.Query;
 using Nix.Features.Recurrence;
 using Nix.Features.Search;
+using Nix.Features.Sites;
 using Nix.Features.Templates;
 using Nix.Features.Tokens;
 using Nix.Features.Views;
@@ -57,6 +58,7 @@ using Nix.Persistence.Query;
 using Nix.Persistence.Recurrence;
 using Nix.Persistence.Rls;
 using Nix.Persistence.Search;
+using Nix.Persistence.Sites;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Templates;
 using Nix.Persistence.Tokens;
@@ -483,6 +485,37 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<AuthorizeTemplateOperationItem, Result<TemplateOperationAuthorization>>, AuthorizeTemplateOperationItemHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateOperationWrites, Result<TemplateOperationWriteAuthorization>>, AuthorizeTemplateOperationWritesHandler>();
         services.AddScoped<IQueryHandler<AuthorizeTemplateItem, Result<TemplateItemAuthorization>>, AuthorizeTemplateItemHandler>();
+
+        // Sites (ADR-0063). The options and the sites-bucket signer are read from configuration the
+        // host already registered, so a host with no sites configuration gets a disabled feature
+        // rather than a resolution failure.
+        services.TryAddSingleton(static provider => SiteOptions.Bind(provider.GetRequiredService<IConfiguration>()));
+        services.TryAddSingleton(static provider => SiteCapabilitySigner.For(
+            provider.GetService<ObjectStorageOptions>() ?? new ObjectStorageOptions(),
+            provider.GetRequiredService<SiteOptions>().Bucket,
+            provider.GetRequiredService<TimeProvider>()));
+        services.AddSingleton<ISiteRebuildCandidates, SiteRebuildCandidateFinder>();
+        services.AddScoped<ISiteStore, SiteStore>();
+        services.AddScoped<SiteAccess>();
+        services.AddScoped<SiteAudit>();
+        services.AddScoped<SiteViews>();
+        services.AddScoped<SiteWorkerServices>();
+        services.AddScoped<Nix.Abstractions.Scheduling.ITriggerSource, SiteRebuildTriggerSource>();
+        services.AddScoped<ICommandHandler<CreateSite, SiteResponse>, CreateSiteHandler>();
+        services.AddScoped<ICommandHandler<UpdateSite, SiteResponse>, UpdateSiteHandler>();
+        services.AddScoped<ICommandHandler<SetSiteHostnames, SiteResponse>, SetSiteHostnamesHandler>();
+        services.AddScoped<ICommandHandler<PublishSite, SiteBuildResponse>, PublishSiteHandler>();
+        services.AddScoped<ICommandHandler<RollbackSite, SiteBuildResponse>, RollbackSiteHandler>();
+        services.AddScoped<ICommandHandler<UnpublishSite, SiteResponse>, UnpublishSiteHandler>();
+        services.AddScoped<ICommandHandler<SetSitePagePath, SitePageResponse>, SetSitePagePathHandler>();
+        services.AddScoped<ICommandHandler<DeleteSite, Guid>, DeleteSiteHandler>();
+        services.AddScoped<IQueryHandler<GetSite, Result<SiteResponse>>, SiteQueryHandlers>();
+        services.AddScoped<IQueryHandler<GetItemSite, Result<SiteResponse>>, SiteQueryHandlers>();
+        services.AddScoped<IQueryHandler<ListSites, Result<SiteListResponse>>, SiteQueryHandlers>();
+        services.AddScoped<IQueryHandler<ListBuilds, Result<SiteBuildListResponse>>, SiteQueryHandlers>();
+        services.AddScoped<IQueryHandler<GetBuild, Result<SiteBuildResponse>>, SiteQueryHandlers>();
+        services.AddScoped<IQueryHandler<ListPages, Result<SitePageListResponse>>, SiteQueryHandlers>();
+        services.AddSiteHosting();
 
         return services;
     }

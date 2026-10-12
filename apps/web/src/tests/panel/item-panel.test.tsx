@@ -97,6 +97,21 @@ describe('the settings panel', () => {
     expect(within(panel).queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });
 
+  it('opens on the Site pane from the item actions', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE] });
+    renderAt(<App />, `/?item=${NOTE.id}`);
+
+    await user.click(await screen.findByRole('button', { name: /item actions/i }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Site' }));
+    const panel = await screen.findByRole('complementary', { name: /item settings/i });
+
+    expect(within(panel).getByRole('button', { name: 'Site' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
   it('keeps template suggestions out of the Views pane', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Rider and VS Code, a terminal, Nix for notes, and too many browser tabs."
+          }
+        ]
+      }
+    ]
+  }
+}

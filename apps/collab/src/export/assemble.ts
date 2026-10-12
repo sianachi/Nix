@@ -20,6 +20,7 @@ import {
 import { findDocByItem } from '../db/documents.ts';
 import { lockedAmong } from '../db/locks.ts';
 import type { ScopedQuery } from '../db/tenant-scope.ts';
+import { stateAt } from '../db/history.ts';
 import { loadDocument } from '../documents/service.ts';
 import type { CoreClient, CoreItem } from '../core/client.ts';
 
@@ -416,6 +417,18 @@ export function lockedOmissions(
 }
 
 /**
+ * Thrown when a body was asked for at a content position that cannot be reconstructed: it is past
+ * the head, or the snapshot and updates that reach it were pruned. The route answers 409
+ * `content_position_unavailable`, so a site build fails rather than publishing a different body.
+ */
+export class ContentPositionUnavailableError extends Error {
+  constructor(readonly seq: number) {
+    super(`The content at position ${String(seq)} cannot be reconstructed.`);
+    this.name = 'ContentPositionUnavailableError';
+  }
+}
+
+/**
  * Produces one bundle per item, reading each body from the content log as it goes.
  *
  * One document is materialised at a time and released before the next, so the memory this costs is
@@ -427,6 +440,8 @@ export async function* streamBundles(input: {
   readonly items: readonly CoreItem[];
   readonly metadata: GatheredMetadata;
   readonly resolveEmbeddedItem?: ((id: string) => Promise<CoreItem | null>) | undefined;
+  /** Read each body as it stood after this log position instead of at the head. One item only. */
+  readonly atSeq?: number | undefined;
 }): AsyncGenerator<ItemBundle> {
   const { sql, tenantId, items, metadata } = input;
 
@@ -444,7 +459,7 @@ export async function* streamBundles(input: {
     return locked.has(id);
   }
   const readUnlocked = async (source: CoreItem): Promise<ItemBundle['body']> =>
-    (await isLocked(source.id)) ? null : readBody(sql, tenantId, source);
+    (await isLocked(source.id)) ? null : readBody(sql, tenantId, source, input.atSeq);
 
   for (const item of items) {
     yield {
@@ -495,13 +510,20 @@ async function readBody(
   sql: ScopedQuery,
   tenantId: string,
   item: CoreItem,
+  atSeq?: number,
 ): Promise<ItemBundle['body']> {
   const doc = await findDocByItem(sql, tenantId, item.id);
   if (doc === null) {
     return null;
   }
 
-  const state = await loadDocument(sql, tenantId, doc);
+  const state =
+    atSeq === undefined
+      ? await loadDocument(sql, tenantId, doc)
+      : await stateAt(sql, tenantId, doc.doc_id, atSeq);
+  if (state === null) {
+    throw new ContentPositionUnavailableError(atSeq ?? -1);
+  }
 
   try {
     // The item's type chooses how the body is read, on the same axis that

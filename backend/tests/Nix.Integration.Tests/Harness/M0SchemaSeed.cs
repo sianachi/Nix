@@ -145,6 +145,90 @@ internal static class M0SchemaSeed
         }
     }
 
+    /// <summary>
+    /// Seeds one site per tenant with a row in every sites table that the runtime role may update,
+    /// so the cross-tenant write theory has a row to relabel in each of them.
+    /// </summary>
+    /// <param name="fixture">The database fixture.</param>
+    /// <returns>A task that completes when both tenants' site rows are present.</returns>
+    /// <remarks>Separate from the base seed because upgrade tests also seed schemas from before sites existed.</remarks>
+    public static async Task SeedSitesAsync(NixPostgresFixture fixture)
+    {
+        ArgumentNullException.ThrowIfNull(fixture);
+
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            foreach (var rows in new[] { Alpha, Beta })
+            {
+                var tenant = Literal(rows.TenantId);
+                var workspace = Literal(rows.WorkspaceId);
+                var item = Literal(rows.ItemId);
+                var principal = Literal(rows.PrincipalId);
+                var site = Literal(SiteIdFor(rows));
+                var build = Literal(BuildIdFor(rows));
+                await RawSql.ExecuteAsync(
+                    connection,
+                    transaction: null,
+                    $"""
+                    INSERT INTO site
+                        (tenant_id, id, workspace_id, root_item_id, slug, layout, settings, republish_mode,
+                         debounce_seconds, status, created_by, created_at, updated_at)
+                    VALUES ({tenant}, {site}, {workspace}, {item}, 'seed-{rows.Slug}', 'docs', jsonb_build_object(),
+                            'manual', 300, 'draft', {principal}, now(), now());
+
+                    INSERT INTO site_hostname (tenant_id, hostname, site_id, kind, verified_at, created_at)
+                    VALUES ({tenant}, 'seed-{rows.Slug}.sites.example.test', {site}, 'default', now(), now());
+
+                    INSERT INTO site_exclusion (tenant_id, site_id, item_id) VALUES ({tenant}, {site}, {item});
+
+                    INSERT INTO site_dated_collection (tenant_id, site_id, item_id, date_property)
+                    VALUES ({tenant}, {site}, {item}, 'date');
+
+                    INSERT INTO site_page (tenant_id, site_id, item_id, path, pinned, created_at, updated_at)
+                    VALUES ({tenant}, {site}, {item}, '/', false, now(), now());
+
+                    INSERT INTO site_redirect (tenant_id, site_id, from_path, item_id, created_at)
+                    VALUES ({tenant}, {site}, '/old/', {item}, now());
+
+                    INSERT INTO site_build
+                        (tenant_id, id, site_id, status, job_id, publisher_id, origin, idempotency_key, header,
+                         page_count, file_count, total_bytes, loss, created_at)
+                    VALUES ({tenant}, {build}, {site}, 'queued', gen_random_uuid(), {principal}, 'manual',
+                            'seed', jsonb_build_object(), 1, 0, 0, '[]'::jsonb, now());
+
+                    INSERT INTO site_build_page
+                        (tenant_id, build_id, ordinal, item_id, path, title, type, seq, item_created_at,
+                         item_updated_at, properties, property_files)
+                    VALUES ({tenant}, {build}, 0, {item}, '/', 'Seed', 'folder', 1000, now(), now(),
+                            jsonb_build_object(), '[]'::jsonb);
+
+                    INSERT INTO site_build_file
+                        (tenant_id, build_id, source_item_id, file_item_id, file_version_id, sha256, media_type,
+                         byte_length, created_at)
+                    VALUES ({tenant}, {build}, {item}, {item}, gen_random_uuid(), repeat('a', 64), 'image/png',
+                            10, now());
+
+                    INSERT INTO site_build_object (tenant_id, build_id, key, sha256, byte_length, kind, created_at)
+                    VALUES ({tenant}, {build}, 'sites/seed/index.html', repeat('a', 64), 1, 'build', now());
+
+                    INSERT INTO site_activation
+                        (tenant_id, id, site_id, job_id, build_id, reason, generation, ops, created_at)
+                    VALUES ({tenant}, gen_random_uuid(), {site}, gen_random_uuid(), {build}, 'publish', 1,
+                            '[]'::jsonb, now());
+                    """);
+            }
+        }
+    }
+
+    /// <summary>The seeded site of a tenant.</summary>
+    public static Guid SiteIdFor(M0TenantRows rows) =>
+        rows.Slug == "alpha" ? new Guid("51e51e51-1111-4111-8111-51e51e51e51e") : new Guid("51e51e51-2222-4222-8222-51e51e51e51e");
+
+    /// <summary>The seeded build of a tenant's seeded site.</summary>
+    public static Guid BuildIdFor(M0TenantRows rows) =>
+        rows.Slug == "alpha" ? new Guid("b0b0b0b0-1111-4111-8111-b0b0b0b0b0b0") : new Guid("b0b0b0b0-2222-4222-8222-b0b0b0b0b0b0");
+
     /// <summary>Seeds immutable creation receipts for the current-schema isolation tests.</summary>
     /// <remarks>Separate from the base seed because upgrade tests also seed older schemas.</remarks>
     public static async Task SeedItemCreationReceiptsAsync(NixPostgresFixture fixture)

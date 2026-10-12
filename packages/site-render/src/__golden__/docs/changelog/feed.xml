@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-GB" xml:base="https://docs.nix.example/">
+<title>Nix Docs: Changelog</title>
+<id>https://docs.nix.example/changelog/</id>
+<link rel="self" type="application/atom+xml" href="https://docs.nix.example/changelog/feed.xml"/>
+<link rel="alternate" type="text/html" href="https://docs.nix.example/changelog/"/>
+<updated>2026-10-06T00:00:00Z</updated>
+<generator uri="https://github.com/sianachi/nix">Nix</generator>
+<entry>
+<title>October 2026: queries, charts and a faster editor</title>
+<id>https://docs.nix.example/changelog/2026-10-06/</id>
+<link rel="alternate" type="text/html" href="https://docs.nix.example/changelog/2026-10-06/"/>
+<published>2026-10-06T00:00:00Z</published>
+<updated>2026-10-06T00:00:00Z</updated>
+<summary>This release adds saved queries across the whole workspace, more chart types and a much quicker editor on long documents. Saved queries can filter...</summary>
+<category term="release"/>
+<category term="sites"/>
+<content type="html">&lt;p&gt;This release adds saved queries across the whole workspace, more chart types and a much quicker editor on long documents.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;&lt;p&gt;Saved queries can filter every item you can read, not just one item&amp;#39;s children.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Charts gain line, area, pie and a year grid.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Opening a 20,000-word document is about three times faster.&lt;/p&gt;&lt;/li&gt;&lt;/ul&gt;
+&lt;h2 id=&quot;fixes&quot;&gt;Fixes&lt;a class=&quot;nix-anchor&quot; href=&quot;#fixes&quot; aria-label=&quot;Link to Fixes&quot;&gt;#&lt;/a&gt;&lt;/h2&gt;
+&lt;ul&gt;&lt;li&gt;&lt;p&gt;Calendar events keep their time zone when dragged across a daylight-saving change.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Locked items no longer show their children in search previews.&lt;/p&gt;&lt;/li&gt;&lt;/ul&gt;</content>
+</entry>
+<entry>
+<title>September 2026: calendar sync and reminders</title>
+<id>https://docs.nix.example/changelog/2026-09-24/</id>
+<link rel="alternate" type="text/html" href="https://docs.nix.example/changelog/2026-09-24/"/>
+<published>2026-09-24T00:00:00Z</published>
+<updated>2026-09-24T00:00:00Z</updated>
+<summary>Two-way sync with Google and Outlook calendars, reminders on any dated item, and simple automations. Connect a calendar from workspace settings...</summary>
+<category term="release"/>
+<category term="editor"/>
+<content type="html">&lt;p&gt;Two-way sync with Google and Outlook calendars, reminders on any dated item, and simple automations.&lt;/p&gt;
+&lt;ul&gt;&lt;li&gt;&lt;p&gt;Connect a calendar from workspace settings; events become items you can link and comment on.&lt;/p&gt;&lt;/li&gt;&lt;li&gt;&lt;p&gt;Reminders arrive as notifications on every signed-in device.&lt;/p&gt;&lt;/li&gt;&lt;/ul&gt;</content>
+</entry>
+<entry>
+<title>August 2026: Markdown import</title>
+<id>https://docs.nix.example/changelog/2026-08-20/</id>
+<link rel="alternate" type="text/html" href="https://docs.nix.example/changelog/2026-08-20/"/>
+<published>2026-08-20T00:00:00Z</published>
+<updated>2026-08-20T00:00:00Z</updated>
+<summary>Bring an existing notes folder into Nix. Markdown files become items, folders become parents, and images come along.</summary>
+<category term="editor"/>
+<content type="html">&lt;p&gt;Bring an existing notes folder into Nix. Markdown files become items, folders become parents, and images come along.&lt;/p&gt;
+&lt;pre class=&quot;nix-code&quot; data-language=&quot;bash&quot; tabindex=&quot;0&quot;&gt;&lt;code class=&quot;hljs&quot;&gt;nixctl import ./notes --into &lt;span class=&quot;hljs-string&quot;&gt;&amp;quot;Imported notes&amp;quot;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;</content>
+</entry>
+</feed>

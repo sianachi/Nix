@@ -8,3 +8,5 @@ Design language for Nix review/
 **/storybook-static/
 pnpm-lock.yaml
 *.md
+# Byte-exact renderer output; regenerate with UPDATE_GOLDEN=1, never reformat.
+packages/site-render/src/__golden__/

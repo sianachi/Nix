@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
 # Applies a Nix release to k3s, in the order that keeps a bad step from reaching users:
-# database -> seed -> migrations -> preset reconciliation -> workloads -> ingress.
+# database -> object store -> seed -> identity database -> migrations -> preset reconciliation ->
+# workloads (with Zitadel) -> ingress.
 #
 # Run deploy/k8s/create-secrets.sh once per cluster before the first run of this script.
 # Run deploy/docker/build-and-push.sh first each time, with the same REGISTRY and TAG.
 #
-#   REGISTRY=ghcr.io/you/nix TAG=$(git rev-parse --short HEAD) \
-#   OIDC_ISSUER=https://id.example.com OIDC_CLIENT_ID=your-client-id \
-#   DOMAIN=nix.example.com \
+#   REGISTRY=ghcr.io/you/nix TAG=$(git rev-parse HEAD) \
+#   OIDC_CLIENT_ID=your-client-id DOMAIN=nix.example.com \
 #   deploy/k8s/deploy.sh
+#
+# DOMAIN is the app's apex and also the sites domain: sites are served at <slug>.$DOMAIN. The
+# bundled Zitadel answers at auth.$DOMAIN, which is the default OIDC_ISSUER; set OIDC_ISSUER only
+# for an external identity provider. OIDC_CLIENT_ID is the Zitadel application's client id: on a
+# first install deploy once with a placeholder, create the application, then deploy again.
 #
 # POD_CIDR defaults to k3s's stock Flannel range (10.42.0.0/16) - confirm yours with:
 #   kubectl -n kube-system get configmap -o yaml | grep -i cluster-cidr
@@ -23,14 +28,14 @@ source deploy/k8s/template-boot-config.sh
 
 : "${REGISTRY:?set REGISTRY, matching what build-and-push.sh pushed to}"
 : "${TAG:?set TAG, matching what build-and-push.sh pushed}"
-: "${OIDC_ISSUER:?set OIDC_ISSUER, e.g. https://id.example.com (origin only, no path)}"
 : "${OIDC_CLIENT_ID:?set OIDC_CLIENT_ID}"
 : "${DOMAIN:?set DOMAIN, e.g. nix.example.com}"
+OIDC_ISSUER="${OIDC_ISSUER:-https://auth.$DOMAIN}"
 require_template_boot_config
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
 export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -48,7 +53,13 @@ if ! kubectl -n nix get secret nix-object-store >/dev/null 2>&1; then
   echo "secret nix-object-store not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
   exit 1
 fi
-for rabbitmq_key in api-password import-password export-password plugin-password calendar-password notify-password api-url import-url export-url plugin-url calendar-url notify-url; do
+for required_secret in nix-sites nix-tls nix-zitadel; do
+  if ! kubectl -n nix get secret "$required_secret" >/dev/null 2>&1; then
+    echo "secret $required_secret not found in namespace nix - run deploy/k8s/create-secrets.sh --${required_secret#nix-}-only" >&2
+    exit 1
+  fi
+done
+for rabbitmq_key in api-password import-password export-password plugin-password calendar-password notify-password sites-password worker-password api-url import-url export-url plugin-url calendar-url notify-url sites-url worker-url; do
   rabbitmq_value="$(kubectl -n nix get secret nix-rabbitmq -o "jsonpath={.data['$rabbitmq_key']}")"
   if [ -z "$rabbitmq_value" ]; then
     echo "secret nix-rabbitmq is missing $rabbitmq_key - run deploy/k8s/create-secrets.sh --rabbitmq-only" >&2
@@ -62,6 +73,13 @@ for object_store_key in endpoint public-origin region bucket access-key secret-k
     exit 1
   fi
 done
+for sites_key in bucket read-access-key read-secret-key; do
+  sites_value="$(kubectl -n nix get secret nix-sites -o "jsonpath={.data['$sites_key']}")"
+  if [ -z "$sites_value" ]; then
+    echo "secret nix-sites is missing $sites_key - run deploy/k8s/create-secrets.sh --sites-only" >&2
+    exit 1
+  fi
+done
 RABBITMQ_SECRET_VERSION="$(kubectl -n nix get secret nix-rabbitmq -o jsonpath='{.metadata.resourceVersion}')"
 if [ -z "$RABBITMQ_SECRET_VERSION" ]; then
   echo "secret nix-rabbitmq has no resource version" >&2
@@ -72,10 +90,22 @@ if [ -z "$OBJECT_STORE_SECRET_VERSION" ]; then
   echo "secret nix-object-store has no resource version" >&2
   exit 1
 fi
-export RABBITMQ_SECRET_VERSION OBJECT_STORE_SECRET_VERSION
+SITES_SECRET_VERSION="$(kubectl -n nix get secret nix-sites -o jsonpath='{.metadata.resourceVersion}')"
+if [ -z "$SITES_SECRET_VERSION" ]; then
+  echo "secret nix-sites has no resource version" >&2
+  exit 1
+fi
+export RABBITMQ_SECRET_VERSION OBJECT_STORE_SECRET_VERSION SITES_SECRET_VERSION
 
 # Retire workloads explicitly; leave all PersistentVolumeClaims intact.
 kubectl -n nix delete deployment/nix-indexer --ignore-not-found
+# The per-role Go workers became one nix-worker Deployment (deploy/k8s/worker.yaml).
+kubectl -n nix delete deployment/nix-import-worker deployment/nix-export-worker deployment/nix-plugin-worker \
+  deployment/nix-calendar-worker deployment/nix-notify-worker \
+  service/nix-import-worker service/nix-export-worker service/nix-plugin-worker \
+  service/nix-calendar-worker service/nix-notify-worker \
+  networkpolicy/go-workers-egress networkpolicy/plugin-worker-egress \
+  networkpolicy/calendar-worker-egress networkpolicy/notify-worker-egress --ignore-not-found
 retired_search=$(kubectl -n nix get statefulset nix-opensearch --ignore-not-found -o name)
 if [ -n "$retired_search" ]; then
   kubectl -n nix patch statefulset nix-opensearch --type=merge \
@@ -101,6 +131,13 @@ echo "== Postgres =="
 kubectl apply -f deploy/k8s/postgres.yaml
 kubectl -n nix rollout status statefulset/postgres --timeout=180s
 
+echo "== Object store =="
+kubectl apply -f deploy/k8s/objectstore.yaml
+kubectl -n nix rollout status statefulset/nix-versitygw --timeout=180s
+kubectl -n nix delete "job/nix-storage-init-$TAG" --ignore-not-found
+render deploy/k8s/job-storage-init.yaml | kubectl apply -f -
+kubectl -n nix wait --for=condition=complete "job/nix-storage-init-$TAG" --timeout=180s
+
 echo "== RabbitMQ =="
 kubectl -n nix create configmap nix-rabbitmq-config \
   --from-file=rabbitmq.conf=deploy/rabbitmq/rabbitmq.conf \
@@ -115,6 +152,11 @@ kubectl -n nix rollout status statefulset/nix-rabbitmq --timeout=180s
 echo "== Seed =="
 kubectl apply -f deploy/k8s/job-seed.yaml
 kubectl -n nix wait --for=condition=complete job/nix-db-seed --timeout=180s
+
+echo "== Identity provider (database now; rollout waits with the workloads) =="
+kubectl -n nix delete "job/nix-zitadel-db-$TAG" --ignore-not-found
+render deploy/k8s/zitadel.yaml | kubectl apply -f -
+kubectl -n nix wait --for=condition=complete "job/nix-zitadel-db-$TAG" --timeout=180s
 
 echo "== Migrations (tag $TAG) =="
 render deploy/k8s/job-migrate.yaml | kubectl apply -f -
@@ -142,15 +184,17 @@ render deploy/k8s/api.yaml | kubectl apply -f -
 render deploy/k8s/collab.yaml | kubectl apply -f -
 render deploy/k8s/worker.yaml | kubectl apply -f -
 render deploy/k8s/web.yaml | kubectl apply -f -
+render deploy/k8s/sites.yaml | kubectl apply -f -
 
 kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s
-kubectl -n nix rollout status deployment/nix-import-worker --timeout=180s
-kubectl -n nix rollout status deployment/nix-export-worker --timeout=180s
-kubectl -n nix rollout status deployment/nix-plugin-worker --timeout=180s
-kubectl -n nix rollout status deployment/nix-calendar-worker --timeout=180s
-kubectl -n nix rollout status deployment/nix-notify-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-web --timeout=180s
+kubectl -n nix rollout status deployment/nix-sites-worker --timeout=180s
+kubectl -n nix rollout status deployment/nix-sites-serve --timeout=180s
+# A first install runs Zitadel's instance setup before it listens; that can take several minutes.
+kubectl -n nix rollout status deployment/nix-zitadel --timeout=900s
+kubectl apply -f deploy/k8s/backup.yaml
 
 kubectl -n nix get "persistentvolumeclaim/$TEMPLATE_BOOT_PVC" >/dev/null
 kubectl -n nix get "secret/$TEMPLATE_BOOT_SERVICE_KEY_SECRET" >/dev/null
@@ -170,6 +214,7 @@ if ! kubectl -n nix wait --for=condition=complete "job/nix-template-boot-$TAG" -
 fi
 
 echo "== Ingress =="
+kubectl apply -f deploy/k8s/cloudflare-only.yaml
 render deploy/k8s/ingress.yaml | kubectl apply -f -
 
 echo "Deployed tag $TAG. Next: DOMAIN=$DOMAIN deploy/k8s/verify.sh"

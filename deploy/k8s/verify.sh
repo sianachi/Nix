@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Post-deploy checks, in order - each fails in a distinguishable way. Run after deploy/k8s/deploy.sh.
 #
-#   DOMAIN=nix.example.com deploy/k8s/verify.sh
+#   DOMAIN=nix.example.com SITE_HOST=docs.nix.example.com deploy/k8s/verify.sh
+#
+# SITE_HOST is optional: a published site's hostname under $DOMAIN, checked for the site CSP and
+# for the absence of Set-Cookie.
 #
 # What this script cannot check, because they need a browser: sign-in end to end, two
 # browsers editing the same note (exercises the collab WebSocket upgrade through Traefik and
@@ -31,7 +34,7 @@ echo "== RabbitMQ =="
 kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmq-diagnostics -q check_running
 kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmq-diagnostics -q check_virtual_hosts
 rabbitmq_users="$(kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmqctl list_users --no-table-headers)"
-for rabbitmq_user in nix-api nix-import nix-export nix-plugin nix-calendar nix-notify; do
+for rabbitmq_user in nix-api nix-import nix-export nix-plugin nix-calendar nix-notify nix-sites nix-worker; do
   if ! printf '%s\n' "$rabbitmq_users" | awk -v expected="$rabbitmq_user" '$1 == expected { found = 1 } END { exit !found }'; then
     echo "RabbitMQ user $rabbitmq_user is missing." >&2
     exit 1
@@ -44,7 +47,7 @@ for retired_user in nix guest nix-worker-dev nix-admin nix-index nix-speech; do
   fi
 done
 rabbitmq_permissions="$(kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmqctl list_permissions --vhost /nix --no-table-headers)"
-if printf '%s\n' "$rabbitmq_permissions" | awk '$1 ~ /^nix-(api|import|export|plugin|calendar|notify)$/ && $2 == ".*" && $3 == ".*" && $4 == ".*" { found = 1 } END { exit !found }'; then
+if printf '%s\n' "$rabbitmq_permissions" | awk '$1 ~ /^nix-(api|import|export|plugin|calendar|notify|sites|worker)$/ && $2 == ".*" && $3 == ".*" && $4 == ".*" { found = 1 } END { exit !found }'; then
   echo "A RabbitMQ service user still has full-control permissions." >&2
   exit 1
 fi
@@ -66,6 +69,9 @@ require_rabbitmq_permission nix-export '^$' \
 require_rabbitmq_permission nix-plugin '^$' '^$' '^nix\.worker\.plugin-events\.v1$'
 require_rabbitmq_permission nix-calendar '^$' '^nix\.results\.v1$' '^nix\.worker\.calendar\.v1$'
 require_rabbitmq_permission nix-notify '^$' '^nix\.results\.v1$' '^nix\.worker\.notify\.v1$'
+require_rabbitmq_permission nix-sites '^$' '^nix\.results\.v1$' '^nix\.worker\.sites\.v1$'
+require_rabbitmq_permission nix-worker '^$' '^(nix\.results\.v1|nix\.capabilities\.v1)$' \
+  '^nix\.worker\.(import|export|plugin-events|calendar|notify)\.v1$'
 rabbitmq_topic_permissions="$(kubectl -n nix exec statefulset/nix-rabbitmq -- rabbitmqctl list_topic_permissions --vhost /nix --no-table-headers)"
 require_rabbitmq_topic_permission() {
   local expected
@@ -76,7 +82,7 @@ require_rabbitmq_topic_permission() {
   fi
 }
 require_rabbitmq_topic_permission nix-api nix.commands.v1 \
-  '^(import|template|file|object|export|calendar|notify)\..+$' '^$'
+  '^(import|template|file|object|export|calendar|notify|site)\..+$' '^$'
 require_rabbitmq_topic_permission nix-api nix.workspace.v1 '^.+$' '^$'
 require_rabbitmq_topic_permission nix-api nix.capabilities.v1 '^$' '^#$'
 require_rabbitmq_topic_permission nix-import nix.results.v1 '^job\.result$' '^$'
@@ -84,17 +90,45 @@ require_rabbitmq_topic_permission nix-export nix.results.v1 '^job\.result$' '^$'
 require_rabbitmq_topic_permission nix-export nix.capabilities.v1 '^worker\.export$' '^$'
 require_rabbitmq_topic_permission nix-calendar nix.results.v1 '^job\.result$' '^$'
 require_rabbitmq_topic_permission nix-notify nix.results.v1 '^job\.result$' '^$'
-service_topic_permission_count="$(printf '%s\n' "$rabbitmq_topic_permissions" | awk '$1 ~ /^nix-(api|import|export|plugin|calendar|notify)$/ { count += 1 } END { print count + 0 }')"
-if [ "$service_topic_permission_count" -ne 8 ]; then
+require_rabbitmq_topic_permission nix-sites nix.results.v1 '^job\.result$' '^$'
+require_rabbitmq_topic_permission nix-worker nix.results.v1 '^job\.result$' '^$'
+require_rabbitmq_topic_permission nix-worker nix.capabilities.v1 '^worker\.export$' '^$'
+service_topic_permission_count="$(printf '%s\n' "$rabbitmq_topic_permissions" | awk '$1 ~ /^nix-(api|import|export|plugin|calendar|notify|sites)$/ { count += 1 } END { print count + 0 }')"
+if [ "$service_topic_permission_count" -ne 9 ]; then
   echo "RabbitMQ service users have unexpected topic permissions." >&2
   exit 1
 fi
 
 echo "== Go workers =="
-for worker in import-worker export-worker plugin-worker calendar-worker notify-worker; do
+for worker in worker sites-worker; do
   kubectl -n nix run "verify-curl-$worker" --rm -i --image=curlimages/curl --restart=Never -- \
     curl -fsS "http://nix-$worker:8301/healthz"
 done
+
+echo "== Object store =="
+kubectl -n nix run verify-curl-versitygw --rm -i --image=curlimages/curl --restart=Never \
+  --labels=app=nix-storage-init -- curl -fsS http://nix-versitygw:7070/health
+object_bucket="$(kubectl -n nix get secret nix-object-store -o jsonpath='{.data.bucket}' | base64 -d)"
+# An unsigned request reaches versitygw through Caddy and is refused (403), not the app shell (200).
+bucket_status="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/$object_bucket/verify-unsigned")"
+echo "$bucket_status unsigned object request (want 403)"
+if [ "$bucket_status" != 403 ]; then
+  echo "The capability route https://$DOMAIN/$object_bucket/ does not reach the object store." >&2
+  exit 1
+fi
+
+echo "== Identity provider (https://auth.$DOMAIN) =="
+issuer="$(curl -fsS "https://auth.$DOMAIN/.well-known/openid-configuration" | sed -nE 's/.*"issuer":"([^"]+)".*/\1/p')"
+echo "issuer $issuer"
+if [ "$issuer" != "https://auth.$DOMAIN" ]; then
+  echo "Zitadel does not announce https://auth.$DOMAIN as its issuer." >&2
+  exit 1
+fi
+
+echo "== Sites serve (health answers only a loopback Host) =="
+
+kubectl -n nix run verify-curl-sites-serve --rm -i --image=curlimages/curl --restart=Never -- \
+  curl -fsS -H 'Host: localhost' http://nix-sites-serve:8400/healthz
 
 echo "== Single origin (https://$DOMAIN) =="
 curl -fsS "https://$DOMAIN/" -o /dev/null -w '%{http_code} app\n'
@@ -107,5 +141,35 @@ curl -s -o /dev/null -w '%{http_code} internal (want 404)\n' "https://$DOMAIN/in
 
 echo "== Security headers keep provider communication server-side =="
 curl -sI "https://$DOMAIN/" | grep -i content-security-policy
+
+echo "== Sites: the apex stays the app, a site host is anonymous =="
+apex_headers="$(curl -sSI "https://$DOMAIN/")"
+if printf '%s\n' "$apex_headers" | grep -qi "^content-security-policy: default-src 'none'"; then
+  echo "The apex is answered by the sites server instead of the app." >&2
+  exit 1
+fi
+if [ -n "${SITE_HOST:-}" ]; then
+  case "$SITE_HOST" in
+    *".$DOMAIN") ;;
+    *) echo "SITE_HOST must be a hostname under $DOMAIN." >&2; exit 1 ;;
+  esac
+  site_headers="$(curl -sS -D - -o /dev/null -w '%{http_code}' "https://$SITE_HOST/")"
+  site_status="${site_headers##*$'\n'}"
+  echo "$site_status site $SITE_HOST"
+  if [ "$site_status" != 200 ]; then
+    echo "Site $SITE_HOST did not answer 200." >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "$site_headers" | grep -qi "^content-security-policy: default-src 'none'"; then
+    echo "Site $SITE_HOST is missing the sites Content-Security-Policy." >&2
+    exit 1
+  fi
+  if printf '%s\n' "$site_headers" | grep -qi '^set-cookie:'; then
+    echo "Site $SITE_HOST set a cookie." >&2
+    exit 1
+  fi
+else
+  echo "SITE_HOST not set - skipping the published-site check."
+fi
 
 echo "Automated checks done. Remaining: sign in, two-browser edit, PDF export, deep-route reload."

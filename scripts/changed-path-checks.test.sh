@@ -20,6 +20,12 @@ assert_contains "$web_output" 'check-frontend-layering.sh'
 package_output=$("$planner" packages/ui/src/controls/button.tsx)
 assert_contains "$package_output" 'pnpm --filter @nix/ui test'
 
+sites_output=$("$planner" apps/sites/src/serve/server.ts)
+assert_contains "$sites_output" 'pnpm --filter @nix/sites test'
+
+rabbit_output=$("$planner" deploy/rabbitmq/start.sh)
+assert_contains "$rabbit_output" 'node --test deploy/rabbitmq/definitions.test.mjs'
+
 backend_output=$("$planner" backend/src/Nix.Api/Authentication/UserInfoClient.cs)
 assert_contains "$backend_output" 'dotnet test backend/tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj'
 assert_contains "$backend_output" 'Required review: security'

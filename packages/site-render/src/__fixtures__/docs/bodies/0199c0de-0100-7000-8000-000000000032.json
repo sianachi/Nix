@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 6,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Put Nix behind a reverse proxy to serve it on your domain with TLS. Caddy needs three lines:"
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "plaintext"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "nix.example.org {\n\treverse_proxy localhost:8080\n}"
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Collaboration uses WebSockets on the same origin; Caddy forwards them without extra configuration."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Every request passes through the proxy, which routes it by path and host:"
+          }
+        ]
+      },
+      {
+        "type": "codeBlock",
+        "attrs": {
+          "language": "mermaid",
+          "renderFileId": "0199c0de-0100-7000-8000-000000000800",
+          "renderSourceHash": "9a62e1e47f2f0dbb363cf95e4670786c18bbe3e71dddea37443ee653934c5208"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "flowchart LR\n  accTitle: How a request reaches Nix\n  Browser -->|HTTPS| Proxy[Reverse proxy]\n  Proxy -->|/api| Core[Core API]\n  Proxy -->|/collab| Collab[Collaboration]\n  Proxy -->|site hosts| Sites[Sites server]\n  Core --> Postgres[(Postgres)]"
+          }
+        ]
+      }
+    ]
+  }
+}

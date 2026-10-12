@@ -34,11 +34,17 @@ internal sealed class NixPersistenceHost : IAsyncDisposable
     /// <returns>The host.</returns>
     public static NixPersistenceHost Create(
         string connectionString,
-        IInterceptor? testInterceptor = null)
+        IInterceptor? testInterceptor = null,
+        IConfiguration? configuration = null)
     {
         var services = new ServiceCollection();
+
+        // The host configuration, when a suite needs one (sites, object storage). Registered first
+        // so AddNixPersistence keeps it instead of its empty stand-in.
+        configuration ??= new ConfigurationBuilder().Build();
+        services.AddSingleton(configuration);
         services.AddNixPersistence(connectionString);
-        services.AddNixObjectStorage(new ConfigurationBuilder().Build());
+        services.AddNixObjectStorage(configuration);
 
         // Registered only here, never by production composition (ADR-0051's A2 lane): a fixed
         // point the scheduling tests use to exercise plan -> fire -> notify end to end without a

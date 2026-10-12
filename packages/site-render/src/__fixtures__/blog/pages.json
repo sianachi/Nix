@@ -1,0 +1,742 @@
+[
+  {
+    "ordinal": 0,
+    "itemId": "0199c0de-0200-7000-8000-000000000001",
+    "parentItemId": null,
+    "path": "/",
+    "title": "Osinachi Nwagboso",
+    "type": "note",
+    "seq": "0",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000001",
+      "seq": 41
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 1,
+    "itemId": "0199c0de-0200-7000-8000-000000000010",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000001",
+    "path": "/projects/",
+    "title": "Projects",
+    "type": "note",
+    "seq": "1024",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": {
+      "properties": [
+        {
+          "key": "subtitle",
+          "label": "Subtitle",
+          "type": "text",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "role",
+          "label": "Role",
+          "type": "text",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "stack",
+          "label": "Stack",
+          "type": "multi_select",
+          "options": ["Go", ".NET", "PostgreSQL", "React", "C"],
+          "required": false
+        },
+        {
+          "key": "started",
+          "label": "Started",
+          "type": "date",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "code",
+          "label": "Code",
+          "type": "url",
+          "options": [],
+          "required": false
+        },
+        {
+          "key": "cover",
+          "label": "Cover",
+          "type": "image",
+          "options": [],
+          "required": false
+        }
+      ],
+      "declared": [],
+      "inherit": true
+    },
+    "views": {
+      "views": [
+        {
+          "id": "v-proj",
+          "name": "Gallery",
+          "kind": "gallery",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": "cover",
+          "endDateProperty": null,
+          "cardSize": "medium"
+        }
+      ],
+      "default": "v-proj"
+    },
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000010",
+      "seq": 50
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 2,
+    "itemId": "0199c0de-0200-7000-8000-000000000011",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000010",
+    "path": "/projects/jobbie/",
+    "title": "Jobbie",
+    "type": "note",
+    "seq": "2048",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "role": "Engineering lead",
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000701"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000011",
+      "seq": 51
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000701",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000801",
+        "sha256": "83b8d9ad7194d342fd43831d70af91447ec36abaf324f45f17ff93bb4836ac0e",
+        "mediaType": "image/png",
+        "byteLength": 16420
+      }
+    ]
+  },
+  {
+    "ordinal": 3,
+    "itemId": "0199c0de-0200-7000-8000-000000000012",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000010",
+    "path": "/projects/nix/",
+    "title": "Nix",
+    "type": "note",
+    "seq": "3072",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "subtitle": "A self-hosted collaborative workspace",
+      "role": "Solo product and engineering",
+      "stack": ["Go", ".NET", "PostgreSQL", "React"],
+      "started": "2025-03-01",
+      "code": "https://github.com/example/nix",
+      "$cal_source": "internal",
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000700"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000012",
+      "seq": 52
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000700",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000800",
+        "sha256": "3e3fb391369785f83fdab66b6c865c0f66e6913d17beac1a0f6b89dcf9f888b3",
+        "mediaType": "image/png",
+        "byteLength": 29125
+      }
+    ]
+  },
+  {
+    "ordinal": 4,
+    "itemId": "0199c0de-0200-7000-8000-000000000013",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000010",
+    "path": "/projects/glang/",
+    "title": "Glang",
+    "type": "note",
+    "seq": "4096",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000702"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000013",
+      "seq": 53
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000702",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000802",
+        "sha256": "d107936e60301c0150f47a69574ee54fd407ba25a5a229ac9816b8d8a8c54098",
+        "mediaType": "image/png",
+        "byteLength": 24901
+      }
+    ]
+  },
+  {
+    "ordinal": 5,
+    "itemId": "0199c0de-0200-7000-8000-000000000014",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000013",
+    "path": "/projects/glang/roadmap/",
+    "title": "Roadmap",
+    "type": "note",
+    "seq": "5120",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": {
+      "properties": [
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Done", "In progress", "Planned"],
+          "required": false
+        }
+      ],
+      "declared": [],
+      "inherit": true
+    },
+    "views": {
+      "views": [
+        {
+          "id": "v-chart",
+          "name": "Milestones by status",
+          "kind": "chart",
+          "columns": [],
+          "groupBy": "status",
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null
+        },
+        {
+          "id": "v-list",
+          "name": "All milestones",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null
+        }
+      ],
+      "default": "v-chart"
+    },
+    "chart": {
+      "itemId": "0199c0de-0200-7000-8000-000000000014",
+      "viewId": "v-chart",
+      "groupBy": "status",
+      "measure": "count",
+      "measureProperty": null,
+      "buckets": [
+        {
+          "value": "Done",
+          "children": 3,
+          "total": null,
+          "cells": []
+        },
+        {
+          "value": "In progress",
+          "children": 1,
+          "total": null,
+          "cells": []
+        },
+        {
+          "value": "Planned",
+          "children": 2,
+          "total": null,
+          "cells": []
+        }
+      ],
+      "children": 6,
+      "distinctValues": 3,
+      "truncated": false,
+      "chartKind": "column",
+      "period": null,
+      "splitBy": null,
+      "from": null,
+      "to": null,
+      "series": [],
+      "otherSeries": 0,
+      "outsideWindow": 0,
+      "stacked": false,
+      "cumulative": false,
+      "rollingAverage": false,
+      "unplaced": 0
+    },
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000014",
+      "seq": 54
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 6,
+    "itemId": "0199c0de-0200-7000-8000-000000000015",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000014",
+    "path": "/projects/glang/roadmap/lexer-and-parser/",
+    "title": "Lexer and parser",
+    "type": "note",
+    "seq": "6144",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Done"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000015",
+      "seq": 55
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 7,
+    "itemId": "0199c0de-0200-7000-8000-000000000016",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000014",
+    "path": "/projects/glang/roadmap/self-hosting-compiler/",
+    "title": "Self-hosting compiler",
+    "type": "note",
+    "seq": "7168",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Done"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000016",
+      "seq": 56
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 8,
+    "itemId": "0199c0de-0200-7000-8000-000000000017",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000014",
+    "path": "/projects/glang/roadmap/x86-64-backend/",
+    "title": "x86-64 backend",
+    "type": "note",
+    "seq": "8192",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Done"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000017",
+      "seq": 57
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 9,
+    "itemId": "0199c0de-0200-7000-8000-000000000018",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000014",
+    "path": "/projects/glang/roadmap/generics/",
+    "title": "Generics",
+    "type": "note",
+    "seq": "9216",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "In progress"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000018",
+      "seq": 58
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 10,
+    "itemId": "0199c0de-0200-7000-8000-000000000019",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000014",
+    "path": "/projects/glang/roadmap/package-manager/",
+    "title": "Package manager",
+    "type": "note",
+    "seq": "10240",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Planned"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000019",
+      "seq": 59
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 11,
+    "itemId": "0199c0de-0200-7000-8000-000000000020",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000014",
+    "path": "/projects/glang/roadmap/language-server/",
+    "title": "Language server",
+    "type": "note",
+    "seq": "11264",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "status": "Planned"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000020",
+      "seq": 60
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 12,
+    "itemId": "0199c0de-0200-7000-8000-000000000030",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000001",
+    "path": "/blog/",
+    "title": "Blog",
+    "type": "note",
+    "seq": "12288",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000030",
+      "seq": 70
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 13,
+    "itemId": "0199c0de-0200-7000-8000-000000000031",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000030",
+    "path": "/blog/ai-as-a-layer-of-abstraction/",
+    "title": "AI as a layer of abstraction",
+    "type": "note",
+    "seq": "13312",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "tags": ["ai", "engineering"],
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000703",
+      "summary": "Language models are the newest layer between us and the machine. Like every layer before them, they leak; what matters is whether you can see it."
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000031",
+      "seq": 71
+    },
+    "datedCollectionId": "0199c0de-0200-7000-8000-000000000030",
+    "publishedAt": "2026-09-28",
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000703",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000803",
+        "sha256": "c10c15f168531c1b4cd4e57ab76b1fbc92e306f16cbaa4c3929dfa1c4eaec168",
+        "mediaType": "image/png",
+        "byteLength": 47511
+      }
+    ]
+  },
+  {
+    "ordinal": 14,
+    "itemId": "0199c0de-0200-7000-8000-000000000032",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000030",
+    "path": "/blog/why-your-jetson-wont-stay-bricked/",
+    "title": "Why Your Jetson Won't Stay Bricked (Probably)",
+    "type": "note",
+    "seq": "14336",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "tags": ["edge", "hardware", "iot"],
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000704",
+      "summary": "A bad flash feels final. It almost never is: the boot ROM keeps a recovery path that no update can overwrite."
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000032",
+      "seq": 72
+    },
+    "datedCollectionId": "0199c0de-0200-7000-8000-000000000030",
+    "publishedAt": "2026-09-14",
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000704",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000804",
+        "sha256": "49100978b1f73dea4375d070c42c88336c2f22603d5000affea98bbfb57b19c5",
+        "mediaType": "image/png",
+        "byteLength": 21544
+      }
+    ]
+  },
+  {
+    "ordinal": 15,
+    "itemId": "0199c0de-0200-7000-8000-000000000033",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000030",
+    "path": "/blog/the-admin-panel-has-no-password/",
+    "title": "The admin panel has no password",
+    "type": "note",
+    "seq": "15360",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "tags": ["security", "iot"],
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000705",
+      "summary": "Most home networks hold one device whose settings page opens with no login at all. Here is why, and how to find yours."
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000033",
+      "seq": 73
+    },
+    "datedCollectionId": "0199c0de-0200-7000-8000-000000000030",
+    "publishedAt": "2026-08-30",
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000705",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000805",
+        "sha256": "909ac1f1b9629a8dbb0173d86e7707d3faaf1ef0a6b32f41d40cbb95eadaeaf5",
+        "mediaType": "image/png",
+        "byteLength": 12831
+      }
+    ]
+  },
+  {
+    "ordinal": 16,
+    "itemId": "0199c0de-0200-7000-8000-000000000034",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000030",
+    "path": "/blog/kubernetes-made-my-life-easier/",
+    "title": "Kubernetes made my life easier",
+    "type": "note",
+    "seq": "16384",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "tags": ["devops", "engineering"],
+      "cover": "nix-file:0199c0de-0200-7000-8000-000000000706"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000034",
+      "seq": 74
+    },
+    "datedCollectionId": "0199c0de-0200-7000-8000-000000000030",
+    "publishedAt": "2026-07-19",
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000706",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000806",
+        "sha256": "1c71a2ef544d7bd66ac932e89ebbfa2679aea8b049f78accd370ec5f8814374d",
+        "mediaType": "image/png",
+        "byteLength": 33345
+      }
+    ]
+  },
+  {
+    "ordinal": 17,
+    "itemId": "0199c0de-0200-7000-8000-000000000050",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000001",
+    "path": "/uses/",
+    "title": "Uses",
+    "type": "note",
+    "seq": "17408",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": {
+      "views": [
+        {
+          "id": "v-uses",
+          "name": "List",
+          "kind": "list",
+          "columns": [],
+          "groupBy": null,
+          "groupOrder": [],
+          "dateProperty": null,
+          "sortBy": null,
+          "sortDescending": false,
+          "mode": null,
+          "coverProperty": null,
+          "endDateProperty": null,
+          "cardSize": null
+        }
+      ],
+      "default": "v-uses"
+    },
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000050",
+      "seq": 90
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 18,
+    "itemId": "0199c0de-0200-7000-8000-000000000051",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000050",
+    "path": "/uses/desk/",
+    "title": "Desk",
+    "type": "note",
+    "seq": "18432",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000051",
+      "seq": 91
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  },
+  {
+    "ordinal": 19,
+    "itemId": "0199c0de-0200-7000-8000-000000000052",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000050",
+    "path": "/uses/software/",
+    "title": "Software",
+    "type": "note",
+    "seq": "19456",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {
+      "notes": "nix-file:0199c0de-0200-7000-8000-000000000710"
+    },
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000052",
+      "seq": 92
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": [
+      {
+        "fileItemId": "0199c0de-0200-7000-8000-000000000710",
+        "fileVersionId": "0199c0de-0200-7000-8000-000000000810",
+        "sha256": "61f31bef59982cf2a733b813c1342c1506a9efeffa80928fcd5490f8b5409620",
+        "mediaType": "text/plain",
+        "byteLength": 62
+      }
+    ]
+  },
+  {
+    "ordinal": 20,
+    "itemId": "0199c0de-0200-7000-8000-000000000053",
+    "parentItemId": "0199c0de-0200-7000-8000-000000000050",
+    "path": "/uses/homelab/",
+    "title": "Homelab",
+    "type": "note",
+    "seq": "20480",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-06T09:00:00Z",
+    "properties": {},
+    "schema": null,
+    "views": null,
+    "chart": null,
+    "content": {
+      "docId": "0199c0de-0201-7000-8000-000000000053",
+      "seq": 93
+    },
+    "datedCollectionId": null,
+    "publishedAt": null,
+    "propertyFiles": []
+  }
+]

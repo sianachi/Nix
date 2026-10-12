@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "A tour of what Nix does. Each feature below is stable unless it says otherwise; beta features are complete enough to use and may still change shape."
+          }
+        ]
+      }
+    ]
+  }
+}

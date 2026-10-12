@@ -1,0 +1,70 @@
+# Rendered with envsubst by deploy/k8s/deploy.sh - needs $TAG. Idempotent; runs every release.
+#
+# 1. Ensures the sites server's read-only account exists in versitygw's internal IAM with the
+#    current nix-sites read key (role "user": cannot create buckets, owns nothing).
+# 2. Creates the Nix bucket and the sites bucket (owned by the root account, which Core signs with).
+# 3. Puts a bucket policy that lets the read account GetObject and ListBucket on the sites bucket
+#    only. Writes, deletes, policy changes and every other bucket stay denied to it (checked
+#    against versitygw v1.7.0 with --iam-dir).
+apiVersion: batch/v1
+kind: Job
+metadata: { name: nix-storage-init-${TAG}, namespace: nix }
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: { labels: { app: nix-storage-init } }
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      initContainers:
+        - name: sites-read-account
+          image: versity/versitygw:v1.7.0
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              admin() { versitygw admin --endpoint-url http://nix-versitygw:7070 "$@"; }
+              if admin list-users | awk -v key="$READ_ACCESS_KEY" '$1 == key { found = 1 } END { exit !found }'; then
+                admin update-user --access "$READ_ACCESS_KEY" --secret "$READ_SECRET_KEY" --role user
+              else
+                admin create-user --access "$READ_ACCESS_KEY" --secret "$READ_SECRET_KEY" --role user
+              fi
+          env:
+            - name: ADMIN_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: access-key } }
+            - name: ADMIN_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: secret-key } }
+            - name: READ_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nix-sites, key: read-access-key } }
+            - name: READ_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: nix-sites, key: read-secret-key } }
+          resources: { requests: { cpu: 10m, memory: 32Mi }, limits: { memory: 128Mi } }
+      containers:
+        - name: buckets
+          image: amazon/aws-cli:2.36.31
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              s3() { aws --endpoint-url http://nix-versitygw:7070 s3api "$@"; }
+              for bucket in "$NIX_BUCKET" "$SITES_BUCKET"; do
+                s3 head-bucket --bucket "$bucket" >/dev/null 2>&1 || s3 create-bucket --bucket "$bucket"
+              done
+              printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":["%s"],"Action":["s3:GetObject","s3:ListBucket"],"Resource":["arn:aws:s3:::%s","arn:aws:s3:::%s/*"]}]}' \
+                "$READ_ACCESS_KEY" "$SITES_BUCKET" "$SITES_BUCKET" > /tmp/sites-read.json
+              s3 put-bucket-policy --bucket "$SITES_BUCKET" --policy file:///tmp/sites-read.json
+          env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: access-key } }
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: secret-key } }
+            - name: AWS_DEFAULT_REGION
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: region } }
+            - name: NIX_BUCKET
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: bucket } }
+            - name: SITES_BUCKET
+              valueFrom: { secretKeyRef: { name: nix-sites, key: bucket } }
+            - name: READ_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: nix-sites, key: read-access-key } }
+          resources: { requests: { cpu: 10m, memory: 64Mi }, limits: { memory: 256Mi } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+      volumes: [{ name: tmp, emptyDir: {} }]

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 5,
+  "prosemirror": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "The tools I reach for, for anyone who asked."
+          }
+        ]
+      },
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "The full parts list is in "
+          },
+          {
+            "type": "reference",
+            "attrs": {
+              "kind": "item",
+              "targetId": "0199c0de-0200-7000-8000-000000000709",
+              "label": "the desk sheet"
+            }
+          },
+          {
+            "type": "text",
+            "text": "."
+          }
+        ]
+      },
+      {
+        "type": "itemBlock",
+        "attrs": {
+          "targetId": "0199c0de-0200-7000-8000-000000000709",
+          "presentation": "attachment"
+        }
+      }
+    ]
+  }
+}

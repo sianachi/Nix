@@ -5,6 +5,7 @@ import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from '@tipt
 
 import { saveArchive } from '../export/export-archive';
 import type { FileViewerPlugin } from './file-viewer-registry';
+import { useMermaidCapture } from './mermaid-capture';
 import { mermaidThemeSnapshot, renderMermaid, subscribeToMermaidTheme } from './mermaid-render';
 
 const MERMAID_MEDIA_TYPES = new Set([
@@ -241,11 +242,43 @@ export function MermaidViewer({
   );
 }
 
-export function MermaidCodeBlockView({ node }: ReactNodeViewProps): ReactElement {
+function stringAttr(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
+export function MermaidCodeBlockView({ node, editor, getPos }: ReactNodeViewProps): ReactElement {
   const language = typeof node.attrs.language === 'string' ? node.attrs.language : '';
   const source = node.textContent;
+  const mermaidBlock = /^mermaid$/iu.test(language.trim());
+  const captureId = useId().replace(/[^\da-z-]/giu, '');
 
-  if (!/^mermaid$/iu.test(language.trim())) {
+  useMermaidCapture(
+    {
+      source: mermaidBlock ? source : '',
+      renderFileId: stringAttr(node.attrs.renderFileId),
+      renderSourceHash: stringAttr(node.attrs.renderSourceHash),
+      editable: editor.isEditable,
+      commit: (renderFileId, renderSourceHash) => {
+        const position = getPos();
+        if (typeof position !== 'number' || !editor.isEditable) return;
+        const current = editor.state.doc.nodeAt(position);
+        if (current?.type.name !== 'codeBlock') return;
+        // Bookkeeping, not an edit: undo must not step back through a capture.
+        editor.view.dispatch(
+          editor.state.tr
+            .setNodeMarkup(position, undefined, {
+              ...current.attrs,
+              renderFileId,
+              renderSourceHash,
+            })
+            .setMeta('addToHistory', false),
+        );
+      },
+    },
+    captureId,
+  );
+
+  if (!mermaidBlock) {
     return (
       <NodeViewWrapper>
         <NodeViewContent />

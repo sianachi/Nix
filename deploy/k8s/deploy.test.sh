@@ -14,6 +14,10 @@ export RENDERED_API="$test_root/api.yaml"
 export RENDERED_TEMPLATE_SYNC="$test_root/template-sync.yaml"
 export RENDERED_WORKERS="$test_root/workers.yaml"
 export RENDERED_WEB="$test_root/web.yaml"
+export RENDERED_SITES="$test_root/sites.yaml"
+export RENDERED_INGRESS="$test_root/ingress.yaml"
+export RENDERED_ALL="$test_root/all.yaml"
+export RENDERED_ZITADEL="$test_root/zitadel.yaml"
 
 cat > "$fake_bin/git" <<EOF
 #!/usr/bin/env bash
@@ -58,6 +62,17 @@ if [[ " $* " == *" get secret nix-object-store "* && " $* " == *"metadata.resour
   exit 0
 fi
 
+if [[ " $* " == *" get secret nix-sites "* && " $* " == *"metadata.resourceVersion"* ]]; then
+  printf '24680'
+  exit 0
+fi
+
+if [[ " $* " == *" get secret nix-sites "* && " $* " == *" jsonpath="* ]]; then
+  if [ "${MISSING_SITES_KEY:-}" = 1 ] && [[ " $* " == *"read-access-key"* ]]; then exit 0; fi
+  printf 'dGVzdA=='
+  exit 0
+fi
+
 if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *" jsonpath="* ]]; then
   printf 'dGVzdA=='
   exit 0
@@ -70,6 +85,7 @@ fi
 
 if [[ " $* " == *" apply -f - "* ]]; then
   payload="$(</dev/stdin)"
+  printf '%s\n---\n' "$payload" >> "$RENDERED_ALL"
   names="$(printf '%s\n' "$payload" | sed -nE \
     -e 's/^metadata: \{ name: ([^,}]+).*$/\1/p' \
     -e 's/^  name: ([^ ]+)$/\1/p' | paste -sd, -)"
@@ -86,8 +102,17 @@ if [[ " $* " == *" apply -f - "* ]]; then
   if [[ "$payload" == *"name: nix-template-boot-render-order"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_TEMPLATE_SYNC"
   fi
-  if [[ "$payload" == *"name: nix-import-worker"* && "$payload" == *"name: nix-export-worker"* && "$payload" == *"name: nix-plugin-worker"* ]]; then
+  if [[ "$payload" == *"kind: Deployment"* && "$payload" == *"name: nix-worker, namespace"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_WORKERS"
+  fi
+  if [[ "$payload" == *"name: nix-sites-serve"* && "$payload" == *"kind: Deployment"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_SITES"
+  fi
+  if [[ "$payload" == *"name: nix-zitadel-env"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_ZITADEL"
+  fi
+  if [[ "$payload" == *"kind: Ingress"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_INGRESS"
   fi
   if [[ "$payload" == *"name: nix-web"* && "$payload" == *"containerPort: 8090"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_WEB"
@@ -126,7 +151,7 @@ run_deploy() {
 PATH="$fake_bin:$PATH" \
 REGISTRY=registry.example.test \
 TAG=render-order \
-OIDC_ISSUER=https://identity.example.test \
+OIDC_ISSUER="${OIDC_ISSUER-https://identity.example.test}" \
 OIDC_CLIENT_ID=web-client \
 DOMAIN=nix.example.test \
 TEMPLATE_BOOT_WORKSPACE_ID=11111111-1111-4111-8111-111111111111 \
@@ -208,15 +233,99 @@ if grep -Fq 'NIX_TEMPLATE_BOOT_MEDIA_URL' "$RENDERED_TEMPLATE_SYNC"; then
   exit 1
 fi
 grep -Fq 'nix.io/rabbitmq-secret-version: "12345"' "$RENDERED_WORKERS"
-test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WORKERS")" -eq 3
-grep -Fq 'key: import-url' "$RENDERED_WORKERS"
-grep -Fq 'key: export-url' "$RENDERED_WORKERS"
-grep -Fq 'key: plugin-url' "$RENDERED_WORKERS"
-grep -Fq 'key: calendar-url' "$RENDERED_WORKERS"
-grep -Fq 'key: notify-url' "$RENDERED_WORKERS"
+test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WORKERS")" -eq 1
+# One worker Deployment runs every role under the combined broker account.
+grep -Fq 'value: import,export,plugin-events,calendar,notify' "$RENDERED_WORKERS"
+grep -Fq 'key: worker-url' "$RENDERED_WORKERS"
+grep -Fq 'key: worker-password' "$RENDERED_RABBITMQ"
+grep -Fq 'values: [nix-worker, nix-sites-worker]' "$RENDERED_RABBITMQ"
+grep -Fq 'delete:-n nix delete deployment/nix-import-worker' "$KUBECTL_LOG"
+grep -Fq 'rollout:-n nix rollout status deployment/nix-worker ' "$KUBECTL_LOG"
+if grep -Eq 'rollout:.*nix-(import|export|plugin|calendar|notify)-worker' "$KUBECTL_LOG"; then
+  echo 'Deployment still waits for retired per-role workers.' >&2
+  exit 1
+fi
 grep -Fq 'name: NIX_OBJECT_STORE_PUBLIC_ORIGIN' "$RENDERED_WEB"
 grep -Fq 'key: public-origin' "$RENDERED_WEB"
 test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_WEB")" -eq 1
+
+# Sites (ADR-0063): own image, broker identity, read-only bucket key, host-routed ingress.
+grep -Fq 'image: registry.example.test/sites:render-order' "$RENDERED_SITES"
+grep -Fq 'key: sites-url' "$RENDERED_SITES"
+grep -Fq 'key: read-access-key' "$RENDERED_SITES"
+grep -Fq 'value: "nix.example.test"' "$RENDERED_SITES"
+grep -Fq 'nix.io/sites-secret-version: "24680"' "$RENDERED_SITES"
+grep -Fq 'command: ["node", "--experimental-strip-types", "src/serve/index.ts"]' "$RENDERED_SITES"
+test "$(grep -Fc 'readOnlyRootFilesystem: true' "$RENDERED_SITES")" -eq 2
+test "$(grep -Fc 'httpHeaders: [{ name: Host, value: localhost }]' "$RENDERED_SITES")" -eq 2
+serve_section="$(sed -n '/name: nix-sites-serve, namespace/,/name: sites-worker-egress/p' "$RENDERED_SITES")"
+if printf '%s\n' "$serve_section" | grep -Eq 'nix-internal|nix-connections|nix-rabbitmq|key: access-key|key: secret-key'; then
+  echo 'The anonymous sites server received a Core, database, broker or write credential.' >&2
+  exit 1
+fi
+grep -Fq 'key: sites-password' "$RENDERED_RABBITMQ"
+grep -Fq 'name: Nix__Sites__Domain' "$RENDERED_API"
+grep -Fq 'name: Nix__Sites__SharedAppDomain' "$RENDERED_API"
+grep -Fq 'key: reserved-owner-nix, optional: true' "$RENDERED_API"
+grep -Fq 'hosts: ["nix.example.test", "*.nix.example.test"]' "$RENDERED_INGRESS"
+grep -Fq 'host: "*.nix.example.test"' "$RENDERED_INGRESS"
+grep -Fq 'service: { name: nix-sites-serve, port: { number: 8400 } }' "$RENDERED_INGRESS"
+assert_before "apply-stdin:nix-sites-worker,nix-sites-worker" "rollout:-n nix rollout status deployment/nix-sites-serve"
+# Every first-party image the manifests pull is one CI publishes (ci-images.yml plan lines).
+published="$(sed -nE 's/^ *plan ([a-z-]+) deploy\/docker\/.*/\1/p' "$repo_root/.github/workflows/ci-images.yml" | sort -u)"
+pulled="$(sed -nE 's/^ *image: registry\.example\.test\/([^:]+):render-order$/\1/p' "$RENDERED_ALL" | sort -u)"
+test -n "$published" && test -n "$pulled"
+unpublished="$(comm -23 <(printf '%s\n' "$pulled") <(printf '%s\n' "$published"))"
+if [ -n "$unpublished" ]; then
+  echo "Manifests pull images CI does not publish: $unpublished" >&2
+  exit 1
+fi
+if grep -E '^ *image: registry\.example\.test/' "$RENDERED_ALL" | grep -vqE ':render-order$'; then
+  echo 'A first-party image is not tagged with the release TAG.' >&2
+  exit 1
+fi
+# Client address: Caddy trusts the pod network for CF-Connecting-IP; the ingress admits Cloudflare only.
+grep -Fq 'name: NIX_TRUSTED_PROXY_CIDR' "$RENDERED_WEB"
+grep -Fq 'value: "10.42.0.0/16"' "$RENDERED_WEB"
+grep -Fq 'router.middlewares: nix-cloudflare-only@kubernetescrd' "$RENDERED_INGRESS"
+test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix'
+grep -Fq 'client_ip_headers CF-Connecting-IP' "$repo_root/deploy/k8s/Caddyfile"
+# In-cluster object store: buckets and the sites read account exist before anything uses them.
+assert_before "apply-file:deploy/k8s/objectstore.yaml" "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order"
+assert_before "wait:-n nix wait --for=condition=complete job/nix-storage-init-render-order" "apply-stdin:nix-api-data-protection,nix-api,nix-api"
+grep -Fq 'handle /{$NIX_OBJECT_STORE_BUCKET}/*' "$repo_root/deploy/k8s/Caddyfile"
+grep -Fq 'name: NIX_OBJECT_STORE_BUCKET' "$RENDERED_WEB"
+# Zitadel: own database created before it starts, invite-only, served at auth.$DOMAIN.
+assert_before "wait:-n nix wait --for=condition=complete job/nix-db-seed" "wait:-n nix wait --for=condition=complete job/nix-zitadel-db-render-order"
+grep -Fq 'ZITADEL_EXTERNALDOMAIN: "auth.nix.example.test"' "$RENDERED_ZITADEL"
+grep -Fq 'ZITADEL_DEFAULTINSTANCE_LOGINPOLICY_ALLOWREGISTER: "false"' "$RENDERED_ZITADEL"
+grep -Fq 'key: masterkey' "$RENDERED_ZITADEL"
+if grep -Fq 'ZITADEL_DATABASE_POSTGRES_ADMIN' "$RENDERED_ZITADEL"; then
+  echo 'Zitadel received database administrator credentials.' >&2
+  exit 1
+fi
+grep -Fq 'host: "auth.nix.example.test"' "$RENDERED_INGRESS"
+grep -Fq 'service: { name: nix-zitadel, port: { number: 8080 } }' "$RENDERED_INGRESS"
+grep -Fq 'rollout:-n nix rollout status deployment/nix-zitadel --timeout=900s' "$KUBECTL_LOG"
+grep -Fq 'apply-file:deploy/k8s/backup.yaml' "$KUBECTL_LOG"
+# Third-party images are pinned to a version.
+if grep -E '^ *image: ' "$RENDERED_ALL" | grep -vE ':[A-Za-z0-9._-]+$|registry\.example\.test/' | grep -q .; then
+  echo 'An image is not pinned to a tag.' >&2
+  exit 1
+fi
+: > "$KUBECTL_LOG"
+if MISSING_SITES_KEY=1 run_deploy 2>/dev/null; then
+  echo 'Deployment accepted a sites secret without the read key.' >&2
+  exit 1
+fi
+if grep -Fq 'apply-stdin:' "$KUBECTL_LOG"; then
+  echo 'Deployment applied workloads before validating the sites secret.' >&2
+  exit 1
+fi
+run_deploy
+# Without OIDC_ISSUER, Core trusts the bundled Zitadel.
+OIDC_ISSUER= run_deploy
+grep -Fq 'value: "https://auth.nix.example.test"' "$RENDERED_API"
 
 if grep -Eq 'nix-indexer|OpenSearch|opensearch|index-password|index-url' "$RENDERED_WORKERS" "$RENDERED_API" "$RENDERED_RABBITMQ"; then
   echo 'Deployment still renders retired search components.' >&2

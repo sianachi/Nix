@@ -27,6 +27,8 @@ export const DEV_BUCKET_CORS_POLICY = `<?xml version="1.0" encoding="UTF-8"?>
 </CORSConfiguration>`;
 
 export interface DevObjectStoreOptions {
+  /** Apply the browser CORS policy. The sites bucket is read only by the serving process. */
+  readonly cors?: boolean;
   readonly endpoint: string;
   readonly region: string;
   readonly bucket: string;
@@ -125,6 +127,8 @@ export async function prepareDevObjectStore(
         }
       }
 
+      if (bucketReady && options.cors === false) return;
+
       if (bucketReady) {
         const cors = createDevBucketCorsRequest(options);
         const response = await request(cors.url, {
@@ -168,6 +172,16 @@ async function main(): Promise<void> {
     accessKey: required('NIX_OBJECT_STORE_ACCESS_KEY'),
     secretKey: required('NIX_OBJECT_STORE_SECRET_KEY'),
     expiresSeconds: 60,
+  });
+  // The sites bucket: no CORS, because browsers never reach it (the serving process does).
+  await prepareDevObjectStore({
+    endpoint: required('NIX_OBJECT_STORE_ENDPOINT'),
+    region: required('NIX_OBJECT_STORE_REGION'),
+    bucket: process.env.NIX_SITES_BUCKET ?? 'nix-sites',
+    accessKey: required('NIX_OBJECT_STORE_ACCESS_KEY'),
+    secretKey: required('NIX_OBJECT_STORE_SECRET_KEY'),
+    expiresSeconds: 60,
+    cors: false,
   });
 }
 

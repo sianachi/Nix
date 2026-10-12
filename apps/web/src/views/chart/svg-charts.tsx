@@ -1,12 +1,17 @@
+import {
+  CHART_HEIGHT as HEIGHT,
+  CHART_WIDTH as WIDTH,
+  axisTickIndexes,
+  columnGeometry,
+  hatchPath,
+  lineGeometry,
+  pieGeometry,
+  scaleTicks,
+} from '@nix/chart-render';
 import { Text } from '@nix/ui';
 import { useId, type ReactNode } from 'react';
 
-import {
-  formatMeasure,
-  type PlottedSeries,
-  type SeriesHatch,
-  type SeriesStyle,
-} from './chart-model';
+import { formatMeasure, type PlottedSeries, type SeriesStyle } from './chart-model';
 
 /**
  * The drawn chart types: columns, lines and areas, and a pie.
@@ -24,49 +29,10 @@ import {
  *
  * **Negative totals are drawn from zero up as nothing.** A sum can be negative; a column or a slice
  * cannot be. The table still carries the figure, signed.
+ *
+ * Where each mark goes is computed by `@nix/chart-render`'s geometry, which a published site draws
+ * from too; this file only turns those shapes into JSX.
  */
-
-const WIDTH = 600;
-const HEIGHT = 200;
-
-/** Below this many units of width a column's background separator would swallow the column. */
-const SEPARATOR_MINIMUM = 4;
-
-function positive(value: number | null | undefined): number {
-  return value === null || value === undefined || value < 0 ? 0 : value;
-}
-
-/** A scale maximum a reader can tick: whole numbers for counts, rounded up to an even step. */
-function niceMaximum(value: number, whole: boolean): number {
-  if (value <= 0) {
-    return whole ? 2 : 1;
-  }
-  if (!whole) {
-    return value;
-  }
-  const rounded = Math.ceil(value);
-  return rounded % 2 === 0 ? rounded : rounded + 1;
-}
-
-/** The pattern a series' fill is painted with: its colour, and a hatch in the ground's colour. */
-function hatchPath(hatch: SeriesHatch): string | null {
-  switch (hatch) {
-    case 'none':
-      return null;
-    case 'diagonal':
-      return 'M0,8 L8,0';
-    case 'back':
-      return 'M0,0 L8,8';
-    case 'cross':
-      return 'M0,8 L8,0 M0,0 L8,8';
-    case 'horizontal':
-      return 'M0,4 L8,4';
-    case 'vertical':
-      return 'M4,0 L4,8';
-    case 'dots':
-      return 'M3,3 L3.01,3';
-  }
-}
 
 /** One `<pattern>` per style, so fills are told apart by hatch as well as by tone. */
 function SeriesPatterns({
@@ -121,16 +87,14 @@ function Frame({
   readonly shortLabels: readonly string[];
   readonly children: ReactNode;
 }): ReactNode {
-  const ticks =
-    labels.length === 0 ? [] : [0, Math.floor((labels.length - 1) / 2), labels.length - 1];
-  const shown = [...new Set(ticks)];
+  const shown = axisTickIndexes(labels.length);
 
   return (
     <div className="flex gap-2" aria-hidden="true">
       <div className="flex h-48 w-10 shrink-0 flex-col justify-between text-right">
-        {[maximum, maximum / 2, 0].map((value, index) => (
+        {scaleTicks(maximum, whole).map((value, index) => (
           <Text key={index} variant="caption" tone="muted">
-            {formatMeasure(whole ? Math.round(value) : Number(value.toFixed(2)))}
+            {formatMeasure(value)}
           </Text>
         ))}
       </div>
@@ -192,24 +156,10 @@ export function ColumnChart({
   stacked,
 }: ColumnChartProps): ReactNode {
   const prefix = useId().replaceAll(':', '');
-  const count = labels.length;
-  let largest = 0;
-  for (let index = 0; index < count; index += 1) {
-    const values = series.map((entry) => positive(entry.values[index]));
-    largest = Math.max(
-      largest,
-      stacked ? values.reduce((a, b) => a + b, 0) : Math.max(0, ...values),
-    );
-  }
-  const maximum = niceMaximum(largest, whole);
-  const band = WIDTH / Math.max(1, count);
-  const inner = band * 0.8;
-  const sub = stacked ? inner : inner / Math.max(1, series.length);
-  const separated = sub >= SEPARATOR_MINIMUM;
-  const height = (value: number) => (value / maximum) * HEIGHT;
+  const geometry = columnGeometry({ series, count: labels.length, whole, stacked });
 
   return (
-    <Frame maximum={maximum} whole={whole} labels={labels} shortLabels={shortLabels}>
+    <Frame maximum={geometry.maximum} whole={whole} labels={labels} shortLabels={shortLabels}>
       <svg
         viewBox={`0 0 ${String(WIDTH)} ${String(HEIGHT)}`}
         preserveAspectRatio="none"
@@ -217,38 +167,30 @@ export function ColumnChart({
       >
         <SeriesPatterns prefix={prefix} styles={series.map((entry) => entry.style)} />
         <Gridlines />
-        {labels.map((label, index) => {
-          const left = index * band + (band - inner) / 2;
-          let base = HEIGHT;
-          return (
-            <g key={`${label}-${String(index)}`}>
-              {series.map((entry, position) => {
-                const value = positive(entry.values[index]);
-                const tall = height(value);
-                const x = stacked ? left : left + position * sub;
-                const y = stacked ? base - tall : HEIGHT - tall;
-                if (stacked) {
-                  base -= tall;
-                }
-                return (
+        {labels.map((label, index) => (
+          <g key={`${label}-${String(index)}`}>
+            {geometry.rects
+              .filter((rect) => rect.bucket === index)
+              .map((rect) => {
+                const entry = series[rect.series];
+                return entry === undefined ? null : (
                   <rect
                     key={entry.key}
-                    x={x}
-                    y={y}
-                    width={sub}
-                    height={tall}
-                    fill={patternFill(prefix, position)}
-                    className={separated ? 'stroke-background' : undefined}
-                    strokeWidth={separated ? 1 : 0}
+                    x={rect.x}
+                    y={rect.y}
+                    width={rect.width}
+                    height={rect.height}
+                    fill={patternFill(prefix, rect.series)}
+                    className={geometry.separated ? 'stroke-background' : undefined}
+                    strokeWidth={geometry.separated ? 1 : 0}
                     vectorEffect="non-scaling-stroke"
                   >
                     <title>{`${label}, ${entry.label}: ${formatMeasure(entry.values[index] ?? 0)}`}</title>
                   </rect>
                 );
               })}
-            </g>
-          );
-        })}
+          </g>
+        ))}
       </svg>
     </Frame>
   );
@@ -275,50 +217,17 @@ export function LineChart({
   averages,
 }: LineChartProps): ReactNode {
   const prefix = useId().replaceAll(':', '');
-  const count = labels.length;
-  const stacking = area && stacked && series.length > 1;
-
-  // For stacked areas each series sits on the ones before it; otherwise every line starts at zero.
-  const bases: number[][] = [];
-  const tops: number[][] = [];
-  series.forEach((entry, position) => {
-    const below = stacking && position > 0 ? (tops[position - 1] ?? []) : [];
-    const base = Array.from({ length: count }, (_, index) => below[index] ?? 0);
-    bases.push(base);
-    tops.push(
-      base.map(
-        (floor, index) =>
-          floor + (stacking ? positive(entry.values[index]) : (entry.values[index] ?? 0)),
-      ),
-    );
+  const geometry = lineGeometry({
+    series,
+    count: labels.length,
+    whole,
+    area,
+    stacked,
+    averages,
   });
 
-  let largest = 0;
-  for (const row of tops) {
-    for (const value of row) largest = Math.max(largest, value);
-  }
-  for (const row of averages ?? []) {
-    for (const value of row) largest = Math.max(largest, value ?? 0);
-  }
-  const maximum = niceMaximum(largest, whole);
-  const x = (index: number) => (count < 2 ? WIDTH / 2 : (index / (count - 1)) * WIDTH);
-  const y = (value: number) => HEIGHT - (Math.max(0, value) / maximum) * HEIGHT;
-  const line = (values: readonly (number | null)[]) => {
-    let path = '';
-    let connected = false;
-    values.forEach((value, index) => {
-      if (value === null) {
-        connected = false;
-        return;
-      }
-      path += `${connected ? ' L' : ' M'}${String(x(index))},${String(y(value))}`;
-      connected = true;
-    });
-    return path.trim();
-  };
-
   return (
-    <Frame maximum={maximum} whole={whole} labels={labels} shortLabels={shortLabels}>
+    <Frame maximum={geometry.maximum} whole={whole} labels={labels} shortLabels={shortLabels}>
       <svg
         viewBox={`0 0 ${String(WIDTH)} ${String(HEIGHT)}`}
         preserveAspectRatio="none"
@@ -326,28 +235,18 @@ export function LineChart({
       >
         <SeriesPatterns prefix={prefix} styles={series.map((entry) => entry.style)} />
         <Gridlines />
-        {area
-          ? series.map((entry, position) => {
-              const top = tops[position] ?? [];
-              const base = bases[position] ?? [];
-              const upper = top.map((value, index) => `${String(x(index))},${String(y(value))}`);
-              const lower = base
-                .map((value, index) => `${String(x(index))},${String(y(value))}`)
-                .reverse();
-              return (
-                <polygon
-                  key={`area-${entry.key}`}
-                  points={[...upper, ...lower].join(' ')}
-                  fill={patternFill(prefix, position)}
-                  className={stacking ? undefined : 'opacity-50'}
-                />
-              );
-            })
-          : null}
+        {geometry.areas.map((points, position) => (
+          <polygon
+            key={`area-${series[position]?.key ?? String(position)}`}
+            points={points}
+            fill={patternFill(prefix, position)}
+            className={geometry.stacking ? undefined : 'opacity-50'}
+          />
+        ))}
         {series.map((entry, position) => (
           <path
             key={`line-${entry.key}`}
-            d={line(tops[position] ?? [])}
+            d={geometry.lines[position] ?? ''}
             fill="none"
             className={entry.style.stroke}
             strokeDasharray={entry.style.dash}
@@ -355,12 +254,12 @@ export function LineChart({
             vectorEffect="non-scaling-stroke"
           />
         ))}
-        {(averages ?? []).map((values, position) => {
+        {geometry.averages.map((d, position) => {
           const entry = series[position];
           return entry === undefined ? null : (
             <path
               key={`average-${entry.key}`}
-              d={line(values)}
+              d={d}
               fill="none"
               className={entry.style.stroke}
               strokeDasharray="0 6"
@@ -370,25 +269,24 @@ export function LineChart({
             />
           );
         })}
-        {count <= 60
-          ? series.map((entry, position) =>
-              (tops[position] ?? []).map((value, index) => (
-                <circle
-                  key={`${entry.key}-${String(index)}`}
-                  cx={x(index)}
-                  cy={y(value)}
-                  r="0.01"
-                  fill="none"
-                  className={entry.style.stroke}
-                  strokeWidth="6"
-                  strokeLinecap="round"
-                  vectorEffect="non-scaling-stroke"
-                >
-                  <title>{`${labels[index] ?? ''}, ${entry.label}: ${formatMeasure(entry.values[index] ?? 0)}`}</title>
-                </circle>
-              )),
-            )
-          : null}
+        {geometry.points.map((point) => {
+          const entry = series[point.series];
+          return entry === undefined ? null : (
+            <circle
+              key={`${entry.key}-${String(point.bucket)}`}
+              cx={point.cx}
+              cy={point.cy}
+              r="0.01"
+              fill="none"
+              className={entry.style.stroke}
+              strokeWidth="6"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            >
+              <title>{`${labels[point.bucket] ?? ''}, ${entry.label}: ${formatMeasure(entry.values[point.bucket] ?? 0)}`}</title>
+            </circle>
+          );
+        })}
       </svg>
     </Frame>
   );
@@ -404,32 +302,27 @@ export interface PieSlice {
 /** Shares of the whole. Slices run clockwise from twelve o'clock in the order given. */
 export function PieChart({ slices }: { readonly slices: readonly PieSlice[] }): ReactNode {
   const prefix = useId().replaceAll(':', '');
-  const total = slices.reduce((sum, slice) => sum + positive(slice.value), 0);
-  let angle = -Math.PI / 2;
+  const geometry = pieGeometry(slices.map((slice) => slice.value));
 
   return (
     <svg viewBox="-1.05 -1.05 2.1 2.1" className="mx-auto size-48 max-w-full" aria-hidden="true">
       <SeriesPatterns prefix={prefix} styles={slices.map((slice) => slice.style)} />
-      {total === 0 ? (
+      {geometry.total === 0 ? (
         <circle cx="0" cy="0" r="1" className="fill-divider" />
       ) : (
-        slices.map((slice, index) => {
-          const share = positive(slice.value) / total;
-          if (share === 0) {
+        geometry.slices.map(({ index, share, d }) => {
+          const slice = slices[index];
+          if (slice === undefined) {
             return null;
           }
-          const start = angle;
-          angle += share * Math.PI * 2;
           const title = `${slice.label}: ${formatMeasure(slice.value)} (${String(Math.round(share * 100))}%)`;
-          if (share >= 0.9999) {
+          if (d === null) {
             return (
               <circle key={slice.key} cx="0" cy="0" r="1" fill={patternFill(prefix, index)}>
                 <title>{title}</title>
               </circle>
             );
           }
-          const large = share > 0.5 ? 1 : 0;
-          const d = `M0,0 L${String(Math.cos(start))},${String(Math.sin(start))} A1,1 0 ${String(large)} 1 ${String(Math.cos(angle))},${String(Math.sin(angle))} Z`;
           return (
             <path
               key={slice.key}

@@ -21,8 +21,16 @@ registry, sep, tag = s["nix-api"]["image"].rpartition("/api:")
 if not sep:
     sys.exit("Cannot derive the release-tools image from the nix-api image.")
 print(s["nix-api"]["environment"]["Nix__Bff__PublicOrigin"])
-print(registry + "/release-tools:" + tag)')
-{ read -r NIX_SMOKE_ORIGIN; read -r release_tools_image; } <<< "$release_config"
+print(registry + "/release-tools:" + tag)
+print(s["nix-api"]["environment"].get("Nix__Sites__Domain") or "")')
+{ read -r NIX_SMOKE_ORIGIN; read -r release_tools_image; read -r sites_domain || true; } <<< "$release_config"
+# Sites (ADR-0063) roll with the release when the env file enables them: COMPOSE_PROFILES=sites
+# (visible only without --profile flags) or NIX_SITES_DOMAIN. Otherwise they are left alone.
+sites_services=()
+active_services=$("${compose[@]}" config --services)
+if [ -n "$sites_domain" ] || grep -qx nix-sites-worker <<< "$active_services"; then
+  sites_services=(nix-sites-worker nix-sites-serve)
+fi
 export NIX_SMOKE_ORIGIN
 # Smoke checks run from the release-tools image at the release tag; the host needs no Node.
 nixctl_config=${NIXCTL_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/nixctl/config.json}
@@ -38,7 +46,7 @@ smoke() {
 smoke --preflight
 # Fetch release images before writers stop, so the maintenance window excludes the download.
 # Host-built images (NIX_IMAGE_REGISTRY=localhost/nix) must already exist locally.
-release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web)
+release_services=(nix-migrate nix-api nix-collab-migrate nix-collab nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web ${sites_services[@]+"${sites_services[@]}"})
 while IFS= read -r image; do
   case "$image" in
     localhost/*) docker image inspect "$image" >/dev/null ;;
@@ -61,7 +69,7 @@ done
 # migrations run. RabbitMQ mounts its configuration from the release checkout, so every release
 # recreates it; with publishers and consumers stopped, that restart cannot interrupt a delivery
 # (queues are durable and messages persistent). Failure leaves writers stopped for inspection.
-"${compose[@]}" stop nix-web nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-collab nix-api
+"${compose[@]}" stop nix-web ${sites_services[@]+"${sites_services[@]}"} nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-collab nix-api
 "${compose[@]}" up -d --wait --wait-timeout 180 postgres rabbitmq nix-versitygw
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-storage-init
 "${compose[@]}" run --rm --no-deps nix-migrate
@@ -69,6 +77,6 @@ done
 "${compose[@]}" run --rm --no-deps nix-api-init
 "${compose[@]}" --profile maintenance run --rm --no-deps nix-collab-migrate
 "${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-api nix-collab
-"${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker nix-web cloudflared
+"${compose[@]}" up -d --no-deps --wait --wait-timeout 180 nix-import-worker nix-export-worker nix-plugin-worker nix-calendar-worker nix-notify-worker ${sites_services[@]+"${sites_services[@]}"} nix-web cloudflared
 smoke
 echo 'Compose release passed import/export verification. Complete browser checks in the runbook.'

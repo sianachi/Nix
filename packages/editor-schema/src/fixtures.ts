@@ -54,7 +54,7 @@ export const NODE_FIXTURES: Readonly<Record<string, unknown>> = {
 
   codeBlock: {
     type: 'codeBlock',
-    attrs: { language: 'typescript' },
+    attrs: { language: 'typescript', renderFileId: null, renderSourceHash: null },
     content: [{ type: 'text', text: 'const answer = 42;' }],
   },
 
@@ -401,6 +401,16 @@ export const FIXTURE_DOCUMENT: unknown = {
       type: 'paragraph',
       attrs: { textAlign: 'center' },
       content: [{ type: 'text', text: 'A centered line.' }],
+    },
+    {
+      // Version 6: a Mermaid block with its captured picture (ADR-0063).
+      type: 'codeBlock',
+      attrs: {
+        language: 'mermaid',
+        renderFileId: '22222222-2222-4222-8222-222222222222',
+        renderSourceHash: 'c'.repeat(64),
+      },
+      content: [{ type: 'text', text: 'flowchart LR\n  A --> B' }],
     },
   ],
 };
