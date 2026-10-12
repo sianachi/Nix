@@ -451,4 +451,6 @@ assert_before "rollout:-n nix rollout status deployment/nix-worker" "apply-stdin
 # auth.$DOMAIN must not fall to the sites wildcard: it sits in its own lowest-priority Ingress.
 awk 'BEGIN { RS = "\n---\n" } /name: nix-sites\n/ && /host: "\*\.nix\.example\.test"/ && /router.priority: "1"/ && !/host: "auth\./ { found = 1 } END { exit !found }' "$RENDERED_INGRESS"
 awk 'BEGIN { RS = "\n---\n" } /name: nix\n/ && /host: "auth\.nix\.example\.test"/ && !/host: "\*\./ { found = 1 } END { exit !found }' "$RENDERED_INGRESS"
+# nixctl exchanges its PAT at Core's public route; without it the SPA fallback answers 405.
+grep -Fq 'handle /public/v1/auth/token {' "$repo_root/deploy/k8s/Caddyfile"
 echo "deployment render-order self-test passed"
