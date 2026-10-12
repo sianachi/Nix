@@ -232,6 +232,8 @@ test "$(grep -Fc 'nix.io/object-store-secret-version: "67890"' "$RENDERED_API")"
 grep -Fq 'key: api-url' "$RENDERED_API"
 grep -Fq 'name: Nix__ObjectStorage__PublicOrigin' "$RENDERED_API"
 grep -Fq 'key: public-origin' "$RENDERED_API"
+# Core refuses a plain-HTTP endpoint off loopback, so it never gets the in-cluster one.
+grep -A1 -F 'name: Nix__ObjectStorage__Endpoint' "$RENDERED_API" | grep -Fq 'key: public-origin }'
 if grep -Eq 'nix-media|/media:' "$KUBECTL_LOG" "$RENDERED_TEMPLATE_SYNC"; then
   echo 'Deployment still references the retired Media service.' >&2
   exit 1
