@@ -441,4 +441,6 @@ if awk 'BEGIN { RS = "\n---\n" } /runAsNonRoot: true/ && !/runAsUser:/ { found =
   echo 'A runAsNonRoot pod has no numeric runAsUser.' >&2
   exit 1
 fi
+# Collab reads NIX_COLLAB_PORT, which the nix-collab Service's link variables would overwrite.
+awk 'BEGIN { RS = "\n---\n" } /name: nix-collab, namespace/ && /kind: Deployment/ && /enableServiceLinks: false/ { found = 1 } END { exit !found }' "$RENDERED_ALL"
 echo "deployment render-order self-test passed"

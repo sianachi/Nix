@@ -27,6 +27,9 @@ spec:
         runAsUser: 1000
         runAsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
+      # Service links would set NIX_COLLAB_PORT=tcp://... from the nix-collab Service, which collab
+      # reads as its listen port (NaN) and exits.
+      enableServiceLinks: false
       terminationGracePeriodSeconds: 60   # drain: final flushes and snapshots
       containers:
         - name: collab
