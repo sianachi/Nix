@@ -16,6 +16,8 @@ public sealed record SiteNavLinkDto(string Label, string Path);
 /// <param name="FooterText">Footer text.</param>
 /// <param name="BuiltWithNix">Whether the "Built with Nix" link shows.</param>
 /// <param name="Language">The language tag.</param>
+/// <param name="Noindex">Whether search engines are asked to leave the whole site out. Absent means false.</param>
+/// <param name="Author">The person who writes the site, for structured data; null for none.</param>
 public sealed record SiteSettingsDto(
     string Name,
     string Description,
@@ -23,7 +25,9 @@ public sealed record SiteSettingsDto(
     IReadOnlyList<SiteNavLinkDto> Navigation,
     string FooterText,
     bool BuiltWithNix,
-    string Language);
+    string Language,
+    bool Noindex = false,
+    string? Author = null);
 
 /// <summary>A collection whose children are dated posts, with the properties the blog layout reads.</summary>
 /// <param name="ItemId">The collection item.</param>

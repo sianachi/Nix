@@ -1,13 +1,17 @@
 import { escapeHtml, safeHref } from '../html/escape.js';
 import type { ProseAsset } from '../html/prose.js';
-import type { SiteModel, SiteNode } from '../site-model.js';
+import { formatDate, isEntry, modifiedAt, type SiteModel, type SiteNode } from '../site-model.js';
+import { isNoindex } from './facts.js';
+import { entryTags } from './parts.js';
+import { jsonLdScript, structuredData } from './structured-data.js';
 
 /**
  * The document every page shares: head metadata, header, skip link, footer.
  *
- * Head carries the canonical URL, Open Graph and Twitter metadata (with the page's cover as the
- * preview image when it has one), and the Atom feeds. No inline script or style anywhere, so the
- * site's content security policy can forbid both.
+ * Head carries the canonical URL, Open Graph, article and Twitter metadata (the page's cover as
+ * the preview image, or else its generated card), schema.org JSON-LD, robots directives and the
+ * Atom feeds. No inline script or style anywhere, so the site's content security policy can forbid
+ * both; the JSON-LD block is data, not script (see `structured-data.ts`).
  */
 
 export const BUILT_WITH_NIX_URL = 'https://github.com/sianachi/nix';
@@ -59,22 +63,51 @@ function navigation(model: SiteModel, current: SiteNode | null | undefined): str
   return items.length === 0 ? '' : `<nav class="nix-nav" aria-label="Site"><ul>${items}</ul></nav>`;
 }
 
+/** The short line under the title on a generated preview card: a date, a section, or the site. */
+function caption(model: SiteModel, page: ShellPage): string {
+  if (page.publishedAt != null) {
+    return formatDate(page.publishedAt);
+  }
+  const current = page.current ?? null;
+  if (current === null || page.path === '/') {
+    return model.manifest.settings.description;
+  }
+  // A generated page (a tag) sits in its owner; a real page in its parent.
+  const section = current.page.path === page.path ? current.parent : current;
+  return section?.parent == null ? '' : section.page.title;
+}
+
+/** `en-GB` as Open Graph writes it, `en_GB`. */
+function ogLocale(language: string): string {
+  const [lang = '', region] = language.split('-');
+  return region === undefined || !/^[a-zA-Z]{2}$/.test(region)
+    ? lang.toLowerCase()
+    : `${lang.toLowerCase()}_${region.toUpperCase()}`;
+}
+
 export function renderShell(model: SiteModel, page: ShellPage): string {
   const { settings, layout } = model.manifest;
   const name = settings.name;
   const fullTitle = page.path === '/' && page.title === name ? name : `${page.title} - ${name}`;
   const url = absolute(model, page.path);
   const description = page.description.length > 0 ? page.description : settings.description;
-  const image = page.image === null ? null : absolute(model, page.image.url);
+  const picture =
+    page.notFound === true
+      ? null
+      : (page.image ?? model.preview(page.path, page.title, caption(model, page)));
+  const image = picture === null ? null : absolute(model, picture.url);
+  // The page's own node, when this page is one (not a generated tag page or the 404).
+  const own = page.current?.page.path === page.path ? page.current : null;
+  const article = page.kind === 'article' && own !== null;
+  const noindex = page.notFound === true || settings.noindex || (own !== null && isNoindex(own));
 
   const meta = [
     `<meta charset="utf-8">`,
     `<meta name="viewport" content="width=device-width, initial-scale=1">`,
     `<title>${escapeHtml(fullTitle)}</title>`,
     description.length > 0 ? `<meta name="description" content="${escapeHtml(description)}">` : '',
-    page.notFound === true
-      ? `<meta name="robots" content="noindex">`
-      : `<link rel="canonical" href="${escapeHtml(url)}">`,
+    noindex ? `<meta name="robots" content="noindex">` : '',
+    page.notFound === true ? '' : `<link rel="canonical" href="${escapeHtml(url)}">`,
     `<meta name="generator" content="Nix">`,
     `<meta name="color-scheme" content="light dark">`,
     `<meta property="og:site_name" content="${escapeHtml(name)}">`,
@@ -83,15 +116,37 @@ export function renderShell(model: SiteModel, page: ShellPage): string {
       ? `<meta property="og:description" content="${escapeHtml(description)}">`
       : '',
     `<meta property="og:type" content="${page.kind}">`,
+    `<meta property="og:locale" content="${escapeHtml(ogLocale(settings.language))}">`,
     page.notFound === true ? '' : `<meta property="og:url" content="${escapeHtml(url)}">`,
     image === null ? '' : `<meta property="og:image" content="${escapeHtml(image)}">`,
+    picture?.width == null || picture.height == null
+      ? ''
+      : `<meta property="og:image:width" content="${String(picture.width)}">\n<meta property="og:image:height" content="${String(picture.height)}">`,
+    image === null ? '' : `<meta property="og:image:alt" content="${escapeHtml(page.title)}">`,
     page.publishedAt == null
       ? ''
       : `<meta property="article:published_time" content="${escapeHtml(page.publishedAt)}">`,
+    article
+      ? `<meta property="article:modified_time" content="${escapeHtml(modifiedAt(own))}">`
+      : '',
+    ...(article && isEntry(own)
+      ? entryTags(own).map((tag) => `<meta property="article:tag" content="${escapeHtml(tag)}">`)
+      : []),
     `<meta name="twitter:card" content="${image === null ? 'summary' : 'summary_large_image'}">`,
     `<link rel="stylesheet" href="${model.theme.css}">`,
     `<script src="${model.theme.js}"></script>`,
     feedLinks(model),
+    page.notFound === true
+      ? ''
+      : jsonLdScript(
+          structuredData(model, {
+            path: page.path,
+            title: page.title,
+            description,
+            current: page.current ?? null,
+            image,
+          }),
+        ),
   ]
     .filter((line) => line.length > 0)
     .join('\n');

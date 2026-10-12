@@ -267,6 +267,27 @@ describe('the site commands over a stubbed Core', () => {
     await done();
   });
 
+  it('hides a site from search engines and names its author, keeping the rest', async () => {
+    const { env, done } = await withProfile();
+    let body: unknown;
+    server.use(
+      http.get(`${API}/api/v1/sites/${SITE}`, () => HttpResponse.json(site())),
+      http.patch(`${API}/api/v1/sites/${SITE}`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(site());
+      }),
+    );
+
+    await capture((json) =>
+      updateSite('default', SITE, { noindex: true, author: ' Ada Writer ' }, json, { env }),
+    );
+
+    expect(body).toMatchObject({
+      settings: { name: 'Garden', builtWithNix: true, noindex: true, author: 'Ada Writer' },
+    });
+    await done();
+  });
+
   it('rejects a navigation link without a label or a site path', () => {
     expect(parseNavLink('A=b=/x/')).toEqual({ label: 'A=b', path: '/x/' });
     expect(() => parseNavLink('/blog/')).toThrow(/--nav/);

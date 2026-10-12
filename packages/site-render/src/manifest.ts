@@ -41,6 +41,11 @@ const manifestSchema = z.object({
     footerText: z.string().max(500),
     builtWithNix: z.boolean(),
     language: z.string().regex(/^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/),
+    // Optional so a manifest from a Core that predates them still parses.
+    /** Hide the whole site from search engines: robots.txt disallows all, every page says noindex. */
+    noindex: z.boolean().default(false),
+    /** The person who writes the site, for structured data; empty or absent for none. */
+    author: z.string().max(200).nullish(),
   }),
   canonicalOrigin: z.string().regex(/^https?:\/\/[^/\s]+$/),
   builtAt: z.iso.datetime({ offset: true }),

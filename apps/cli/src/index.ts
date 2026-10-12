@@ -2697,6 +2697,9 @@ export function buildProgram(): Command {
     .option('--footer <text>', 'the footer text')
     .option('--built-with-nix', 'show the "Built with Nix" footer link')
     .option('--no-built-with-nix', 'hide the "Built with Nix" footer link')
+    .option('--noindex', 'hide the site from search engines (robots.txt and meta robots)')
+    .option('--no-noindex', 'let search engines index the site again')
+    .option('--author <name>', 'who writes the site, for search engines; "" clears it')
     .option('--layout <layout>', 'docs or blog')
     .option(
       '--mode <mode>',

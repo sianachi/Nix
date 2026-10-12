@@ -5,6 +5,8 @@ namespace Nix.Tests.Features.Sites;
 
 public sealed class SiteSettingsTests
 {
+    private static readonly System.Text.Json.JsonSerializerOptions WebJson = new(System.Text.Json.JsonSerializerDefaults.Web);
+
     [Fact]
     public void The_default_settings_are_valid_and_carry_the_root_title()
     {
@@ -37,6 +39,37 @@ public sealed class SiteSettingsTests
         Assert.NotNull((valid with { Navigation = [new SiteNavLink("Home", "home")] }).Validate());
         Assert.NotNull((valid with { Navigation = [new SiteNavLink(string.Empty, "/home/")] }).Validate());
         Assert.Null((valid with { Navigation = [new SiteNavLink("Home", "/")] }).Validate());
+        Assert.NotNull((valid with { Author = new string('x', 121) }).Validate());
+        Assert.NotNull((valid with { Author = "bad\nauthor" }).Validate());
+        Assert.Null((valid with { Author = "Ada Writer", Noindex = true }).Validate());
+    }
+
+    [Fact]
+    public void A_new_site_is_indexable_and_names_no_author()
+    {
+        var settings = SiteSettings.Default("Docs");
+
+        Assert.False(settings.Noindex);
+        Assert.Null(settings.Author);
+    }
+
+    [Fact]
+    public void Noindex_and_author_survive_the_checker_and_a_stored_document_without_them_reads_as_off()
+    {
+        var checkedSettings = SiteViews.CheckSettings(new SiteSettingsDto(
+            "Docs", "d", "#2f5fd0", [], "f", true, "en", Noindex: true, Author: "  Ada Writer  "));
+        Assert.True(checkedSettings.IsSuccess);
+        Assert.True(checkedSettings.Value.Noindex);
+        Assert.Equal("Ada Writer", checkedSettings.Value.Author);
+
+        var blank = SiteViews.CheckSettings(new SiteSettingsDto("Docs", "d", "#2f5fd0", [], "f", true, "en", Author: " "));
+        Assert.Null(blank.Value.Author);
+
+        var stored = System.Text.Json.JsonSerializer.Deserialize<SiteSettingsDto>(
+            """{"name":"Docs","description":"","accent":"#2f5fd0","navigation":[],"footerText":"","builtWithNix":true,"language":"en"}""",
+            WebJson);
+        Assert.False(stored!.Noindex);
+        Assert.Null(stored.Author);
     }
 
     [Fact]

@@ -43,6 +43,24 @@ describe('the site settings form', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ republishMode: 'auto' }));
   });
 
+  it('saves the search engine toggle and the author with the rest of the settings', async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn(() => Promise.resolve(null));
+    render(<SiteSettingsForm site={site()} onSave={onSave} />);
+
+    const hide = screen.getByRole('checkbox', { name: /hide from search engines/i });
+    expect(hide).not.toBeChecked();
+    await user.click(hide);
+    await user.type(screen.getByRole('textbox', { name: /^author/i }), '  Ada Writer ');
+    await user.click(screen.getByRole('button', { name: /save settings/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        settings: expect.objectContaining({ noindex: true, author: 'Ada Writer' }) as unknown,
+      }),
+    );
+  });
+
   it('checks navigation lines', () => {
     expect(navigationProblem('Home /\n\nGuide /guide/')).toBeNull();
     expect(navigationProblem('Home /\nAbout')).toBe(

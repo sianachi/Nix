@@ -33,6 +33,9 @@ export const siteSettingsSchema = z.object({
   footerText: z.string(),
   builtWithNix: z.boolean(),
   language: z.string(),
+  // Absent from a Core that predates them.
+  noindex: z.boolean().default(false),
+  author: z.string().nullable().default(null),
 });
 
 export const siteDatedCollectionSchema = z.object({

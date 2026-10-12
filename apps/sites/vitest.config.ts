@@ -5,5 +5,8 @@ export default defineConfig({
     environment: 'node',
     env: { NODE_ENV: 'test' },
     include: ['src/**/*.test.ts'],
+    // A build renders the whole fixture site, link-preview cards included, which takes a few
+    // hundred milliseconds alone and several seconds beside other suites on a busy runner.
+    testTimeout: 30_000,
   },
 });

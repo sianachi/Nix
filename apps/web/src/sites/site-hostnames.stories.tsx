@@ -21,6 +21,8 @@ const base: Site = {
     footerText: '',
     builtWithNix: true,
     language: 'en',
+    noindex: false,
+    author: null,
   },
   republishMode: 'manual',
   debounceSeconds: 300,
