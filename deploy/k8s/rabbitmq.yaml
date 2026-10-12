@@ -65,7 +65,7 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 12
           resources:
-            requests: { cpu: 100m, memory: 192Mi }
+            requests: { cpu: 50m, memory: 192Mi }
             limits: { cpu: "1", memory: 768Mi }
           volumeMounts:
             - { name: data, mountPath: /var/lib/rabbitmq }

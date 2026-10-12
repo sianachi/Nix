@@ -30,6 +30,9 @@ spec:
         nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
         nix.io/sites-secret-version: "${SITES_SECRET_VERSION}"
     spec:
+      # Core never calls the Kubernetes API, and its read-only /run/secrets mount leaves no room
+      # for the service-account token under /var/run/secrets: the container fails to start.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1654
@@ -158,7 +161,7 @@ spec:
             httpGet: { path: /healthz, port: 8080 }
             periodSeconds: 5
           resources:
-            requests: { cpu: 200m, memory: 256Mi }
+            requests: { cpu: 100m, memory: 256Mi }
             # 150-250 MB resident is the design's Workstation GC budget, not a guess.
             # If Core routinely approaches this limit, that is a finding, not a reason to raise it.
             limits: { memory: 512Mi }
