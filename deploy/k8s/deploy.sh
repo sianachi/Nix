@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Applies a Nix release to k3s, in the order that keeps a bad step from reaching users:
 # database -> object store -> seed -> identity database -> migrations -> preset reconciliation ->
-# workloads (with Zitadel) -> ingress.
+# workloads (with Zitadel) -> ingress -> worker -> managed templates.
 #
 # Run deploy/k8s/create-secrets.sh once per cluster before the first run of this script.
 # Run deploy/docker/build-and-push.sh first each time, with the same REGISTRY and TAG.
@@ -209,12 +209,18 @@ render deploy/k8s/sites.yaml | kubectl apply -f -
 
 kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s
-kubectl -n nix rollout status deployment/nix-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-web --timeout=180s
 kubectl -n nix rollout status deployment/nix-sites-worker --timeout=180s
 kubectl -n nix rollout status deployment/nix-sites-serve --timeout=180s
 # A first install runs Zitadel's instance setup before it listens; that can take several minutes.
 kubectl -n nix rollout status deployment/nix-zitadel --timeout=900s
+
+# The worker's readiness probes the object store's public origin, which is this Ingress, and managed
+# templates upload through it too: on a first install nothing answers there until it is applied.
+echo "== Ingress =="
+kubectl apply -f deploy/k8s/cloudflare-only.yaml
+render deploy/k8s/ingress.yaml | kubectl apply -f -
+kubectl -n nix rollout status deployment/nix-worker --timeout=180s
 kubectl apply -f deploy/k8s/backup.yaml
 
 if [ "$NIX_TEMPLATE_BOOT_ENABLED" = true ]; then
@@ -238,8 +244,5 @@ else
   echo "== Managed templates skipped (NIX_TEMPLATE_BOOT_ENABLED=false) =="
 fi
 
-echo "== Ingress =="
-kubectl apply -f deploy/k8s/cloudflare-only.yaml
-render deploy/k8s/ingress.yaml | kubectl apply -f -
 
 echo "Deployed tag $TAG. Next: DOMAIN=$DOMAIN deploy/k8s/verify.sh"
