@@ -443,4 +443,9 @@ if awk 'BEGIN { RS = "\n---\n" } /runAsNonRoot: true/ && !/runAsUser:/ { found =
 fi
 # Collab reads NIX_COLLAB_PORT, which the nix-collab Service's link variables would overwrite.
 awk 'BEGIN { RS = "\n---\n" } /name: nix-collab, namespace/ && /kind: Deployment/ && /enableServiceLinks: false/ { found = 1 } END { exit !found }' "$RENDERED_ALL"
+# The worker's readiness needs the public origin, so the Ingress precedes its rollout wait.
+: > "$KUBECTL_LOG"
+run_deploy
+assert_before "apply-file:deploy/k8s/cloudflare-only.yaml" "rollout:-n nix rollout status deployment/nix-worker"
+assert_before "rollout:-n nix rollout status deployment/nix-worker" "apply-stdin:nix-template-boot,nix-template-boot-render-order"
 echo "deployment render-order self-test passed"
