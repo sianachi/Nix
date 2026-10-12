@@ -70,3 +70,29 @@ spec:
             pathType: Prefix
             backend:
               service: { name: nix-sites-serve, port: { number: 8400 } }
+---
+# Custom site hostnames (nixctl site hostnames): Cloudflare proxies them to this origin with their
+# own Host, which no rule above names. A host-less rule takes any host and, at priority 1, loses to
+# every host-specific router - the app, auth, the wildcard above and other namespaces' Ingresses -
+# so it only catches names nothing else claims. Sites serve answers a name only for a verified
+# site and 404s anything else. Cloudflare SSL mode Full (not strict) is what accepts this
+# certificate for a custom name; the edge certificate is Cloudflare's own.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nix-sites-custom-hosts
+  namespace: nix
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: nix-cloudflare-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.priority: "1"
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: nix-tls
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: nix-sites-serve, port: { number: 8400 } }
