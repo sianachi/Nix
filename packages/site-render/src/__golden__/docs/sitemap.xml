@@ -5,9 +5,9 @@
 <url><loc>https://docs.nix.example/changelog/2026-08-20/</loc><lastmod>2026-08-20</lastmod></url>
 <url><loc>https://docs.nix.example/changelog/2026-09-24/</loc><lastmod>2026-09-24</lastmod></url>
 <url><loc>https://docs.nix.example/changelog/2026-10-06/</loc><lastmod>2026-10-06</lastmod></url>
-<url><loc>https://docs.nix.example/changelog/tag/editor/</loc></url>
-<url><loc>https://docs.nix.example/changelog/tag/release/</loc></url>
-<url><loc>https://docs.nix.example/changelog/tag/sites/</loc></url>
+<url><loc>https://docs.nix.example/changelog/tag/editor/</loc><lastmod>2026-09-24</lastmod></url>
+<url><loc>https://docs.nix.example/changelog/tag/release/</loc><lastmod>2026-10-06</lastmod></url>
+<url><loc>https://docs.nix.example/changelog/tag/sites/</loc><lastmod>2026-10-06</lastmod></url>
 <url><loc>https://docs.nix.example/features/</loc><lastmod>2026-10-06</lastmod></url>
 <url><loc>https://docs.nix.example/features/canvas/</loc><lastmod>2026-10-06</lastmod></url>
 <url><loc>https://docs.nix.example/features/collaboration/</loc><lastmod>2026-10-06</lastmod></url>

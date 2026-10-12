@@ -106,6 +106,8 @@ export interface UpdateSiteOptions {
   readonly nav?: readonly string[] | undefined;
   readonly footer?: string | undefined;
   readonly builtWithNix?: boolean | undefined;
+  readonly noindex?: boolean | undefined;
+  readonly author?: string | undefined;
   readonly layout?: string | undefined;
   readonly mode?: string | undefined;
   readonly debounce?: string | undefined;
@@ -148,7 +150,9 @@ export async function updateSite(
     options.accent !== undefined ||
     navigation !== undefined ||
     options.footer !== undefined ||
-    options.builtWithNix !== undefined;
+    options.builtWithNix !== undefined ||
+    options.noindex !== undefined ||
+    options.author !== undefined;
   const touchesDated = options.dated !== undefined || options.undated !== undefined;
   // Settings and dated collections are replaced whole, so a partial change starts from what Core
   // holds now.
@@ -168,6 +172,10 @@ export async function updateSite(
             ...(navigation === undefined ? {} : { navigation }),
             ...(options.footer === undefined ? {} : { footerText: options.footer }),
             ...(options.builtWithNix === undefined ? {} : { builtWithNix: options.builtWithNix }),
+            ...(options.noindex === undefined ? {} : { noindex: options.noindex }),
+            ...(options.author === undefined
+              ? {}
+              : { author: options.author.trim().length > 0 ? options.author.trim() : null }),
           },
         }),
     ...(options.layout === undefined ? {} : { layout: layoutOf(options.layout) }),

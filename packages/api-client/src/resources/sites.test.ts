@@ -130,6 +130,9 @@ describe('the sites resource', () => {
 
     expect(updated.republishMode).toBe('auto');
     expect(updated.debounceSeconds).toBe(300);
+    // A Core that predates the search settings sends neither; the site reads as indexable.
+    expect(updated.settings.noindex).toBe(false);
+    expect(updated.settings.author).toBeNull();
     expect(body).toEqual({
       settings: null,
       layout: null,

@@ -14,7 +14,7 @@ namespace Nix.Abstractions;
 /// <param name="Schema">The declared schema JSON, if any.</param>
 /// <param name="Views">The stored views JSON, if any.</param>
 /// <param name="CreatedAt">When the item was created.</param>
-/// <param name="LastModifiedAt">When the item last changed.</param>
+/// <param name="LastModifiedAt">When the item or its body last changed.</param>
 /// <param name="DocId">The content document, if the item has a body.</param>
 /// <param name="HeadSeq">The document's head position, if it has a body.</param>
 public sealed record EligiblePage(

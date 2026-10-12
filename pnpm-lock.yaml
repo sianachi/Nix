@@ -587,6 +587,9 @@ importers:
       '@nix/view-render':
         specifier: workspace:*
         version: link:../view-render
+      '@resvg/resvg-wasm':
+        specifier: 2.6.2
+        version: 2.6.2
       highlight.js:
         specifier: ^11.12.0
         version: 11.12.0
@@ -1981,6 +1984,10 @@ packages:
   '@redocly/openapi-core@1.34.17':
     resolution: {integrity: sha512-wsV2keCt6B806XpSdezbWZ9aFJYf14YVh+XQf0ESt7M90yqVuxH9//PxvtC70sgj9OCkRM3nRaLfu4MsGQZRig==}
     engines: {node: '>=18.17.0', npm: '>=9.5.0'}
+
+  '@resvg/resvg-wasm@2.6.2':
+    resolution: {integrity: sha512-FqALmHI8D4o6lk/LRWDnhw95z5eO+eAa6ORjVg09YRR7BkcM6oPHU9uyC0gtQG5vpFLvgpeU4+zEAz2H8APHNw==}
+    engines: {node: '>= 10'}
 
   '@rolldown/pluginutils@1.0.0-rc.3':
     resolution: {integrity: sha512-eybk3TjzzzV97Dlj5c+XrBFW57eTNhzod66y9HrBlzJ6NsCrWCp/2kaPS3K9wJmurBC0Tdw4yPjXKZqlznim3Q==}
@@ -6978,6 +6985,8 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@resvg/resvg-wasm@2.6.2': {}
+
   '@rolldown/pluginutils@1.0.0-rc.3': {}
 
   '@rollup/pluginutils@5.4.0(rollup@4.62.2)':
@@ -7811,7 +7820,7 @@ snapshots:
       magic-string: 0.30.21
       sirv: 3.0.2
       tinyrainbow: 2.0.0
-      vitest: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@26.1.0)(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
+      vitest: 3.2.7(@types/debug@4.1.13)(@types/node@22.20.1)(@vitest/browser@3.2.7)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.1)(typescript@5.9.3))
       ws: 8.21.1
     optionalDependencies:
       playwright: 1.62.0

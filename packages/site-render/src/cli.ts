@@ -6,6 +6,7 @@ import { parseArgs } from 'node:util';
 import { loadFixture, writeSite } from './fixture.js';
 import { renderSite } from './render.js';
 import { createPreviewServer } from './serve.js';
+import { loadPreviewRasterizer } from './theme/preview-image.js';
 
 /**
  * nix-site-render build --fixture <dir> --out <dir>
@@ -30,7 +31,10 @@ export async function main(argv: readonly string[]): Promise<number> {
   });
 
   if (command === 'build' && values.fixture !== undefined && values.out !== undefined) {
-    const site = renderSite(await loadFixture(values.fixture));
+    const site = renderSite({
+      ...(await loadFixture(values.fixture)),
+      previews: await loadPreviewRasterizer(),
+    });
     await writeSite(site.files, values.out);
     process.stdout.write(`Wrote ${String(site.files.length)} files to ${values.out}\n`);
     for (const entry of site.loss) {

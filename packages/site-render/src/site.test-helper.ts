@@ -21,6 +21,7 @@ export function aManifest(overrides: Partial<SiteBuildManifest> = {}): SiteBuild
       footerText: '',
       builtWithNix: true,
       language: 'en',
+      noindex: false,
     },
     canonicalOrigin: 'https://example.test',
     builtAt: '2026-10-11T12:00:00Z',

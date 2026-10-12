@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { loadFixture } from './fixture.js';
 import { collectFileReferences } from './references.js';
 import { renderSite, type RenderedFile } from './render.js';
+import { loadPreviewRasterizer } from './theme/preview-image.js';
 
 /**
  * Both fixtures, rendered and compared byte for byte with `src/__golden__/<fixture>/`.
@@ -27,7 +28,10 @@ function walk(dir: string): string[] {
 }
 
 async function render(fixture: string): Promise<{ files: readonly RenderedFile[] }> {
-  return renderSite(await loadFixture(join(here, '__fixtures__', fixture)));
+  return renderSite({
+    ...(await loadFixture(join(here, '__fixtures__', fixture))),
+    previews: await loadPreviewRasterizer(),
+  });
 }
 
 describe.each(['docs', 'blog'])('the %s fixture', (fixture) => {
@@ -68,7 +72,10 @@ describe.each(['docs', 'blog'])('the %s fixture', (fixture) => {
     const { files } = await render(fixture);
     for (const file of files.filter((entry) => entry.path.endsWith('.html'))) {
       const html = new TextDecoder().decode(file.bytes);
-      expect(html, file.path).not.toMatch(/<script(?![^>]*\ssrc="\/_nix\/)/);
+      // The one inline script element allowed is the JSON-LD data block, which never runs.
+      expect(html, file.path).not.toMatch(
+        /<script(?![^>]*\ssrc="\/_nix\/)(?! type="application\/ld\+json">)/,
+      );
       expect(html, file.path).not.toMatch(/\sstyle=|<style/);
       expect(html, file.path).not.toMatch(/<img[^>]+src="(?!\/_nix\/assets\/)/);
       expect(html, file.path).not.toMatch(/nix-file:|X-Amz-|capability/i);
