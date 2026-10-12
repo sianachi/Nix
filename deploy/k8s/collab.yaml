@@ -23,6 +23,9 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
+        # The node image names its user (node, uid 1000); the kubelet only accepts a numeric id.
+        runAsUser: 1000
+        runAsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
       terminationGracePeriodSeconds: 60   # drain: final flushes and snapshots
       containers:

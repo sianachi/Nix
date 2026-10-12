@@ -436,4 +436,9 @@ if (PATH="$fake_bin:$PATH" REGISTRY=r TAG=t OIDC_CLIENT_ID=c DOMAIN=nix.example.
   echo 'Deployment ran without template configuration while managed templates are enabled.' >&2
   exit 1
 fi
+# The kubelet cannot verify runAsNonRoot against a named image user (the node images run as "node").
+if awk 'BEGIN { RS = "\n---\n" } /runAsNonRoot: true/ && !/runAsUser:/ { found = 1 } END { exit !found }' "$RENDERED_ALL"; then
+  echo 'A runAsNonRoot pod has no numeric runAsUser.' >&2
+  exit 1
+fi
 echo "deployment render-order self-test passed"

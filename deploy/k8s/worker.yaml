@@ -26,7 +26,7 @@ spec:
         nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
     spec:
       automountServiceAccountToken: false
-      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      securityContext: { runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
       containers:
         - name: worker
           image: ${REGISTRY}/worker:${TAG}
