@@ -23,6 +23,9 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
+              # k3s admits a new pod's address to the versitygw ingress policy a few seconds after
+              # the pod starts; until then connections are refused, so wait before the first call.
+              i=0; until wget -q -O /dev/null http://nix-versitygw:7070/health 2>/dev/null; do i=$((i+1)); [ "$i" -lt 30 ] || { echo "versitygw unreachable" >&2; exit 1; }; sleep 2; done
               admin() { versitygw admin --endpoint-url http://nix-versitygw:7070 "$@"; }
               if admin list-users | awk -v key="$READ_ACCESS_KEY" '$1 == key { found = 1 } END { exit !found }'; then
                 admin update-user --access "$READ_ACCESS_KEY" --secret "$READ_SECRET_KEY" --role user
@@ -45,6 +48,9 @@ spec:
           command: ["/bin/sh", "-ec"]
           args:
             - |
+              # k3s admits a new pod's address to the versitygw ingress policy a few seconds after
+              # the pod starts; until then connections are refused, so wait before the first call.
+              i=0; until curl -fsS -o /dev/null http://nix-versitygw:7070/health 2>/dev/null; do i=$((i+1)); [ "$i" -lt 30 ] || { echo "versitygw unreachable" >&2; exit 1; }; sleep 2; done
               s3() { aws --endpoint-url http://nix-versitygw:7070 s3api "$@"; }
               for bucket in "$NIX_BUCKET" "$SITES_BUCKET"; do
                 s3 head-bucket --bucket "$bucket" >/dev/null 2>&1 || s3 create-bucket --bucket "$bucket"
