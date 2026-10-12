@@ -29,8 +29,8 @@ namespace Nix.Persistence.Sql.Statements;
 /// Index dependencies: <c>IX_item_tenant_id_parent_id</c> (or <c>IX_item_workspace_id_parent_id_seq</c>,
 /// whichever the planner prefers at the corpus size) for each step down,
 /// <c>AK_item_tenant_id_id</c> for the final read, and <c>IX_content_doc_tenant_id_item_id</c> for
-/// the body join, and the primary key of <c>content_update</c> (<c>doc_id, seq</c>) for the time of
-/// the body's last update. The final reads are lateral point probes whose redundant <c>LIMIT 1</c> is
+/// the body join, and the primary keys of <c>content_update</c> and <c>content_snapshot</c>
+/// (<c>doc_id, seq</c>) for the time of the body's last update. The final reads are lateral point probes whose redundant <c>LIMIT 1</c> is
 /// load-bearing, as in <see cref="ItemVisibilitySql"/>: without it the planner joined the walk to a
 /// scan of the tenant's items. The plan is captured by <c>SiteEligibilityPlanEvidenceTests</c>.
 /// </para>
@@ -41,8 +41,8 @@ public static class SiteEligibilitySql
     /// The eligible items of one site in pre-order (sibling order down the tree, equal keys broken by
     /// id), with the content position a body is read at. The modification time is the later of the
     /// item's own change and its body's head update, since an edit to a body leaves
-    /// <c>item.last_modified_at</c> alone; a head update already pruned by retention reads as null and
-    /// GREATEST ignores it, falling back to the item's time. A post's date is read without a trailing
+    /// <c>item.last_modified_at</c> alone; a head update already pruned by retention falls back to the
+    /// retained base snapshot at the same seq, and if that is gone too GREATEST ignores the null. A post's date is read without a trailing
     /// <c>[Zone]</c> suffix, as the automation date finder reads it. Binds <c>@tenant_id</c>, <c>@workspace_id</c>, <c>@root_id</c>,
     /// <c>@site_id</c> and <c>@now</c>.
     /// </summary>
@@ -112,12 +112,21 @@ public static class SiteEligibilitySql
         LEFT JOIN LATERAL (
             SELECT body.doc_id,
                    body.head_seq,
-                   (SELECT head.created_at
-                    FROM content_update AS head
-                    WHERE head.tenant_id = @tenant_id
-                      AND head.doc_id = body.doc_id
-                      AND head.seq = body.head_seq
-                    LIMIT 1) AS head_at
+                   -- Retention prunes the head update of a long-idle body but keeps the base
+                   -- snapshot at that seq, so its time stands in.
+                   COALESCE(
+                       (SELECT head.created_at
+                        FROM content_update AS head
+                        WHERE head.tenant_id = @tenant_id
+                          AND head.doc_id = body.doc_id
+                          AND head.seq = body.head_seq
+                        LIMIT 1),
+                       (SELECT base.created_at
+                        FROM content_snapshot AS base
+                        WHERE base.tenant_id = @tenant_id
+                          AND base.doc_id = body.doc_id
+                          AND base.seq = body.head_seq
+                        LIMIT 1)) AS head_at
             FROM content_doc AS body
             WHERE body.tenant_id = @tenant_id
               AND body.item_id = walk.id

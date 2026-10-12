@@ -182,8 +182,14 @@ public sealed class SiteEligibilityTests(NixPostgresFixture fixture) : IAsyncLif
 
         Assert.Equal(body, await RootModifiedAsync());
 
-        // A head update pruned by retention falls back to the item's own time.
+        // A head update pruned by retention falls back to the base snapshot retention keeps at that seq.
+        var snapshot = new DateTimeOffset(2026, 2, 2, 9, 0, 0, TimeSpan.Zero);
+        await Sql($"UPDATE content_snapshot SET created_at = '{snapshot:O}' WHERE doc_id = (SELECT doc_id FROM content_doc WHERE item_id = '{Root.Value}') AND seq = (SELECT head_seq FROM content_doc WHERE item_id = '{Root.Value}')");
         await Sql($"DELETE FROM content_update WHERE doc_id = (SELECT doc_id FROM content_doc WHERE item_id = '{Root.Value}')");
+        Assert.Equal(snapshot, await RootModifiedAsync());
+
+        // With neither row left, the item's own time stands.
+        await Sql($"DELETE FROM content_snapshot WHERE doc_id = (SELECT doc_id FROM content_doc WHERE item_id = '{Root.Value}')");
         Assert.Equal(item, await RootModifiedAsync());
     }
 
