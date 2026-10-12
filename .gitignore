@@ -14,6 +14,9 @@ docs
 !/docs/nix/nix-reference.nix
 !/docs/nix/nix-pets.nix
 !/docs/nix/catalog.json
+# Site content snapshots from scripts/export-site-content.sh, Markdown included.
+!/docs/site/
+!/docs/site/**
 Design language for Nix review/
 
 # Per-checkout list of paths scripts/new-goal-worktree.sh links into a lane.
