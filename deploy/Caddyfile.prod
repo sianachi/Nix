@@ -55,9 +55,15 @@
 	}
 }
 
-# Nix sites (ADR-0063): the tunnel's wildcard hostname reaches this listener with the original
-# Host header, and Caddy picks this block over the catch-all above for <slug>.$NIX_SITES_DOMAIN.
+# Nix sites (ADR-0063): a site hostname routed here reaches this listener with the original Host
+# header, and Caddy picks this block over the catch-all above for one label under $NIX_SITES_DOMAIN.
+# With NIX_SITES_DEFAULT_LABEL_SUFFIX set (a deployment sharing the domain), only labels ending in
+# it are this deployment's; the other deployment's names are refused, never served as the app.
 # The sites server sets its own CSP and never a cookie; none of the app's headers apply here.
 http://*.{$NIX_SITES_DOMAIN}:8090 {
-	reverse_proxy nix-sites-serve:8400
+	@site header_regexp Host (?i)^[a-z0-9-]+{$NIX_SITES_DEFAULT_LABEL_SUFFIX}\.
+	handle @site {
+		reverse_proxy nix-sites-serve:8400
+	}
+	respond 421
 }

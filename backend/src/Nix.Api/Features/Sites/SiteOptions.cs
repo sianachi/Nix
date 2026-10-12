@@ -38,6 +38,19 @@ public sealed class SiteOptions
     public bool SharedAppDomain { get; set; }
 
     /// <summary>
+    /// Gets or sets the label suffix of this instance's default hostnames (<c>-home</c> makes
+    /// <c>&lt;slug&gt;-home.&lt;Domain&gt;</c>), so a second deployment can share the sites domain one
+    /// label deep. Empty (the default) keeps <c>&lt;slug&gt;.&lt;Domain&gt;</c>.
+    /// </summary>
+    public string DefaultHostLabelSuffix { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets the label suffixes other deployments sharing the sites domain own. A slug ending with
+    /// one is refused, so this instance never takes a default hostname in their namespace.
+    /// </summary>
+    public Collection<string> ForeignLabelSuffixes { get; } = [];
+
+    /// <summary>
     /// Gets the reserved slugs a workspace may still claim, each mapped to the one workspace that
     /// may: the deployment owner's own sites. Infrastructure slugs are never claimable.
     /// </summary>
@@ -82,6 +95,14 @@ public sealed class SiteOptions
         var options = new SiteOptions();
         configuration.GetSection(SectionName).Bind(options);
         options.Domain = SiteRules.NormalizeHost(options.Domain);
+        options.DefaultHostLabelSuffix = options.DefaultHostLabelSuffix.Trim();
+        var foreign = options.ForeignLabelSuffixes.Select(suffix => suffix.Trim()).Where(suffix => suffix.Length > 0).ToArray();
+        options.ForeignLabelSuffixes.Clear();
+        foreach (var suffix in foreign)
+        {
+            options.ForeignLabelSuffixes.Add(suffix);
+        }
+
         foreach (var zone in options.Cloudflare.ManagedZones)
         {
             zone.Zone = SiteRules.NormalizeHost(zone.Zone);
@@ -101,19 +122,46 @@ public sealed class SiteOptions
 
     /// <summary>
     /// Whether a site in <paramref name="workspaceId"/> may take <paramref name="slug"/>: any slug
-    /// that is not reserved, or a reserved one the configuration hands to that workspace.
+    /// that is not reserved, or a reserved one the configuration hands to that workspace. A slug in
+    /// another deployment's label namespace, or one whose default hostname is the app's, never is.
     /// </summary>
     /// <param name="slug">A valid slug.</param>
     /// <param name="workspaceId">The workspace the site's root is in.</param>
     /// <returns>True when the slug may be claimed.</returns>
     public bool MayClaimSlug(string slug, Guid workspaceId) =>
         !SiteRules.IsInfrastructureSlug(slug)
+        && !ForeignLabelSuffixes.Any(suffix => slug.EndsWith(suffix, StringComparison.Ordinal))
+        && !IsAppHost(DefaultHostname(slug))
         && (!SiteRules.IsReservedSlug(slug) || (ReservedSlugOwners.TryGetValue(slug, out var owner) && owner == workspaceId));
 
-    /// <summary>The default hostname of a site: its slug under the sites domain.</summary>
+    /// <summary>The default hostname of a site: its slug, plus the label suffix, under the sites domain.</summary>
     /// <param name="slug">A valid slug.</param>
     /// <returns>The hostname.</returns>
-    public string DefaultHostname(string slug) => slug + "." + Domain;
+    public string DefaultHostname(string slug) => slug + DefaultHostLabelSuffix + "." + Domain;
+
+    /// <summary>
+    /// Gets whether Nix writes this instance's default hostname records: only with a label suffix
+    /// (no wildcard covers the names), an API token and <c>Cloudflare:DefaultHostnameZoneId</c>.
+    /// </summary>
+    public bool AutomatesDefaultHostnames =>
+        IsEnabled && DefaultHostLabelSuffix.Length > 0 && Cloudflare.ApiToken.Length > 0 && Cloudflare.DefaultHostnameZoneId is { Length: > 0 };
+
+    /// <summary>
+    /// Whether Nix writes the DNS record of default hostname <paramref name="hostname"/>: only when
+    /// <see cref="AutomatesDefaultHostnames"/>, and only for a name of the form
+    /// <c>[a-z0-9-]+&lt;suffix&gt;.&lt;Domain&gt;</c>.
+    /// </summary>
+    /// <param name="hostname">A normalized hostname.</param>
+    /// <returns>True when the name is this instance's own default hostname shape.</returns>
+    public bool AutomatesDefaultHostname(string hostname)
+    {
+        ArgumentNullException.ThrowIfNull(hostname);
+        var tail = DefaultHostLabelSuffix + "." + Domain;
+        return AutomatesDefaultHostnames
+            && hostname.Length > tail.Length
+            && hostname.EndsWith(tail, StringComparison.Ordinal)
+            && hostname[..^tail.Length].All(static character => character is (>= 'a' and <= 'z') or (>= '0' and <= '9') or '-');
+    }
 
     /// <summary>The public URL of a hostname's root.</summary>
     /// <param name="hostname">A hostname.</param>
@@ -148,6 +196,13 @@ public sealed class SiteOptions
             throw new InvalidOperationException("Nix:Sites:Domain is unsafe: " + refusal);
         }
 
+        if ((DefaultHostLabelSuffix.Length > 0 && !IsLabelSuffix(DefaultHostLabelSuffix))
+            || ForeignLabelSuffixes.Any(suffix => !IsLabelSuffix(suffix) || suffix == DefaultHostLabelSuffix))
+        {
+            throw new InvalidOperationException(
+                "Nix:Sites:DefaultHostLabelSuffix and ForeignLabelSuffixes must each be a hyphen and up to 20 lowercase letters, digits and single hyphens, such as '-home', and differ.");
+        }
+
         if (Bucket.Length is < 3 or > 63 || Bucket.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '-' or '.')))
         {
             throw new InvalidOperationException("Nix:Sites:Bucket must name the sites bucket (3 to 63 letters, digits, '-' or '.').");
@@ -173,8 +228,12 @@ public sealed class SiteOptions
             throw new InvalidOperationException("Nix:Sites:DnsResolverUrl must be an https URL.");
         }
 
-        Cloudflare.AssertValid(Domain, appHost);
+        Cloudflare.AssertValid(Domain, appHost, DefaultHostLabelSuffix);
     }
+
+    // A leading hyphen keeps <slug><suffix> a valid label for every slug, and 40 + 21 stays under 63.
+    private static bool IsLabelSuffix(string suffix) =>
+        suffix.Length is >= 2 and <= 21 && suffix[0] == '-' && SiteRules.IsSlug(suffix[1..]);
 
     private bool IsDefaultPort(int port) => (PublicScheme == "https" && port == 443) || (PublicScheme == "http" && port == 80);
 }

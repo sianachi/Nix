@@ -220,6 +220,73 @@ public sealed class SiteHostingTests
         Assert.Equal(2, ((JsonArray)cloudflare.Tunnel["ingress"]!).Count);
     }
 
+    [Fact]
+    public async Task A_suffixed_default_hostname_gets_a_tunnel_record_in_the_configured_zone_idempotently_and_loses_it_on_delete()
+    {
+        var cloudflare = new InMemoryCloudflare();
+        // The unsuffixed instance's wildcard on the shared zone never blocks the exact record.
+        var wildcard = await cloudflare.CreateRecordAsync(
+            "other", new CloudflareDnsRecordInput("CNAME", "*.nixsites.com", "elsewhere.example.net", true, string.Empty), Ct);
+        cloudflare.WrittenZones.Clear();
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, SuffixedOptions());
+        var site = NewSite();
+        var host = Default("demo-home.nixsites.com");
+
+        var first = await provisioner.EnsureDefaultAsync(site, host, Ct);
+        Assert.Null(first.Error);
+        Assert.True(first.Changed);
+        var again = await provisioner.EnsureDefaultAsync(site, host, Ct);
+        Assert.Null(again.Error);
+        Assert.False(again.Changed);
+
+        var cname = Assert.Single(cloudflare.Records.Values, record => record.Name == "demo-home.nixsites.com");
+        Assert.Equal("CNAME", cname.Type);
+        Assert.Equal("tunnel-1.cfargotunnel.com", cname.Content);
+        Assert.True(cname.Proxied);
+        Assert.Equal(2, cloudflare.Records.Count);
+        Assert.Equal([DefaultZone], cloudflare.WrittenZones.Distinct().ToArray());
+        var rule = (JsonObject)((JsonArray)cloudflare.Tunnel["ingress"]!)[0]!;
+        Assert.Equal("demo-home.nixsites.com", rule["hostname"]!.GetValue<string>());
+        Assert.Equal("http://nix-web:8090", rule["service"]!.GetValue<string>());
+        var owned = SiteHostnameProvisioner.Read(host.ManagedRecords)!;
+        Assert.Equal(DefaultZone, owned.ZoneId);
+        Assert.Equal([cname.Id], owned.Records);
+        Assert.True(owned.Tunnel);
+
+        Assert.Null(await provisioner.RemoveAsync(host, Ct));
+        Assert.Equal([wildcard.Id], cloudflare.Records.Keys.ToArray());
+        Assert.Single((JsonArray)cloudflare.Tunnel["ingress"]!);
+        Assert.Null(host.ManagedRecords);
+    }
+
+    [Theory]
+    [InlineData("demo.nixsites.com", SiteRules.DefaultHost)]
+    [InlineData("a.demo-home.nixsites.com", SiteRules.DefaultHost)]
+    [InlineData("demo-home.example.org", SiteRules.DefaultHost)]
+    [InlineData("demo-home.nixsites.com", SiteRules.CustomHost)]
+    public async Task Only_a_default_hostname_of_the_instance_shape_is_ever_written_in_the_default_zone(string name, string kind)
+    {
+        var cloudflare = new InMemoryCloudflare();
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, SuffixedOptions());
+        var host = kind == SiteRules.DefaultHost ? Default(name) : Custom(name, verified: false);
+
+        Assert.Equal(new SiteProvisioning(null, false), await provisioner.EnsureDefaultAsync(NewSite(), host, Ct));
+        Assert.Equal(new SiteProvisioning(null, false), await provisioner.ProvisionAsync(NewSite(), host, Ct));
+        Assert.Empty(cloudflare.Records);
+        Assert.Equal(0, cloudflare.TunnelWrites);
+        Assert.Null(host.ManagedRecords);
+    }
+
+    [Fact]
+    public async Task An_unsuffixed_instance_never_writes_a_default_hostname_record()
+    {
+        var cloudflare = new InMemoryCloudflare();
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true));
+
+        Assert.False((await provisioner.EnsureDefaultAsync(NewSite(), Default("demo.sites.example.net"), Ct)).Changed);
+        Assert.Empty(cloudflare.Records);
+    }
+
     [Theory]
     [InlineData("nixsites.com", "nixsites.com", null)]
     [InlineData("nixsites.com", "home.nixsites.com", null)]
@@ -293,6 +360,19 @@ public sealed class SiteHostingTests
         options.Cloudflare.DefaultTarget = "nixsites.com";
         options.Cloudflare.TunnelId = tunnel ? "tunnel-1" : null;
         options.Cloudflare.ManagedZones.Add(new SiteManagedZone { Zone = "nwagboso.com", WorkspaceId = Workspace });
+        return options;
+    }
+
+    private const string DefaultZone = "0123456789abcdef0123456789abcdef";
+
+    private static SiteOptions SuffixedOptions()
+    {
+        var options = new SiteOptions { Domain = "nixsites.com", DefaultHostLabelSuffix = "-home" };
+        options.Cloudflare.ApiToken = "token";
+        options.Cloudflare.AccountId = "account-1";
+        options.Cloudflare.TunnelId = "tunnel-1";
+        options.Cloudflare.TunnelService = "http://nix-web:8090";
+        options.Cloudflare.DefaultHostnameZoneId = DefaultZone;
         return options;
     }
 
@@ -375,8 +455,11 @@ internal sealed class InMemoryCloudflare : ICloudflareDns
     public Task<IReadOnlyList<CloudflareDnsRecord>> ListRecordsAsync(string zoneId, string name, CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<CloudflareDnsRecord>>([.. Records.Values.Where(record => record.Name == name)]);
 
+    public List<string> WrittenZones { get; } = [];
+
     public Task<CloudflareDnsRecord> CreateRecordAsync(string zoneId, CloudflareDnsRecordInput record, CancellationToken cancellationToken)
     {
+        WrittenZones.Add(zoneId);
         var created = new CloudflareDnsRecord("r" + ++_next, record.Type, record.Name, record.Content, record.Proxied, record.Comment);
         Records[created.Id] = created;
         return Task.FromResult(created);

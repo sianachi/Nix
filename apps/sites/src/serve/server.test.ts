@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { readServeConfig } from './config.ts';
 import { PDF_CSP, SVG_CSP, createSiteServer, hostnameOf, normalizePath } from './server.ts';
 import type { ObjectReader } from './store.ts';
 
@@ -62,10 +63,14 @@ const published: Record<string, string> = {
 
 let server: Server | null = null;
 
-async function start(objects: Record<string, string>): Promise<number> {
+async function start(
+  objects: Record<string, string>,
+  defaultLabelSuffix?: string,
+): Promise<number> {
   server = createSiteServer({
     reader: memory(objects),
     allowedSuffix: 'sites.test',
+    ...(defaultLabelSuffix === undefined ? {} : { defaultLabelSuffix }),
     manifestTtlMs: 0,
   });
   await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
@@ -188,6 +193,25 @@ describe('the sites server', () => {
     expect((await get(port, '/', 'docs.other.test')).status).toBe(421);
     expect((await get(port, '/', 'evilsites.test')).status).toBe(421);
     expect((await get(port, '/', 'nix.example.com')).status).toBe(421);
+  });
+
+  it('with a label suffix answers only one-label hosts ending in it, and custom hosts by manifest', async () => {
+    const port = await start(
+      {
+        ...published,
+        'sites/_hosts/docs-home.sites.test.json': hostManifest(),
+        'sites/_hosts/docs.example.org.json': hostManifest(),
+      },
+      '-home',
+    );
+    expect((await get(port, '/', 'docs-home.sites.test')).status).toBe(200);
+    expect((await get(port, '/', 'docs.example.org')).status).toBe(200);
+    expect((await get(port, '/', 'nobody-home.sites.test')).status).toBe(404);
+    // The unsuffixed deployment's names, deeper names and the bare suffix label are not this server's.
+    expect((await get(port, '/', 'docs.sites.test')).status).toBe(421);
+    expect((await get(port, '/', 'a.docs-home.sites.test')).status).toBe(421);
+    expect((await get(port, '/', '-home.sites.test')).status).toBe(421);
+    expect((await get(port, '/', 'sites.test')).status).toBe(421);
   });
 
   it('answers 404 for a host with no manifest, with the theme 404 absent', async () => {
@@ -360,4 +384,30 @@ describe('the sites server', () => {
     });
     expect((await get(port, '/', 'docs.sites.test')).body).toBe('<h1>older</h1>');
   });
+});
+
+describe('readServeConfig', () => {
+  const base = {
+    NIX_SITES_ALLOWED_SUFFIX: 'nixsites.com',
+    NIX_SITES_S3_ENDPOINT: 'http://store:7070',
+    NIX_SITES_S3_BUCKET: 'nix-sites',
+    NIX_SITES_S3_ACCESS_KEY: 'a',
+    NIX_SITES_S3_SECRET_KEY: 'b',
+  };
+
+  it('reads an optional default label suffix', () => {
+    expect(readServeConfig(base).defaultLabelSuffix).toBe('');
+    expect(
+      readServeConfig({ ...base, NIX_SITES_DEFAULT_LABEL_SUFFIX: ' -home ' }).defaultLabelSuffix,
+    ).toBe('-home');
+  });
+
+  it.each(['home', '-Home', '-home.x', '-', '-a-very-long-suffix-label'])(
+    'refuses the label suffix %j',
+    (value) => {
+      expect(() => readServeConfig({ ...base, NIX_SITES_DEFAULT_LABEL_SUFFIX: value })).toThrow(
+        /NIX_SITES_DEFAULT_LABEL_SUFFIX/,
+      );
+    },
+  );
 });

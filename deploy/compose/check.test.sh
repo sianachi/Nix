@@ -49,6 +49,17 @@ edge=Path('deploy/Caddyfile.prod').read_text()
 exchange=edge.split('handle /public/v1/auth/token {',1)[1].split('\n\thandle ',1)[0]
 assert 'reverse_proxy nix-api:8080' in exchange
 assert 'header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}' in exchange
+# Sites on a shared domain: the label suffix reaches Core, serve and the edge; no wildcard is two levels deep.
+assert s['nix-api']['environment']['Nix__Sites__DefaultHostLabelSuffix'] == ''
+assert s['nix-api']['environment']['Nix__Sites__Cloudflare__DefaultHostnameZoneId'] == ''
+assert s['nix-api']['environment']['Nix__Sites__Cloudflare__TunnelService'] == 'http://nix-sites-serve:8400'
+assert 'NIX_SITES_CLOUDFLARE_API_TOKEN' not in s['nix-web']['environment']
+assert 'NIX_SITES_DEFAULT_LABEL_SUFFIX' in s['nix-web']['environment']
+serve=Path('deploy/compose.prod.yml').read_text().split('\n  nix-sites-serve:\n',1)[1].split('\n  nix-web:\n',1)[0]
+assert 'NIX_SITES_DEFAULT_LABEL_SUFFIX: ${NIX_SITES_DEFAULT_LABEL_SUFFIX:-}' in serve
+sites_block=edge.split('http://*.{$NIX_SITES_DOMAIN}:8090 {',1)[1]
+assert '@site header_regexp Host (?i)^[a-z0-9-]+{$NIX_SITES_DEFAULT_LABEL_SUFFIX}\\.' in sites_block
+assert 'respond 421' in sites_block and '*.*.' not in edge
 PY
 mkdir "$fixture/bin"
 cat > "$fixture/bin/pdftotext" <<'PY'

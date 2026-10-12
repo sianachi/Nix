@@ -10,6 +10,10 @@
 #   OIDC_CLIENT_ID=your-client-id DOMAIN=nix.example.com \
 #   deploy/k8s/deploy.sh
 #
+# SITES_FOREIGN_LABEL_SUFFIX (default -home) is the label suffix a second deployment sharing the
+# sites domain owns (<slug>-home.$DOMAIN); slugs ending with it are refused here. Set it empty when
+# no other deployment shares the domain.
+#
 # DOMAIN is the app's apex and also the sites domain: sites are served at <slug>.$DOMAIN. The
 # bundled Zitadel answers at auth.$DOMAIN, which is the default OIDC_ISSUER; set OIDC_ISSUER only
 # for an external identity provider. OIDC_CLIENT_ID is the Zitadel application's client id: on a
@@ -49,9 +53,10 @@ case "$SITES_REQUIRE_OPERATOR_APPROVAL" in
   *) echo "NIX_SITES_REQUIRE_OPERATOR_APPROVAL must be true or false" >&2; exit 1 ;;
 esac
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
-export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL
+SITES_FOREIGN_LABEL_SUFFIX="${SITES_FOREIGN_LABEL_SUFFIX--home}"
+export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL SITES_FOREIGN_LABEL_SUFFIX
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
