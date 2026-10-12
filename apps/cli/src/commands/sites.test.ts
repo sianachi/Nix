@@ -6,7 +6,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveProfile } from '../config.ts';
 import { outputOptions } from '../output.ts';
-import { mergeDated, parseDated, publishSite, unpublishSite, updateSite } from './sites.ts';
+import {
+  mergeDated,
+  parseDated,
+  parseNavLink,
+  publishSite,
+  unpublishSite,
+  updateSite,
+} from './sites.ts';
 
 const API = 'http://nix.test';
 const SITE = '21111111-1111-4111-8111-111111111111';
@@ -219,6 +226,51 @@ describe('the site commands over a stubbed Core', () => {
       excludedItemIds: null,
     });
     await done();
+  });
+
+  it('replaces navigation and the footer settings, keeping the rest', async () => {
+    const { env, done } = await withProfile();
+    let body: unknown;
+    server.use(
+      http.get(`${API}/api/v1/sites/${SITE}`, () => HttpResponse.json(site())),
+      http.patch(`${API}/api/v1/sites/${SITE}`, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(site());
+      }),
+    );
+
+    await capture((json) =>
+      updateSite(
+        'default',
+        SITE,
+        {
+          nav: ['Get started=/getting-started/', 'Blog=/blog/'],
+          footer: 'Hi',
+          builtWithNix: false,
+        },
+        json,
+        { env },
+      ),
+    );
+
+    expect(body).toMatchObject({
+      settings: {
+        accent: '#2f6f4f', // design-token-exempt: a site owner's chosen accent.
+        navigation: [
+          { label: 'Get started', path: '/getting-started/' },
+          { label: 'Blog', path: '/blog/' },
+        ],
+        footerText: 'Hi',
+        builtWithNix: false,
+      },
+    });
+    await done();
+  });
+
+  it('rejects a navigation link without a label or a site path', () => {
+    expect(parseNavLink('A=b=/x/')).toEqual({ label: 'A=b', path: '/x/' });
+    expect(() => parseNavLink('/blog/')).toThrow(/--nav/);
+    expect(() => parseNavLink('Blog=https://x')).toThrow(/--nav/);
   });
 
   it('needs --yes to switch to auto mode', async () => {
