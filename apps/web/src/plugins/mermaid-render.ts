@@ -100,7 +100,11 @@ export function renderMermaid(source: string, id: string, capture = false): Prom
         'maxEdges',
       ],
       theme: capture ? 'neutral' : 'base',
-      themeVariables,
+      // Mermaid copies every key it is given, so an undefined one erases the theme's own colour
+      // (`stroke:undefined` left captured connectors invisible).
+      themeVariables: Object.fromEntries(
+        Object.entries(themeVariables).filter(([, value]) => value !== undefined),
+      ),
     });
     const { svg } = await mermaid.render(id, source);
     if (themeVariables.darkMode && themeVariables.lineColor !== undefined) {
