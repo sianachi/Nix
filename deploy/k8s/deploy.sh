@@ -23,6 +23,10 @@
 # does not have yet. Set NIX_TEMPLATE_BOOT_ENABLED=false until they exist; the step is then skipped
 # and everything else, the Ingress included, is applied. TEMPLATE_BOOT_* is required otherwise.
 #
+# NIX_BACKUP_OFFSITE (default false): true requires the nix-backup-offsite secret
+# (create-secrets.sh --backup-offsite-only) and makes the nightly backup Job fail without it.
+# The Job pushes off the node whenever that secret exists, whatever this flag says.
+#
 # NIX_SITES_REQUIRE_OPERATOR_APPROVAL (default true) holds a site's first publish for an operator.
 #
 # POD_CIDR defaults to k3s's stock Flannel range (10.42.0.0/16) - confirm yours with:
@@ -52,11 +56,16 @@ case "$SITES_REQUIRE_OPERATOR_APPROVAL" in
   true | false) ;;
   *) echo "NIX_SITES_REQUIRE_OPERATOR_APPROVAL must be true or false" >&2; exit 1 ;;
 esac
+BACKUP_OFFSITE="${NIX_BACKUP_OFFSITE:-false}"
+case "$BACKUP_OFFSITE" in
+  true | false) ;;
+  *) echo "NIX_BACKUP_OFFSITE must be true or false" >&2; exit 1 ;;
+esac
 export POD_CIDR="${POD_CIDR:-10.42.0.0/16}"
 SITES_FOREIGN_LABEL_SUFFIX="${SITES_FOREIGN_LABEL_SUFFIX--home}"
-export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL SITES_FOREIGN_LABEL_SUFFIX
+export REGISTRY TAG OIDC_ISSUER OIDC_CLIENT_ID DOMAIN SITES_REQUIRE_OPERATOR_APPROVAL SITES_FOREIGN_LABEL_SUFFIX BACKUP_OFFSITE
 
-render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
+render() { envsubst '${REGISTRY} ${TAG} ${OIDC_ISSUER} ${OIDC_CLIENT_ID} ${DOMAIN} ${SITES_FOREIGN_LABEL_SUFFIX} ${POD_CIDR} ${SITES_REQUIRE_OPERATOR_APPROVAL} ${BACKUP_OFFSITE} ${RABBITMQ_SECRET_VERSION} ${OBJECT_STORE_SECRET_VERSION} ${SITES_SECRET_VERSION} ${TEMPLATE_BOOT_WORKSPACE_ID} ${TEMPLATE_BOOT_OIDC_AUDIENCE} ${TEMPLATE_BOOT_OIDC_SCOPE} ${TEMPLATE_BOOT_PVC} ${TEMPLATE_BOOT_SERVICE_KEY_SECRET}' < "$1"; }
 
 if ! kubectl -n nix get secret nix-db >/dev/null 2>&1; then
   echo "secret nix-db not found in namespace nix - run deploy/k8s/create-secrets.sh first" >&2
@@ -101,6 +110,15 @@ for sites_key in bucket read-access-key read-secret-key; do
     exit 1
   fi
 done
+if [ "$BACKUP_OFFSITE" = true ]; then
+  for offsite_key in RESTIC_REPOSITORY RESTIC_PASSWORD AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_DEFAULT_REGION; do
+    offsite_value="$(kubectl -n nix get secret nix-backup-offsite -o "jsonpath={.data['$offsite_key']}" 2>/dev/null || true)"
+    if [ -z "$offsite_value" ]; then
+      echo "NIX_BACKUP_OFFSITE=true but secret nix-backup-offsite is missing or lacks $offsite_key - run deploy/k8s/create-secrets.sh --backup-offsite-only" >&2
+      exit 1
+    fi
+  done
+fi
 RABBITMQ_SECRET_VERSION="$(kubectl -n nix get secret nix-rabbitmq -o jsonpath='{.metadata.resourceVersion}')"
 if [ -z "$RABBITMQ_SECRET_VERSION" ]; then
   echo "secret nix-rabbitmq has no resource version" >&2
@@ -221,7 +239,7 @@ echo "== Ingress =="
 kubectl apply -f deploy/k8s/cloudflare-only.yaml
 render deploy/k8s/ingress.yaml | kubectl apply -f -
 kubectl -n nix rollout status deployment/nix-worker --timeout=180s
-kubectl apply -f deploy/k8s/backup.yaml
+render deploy/k8s/backup.yaml | kubectl apply -f -
 
 if [ "$NIX_TEMPLATE_BOOT_ENABLED" = true ]; then
   kubectl -n nix get "persistentvolumeclaim/$TEMPLATE_BOOT_PVC" >/dev/null

@@ -18,6 +18,8 @@ export RENDERED_SITES="$test_root/sites.yaml"
 export RENDERED_INGRESS="$test_root/ingress.yaml"
 export RENDERED_ALL="$test_root/all.yaml"
 export RENDERED_ZITADEL="$test_root/zitadel.yaml"
+export RENDERED_BACKUP="$test_root/backup.yaml"
+export OFFSITE_ENV_COPY="$test_root/offsite.env"
 
 cat > "$fake_bin/git" <<EOF
 #!/usr/bin/env bash
@@ -73,6 +75,20 @@ if [[ " $* " == *" get secret nix-sites "* && " $* " == *" jsonpath="* ]]; then
   exit 0
 fi
 
+if [[ " $* " == *" get secret nix-backup-offsite "* && " $* " == *" jsonpath="* ]]; then
+  if [ "${OFFSITE_SECRET:-}" != 1 ]; then echo 'secrets "nix-backup-offsite" not found' >&2; exit 1; fi
+  printf 'dGVzdA=='
+  exit 0
+fi
+
+if [[ " $* " == *" create secret generic nix-backup-offsite "* ]]; then
+  printf 'kubectl:%s\n' "$*" >> "$KUBECTL_LOG"
+  for argument in "$@"; do
+    case "$argument" in --from-env-file=*) cp "${argument#--from-env-file=}" "$OFFSITE_ENV_COPY" ;; esac
+  done
+  exit 0
+fi
+
 if [[ " $* " == *" get secret nix-rabbitmq "* && " $* " == *" jsonpath="* ]]; then
   printf 'dGVzdA=='
   exit 0
@@ -110,6 +126,9 @@ if [[ " $* " == *" apply -f - "* ]]; then
   fi
   if [[ "$payload" == *"name: nix-zitadel-env"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_ZITADEL"
+  fi
+  if [[ "$payload" == *"name: nix-backup, namespace"* && "$payload" == *"kind: CronJob"* ]]; then
+    printf '%s\n' "$payload" > "$RENDERED_BACKUP"
   fi
   if [[ "$payload" == *"kind: Ingress"* ]]; then
     printf '%s\n' "$payload" > "$RENDERED_INGRESS"
@@ -332,7 +351,7 @@ fi
 grep -Fq 'host: "auth.nix.example.test"' "$RENDERED_INGRESS"
 grep -Fq 'service: { name: nix-zitadel, port: { number: 8080 } }' "$RENDERED_INGRESS"
 grep -Fq 'rollout:-n nix rollout status deployment/nix-zitadel --timeout=900s' "$KUBECTL_LOG"
-grep -Fq 'apply-file:deploy/k8s/backup.yaml' "$KUBECTL_LOG"
+grep -Fq 'apply-stdin:nix-backup,nix-backup' "$KUBECTL_LOG"
 # Third-party images are pinned to a version.
 if grep -E '^ *image: ' "$RENDERED_ALL" | grep -vE ':[A-Za-z0-9._-]+$|registry\.example\.test/' | grep -q .; then
   echo 'An image is not pinned to a tag.' >&2
@@ -467,4 +486,95 @@ awk 'BEGIN { RS = "\n---\n" } /name: nix-sites\n/ && /host: "\*\.nix\.example\.t
 awk 'BEGIN { RS = "\n---\n" } /name: nix\n/ && /host: "auth\.nix\.example\.test"/ && !/host: "\*\./ { found = 1 } END { exit !found }' "$RENDERED_INGRESS"
 # nixctl exchanges its PAT at Core's public route; without it the SPA fallback answers 405.
 grep -Fq 'handle /public/v1/auth/token {' "$repo_root/deploy/k8s/Caddyfile"
+# Off-node backup: optional by default, required by NIX_BACKUP_OFFSITE=true, never on argv.
+: > "$KUBECTL_LOG"
+run_deploy
+grep -Fq 'name: OFFSITE_REQUIRED, value: "false"' "$RENDERED_BACKUP"
+grep -Fq 'secretRef: { name: nix-backup-offsite, optional: true }' "$RENDERED_BACKUP"
+grep -Eq 'image: restic/restic:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$' "$RENDERED_BACKUP"
+grep -Fq 'readOnlyRootFilesystem: true' "$RENDERED_BACKUP"
+grep -Fq '{ name: backup, mountPath: /backup, readOnly: true }' "$RENDERED_BACKUP"
+if grep -Fq 'nix-backup-offsite' "$KUBECTL_LOG"; then
+  echo 'Deployment looked up the offsite secret without NIX_BACKUP_OFFSITE=true.' >&2
+  exit 1
+fi
+: > "$KUBECTL_LOG"
+if NIX_BACKUP_OFFSITE=true run_deploy 2>/dev/null; then
+  echo 'Deployment accepted NIX_BACKUP_OFFSITE=true without the offsite secret.' >&2
+  exit 1
+fi
+if grep -Fq 'apply-stdin:' "$KUBECTL_LOG"; then
+  echo 'Deployment applied workloads before validating the offsite secret.' >&2
+  exit 1
+fi
+if NIX_BACKUP_OFFSITE=maybe run_deploy 2>/dev/null; then
+  echo 'Deployment accepted an invalid NIX_BACKUP_OFFSITE.' >&2
+  exit 1
+fi
+OFFSITE_SECRET=1 NIX_BACKUP_OFFSITE=true run_deploy
+grep -Fq 'name: OFFSITE_REQUIRED, value: "true"' "$RENDERED_BACKUP"
+
+# The offsite container's script, run against a stub restic and a temporary /backup.
+offsite_root="$test_root/offsite"
+mkdir -p "$offsite_root/bin" "$offsite_root/backup/2026-01-04"
+awk '/- name: offsite/ { inside = 1 } inside && /^ *- \|$/ { script = 1; next }
+  script && /^ *securityContext:/ { exit } script { sub(/^ {18}/, ""); print }' "$RENDERED_BACKUP" \
+  | sed "s#/backup#$offsite_root/backup#g" > "$offsite_root/offsite.sh"
+grep -Fq 'restic backup --host nix-k8s --tag kind=nightly' "$offsite_root/offsite.sh"
+printf 'dump\n' > "$offsite_root/backup/2026-01-04/nix.dump"
+(cd "$offsite_root/backup/2026-01-04" && sha256sum ./* > SHA256SUMS)
+printf '2026-01-04\n' > "$offsite_root/backup/LATEST"
+printf '%s\n' '#!/bin/sh' 'echo "restic $*" >> "$RESTIC_LOG"' 'case "$1" in' \
+  '  cat) exit "${RESTIC_CAT_STATUS:-0}" ;;' '  backup) exit "${RESTIC_BACKUP_STATUS:-0}" ;;' 'esac' \
+  > "$offsite_root/bin/restic"
+chmod +x "$offsite_root/bin/restic"
+export RESTIC_LOG="$offsite_root/restic.log"
+run_offsite() {
+  : > "$RESTIC_LOG"
+  env -u RESTIC_REPOSITORY PATH="$offsite_root/bin:$PATH" OFFSITE_REQUIRED=false "$@" \
+    /bin/sh -ec "$(cat "$offsite_root/offsite.sh")" >/dev/null 2>&1
+}
+configured=(RESTIC_REPOSITORY=s3:https://r2.example.test/bucket RESTIC_PASSWORD=p
+  AWS_ACCESS_KEY_ID=k AWS_SECRET_ACCESS_KEY=s AWS_DEFAULT_REGION=auto)
+run_offsite
+test ! -s "$RESTIC_LOG"
+if run_offsite OFFSITE_REQUIRED=true; then
+  echo 'The offsite step passed with the secret required but missing.' >&2
+  exit 1
+fi
+run_offsite "${configured[@]}"
+test "$(cut -d' ' -f2 "$RESTIC_LOG" | paste -sd' ' -)" = 'cat backup forget check'
+grep -Fq "restic backup --host nix-k8s --tag kind=nightly $offsite_root/backup/2026-01-04" "$RESTIC_LOG"
+grep -Fq 'restic forget --host nix-k8s --tag kind=nightly --group-by host --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune' "$RESTIC_LOG"
+for failure in RESTIC_BACKUP_STATUS=1 RESTIC_CAT_STATUS=10 AWS_DEFAULT_REGION=; do
+  if run_offsite "${configured[@]}" "$failure"; then
+    echo "The offsite step passed with $failure." >&2
+    exit 1
+  fi
+  if grep -q '^restic forget' "$RESTIC_LOG"; then
+    echo "The offsite step applied retention after $failure." >&2
+    exit 1
+  fi
+done
+printf 'tampered\n' > "$offsite_root/backup/2026-01-04/nix.dump"
+if run_offsite "${configured[@]}"; then
+  echo 'The offsite step pushed a directory that fails its checksums.' >&2
+  exit 1
+fi
+
+# create-secrets.sh --backup-offsite-only reads values from the environment and never prints them.
+: > "$KUBECTL_LOG"
+offsite_output="$(PATH="$fake_bin:$PATH" RESTIC_REPOSITORY=s3:https://r2.example.test/repo-value \
+  RESTIC_PASSWORD=password-value AWS_ACCESS_KEY_ID=key-id-value AWS_SECRET_ACCESS_KEY=secret-value \
+  bash "$repo_root/deploy/k8s/create-secrets.sh" --backup-offsite-only 2>&1)"
+grep -qx 'AWS_DEFAULT_REGION=auto' "$OFFSITE_ENV_COPY"
+grep -qx 'RESTIC_PASSWORD=password-value' "$OFFSITE_ENV_COPY"
+if grep -q -- '-value' <<<"$offsite_output" || grep -q -- '-value' "$KUBECTL_LOG"; then
+  echo 'create-secrets.sh exposed an offsite credential.' >&2
+  exit 1
+fi
+if (PATH="$fake_bin:$PATH" RESTIC_REPOSITORY=r bash "$repo_root/deploy/k8s/create-secrets.sh" --backup-offsite-only >/dev/null 2>&1); then
+  echo 'create-secrets.sh accepted incomplete offsite credentials.' >&2
+  exit 1
+fi
 echo "deployment render-order self-test passed"
