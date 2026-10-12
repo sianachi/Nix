@@ -109,6 +109,9 @@ describe('Mermaid capture', () => {
     expect(mermaid.initialize).toHaveBeenCalledWith(
       expect.objectContaining({ theme: 'neutral', htmlLabels: false, securityLevel: 'strict' }),
     );
+    // An undefined override erases Mermaid's own connector colour (`stroke:undefined`).
+    const config = mermaid.initialize.mock.lastCall?.[0] as { themeVariables: object };
+    expect(Object.values(config.themeVariables)).not.toContain(undefined);
     expect(codeBlockAttrs().renderSourceHash).toBe(digest);
 
     // The recorded hash now matches, so nothing captures again.
