@@ -16,7 +16,9 @@ namespace Nix.Integration.Tests.Persistence;
 /// <remarks>
 /// The corpus, tenant Alpha: 3,000 pages in 30 sections under the site's root; 20,000 unrelated
 /// items of the same tenant; 40 locked pages, 20 excluded sections, a dated collection of 500
-/// posts, 200 of them future-dated; and every closure row. Tenant Beta: 2,000 items, so row security
+/// posts, 200 of them future-dated; and every closure row. Each section page has a body of 50
+/// updates and a snapshot every ten, the last at its head, with the head update of every other
+/// page pruned, as retention does to a long-idle body. Tenant Beta: 2,000 items, so row security
 /// has something to exclude.
 /// </remarks>
 [Collection(PostgresCollectionDefinition.Name)]
@@ -49,6 +51,10 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
         Assert.DoesNotContain("Seq Scan on item ", plan, StringComparison.Ordinal);
         Assert.DoesNotContain("Seq Scan on item_closure", plan, StringComparison.Ordinal);
         Assert.Matches("Index Scan using \"IX_item_(tenant_id|workspace_id)_parent_id", plan);
+        Assert.Contains("Index Scan using \"PK_content_update\"", plan, StringComparison.Ordinal);
+        Assert.Contains("Index Scan using \"PK_content_snapshot\"", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on content_update", plan, StringComparison.Ordinal);
+        Assert.DoesNotContain("Seq Scan on content_snapshot", plan, StringComparison.Ordinal);
         Assert.Contains("Index", plan, StringComparison.Ordinal);
         Assert.Contains("Buffers:", plan, StringComparison.Ordinal);
         Assert.Contains("actual", plan, StringComparison.Ordinal);
@@ -204,6 +210,17 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
             UNION ALL SELECT id, section_id, {{tenant}}, {{workspace}}, 1 FROM page
             UNION ALL SELECT id, {{root}}, {{tenant}}, {{workspace}}, 2 FROM page;
 
+            -- A body for each page: 50 updates and a snapshot every ten, the head update of every
+            -- other page pruned so the snapshot fallback runs.
+            CREATE TEMP TABLE body AS SELECT gen_random_uuid() AS doc_id, id AS item_id, n FROM page;
+            INSERT INTO content_doc (doc_id, tenant_id, item_id, workspace_id, schema_version, head_seq, created_at)
+            SELECT doc_id, {{tenant}}, item_id, {{workspace}}, 1, 50, now() FROM body;
+            INSERT INTO content_update (doc_id, seq, tenant_id, update_bytes, actor_id, client_id, created_at)
+            SELECT doc_id, s, {{tenant}}, '\x0102'::bytea, {{principal}}, 'plan-client', now()
+            FROM body, generate_series(1, 50) AS s WHERE s < 50 OR n % 2 = 0;
+            INSERT INTO content_snapshot (doc_id, seq, tenant_id, yjs_state, prosemirror_json, plaintext, created_at)
+            SELECT doc_id, s * 10, {{tenant}}, '\x0102'::bytea, NULL, 'body', now() FROM body, generate_series(1, 5) AS s;
+
             -- A dated collection of 500 posts, 200 of them in the future.
             INSERT INTO item (id, tenant_id, workspace_id, type, parent_id, seq, properties, lifecycle_state, created_by, last_modified_by, created_at, last_modified_at)
             VALUES ('{{Collection}}', {{tenant}}, {{workspace}}, 'folder', {{root}}, 99000, jsonb_build_object('title', 'Blog'), 'active', {{principal}}, {{principal}}, now(), now());
@@ -253,6 +270,9 @@ public sealed class SiteEligibilityPlanEvidenceTests(NixPostgresFixture fixture,
             ANALYZE item;
             ANALYZE item_closure;
             ANALYZE item_lock;
+            ANALYZE content_doc;
+            ANALYZE content_update;
+            ANALYZE content_snapshot;
             ANALYZE site_exclusion;
             ANALYZE site_dated_collection;
             """;
