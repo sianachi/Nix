@@ -1,6 +1,6 @@
 import type { ItemBody } from '@nix/export';
 
-import type { SitePage } from './manifest.js';
+import { publishedPages, type SitePage } from './manifest.js';
 
 /**
  * Every file a site build needs: image nodes and captured Mermaid pictures (`codeBlock`
@@ -67,7 +67,8 @@ export function collectFileReferences(
   bodies: ReadonlyMap<string, ItemBody | null>,
 ): FileReference[] {
   const references: FileReference[] = [];
-  const pageIds = new Set(pages.map((page) => page.itemId));
+  // An attachment is not a page, so a reference to it is a download rather than a page link.
+  const pageIds = new Set(publishedPages(pages).map((page) => page.itemId));
   for (const page of pages) {
     const found = new Set<string>();
     const linked = new Set<string>();
