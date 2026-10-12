@@ -97,6 +97,16 @@ function describe(error: z.ZodError): string {
   return issue === undefined ? 'invalid' : `${issue.path.join('.')}: ${issue.message}`;
 }
 
+/**
+ * The pages a site renders. A file item with nothing under it is an attachment - a captured
+ * Mermaid picture, an image, a download - and publishes through the pages that use it, never as a
+ * page of its own. A file item that holds children stays a page: body type never decides structure.
+ */
+export function publishedPages(pages: readonly SitePage[]): SitePage[] {
+  const parents = new Set(pages.map((page) => page.parentItemId));
+  return pages.filter((page) => page.type !== 'file' || parents.has(page.itemId));
+}
+
 export function parseSiteManifest(json: unknown): SiteBuildManifest {
   const parsed = manifestSchema.safeParse(json);
   if (!parsed.success) {
