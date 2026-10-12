@@ -6,6 +6,7 @@ import {
   UnsupportedDownload,
   collectFileReferences,
   downloadType,
+  loadPreviewRasterizer,
   parseSiteManifest,
   prepareDownload,
   parseSitePages,
@@ -222,7 +223,9 @@ export async function buildSite(deps: BuildDeps, context: JobContext): Promise<u
   }
 
   // 4. Render, in memory.
-  const rendered = renderSite({ manifest, pages, bodies, assets, downloads });
+  // Each page's link-preview card; the rasteriser loads once per process.
+  const previews = await loadPreviewRasterizer();
+  const rendered = renderSite({ manifest, pages, bodies, assets, downloads, previews });
   const files = rendered.files;
   const totalBytes = files.reduce((sum, file) => sum + file.bytes.length, 0);
   if (totalBytes > MAX_RENDERED_BYTES) {

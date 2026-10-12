@@ -265,6 +265,8 @@ public sealed record SiteNavLink(string Label, string Path);
 /// <param name="FooterText">Text shown in the footer.</param>
 /// <param name="BuiltWithNix">Whether the "Built with Nix" link shows.</param>
 /// <param name="Language">The language tag, for the <c>lang</c> attribute.</param>
+/// <param name="Noindex">Whether search engines are asked to leave the whole site out.</param>
+/// <param name="Author">The person who writes the site, for structured data; null for none.</param>
 public sealed record SiteSettings(
     string Name,
     string Description,
@@ -272,7 +274,9 @@ public sealed record SiteSettings(
     IReadOnlyList<SiteNavLink> Navigation,
     string FooterText,
     bool BuiltWithNix,
-    string Language)
+    string Language,
+    bool Noindex = false,
+    string? Author = null)
 {
     /// <summary>The accent a new site starts with.</summary>
     public const string DefaultAccent = "#2f5fd0";
@@ -310,6 +314,11 @@ public sealed record SiteSettings(
         if (Language is null || Language.Length is < 2 or > 35 || !Language.All(static c => char.IsAsciiLetterOrDigit(c) || c == '-'))
         {
             return "The language must be a language tag such as 'en' or 'pt-BR'.";
+        }
+
+        if (Author is not null && (string.IsNullOrWhiteSpace(Author) || Author.Length > 120 || HasControl(Author)))
+        {
+            return "The author may be at most 120 characters.";
         }
 
         if (Navigation is null || Navigation.Count > 20)

@@ -4961,6 +4961,9 @@ export interface components {
       footerText: string;
       builtWithNix: boolean;
       language: string;
+      /** @default false */
+      noindex: boolean;
+      author?: null | string;
     };
     StructuredItemResponse: {
       item: components['schemas']['ItemResponse'];

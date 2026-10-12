@@ -20007,6 +20007,16 @@
           },
           "language": {
             "type": "string"
+          },
+          "noindex": {
+            "type": "boolean",
+            "default": false
+          },
+          "author": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

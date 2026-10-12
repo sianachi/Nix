@@ -111,6 +111,8 @@ interface SettingsDraft {
   readonly navigation: string;
   readonly footerText: string;
   readonly builtWithNix: boolean;
+  readonly author: string;
+  readonly noindex: boolean;
   readonly mode: SiteRepublishMode;
   readonly settle: number;
 }
@@ -124,6 +126,8 @@ function draftOf(site: Site): SettingsDraft {
     navigation: formatNavigation(site.settings.navigation),
     footerText: site.settings.footerText,
     builtWithNix: site.settings.builtWithNix,
+    author: site.settings.author ?? '',
+    noindex: site.settings.noindex,
     mode: site.republishMode,
     settle: site.debounceSeconds,
   };
@@ -187,6 +191,8 @@ export function SiteSettingsForm({
             navigation: parseNavigation(draft.navigation),
             footerText: draft.footerText,
             builtWithNix: draft.builtWithNix,
+            author: draft.author.trim().length > 0 ? draft.author.trim() : null,
+            noindex: draft.noindex,
           },
           layout: draft.layout,
           republishMode: draft.mode,
@@ -304,6 +310,25 @@ export function SiteSettingsForm({
             />
           )}
         </Field>
+        <Field label="Author" hint="Who writes the site, named to search engines on each post.">
+          {(control) => (
+            <Input
+              {...control}
+              value={draft.author}
+              maxLength={120}
+              onChange={(event) => {
+                edit({ author: event.currentTarget.value });
+              }}
+            />
+          )}
+        </Field>
+        <Checkbox
+          label="Hide from search engines"
+          checked={draft.noindex}
+          onChange={(event) => {
+            edit({ noindex: event.currentTarget.checked });
+          }}
+        />
         <Checkbox
           label="Show a “Built with Nix” link"
           checked={draft.builtWithNix}

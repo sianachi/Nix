@@ -18,6 +18,8 @@ const HIDDEN_TYPES = new Set(['assignee', 'reminder', 'formula', 'rollup', 'imag
 const DATE_TYPES = new Set(['date', 'due_date', 'start_date', 'timestamp', 'datetime']);
 const SUBTITLE = /^(subtitle|summary|description|tagline)$/i;
 const NIX_FILE = /^nix-file:([0-9a-zA-Z-]{1,64})$/;
+/** The reserved property that keeps one page out of search engines: a checkbox named so. */
+const NOINDEX = /^(no-?index|hide from search engines)$/i;
 
 interface Fact {
   readonly label: string;
@@ -64,6 +66,28 @@ function subtitleKey(node: SiteNode, schema: SchemaSnapshot | null): string | nu
     }
   }
   return null;
+}
+
+/** The page's own "noindex" property key, named or labelled so, or null. */
+function noindexKey(node: SiteNode, schema: SchemaSnapshot | null): string | null {
+  return (
+    Object.keys(node.page.properties).find(
+      (key) =>
+        NOINDEX.test(key) ||
+        NOINDEX.test(schema?.properties.find((property) => property.key === key)?.label ?? ''),
+    ) ?? null
+  );
+}
+
+/**
+ * Whether a page asks search engines to leave it out: a `noindex` (or "Hide from search engines")
+ * checkbox that is ticked. The page is still published and linked; it only gains
+ * `<meta name="robots" content="noindex">` and leaves the sitemap.
+ */
+export function isNoindex(node: SiteNode): boolean {
+  const key = noindexKey(node, schemaOf(node));
+  const value = key === null ? null : node.page.properties[key];
+  return value === true || value === 'true';
 }
 
 /** A one-line subtitle for a page, from a text property such as `subtitle`, or null. */
@@ -140,6 +164,8 @@ function factsOf(model: SiteModel, node: SiteNode): Fact[] {
   }
   const subtitle = subtitleKey(node, schema);
   if (subtitle !== null) hidden.add(subtitle);
+  const noindex = noindexKey(node, schema);
+  if (noindex !== null) hidden.add(noindex);
 
   const definitions = new Map<string, PropertyDefinition>(
     (schema?.properties ?? []).map((property) => [property.key, property]),

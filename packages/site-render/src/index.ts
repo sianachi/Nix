@@ -37,11 +37,19 @@ export { renderProse, type ProseContext, type RenderedProse } from './html/prose
 export { escapeHtml, safeHref, slugify } from './html/escape.js';
 export { buildSearchIndex, tokenize, type SearchIndex } from './search.js';
 export {
+  MAX_PREVIEW_IMAGES,
   renderSite,
   type RenderSiteInput,
   type RenderedFile,
   type RenderedSite,
 } from './render.js';
+export {
+  PREVIEW_HEIGHT,
+  PREVIEW_WIDTH,
+  loadPreviewRasterizer,
+  previewSvg,
+  type PreviewRasterizer,
+} from './theme/preview-image.js';
 export {
   PDF_CSP,
   SITE_CSP,
