@@ -21,9 +21,10 @@
 --   oidc_project_id is the audience of machine tokens (JWT-profile service accounts; JIT off).
 --   tenant_id is optional: without it the tenant is found by exact name or created with a new id.
 --
--- Idempotent: re-running with the same values changes nothing; re-running with a new client id or
--- project id adds that registration. It never modifies a tenant other than the target one, and it
--- refuses an issuer/audience pair already registered to another tenant instead of moving it.
+-- Idempotent: re-running never changes an existing registration (an operator's disable or JIT
+-- change survives); a new client id or project id adds that registration. It never modifies a
+-- tenant other than the target one, and it refuses an issuer/audience pair already registered to
+-- another tenant instead of moving it.
 
 \set ON_ERROR_STOP on
 
@@ -101,12 +102,10 @@ BEGIN
         VALUES
             (gen_random_uuid(), v_tenant_id, v_issuer, v_audience, v_issuer || '/oauth/v2/keys',
              ARRAY['RS256']::text[], true, v_jit, v_issuer || '/oidc/v1/userinfo')
+        -- A row this tenant already has is left exactly as it is: a re-run must never re-enable a
+        -- provider or turn JIT back on after an operator changed it. The no-op update only counts it.
         ON CONFLICT (issuer, audience) DO UPDATE
-        SET jwks_uri = EXCLUDED.jwks_uri,
-            allowed_algorithms = EXCLUDED.allowed_algorithms,
-            enabled = true,
-            jit_provisioning_enabled = EXCLUDED.jit_provisioning_enabled,
-            userinfo_uri = EXCLUDED.userinfo_uri
+        SET tenant_id = identity_provider.tenant_id
         WHERE identity_provider.tenant_id = EXCLUDED.tenant_id;
         GET DIAGNOSTICS v_rows = ROW_COUNT;
         IF v_rows = 0 THEN
