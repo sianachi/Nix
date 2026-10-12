@@ -106,8 +106,10 @@ for worker in worker sites-worker; do
 done
 
 echo "== Object store =="
+# The versitygw ingress policy admits a new pod's address a few seconds after it starts.
 kubectl -n nix run verify-curl-versitygw --rm -i --image=curlimages/curl --restart=Never \
-  --labels=app=nix-storage-init -- curl -fsS http://nix-versitygw:7070/health
+  --labels=app=nix-storage-init -- \
+  curl -fsS --retry 10 --retry-delay 2 --retry-connrefused http://nix-versitygw:7070/health
 object_bucket="$(kubectl -n nix get secret nix-object-store -o jsonpath='{.data.bucket}' | base64 -d)"
 # An unsigned request reaches versitygw through Caddy and is refused (403), not the app shell (200).
 bucket_status="$(curl -s -o /dev/null -w '%{http_code}' "https://$DOMAIN/$object_bucket/verify-unsigned")"
