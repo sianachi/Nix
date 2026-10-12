@@ -200,6 +200,14 @@ services:
       Nix__Sites__Domain: ${NIX_SITES_DOMAIN:-}
       Nix__Sites__Bucket: ${NIX_SITES_BUCKET:-nix-sites}
       Nix__Sites__PublicScheme: https
+      # A second deployment sharing the sites domain: default hostnames <slug><suffix>.<domain>, one
+      # proxied record each in the sites zone (no wildcard), routed through the tunnel.
+      Nix__Sites__DefaultHostLabelSuffix: ${NIX_SITES_DEFAULT_LABEL_SUFFIX:-}
+      Nix__Sites__Cloudflare__ApiToken: ${NIX_SITES_CLOUDFLARE_API_TOKEN:-}
+      Nix__Sites__Cloudflare__AccountId: ${NIX_SITES_CLOUDFLARE_ACCOUNT_ID:-}
+      Nix__Sites__Cloudflare__TunnelId: ${NIX_SITES_CLOUDFLARE_TUNNEL_ID:-}
+      Nix__Sites__Cloudflare__TunnelService: ${NIX_SITES_CLOUDFLARE_TUNNEL_SERVICE:-http://nix-sites-serve:8400}
+      Nix__Sites__Cloudflare__DefaultHostnameZoneId: ${NIX_SITES_CLOUDFLARE_DEFAULT_HOSTNAME_ZONE_ID:-}
       Nix__AccessTokens__Issuer: ${NIX_CORE_TOKEN_ISSUER:?set NIX_CORE_TOKEN_ISSUER}
       Nix__AccessTokens__Audience: ${NIX_CORE_TOKEN_AUDIENCE:?set NIX_CORE_TOKEN_AUDIENCE}
       Nix__AccessTokens__KeyId: ${NIX_CORE_TOKEN_KEY_ID:?set NIX_CORE_TOKEN_KEY_ID}
@@ -522,6 +530,7 @@ services:
     environment:
       NIX_SITES_SERVE_ADDRESS: ":8400"
       NIX_SITES_ALLOWED_SUFFIX: ${NIX_SITES_DOMAIN:-}
+      NIX_SITES_DEFAULT_LABEL_SUFFIX: ${NIX_SITES_DEFAULT_LABEL_SUFFIX:-}
       NIX_SITES_S3_ENDPOINT: http://nix-versitygw:7070
       NIX_SITES_S3_REGION: ${NIX_OBJECT_STORE_REGION:-us-east-1}
       NIX_SITES_S3_BUCKET: ${NIX_SITES_BUCKET:-nix-sites}
@@ -559,6 +568,7 @@ services:
       NIX_OBJECT_STORE_BUCKET: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
       # Unset keeps the sites host block on a name that never resolves.
       NIX_SITES_DOMAIN: ${NIX_SITES_DOMAIN:-sites.invalid}
+      NIX_SITES_DEFAULT_LABEL_SUFFIX: ${NIX_SITES_DEFAULT_LABEL_SUFFIX:-}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro
       - nix-caddy-data:/data

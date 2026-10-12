@@ -43,6 +43,8 @@ public sealed class PublishSiteHandler(
     NixDispatcher dispatcher,
     SiteOptions options,
     SiteCapabilitySigner signer,
+    ISiteHostnameStore hostnames,
+    SiteHostnameProvisioner provisioner,
     SiteAudit audit,
     TimeProvider clock) : ICommandHandler<PublishSite, SiteBuildResponse>
 {
@@ -56,6 +58,12 @@ public sealed class PublishSiteHandler(
         if (key.Length is 0 or > 160 || command.Origin is not ("manual" or "auto"))
         {
             return Result.Failure<SiteBuildResponse>(SiteErrors.Invalid("A publish needs an idempotency key of at most 160 characters."));
+        }
+
+        if (options.AutomatesDefaultHostnames)
+        {
+            // The tunnel before the site lock, the order every hostname path keeps.
+            await provisioner.LockTunnelAsync(cancellationToken).ConfigureAwait(false);
         }
 
         var guarded = await access.ManageAsync(command.SiteId, cancellationToken).ConfigureAwait(false);
@@ -210,6 +218,19 @@ public sealed class PublishSiteHandler(
         foreach (var file in files)
         {
             sites.AddBuildFile(file);
+        }
+
+        // Each publish re-ensures the default hostname's record (idempotent), repairing a failed or
+        // removed one; a failure is shown on the hostname and never blocks the build.
+        if (options.AutomatesDefaultHostnames
+            && (await hostnames.LoadForUpdateAsync(site.Id, cancellationToken).ConfigureAwait(false))
+                .FirstOrDefault(row => row.Kind == SiteRules.DefaultHost) is { } defaultHost)
+        {
+            var dns = await provisioner.EnsureDefaultAsync(site, defaultHost, cancellationToken).ConfigureAwait(false);
+            if (dns.Changed || dns.Error is not null)
+            {
+                audit.Record(site, "site.hostname_dns_written", null, new { hostname = defaultHost.Hostname, error = dns.Error });
+            }
         }
 
         audit.Record(

@@ -18,6 +18,11 @@ export interface ServeConfig {
   };
   /** Lowercase, no leading dot. Its subdomains are looked up, its apex is refused; other hosts need a host manifest. */
   readonly allowedSuffix: string;
+  /**
+   * Set on an instance sharing the sites domain one label deep (for example `-home`): only hosts
+   * `<label><suffix>.<allowedSuffix>` count as its own default hostnames. Empty when unset.
+   */
+  readonly defaultLabelSuffix: string;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -38,6 +43,15 @@ export function readServeConfig(env: NodeJS.ProcessEnv): ServeConfig {
   if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(suffix)) {
     throw new Error('NIX_SITES_ALLOWED_SUFFIX must be a domain name such as sites.example.com.');
   }
+  const labelSuffix = optional(env, 'NIX_SITES_DEFAULT_LABEL_SUFFIX', '');
+  if (
+    labelSuffix !== '' &&
+    (labelSuffix.length > 21 || !/^-[a-z0-9](-?[a-z0-9]){1,19}$/.test(labelSuffix))
+  ) {
+    throw new Error(
+      'NIX_SITES_DEFAULT_LABEL_SUFFIX must be a hyphen and a short lowercase label such as -home.',
+    );
+  }
   const endpoint = required(env, 'NIX_SITES_S3_ENDPOINT');
   try {
     new URL(endpoint);
@@ -54,5 +68,6 @@ export function readServeConfig(env: NodeJS.ProcessEnv): ServeConfig {
       secretKey: required(env, 'NIX_SITES_S3_SECRET_KEY'),
     },
     allowedSuffix: suffix,
+    defaultLabelSuffix: labelSuffix,
   };
 }

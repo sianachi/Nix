@@ -92,6 +92,7 @@ public sealed class CreateSiteHandler(
     INixSessionContextAccessor session,
     SiteOptions options,
     SiteViews views,
+    SiteHostnameProvisioner provisioner,
     SiteAudit audit,
     TimeProvider clock) : ICommandHandler<CreateSite, SiteResponse>
 {
@@ -119,6 +120,12 @@ public sealed class CreateSiteHandler(
         if (!await permissions.CanManageWorkspaceAsync(root.WorkspaceId, cancellationToken).ConfigureAwait(false))
         {
             return Result.Failure<SiteResponse>(SiteErrors.ManagerRequired());
+        }
+
+        if (options.AutomatesDefaultHostnames)
+        {
+            // The tunnel before any site row, the order every hostname path keeps.
+            await provisioner.LockTunnelAsync(cancellationToken).ConfigureAwait(false);
         }
 
         if (!options.MayClaimSlug(request.Slug, root.WorkspaceId.Value))
@@ -199,6 +206,13 @@ public sealed class CreateSiteHandler(
         }
 
         audit.Record(site, "site.created", null, new { slug = site.Slug, hosts = new[] { hostname.Hostname }, mode = site.RepublishMode, layout = site.Layout });
+        // A failed record does not fail the create: the error shows on the hostname and the next publish retries.
+        var dns = await provisioner.EnsureDefaultAsync(site, hostname, cancellationToken).ConfigureAwait(false);
+        if (dns.Changed || dns.Error is not null)
+        {
+            audit.Record(site, "site.hostname_dns_written", null, new { hostname = hostname.Hostname, error = dns.Error });
+        }
+
         await sites.SaveAsync(cancellationToken).ConfigureAwait(false);
         return Result.Success(await views.ToResponseAsync(site, cancellationToken).ConfigureAwait(false));
     }

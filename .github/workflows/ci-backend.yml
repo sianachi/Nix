@@ -166,7 +166,7 @@ jobs:
   backend-integration:
     name: backend integration
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
     needs: backend-static
     steps:
       - uses: actions/checkout@v5
@@ -190,7 +190,7 @@ jobs:
 
       - name: Integration tests
         working-directory: backend
-        timeout-minutes: 20
+        timeout-minutes: 27
         run: |
           # Only inspect disposable Testcontainers databases on this runner.
           # Report long-running statements so fixture stalls have server-side evidence.
@@ -203,4 +203,6 @@ jobs:
           ) &
           diagnostic_pid=$!
           trap 'kill "$diagnostic_pid" 2>/dev/null || true' EXIT
-          dotnet test tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj --configuration Release
+          # A test stuck past four minutes is aborted and named, instead of the step timing out silently.
+          dotnet test tests/Nix.Integration.Tests/Nix.Integration.Tests.csproj --configuration Release \
+            --blame-hang --blame-hang-timeout 4m --blame-hang-dump-type none --logger "console;verbosity=normal"

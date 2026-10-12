@@ -18,7 +18,8 @@ public sealed record SiteProvisioning(string? Error, bool Changed);
 
 /// <summary>
 /// Creates and removes the DNS records (and tunnel public hostname) of a custom hostname in a zone
-/// the operator handed to the site's workspace. Idempotent: a repeat finds its own tagged records
+/// the operator handed to the site's workspace, and of a default hostname on an instance whose
+/// default hostnames carry a label suffix (no wildcard covers them). Idempotent: a repeat finds its own tagged records
 /// and corrects them in place. It never overwrites or deletes a record it did not create.
 /// </summary>
 public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunnelLock tunnelLock, SiteOptions options)
@@ -54,8 +55,11 @@ public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunn
     {
         ArgumentNullException.ThrowIfNull(site);
         ArgumentNullException.ThrowIfNull(hostname);
-        var zone = options.Cloudflare.ZoneFor(hostname.Hostname, site.WorkspaceId.Value);
-        if (zone is null || hostname.VerificationToken is null)
+        // A default hostname goes only to the configured zone of the sites domain and needs no
+        // verification record; a custom one only to a zone handed to the site's workspace.
+        var isDefault = hostname.Kind == SiteRules.DefaultHost;
+        var zone = isDefault ? null : options.Cloudflare.ZoneFor(hostname.Hostname, site.WorkspaceId.Value);
+        if (isDefault ? !options.AutomatesDefaultHostname(hostname.Hostname) : zone is null || hostname.VerificationToken is null)
         {
             return new SiteProvisioning(null, false);
         }
@@ -65,23 +69,27 @@ public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunn
         var adopted = new List<string>();
         var addedRule = false;
         var changed = false;
-        string? zoneId = owned?.ZoneId;
+        string? zoneId = isDefault ? options.Cloudflare.DefaultHostnameZoneId : owned?.ZoneId;
         try
         {
-            zoneId ??= await cloudflare.FindZoneIdAsync(zone.Zone, cancellationToken).ConfigureAwait(false);
+            zoneId ??= await cloudflare.FindZoneIdAsync(zone!.Zone, cancellationToken).ConfigureAwait(false);
             if (zoneId is null)
             {
                 return new SiteProvisioning("cloudflare_zone_missing", false);
             }
 
             var tag = Tag(site.Id);
-            var txt = await EnsureAsync(
-                zoneId,
-                new CloudflareDnsRecordInput("TXT", SiteHostnameRules.VerificationName(hostname.Hostname), SiteHostnameRules.VerificationValue(hostname.VerificationToken), false, tag),
-                matchesForeign: record => record.Type == "TXT" && Unquote(record.Content) == SiteHostnameRules.VerificationValue(hostname.VerificationToken),
-                blockingNames: [],
-                cancellationToken).ConfigureAwait(false);
-            Collect(txt);
+            if (!isDefault)
+            {
+                var token = hostname.VerificationToken!;
+                var txt = await EnsureAsync(
+                    zoneId,
+                    new CloudflareDnsRecordInput("TXT", SiteHostnameRules.VerificationName(hostname.Hostname), SiteHostnameRules.VerificationValue(token), false, tag),
+                    matchesForeign: record => record.Type == "TXT" && Unquote(record.Content) == SiteHostnameRules.VerificationValue(token),
+                    blockingNames: [],
+                    cancellationToken).ConfigureAwait(false);
+                Collect(txt);
+            }
 
             if (RoutingTarget is { } target)
             {
@@ -89,7 +97,9 @@ public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunn
                     zoneId,
                     new CloudflareDnsRecordInput("CNAME", hostname.Hostname, target, true, tag),
                     matchesForeign: record => record.Type == "CNAME" && record.Content == target,
-                    blockingNames: CoveringWildcards(hostname.Hostname, zone.Zone),
+                    // The other instance's wildcard is expected on the shared zone; the exact
+                    // record overrides it for this name only.
+                    blockingNames: isDefault ? [] : CoveringWildcards(hostname.Hostname, zone!.Zone),
                     cancellationToken).ConfigureAwait(false);
                 if (cname.Blocked)
                 {
@@ -130,6 +140,25 @@ public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunn
                 (ensured.Created ? created : adopted).Add(id);
             }
         }
+    }
+
+    /// <summary>
+    /// Ensures the record (and tunnel rule) of a default hostname on an instance that automates
+    /// them, and writes the outcome onto the row: what Nix owns, and the error or none. A no-op for
+    /// every other name.
+    /// </summary>
+    /// <returns>The outcome, for the caller to audit when anything changed or failed.</returns>
+    public async Task<SiteProvisioning> EnsureDefaultAsync(Site site, SiteHostname hostname, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(hostname);
+        if (hostname.Kind != SiteRules.DefaultHost || !options.AutomatesDefaultHostname(hostname.Hostname))
+        {
+            return new SiteProvisioning(null, false);
+        }
+
+        var outcome = await ProvisionAsync(site, hostname, cancellationToken).ConfigureAwait(false);
+        hostname.CheckError = outcome.Error;
+        return outcome;
     }
 
     /// <summary>

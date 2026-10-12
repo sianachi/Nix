@@ -6,6 +6,7 @@ const config = readServeConfig(process.env);
 const server = createSiteServer({
   reader: createS3Reader(config.s3),
   allowedSuffix: config.allowedSuffix,
+  defaultLabelSuffix: config.defaultLabelSuffix,
 });
 
 server.listen(config.address.port, config.address.host, () => {

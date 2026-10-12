@@ -32,8 +32,16 @@ public sealed class SiteCloudflareOptions
     /// </summary>
     public Collection<SiteManagedZone> ManagedZones { get; } = [];
 
+    /// <summary>
+    /// Gets or sets the id of the sites domain's own zone, where Nix writes this instance's default
+    /// hostnames. Used only with <c>Nix:Sites:DefaultHostLabelSuffix</c> (an instance sharing the
+    /// sites domain without a wildcard), only for names of that suffix, and never for a custom
+    /// hostname: the zone is deliberately not a managed zone.
+    /// </summary>
+    public string? DefaultHostnameZoneId { get; set; }
+
     /// <summary>Gets whether automation is configured at all.</summary>
-    public bool IsEnabled => ApiToken.Length > 0 && ManagedZones.Count > 0;
+    public bool IsEnabled => ApiToken.Length > 0 && (ManagedZones.Count > 0 || DefaultHostnameZoneId is { Length: > 0 });
 
     /// <summary>
     /// The managed zone a workspace may automate <paramref name="hostname"/> in, if any. The zone
@@ -61,9 +69,19 @@ public sealed class SiteCloudflareOptions
     /// </summary>
     /// <param name="sitesDomain">The sites domain.</param>
     /// <param name="appHost">The app host, when known.</param>
+    /// <param name="defaultLabelSuffix">The instance's default hostname label suffix, empty when it has none.</param>
     /// <exception cref="InvalidOperationException">A required value is missing, malformed or unsafe.</exception>
-    public void AssertValid(string sitesDomain, string? appHost)
+    public void AssertValid(string sitesDomain, string? appHost, string defaultLabelSuffix = "")
     {
+        ArgumentNullException.ThrowIfNull(defaultLabelSuffix);
+        if (DefaultHostnameZoneId is { Length: > 0 } zoneId
+            && (ApiToken.Length == 0 || defaultLabelSuffix.Length == 0
+                || zoneId.Length != 32 || !zoneId.All(static c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f'))))
+        {
+            throw new InvalidOperationException(
+                "Nix:Sites:Cloudflare:DefaultHostnameZoneId needs ApiToken and Nix:Sites:DefaultHostLabelSuffix, and must be a 32-character zone id.");
+        }
+
         if (ApiToken.Length == 0)
         {
             return;
