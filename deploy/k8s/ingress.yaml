@@ -7,9 +7,9 @@
 # rather than trusting this comment.
 #
 # Every other single-label subdomain goes to the anonymous sites server, which never reaches Core
-# or the app's cookies. An exact host rule wins over the wildcard, so a name that must hit something
-# else gets its own rule above it: auth.$DOMAIN, the identity provider (infrastructure slugs such as
-# auth and www are never claimable as sites).
+# or the app's cookies. That wildcard is a second Ingress at the lowest router priority, so a name
+# that must hit something else gets its own rule in the first: auth.$DOMAIN, the identity provider
+# (infrastructure slugs such as auth and www are never claimable as sites).
 #
 # TLS terminates at Cloudflare (proxied DNS for $DOMAIN and *.$DOMAIN, SSL mode Full (strict)).
 # The origin certificate in secret nix-tls is a Cloudflare Origin CA certificate covering both
@@ -37,7 +37,7 @@ spec:
             backend:
               service: { name: nix-web, port: { number: 8090 } }
     # The identity provider (deploy/k8s/zitadel.yaml). "auth" is a reserved site slug, and this exact
-    # host wins over the wildcard below.
+    # host is matched before the lowest-priority sites Ingress below.
     - host: "auth.${DOMAIN}"
       http:
         paths:
@@ -45,6 +45,24 @@ spec:
             pathType: Prefix
             backend:
               service: { name: nix-zitadel, port: { number: 8080 } }
+---
+# The sites wildcard is its own Ingress at the lowest router priority. Traefik ranks routers by rule
+# length, and the regexp it builds for *.$DOMAIN is longer than Host(`auth.$DOMAIN`), so in one
+# Ingress the wildcard would answer auth.$DOMAIN with the sites 404.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nix-sites
+  namespace: nix
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: nix-cloudflare-only@kubernetescrd
+    traefik.ingress.kubernetes.io/router.priority: "1"
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts: ["*.${DOMAIN}"]
+      secretName: nix-tls
+  rules:
     - host: "*.${DOMAIN}"
       http:
         paths:
