@@ -80,6 +80,8 @@ interface Cached<T> {
 export interface SiteServerOptions {
   readonly reader: ObjectReader;
   readonly allowedSuffix: string;
+  /** When set, only `<[a-z0-9-]+><this>.<allowedSuffix>` hosts count as this instance's own. */
+  readonly defaultLabelSuffix?: string;
   readonly now?: () => number;
   readonly manifestTtlMs?: number;
 }
@@ -136,6 +138,13 @@ export function createSiteServer(options: SiteServerOptions): Server {
   const now = options.now ?? Date.now;
   const ttl = options.manifestTtlMs ?? MANIFEST_TTL_MS;
   const suffix = `.${options.allowedSuffix}`;
+  const ownTail = `${options.defaultLabelSuffix ?? ''}${suffix}`;
+  // Without a label suffix every proper subdomain is this instance's; with one, only one label
+  // ending in it, so another deployment sharing the domain is never answered with a 404.
+  const isOwnHost = (host: string): boolean =>
+    options.defaultLabelSuffix
+      ? host.endsWith(ownTail) && /^[a-z0-9-]+$/.test(host.slice(0, -ownTail.length))
+      : host.endsWith(suffix);
   const manifests = new Map<string, Cached<HostManifest>>();
   const redirectTables = new Map<string, Cached<Record<string, string>>>();
 
@@ -235,7 +244,12 @@ export function createSiteServer(options: SiteServerOptions): Server {
       send(response, 421, {}, null);
       return;
     }
-    const underSuffix = host.endsWith(suffix);
+    const underSuffix = isOwnHost(host);
+    if (!underSuffix && host.endsWith(suffix)) {
+      // Another deployment's name on the shared domain: not this server's host.
+      send(response, 421, {}, null);
+      return;
+    }
 
     const path = normalizePath(request.url ?? '/');
     if (path === null) {

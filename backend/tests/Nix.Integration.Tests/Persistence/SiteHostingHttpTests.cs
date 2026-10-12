@@ -137,6 +137,46 @@ public sealed class SiteHostingHttpTests(NixPostgresFixture fixture) : IAsyncLif
     }
 
     [Fact]
+    public async Task On_a_suffixed_instance_the_default_hostname_record_is_written_on_create_repaired_on_publish_and_removed_on_delete()
+    {
+        await using var host = Host(new Dictionary<string, string?>
+        {
+            ["Nix:Sites:DefaultHostLabelSuffix"] = "-home",
+            ["Nix:Sites:Cloudflare:ApiToken"] = "test-token",
+            ["Nix:Sites:Cloudflare:AccountId"] = "account",
+            ["Nix:Sites:Cloudflare:DefaultTarget"] = "edge.example.net",
+            ["Nix:Sites:Cloudflare:DefaultHostnameZoneId"] = "0123456789abcdef0123456789abcdef",
+        });
+        var manager = await host.TokenAsync(SiteScenario.Manager);
+        var siteId = await CreateSiteAsync(host, manager, Root, "notes");
+
+        var record = Assert.Single(_cloudflare.Records.Values);
+        Assert.Equal(("CNAME", "notes-home.sites.example.net", "edge.example.net"), (record.Type, record.Name, record.Content));
+        Assert.Equal($"managed-by nix site {siteId:D}", record.Comment);
+        Assert.Equal(
+            ["notes-home.sites.example.net"],
+            await QueryAsync($"SELECT hostname FROM site_hostname WHERE site_id = '{siteId}' AND kind = 'default' AND managed_records IS NOT NULL"));
+
+        _cloudflare.Records.Clear();
+        using (var published = await host.SendAsync(
+            HttpMethod.Post, $"/api/v1/sites/{siteId}/publish", manager, new { idempotencyKey = "first", refreshPaths = false, acknowledgeDisclosure = true }))
+        {
+            Assert.Equal(HttpStatusCode.Accepted, published.StatusCode);
+        }
+
+        Assert.Equal("notes-home.sites.example.net", Assert.Single(_cloudflare.Records.Values).Name);
+
+        var other = await CreateSiteAsync(host, manager, await _scenario.CreateItemAsync("Other", Root, "folder"), "other");
+        Assert.Equal(2, _cloudflare.Records.Count);
+        using (var deleted = await host.SendAsync(HttpMethod.Delete, $"/api/v1/sites/{other}", manager))
+        {
+            Assert.True(deleted.IsSuccessStatusCode);
+        }
+
+        Assert.Equal("notes-home.sites.example.net", Assert.Single(_cloudflare.Records.Values).Name);
+    }
+
+    [Fact]
     public async Task A_first_publish_waits_for_an_operator_and_the_approval_publishes_as_the_manager_who_asked()
     {
         await using var host = Host(new Dictionary<string, string?>

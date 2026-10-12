@@ -134,6 +134,10 @@ spec:
               value: "true"
             - name: Nix__Sites__PublicScheme
               value: https
+            # A second deployment's default hostnames share this domain one label deep; slugs in
+            # its label namespace are refused here. Empty when nothing shares the domain.
+            - name: Nix__Sites__ForeignLabelSuffixes__0
+              value: "${SITES_FOREIGN_LABEL_SUFFIX}"
             - name: Nix__Sites__Bucket
               valueFrom: { secretKeyRef: { name: nix-sites, key: bucket } }
             # The deployment owner's reserved slugs: each maps to the one workspace that may claim it.

@@ -276,6 +276,7 @@ fi
 grep -Fq 'key: sites-password' "$RENDERED_RABBITMQ"
 grep -Fq 'name: Nix__Sites__Domain' "$RENDERED_API"
 grep -Fq 'name: Nix__Sites__SharedAppDomain' "$RENDERED_API"
+grep -A1 -F 'name: Nix__Sites__ForeignLabelSuffixes__0' "$RENDERED_API" | grep -Fq 'value: "-home"'
 grep -Fq 'key: reserved-owner-nix, optional: true' "$RENDERED_API"
 grep -Fq 'hosts: ["nix.example.test", "*.nix.example.test"]' "$RENDERED_INGRESS"
 grep -Fq 'host: "*.nix.example.test"' "$RENDERED_INGRESS"
