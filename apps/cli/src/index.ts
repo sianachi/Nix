@@ -2689,6 +2689,14 @@ export function buildProgram(): Command {
     .option('--name <name>', 'the site name')
     .option('--description <text>', 'the one-line description')
     .option('--accent <hex>', 'the accent colour as #rrggbb')
+    .option(
+      '--nav <link>',
+      'a top navigation link <label>=</path>; repeat; replaces the navigation',
+      collectOptional,
+    )
+    .option('--footer <text>', 'the footer text')
+    .option('--built-with-nix', 'show the "Built with Nix" footer link')
+    .option('--no-built-with-nix', 'hide the "Built with Nix" footer link')
     .option('--layout <layout>', 'docs or blog')
     .option(
       '--mode <mode>',

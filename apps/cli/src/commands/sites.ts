@@ -102,6 +102,10 @@ export interface UpdateSiteOptions {
   readonly name?: string | undefined;
   readonly description?: string | undefined;
   readonly accent?: string | undefined;
+  /** `<label>=<path>` links; repeat; replaces the navigation. */
+  readonly nav?: readonly string[] | undefined;
+  readonly footer?: string | undefined;
+  readonly builtWithNix?: boolean | undefined;
   readonly layout?: string | undefined;
   readonly mode?: string | undefined;
   readonly debounce?: string | undefined;
@@ -131,6 +135,7 @@ export async function updateSite(
     }
   }
   const added = (options.dated ?? []).map(parseDated);
+  const navigation = options.nav?.map(parseNavLink);
   const debounceSeconds = options.debounce === undefined ? undefined : Number(options.debounce);
   if (debounceSeconds !== undefined && !Number.isInteger(debounceSeconds)) {
     throw new Error('--debounce is a whole number of seconds.');
@@ -138,7 +143,12 @@ export async function updateSite(
 
   const session = await resolveSession(profileName, deps);
   const touchesSettings =
-    options.name !== undefined || options.description !== undefined || options.accent !== undefined;
+    options.name !== undefined ||
+    options.description !== undefined ||
+    options.accent !== undefined ||
+    navigation !== undefined ||
+    options.footer !== undefined ||
+    options.builtWithNix !== undefined;
   const touchesDated = options.dated !== undefined || options.undated !== undefined;
   // Settings and dated collections are replaced whole, so a partial change starts from what Core
   // holds now.
@@ -155,6 +165,9 @@ export async function updateSite(
             ...(options.name === undefined ? {} : { name: options.name }),
             ...(options.description === undefined ? {} : { description: options.description }),
             ...(options.accent === undefined ? {} : { accent: options.accent }),
+            ...(navigation === undefined ? {} : { navigation }),
+            ...(options.footer === undefined ? {} : { footerText: options.footer }),
+            ...(options.builtWithNix === undefined ? {} : { builtWithNix: options.builtWithNix }),
           },
         }),
     ...(options.layout === undefined ? {} : { layout: layoutOf(options.layout) }),
@@ -167,6 +180,17 @@ export async function updateSite(
   };
   const site = await session.client.execute(sites.updateSite(siteId, input));
   printResult(site, output);
+}
+
+/** Parses `--nav <label>=<path>`; the label may not be empty and the path is site-relative. */
+export function parseNavLink(spec: string): { label: string; path: string } {
+  const at = spec.lastIndexOf('=');
+  const label = at < 0 ? '' : spec.slice(0, at).trim();
+  const path = at < 0 ? '' : spec.slice(at + 1).trim();
+  if (label.length === 0 || !path.startsWith('/')) {
+    throw new Error(`--nav must be <label>=</path>, got '${spec}'.`);
+  }
+  return { label, path };
 }
 
 export interface PublishOptions {
