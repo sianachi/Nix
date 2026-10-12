@@ -161,6 +161,16 @@ TEMPLATE_BOOT_SERVICE_KEY_SECRET=template-service-key \
 NIX_DEPLOY_TARGET=kubernetes bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null
 
 }
+# A first install has no template workspace, Zitadel project or service key yet.
+run_first_install() {
+PATH="$fake_bin:$PATH" \
+REGISTRY=registry.example.test \
+TAG=render-order \
+OIDC_CLIENT_ID=web-client \
+DOMAIN=nix.example.test \
+NIX_TEMPLATE_BOOT_ENABLED=false \
+NIX_DEPLOY_TARGET=kubernetes bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null
+}
 run_deploy
 
 line_of() {
@@ -381,4 +391,48 @@ for failed_loki_step in FAIL_RETIRED_LOKI_LOOKUP FAIL_RETIRED_LOKI_PATCH; do
     exit 1
   fi
 done
+# Production sites and push settings come from the manifest, not hand edits.
+OIDC_ISSUER= run_deploy
+grep -A1 -F 'name: Nix__Sites__RequireOperatorApproval' "$RENDERED_API" | grep -Fq 'value: "true"'
+grep -Fq 'key: api-token, optional: true' "$RENDERED_API"
+grep -Fq 'name: Nix__Sites__Cloudflare__ManagedZones__0__WorkspaceId' "$RENDERED_API"
+grep -Fq 'name: Nix__Sites__CustomHostnameTarget' "$RENDERED_API"
+grep -A1 -F 'name: Nix__Push__VapidPublicKey' "$RENDERED_API" | grep -Fq 'name: nix-push-vapid, key: public-key, optional: true'
+grep -Fq 'automountServiceAccountToken: false' "$RENDERED_API"
+if grep -Fq 'private-key' "$RENDERED_API"; then
+  echo 'Core received the VAPID private key.' >&2
+  exit 1
+fi
+NIX_SITES_REQUIRE_OPERATOR_APPROVAL=false run_deploy
+grep -A1 -F 'name: Nix__Sites__RequireOperatorApproval' "$RENDERED_API" | grep -Fq 'value: "false"'
+if NIX_SITES_REQUIRE_OPERATOR_APPROVAL=maybe run_deploy 2>/dev/null; then
+  echo 'Deployment accepted an invalid operator-approval flag.' >&2
+  exit 1
+fi
+# The template sync job receives every variable its script requires.
+test -n "$(sed -nE "s/.*required\\('(NIX_TEMPLATE_BOOT_[A-Z_]+)'\\).*/\\1/p" "$repo_root/deploy/template-sync/sync-managed-templates.mjs")"
+for required_variable in $(sed -nE "s/.*required\('(NIX_TEMPLATE_BOOT_[A-Z_]+)'\).*/\1/p" "$repo_root/deploy/template-sync/sync-managed-templates.mjs"); do
+  if ! grep -Fq "name: $required_variable" "$RENDERED_TEMPLATE_SYNC"; then
+    echo "Template sync job does not set $required_variable." >&2
+    exit 1
+  fi
+done
+grep -A1 -F 'name: NIX_TEMPLATE_BOOT_REVISION' "$RENDERED_TEMPLATE_SYNC" | grep -Fq 'value: "render-order"'
+grep -Fq 'value: "$(NIX_OBJECT_STORE_ENDPOINT),$(NIX_OBJECT_STORE_PUBLIC_ORIGIN)"' "$RENDERED_TEMPLATE_SYNC"
+# A first install skips managed templates and still applies the origin lock and Ingress.
+: > "$KUBECTL_LOG"
+rm -f "$RENDERED_INGRESS"
+run_first_install
+if grep -Fq 'nix-template-boot' "$KUBECTL_LOG"; then
+  echo 'A first install ran the managed-template step.' >&2
+  exit 1
+fi
+assert_before "rollout:-n nix rollout status deployment/nix-zitadel --timeout=900s" "apply-file:deploy/k8s/cloudflare-only.yaml"
+test "$(grep -A1 -xF 'apply-file:deploy/k8s/cloudflare-only.yaml' "$KUBECTL_LOG" | tail -n 1)" = 'apply-stdin:nix'
+grep -Fq 'host: "auth.nix.example.test"' "$RENDERED_INGRESS"
+if (PATH="$fake_bin:$PATH" REGISTRY=r TAG=t OIDC_CLIENT_ID=c DOMAIN=nix.example.test \
+  NIX_DEPLOY_TARGET=kubernetes bash "$repo_root/deploy/k8s/deploy.sh" >/dev/null 2>&1); then
+  echo 'Deployment ran without template configuration while managed templates are enabled.' >&2
+  exit 1
+fi
 echo "deployment render-order self-test passed"

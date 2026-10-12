@@ -30,6 +30,9 @@ spec:
         nix.io/object-store-secret-version: "${OBJECT_STORE_SECRET_VERSION}"
         nix.io/sites-secret-version: "${SITES_SECRET_VERSION}"
     spec:
+      # Core never calls the Kubernetes API, and its read-only /run/secrets mount leaves no room
+      # for the service-account token under /var/run/secrets: the container fails to start.
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1654
@@ -138,6 +141,27 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-sites, key: reserved-owner-nix, optional: true } }
             - name: Nix__Sites__ReservedSlugOwners__osinachi
               valueFrom: { secretKeyRef: { name: nix-sites, key: reserved-owner-osinachi, optional: true } }
+            # A site's first publish waits for an operator unless NIX_SITES_REQUIRE_OPERATOR_APPROVAL=false.
+            - name: Nix__Sites__RequireOperatorApproval
+              value: "${SITES_REQUIRE_OPERATOR_APPROVAL}"
+            # Custom-hostname DNS automation (create-secrets.sh --sites-cloudflare-only). Every key is
+            # optional; automation stays off without a token and a managed zone.
+            - name: Nix__Sites__CustomHostnameTarget
+              valueFrom: { secretKeyRef: { name: nix-sites-cloudflare, key: custom-hostname-target, optional: true } }
+            - name: Nix__Sites__Cloudflare__ApiToken
+              valueFrom: { secretKeyRef: { name: nix-sites-cloudflare, key: api-token, optional: true } }
+            - name: Nix__Sites__Cloudflare__AccountId
+              valueFrom: { secretKeyRef: { name: nix-sites-cloudflare, key: account-id, optional: true } }
+            - name: Nix__Sites__Cloudflare__DefaultTarget
+              valueFrom: { secretKeyRef: { name: nix-sites-cloudflare, key: default-target, optional: true } }
+            # shortcut: one managed zone; add __1__ entries when a second zone is needed.
+            - name: Nix__Sites__Cloudflare__ManagedZones__0__Zone
+              valueFrom: { secretKeyRef: { name: nix-sites-cloudflare, key: managed-zone, optional: true } }
+            - name: Nix__Sites__Cloudflare__ManagedZones__0__WorkspaceId
+              valueFrom: { secretKeyRef: { name: nix-sites-cloudflare, key: managed-zone-workspace-id, optional: true } }
+            # Web Push: Core serves the public half; only the worker holds the private key.
+            - name: Nix__Push__VapidPublicKey
+              valueFrom: { secretKeyRef: { name: nix-push-vapid, key: public-key, optional: true } }
             - name: Nix__AccessTokens__Issuer
               value: "https://${DOMAIN}"
             - name: Nix__AccessTokens__Audience
@@ -158,7 +182,7 @@ spec:
             httpGet: { path: /healthz, port: 8080 }
             periodSeconds: 5
           resources:
-            requests: { cpu: 200m, memory: 256Mi }
+            requests: { cpu: 100m, memory: 256Mi }
             # 150-250 MB resident is the design's Workstation GC budget, not a guess.
             # If Core routinely approaches this limit, that is a finding, not a reason to raise it.
             limits: { memory: 512Mi }

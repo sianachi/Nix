@@ -37,7 +37,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 5
           resources:
-            requests: { cpu: 250m, memory: 384Mi }
+            requests: { cpu: 100m, memory: 384Mi }
             limits: { memory: 1Gi }
   volumeClaimTemplates:
     - metadata: { name: data }

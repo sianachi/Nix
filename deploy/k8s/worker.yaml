@@ -78,7 +78,7 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-push-vapid, key: subject } }
           livenessProbe: { httpGet: { path: /healthz, port: 8301 }, periodSeconds: 10 }
           readinessProbe: { httpGet: { path: /readyz, port: 8301 }, periodSeconds: 5 }
-          resources: { requests: { cpu: 100m, memory: 160Mi }, limits: { cpu: "2", memory: 1Gi } }
+          resources: { requests: { cpu: 50m, memory: 160Mi }, limits: { cpu: "2", memory: 1Gi } }
           volumeMounts: [{ name: staging, mountPath: /tmp }]
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
       volumes: [{ name: staging, emptyDir: { sizeLimit: 512Mi } }]

@@ -114,5 +114,5 @@ spec:
           startupProbe: { httpGet: { path: /debug/healthz, port: 8080 }, periodSeconds: 10, failureThreshold: 90 }
           livenessProbe: { httpGet: { path: /debug/healthz, port: 8080 }, periodSeconds: 10 }
           readinessProbe: { httpGet: { path: /debug/ready, port: 8080 }, periodSeconds: 5 }
-          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { memory: 768Mi } }
+          resources: { requests: { cpu: 50m, memory: 256Mi }, limits: { memory: 768Mi } }
           securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
