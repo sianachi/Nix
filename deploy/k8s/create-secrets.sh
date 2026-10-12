@@ -14,7 +14,8 @@
 #
 # Existing clusters can update an external service secret without touching database or signing
 # secrets by running this script with `--rabbitmq-only`, `--object-store-only`, `--sites-only`,
-# `--tls-only` or `--zitadel-only` (creates the identity provider's secret only when missing). Production values (keys, certificate paths) come from the operator's local,
+# `--tls-only`, `--sites-cloudflare-only`, `--push-only` (creates the Web Push key pair only when
+# missing) or `--zitadel-only` (creates the identity provider's secret only when missing). Production values (keys, certificate paths) come from the operator's local,
 # uncommitted environment, never from this repository.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
@@ -170,6 +171,71 @@ create_sites_secret() {
   fi
 }
 
+# Custom-hostname DNS automation for sites (Nix:Sites:Cloudflare). Every value is optional and an
+# unset one is left out of the secret (an empty workspace id would fail Core's Guid binding), so
+# without NIX_SITES_CLOUDFLARE_API_TOKEN(_FILE) and NIX_SITES_CLOUDFLARE_MANAGED_ZONE automation is off.
+create_sites_cloudflare_secret() {
+  local update_existing="$1"
+  local api_token="${NIX_SITES_CLOUDFLARE_API_TOKEN:-}"
+  if [ -z "$api_token" ] && [ -n "${NIX_SITES_CLOUDFLARE_API_TOKEN_FILE:-}" ]; then
+    api_token="$(tr -d '[:space:]' < "$NIX_SITES_CLOUDFLARE_API_TOKEN_FILE")"
+  fi
+  local -a cloudflare_secret_args=(-n nix create secret generic nix-sites-cloudflare)
+  local pair
+  for pair in \
+    "api-token=$api_token" \
+    "account-id=${NIX_SITES_CLOUDFLARE_ACCOUNT_ID:-}" \
+    "default-target=${NIX_SITES_CLOUDFLARE_DEFAULT_TARGET:-}" \
+    "custom-hostname-target=${NIX_SITES_CUSTOM_HOSTNAME_TARGET:-}" \
+    "managed-zone=${NIX_SITES_CLOUDFLARE_MANAGED_ZONE:-}" \
+    "managed-zone-workspace-id=${NIX_SITES_CLOUDFLARE_MANAGED_ZONE_WORKSPACE_ID:-}"; do
+    if [ -n "${pair#*=}" ]; then
+      cloudflare_secret_args+=(--from-literal="$pair")
+    fi
+  done
+  if [ "$update_existing" = true ]; then
+    kubectl "${cloudflare_secret_args[@]}" --dry-run=client -o yaml | kubectl apply -f -
+  else
+    kubectl "${cloudflare_secret_args[@]}"
+  fi
+}
+
+# Web Push (RFC 8291/8292) key pair for the deployment's lifetime. Created once and never rotated
+# here: rotating it orphans every browser's push subscription. The private key (32 raw bytes) goes to
+# the worker only; Core serves the public key (uncompressed point). Both are base64url, unpadded.
+# Supply NIX_PUSH_VAPID_PRIVATE_KEY and NIX_PUSH_VAPID_PUBLIC_KEY to load an existing pair.
+create_push_secret() {
+  if kubectl -n nix get secret nix-push-vapid >/dev/null 2>&1; then
+    echo "secret nix-push-vapid already exists - leaving it (rotating breaks push subscriptions)."
+    return 0
+  fi
+  local subject="${NIX_PUSH_VAPID_SUBJECT:-}"
+  if [ -z "$subject" ]; then
+    : "${DOMAIN:?set NIX_PUSH_VAPID_SUBJECT (mailto: or https: operator contact) or DOMAIN}"
+    subject="https://$DOMAIN"
+  fi
+  local private_key="${NIX_PUSH_VAPID_PRIVATE_KEY:-}" public_key="${NIX_PUSH_VAPID_PUBLIC_KEY:-}"
+  if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+    local der_file
+    der_file="$(mktemp)"
+    # SEC1 DER for P-256 with named-curve parameters is a fixed 121 bytes: the private scalar sits at
+    # offset 7 and the public point is the last 65 bytes.
+    openssl ecparam -name prime256v1 -genkey -noout | openssl ec -outform DER -out "$der_file" 2>/dev/null
+    if [ "$(wc -c < "$der_file" | tr -d ' ')" != 121 ]; then
+      rm -f "$der_file"
+      echo "unexpected EC key encoding while generating the VAPID key pair" >&2
+      exit 1
+    fi
+    private_key="$(dd if="$der_file" bs=1 skip=7 count=32 2>/dev/null | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+    public_key="$(tail -c 65 "$der_file" | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+    rm -f "$der_file"
+  fi
+  kubectl -n nix create secret generic nix-push-vapid \
+    --from-literal=private-key="$private_key" \
+    --from-literal=public-key="$public_key" \
+    --from-literal=subject="$subject"
+}
+
 # Cloudflare Origin CA certificate for $DOMAIN and *.$DOMAIN (which covers auth.$DOMAIN), read
 # from local files.
 create_tls_secret() {
@@ -222,6 +288,15 @@ case "${1:-}" in
     echo "Sites configuration updated. Run deploy/k8s/deploy.sh to roll it out."
     exit 0
     ;;
+  --sites-cloudflare-only)
+    create_sites_cloudflare_secret true
+    echo "Sites DNS automation updated. Restart Core to load it: kubectl -n nix rollout restart deployment/nix-api"
+    exit 0
+    ;;
+  --push-only)
+    create_push_secret
+    exit 0
+    ;;
   --tls-only)
     create_tls_secret
     echo "Origin certificate updated."
@@ -229,7 +304,7 @@ case "${1:-}" in
     ;;
   "") ;;
   *)
-    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--calendar-only|--sites-only|--tls-only|--zitadel-only]" >&2
+    echo "usage: deploy/k8s/create-secrets.sh [--rabbitmq-only|--object-store-only|--calendar-only|--sites-only|--sites-cloudflare-only|--push-only|--tls-only|--zitadel-only]" >&2
     exit 2
     ;;
 esac
@@ -259,6 +334,8 @@ create_rabbitmq_secret false
 create_object_store_secret false
 create_calendar_secret false
 create_sites_secret false
+create_sites_cloudflare_secret false
+create_push_secret
 create_tls_secret
 create_zitadel_secret
 
