@@ -68,8 +68,11 @@ spec:
               value: http://nix-collab:8100
             - name: Nix__RabbitMq__Uri
               valueFrom: { secretKeyRef: { name: nix-rabbitmq, key: api-url } }
+            # Core only signs: a URL takes its host from the public origin and its path from this
+            # endpoint, and Core refuses a plain-HTTP endpoint off loopback. The in-cluster endpoint
+            # stays for the workers and sites serve, which open the store themselves.
             - name: Nix__ObjectStorage__Endpoint
-              valueFrom: { secretKeyRef: { name: nix-object-store, key: endpoint } }
+              valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
             - name: Nix__ObjectStorage__PublicOrigin
               valueFrom: { secretKeyRef: { name: nix-object-store, key: public-origin } }
             - name: Nix__ObjectStorage__Region
