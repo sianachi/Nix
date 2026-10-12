@@ -146,6 +146,40 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  # Opt-in identity bootstrap for a fresh install: deploy/compose/deploy.sh runs it after the
+  # migrator when NIX_BOOTSTRAP_IDENTITY=true. See deploy/seed/bootstrap_identity.sql.
+  nix-identity-bootstrap:
+    image: pgvector/pgvector:pg16
+    restart: "no"
+    profiles: ["bootstrap"]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: nix
+      PGUSER: nix_migrator
+      PGPASSWORD: ${NIX_PG_MIGRATOR_PASSWORD:?set NIX_PG_MIGRATOR_PASSWORD}
+      NIX_BOOTSTRAP_TENANT_NAME: ${NIX_BOOTSTRAP_TENANT_NAME:-}
+      NIX_BOOTSTRAP_TENANT_ID: ${NIX_BOOTSTRAP_TENANT_ID:-}
+      NIX_BOOTSTRAP_OIDC_PROJECT_ID: ${NIX_BOOTSTRAP_OIDC_PROJECT_ID:-}
+      NIX_OIDC_ISSUER: ${NIX_OIDC_ISSUER:?set NIX_OIDC_ISSUER}
+      NIX_OIDC_CLIENT_ID: ${NIX_OIDC_CLIENT_ID:?set NIX_OIDC_CLIENT_ID}
+    command:
+      - sh
+      - -c
+      - >-
+        exec psql -X -v ON_ERROR_STOP=1
+        -v tenant_name="$$NIX_BOOTSTRAP_TENANT_NAME" -v tenant_id="$$NIX_BOOTSTRAP_TENANT_ID"
+        -v oidc_issuer="$$NIX_OIDC_ISSUER" -v oidc_client_id="$$NIX_OIDC_CLIENT_ID"
+        -v oidc_project_id="$$NIX_BOOTSTRAP_OIDC_PROJECT_ID"
+        -f /seed/bootstrap_identity.sql
+    volumes:
+      - ./seed/bootstrap_identity.sql:/seed/bootstrap_identity.sql:ro
+    read_only: true
+    mem_limit: 128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   nix-api:
     image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/api:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
     restart: unless-stopped

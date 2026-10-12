@@ -17,6 +17,10 @@
 # `--tls-only`, `--backup-offsite-only`, `--sites-cloudflare-only`, `--push-only` (creates the Web Push key pair only when
 # missing) or `--zitadel-only` (creates the identity provider's secret only when missing). Production values (keys, certificate paths) come from the operator's local,
 # uncommitted environment, never from this repository.
+#
+# Identity bootstrap values (NIX_BOOTSTRAP_TENANT_NAME, NIX_BOOTSTRAP_TENANT_ID,
+# NIX_BOOTSTRAP_OIDC_PROJECT_ID) are not secrets and are not stored here; pass them to
+# deploy/k8s/deploy.sh with NIX_BOOTSTRAP_IDENTITY=true (see its header).
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 

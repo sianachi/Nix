@@ -9,6 +9,25 @@ node --check deploy/compose/smoke.mjs
 bash deploy/compose/release.test.sh
 # Validate real Compose interpolation, without printing credentials.
 docker compose --env-file deploy/compose.prod.env.example -f deploy/compose.prod.yml --profile maintenance config --format json > "$fixture/compose.json"
+# The opt-in identity bootstrap reads its values from the env file (placeholders only).
+{ cat deploy/compose.prod.env.example; printf '%s\n' 'NIX_BOOTSTRAP_TENANT_NAME=Example Tenant' NIX_BOOTSTRAP_OIDC_PROJECT_ID=project-id; } > "$fixture/bootstrap.env"
+docker compose --env-file "$fixture/bootstrap.env" -f deploy/compose.prod.yml --profile maintenance --profile bootstrap config --format json > "$fixture/compose-bootstrap.json"
+python3 - "$fixture/compose.json" "$fixture/compose-bootstrap.json" "$fixture/compose-bootstrap-missing.json" <<'PY'
+import json,sys
+assert 'nix-identity-bootstrap' not in json.load(open(sys.argv[1]))['services']
+c=json.load(open(sys.argv[2])); b=c['services']['nix-identity-bootstrap']
+assert b['profiles']==['bootstrap'] and b['environment']['PGUSER']=='nix_migrator'
+assert b['environment']['NIX_BOOTSTRAP_TENANT_NAME']=='Example Tenant'
+assert b['environment']['NIX_BOOTSTRAP_OIDC_PROJECT_ID']=='project-id'
+assert b['environment']['NIX_BOOTSTRAP_TENANT_ID']==''
+# Rendered config keeps Compose's $$ escape; the container shell expands the variables.
+cmd=' '.join(b['command'])
+for flag in ['tenant_name="$$NIX_BOOTSTRAP_TENANT_NAME"','oidc_issuer="$$NIX_OIDC_ISSUER"','oidc_client_id="$$NIX_OIDC_CLIENT_ID"','oidc_project_id="$$NIX_BOOTSTRAP_OIDC_PROJECT_ID"','-f /seed/bootstrap_identity.sql']:
+ assert flag in cmd, flag
+assert any(v['target']=='/seed/bootstrap_identity.sql' and v.get('read_only') for v in b['volumes'])
+b['environment']['NIX_BOOTSTRAP_TENANT_NAME']=''
+json.dump(c,open(sys.argv[3],'w'))
+PY
 python3 - "$fixture/compose.json" <<'PY'
 import json,sys
 c=json.load(open(sys.argv[1])); s=c['services']
@@ -247,6 +266,33 @@ fi
 if rg -q 'up .*nix-api nix-collab' "$DOCKER_TEST_LOG"; then
  echo 'Rollout restarted writers after a failed migration' >&2; exit 1
 fi
+# Identity bootstrap is opt-in, runs after the migrator, and is validated before writers stop.
+if rg -q 'nix-identity-bootstrap' "$DOCKER_TEST_LOG"; then echo 'Rollout bootstrapped identity without opt-in' >&2; exit 1; fi
+: > "$DOCKER_TEST_LOG"
+NIX_BOOTSTRAP_IDENTITY=true COMPOSE_TEST_CONFIG="$fixture/compose-bootstrap.json" PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-bootstrap"
+python3 - "$DOCKER_TEST_LOG" <<'PYCODE'
+import sys
+calls=open(sys.argv[1]).read().splitlines()
+check=next(i for i,s in enumerate(calls) if '--profile bootstrap config --format json' in s)
+stop=next(i for i,s in enumerate(calls) if ' stop nix-web ' in s)
+migrate=next(i for i,s in enumerate(calls) if s.endswith('run --rm --no-deps nix-migrate'))
+boot=next(i for i,s in enumerate(calls) if s.endswith('--profile bootstrap run --rm --no-deps nix-identity-bootstrap'))
+presets=next(i for i,s in enumerate(calls) if s.endswith('run --rm --no-deps nix-template-presets'))
+assert check < stop < migrate < boot < presets
+PYCODE
+for refused in missing invalid; do
+ : > "$DOCKER_TEST_LOG"
+ case "$refused" in
+  missing) flag=true config="$fixture/compose-bootstrap-missing.json" ;;
+  invalid) flag=yes config="$fixture/compose-bootstrap.json" ;;
+ esac
+ if NIX_BOOTSTRAP_IDENTITY="$flag" COMPOSE_TEST_CONFIG="$config" PATH="$fixture/nodeless:$PATH" bash deploy/compose/deploy.sh > "$fixture/deploy-bootstrap-$refused" 2>&1; then
+  echo "Rollout accepted a $refused identity bootstrap" >&2; exit 1
+ fi
+ if rg -q ' stop |nix-identity-bootstrap$' "$DOCKER_TEST_LOG"; then echo "Rollout changed services before refusing a $refused identity bootstrap" >&2; exit 1; fi
+done
+rg -q 'needs NIX_BOOTSTRAP_TENANT_NAME' "$fixture/deploy-bootstrap-missing"
+rg -q 'must be true or false' "$fixture/deploy-bootstrap-invalid"
 bash deploy/compose/drift.test.sh
 bash deploy/compose/prune.test.sh
 bash deploy/compose/offsite.test.sh
