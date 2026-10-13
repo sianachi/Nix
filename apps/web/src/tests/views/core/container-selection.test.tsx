@@ -66,7 +66,13 @@ it('names what dragging changes on a board, before anything is dragged', () => {
         children: [first],
         schema: {
           properties: [
-            { key: 'status', label: 'Status', type: 'select', options: ['A', 'B'], required: false },
+            {
+              key: 'status',
+              label: 'Status',
+              type: 'select',
+              options: ['A', 'B'],
+              required: false,
+            },
           ],
           declared: [],
           inherit: true,

@@ -29,7 +29,9 @@ describe('Markdown mode', () => {
 
     const updates: unknown[] = [];
     doc.on('update', (update: Uint8Array) => updates.push(update));
-    expect(applyMarkdown(doc, fragment, snapshot.markdown, snapshot.markdown)).toEqual({ kind: 'unchanged' });
+    expect(applyMarkdown(doc, fragment, snapshot.markdown, snapshot.markdown)).toEqual({
+      kind: 'unchanged',
+    });
     expect(updates).toHaveLength(0);
   });
 
@@ -43,7 +45,9 @@ describe('Markdown mode', () => {
     const outcome = applyMarkdown(doc, fragment, '# New title\n\nOne paragraph.\n', 'old');
     expect(outcome).toEqual({ kind: 'applied' });
     expect(origins).toEqual([MARKDOWN_ORIGIN]);
-    const after = yXmlFragmentToProseMirrorRootNode(fragment, nixSchema).toJSON() as { content: { type: string }[] };
+    const after = yXmlFragmentToProseMirrorRootNode(fragment, nixSchema).toJSON() as {
+      content: { type: string }[];
+    };
     expect(after.content.map((node) => node.type)).toEqual(['heading', 'paragraph']);
 
     undo.undo();
@@ -52,7 +56,13 @@ describe('Markdown mode', () => {
 
   it('reports what Markdown cannot carry instead of dropping it silently', () => {
     const { fragment } = noteWith([
-      { type: 'columnBlock', content: [{ type: 'column', content: [paragraph('Left')] }, { type: 'column', content: [paragraph('Right')] }] },
+      {
+        type: 'columnBlock',
+        content: [
+          { type: 'column', content: [paragraph('Left')] },
+          { type: 'column', content: [paragraph('Right')] },
+        ],
+      },
     ]);
     const snapshot = snapshotMarkdown(fragment);
     expect(snapshot.losses.length).toBeGreaterThan(0);
@@ -69,7 +79,11 @@ describe('Markdown mode', () => {
 
     // A colleague's update arrives as a non-local transaction.
     const other = new Y.Doc();
-    prosemirrorJSONToYXmlFragment(nixSchema, { type: 'doc', content: [paragraph('Theirs')] }, other.getXmlFragment('default'));
+    prosemirrorJSONToYXmlFragment(
+      nixSchema,
+      { type: 'doc', content: [paragraph('Theirs')] },
+      other.getXmlFragment('default'),
+    );
     Y.applyUpdate(doc, Y.encodeStateAsUpdate(other), 'remote');
     expect(onRemote).toHaveBeenCalledTimes(1);
     stop();

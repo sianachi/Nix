@@ -360,10 +360,26 @@ public sealed class SetLocalScopingTests : IAsyncLifetime
             }
         }
 
-        var lines = await _fixture.ServerLogLinesSinceAsync(since);
+        var backendMarker = $"[{backendProcessId}]";
+        IReadOnlyList<string> lines = [];
+        // Docker's log snapshot can lag the completed transaction under load.
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            lines = await _fixture.ServerLogLinesSinceAsync(since);
+            if (lines.Any(line => line.Contains(backendMarker, StringComparison.Ordinal)
+                && line.EndsWith(": COMMIT", StringComparison.Ordinal)))
+            {
+                break;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(100), Cancellation);
+        }
+
+        Assert.Contains(lines, line => line.Contains(backendMarker, StringComparison.Ordinal)
+            && line.EndsWith(": COMMIT", StringComparison.Ordinal));
 
         var sessionContextLines = lines
-            .Where(line => line.Contains($"[{backendProcessId}]", StringComparison.Ordinal)
+            .Where(line => line.Contains(backendMarker, StringComparison.Ordinal)
                 && (line.Contains(tenant, StringComparison.Ordinal)
                     || line.Contains(workspace, StringComparison.Ordinal)
                     || line.Contains(principal, StringComparison.Ordinal)))

@@ -25,7 +25,12 @@ export interface MarkdownModePanelProps {
  *
  * shortcut: a plain textarea with no highlighting; upgrade to a code editor if people ask.
  */
-export function MarkdownModePanel({ doc, fragment, snapshot, onClose }: MarkdownModePanelProps): ReactNode {
+export function MarkdownModePanel({
+  doc,
+  fragment,
+  snapshot,
+  onClose,
+}: MarkdownModePanelProps): ReactNode {
   const [text, setText] = useState(snapshot.markdown);
   const [remoteChanged, setRemoteChanged] = useState(false);
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);

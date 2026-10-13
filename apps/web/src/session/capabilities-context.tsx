@@ -20,7 +20,9 @@ export function CapabilitiesProvider({
   readonly children: ReactNode;
 }): ReactNode {
   return (
-    <CapabilitiesContext.Provider value={value ?? NO_CAPABILITIES}>{children}</CapabilitiesContext.Provider>
+    <CapabilitiesContext.Provider value={value ?? NO_CAPABILITIES}>
+      {children}
+    </CapabilitiesContext.Provider>
   );
 }
 

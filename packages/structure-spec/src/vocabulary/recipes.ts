@@ -22,7 +22,13 @@ export type StructuredRecipeId =
 export type RecipeGroup = 'Organise' | 'Track' | 'Collect' | 'Analyse' | 'Life';
 
 /** The New menu's headings, in display order. */
-export const RECIPE_GROUPS: readonly RecipeGroup[] = ['Organise', 'Track', 'Collect', 'Analyse', 'Life'];
+export const RECIPE_GROUPS: readonly RecipeGroup[] = [
+  'Organise',
+  'Track',
+  'Collect',
+  'Analyse',
+  'Life',
+];
 
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;

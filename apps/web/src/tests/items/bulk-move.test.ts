@@ -9,7 +9,15 @@ import {
 import type { TreeItem } from '../../items/use-workspace-tree';
 
 function node(id: string, parentId: string | null): TreeItem {
-  return { id, title: id, type: 'note', parentId, hasChildren: false, seq: 0, lifecycleState: 'active' };
+  return {
+    id,
+    title: id,
+    type: 'note',
+    parentId,
+    hasChildren: false,
+    seq: 0,
+    lifecycleState: 'active',
+  };
 }
 
 // root -> a -> b -> c, and a sibling d at the root.
@@ -46,7 +54,13 @@ describe('isInsideSelection', () => {
 describe('executeBulkMove', () => {
   it('moves one at a time and reports every refusal rather than a blanket success', async () => {
     const move = vi
-      .fn<(id: string, parentId: string | null, afterId: string | null) => Promise<{ refusal: string | null }>>()
+      .fn<
+        (
+          id: string,
+          parentId: string | null,
+          afterId: string | null,
+        ) => Promise<{ refusal: string | null }>
+      >()
       .mockImplementation((id) =>
         Promise.resolve({ refusal: id === 'd' ? 'That would make a cycle.' : null }),
       );

@@ -32,10 +32,7 @@ export function WorkspaceSwitcher(): ReactNode {
   const pinnedIds = new Set(arrangement.pinnedWorkspaceIds);
 
   const row = (entry: Workspace, close: () => void): ReactNode => (
-    <li
-      key={entry.id}
-      className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)"
-    >
+    <li key={entry.id} className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)">
       <Link
         to={`/w/${entry.id}`}
         aria-current={entry.id === workspace.id ? 'page' : undefined}
@@ -83,7 +80,13 @@ export function WorkspaceSwitcher(): ReactNode {
           <div className="max-h-72 overflow-y-auto py-1">
             {arranged.pinned.length > 0 ? (
               <>
-                <Text as="h3" variant="kicker" tone="muted" className="px-3 pt-1" id="workspaces-pinned">
+                <Text
+                  as="h3"
+                  variant="kicker"
+                  tone="muted"
+                  className="px-3 pt-1"
+                  id="workspaces-pinned"
+                >
                   Pinned
                 </Text>
                 <ul aria-labelledby="workspaces-pinned">
@@ -114,7 +117,13 @@ export function WorkspaceSwitcher(): ReactNode {
               </section>
             ))}
             {arranged.groups.length > 0 && arranged.ungrouped.length > 0 ? (
-              <Text as="h3" variant="kicker" tone="muted" className="px-3 pt-1" id="workspaces-ungrouped">
+              <Text
+                as="h3"
+                variant="kicker"
+                tone="muted"
+                className="px-3 pt-1"
+                id="workspaces-ungrouped"
+              >
                 Other workspaces
               </Text>
             ) : null}
