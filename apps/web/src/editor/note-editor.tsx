@@ -48,6 +48,8 @@ import { OfflineNoteAssetsProvider } from '../offline/offline-assets';
 import { BubbleMenu } from './bubble-menu';
 import { CollaborationHistoryKeymap } from './collaboration-history-keymap';
 import { EditorToolbar } from './toolbar';
+import { MARKDOWN_ORIGIN, snapshotMarkdown, type MarkdownSnapshot } from './markdown-mode';
+import { MarkdownLossesDialog, MarkdownModePanel } from './markdown-mode-panel';
 import { announce } from '../a11y/announcer';
 import { playRecordingFrom } from '../audio/play-from';
 import { parseAudioTimestamp } from '../lib/audio-timestamp-link';
@@ -480,6 +482,14 @@ export function NoteEditor({
   const [draftState, setDraftState] = useState<DraftState | undefined>();
   const [syncState, setSyncState] = useState<SyncState>('connecting');
   const [readOnly, setReadOnly] = useState(false);
+  // Markdown editing (requirement 8): `confirming` holds the snapshot while the losses dialog is
+  // up; `open` holds it while the textarea is. Taken once, when the person asks, so the dialog and
+  // the text agree. Never persisted: a mode is a way of looking at this session's note.
+  const [markdownMode, setMarkdownMode] = useState<
+    | { readonly phase: 'confirming'; readonly snapshot: MarkdownSnapshot }
+    | { readonly phase: 'open'; readonly snapshot: MarkdownSnapshot }
+    | null
+  >(null);
   // Whether the server's copy of the body has arrived at least once; see `onInitialSync`.
   const [synced, setSynced] = useState(false);
 
@@ -774,7 +784,9 @@ export function NoteEditor({
     onCreate: ({ editor: created }) => {
       created.registerPlugin(ySyncPlugin(fragment) as Plugin);
       created.registerPlugin(yCursorPlugin(awareness) as Plugin);
-      created.registerPlugin(yUndoPlugin() as Plugin);
+      // The Markdown mode's whole-body swap is tracked too, so Ctrl+Z after applying restores
+      // the rich note in one step (the floor guard's RESTORE_ORIGIN stays untracked, as before).
+      created.registerPlugin(yUndoPlugin({ trackedOrigins: [MARKDOWN_ORIGIN] }) as Plugin);
     },
   });
 
@@ -1020,6 +1032,7 @@ export function NoteEditor({
   // Who this cursor belongs to, told to everyone else. The color is picked by client
   // identifier so two tabs of the same person still read as two cursors.
   useEffect(() => {
+    awareness.setLocalStateField('markdownMode', false);
     awareness.setLocalStateField('user', {
       name: profile?.name ?? 'Someone',
       color: cursorColorFor(doc.clientID),
@@ -1056,7 +1069,32 @@ export function NoteEditor({
             compact={narrow}
             editor={editor}
             writingMode={writingMode}
-            writingModeControl={<WritingModeControl />}
+            writingModeControl={
+              <>
+                <WritingModeControl />
+                <Button
+                  variant="ghost"
+                  className="shrink-0 whitespace-nowrap"
+                  aria-pressed={markdownMode?.phase === 'open'}
+                  onClick={() => {
+                    if (markdownMode !== null) {
+                      setMarkdownMode(null);
+                      awareness.setLocalStateField('markdownMode', false);
+                      return;
+                    }
+                    const snapshot = snapshotMarkdown(fragment);
+                    if (snapshot.losses.length > 0) {
+                      setMarkdownMode({ phase: 'confirming', snapshot });
+                    } else {
+                      setMarkdownMode({ phase: 'open', snapshot });
+                      awareness.setLocalStateField('markdownMode', true);
+                    }
+                  }}
+                >
+                  Markdown
+                </Button>
+              </>
+            }
             textWidthControl={narrow ? undefined : <TextWidthControl />}
             onInsertItem={(kind) => {
               if (uploadingFilesRef.current > 0) return;
@@ -1234,8 +1272,34 @@ export function NoteEditor({
             `EditorContent` had: the editor fills the viewport, so a click below a short note
             still lands in it.
           */}
+                {markdownMode?.phase === 'open' ? (
+                  <MarkdownModePanel
+                    doc={doc}
+                    fragment={fragment}
+                    snapshot={markdownMode.snapshot}
+                    onClose={() => {
+                      setMarkdownMode(null);
+                      awareness.setLocalStateField('markdownMode', false);
+                    }}
+                  />
+                ) : null}
+                {markdownMode?.phase === 'confirming' ? (
+                  <MarkdownLossesDialog
+                    snapshot={markdownMode.snapshot}
+                    onContinue={() => {
+                      setMarkdownMode({ phase: 'open', snapshot: markdownMode.snapshot });
+                      awareness.setLocalStateField('markdownMode', true);
+                    }}
+                    onCancel={() => {
+                      setMarkdownMode(null);
+                    }}
+                  />
+                ) : null}
+                {/* Hidden, not unmounted, while the Markdown textarea is up: the sync binding,
+                    presence and undo history stay attached to the document underneath. */}
                 <div
                   ref={setSurface}
+                  hidden={markdownMode?.phase === 'open'}
                   data-text-width={narrow ? 'reading' : textWidth}
                   className={`relative h-full min-w-0 ${noteColumn} ${
                     !narrow && textWidth === 'full'
