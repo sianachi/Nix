@@ -10,6 +10,7 @@ export type StructuredRecipeId =
   | 'form'
   | 'interactive-form'
   | 'query'
+  | 'chart'
   | 'list'
   | 'drive'
   | 'habit-tracker'
@@ -18,11 +19,18 @@ export type StructuredRecipeId =
   | 'matrix'
   | 'outline';
 
+export type RecipeGroup = 'Organise' | 'Track' | 'Collect' | 'Analyse' | 'Life';
+
+/** The New menu's headings, in display order. */
+export const RECIPE_GROUPS: readonly RecipeGroup[] = ['Organise', 'Track', 'Collect', 'Analyse', 'Life'];
+
 export interface StructuredRecipe {
   readonly id: StructuredRecipeId;
   readonly label: string;
   readonly detail: string;
   readonly menu: 'structured' | 'view';
+  /** The heading the New menu lists the recipe under. */
+  readonly group: RecipeGroup;
   readonly viewKind: string;
   readonly defaultTitle: string;
   readonly defaultViewName: string;
@@ -52,6 +60,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Board',
     detail: 'Arrange items in columns defined by a select field.',
     menu: 'structured',
+    group: 'Organise',
     viewKind: 'board',
     defaultTitle: 'Untitled board',
     defaultViewName: 'Board',
@@ -62,6 +71,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Timeline',
     detail: 'Plan work across start and optional end dates.',
     menu: 'structured',
+    group: 'Track',
     viewKind: 'timeline',
     defaultTitle: 'Untitled timeline',
     defaultViewName: 'Timeline',
@@ -75,6 +85,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Gallery',
     detail: 'Show child items as visual cards with optional covers.',
     menu: 'structured',
+    group: 'Collect',
     viewKind: 'gallery',
     defaultTitle: 'Untitled gallery',
     defaultViewName: 'Gallery',
@@ -85,6 +96,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Spreadsheet view',
     detail: 'Edit child items in a property-backed grid.',
     menu: 'structured',
+    group: 'Collect',
     viewKind: 'sheet',
     defaultTitle: 'Untitled table',
     defaultViewName: 'Spreadsheet',
@@ -104,6 +116,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Quick form',
     detail: 'Collect authenticated responses in one straightforward page.',
     menu: 'structured',
+    group: 'Collect',
     viewKind: 'form',
     defaultTitle: 'Untitled quick form',
     defaultViewName: 'Form',
@@ -114,6 +127,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Interactive form',
     detail: 'Build a multi-page form with branching and an optional public link.',
     menu: 'structured',
+    group: 'Collect',
     viewKind: 'interactive_form',
     defaultTitle: 'Untitled interactive form',
     defaultViewName: 'Form',
@@ -126,16 +140,29 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Smart list',
     detail: 'Find matching items across the workspace with reusable rules.',
     menu: 'structured',
+    group: 'Analyse',
     viewKind: 'query',
     defaultTitle: 'Untitled smart list',
     defaultViewName: 'Results',
     properties: [],
   },
   {
+    id: 'chart',
+    label: 'Chart',
+    detail: 'Count or total items by a field, as bars, columns, a pie or a line over time.',
+    menu: 'structured',
+    group: 'Analyse',
+    viewKind: 'chart',
+    defaultTitle: 'Untitled chart',
+    defaultViewName: 'Chart',
+    properties: [STATUS],
+  },
+  {
     id: 'calendar',
     label: 'Calendar',
     detail: 'Place child items on a day, week, or month calendar.',
     menu: 'view',
+    group: 'Track',
     viewKind: 'calendar',
     defaultTitle: 'Untitled calendar',
     defaultViewName: 'Calendar',
@@ -146,6 +173,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'List',
     detail: 'Show child items and their fields in an ordered list.',
     menu: 'view',
+    group: 'Organise',
     viewKind: 'list',
     defaultTitle: 'Untitled list',
     defaultViewName: 'All',
@@ -159,6 +187,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Checklist',
     detail: 'Tick child items off one line at a time, with progress.',
     menu: 'view',
+    group: 'Organise',
     viewKind: 'checklist',
     defaultTitle: 'Untitled checklist',
     defaultViewName: 'Checklist',
@@ -169,6 +198,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Matrix',
     detail: 'Place cards in a grid by two select fields, such as urgency and importance.',
     menu: 'view',
+    group: 'Organise',
     viewKind: 'matrix',
     defaultTitle: 'Untitled matrix',
     defaultViewName: 'Matrix',
@@ -194,6 +224,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Outline',
     detail: 'Shape the items inside as a tree of titles: add, indent and reorder by keyboard.',
     menu: 'view',
+    group: 'Organise',
     viewKind: 'outline',
     defaultTitle: 'Untitled outline',
     defaultViewName: 'Outline',
@@ -206,6 +237,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     // In the sidebar's "New" menu as well as the Views pane: a drive is a thing a team makes
     // on purpose, the way it makes a board, not only a way of looking at something it has.
     menu: 'structured',
+    group: 'Collect',
     viewKind: 'drive',
     defaultTitle: 'Untitled drive',
     defaultViewName: 'Drive',
@@ -218,6 +250,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Habit tracker',
     detail: 'Track daily or weekday habits with a simple weekly check-in grid.',
     menu: 'structured',
+    group: 'Life',
     viewKind: 'habit_tracker',
     defaultTitle: 'Untitled habit tracker',
     defaultViewName: 'Habits',
@@ -228,6 +261,7 @@ export const STRUCTURED_RECIPES: readonly StructuredRecipe[] = [
     label: 'Finances',
     detail: 'Accounts, a monthly budget, transactions, cards, a loan and a cash-flow projection.',
     menu: 'structured',
+    group: 'Life',
     viewKind: 'finance',
     defaultTitle: 'Finances',
     defaultViewName: 'Finances',
@@ -302,8 +336,11 @@ export function viewForRecipe(
         ? []
         : ['title', ...properties.map((property) => property.key)],
     // A matrix's columns are the board's field, so both seed it from the first property.
+    // A chart buckets by its first property the way a board columns by it.
     groupBy:
-      recipe.viewKind === 'board' || recipe.viewKind === 'matrix' ? (first?.key ?? null) : null,
+      recipe.viewKind === 'board' || recipe.viewKind === 'matrix' || recipe.viewKind === 'chart'
+        ? (first?.key ?? null)
+        : null,
     groupOrder:
       recipe.viewKind === 'board' || recipe.viewKind === 'matrix'
         ? [...(first?.options ?? [])]

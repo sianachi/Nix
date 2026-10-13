@@ -43,6 +43,7 @@ export const STRUCTURED_SPEC_RECIPE_IDS = [
   'gallery',
   'habit-tracker',
   'query',
+  'chart',
   'checklist',
   'matrix',
   'outline',

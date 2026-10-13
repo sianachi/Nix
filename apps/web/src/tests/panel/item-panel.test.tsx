@@ -97,9 +97,24 @@ describe('the settings panel', () => {
     expect(within(panel).queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
   });
 
-  it('opens on the Site pane from the item actions', async () => {
+  it('offers no Site entry or pane on a deployment without sites', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE] });
+    renderAt(<App />, `/?item=${NOTE.id}`);
+
+    await user.click(await screen.findByRole('button', { name: /item actions/i }));
+    expect(await screen.findByRole('menuitem', { name: 'Export' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: /site/i })).not.toBeInTheDocument();
+    await user.keyboard('{Escape}');
+
+    await user.click(screen.getByRole('button', { name: /settings/i }));
+    const panel = await screen.findByRole('complementary', { name: /item settings/i });
+    expect(within(panel).queryByRole('button', { name: 'Site' })).not.toBeInTheDocument();
+  });
+
+  it('opens on the Site pane from the item actions', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({ items: [NOTE], siteFeature: true });
     renderAt(<App />, `/?item=${NOTE.id}`);
 
     await user.click(await screen.findByRole('button', { name: /item actions/i }));

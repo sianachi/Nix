@@ -64,6 +64,7 @@ export const Settings = {
               personality: 'calm',
               responseLength: 'balanced',
               instructions: '',
+              applyWithoutAsking: false,
             },
           ],
           inlineWriting: false,

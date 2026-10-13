@@ -4408,6 +4408,8 @@ export interface components {
       personality: string;
       responseLength: string;
       instructions: string;
+      /** @default false */
+      applyWithoutAsking: boolean;
     };
     PetRuntimeRequest: {
       operation: string;

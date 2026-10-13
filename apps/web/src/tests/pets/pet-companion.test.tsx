@@ -10,6 +10,7 @@ vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }))
 vi.mock('../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: '33333333-3333-4333-8333-333333333333' }),
 }));
+const petSettings = vi.hoisted(() => ({ applyWithoutAsking: false }));
 vi.mock('../../pets/use-pet-settings', () => ({
   usePetSettings: () => ({
     saved: {
@@ -26,6 +27,9 @@ vi.mock('../../pets/use-pet-settings', () => ({
             personality: 'calm',
             responseLength: 'balanced',
             instructions: '',
+            get applyWithoutAsking() {
+              return petSettings.applyWithoutAsking;
+            },
           },
         ],
       },
@@ -603,6 +607,32 @@ describe('companion workflow', () => {
     // assert; in a browser it takes both out of the layout and the accessibility tree.
     expect(screen.getByRole('complementary', { name: 'Cat companion' })).toHaveClass('hidden');
     expect(screen.getByRole('button', { name: 'Open Cat' })).toHaveClass('hidden');
+  });
+  it('starts a conversation with the switch on when the pet is saved that way', async () => {
+    petSettings.applyWithoutAsking = true;
+    try {
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter>
+          <PetCompanion />
+        </MemoryRouter>,
+      );
+      await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+      await user.click(within(dialog).getByRole('button', { name: 'Workspace access' }));
+      expect(within(dialog).getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      // Still the owner's to turn off for this conversation.
+      await user.click(within(dialog).getByRole('button', { name: 'Turn off' }));
+      expect(within(dialog).getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
+        'aria-pressed',
+        'false',
+      );
+    } finally {
+      petSettings.applyWithoutAsking = false;
+    }
   });
   it('applies without asking only while the owner has switched it on for this conversation', async () => {
     const user = userEvent.setup();
