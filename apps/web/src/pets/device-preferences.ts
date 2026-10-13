@@ -1,3 +1,5 @@
+import type { PetProfile } from '@nix/api-client';
+
 export type PetPlacement = 'left' | 'right';
 
 /** Where the chat opens: the floating panel, its own page, or both. A device preference because
@@ -54,15 +56,25 @@ export function writePetPosition(position: PetPosition): void {
 
 // The ".chat" suffix is kept from when each conversation mode stored its own choice, so a
 // model chosen before Design mode was retired still applies.
-function conversationModelKey(workspaceId: string, petId: string): string {
-  return `nix.pet.model.${workspaceId}.${petId}.chat`;
+function conversationModelKey(
+  workspaceId: string,
+  petId: string,
+  provider: PetProfile['provider'],
+): string {
+  return `nix.pet.model.${workspaceId}.${petId}.${provider === 'chatgpt' ? 'chat' : provider}`;
 }
 
-export function readConversationModel(workspaceId: string, petId: string): string {
+export function readConversationModel(
+  workspaceId: string,
+  petId: string,
+  provider: PetProfile['provider'],
+): string {
   try {
     const model =
-      localStorage.getItem(conversationModelKey(workspaceId, petId)) ??
-      sessionStorage.getItem(`nix.pet.model.${workspaceId}.${petId}`) ??
+      localStorage.getItem(conversationModelKey(workspaceId, petId, provider)) ??
+      (provider === 'chatgpt'
+        ? sessionStorage.getItem(`nix.pet.model.${workspaceId}.${petId}`)
+        : null) ??
       '';
     return model.length <= 160 ? model : '';
   } catch {
@@ -70,9 +82,14 @@ export function readConversationModel(workspaceId: string, petId: string): strin
   }
 }
 
-export function writeConversationModel(workspaceId: string, petId: string, model: string): void {
+export function writeConversationModel(
+  workspaceId: string,
+  petId: string,
+  provider: PetProfile['provider'],
+  model: string,
+): void {
   try {
-    localStorage.setItem(conversationModelKey(workspaceId, petId), model);
+    localStorage.setItem(conversationModelKey(workspaceId, petId, provider), model);
   } catch {
     /* The open conversation retains the selection when storage is unavailable. */
   }
@@ -108,8 +125,8 @@ export function readPetSurface(): PetSurface {
 
 /** Whether reads run without an approval click.
  * Defaults on: with `readWithoutAsking` on (owner decision, default on, ADR-0050 amendment 1) a
- * read's result is shared with ChatGPT without a per-read click; consent is the per-message
- * workspace access toggle; reads are Core-authorised, scoped to the workspace, at most 20 per
+ * read's result is shared with the selected provider without a per-read click; consent is the
+ * per-message workspace access toggle; reads are Core-authorised, scoped to the workspace, at most 20 per
  * turn and 16000 characters each. Device-wide, like `placement` above. */
 export function readReadWithoutAsking(): boolean {
   try {

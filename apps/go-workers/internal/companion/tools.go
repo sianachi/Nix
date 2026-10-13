@@ -29,6 +29,18 @@ type Model struct {
 	defaultEffort    string   `json:"-"`
 }
 
+func defaultModel(models []Model) Model {
+	for _, model := range models {
+		if model.Default {
+			return model
+		}
+	}
+	if len(models) > 0 {
+		return models[0]
+	}
+	return Model{}
+}
+
 // ToolCall is a private, per-conversation approval receipt, not authorization.
 // Only the user's ordinary Nix client executes tools; Core still authorizes every API call.
 type ToolCall struct {

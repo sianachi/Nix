@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -121,6 +122,180 @@ func TestAnthropicStreamsTextIntoCodexShapedNotifications(t *testing.T) {
 	}
 	if !strings.Contains(string(seen), `"system":"base\n\ndev"`) || !strings.Contains(string(seen), `"content":"Hi"`) {
 		t.Fatalf("request body missing system or user message: %s", seen)
+	}
+}
+
+func TestProviderDefaultUsesAnAdvertisedModelForChatAndInline(t *testing.T) {
+	for _, provider := range []string{"anthropic", "openrouter"} {
+		for _, mode := range []string{"chat", "inline"} {
+			t.Run(provider+"/"+mode, func(t *testing.T) {
+				seen := make(chan string, 1)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method == http.MethodGet {
+						_, _ = fmt.Fprint(w, `{"data":[{"id":"offered-model","display_name":"Offered model","name":"Offered model","supported_parameters":["tools"]}]}`)
+						return
+					}
+					var body struct {
+						Model string `json:"model"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					seen <- body.Model
+					w.Header().Set("Content-Type", "text/event-stream")
+					if provider == "anthropic" {
+						_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\n")
+					} else {
+						_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"}}]}\n\ndata: [DONE]\n\n")
+					}
+				}))
+				defer server.Close()
+				n := newNotifications()
+				transport := testTransport(t, provider, server.URL, n.notify)
+				defer transport.Close()
+				a := &account{transport: transport, home: t.TempDir(), provider: provider, status: "connected", conversations: map[string]*conversation{}}
+				if mode == "inline" {
+					thread, _, err := a.inlineStart(context.Background(), inlineRequest(), "Private inline material", newInlineRun())
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer a.unregisterInline(thread)
+				} else if _, err := a.handle(context.Background(), request()); err != nil {
+					t.Fatal(err)
+				}
+				events := n.wait(t)
+				if model := <-seen; model != "offered-model" {
+					t.Fatalf("request model %q, want the advertised model", model)
+				}
+				if !strings.Contains(strings.Join(events, "\n"), `"status":"completed"`) {
+					t.Fatalf("turn failed: %v", events)
+				}
+			})
+		}
+	}
+}
+
+func TestAnOpenRouterDefaultWithoutToolsRefusesWorkspaceAccessAndStillChatsWithoutIt(t *testing.T) {
+	for _, workspaceAccess := range []bool{false, true} {
+		t.Run(fmt.Sprintf("workspaceAccess=%t", workspaceAccess), func(t *testing.T) {
+			seen := make(chan struct{}, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					_, _ = fmt.Fprint(w, `{"data":[{"id":"plain-model","name":"Plain model","supported_parameters":["temperature"]}]}`)
+					return
+				}
+				var body map[string]json.RawMessage
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if string(body["model"]) != `"plain-model"` || body["tools"] != nil {
+					t.Errorf("plain chat must use its advertised model without tools: %s", body)
+				}
+				seen <- struct{}{}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"}}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer server.Close()
+			n := newNotifications()
+			transport := testTransport(t, "openrouter", server.URL, n.notify)
+			defer transport.Close()
+			a := &account{transport: transport, home: t.TempDir(), provider: "openrouter", status: "connected", conversations: map[string]*conversation{}}
+			r := request()
+			r.WorkspaceAccess = workspaceAccess
+			_, err := a.handle(context.Background(), r)
+			if workspaceAccess {
+				if err == nil || err.Error() != "model does not support tools" {
+					t.Fatalf("expected tool support refusal, got %v", err)
+				}
+				if snapshot := a.snapshot(conversationKey(r)); snapshot.State != "error" || snapshot.Reason != "This model cannot use tools. Pick another model, or turn Workspace access off for this message." {
+					t.Fatalf("refusal was not actionable: %+v", snapshot)
+				}
+				select {
+				case <-seen:
+					t.Fatal("refused request reached the provider")
+				default:
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if events := n.wait(t); !strings.Contains(strings.Join(events, "\n"), `"status":"completed"`) {
+				t.Fatalf("plain chat failed: %v", events)
+			}
+			<-seen
+		})
+	}
+}
+
+func TestEphemeralThreadsAreNeverSavedAndUnsubscribeDiscardsThem(t *testing.T) {
+	for _, outcome := range []string{"unused", "completed", "interrupted"} {
+		t.Run(outcome, func(t *testing.T) {
+			startedRequest := make(chan struct{})
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "text/event-stream")
+				if outcome == "interrupted" {
+					w.WriteHeader(http.StatusOK)
+					w.(http.Flusher).Flush()
+					close(startedRequest)
+					<-r.Context().Done()
+					return
+				}
+				_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Private inline result\"}}]}\n\ndata: [DONE]\n\n")
+			}))
+			defer server.Close()
+			n := newNotifications()
+			transport := testTransport(t, "openrouter", server.URL, n.notify)
+			defer transport.Close()
+			raw, err := transport.Call(context.Background(), "thread/start", map[string]any{"model": "test-model", "ephemeral": true, "baseInstructions": "Private inline context"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var started struct {
+				Thread struct{ ID string } `json:"thread"`
+			}
+			if err := json.Unmarshal(raw, &started); err != nil {
+				t.Fatal(err)
+			}
+			if outcome != "unused" {
+				raw, err := transport.Call(context.Background(), "turn/start", map[string]any{"threadId": started.Thread.ID, "input": []any{map[string]any{"type": "text", "text": "Private inline selection"}}})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if outcome == "interrupted" {
+					var turned struct {
+						Turn struct{ ID string } `json:"turn"`
+					}
+					if err := json.Unmarshal(raw, &turned); err != nil {
+						t.Fatal(err)
+					}
+					select {
+					case <-startedRequest:
+					case <-time.After(5 * time.Second):
+						t.Fatal("provider request never started")
+					}
+					if _, err := transport.Call(context.Background(), "turn/interrupt", map[string]string{"turnId": turned.Turn.ID}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if events := n.wait(t); !strings.Contains(strings.Join(events, "\n"), `"status":"`+outcome+`"`) {
+					t.Fatalf("unexpected outcome: %v", events)
+				}
+			}
+			if _, err := transport.Call(context.Background(), "thread/unsubscribe", map[string]string{"threadId": started.Thread.ID}); err != nil {
+				t.Fatal(err)
+			}
+			http := transport.(*httpTransport)
+			if _, err := os.Stat(http.threadPath(started.Thread.ID)); !os.IsNotExist(err) {
+				t.Fatalf("ephemeral thread persisted: %v", err)
+			}
+			http.mu.Lock()
+			_, retained := http.threads[started.Thread.ID]
+			http.mu.Unlock()
+			if retained {
+				t.Fatal("ephemeral thread retained in memory")
+			}
+		})
 	}
 }
 

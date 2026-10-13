@@ -1,5 +1,6 @@
 import {
   petSettingsSchema,
+  petProviderSchema,
   type PetProfile,
   type PetSettings,
   type PetSettingsResponse,
@@ -22,8 +23,8 @@ export function PetSettingsSection(): ReactElement {
           Your companions
         </Text>
         <Text variant="note" tone="muted">
-          Choose a character and a way of talking. Your pets belong to your account, across all your
-          workspaces.
+          Choose a provider, character and way of talking. Your pets belong to your account, across
+          all your workspaces.
         </Text>
       </div>
       {state.loading ? <Text role="status">Loading your pets…</Text> : null}
@@ -35,8 +36,6 @@ export function PetSettingsSection(): ReactElement {
           </Button>
         </div>
       ) : null}
-      <PetConnectionPanel />
-      <PetProviderKeys />
       {state.saved ? (
         <PetSettingsEditor
           initial={state.saved}
@@ -44,7 +43,6 @@ export function PetSettingsSection(): ReactElement {
           onSave={state.save}
         />
       ) : null}
-      <PetDeviceSettings />
     </section>
   );
 }
@@ -108,22 +106,27 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
     setSelectedId(profiles[0]?.id ?? null);
   }
 
+  async function saveSettings(): Promise<boolean> {
+    const parsed = petSettingsSchema.safeParse(draft);
+    if (!parsed.success) {
+      setMessage('Check the name and settings of each pet before saving.');
+      return false;
+    }
+    if (!dirty) return true;
+    const ok = await onSave(parsed.data);
+    if (ok) {
+      setDraft(parsed.data);
+      setMessage('Pet settings saved.');
+    }
+    return ok;
+  }
+
   return (
     <form
       className="@container flex min-w-0 flex-col gap-6"
       onSubmit={(event) => {
         event.preventDefault();
-        const parsed = petSettingsSchema.safeParse(draft);
-        if (!parsed.success) {
-          setMessage('Check the name and settings of each pet before saving.');
-          return;
-        }
-        void onSave(parsed.data).then((ok) => {
-          if (ok) {
-            setDraft(parsed.data);
-            setMessage('Pet settings saved.');
-          }
-        });
+        void saveSettings();
       }}
     >
       <fieldset disabled={saving} className="flex min-w-0 flex-col gap-4">
@@ -200,6 +203,37 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
         )}
         {pet ? (
           <>
+            <Field
+              label="Model provider"
+              hint="Choose the service this pet uses for chat and writing."
+            >
+              {(control) => (
+                <Select
+                  {...control}
+                  value={pet.provider}
+                  onChange={(event) => {
+                    updatePet({ provider: petProviderSchema.parse(event.currentTarget.value) });
+                  }}
+                >
+                  <option value="chatgpt">ChatGPT</option>
+                  <option value="anthropic">Claude</option>
+                  <option value="openrouter">OpenRouter</option>
+                </Select>
+              )}
+            </Field>
+            {pet.provider === 'chatgpt' ? (
+              <PetConnectionPanel />
+            ) : (
+              <PetProviderKeys
+                key={pet.provider}
+                provider={pet.provider}
+                onSaveSettings={saveSettings}
+                needsProviderSave={
+                  initial.settings.profiles.find((saved) => saved.id === pet.id)?.provider !==
+                  pet.provider
+                }
+              />
+            )}
             <PetAvatar
               appearance={pet.appearance}
               motion={draft.motion}
@@ -294,24 +328,6 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
                 />
               )}
             </Field>
-            <Field
-              label="Model provider"
-              hint="ChatGPT uses the Codex connection below. Claude and OpenRouter use the API key you save under Provider keys; messages are billed to that key."
-            >
-              {(control) => (
-                <Select
-                  {...control}
-                  value={pet.provider}
-                  onChange={(event) => {
-                    updatePet({ provider: event.currentTarget.value as PetProfile['provider'] });
-                  }}
-                >
-                  <option value="chatgpt">ChatGPT (Codex)</option>
-                  <option value="anthropic">Claude (Anthropic API key)</option>
-                  <option value="openrouter">OpenRouter (API key)</option>
-                </Select>
-              )}
-            </Field>
             <div className="flex flex-col gap-1">
               <Checkbox
                 label="Apply changes without asking by default"
@@ -364,10 +380,11 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
           )}
         </Field>
         <Text variant="note" tone="muted">
-          Messages use your saved personality and instructions. Workspace changes always need your
-          approval.
+          Messages use your saved personality and instructions. Workspace changes follow the
+          approval setting above and your permissions.
         </Text>
       </fieldset>
+      {draft.enabled ? <PetDeviceSettings inlineWriting={draft.inlineWriting} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         <Button type="submit" variant="primary" disabled={saving || !dirty}>
           {saving ? 'Saving…' : 'Save pet settings'}

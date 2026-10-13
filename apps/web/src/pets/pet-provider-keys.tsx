@@ -1,79 +1,85 @@
 import { isCanceledError, isNixApiError, pets, type PetProviderKey } from '@nix/api-client';
 import { Button, Field, Input, Text } from '@nix/ui';
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 
 import { useApiClient } from '../api/api-client-provider';
+import { petProviderLabels } from './catalog';
 
-const PROVIDERS = [
-  { id: 'anthropic', label: 'Claude (Anthropic)', hint: 'An API key from console.anthropic.com.' },
-  {
-    id: 'openrouter',
-    label: 'OpenRouter',
-    hint: 'An API key from openrouter.ai; models without tool support are marked in the chat.',
-  },
-] as const;
-
-/**
- * The owner's API keys for the key providers a pet may use (requirement 14). A key is stored
- * protected on this server and shown here only by its last characters; it is sent to the provider
- * from the worker on each turn, never to the browser again. Removing it stops every pet on that
- * provider on their next message, with a message saying what to do.
- */
-export function PetProviderKeys(): ReactElement {
+export function PetProviderKeys({
+  provider,
+  onSaveSettings,
+  needsProviderSave,
+}: {
+  readonly provider: PetProviderKey['provider'];
+  readonly onSaveSettings: () => Promise<boolean>;
+  readonly needsProviderSave: boolean;
+}): ReactElement {
   const client = useApiClient();
   const [keys, setKeys] = useState<readonly PetProviderKey[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const lifetime = useRef<AbortController | null>(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [reload, setReload] = useState(0);
+  const label = petProviderLabels[provider];
+  const stored = keys?.find((entry) => entry.provider === provider);
 
   useEffect(() => {
     const controller = new AbortController();
-    lifetime.current = controller;
     client
-      .query(pets.providers(), { signal: controller.signal })
+      .query(pets.providers(), { signal: controller.signal, forceRefresh: true })
       .then((response) => {
-        if (!controller.signal.aborted) setKeys(response.keys);
+        if (!controller.signal.aborted) {
+          setKeys(response.keys);
+          setError(null);
+        }
       })
       .catch((cause: unknown) => {
         if (controller.signal.aborted || isCanceledError(cause)) return;
-        setError('Your provider keys could not be loaded.');
-        setKeys([]);
+        setError('Your provider key could not be loaded.');
       });
     return () => {
       controller.abort();
     };
-  }, [client]);
+  }, [client, reload]);
 
-  async function save(provider: 'anthropic' | 'openrouter'): Promise<void> {
-    const key = (drafts[provider] ?? '').trim();
-    if (key.length === 0) return;
-    setBusy(provider);
+  async function save(): Promise<void> {
+    const key = draft.trim();
+    if (!key || busy) return;
+    setBusy(true);
     setError(null);
+    setMessage('');
     try {
+      if (!(await onSaveSettings())) return;
       const saved = await client.execute(pets.saveProviderKey(provider, key));
       setKeys((current) => [
         ...(current ?? []).filter((entry) => entry.provider !== provider),
         saved,
       ]);
-      setDrafts((current) => ({ ...current, [provider]: '' }));
+      setDraft('');
+      setMessage(`${label} API key saved.`);
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
     } catch (cause) {
       setError(
         isNixApiError(cause) && cause.detail !== undefined
           ? cause.detail
-          : 'The key could not be saved.',
+          : 'The key could not be saved. Your pet settings were saved; retry saving the key.',
       );
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
-  async function remove(provider: 'anthropic' | 'openrouter'): Promise<void> {
-    setBusy(provider);
+  async function remove(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
     setError(null);
+    setMessage('');
     try {
       await client.execute(pets.removeProviderKey(provider));
       setKeys((current) => (current ?? []).filter((entry) => entry.provider !== provider));
+      setMessage(`${label} API key removed.`);
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
     } catch (cause) {
       setError(
         isNixApiError(cause) && cause.detail !== undefined
@@ -81,83 +87,122 @@ export function PetProviderKeys(): ReactElement {
           : 'The key could not be removed.',
       );
     } finally {
-      setBusy(null);
+      setBusy(false);
+    }
+  }
+
+  async function saveProviderChoice(): Promise<void> {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setMessage('');
+    try {
+      if (await onSaveSettings()) setMessage(`${label} setup saved.`);
+    } catch {
+      setError('The pet settings could not be saved. Try again.');
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
     <section
-      aria-label="Provider keys"
+      aria-label={`${label} connection`}
       className="flex min-w-0 flex-col gap-3 border border-divider p-3"
     >
       <Text variant="h3" as="h3">
-        Provider keys
+        {label} connection
       </Text>
       <Text variant="note" tone="muted">
-        For pets set to Claude or OpenRouter. A key is kept protected on this server and shown only
-        by its last characters; messages from those pets are billed to it. Nothing is sent to a
-        provider until a pet set to it is used.
+        {`Your key is kept protected on this Nix server. Messages and shared context go to ${label} and are billed to this key. Your other ${label} pets share it.`}
       </Text>
-      {error === null ? null : (
-        <Text role="alert" variant="note">
-          {error}
-        </Text>
-      )}
+      {error ? <Text role="alert">{error}</Text> : null}
       {keys === null ? (
-        <Text variant="note" tone="muted" role="status">
-          Loading your keys…
-        </Text>
+        error ? (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setError(null);
+              setReload((value) => value + 1);
+            }}
+          >
+            Reload key
+          </Button>
+        ) : (
+          <Text variant="note" tone="muted" role="status">
+            Loading your key…
+          </Text>
+        )
       ) : (
-        PROVIDERS.map((provider) => {
-          const stored = keys.find((entry) => entry.provider === provider.id);
-          return (
-            <div key={provider.id} className="flex flex-col gap-2">
-              <Text variant="bodySmall">
-                {provider.label}
-                {stored === undefined
-                  ? ': no key saved'
-                  : `: key ending ${stored.keyHint}, saved ${new Date(stored.savedAt).toLocaleDateString()}`}
-              </Text>
-              <div className="flex flex-wrap items-end gap-2">
-                <Field
-                  label={`${provider.label} API key`}
-                  hint={provider.hint}
-                  className="min-w-0 flex-1"
-                >
-                  {(control) => (
-                    <Input
-                      {...control}
-                      type="password"
-                      autoComplete="off"
-                      value={drafts[provider.id] ?? ''}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        setDrafts((current) => ({ ...current, [provider.id]: value }));
-                      }}
-                    />
-                  )}
-                </Field>
-                <Button
-                  variant="secondary"
-                  disabled={busy !== null || (drafts[provider.id] ?? '').trim().length === 0}
-                  onClick={() => void save(provider.id)}
-                >
-                  {stored === undefined ? 'Save key' : 'Replace key'}
-                </Button>
-                {stored === undefined ? null : (
-                  <Button
-                    variant="ghost"
-                    disabled={busy !== null}
-                    onClick={() => void remove(provider.id)}
-                  >
-                    Remove key
-                  </Button>
-                )}
-              </div>
-            </div>
-          );
-        })
+        <>
+          <Text variant="note" tone="muted">
+            {stored === undefined
+              ? 'No API key saved. Save a key to use this provider.'
+              : `Using your saved key ending ${stored.keyHint}.`}
+          </Text>
+          {stored && needsProviderSave ? (
+            <Button
+              type="button"
+              variant="primary"
+              disabled={busy}
+              onClick={() => void saveProviderChoice()}
+            >
+              Use {label}
+            </Button>
+          ) : null}
+          <div className="flex flex-wrap items-end gap-2">
+            <Field
+              label={`${label} API key`}
+              hint={
+                provider === 'anthropic'
+                  ? 'Get an API key from console.anthropic.com.'
+                  : 'Get an API key from openrouter.ai.'
+              }
+              className="min-w-0 flex-1"
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  type="password"
+                  autoComplete="off"
+                  value={draft}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setDraft(event.currentTarget.value);
+                    setMessage('');
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      void save();
+                    }
+                  }}
+                />
+              )}
+            </Field>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy || !draft.trim()}
+              onClick={() => void save()}
+            >
+              {busy ? 'Saving…' : stored ? `Replace ${label} key` : `Save ${label} setup`}
+            </Button>
+            {stored ? (
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => void remove()}>
+                Remove {label} key
+              </Button>
+            ) : null}
+          </div>
+          {stored ? (
+            <Text variant="note" tone="muted">
+              Removing this key stops every pet using {label} until you save another key.
+            </Text>
+          ) : null}
+        </>
       )}
+      {message ? <Text role="status">{message}</Text> : null}
     </section>
   );
 }

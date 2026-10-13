@@ -8,8 +8,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
+using Nix.Domain.Items;
 using Nix.Domain.Pets;
+using Nix.Domain.Primitives;
 using Nix.Domain.Tenancy;
+using Nix.Features.Items;
 using Nix.Features.Pets;
 using Nix.Features.Workspaces;
 using Nix.Messaging;
@@ -24,6 +27,175 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     private static readonly Guid WorkspaceGuid = new("44444444-4444-4444-8444-444444444444");
     private static readonly Guid PetGuid = new("55555555-5555-4555-8555-555555555555");
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
+
+    [Theory]
+    [InlineData("anthropic", false, true)]
+    [InlineData("anthropic", true, true)]
+    [InlineData("openrouter", false, true)]
+    [InlineData("openrouter", true, true)]
+    [InlineData("anthropic", false, false)]
+    [InlineData("anthropic", true, false)]
+    public async Task Missing_key_reads_and_watches_report_disconnected_after_permission_checks(string provider, bool watch, bool canRead)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        IPermissionResolver permissions = canRead ? new StubPermissions() : new DenyReadPermissions();
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(provider), permissions, new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+
+        var result = watch
+            ? await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "", 0, Cancellation)
+            : await gateway.ExecuteAsync(new("read", WorkspaceGuid, PetGuid), Cancellation);
+
+        Assert.Equal(0, handler.Calls);
+        if (!canRead)
+        {
+            Assert.True(result.IsFailure);
+            Assert.Equal("pets.not_found", result.Error.Code);
+            return;
+        }
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(provider, result.Value.Provider);
+        Assert.Equal("disconnected", result.Value.Status);
+        Assert.False(result.Value.CanConnect);
+        Assert.Empty(result.Value.Messages!);
+        Assert.Contains("API key", result.Value.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Model_tool_support_reaches_the_browser_and_defaults_true_for_older_worker_models()
+    {
+        using var handler = new ModelCatalogWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+
+        var result = await gateway.ExecuteAsync(new("models", PetId: PetGuid), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.False(result.Value.Models![0].SupportsTools);
+        Assert.True(result.Value.Models[1].SupportsTools);
+        using var serialized = JsonDocument.Parse(JsonSerializer.Serialize(result.Value));
+        Assert.False(serialized.RootElement.GetProperty("Models")[0].GetProperty("SupportsTools").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData("status", "anthropic")]
+    [InlineData("models", "anthropic")]
+    [InlineData("send", "anthropic")]
+    [InlineData("status", "openrouter")]
+    [InlineData("models", "openrouter")]
+    [InlineData("send", "openrouter")]
+    public async Task A_saved_pet_routes_connection_models_and_chat_to_its_key_provider(string operation, string provider)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var session = Session();
+        var context = session.Current!.Value;
+        var protector = new PetProviderKeyProtector(new EphemeralDataProtectionProvider());
+        const string key = "test-provider-key-for-routing-only";
+        var credentials = new SavedCredentials(new PetProviderCredential
+        {
+            TenantId = context.TenantId,
+            PrincipalId = context.PrincipalId,
+            Provider = provider,
+            ProtectedKey = protector.Protect(key),
+            KeyHint = "only",
+            SavedAt = DateTimeOffset.UtcNow,
+        });
+        var gateway = new PetWorkerClient(http, Configuration(), session, Dispatcher(provider), new StubPermissions(), credentials, protector);
+
+        var result = await gateway.ExecuteAsync(new(operation, WorkspaceGuid, PetGuid, Guid.NewGuid(), "Hello"), Cancellation);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, handler.Calls);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.Equal(provider, body.RootElement.GetProperty("provider").GetString());
+        Assert.Equal(key, body.RootElement.GetProperty("apiKey").GetString());
+        Assert.DoesNotContain(key, JsonSerializer.Serialize(result.Value), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("status")]
+    [InlineData("connect")]
+    [InlineData("disconnect")]
+    [InlineData("models")]
+    public async Task An_unknown_selected_pet_does_not_fall_back_to_ChatGPT(string operation)
+    {
+        using var handler = new RecordingWorker();
+        using var http = new HttpClient(handler);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
+
+        var result = await gateway.ExecuteAsync(new(operation, PetId: Guid.NewGuid()), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.invalid_request", result.Error.Code);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Theory]
+    [InlineData("chatgpt", false)]
+    [InlineData("anthropic", true)]
+    [InlineData("openrouter", true)]
+    [InlineData("anthropic", false)]
+    [InlineData("openrouter", false)]
+    public async Task Inline_writing_uses_the_saved_active_pet_provider_and_requires_its_key(string provider, bool hasKey)
+    {
+        using var handler = new RecordingWorker(inline: true);
+        using var http = new HttpClient(handler);
+        var session = Session();
+        var context = session.Current!.Value;
+        var dispatcher = Dispatcher(provider, inlineWriting: true);
+        var protector = new PetProviderKeyProtector(new EphemeralDataProtectionProvider());
+        const string key = "test-inline-provider-key-for-routing";
+        var credentials = new SavedCredentials(hasKey ? new PetProviderCredential
+        {
+            TenantId = context.TenantId,
+            PrincipalId = context.PrincipalId,
+            Provider = provider,
+            ProtectedKey = protector.Protect(key),
+            KeyHint = "ting",
+            SavedAt = DateTimeOffset.UtcNow,
+        } : null);
+        var gateway = new PetWorkerClient(http, Configuration(), session, dispatcher, new StubPermissions(), credentials, protector);
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton(gateway);
+            services.AddSingleton(dispatcher);
+            services.AddSingleton<INixSessionContextAccessor>(session);
+            services.AddSingleton<IItemLocks>(new OpenLocks());
+        }));
+        using var client = host.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(new Uri("/api/v1/me/pets/inline", UriKind.Relative),
+            new PetInlineRequest(WorkspaceGuid, Guid.NewGuid(), Guid.NewGuid(), "improve", "Selected text"), Cancellation);
+
+        if (provider != "chatgpt" && !hasKey)
+        {
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Cancellation));
+            Assert.Equal("pets.no_provider_key", problem.RootElement.GetProperty("code").GetString());
+            Assert.Equal(0, handler.Calls);
+            return;
+        }
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/event-stream", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(1, handler.Calls);
+        using var body = JsonDocument.Parse(handler.Body);
+        Assert.Equal(PetGuid, body.RootElement.GetProperty("petId").GetGuid());
+        Assert.Equal("inline", body.RootElement.GetProperty("operation").GetString());
+        if (provider == "chatgpt")
+        {
+            Assert.False(body.RootElement.TryGetProperty("provider", out _));
+            Assert.False(body.RootElement.TryGetProperty("apiKey", out _));
+        }
+        else
+        {
+            Assert.Equal(provider, body.RootElement.GetProperty("provider").GetString());
+            Assert.Equal(key, body.RootElement.GetProperty("apiKey").GetString());
+            Assert.DoesNotContain(key, await response.Content.ReadAsStringAsync(Cancellation), StringComparison.Ordinal);
+        }
+    }
 
     [Fact]
     public async Task The_note_runtime_route_requires_a_root_before_contacting_worker()
@@ -330,11 +502,12 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         return session;
     }
 
-    private static NixDispatcher Dispatcher()
+    private static NixDispatcher Dispatcher(string provider = PetProviders.ChatGpt, bool inlineWriting = false)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IQueryHandler<GetWorkspace, WorkspaceSnapshot?>>(new FakeGetWorkspaceHandler());
-        services.AddSingleton<IQueryHandler<GetPetSettings, PetSettingsResponse>>(new FakeGetPetSettingsHandler());
+        services.AddSingleton<IQueryHandler<GetPetSettings, PetSettingsResponse>>(new FakeGetPetSettingsHandler(provider, inlineWriting));
+        services.AddSingleton<IQueryHandler<GetItem, Result<Item>>>(new FakeGetItemHandler());
         return new NixDispatcher(services.BuildServiceProvider());
     }
 
@@ -345,11 +518,44 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
                 null, false, false, false, false, null, "active", null));
     }
 
-    private sealed class FakeGetPetSettingsHandler : IQueryHandler<GetPetSettings, PetSettingsResponse>
+    private sealed class FakeGetPetSettingsHandler(string provider, bool inlineWriting) : IQueryHandler<GetPetSettings, PetSettingsResponse>
     {
         public ValueTask<PetSettingsResponse> HandleAsync(GetPetSettings query, CancellationToken cancellationToken) =>
             ValueTask.FromResult(new PetSettingsResponse(0, new(true, PetGuid, "system",
-                [new(PetGuid, "Nix", "owl", "playful", "balanced", "Explain clearly.")])));
+                [new(Guid.NewGuid(), "Other pet", "owl", "calm", "balanced", ""),
+                    new(PetGuid, "Nix", "owl", "playful", "balanced", "Explain clearly.", Provider: provider)], inlineWriting)));
+    }
+
+    private sealed class FakeGetItemHandler : IQueryHandler<GetItem, Result<Item>>
+    {
+        public ValueTask<Result<Item>> HandleAsync(GetItem query, CancellationToken cancellationToken) => ValueTask.FromResult(Result.Success(new Item
+        {
+            Id = query.ItemId,
+            TenantId = TenantId.Create(),
+            WorkspaceId = new(WorkspaceGuid),
+            Type = "note",
+            Seq = 1,
+            LifecycleState = ItemLifecycleState.Active,
+            CreatedBy = PrincipalId.Create(),
+            LastModifiedBy = PrincipalId.Create(),
+            CreatedAt = DateTimeOffset.UtcNow,
+            LastModifiedAt = DateTimeOffset.UtcNow,
+        }));
+    }
+
+    private sealed class OpenLocks : IItemLocks
+    {
+        public ValueTask<IReadOnlySet<ItemId>> LockedAmongAsync(IReadOnlyList<ItemId> itemIds, CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlySet<ItemId>>(new HashSet<ItemId>());
+        public ValueTask<ItemLockState> GetStateAsync(ItemId itemId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> MayReadBodyAsync(ItemId itemId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> AnyInSubtreeAsync(ItemId itemId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<string?> FindVerifierAsync(ItemId itemId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> LockAsync(ItemId itemId, string verifier, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> ChangeVerifierAsync(ItemId itemId, string expected, string verifier, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> RemoveAsync(ItemId itemId, string expected, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> GrantAsync(ItemId itemId, string verifier, DateTimeOffset expiresAt, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask<bool> IsLockedAsync(ItemId itemId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public ValueTask RevokeAsync(ItemId itemId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 
     private sealed class StubPermissions : IPermissionResolver
@@ -372,7 +578,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         public ValueTask<bool> IsTenantAdministratorAsync(CancellationToken cancellationToken) => ValueTask.FromResult(false);
     }
 
-    private sealed class RecordingWorker : HttpMessageHandler
+    private sealed class RecordingWorker(bool inline = false) : HttpMessageHandler
     {
         public int Calls { get; private set; }
         public string Body { get; private set; } = "";
@@ -383,7 +589,9 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
             Body = await request.Content!.ReadAsStringAsync(cancellationToken);
             return new(HttpStatusCode.OK)
             {
-                Content = new StringContent("{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"Connected\",\"canConnect\":false,\"messages\":[]}", System.Text.Encoding.UTF8, "application/json"),
+                Content = inline
+                    ? new StringContent("event: done\ndata: {\"text\":\"Improved text\"}\n\n", System.Text.Encoding.UTF8, "text/event-stream")
+                    : new StringContent("{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"Connected\",\"canConnect\":false,\"messages\":[]}", System.Text.Encoding.UTF8, "application/json"),
             };
         }
     }
@@ -402,6 +610,16 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
                     System.Text.Encoding.UTF8, "application/json"),
             };
         }
+    }
+
+    private sealed class ModelCatalogWorker : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                "{\"provider\":\"chatgpt\",\"status\":\"connected\",\"reason\":\"Connected\",\"canConnect\":false,\"messages\":[],\"models\":[{\"id\":\"plain\",\"name\":\"Plain\",\"default\":true,\"supportsTools\":false},{\"id\":\"older\",\"name\":\"Older\",\"default\":false}]}",
+                System.Text.Encoding.UTF8, "application/json"),
+        });
     }
 
     private sealed class LegacyActionsWorker : HttpMessageHandler
@@ -466,5 +684,15 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         public Task SaveAsync(PetProviderCredential credential, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<bool> RemoveAsync(TenantId tenantId, PrincipalId principalId, string provider, CancellationToken cancellationToken) => Task.FromResult(false);
+    }
+
+    private sealed class SavedCredentials(PetProviderCredential? credential) : IPetProviderCredentialStore
+    {
+        public ValueTask<PetProviderCredential?> FindAsync(TenantId tenantId, PrincipalId principalId, string provider, CancellationToken cancellationToken) =>
+            ValueTask.FromResult(credential is not null && credential.TenantId == tenantId && credential.PrincipalId == principalId && credential.Provider == provider ? credential : null);
+
+        public ValueTask<IReadOnlyList<PetProviderCredential>> ListAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task SaveAsync(PetProviderCredential credential, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<bool> RemoveAsync(TenantId tenantId, PrincipalId principalId, string provider, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }
