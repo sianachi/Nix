@@ -17,6 +17,11 @@ docs
 # Site content snapshots from scripts/export-site-content.sh, Markdown included.
 !/docs/site/
 !/docs/site/**
+# The Nix Sites ADRs, kept as Markdown until they are packed into the docs archive.
+!/docs/adr/
+/docs/adr/*
+!/docs/adr/0063-nix-sites.md
+!/docs/adr/0064-git-sync-and-nixmd.md
 Design language for Nix review/
 
 # Per-checkout list of paths scripts/new-goal-worktree.sh links into a lane.
