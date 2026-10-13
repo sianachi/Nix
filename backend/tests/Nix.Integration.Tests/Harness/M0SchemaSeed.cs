@@ -229,9 +229,9 @@ internal static class M0SchemaSeed
     public static Guid BuildIdFor(M0TenantRows rows) =>
         rows.Slug == "alpha" ? new Guid("b0b0b0b0-1111-4111-8111-b0b0b0b0b0b0") : new Guid("b0b0b0b0-2222-4222-8222-b0b0b0b0b0b0");
 
-    /// <summary>Seeds immutable creation receipts for the current-schema isolation tests.</summary>
+    /// <summary>Seeds newer tables for the current-schema isolation tests.</summary>
     /// <remarks>Separate from the base seed because upgrade tests also seed older schemas.</remarks>
-    public static async Task SeedItemCreationReceiptsAsync(NixPostgresFixture fixture)
+    public static async Task SeedCurrentSchemaRowsAsync(NixPostgresFixture fixture)
     {
         ArgumentNullException.ThrowIfNull(fixture);
         await using var connection = await fixture.OpenMigratorConnectionAsync();
@@ -241,6 +241,15 @@ internal static class M0SchemaSeed
                 INSERT INTO item_creation_receipt (tenant_id, principal_id, request_key, request_hash, item_id)
                 VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, {Literal(rows.ItemId)},
                     sha256(convert_to(jsonb_build_object()::text, 'UTF8')), {Literal(rows.ItemId)});
+
+                INSERT INTO workspace_arrangement
+                    (tenant_id, principal_id, groups_json, pinned_workspace_ids, revision)
+                VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, '[]'::jsonb, ARRAY[]::uuid[], 1);
+
+                INSERT INTO pet_provider_credential
+                    (tenant_id, principal_id, provider, protected_key, key_hint, saved_at)
+                VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, 'anthropic',
+                    decode('0102', 'hex'), 'seed', now());
                 """);
         }
     }

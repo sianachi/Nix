@@ -315,7 +315,6 @@ describe('the sidebar row context menu', () => {
     await user.click(screen.getByRole('button', { name: 'Clear selection' }));
     expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
   });
-
 });
 
 it.each(['desktop', 'mobile'] as const)(

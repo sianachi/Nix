@@ -50,8 +50,9 @@ export function McpSection(): ReactElement {
         </Text>
         <Text variant="note" tone="muted">
           Lets an AI client (Claude Code, Claude Desktop, Cursor and others) use your Nix workspaces
-          through the Model Context Protocol, as you, within a token&apos;s scopes. Core checks every
-          call the same way it checks you; nothing a client sends can widen what the token allows.
+          through the Model Context Protocol, as you, within a token&apos;s scopes. Core checks
+          every call the same way it checks you; nothing a client sends can widen what the token
+          allows.
         </Text>
       </div>
 
@@ -233,7 +234,9 @@ function McpTokenRow({
         <Text as="p" variant="caption" tone="muted">
           {state === 'live'
             ? `Scopes ${token.scopes.join(', ')}, expires ${formatDay(token.expiresAt)}${
-                token.lastUsedAt === null ? ', never used' : `, last used ${formatDay(token.lastUsedAt)}`
+                token.lastUsedAt === null
+                  ? ', never used'
+                  : `, last used ${formatDay(token.lastUsedAt)}`
               }`
             : state === 'revoked'
               ? 'Revoked'

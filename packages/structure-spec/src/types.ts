@@ -170,4 +170,5 @@ export interface StructureView {
   interactiveForm?: StructureForm | null;
   doneProperty?: string | null;
   rowBy?: string | null;
+  open?: string | null;
 }

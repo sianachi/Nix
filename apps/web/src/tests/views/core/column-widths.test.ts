@@ -55,7 +55,10 @@ describe('column widths', () => {
     expect(clampWidth(Number.NaN)).toBe(64);
     storage.setItem(`nix.view.column-widths:${id}`, '{not json');
     expect(readColumnWidths(id)).toEqual({});
-    storage.setItem(`nix.view.column-widths:${id}-b`, JSON.stringify({ ok: 120, bad: 'wide', huge: 9000 }));
+    storage.setItem(
+      `nix.view.column-widths:${id}-b`,
+      JSON.stringify({ ok: 120, bad: 'wide', huge: 9000 }),
+    );
     expect(readColumnWidths(`${id}-b`)).toEqual({ ok: 120, huge: 800 });
   });
 });

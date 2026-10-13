@@ -62,6 +62,7 @@ export function toViewRequest(view: StructureView): ViewRequestContract {
     layout: view.layout,
     doneProperty: view.doneProperty ?? null,
     rowBy: view.rowBy ?? null,
+    open: view.open ?? null,
   };
 }
 

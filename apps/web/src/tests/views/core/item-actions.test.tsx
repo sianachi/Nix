@@ -14,7 +14,16 @@ const NOTE = item({ id: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', title: 'Roadmap'
 const PROTECTED = item({ id: 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb', title: 'Ledger' });
 
 function treeItem(id: string, title: string, noDelete = false): TreeItem {
-  return { id, title, type: 'note', parentId: null, hasChildren: false, seq: 0, lifecycleState: 'active', noDelete };
+  return {
+    id,
+    title,
+    type: 'note',
+    parentId: null,
+    hasChildren: false,
+    seq: 0,
+    lifecycleState: 'active',
+    noDelete,
+  };
 }
 
 function fakeTree(move = vi.fn()): WorkspaceTree {
@@ -48,19 +57,28 @@ it('offers rename, move and delete on a list row, and runs them through the shel
     </ItemCommandsProvider>,
   );
 
-  await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('row', { name: /roadmap/i }) });
+  await user.pointer({
+    keys: '[MouseRight]',
+    target: screen.getByRole('row', { name: /roadmap/i }),
+  });
   expect(await screen.findByRole('menuitem', { name: 'Rename…' })).toBeVisible();
   expect(screen.getByRole('menuitem', { name: 'Move to…' })).toBeVisible();
   await user.click(screen.getByRole('menuitem', { name: 'Delete' }));
   expect(onDelete).toHaveBeenCalledWith({ id: NOTE.id, title: 'Roadmap', hasChildren: false });
 
   // A protected item says so instead of offering a delete that Core would refuse.
-  await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('row', { name: /ledger/i }) });
+  await user.pointer({
+    keys: '[MouseRight]',
+    target: screen.getByRole('row', { name: /ledger/i }),
+  });
   expect(await screen.findByRole('menuitem', { name: 'Delete (protected)' })).toBeDisabled();
   await user.keyboard('{Escape}');
 
   // Move to… opens the picker; the root is a valid destination and the move runs through the tree.
-  await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('row', { name: /roadmap/i }) });
+  await user.pointer({
+    keys: '[MouseRight]',
+    target: screen.getByRole('row', { name: /roadmap/i }),
+  });
   await user.click(await screen.findByRole('menuitem', { name: 'Move to…' }));
   const dialog = await screen.findByRole('dialog', { name: 'Move item' });
   await user.click(screen.getByRole('button', { name: 'Move here' }));
@@ -68,7 +86,10 @@ it('offers rename, move and delete on a list row, and runs them through the shel
   expect(dialog).not.toBeInTheDocument();
 
   // Rename opens its own dialog and saves through the tree.
-  await user.pointer({ keys: '[MouseRight]', target: screen.getByRole('row', { name: /roadmap/i }) });
+  await user.pointer({
+    keys: '[MouseRight]',
+    target: screen.getByRole('row', { name: /roadmap/i }),
+  });
   await user.click(await screen.findByRole('menuitem', { name: 'Rename…' }));
   const title = await screen.findByRole('textbox', { name: 'Title' });
   await user.clear(title);

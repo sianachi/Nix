@@ -220,9 +220,7 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
     viewId,
   } = props;
   const storedWidths = useColumnWidths(viewId);
-  const resizeDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
-    null,
-  );
+  const resizeDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
 
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
 
@@ -943,100 +941,100 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
             const handleStyle = { left: `${String((offsets[col] ?? 0) + width)}px` };
             return (
               <Fragment key={column.key}>
-              <button
-                type="button"
-                aria-label={`Sort by ${column.label}${sorted ? `, currently ${direction}` : ''}`}
-                onClick={() => {
-                  onSort(
-                    column.key,
-                    sorted && direction === 'ascending' ? 'descending' : 'ascending',
-                  );
-                }}
-                className={cn(
-                  'absolute top-0 flex cursor-default items-center gap-1 truncate border-r border-divider px-2 text-left text-sm font-semibold',
-                  sorted ? 'text-accent-text' : 'text-foreground',
-                  focusRing,
-                )}
-                style={style}
-              >
-                {column.label}
-                {/* The neutral glyph on unsorted columns is what says "this sorts" to a sighted
+                <button
+                  type="button"
+                  aria-label={`Sort by ${column.label}${sorted ? `, currently ${direction}` : ''}`}
+                  onClick={() => {
+                    onSort(
+                      column.key,
+                      sorted && direction === 'ascending' ? 'descending' : 'ascending',
+                    );
+                  }}
+                  className={cn(
+                    'absolute top-0 flex cursor-default items-center gap-1 truncate border-r border-divider px-2 text-left text-sm font-semibold',
+                    sorted ? 'text-accent-text' : 'text-foreground',
+                    focusRing,
+                  )}
+                  style={style}
+                >
+                  {column.label}
+                  {/* The neutral glyph on unsorted columns is what says "this sorts" to a sighted
                     visitor - Table.tsx's own convention, kept in step. */}
-                <span className={sorted ? '' : 'text-muted'}>
-                  <Icon
-                    icon={
-                      sorted ? (direction === 'ascending' ? ArrowUp : ArrowDown) : ChevronsUpDown
-                    }
-                    size="sm"
-                  />
-                </span>
-              </button>
-              {/* A focusable window-splitter on the column's edge (requirement 2): drag it, or
+                  <span className={sorted ? '' : 'text-muted'}>
+                    <Icon
+                      icon={
+                        sorted ? (direction === 'ascending' ? ArrowUp : ArrowDown) : ChevronsUpDown
+                      }
+                      size="sm"
+                    />
+                  </span>
+                </button>
+                {/* A focusable window-splitter on the column's edge (requirement 2): drag it, or
                   focus it and use the arrows; Home forgets the dragged width. The drag never
                   reaches the sort button behind it. */}
-              {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA's focusable separator with aria-valuenow is the window-splitter widget; jsx-a11y models separator only as a static divider. */}
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label={`Resize column ${column.label}`}
-                aria-valuenow={width}
-                aria-valuemin={COLUMN_WIDTH.min}
-                aria-valuemax={COLUMN_WIDTH.max}
-                aria-valuetext={`${String(width)} pixels`}
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
-                tabIndex={0}
-                className={cn(
-                  'absolute top-0 z-10 h-8 w-3 -translate-x-1/2 cursor-col-resize touch-none',
-                  focusRingInset,
-                )}
-                style={handleStyle}
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  resizeDrag.current = {
-                    pointerId: event.pointerId,
-                    startX: event.clientX,
-                    startWidth: width,
-                  };
-                }}
-                onPointerMove={(event) => {
-                  const drag = resizeDrag.current;
-                  if (drag?.pointerId !== event.pointerId) return;
-                  setColumnWidth(
-                    viewId,
-                    column.key,
-                    clampWidth(drag.startWidth + event.clientX - drag.startX),
-                  );
-                }}
-                onPointerUp={() => {
-                  resizeDrag.current = null;
-                }}
-                onPointerCancel={() => {
-                  resizeDrag.current = null;
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA's focusable separator with aria-valuenow is the window-splitter widget; jsx-a11y models separator only as a static divider. */}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={`Resize column ${column.label}`}
+                  aria-valuenow={width}
+                  aria-valuemin={COLUMN_WIDTH.min}
+                  aria-valuemax={COLUMN_WIDTH.max}
+                  aria-valuetext={`${String(width)} pixels`}
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
+                  tabIndex={0}
+                  className={cn(
+                    'absolute top-0 z-10 h-8 w-3 -translate-x-1/2 cursor-col-resize touch-none',
+                    focusRingInset,
+                  )}
+                  style={handleStyle}
+                  onPointerDown={(event) => {
                     event.preventDefault();
-                    setColumnWidth(viewId, column.key, clampWidth(width - COLUMN_WIDTH.step));
-                  } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-                    event.preventDefault();
-                    setColumnWidth(viewId, column.key, clampWidth(width + COLUMN_WIDTH.step));
-                  } else if (event.key === 'Home') {
-                    event.preventDefault();
-                    resetColumnWidth(viewId, column.key);
-                  } else if (event.key === 'Escape' && resizeDrag.current !== null) {
-                    event.preventDefault();
-                    setColumnWidth(viewId, column.key, resizeDrag.current.startWidth);
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    resizeDrag.current = {
+                      pointerId: event.pointerId,
+                      startX: event.clientX,
+                      startWidth: width,
+                    };
+                  }}
+                  onPointerMove={(event) => {
+                    const drag = resizeDrag.current;
+                    if (drag?.pointerId !== event.pointerId) return;
+                    setColumnWidth(
+                      viewId,
+                      column.key,
+                      clampWidth(drag.startWidth + event.clientX - drag.startX),
+                    );
+                  }}
+                  onPointerUp={() => {
                     resizeDrag.current = null;
-                  }
-                }}
-              >
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-divider"
-                />
-              </div>
+                  }}
+                  onPointerCancel={() => {
+                    resizeDrag.current = null;
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      setColumnWidth(viewId, column.key, clampWidth(width - COLUMN_WIDTH.step));
+                    } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      setColumnWidth(viewId, column.key, clampWidth(width + COLUMN_WIDTH.step));
+                    } else if (event.key === 'Home') {
+                      event.preventDefault();
+                      resetColumnWidth(viewId, column.key);
+                    } else if (event.key === 'Escape' && resizeDrag.current !== null) {
+                      event.preventDefault();
+                      setColumnWidth(viewId, column.key, resizeDrag.current.startWidth);
+                      resizeDrag.current = null;
+                    }
+                  }}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-divider"
+                  />
+                </div>
               </Fragment>
             );
           })}

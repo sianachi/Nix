@@ -15,8 +15,20 @@ export interface ViewCapabilities {
   readonly drag: DragEffect | null;
 }
 
-const ACTIONS: ViewCapabilities = { select: true, move: true, rename: true, delete: true, drag: null };
-const NONE: ViewCapabilities = { select: false, move: false, rename: false, delete: false, drag: null };
+const ACTIONS: ViewCapabilities = {
+  select: true,
+  move: true,
+  rename: true,
+  delete: true,
+  drag: null,
+};
+const NONE: ViewCapabilities = {
+  select: false,
+  move: false,
+  rename: false,
+  delete: false,
+  drag: null,
+};
 
 export const VIEW_CAPABILITIES: Readonly<Record<string, ViewCapabilities>> = {
   list: ACTIONS,

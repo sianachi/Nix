@@ -1,5 +1,14 @@
 import type { MenuEntry } from '@nix/ui';
-import { CheckSquare, Eye, EyeOff, FileText, FolderInput, Pencil, Square, Trash2 } from 'lucide-react';
+import {
+  CheckSquare,
+  Eye,
+  EyeOff,
+  FileText,
+  FolderInput,
+  Pencil,
+  Square,
+  Trash2,
+} from 'lucide-react';
 
 import { useAutomateEntry } from '../../automations/automate-entry';
 import { useOptionalItemCommands } from '../../items/item-commands-context';
@@ -93,34 +102,34 @@ export function useItemContextActions(
           ]
         : [];
     return [
-    {
-      kind: 'action',
-      label: 'Open',
-      icon: FileText,
-      onSelect: () => {
-        onOpen(itemId);
+      {
+        kind: 'action',
+        label: 'Open',
+        icon: FileText,
+        onSelect: () => {
+          onOpen(itemId);
+        },
       },
-    },
-    ...extra,
-    ...shared,
-    ...(!visibility.enabled
-      ? []
-      : [
-          {
-            kind: 'action' as const,
-            label: visibility.hiddenSet.has(itemId) ? 'Show for me' : 'Hide for me',
-            icon: visibility.hiddenSet.has(itemId) ? Eye : EyeOff,
-            onSelect: () => {
-              if (visibility.hiddenSet.has(itemId)) visibility.show(itemId, title);
-              else visibility.hide(itemId, title);
+      ...extra,
+      ...shared,
+      ...(!visibility.enabled
+        ? []
+        : [
+            {
+              kind: 'action' as const,
+              label: visibility.hiddenSet.has(itemId) ? 'Show for me' : 'Hide for me',
+              icon: visibility.hiddenSet.has(itemId) ? Eye : EyeOff,
+              onSelect: () => {
+                if (visibility.hiddenSet.has(itemId)) visibility.show(itemId, title);
+                else visibility.hide(itemId, title);
+              },
             },
-          },
-        ]),
-    bookmarkEntry(itemId),
-    ...(workspace === null ? [] : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
-    ...(automateEntry === null ? [] : [automateEntry(itemId)]),
-    ...(muteRemindersEntry === null ? [] : [muteRemindersEntry(itemId, title)]),
-    ...destructive,
+          ]),
+      bookmarkEntry(itemId),
+      ...(workspace === null ? [] : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
+      ...(automateEntry === null ? [] : [automateEntry(itemId)]),
+      ...(muteRemindersEntry === null ? [] : [muteRemindersEntry(itemId, title)]),
+      ...destructive,
     ];
   };
 }
