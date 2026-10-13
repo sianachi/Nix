@@ -74,7 +74,10 @@ export function assignToGroup(
   };
 }
 
-export function addGroup(arrangement: WorkspaceArrangementInput, name: string): WorkspaceArrangementInput {
+export function addGroup(
+  arrangement: WorkspaceArrangementInput,
+  name: string,
+): WorkspaceArrangementInput {
   const group: WorkspaceGroup = { id: crypto.randomUUID(), name: name.trim(), workspaceIds: [] };
   return { ...arrangement, groups: [...arrangement.groups, group] };
 }
@@ -93,7 +96,10 @@ export function renameGroup(
 }
 
 /** Removing a group only ungroups its workspaces; nothing about them changes. */
-export function removeGroup(arrangement: WorkspaceArrangementInput, groupId: string): WorkspaceArrangementInput {
+export function removeGroup(
+  arrangement: WorkspaceArrangementInput,
+  groupId: string,
+): WorkspaceArrangementInput {
   return { ...arrangement, groups: arrangement.groups.filter((group) => group.id !== groupId) };
 }
 

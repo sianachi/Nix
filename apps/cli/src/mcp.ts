@@ -131,6 +131,7 @@ const RULE_GRAMMAR =
   'Titles may use {date} and {item.title}.';
 
 export interface WorkspaceMcpOptions {
+  readonly transport?: 'stdio' | 'http';
   readonly profileName?: string;
   readonly sessionDeps?: SessionDeps;
   readonly resolve?: (profileName: string | undefined, deps: SessionDeps) => Promise<Session>;
@@ -917,7 +918,7 @@ export async function createWorkspaceMcpServer(
       }),
   );
 
-  server.registerTool(
+  const importDocument = server.registerTool(
     'import_document',
     {
       description:
@@ -987,7 +988,7 @@ export async function createWorkspaceMcpServer(
       toolResult(async () => cancelDocumentImportFromSession(await session(), importId)),
   );
 
-  server.registerTool(
+  const uploadFile = server.registerTool(
     'upload_file',
     {
       description:
@@ -1008,7 +1009,7 @@ export async function createWorkspaceMcpServer(
       ),
   );
 
-  server.registerTool(
+  const replaceFile = server.registerTool(
     'replace_file',
     {
       description: 'Upload a new immutable current version for an existing file item.',
@@ -1034,7 +1035,7 @@ export async function createWorkspaceMcpServer(
       toolResult(async () => (await session()).client.query(files.fileByItem(itemId))),
   );
 
-  server.registerTool(
+  const downloadFile = server.registerTool(
     'download_file',
     {
       description: 'Download a current or historical file version to a local path.',
@@ -1239,7 +1240,7 @@ export async function createWorkspaceMcpServer(
       }),
   );
 
-  server.registerTool(
+  const previewTemplateArchiveImport = server.registerTool(
     'preview_template_archive_import',
     {
       description:
@@ -1280,7 +1281,7 @@ export async function createWorkspaceMcpServer(
       toolResult(async () => executeTemplateArchiveCommit(await session(), importId, digest)),
   );
 
-  server.registerTool(
+  const exportTemplateArchive = server.registerTool(
     'export_template_archive',
     {
       description:
@@ -1792,7 +1793,10 @@ export async function createWorkspaceMcpServer(
   );
   server.registerTool(
     'get_item',
-    { description: 'Read one item: title, type, parent, properties and protections.', inputSchema: { itemId: identifier } },
+    {
+      description: 'Read one item: title, type, parent, properties and protections.',
+      inputSchema: { itemId: identifier },
+    },
     ({ itemId }) => toolResult(async () => (await session()).client.query(items.itemById(itemId))),
   );
   server.registerTool(
@@ -1809,7 +1813,11 @@ export async function createWorkspaceMcpServer(
     ({ workspaceId, title, type, parentId }) =>
       toolResult(async () =>
         (await session()).client.execute(
-          items.createItem(workspaceId, { type: type ?? 'note', title, parentId: parentId ?? null }),
+          items.createItem(workspaceId, {
+            type: type ?? 'note',
+            title,
+            parentId: parentId ?? null,
+          }),
         ),
       ),
   );
@@ -1817,7 +1825,10 @@ export async function createWorkspaceMcpServer(
     'search_items',
     {
       description: 'Full-text search over the items you may read.',
-      inputSchema: { query: z.string().min(1).max(500), limit: z.number().int().min(1).max(100).optional() },
+      inputSchema: {
+        query: z.string().min(1).max(500),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
     },
     ({ query, limit }) =>
       toolResult(async () => (await session()).client.query(search.searchItems(query, limit))),
@@ -1846,10 +1857,28 @@ export async function createWorkspaceMcpServer(
       toolResult(async () => {
         const current = await session();
         const token = await requireAccessToken(current);
-        return writeBodyMarkdown({ collabUrl: current.endpoints.collabUrl, itemId, token, markdown });
+        return writeBodyMarkdown({
+          collabUrl: current.endpoints.collabUrl,
+          itemId,
+          token,
+          markdown,
+        });
       }),
   );
 
+  if (options.transport === 'http') {
+    // Core permissions cannot authorize access to the MCP host's filesystem or saved profiles.
+    for (const tool of [
+      importDocument,
+      uploadFile,
+      replaceFile,
+      downloadFile,
+      previewTemplateArchiveImport,
+      exportTemplateArchive,
+    ]) {
+      tool.remove();
+    }
+  }
   return server;
 }
 
@@ -1872,11 +1901,14 @@ function lazy<T>(factory: () => Promise<T>): () => Promise<T> {
  * server's per-call `apiUrl` and its own `resolve` test seam, so `pet_runtime` and
  * `pet_tool_run` reach Core (and Collab) with the same interactive-session-first rule the CLI
  * uses: browser-approved profiles renew access tokens automatically. An `NIX_SESSION_TOKEN`
- * paired with `apiUrl` remains an explicit override; neither path expands PAT scopes. */
+ * paired with `apiUrl` remains an explicit stdio override. HTTP always uses its request resolver. */
 async function petSessionForMcp(
   apiUrl: string | undefined,
   options: WorkspaceMcpOptions,
 ): Promise<Session> {
+  if (options.transport === 'http') {
+    return (options.resolve ?? resolveSession)(options.profileName, options.sessionDeps ?? {});
+  }
   return petSessionFor(
     apiUrl,
     options.profileName,

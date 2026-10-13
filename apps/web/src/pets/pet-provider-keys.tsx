@@ -6,7 +6,11 @@ import { useApiClient } from '../api/api-client-provider';
 
 const PROVIDERS = [
   { id: 'anthropic', label: 'Claude (Anthropic)', hint: 'An API key from console.anthropic.com.' },
-  { id: 'openrouter', label: 'OpenRouter', hint: 'An API key from openrouter.ai; models without tool support are marked in the chat.' },
+  {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    hint: 'An API key from openrouter.ai; models without tool support are marked in the chat.',
+  },
 ] as const;
 
 /**
@@ -48,7 +52,10 @@ export function PetProviderKeys(): ReactElement {
     setError(null);
     try {
       const saved = await client.execute(pets.saveProviderKey(provider, key));
-      setKeys((current) => [...(current ?? []).filter((entry) => entry.provider !== provider), saved]);
+      setKeys((current) => [
+        ...(current ?? []).filter((entry) => entry.provider !== provider),
+        saved,
+      ]);
       setDrafts((current) => ({ ...current, [provider]: '' }));
     } catch (cause) {
       setError(
@@ -79,7 +86,10 @@ export function PetProviderKeys(): ReactElement {
   }
 
   return (
-    <section aria-label="Provider keys" className="flex min-w-0 flex-col gap-3 border border-divider p-3">
+    <section
+      aria-label="Provider keys"
+      className="flex min-w-0 flex-col gap-3 border border-divider p-3"
+    >
       <Text variant="h3" as="h3">
         Provider keys
       </Text>
@@ -109,7 +119,11 @@ export function PetProviderKeys(): ReactElement {
                   : `: key ending ${stored.keyHint}, saved ${new Date(stored.savedAt).toLocaleDateString()}`}
               </Text>
               <div className="flex flex-wrap items-end gap-2">
-                <Field label={`${provider.label} API key`} hint={provider.hint} className="min-w-0 flex-1">
+                <Field
+                  label={`${provider.label} API key`}
+                  hint={provider.hint}
+                  className="min-w-0 flex-1"
+                >
                   {(control) => (
                     <Input
                       {...control}
@@ -131,7 +145,11 @@ export function PetProviderKeys(): ReactElement {
                   {stored === undefined ? 'Save key' : 'Replace key'}
                 </Button>
                 {stored === undefined ? null : (
-                  <Button variant="ghost" disabled={busy !== null} onClick={() => void remove(provider.id)}>
+                  <Button
+                    variant="ghost"
+                    disabled={busy !== null}
+                    onClick={() => void remove(provider.id)}
+                  >
                     Remove key
                   </Button>
                 )}

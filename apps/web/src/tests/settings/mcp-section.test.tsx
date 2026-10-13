@@ -26,7 +26,9 @@ describe('Settings > MCP', () => {
     renderAt(<App />, '/settings?tab=mcp');
     const section = await screen.findByRole('region', { name: 'MCP' });
     expect(
-      within(section).getByText(/claude mcp add --transport http nix https:\/\/nix.example.test\/mcp/),
+      within(section).getByText(
+        /claude mcp add --transport http nix https:\/\/nix.example.test\/mcp/,
+      ),
     ).toBeVisible();
 
     await user.click(within(section).getByRole('button', { name: 'Create MCP token' }));

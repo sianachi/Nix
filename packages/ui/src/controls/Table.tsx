@@ -6,7 +6,12 @@ import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
 import { type MenuEntry } from './Menu';
 import { Icon } from '../primitives/Icon';
 import { Text } from '../primitives/Text';
-import { dragHandleLineStates, focusRing, focusRingInset, inkWashStates } from '../primitives/interaction';
+import {
+  dragHandleLineStates,
+  focusRing,
+  focusRingInset,
+  inkWashStates,
+} from '../primitives/interaction';
 
 /**
  * <Table> - rows of data, with the four things a data table owes the reader.
@@ -267,7 +272,11 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   onColumnResize === undefined ? '' : 'relative',
                 )}
                 // design-token-exempt: a dragged column width is runtime geometry, not a design value
-                style={width === undefined ? undefined : { width: `${String(width)}px`, minWidth: `${String(width)}px` }}
+                style={
+                  width === undefined
+                    ? undefined
+                    : { width: `${String(width)}px`, minWidth: `${String(width)}px` }
+                }
               >
                 {sortable ? (
                   <button
@@ -369,7 +378,6 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
   );
 }
 
-
 /**
  * A window-splitter separator on a header's right edge: drag it, or focus it and use the arrow
  * keys, so a resize is never a pointer-only act. Pointer capture keeps the drag on the handle, and
@@ -450,7 +458,10 @@ function ColumnResizeHandle({
     >
       <span
         aria-hidden="true"
-        className={cn('pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2', dragHandleLineStates)}
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2',
+          dragHandleLineStates,
+        )}
       />
     </div>
   );

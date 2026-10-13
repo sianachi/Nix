@@ -29,7 +29,11 @@ export function WorkspaceGroupsSection(): ReactNode {
     arrangement.groups.find((group) => group.workspaceIds.includes(workspaceId))?.id ?? '';
 
   return (
-    <section aria-labelledby="workspace-groups-heading" aria-busy={saving} className="flex flex-col gap-3">
+    <section
+      aria-labelledby="workspace-groups-heading"
+      aria-busy={saving}
+      className="flex flex-col gap-3"
+    >
       <div className="flex flex-col gap-1">
         <Text id="workspace-groups-heading" variant="h4" as="h3">
           Workspace groups and pins
@@ -73,7 +77,11 @@ export function WorkspaceGroupsSection(): ReactNode {
                 />
               )}
             </Field>
-            <Button type="submit" variant="secondary" disabled={saving || newGroupName.trim().length === 0}>
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={saving || newGroupName.trim().length === 0}
+            >
               Add group
             </Button>
           </form>
@@ -171,7 +179,9 @@ export function WorkspaceGroupsSection(): ReactNode {
                       disabled={saving || arrangement.groups.length === 0}
                       onChange={(event) => {
                         const value = event.currentTarget.value;
-                        void save(assignToGroup(arrangement, entry.id, value.length === 0 ? null : value));
+                        void save(
+                          assignToGroup(arrangement, entry.id, value.length === 0 ? null : value),
+                        );
                       }}
                     >
                       <option value="">No group</option>

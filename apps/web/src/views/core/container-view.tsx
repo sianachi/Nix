@@ -39,7 +39,12 @@ export interface ContainerViewProps {
   readonly onOpenBeside?: ((itemId: string) => void) | undefined;
 }
 
-export function ContainerView({ container, view, onOpen, onOpenBeside }: ContainerViewProps): ReactNode {
+export function ContainerView({
+  container,
+  view,
+  onOpen,
+  onOpenBeside,
+}: ContainerViewProps): ReactNode {
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
   const roomForPane = useRoomForAnotherPane();

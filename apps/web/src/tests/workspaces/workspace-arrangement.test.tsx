@@ -35,10 +35,15 @@ describe('arrangeWorkspaces', () => {
     expect(arranged.groups[0]?.workspaces.map((entry) => entry.id)).toEqual([SHARED.id]);
     expect(arranged.ungrouped.map((entry) => entry.id)).toEqual([STUB_WORKSPACE.id]);
     // Removing the group keeps the workspace; it only becomes ungrouped.
-    expect(arrangeWorkspaces([STUB_WORKSPACE, SHARED], removeGroup(arrangement, 'g1')).ungrouped).toHaveLength(2);
+    expect(
+      arrangeWorkspaces([STUB_WORKSPACE, SHARED], removeGroup(arrangement, 'g1')).ungrouped,
+    ).toHaveLength(2);
     // A workspace sits in one group at most.
     const moved = assignToGroup(
-      { ...arrangement, groups: [...arrangement.groups, { id: 'g2', name: 'Home', workspaceIds: [] }] },
+      {
+        ...arrangement,
+        groups: [...arrangement.groups, { id: 'g2', name: 'Home', workspaceIds: [] }],
+      },
       SHARED.id,
       'g2',
     );
@@ -79,7 +84,13 @@ describe('the workspace menu', () => {
       workspaces: [STUB_WORKSPACE, SHARED],
       workspaceArrangement: {
         revision: 3,
-        groups: [{ id: '44444444-4444-4444-8444-444444444444', name: 'Clients', workspaceIds: [SHARED.id, GONE] }],
+        groups: [
+          {
+            id: '44444444-4444-4444-8444-444444444444',
+            name: 'Clients',
+            workspaceIds: [SHARED.id, GONE],
+          },
+        ],
         pinnedWorkspaceIds: [],
       },
     });
@@ -117,10 +128,14 @@ describe('workspace groups in settings', () => {
 
     await user.click(within(section).getByRole('button', { name: 'Remove group Clients' }));
     await waitFor(() => {
-      expect(within(section).queryByRole('list', { name: 'Workspace groups' })).not.toBeInTheDocument();
+      expect(
+        within(section).queryByRole('list', { name: 'Workspace groups' }),
+      ).not.toBeInTheDocument();
     });
     // Still here, still choosable: a removed group takes nothing with it.
-    expect(within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` })).toBeDisabled();
+    expect(
+      within(section).getByRole('combobox', { name: `Group for ${SHARED.name}` }),
+    ).toBeDisabled();
     expect(within(section).getByText(SHARED.name)).toBeVisible();
   });
 });

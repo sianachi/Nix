@@ -64,6 +64,10 @@ export function useItemSelection(): ItemSelection {
 }
 
 /** Whether a pointer event asks to select rather than open: Cmd/Ctrl or Shift held. */
-export function isSelectGesture(event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }): boolean {
+export function isSelectGesture(event: {
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+}): boolean {
   return event.metaKey || event.ctrlKey || event.shiftKey;
 }
