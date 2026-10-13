@@ -27,6 +27,7 @@ function setup(version: string | null = 'a'.repeat(64)) {
         id: 'list',
         name: 'Tasks',
         kind: 'list',
+        open: 'beside',
         columns: ['status'],
         groupBy: 'status',
         sortBy: 'status',
