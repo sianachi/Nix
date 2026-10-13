@@ -292,7 +292,9 @@ export function AppShell(): ReactNode {
    * Lives here rather than on `<WorkspaceSidebar>` because the toast this shows is a shell-level
    * overlay, not a sidebar-scoped one - see `shell-toasts.tsx` for why that move mattered.
    */
-  async function requestDelete(item: Pick<TreeItem, 'id' | 'title' | 'hasChildren'>): Promise<void> {
+  async function requestDelete(
+    item: Pick<TreeItem, 'id' | 'title' | 'hasChildren'>,
+  ): Promise<void> {
     const title = item.title || 'Untitled';
     const { refusal } = await tree.remove(item.id);
     if (refusal !== null) {

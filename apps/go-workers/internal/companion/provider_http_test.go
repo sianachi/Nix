@@ -240,6 +240,37 @@ func TestARejectedKeyFailsTheTurnWithAnActionableReason(t *testing.T) {
 	}
 }
 
+func TestProviderRedirectsCannotReceiveCredentialsOrPrompts(t *testing.T) {
+	for _, provider := range []string{"anthropic", "openrouter"} {
+		t.Run(provider, func(t *testing.T) {
+			received := make(chan string, 1)
+			sink := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				received <- r.Header.Get("x-api-key") + r.Header.Get("Authorization") + " " + string(body)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			defer sink.Close()
+			origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, sink.URL, http.StatusTemporaryRedirect)
+			}))
+			defer origin.Close()
+			n := newNotifications()
+			transport := testTransport(t, provider, origin.URL, n.notify).(*httpTransport)
+			transport.client.Transport = origin.Client().Transport
+			startThreadAndTurn(t, transport, nil, "private test prompt")
+			events := strings.Join(n.wait(t), "\n")
+			select {
+			case leaked := <-received:
+				t.Fatalf("provider redirect received credentials or prompt: %s", leaked)
+			default:
+			}
+			if !strings.Contains(events, `"status":"failed"`) || !strings.Contains(events, "HTTP 307") {
+				t.Fatalf("redirect did not fail the provider turn: %s", events)
+			}
+		})
+	}
+}
+
 func TestOpenRouterModelListMarksToolSupport(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer sk-or-test" {

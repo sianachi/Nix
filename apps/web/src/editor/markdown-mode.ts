@@ -21,7 +21,9 @@ export interface MarkdownSnapshot {
 }
 
 export function snapshotMarkdown(fragment: Y.XmlFragment): MarkdownSnapshot {
-  const { markdown, losses } = documentToMarkdown(yXmlFragmentToProseMirrorRootNode(fragment, nixSchema).toJSON());
+  const { markdown, losses } = documentToMarkdown(
+    yXmlFragmentToProseMirrorRootNode(fragment, nixSchema).toJSON(),
+  );
   return { markdown, losses };
 }
 
@@ -47,7 +49,11 @@ export function applyMarkdown(
   }
   const scratch = new Y.Doc();
   try {
-    const built = prosemirrorJSONToYXmlFragment(nixSchema, parsed.doc, scratch.getXmlFragment('default'));
+    const built = prosemirrorJSONToYXmlFragment(
+      nixSchema,
+      parsed.doc,
+      scratch.getXmlFragment('default'),
+    );
     const elements = built.toArray().map((node) => {
       if (!(node instanceof Y.XmlElement) && !(node instanceof Y.XmlText)) {
         throw new Error('Unsupported note block.');
@@ -71,7 +77,10 @@ export function applyMarkdown(
  * mode's own write) do not count.
  */
 export function watchRemoteChanges(fragment: Y.XmlFragment, onRemote: () => void): () => void {
-  const observer = (_events: readonly Y.YEvent<Y.XmlElement>[], transaction: Y.Transaction): void => {
+  const observer = (
+    _events: readonly Y.YEvent<Y.XmlElement>[],
+    transaction: Y.Transaction,
+  ): void => {
     if (!transaction.local) onRemote();
   };
   fragment.observeDeep(observer);

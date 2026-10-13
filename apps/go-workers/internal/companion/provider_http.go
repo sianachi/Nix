@@ -106,7 +106,7 @@ func newHTTPTransport(kind, apiKey, home string, notify func(string, json.RawMes
 		apiKey:  apiKey,
 		home:    home,
 		notify:  notify,
-		client:  &http.Client{Timeout: 0},
+		client:  &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		wire:    wire,
 		threads: map[string]*httpThread{},
 		turns:   map[string]context.CancelFunc{},

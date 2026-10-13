@@ -1,12 +1,17 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
-import { useRef, type ReactNode, type Ref } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 
 import { cn } from '../lib/cn';
 import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
 import { type MenuEntry } from './Menu';
 import { Icon } from '../primitives/Icon';
 import { Text } from '../primitives/Text';
-import { dragHandleLineStates, focusRing, focusRingInset, inkWashStates } from '../primitives/interaction';
+import {
+  dragHandleLineStates,
+  focusRing,
+  focusRingInset,
+  inkWashStates,
+} from '../primitives/interaction';
 
 /**
  * <Table> - rows of data, with the four things a data table owes the reader.
@@ -267,7 +272,11 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   onColumnResize === undefined ? '' : 'relative',
                 )}
                 // design-token-exempt: a dragged column width is runtime geometry, not a design value
-                style={width === undefined ? undefined : { width: `${String(width)}px`, minWidth: `${String(width)}px` }}
+                style={
+                  width === undefined
+                    ? undefined
+                    : { width: `${String(width)}px`, minWidth: `${String(width)}px` }
+                }
               >
                 {sortable ? (
                   <button
@@ -369,7 +378,6 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
   );
 }
 
-
 /**
  * A window-splitter separator on a header's right edge: drag it, or focus it and use the arrow
  * keys, so a resize is never a pointer-only act. Pointer capture keeps the drag on the handle, and
@@ -386,18 +394,35 @@ function ColumnResizeHandle({
   readonly onResize: (width: number) => void;
   readonly onReset: (() => void) | undefined;
 }): ReactNode {
+  const handle = useRef<HTMLDivElement>(null);
+  const [automaticWidth, setAutomaticWidth] = useState<number>(TABLE_COLUMN_WIDTH.min);
   const drag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
+  useLayoutEffect(() => {
+    const column = handle.current?.parentElement;
+    if (width !== undefined || column === undefined || column === null) return;
+    const update = () => {
+      setAutomaticWidth(Math.round(column.getBoundingClientRect().width));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(column);
+    return () => {
+      observer.disconnect();
+    };
+  }, [width]);
+  const currentWidth = width ?? automaticWidth;
   const measured = (element: HTMLElement): number =>
     width ?? element.parentElement?.getBoundingClientRect().width ?? TABLE_COLUMN_WIDTH.min;
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA's focusable separator with aria-valuenow is the window-splitter widget; jsx-a11y models separator only as a static divider.
     <div
+      ref={handle}
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize column ${label}`}
-      aria-valuenow={width}
-      aria-valuemin={TABLE_COLUMN_WIDTH.min}
-      aria-valuemax={TABLE_COLUMN_WIDTH.max}
+      aria-valuenow={currentWidth}
+      aria-valuemin={Math.min(TABLE_COLUMN_WIDTH.min, currentWidth)}
+      aria-valuemax={Math.max(TABLE_COLUMN_WIDTH.max, currentWidth)}
       aria-valuetext={width === undefined ? 'automatic width' : `${String(width)} pixels`}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
       tabIndex={0}
@@ -450,7 +475,10 @@ function ColumnResizeHandle({
     >
       <span
         aria-hidden="true"
-        className={cn('pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2', dragHandleLineStates)}
+        className={cn(
+          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2',
+          dragHandleLineStates,
+        )}
       />
     </div>
   );

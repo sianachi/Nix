@@ -60,7 +60,10 @@ import { NewItemDialog, type NewItemDialogMode } from './new-item-dialog';
 import { HiddenItemsPanel } from './hidden-items-panel';
 import { siblingMoveTarget } from './sibling-move-target';
 import { useOptionalItemCommands } from './item-commands-context';
-import { ItemSelectionContext, useOptionalItemSelection } from '../views/core/item-selection-context';
+import {
+  ItemSelectionContext,
+  useOptionalItemSelection,
+} from '../views/core/item-selection-context';
 import { SelectionBar } from '../views/core/selection-bar';
 import { useItemSelection } from '../views/core/use-item-selection';
 import { capabilitiesOf } from '../views/core/view-capabilities';
@@ -329,31 +332,31 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
         <SidebarPins onSelect={onSelect} selectedId={selectedId} landmarks={landmarks.landmarks} />
         <ItemSelectionContext value={selectionValue}>
-        <TreeBody
-          tree={tree}
-          selectedId={selectedId}
-          onSelect={onSelect}
-          onOpenBeside={onOpenBeside}
-          onOpenPinned={onOpenPinned}
-          canOpenBeside={canOpenBeside}
-          besideRefusal={besideRefusal}
-          dragged={dragged}
-          setDragged={setDragged}
-          onDeleteItem={onDeleteItem}
-          landmarks={landmarks.landmarks}
-          onChooseIcon={
-            landmarks.enabled
-              ? (item, invoker) => {
-                  iconReturnFocus.current = invoker;
-                  setIconItem({
-                    scope: landmarks.scope,
-                    id: item.id,
-                    title: item.title || 'Untitled',
-                  });
-                }
-              : undefined
-          }
-        />
+          <TreeBody
+            tree={tree}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onOpenBeside={onOpenBeside}
+            onOpenPinned={onOpenPinned}
+            canOpenBeside={canOpenBeside}
+            besideRefusal={besideRefusal}
+            dragged={dragged}
+            setDragged={setDragged}
+            onDeleteItem={onDeleteItem}
+            landmarks={landmarks.landmarks}
+            onChooseIcon={
+              landmarks.enabled
+                ? (item, invoker) => {
+                    iconReturnFocus.current = invoker;
+                    setIconItem({
+                      scope: landmarks.scope,
+                      id: item.id,
+                      title: item.title || 'Untitled',
+                    });
+                  }
+                : undefined
+            }
+          />
         </ItemSelectionContext>
       </div>
 
@@ -828,7 +831,10 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               label: inSelection ? 'Deselect' : 'Select',
               shortcut: 'Shift+Click',
               onSelect: () => {
-                rowSelection.toggle(item.id, siblings.map((sibling) => sibling.id));
+                rowSelection.toggle(
+                  item.id,
+                  siblings.map((sibling) => sibling.id),
+                );
               },
             },
           ]),

@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Table, type TableColumn } from './Table';
 
@@ -19,6 +19,27 @@ const COLUMNS: TableColumn<Document>[] = [
   { key: 'title', header: 'Title', cell: (row) => row.title, sortable: true, rowHeader: true },
   { key: 'words', header: 'Words', cell: (row) => row.words, sortable: true, align: 'end' },
 ];
+
+const resizeNotifications: (() => void)[] = [];
+beforeEach(() => {
+  resizeNotifications.length = 0;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeNotifications.push(() => {
+          callback([], this);
+        });
+      }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function renderTable(overrides: Partial<Parameters<typeof Table<Document>>[0]> = {}) {
   return render(
@@ -207,6 +228,50 @@ describe('Table', () => {
   it('draws no resize handles unless somebody is listening for a width', () => {
     renderTable();
     expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+  });
+
+  it('announces automatic width and resizes from the measured column width', async () => {
+    const onColumnResize = vi.fn();
+    const onColumnWidthReset = vi.fn();
+    const bounds = new DOMRect(0, 0, 240, 40);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(bounds);
+    renderTable({ onColumnResize, onColumnWidthReset });
+    const handle = screen.getByRole('separator', { name: 'Resize column Title' });
+
+    expect(handle).toHaveAttribute('aria-valuenow', '240');
+    expect(handle).toHaveAttribute('aria-valuemin', '64');
+    expect(handle).toHaveAttribute('aria-valuemax', '800');
+    expect(handle).toHaveAttribute('aria-valuetext', 'automatic width');
+
+    handle.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 256);
+    bounds.width = 320;
+    act(() => {
+      for (const notify of resizeNotifications) notify();
+    });
+    expect(handle).toHaveAttribute('aria-valuenow', '320');
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 304);
+    await userEvent.keyboard('{Home}');
+    expect(onColumnWidthReset).toHaveBeenCalledWith('title');
+  });
+
+  it.each([
+    { width: 0, minimum: '0', maximum: '800' },
+    { width: 48, minimum: '48', maximum: '800' },
+    { width: 1200, minimum: '64', maximum: '1200' },
+  ])('includes an automatic width of $width in the announced range', (range) => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(
+      new DOMRect(0, 0, range.width, 40),
+    );
+    renderTable({ onColumnResize: vi.fn() });
+    const handle = screen.getByRole('separator', { name: 'Resize column Title' });
+
+    expect(handle).toHaveAttribute('aria-valuenow', String(range.width));
+    expect(handle).toHaveAttribute('aria-valuemin', range.minimum);
+    expect(handle).toHaveAttribute('aria-valuemax', range.maximum);
+    expect(handle).toHaveAttribute('aria-valuetext', 'automatic width');
   });
 
   it('resizes a column from the keyboard, one step at a time, and resets from Home', async () => {

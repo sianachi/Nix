@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Nix.Abstractions;
@@ -113,12 +114,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
         {
             using var handler = new RecordingWorker();
             using var http = new HttpClient(handler);
-            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Nix:Pets:WorkerUrl"] = "http://worker:8301",
-                ["Nix:InternalSecret"] = "test-secret",
-            }).Build();
-            var gateway = new PetWorkerClient(http, configuration, work.Resolve<INixSessionContextAccessor>(), work.Resolve<NixDispatcher>(), work.Resolve<IPermissionResolver>());
+            var gateway = Gateway(work, http);
             foreach (var operation in new[] { "read", "send", "tool_claim", "tool_result" })
             {
                 var result = await gateway.ExecuteAsync(new(operation, TestTenants.BetaWorkspace, Guid.NewGuid(), Guid.NewGuid(), "Test", ToolId: "tool-one"), Cancellation);
@@ -138,14 +134,9 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
         {
             using var handler = new RecordingWorker();
             using var http = new HttpClient(handler);
-            var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Nix:Pets:WorkerUrl"] = "http://worker:8301",
-                ["Nix:InternalSecret"] = "test-secret",
-            }).Build();
             var dispatcher = work.Resolve<NixDispatcher>();
             var saved = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
-            var gateway = new PetWorkerClient(http, configuration, work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>());
+            var gateway = Gateway(work, http);
             var result = await gateway.ExecuteAsync(new("read", TestTenants.AlphaWorkspace, saved.Settings.ActivePetId), Cancellation);
             Assert.True(result.IsSuccess);
             Assert.Equal(1, handler.Calls);
@@ -178,7 +169,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
 
             using var handler = new RecordingWorker();
             using var http = new HttpClient(handler);
-            var gateway = Gateway(work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>(), http);
+            var gateway = Gateway(work, http);
             var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
             foreach (var root in new[] { Guid.NewGuid(), M0SchemaSeed.Beta.ItemId, otherItem.Value.Id.Value })
             {
@@ -198,7 +189,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
             using var handler = new RecordingWorker();
             using var http = new HttpClient(handler);
             var dispatcher = work.Resolve<NixDispatcher>();
-            var gateway = Gateway(work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>(), http);
+            var gateway = Gateway(work, http);
             var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
             var root = M0SchemaSeed.Alpha.ItemId;
             var item = await dispatcher.QueryAsync<GetItem, Result<Item>>(new(ItemId.From(root)), Cancellation);
@@ -256,7 +247,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
                 using var handler = new RecordingWorker();
                 using var http = new HttpClient(handler);
                 var dispatcher = work.Resolve<NixDispatcher>();
-                var gateway = Gateway(work.Resolve<INixSessionContextAccessor>(), dispatcher, work.Resolve<IPermissionResolver>(), http);
+                var gateway = Gateway(work, http);
                 var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), Cancellation);
                 foreach (var scopedRoot in new[] { root, child })
                 {
@@ -294,13 +285,14 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
         Assert.Equal("pets.not_found", watch.Error.Code);
     }
 
-    private static PetWorkerClient Gateway(INixSessionContextAccessor session, NixDispatcher dispatcher,
-        IPermissionResolver permissions, HttpClient http) => new(http,
+    private static PetWorkerClient Gateway(NixUnitOfWork work, HttpClient http) => new(http,
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Nix:Pets:WorkerUrl"] = "http://worker:8301",
             ["Nix:InternalSecret"] = "test-secret",
-        }).Build(), session, dispatcher, permissions);
+        }).Build(), work.Resolve<INixSessionContextAccessor>(), work.Resolve<NixDispatcher>(),
+        work.Resolve<IPermissionResolver>(), work.Resolve<IPetProviderCredentialStore>(),
+        new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
     private sealed class RecordingWorker : HttpMessageHandler
     {
