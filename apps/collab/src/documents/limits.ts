@@ -158,6 +158,12 @@ export class RateWindow {
     return existing.count > LIMITS.updatesPerWindow;
   }
 
+  /** How long until the principal's window on the document resets; 0 when none is open. */
+  msUntilReset(principalId: string, docId: string): number {
+    const window = this.#counts.get(`${principalId}:${docId}`);
+    return window === undefined ? 0 : Math.max(0, window.startedAt + LIMITS.windowMs - this.#now());
+  }
+
   /**
    * Drops windows that have expired.
    *
