@@ -53,6 +53,39 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         }
     }
 
+    private static NixError? ProviderFailure(HttpResponseMessage response, string provider)
+    {
+        if (response.StatusCode != HttpStatusCode.BadGateway || !PetProviders.NeedsKey(provider)
+            || !response.Headers.TryGetValues("X-Nix-Provider-Error", out var headers))
+        {
+            return null;
+        }
+
+        using var values = headers.GetEnumerator();
+        if (!values.MoveNext())
+        {
+            return null;
+        }
+
+        var token = values.Current;
+        if (values.MoveNext() || !token.StartsWith(provider + ".", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var name = provider == PetProviders.Anthropic ? "Claude" : "OpenRouter";
+        return token[(provider.Length + 1)..] switch
+        {
+            "credit_balance.400" when provider == PetProviders.Anthropic => new("pets.provider_credit_balance", $"{name} reports that this API key has insufficient credit. Check API billing for the key, then try again."),
+            "credit_balance.402" => new("pets.provider_credit_balance", $"{name} reports that this API key has insufficient credit. Check API billing for the key, then try again."),
+            "authentication.401" => new("pets.provider_authentication", $"{name} rejected the API key. Update it in Settings > Pets."),
+            "permission.403" => new("pets.provider_permission", $"{name} refused access for this API key. Check the key's permissions and API access."),
+            "rate_limited.429" => new("pets.provider_rate_limited", $"{name} is rate limiting this API key. Wait briefly, then try again."),
+            "models_rejected.400" when provider == PetProviders.Anthropic => new("pets.provider_models_rejected", $"{name} rejected model discovery for this API key. Check its API access and billing, then try again."),
+            _ => null,
+        };
+    }
+
     /// <summary>Validates the caller's scope before forwarding a bounded companion operation.
     /// POST /runtime never accepts "watch": only <see cref="ExecuteWatchAsync"/> reaches the
     /// worker with that operation, through the same permission and identity checks below.</summary>
@@ -204,13 +237,18 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                var code = response.StatusCode switch
+                var providerFailure = ProviderFailure(response, provider);
+                var code = providerFailure?.Code ?? (response.StatusCode switch
                 {
                     HttpStatusCode.TooManyRequests => "pets.too_many_watches",
                     HttpStatusCode.Conflict => "pets.busy",
                     _ => "pets.unavailable",
-                };
+                });
                 ApiLog.PetWorkerFailed(log, request.Operation, $"worker returned HTTP {(int)response.StatusCode}", code);
+                if (providerFailure is { } failure)
+                {
+                    return Result.Failure<PetConnectionResponse>(failure);
+                }
                 // The worker signals backpressure and single-flight contention with these two
                 // codes; every other non-success collapses to the generic unavailable code.
                 return response.StatusCode switch
@@ -337,12 +375,12 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                 return Result.Success(opened);
             }
 
-            var failure = response.StatusCode switch
+            var failure = ProviderFailure(response, provider) ?? (response.StatusCode switch
             {
                 HttpStatusCode.UnprocessableEntity => new NixError("pets.invalid_request", "The companion refused this request. Check the text and try again."),
                 HttpStatusCode.TooManyRequests => new NixError("pets.inline_busy", "Too many writing requests are open. Wait for one to finish."),
                 _ => new NixError("pets.unavailable", "The companion could not complete this request. Retry or check the selected provider in Settings > Pets."),
-            };
+            });
             ApiLog.PetWorkerFailed(log, "inline", $"worker returned HTTP {(int)response.StatusCode} {response.Content.Headers.ContentType?.MediaType}", failure.Code);
             return Result.Failure<HttpResponseMessage>(failure);
         }

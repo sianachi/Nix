@@ -382,7 +382,7 @@ func (m *Manager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.record(conversationKey(request), slog.LevelWarn, "request.failed", []any{"operation", request.Operation, "error", logSafeError(err)}, nil)
 		a.mu.Unlock()
-		http.Error(w, "Companion request failed; reconnect or retry", http.StatusBadGateway)
+		writeProviderFailure(w, err)
 		return
 	}
 	_ = json.NewEncoder(w).Encode(response)
@@ -912,7 +912,15 @@ func (a *account) notify(method string, raw json.RawMessage) {
 	}
 	// An inline thread (inline.go) belongs to no conversation: it goes to its stream and must
 	// never reach the conversation code below.
-	if a.routeInlineLocked(p.ThreadID, method, p.Item.Type, p.Item.Phase, p.Delta, p.Turn.Status) {
+	failure := ""
+	if p.Turn.Error != nil {
+		failure = providerFailureMessage(a.provider, p.Turn.Error.NixProviderError)
+	}
+	if failure != "" && a.inlineRunFor(p.ThreadID) != nil && method == "turn/completed" {
+		token := p.Turn.Error.NixProviderError
+		a.record("", slog.LevelWarn, "inline.provider_failed", []any{"operation", "inline", "provider_error", token, "http_status", token[strings.LastIndex(token, ".")+1:]}, nil)
+	}
+	if a.routeInlineLocked(p.ThreadID, method, p.Item.Type, p.Item.Phase, p.Delta, p.Turn.Status, failure) {
 		return
 	}
 	for key, c := range a.conversations {
@@ -972,6 +980,10 @@ func (a *account) notify(method string, raw json.RawMessage) {
 			c.timing.log(a.logger, key, p.Turn.Status)
 			if p.Turn.Status != "completed" && p.Turn.Status != "interrupted" {
 				meta := []any{"status", p.Turn.Status}
+				if failure != "" {
+					token := p.Turn.Error.NixProviderError
+					meta = append(meta, "operation", "send", "provider_error", token, "http_status", token[strings.LastIndex(token, ".")+1:])
+				}
 				if p.Turn.DurationMs != nil {
 					meta = append(meta, "provider_duration_ms", *p.Turn.DurationMs)
 				}
@@ -987,8 +999,11 @@ func (a *account) notify(method string, raw json.RawMessage) {
 				c.State = "idle"
 			} else {
 				c.State = "error"
+				if failure != "" {
+					c.Reason = failure
+				}
 				if c.Reason == "" {
-					c.Reason = "ChatGPT could not finish the response. Check account access and usage, then retry."
+					c.Reason = "The model could not finish the response. Check account access and usage, then retry."
 				}
 			}
 			if err := a.saveLocked(key); err != nil {

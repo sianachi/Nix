@@ -16,6 +16,15 @@ type anthropicWire struct{}
 
 const anthropicBase = "https://api.anthropic.com"
 
+// anthropicMaxTokens bounds one response. Thinking counts against it, and a whole structure draft
+// arrives as one tool call, so 4096 cut both off. 32000 is the lowest cap among the models a key
+// may list (Opus 4/4.1); a higher value would be refused by those models.
+const anthropicMaxTokens = 32000
+
+// errResponseTooLong fails a turn whose response hit the output cap: a truncated tool call is never
+// run, and the turn is not reported as completed.
+var errResponseTooLong = errors.New("The reply reached the model's length limit before it finished, so nothing was changed. Ask for a smaller piece at a time")
+
 // anthropicModels is the fixed catalog offered when the key cannot list models. Anthropic's
 // /v1/models endpoint is used first; this is the honest fallback, not a guess about new models.
 var anthropicModels = []Model{
@@ -64,7 +73,7 @@ func (anthropicWire) listModels(ctx context.Context, client *http.Client, base, 
 		return anthropicModels, nil
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, providerStatusError("Anthropic", response.StatusCode)
+		return nil, providerResponseError("anthropic", response, true)
 	}
 	var page struct {
 		Data []struct {
@@ -135,7 +144,7 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 			tools = append(tools, map[string]any{"name": tool.Name, "description": tool.Description, "input_schema": tool.InputSchema})
 		}
 	}
-	body := map[string]any{"model": thread.Model, "max_tokens": 4096, "system": thread.System, "messages": messages, "stream": true}
+	body := map[string]any{"model": thread.Model, "max_tokens": anthropicMaxTokens, "system": thread.System, "messages": messages, "stream": true}
 	if len(tools) > 0 {
 		body["tools"] = tools
 	}
@@ -152,7 +161,7 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", nil, providerStatusError("Anthropic", response.StatusCode)
+		return "", nil, providerResponseError("anthropic", response, false)
 	}
 	var text strings.Builder
 	calls := []providerToolCall{}
@@ -162,6 +171,7 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 		json strings.Builder
 	}
 	blocks := map[int]*block{}
+	stopReason, stopped := "", false
 	err = readSSE(ctx, response.Body, func(_ string, data []byte) error {
 		var event struct {
 			Type         string `json:"type"`
@@ -175,6 +185,7 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				PartialJSON string `json:"partial_json"`
+				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 			Error *struct {
 				Message string `json:"message"`
@@ -188,6 +199,12 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 			if event.Error != nil {
 				return errors.New("Anthropic reported an error during the response")
 			}
+		case "message_delta":
+			if event.Delta != nil && event.Delta.StopReason != "" {
+				stopReason = event.Delta.StopReason
+			}
+		case "message_stop":
+			stopped = true
 		case "content_block_start":
 			if event.ContentBlock != nil {
 				b := &block{kind: event.ContentBlock.Type}
@@ -223,6 +240,16 @@ func (anthropicWire) stream(ctx context.Context, client *http.Client, base, apiK
 	})
 	if err != nil {
 		return "", nil, err
+	}
+	// Only a stream that reached message_stop is a whole answer; a cut connection would otherwise
+	// look like a short reply with its unfinished tool call silently dropped.
+	switch {
+	case stopReason == "max_tokens":
+		return "", nil, errResponseTooLong
+	case stopReason == "refusal":
+		return "", nil, errors.New("Claude declined this request. Rephrase it or pick another model")
+	case !stopped:
+		return "", nil, errors.New("Anthropic ended the response early, so nothing was changed. Try again")
 	}
 	return text.String(), calls, nil
 }
@@ -268,7 +295,7 @@ func (openrouterWire) listModels(ctx context.Context, client *http.Client, base,
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, providerStatusError("OpenRouter", response.StatusCode)
+		return nil, providerResponseError("openrouter", response, true)
 	}
 	var page struct {
 		Data []struct {
@@ -360,7 +387,7 @@ func (openrouterWire) stream(ctx context.Context, client *http.Client, base, api
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", nil, providerStatusError("OpenRouter", response.StatusCode)
+		return "", nil, providerResponseError("openrouter", response, false)
 	}
 	var text strings.Builder
 	type partial struct {
@@ -383,6 +410,7 @@ func (openrouterWire) stream(ctx context.Context, client *http.Client, base, api
 						} `json:"function"`
 					} `json:"tool_calls"`
 				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			Error *struct {
 				Message string `json:"message"`
@@ -395,6 +423,9 @@ func (openrouterWire) stream(ctx context.Context, client *http.Client, base, api
 			return errors.New("OpenRouter reported an error during the response")
 		}
 		for _, choice := range chunk.Choices {
+			if choice.FinishReason == "length" {
+				return errResponseTooLong
+			}
 			if choice.Delta.Content != "" {
 				text.WriteString(choice.Delta.Content)
 				onDelta(choice.Delta.Content)

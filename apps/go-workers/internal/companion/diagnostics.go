@@ -170,6 +170,7 @@ func valueOrDefault(model string) string {
 // "usageLimitExceeded", or an object carrying an HTTP status).
 type turnError struct {
 	Message           string          `json:"message"`
+	NixProviderError  string          `json:"nixProviderError"`
 	CodexErrorInfo    json.RawMessage `json:"codexErrorInfo"`
 	AdditionalDetails *string         `json:"additionalDetails"`
 }

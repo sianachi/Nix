@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -373,10 +374,10 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 		}
 		t.mu.Unlock()
 	}()
-	finish := func(status string, message string) {
+	finish := func(status string, failure error) {
 		turn := map[string]any{"status": status}
-		if message != "" {
-			turn["error"] = map[string]any{"message": message}
+		if failure != nil {
+			turn["error"] = map[string]any{"message": failure.Error(), "nixProviderError": providerFailureToken(failure)}
 		}
 		raw, _ := json.Marshal(map[string]any{"threadId": thread.ID, "turn": turn})
 		t.notify("turn/completed", raw)
@@ -390,11 +391,16 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 		// An interrupted turn can surface as a cancelled context or as the provider closing the
 		// stream early; either way the owner asked for it to stop.
 		if ctx.Err() != nil {
-			finish("interrupted", "")
+			finish("interrupted", nil)
 			return
 		}
 		if err != nil {
-			finish("failed", err.Error())
+			finish("failed", err)
+			return
+		}
+		// A reply with neither words nor tool calls would show as a blank bubble and read as success.
+		if len(calls) == 0 && strings.TrimSpace(text) == "" {
+			finish("failed", errors.New("The model finished without an answer. Try again"))
 			return
 		}
 		t.mu.Lock()
@@ -404,7 +410,7 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 			t.save(thread)
 			raw, _ := json.Marshal(map[string]any{"threadId": thread.ID, "item": map[string]string{"id": itemID, "type": "agentMessage", "text": text, "phase": "final_answer"}})
 			t.notify("item/completed", raw)
-			finish("completed", "")
+			finish("completed", nil)
 			return
 		}
 		if text != "" {
@@ -415,7 +421,7 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 		for _, call := range calls {
 			reply, ok := t.askTool(ctx, thread.ID, call)
 			if !ok {
-				finish("interrupted", "")
+				finish("interrupted", nil)
 				return
 			}
 			results = append(results, providerToolResult{CallID: call.ID, Text: reply.text, IsError: !reply.success})
@@ -425,7 +431,7 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 		t.mu.Unlock()
 		t.save(thread)
 	}
-	finish("failed", "The model kept calling tools without answering; the turn was stopped.")
+	finish("failed", errors.New("The model kept calling tools without answering; the turn was stopped."))
 }
 
 // askTool routes one model tool call through the manager's handler and waits for the owner's
@@ -462,23 +468,6 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buffer), nil
-}
-
-// providerStatusError turns an HTTP failure into the sentence the owner sees, never echoing the
-// provider body, which can carry request details.
-func providerStatusError(provider string, status int) error {
-	switch status {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("%s rejected the API key. Update it in Settings > Pets", provider)
-	case http.StatusPaymentRequired:
-		return fmt.Errorf("%s reports no credit for this key", provider)
-	case http.StatusTooManyRequests:
-		return fmt.Errorf("%s is rate limiting this key; try again shortly", provider)
-	case http.StatusBadRequest, http.StatusNotFound:
-		return fmt.Errorf("%s refused the request: the model may be unavailable to this key", provider)
-	default:
-		return fmt.Errorf("%s answered HTTP %d", provider, status)
-	}
 }
 
 // readSSE calls onEvent for each `data:` payload of a server-sent event stream until the body ends
