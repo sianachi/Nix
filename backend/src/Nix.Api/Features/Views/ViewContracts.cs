@@ -107,7 +107,8 @@ internal sealed record ViewResponse(
     string? Layout = null,
     string? DoneProperty = null,
     string? RowBy = null,
-    ChartOptionsContract? Chart = null);
+    ChartOptionsContract? Chart = null,
+    string? Open = null);
 
 /// <summary>One key a view orders by; the first is mirrored into <c>sortBy</c>.</summary>
 /// <param name="Property">The property key, or <c>title</c>.</param>
@@ -310,7 +311,8 @@ internal sealed record ViewRequest(
     IReadOnlyList<ViewAggregateContract>? Aggregates = null,
     string? DoneProperty = null,
     string? RowBy = null,
-    ChartOptionsContract? Chart = null);
+    ChartOptionsContract? Chart = null,
+    string? Open = null);
 
 /// <summary>A configured embedded habit chart.</summary>
 internal sealed record HabitWidgetContract(string Id, string Kind, Guid HabitId, DateOnly From, DateOnly To);

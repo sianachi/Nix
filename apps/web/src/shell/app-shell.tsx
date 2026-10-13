@@ -30,6 +30,7 @@ import { useOpenItem } from '../tabs/use-open-item';
 import { useOpenDailyOnLaunch } from '../launch/use-open-daily-on-launch';
 import { DailyCaptureDialog } from '../daily-notes/daily-capture-dialog';
 import { useSessionStore } from '../auth/session-store';
+import { CapabilitiesProvider } from '../session/capabilities-context';
 import { useCurrentPrincipal } from '../session/use-current-principal';
 import { paneClip } from '../layout/regions';
 import { NavRail } from './nav-rail';
@@ -638,9 +639,11 @@ export function AppShell(): ReactNode {
                   catalog response cannot leave a mounted screen holding the initial capability
                   snapshot. */}
               <TemplateLibraryProvider library={templateLibrary}>
-                <ItemDialogProvider tree={tree}>
-                  <Outlet context={{ tree, selectedId } satisfies ShellContext} />
-                </ItemDialogProvider>
+                <CapabilitiesProvider value={principal.principal?.features}>
+                  <ItemDialogProvider tree={tree}>
+                    <Outlet context={{ tree, selectedId } satisfies ShellContext} />
+                  </ItemDialogProvider>
+                </CapabilitiesProvider>
               </TemplateLibraryProvider>
             </main>
           </div>

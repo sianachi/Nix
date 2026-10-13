@@ -1,0 +1,22 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`view capabilities > matches the documented capability matrix 1`] = `
+[
+  "| list | yes | yes | yes | yes | none |",
+  "| gallery | yes | yes | yes | yes | none |",
+  "| checklist | yes | yes | yes | yes | none |",
+  "| board | yes | yes | yes | yes | group-value |",
+  "| matrix | yes | yes | yes | yes | row-col-values |",
+  "| calendar | no | yes | yes | yes | date |",
+  "| timeline | no | yes | yes | yes | none |",
+  "| outline | no | yes | yes | yes | parent-order |",
+  "| drive | yes | yes | no | yes | none |",
+  "| query | no | no | yes | yes | none |",
+  "| habit_tracker | no | no | yes | yes | none |",
+  "| sheet | yes | yes | yes | yes | none |",
+  "| chart | no | no | no | no | none |",
+  "| form | no | no | no | no | none |",
+  "| interactive_form | no | no | no | no | none |",
+  "| finance | no | no | no | no | none |",
+]
+`;

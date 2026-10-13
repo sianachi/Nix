@@ -133,6 +133,8 @@ export interface StubOptions {
   readonly workspacesFail?: boolean;
   readonly workspacesPartial?: boolean;
   readonly isTenantAdministrator?: boolean;
+  /** Whether `/me` says Sites is enabled on this deployment. */
+  readonly siteFeature?: boolean;
   readonly displayName?: string;
   readonly email?: string | null;
   readonly items?: readonly StubItem[];
@@ -545,6 +547,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     workspacesFail = false,
     workspacesPartial = false,
     isTenantAdministrator = false,
+    siteFeature = false,
     displayName = 'Test Person',
     email = 'test@example.test',
     items = [],
@@ -1634,6 +1637,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 displayName,
                 email,
                 isTenantAdministrator,
+                features: { sites: siteFeature },
               }),
         );
       }

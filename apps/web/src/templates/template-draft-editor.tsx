@@ -533,6 +533,7 @@ function TemplateViewsEditor({
           companionViewId: view.companionViewId ?? null,
           companionPlacement: view.companionPlacement ?? null,
           interactiveForm: view.interactiveForm ?? null,
+          open: view.open ?? null,
         })),
         default: nextDefault,
       },
