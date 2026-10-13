@@ -1,0 +1,42 @@
+# Remote MCP: the nixctl tool contract over Streamable HTTP at /mcp, served by the release-tools
+# image. Every request carries its own personal access token; the pod holds no credential and Core
+# authorizes each call. Routed by the /mcp path in ingress.yaml.
+apiVersion: v1
+kind: Service
+metadata: { name: nix-mcp, namespace: nix }
+spec:
+  selector: { app: nix-mcp }
+  ports: [{ port: 8500, targetPort: 8500 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: nix-mcp, namespace: nix }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: nix-mcp } }
+  template:
+    metadata:
+      labels: { app: nix-mcp }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, runAsUser: 1000, runAsGroup: 1000, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: mcp
+          image: ${REGISTRY}/release-tools:${TAG}
+          args: ["nixctl", "mcp", "--listen", "0.0.0.0:8500"]
+          ports: [{ containerPort: 8500 }]
+          env:
+            - name: NIX_API_URL
+              value: http://nix-api:8080
+            - name: NIX_COLLAB_URL
+              value: http://nix-collab:8100
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8500 }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8500 }
+            periodSeconds: 5
+          resources: { requests: { cpu: 50m, memory: 96Mi }, limits: { cpu: "1", memory: 256Mi } }
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+      volumes: [{ name: tmp, emptyDir: { sizeLimit: 16Mi } }]

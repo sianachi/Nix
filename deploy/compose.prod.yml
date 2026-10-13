@@ -233,6 +233,8 @@ services:
       # Sites (ADR-0063). Off unless NIX_SITES_ENABLED=true and a domain are set; see
       # compose.prod.env.example.
       Nix__Sites__Enabled: ${NIX_SITES_ENABLED:-false}
+      # The remote MCP endpoint the settings page shows people, empty when the mcp profile is off.
+      Nix__Mcp__PublicUrl: ${NIX_MCP_PUBLIC_URL:-}
       Nix__Sites__Domain: ${NIX_SITES_DOMAIN:-}
       Nix__Sites__Bucket: ${NIX_SITES_BUCKET:-nix-sites}
       Nix__Sites__PublicScheme: https
@@ -591,6 +593,35 @@ services:
         aliases:
           - nix-sites-serve
 
+  # Remote MCP (requirement 9): the nixctl tool contract over Streamable HTTP at /mcp. Off unless
+  # COMPOSE_PROFILES includes mcp. Every request carries its own personal access token; the process
+  # holds no credential of its own and Core authorizes each call.
+  nix-mcp:
+    image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/release-tools:${NIX_IMAGE_TAG:?set NIX_IMAGE_TAG}
+    profiles: [mcp]
+    restart: unless-stopped
+    command: ["nixctl", "mcp", "--listen", "0.0.0.0:8500"]
+    depends_on:
+      nix-api:
+        condition: service_started
+    environment:
+      NIX_API_URL: http://nix-api:8080
+      NIX_COLLAB_URL: http://nix-collab:8100
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8500/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    mem_limit: 256m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   nix-web:
     image: ${NIX_IMAGE_REGISTRY:-ghcr.io/sianachi/nix}/web:${NIX_WEB_IMAGE_TAG:?set NIX_WEB_IMAGE_TAG}
     restart: unless-stopped
@@ -604,6 +635,8 @@ services:
       NIX_OBJECT_STORE_BUCKET: ${NIX_OBJECT_STORE_BUCKET:?set NIX_OBJECT_STORE_BUCKET}
       # Unset keeps the sites host block on a name that never resolves.
       NIX_SITES_DOMAIN: ${NIX_SITES_DOMAIN:-sites.invalid}
+      # Where /mcp is proxied; unset points at a name that never resolves so the route fails closed.
+      NIX_MCP_UPSTREAM: ${NIX_MCP_UPSTREAM:-mcp.invalid:8500}
       NIX_SITES_DEFAULT_LABEL_SUFFIX: ${NIX_SITES_DEFAULT_LABEL_SUFFIX:-}
     volumes:
       - ./Caddyfile.prod:/etc/caddy/Caddyfile:ro

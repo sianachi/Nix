@@ -3477,6 +3477,7 @@ export interface components {
     };
     CurrentPrincipalFeatures: {
       sites: boolean;
+      mcpUrl: null | string;
     };
     CurrentPrincipalResponse: {
       /** Format: uuid */

@@ -3,10 +3,12 @@ import { createContext, useContext, type ReactNode } from 'react';
 /** Deployment features the shell may offer, from `GET /api/v1/me`. Display hints, never permission. */
 export interface Capabilities {
   readonly sites: boolean;
+  /** The remote MCP endpoint, or null when only stdio through nixctl is available. */
+  readonly mcpUrl: string | null;
 }
 
 /** Everything off until Core has answered: an entry that may not exist is not drawn first. */
-export const NO_CAPABILITIES: Capabilities = { sites: false };
+export const NO_CAPABILITIES: Capabilities = { sites: false, mcpUrl: null };
 
 const CapabilitiesContext = createContext<Capabilities>(NO_CAPABILITIES);
 

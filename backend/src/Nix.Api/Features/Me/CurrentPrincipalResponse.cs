@@ -36,4 +36,5 @@ internal sealed record CurrentPrincipalResponse(
 /// offers, and every route behind an entry refuses for itself when the feature is off.
 /// </summary>
 /// <param name="Sites">Whether publishing items as sites is configured and enabled here.</param>
-internal sealed record CurrentPrincipalFeatures(bool Sites);
+/// <param name="McpUrl">The remote MCP endpoint this deployment serves (<c>Nix:Mcp:PublicUrl</c>), or null.</param>
+internal sealed record CurrentPrincipalFeatures(bool Sites, string? McpUrl);

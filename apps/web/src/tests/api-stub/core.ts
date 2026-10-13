@@ -135,6 +135,8 @@ export interface StubOptions {
   readonly isTenantAdministrator?: boolean;
   /** Whether `/me` says Sites is enabled on this deployment. */
   readonly siteFeature?: boolean;
+  /** The remote MCP endpoint `/me` advertises, or null. */
+  readonly mcpUrl?: string | null;
   readonly displayName?: string;
   readonly email?: string | null;
   readonly items?: readonly StubItem[];
@@ -567,6 +569,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     workspacesPartial = false,
     isTenantAdministrator = false,
     siteFeature = false,
+    mcpUrl = null,
     displayName = 'Test Person',
     email = 'test@example.test',
     items = [],
@@ -1679,7 +1682,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
                 displayName,
                 email,
                 isTenantAdministrator,
-                features: { sites: siteFeature },
+                features: { sites: siteFeature, mcpUrl },
               }),
         );
       }

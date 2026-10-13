@@ -194,6 +194,20 @@ unless every file is present, `SHA256SUMS` verifies and `verified.txt` records a
 Backups made before Zitadel capture lack the two Zitadel files; `--check` still accepts them and
 prints a note (it rejects them only under `NIX_REQUIRE_ZITADEL=1`).
 
+### Remote MCP (optional)
+
+The `mcp` Compose profile serves the `nixctl mcp` tool contract over Streamable HTTP at
+`https://<app>/mcp`, from the `release-tools` image (`nixctl mcp --listen 0.0.0.0:8500`). It holds
+no credential: every request carries its own personal access token (`Authorization: Bearer
+nixpat_...`), which the service exchanges with Core exactly as the CLI does, so a call runs as that
+principal within that token's scopes and revoking the token stops the client on its next request. A
+request without a bearer is refused before any tool server is built. To enable, add `mcp` to
+`COMPOSE_PROFILES`, set `NIX_MCP_UPSTREAM=nix-mcp:8500` so Caddy proxies `/mcp`, and set
+`NIX_MCP_PUBLIC_URL` to the public address, which Core advertises to Settings > MCP. Hosted
+claude.ai connectors need OAuth discovery, which this endpoint does not offer yet; Claude Code,
+Cursor and Claude Desktop (through `mcp-remote`) send the header. People make and revoke MCP
+tokens under Settings > MCP; the stdio server (`nixctl mcp`) keeps working without the profile.
+
 ### Off-host backups
 
 [deploy/backup/production.md](backup/production.md) is the operator guide to the whole backup
