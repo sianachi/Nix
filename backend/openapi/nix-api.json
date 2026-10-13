@@ -13894,12 +13894,19 @@
       },
       "CurrentPrincipalFeatures": {
         "required": [
-          "sites"
+          "sites",
+          "mcpUrl"
         ],
         "type": "object",
         "properties": {
           "sites": {
             "type": "boolean"
+          },
+          "mcpUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

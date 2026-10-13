@@ -250,6 +250,7 @@ render deploy/k8s/collab.yaml | kubectl apply -f -
 render deploy/k8s/worker.yaml | kubectl apply -f -
 render deploy/k8s/web.yaml | kubectl apply -f -
 render deploy/k8s/sites.yaml | kubectl apply -f -
+render deploy/k8s/mcp.yaml | kubectl apply -f -
 
 kubectl -n nix rollout status deployment/nix-api --timeout=180s
 kubectl -n nix rollout status deployment/nix-collab --timeout=180s

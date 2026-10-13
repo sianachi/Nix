@@ -3,6 +3,7 @@ import { type ReactElement } from 'react';
 
 import { paneScroller } from '../layout/regions';
 import { AccessTokensSection } from '../settings/access-tokens-section';
+import { McpSection } from '../settings/mcp-section';
 import { CalendarsSection } from '../settings/calendars-section';
 import { DailyNotesSection } from '../settings/daily-notes-section';
 import { EditorPreferencesSection } from '../settings/editor-preferences-section';
@@ -19,6 +20,7 @@ const settingsTabs: readonly { id: SettingsTab; label: string; closable: false }
   { id: 'pets', label: 'Pets', closable: false },
   { id: 'integrations', label: 'Calendars', closable: false },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
+  { id: 'mcp', label: 'MCP', closable: false },
 ];
 
 /** Settings grouped by the thing being managed, with workspace management first. Addressable by
@@ -63,6 +65,7 @@ export function SettingsPage(): ReactElement {
         {activeTab === 'pets' ? <PetSettingsSection /> : null}
         {activeTab === 'integrations' ? <CalendarsSection /> : null}
         {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
+        {activeTab === 'mcp' ? <McpSection /> : null}
       </main>
     </div>
   );

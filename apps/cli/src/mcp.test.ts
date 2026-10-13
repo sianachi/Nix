@@ -111,6 +111,12 @@ describe('nixctl mcp workspace tools', () => {
         'list_automation_runs',
         'run_automation',
         'test_automation',
+        'list_items',
+        'get_item',
+        'create_item',
+        'search_items',
+        'read_note',
+        'write_note',
       ]);
       expect(JSON.stringify(tools)).not.toContain('token');
       expect(JSON.stringify(tools)).not.toContain('authorization');
