@@ -295,6 +295,27 @@ export NIX_BACKUP_REFERENCE="$HOME/nix-backups/pre-<release-sha>"
 bash deploy/compose/deploy.sh
 ```
 
+OpenSearch and its indexer are retired; Core search uses PostgreSQL. The release stops their old
+containers by project/service labels and retains the `nix-opensearch-data` volume for recovery.
+Remove obsolete `NIX_OPENSEARCH_*`, `NIX_SEARCH_OPENSEARCH_*` and index broker variables from the
+private environment when convenient. RabbitMQ revokes the old index account and detaches its
+workspace-event binding while retaining queued history; plugin events remain enabled.
+Kubernetes retirement also retains existing PVCs.
+
+Grafana, Alloy, Loki and the Alloy-only Docker socket proxy are retired. The release stops their
+old containers and retains their log and dashboard volumes for recovery. Remove obsolete
+`NIX_GRAFANA_*`, `NIX_ALLOY_*` and `NIX_LOKI_*` variables from the private environment when
+convenient. Application logs remain available through `docker compose logs`; no collector or
+Grafana administrator password is required. Kubernetes retirement removes collector access and
+workloads while retaining logging PVCs.
+
+The speech feature is retired. Remove `COMPOSE_PROFILES=speech` and obsolete `NIX_SPEECH_*`
+and speech broker variables from the private environment when convenient. The release script
+stops the old speech container by its Compose project/service labels before migrations; existing
+recordings, transcription records and model volumes are retained. The Core migration cancels
+unfinished transcription jobs and retires their pending outbox commands after all writers stop.
+It does not prune containers or volumes.
+
 The script validates configuration, pulls or checks the release images, checks verification
 credentials and confirms the profile URL matches the deployed public origin, previews drift, stops
 application writers, brings up infrastructure and the bucket, runs Core/template/document
