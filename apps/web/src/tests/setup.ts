@@ -87,6 +87,15 @@ configure({ asyncUtilTimeout: 5_000 });
 beforeEach(() => {
   browserStorage()?.clear();
   browserSessionStorage()?.clear();
+  // jsdom has no resize notifications; geometry tests replace this observer.
+  vi.stubGlobal(
+    'ResizeObserver',
+    class implements ResizeObserver {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
   stubCoreApi();
 });
 
