@@ -26,6 +26,7 @@ vi.mock('../../pets/use-pet-settings', () => ({
             personality: 'calm',
             responseLength: 'balanced',
             instructions: '',
+            applyWithoutAsking: false,
           },
         ],
       },
@@ -97,6 +98,11 @@ describe('note chat page', () => {
     );
     expect(mock.send.mock.calls.at(-1)?.[0]).not.toHaveProperty('workspaceMap');
     await user.selectOptions(access, 'edit');
+    // An editable note offers the same Apply without asking switch as the workspace chat.
+    expect(screen.getByRole('button', { name: 'Apply without asking' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
     await user.type(screen.getByRole('textbox', { name: 'Message Pip' }), 'Append a summary');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(mock.send).toHaveBeenLastCalledWith(

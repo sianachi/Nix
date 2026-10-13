@@ -29,6 +29,7 @@ vi.mock('../../pets/use-pet-settings', () => ({
             personality: 'calm',
             responseLength: 'balanced',
             instructions: '',
+            applyWithoutAsking: false,
           },
         ],
       },

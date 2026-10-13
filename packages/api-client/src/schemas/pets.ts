@@ -7,6 +7,8 @@ export const petProfileSchema = z.object({
   personality: z.enum(['calm', 'playful', 'encouraging', 'concise']),
   responseLength: z.enum(['concise', 'balanced', 'detailed']),
   instructions: z.string().max(2000),
+  /** Default for the conversation's "Apply without asking" switch; stored pets without it read as off. */
+  applyWithoutAsking: z.boolean().default(false),
 });
 
 export const petSettingsSchema = z

@@ -49,5 +49,6 @@ export function newPet(): PetProfile {
     personality: preset.personality,
     responseLength: 'balanced',
     instructions: '',
+    applyWithoutAsking: false,
   };
 }

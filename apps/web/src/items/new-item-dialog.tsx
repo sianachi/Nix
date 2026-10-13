@@ -15,7 +15,11 @@ import { useId, useRef, useState, type ReactNode, type SyntheticEvent } from 're
 
 import type { TemplateLibraryStatus } from '../templates/use-templates';
 import type { TemplateSummary } from '../templates/template-api';
-import { STRUCTURED_RECIPES, type StructuredRecipeId } from '../views/wizard/structured-recipes';
+import {
+  RECIPE_GROUPS,
+  STRUCTURED_RECIPES,
+  type StructuredRecipeId,
+} from '../views/wizard/structured-recipes';
 
 /**
  * The dialog behind each entry of the sidebar's New menu.
@@ -228,25 +232,37 @@ export function NewItemDialog(props: NewItemDialogProps): ReactNode {
   }
 
   if (mode.kind === 'structured') {
-    const recipes = STRUCTURED_RECIPES.filter((recipe) => recipe.menu === 'structured');
+    // Every recipe the registry has, under the headings it declares: the menu no longer hides the
+    // kinds that used to be reachable only through "Add view" on an existing item.
     return (
       <Dialog open title={titleOf(mode)} onClose={onClose}>
         <div className="flex min-w-0 flex-col gap-4">
           {placeControl}
-          <ul aria-label="Structured items" className="-mx-3 flex flex-col">
-            {recipes.map((recipe) => (
-              <Choice
-                key={recipe.id}
-                label={recipe.label}
-                detail={recipe.detail}
-                onChoose={() => {
-                  done(() => {
-                    props.onStartStructured(parentId, recipe.id);
-                  });
-                }}
-              />
-            ))}
-          </ul>
+          {RECIPE_GROUPS.map((group) => {
+            const recipes = STRUCTURED_RECIPES.filter((recipe) => recipe.group === group);
+            if (recipes.length === 0) return null;
+            return (
+              <div key={group} className="flex min-w-0 flex-col gap-1">
+                <Text as="h3" variant="kicker" tone="muted" id={`new-structured-${group}`}>
+                  {group}
+                </Text>
+                <ul aria-labelledby={`new-structured-${group}`} className="-mx-3 flex flex-col">
+                  {recipes.map((recipe) => (
+                    <Choice
+                      key={recipe.id}
+                      label={recipe.label}
+                      detail={recipe.detail}
+                      onChoose={() => {
+                        done(() => {
+                          props.onStartStructured(parentId, recipe.id);
+                        });
+                      }}
+                    />
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       </Dialog>
     );

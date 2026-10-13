@@ -35,10 +35,11 @@ export {
   findStructuredRecipe,
   keyForProperty,
   SMART_LIST_STARTERS,
+  RECIPE_GROUPS,
   STRUCTURED_RECIPES,
   viewForRecipe,
 } from './vocabulary/recipes.js';
-export type { StructuredRecipe, StructuredRecipeId } from './vocabulary/recipes.js';
+export type { RecipeGroup, StructuredRecipe, StructuredRecipeId } from './vocabulary/recipes.js';
 
 export { findSmartList, SMART_LISTS, smartListView } from './vocabulary/smart-lists.js';
 export type { SmartListPreset } from './vocabulary/smart-lists.js';

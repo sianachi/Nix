@@ -3,6 +3,7 @@ import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useSessionStore } from '../auth/session-store';
 
+import { useOfflinePreference } from './offline-preference';
 import { getOfflineSnapshot, subscribeOfflineNotes } from './offline-store';
 import { requestOfflineSync } from './offline-runtime';
 import { useNetworkOnline } from './use-network-online';
@@ -16,6 +17,9 @@ export function OfflineStatus({ showOpen = true }: { readonly showOpen?: boolean
   const accountMatches = snapshot.account !== null && snapshot.account.subject === subject;
   const storageUnavailable =
     authenticated && snapshot.account === null && snapshot.status === 'error';
+  const enabled = useOfflinePreference((state) => state.enabled);
+  // Off means no footer at all, spacing included; what is saved stays until it is cleared.
+  if (!enabled) return null;
   if (!accountMatches && !storageUnavailable) return null;
 
   const busy = snapshot.status === 'downloading' || snapshot.status === 'syncing';

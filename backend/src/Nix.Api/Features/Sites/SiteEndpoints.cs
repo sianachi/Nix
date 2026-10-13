@@ -20,12 +20,14 @@ internal static class SiteEndpoints
         ArgumentNullException.ThrowIfNull(endpoints);
 
         endpoints.MapGet("/api/v1/items/{itemId:guid}/site", GetForItem)
+            .AddEndpointFilter(SiteGate.RequireEnabled)
             .WithTags("Sites")
             .WithName("GetItemSite")
             .WithSummary("The site rooted at an item")
             .Produces<SiteResponse>()
             .ProducesProblem(StatusCodes.Status404NotFound);
         endpoints.MapGet("/api/v1/workspaces/{workspaceId:guid}/sites", ListForWorkspace)
+            .AddEndpointFilter(SiteGate.RequireEnabled)
             .WithTags("Sites")
             .WithName("ListWorkspaceSites")
             .WithSummary("The sites of a workspace")
@@ -33,6 +35,7 @@ internal static class SiteEndpoints
             .ProducesProblem(StatusCodes.Status404NotFound);
 
         var sites = endpoints.MapGroup("/api/v1/sites").WithTags("Sites");
+        sites.AddEndpointFilter(SiteGate.RequireEnabled);
         sites.MapPost(string.Empty, Create)
             .WithName("CreateSite")
             .WithSummary("Make an item's subtree a site")

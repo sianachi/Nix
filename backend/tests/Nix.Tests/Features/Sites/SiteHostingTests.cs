@@ -354,7 +354,7 @@ public sealed class SiteHostingTests
 
     private static SiteOptions Options(bool tunnel = false)
     {
-        var options = new SiteOptions { Domain = "sites.example.net" };
+        var options = new SiteOptions { Enabled = true, Domain = "sites.example.net" };
         options.Cloudflare.ApiToken = "token";
         options.Cloudflare.AccountId = "account-1";
         options.Cloudflare.DefaultTarget = "nixsites.com";
@@ -367,7 +367,7 @@ public sealed class SiteHostingTests
 
     private static SiteOptions SuffixedOptions()
     {
-        var options = new SiteOptions { Domain = "nixsites.com", DefaultHostLabelSuffix = "-home" };
+        var options = new SiteOptions { Enabled = true, Domain = "nixsites.com", DefaultHostLabelSuffix = "-home" };
         options.Cloudflare.ApiToken = "token";
         options.Cloudflare.AccountId = "account-1";
         options.Cloudflare.TunnelId = "tunnel-1";
