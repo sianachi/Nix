@@ -148,13 +148,18 @@ export function createSiteServer(options: SiteServerOptions): Server {
   const manifests = new Map<string, Cached<HostManifest>>();
   const redirectTables = new Map<string, Cached<Record<string, string>>>();
 
-  // shortcut: unbounded growth is limited only by the TTL sweep below; add an LRU if a deployment
-  // serves enough distinct hostnames for the maps to matter.
+  // Fixed: the maps are bounded, not only swept. Host headers are client-chosen and misses are
+  // cached, so a burst of distinct hosts within one TTL could grow them without limit; past the
+  // cap the oldest entries (a Map keeps insertion order) are dropped and simply re-read later.
   function sweep(): void {
     const at = now();
     for (const table of [manifests, redirectTables] as const) {
       if (table.size < 1024) continue;
       for (const [key, entry] of table) if (entry.expires <= at) table.delete(key);
+      for (const key of table.keys()) {
+        if (table.size < 1024) break;
+        table.delete(key);
+      }
     }
   }
 

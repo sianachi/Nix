@@ -384,6 +384,31 @@ describe('the sites server', () => {
     });
     expect((await get(port, '/', 'docs.sites.test')).body).toBe('<h1>older</h1>');
   });
+
+  it('bounds the host cache, so a flood of unknown hosts cannot grow it without limit', async () => {
+    const reads: string[] = [];
+    const reader = memory({});
+    server = createSiteServer({
+      reader: {
+        open(key, method) {
+          reads.push(key);
+          return reader.open(key, method);
+        },
+      },
+      allowedSuffix: 'sites.test',
+      manifestTtlMs: 60_000,
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const first = 'sites/_hosts/h0.sites.test.json';
+    await get(port, '/', 'h0.sites.test');
+    await get(port, '/', 'h0.sites.test');
+    expect(reads.filter((key) => key === first)).toHaveLength(1);
+    for (let i = 1; i <= 1100; i++) await get(port, '/', `h${String(i)}.sites.test`);
+    // The oldest miss was evicted to stay under the cap, so it is read again.
+    await get(port, '/', 'h0.sites.test');
+    expect(reads.filter((key) => key === first)).toHaveLength(2);
+  });
 });
 
 describe('readServeConfig', () => {

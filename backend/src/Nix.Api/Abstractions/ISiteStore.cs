@@ -99,6 +99,12 @@ public interface ISiteStore
     /// </summary>
     public ValueTask LockSiteAsync(Guid siteId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Takes the current tenant's site-creation lock for the rest of the transaction, so two creates
+    /// cannot both pass the per-tenant site cap.
+    /// </summary>
+    public ValueTask LockTenantCreatesAsync(CancellationToken cancellationToken);
+
     /// <summary>Counts the sites of the current tenant.</summary>
     public ValueTask<int> CountAsync(CancellationToken cancellationToken);
 
