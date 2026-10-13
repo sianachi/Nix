@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { Readable } from 'node:stream';
+import { Readable, pipeline } from 'node:stream';
 
 import type { ObjectReader, StoredObject } from './store.ts';
 
@@ -103,6 +103,14 @@ export function normalizePath(rawUrl: string): string | null {
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f]/.test(decoded)) return null;
   return decoded;
+}
+
+/**
+ * A decoded path encoded again for a Location header: `path` is decoded, so a `?` in it would turn
+ * into a query, and a character outside Latin-1 would make writeHead throw.
+ */
+function urlPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
 }
 
 /** The lowercase hostname of a Host header, without its port, or null if it is not a name. */
@@ -231,7 +239,9 @@ export function createSiteServer(options: SiteServerOptions): Server {
     } else if (body.body === null) {
       response.end();
     } else {
-      Readable.fromWeb(body.body as never).pipe(response);
+      // pipeline, not pipe: a storage stream that fails mid-body (a timeout, a reset) must end
+      // this response, not surface as an unhandled 'error' that exits the process.
+      pipeline(Readable.fromWeb(body.body as never), response, () => undefined);
     }
   }
 
@@ -284,7 +294,7 @@ export function createSiteServer(options: SiteServerOptions): Server {
       send(
         response,
         308,
-        { location: `${manifest.redirectTo}${path}${query}`, 'cache-control': REVALIDATE },
+        { location: `${manifest.redirectTo}${urlPath(path)}${query}`, 'cache-control': REVALIDATE },
         null,
       );
       return;
@@ -344,7 +354,7 @@ export function createSiteServer(options: SiteServerOptions): Server {
           'HEAD',
         );
         if (directory === null) return notFound();
-        send(response, 308, { location: `${path}/`, 'cache-control': REVALIDATE }, null);
+        send(response, 308, { location: `${urlPath(path)}/`, 'cache-control': REVALIDATE }, null);
         return;
       }
     }
