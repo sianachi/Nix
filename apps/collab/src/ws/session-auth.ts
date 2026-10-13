@@ -141,7 +141,6 @@ export function createSessionAuthenticator(options: {
       if (operationId !== undefined && blockedDrafts.has(operationId)) {
         return { ok: false, reason: 'refused' };
       }
-      const draftGeneration = operationId === undefined ? undefined : generationFor(operationId);
       const key = `${itemId}\n${token}`;
       const cached = cache.get(key);
       if (cached !== undefined && cached.expiresAt > now()) {
@@ -162,6 +161,9 @@ export function createSessionAuthenticator(options: {
           // cost a round trip, and must not learn whether the item exists.
           return { ok: false, reason: 'unauthenticated' };
         }
+        // Only after the token validates: an entry per unauthenticated draft URL would grow this
+        // map from public input. A block that lands from here on still cancels the attempt above.
+        const draftGeneration = operationId === undefined ? undefined : generationFor(operationId);
 
         let authorization:
           (ItemAuthorization & { resolvedItemId?: string }) | 'locked' | 'unavailable' | null;

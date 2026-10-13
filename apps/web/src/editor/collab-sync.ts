@@ -917,7 +917,9 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
         const encoder = encoding.createEncoder();
         encoding.writeVarUint(encoder, MESSAGE_SYNC);
         const kind = syncProtocol.readSyncMessage(decoder, encoder, doc, REMOTE_ORIGIN);
-        if (mode === 'write' && encoding.length(encoder) > 1) {
+        // Not after a refusal: the server's resync would be answered with the same refused
+        // content, refused again, and resynced again at network speed.
+        if (mode === 'write' && !writeRefused && encoding.length(encoder) > 1) {
           from.send(encoding.toUint8Array(encoder));
         }
         if (kind === syncProtocol.messageYjsSyncStep2) {
@@ -945,7 +947,9 @@ export function startCollabSync(options: CollabSyncOptions): CollabSync {
           code?: string;
           detail?: string;
         };
-        writeRefused = true;
+        // A rate limit is not a refusal: the server resyncs once the window resets and the edit
+        // is saved then, so it must not block confirmation, sign-out or updates meanwhile.
+        if (notice.code !== 'rate_limited') writeRefused = true;
         if (notice.code === 'read_only') {
           // The server stopped accepting this session's writes - a revoked grant, told
           // honestly instead of silently dropping edits.

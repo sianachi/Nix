@@ -67,11 +67,20 @@ let registry: DocumentHub | null = null;
 const locks = await connectDocumentLocks({
   databaseUrl: config.databaseUrl,
   onSessionLost: () => {
-    registry?.dropAll().catch((cause: unknown) => {
-      logHolder.write(
-        `Could not drop resident documents after losing the lock session: ${String(cause)}`,
-      );
-    });
+    // Then exit: nothing reconnects this client, so every later join would fail while /healthz
+    // still said healthy. The supervisor restarts the process with a fresh session.
+    void (registry?.dropAll() ?? Promise.resolve())
+      .catch((cause: unknown) => {
+        logHolder.write(
+          `Could not drop resident documents after losing the lock session: ${String(cause)}`,
+        );
+      })
+      .finally(() => {
+        logHolder.write(
+          'Lost the document lock session; exiting so the supervisor restarts collab.',
+        );
+        process.exit(1);
+      });
   },
 });
 

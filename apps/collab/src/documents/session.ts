@@ -170,6 +170,7 @@ export class DocumentSession {
 
   /** Which rate windows each socket has been refused in; three distinct ones is abuse. */
   readonly #abusedWindows = new Map<SocketSession, Set<number>>();
+  readonly #rateResyncs = new Map<SocketSession, ReturnType<typeof setTimeout>>();
 
   #encodedBase: number;
   #bytesSinceEncode = 0;
@@ -700,7 +701,18 @@ export class DocumentSession {
     // fresh sync. A sync step 1 is what makes the client notice and send it again, which turns
     // silent loss into a delay. Without it a person over the limit watches their work stay on
     // screen and finds it gone on reload.
-    this.beginSync(socket);
+    // One resync per socket, sent when the window resets: an immediate one is answered with the
+    // same over-limit edit, refused again, and resynced again at network speed.
+    if (!this.#rateResyncs.has(socket)) {
+      const wait = rateWindow.msUntilReset(socket.authorization.principalId, this.docRow.doc_id);
+      this.#rateResyncs.set(
+        socket,
+        setTimeout(() => {
+          this.#rateResyncs.delete(socket);
+          if (this.#sockets.has(socket)) this.beginSync(socket);
+        }, wait),
+      );
+    }
     return true;
   }
 
@@ -1103,6 +1115,8 @@ export class DocumentSession {
     this.#clientIdsBySocket.delete(socket);
     this.#writerIdBySocket.delete(socket);
     this.#abusedWindows.delete(socket);
+    clearTimeout(this.#rateResyncs.get(socket));
+    this.#rateResyncs.delete(socket);
     this.#awarenessBudget.delete(socket);
     if (owned !== undefined && owned.size > 0) {
       awarenessProtocol.removeAwarenessStates(this.#awareness, [...owned], null);

@@ -438,6 +438,36 @@ describe('the websocket provider', () => {
     expect(h.states.at(-1)).toBe('readonly');
   });
 
+  it.each([
+    ['document_too_large', 0],
+    ['rate_limited', 1],
+  ])('after a %s notice answers the server resync %i times', async (code, answers) => {
+    const h = harness();
+    active = h.sync;
+    await settled();
+    const socket = h.latest();
+    socket.open();
+    ready(socket);
+    typeParagraph(h.doc, 'Content the server refused.');
+
+    const notice = encoding.createEncoder();
+    encoding.writeVarUint(notice, MESSAGE_NOTICE);
+    encoding.writeVarString(notice, JSON.stringify({ code, detail: '' }));
+    socket.receiveBinary(encoding.toUint8Array(notice));
+    const before = socket.binaryFramesSent().length;
+    const step1 = encoding.createEncoder();
+    encoding.writeVarUint(step1, MESSAGE_SYNC);
+    syncProtocol.writeSyncStep1(step1, new Y.Doc());
+    socket.receiveBinary(encoding.toUint8Array(step1));
+
+    // A refused document answering every resync with the same content loops with the server.
+    const replies = socket
+      .binaryFramesSent()
+      .slice(before)
+      .filter((frame) => frame[0] === MESSAGE_SYNC);
+    expect(replies).toHaveLength(answers);
+  });
+
   it('does not send edits after a read-only handshake', async () => {
     const h = harness();
     active = h.sync;
