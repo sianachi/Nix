@@ -8,6 +8,7 @@ import { resolveDoneProperty } from '../checklist/checklist-view';
 import { FilterRulesEditor } from '../query/filter-rules-editor';
 import type { PropertyDefinition, View } from './container-model';
 import { LineListInput } from './line-list-input';
+import { OPEN_MODES, OPEN_MODE_LABELS } from './open-policy';
 import { findViewKind } from './view-kinds';
 
 export interface StructuredViewConfigurationProps {
@@ -108,6 +109,29 @@ export function StructuredViewConfiguration({
           )}
         </Field>
       ))}
+
+      <Field
+        label="Open items"
+        hint="Auto opens a dialog over most views and a page from an outline; phones always open a page."
+      >
+        {(control) => (
+          <Select
+            {...control}
+            value={view.open ?? ''}
+            onChange={(event) => {
+              const value = event.target.value;
+              onChange({ ...view, open: value.length === 0 ? null : value });
+            }}
+          >
+            <option value="">{OPEN_MODE_LABELS.auto}</option>
+            {OPEN_MODES.map((mode) => (
+              <option key={mode} value={mode}>
+                {OPEN_MODE_LABELS[mode]}
+              </option>
+            ))}
+          </Select>
+        )}
+      </Field>
 
       {view.kind === 'chart' ? (
         <ChartOptionsEditor view={view} fields={fields} onChange={onChange} />

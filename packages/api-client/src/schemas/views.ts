@@ -104,6 +104,7 @@ export const viewConfigurationSchema = z.object({
   coverProperty: nullableText,
   endDateProperty: nullableText,
   cardSize: nullableText,
+  open: nullableText,
   filters: z.array(filterRuleSchema).default([]),
   companionViewId: nullableText,
   companionPlacement: nullableText,

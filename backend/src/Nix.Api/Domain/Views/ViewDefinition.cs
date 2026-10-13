@@ -408,6 +408,27 @@ public static class DriveLayouts
         || string.Equals(value, Grid, StringComparison.Ordinal);
 }
 
+/// <summary>How an item activated from a view opens; null on the view means the client's own default.</summary>
+public static class ViewOpenModes
+{
+    /// <summary>The whole pane navigates to the item.</summary>
+    public const string Page = "page";
+
+    /// <summary>The item opens in a dialog over the view.</summary>
+    public const string Dialog = "dialog";
+
+    /// <summary>The item opens in another pane next to the view.</summary>
+    public const string Beside = "beside";
+
+    /// <summary>Whether a stored or requested value names a mode this build defines.</summary>
+    /// <param name="value">The value.</param>
+    /// <returns><see langword="true"/> when it is one of the three modes.</returns>
+    public static bool IsValid(string value) =>
+        string.Equals(value, Page, StringComparison.Ordinal)
+        || string.Equals(value, Dialog, StringComparison.Ordinal)
+        || string.Equals(value, Beside, StringComparison.Ordinal);
+}
+
 public static class GalleryCardSizes
 {
     /// <summary>Denser columns and a squarer cover.</summary>
@@ -613,7 +634,13 @@ public sealed record ViewDefinition(
     // Last and defaulted like every field added since the record was cut. For a chart: its type,
     // time axis, series and window (ChartOptions). Null draws what every chart stored before the
     // field existed drew - horizontal bars of categories - and every other kind stores and ignores it.
-    ChartOptions? Chart = null)
+    ChartOptions? Chart = null,
+
+    // Last and defaulted like every field added since the record was cut. For every kind: how an
+    // item activated from this view opens - `page`, `dialog` or `beside`. Null means the client's
+    // own context-aware default, which is what every view stored before the field existed did; the
+    // set is closed and policed on write, see ViewOpenModes.
+    string? Open = null)
 {
     /// <summary>
     /// Whether this view can render given the schema in force.

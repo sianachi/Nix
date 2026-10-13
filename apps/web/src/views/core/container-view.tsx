@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Button } from '@nix/ui';
-import { useNarrowViewport } from '../../layout/viewport';
+import { useNarrowViewport, useRoomForAnotherPane } from '../../layout/viewport';
 import { useItemDialog } from '../../items/item-dialog-context';
 
 import { EmptyPanel, ErrorPanel } from '../../components/states/status-panels';
@@ -8,6 +8,7 @@ import type { View } from './container-model';
 import { ListView } from '../list/list-view';
 import type { ContainerData } from './use-container';
 import { VIEW_GUTTER } from './view-gutter';
+import { resolveOpenMode } from './open-policy';
 import { findViewKind } from './view-kinds';
 import { ViewItemVisibility } from './view-item-visibility';
 import { ViewTools } from './view-tools';
@@ -28,12 +29,27 @@ export interface ContainerViewProps {
   readonly view: View | null;
 
   readonly onOpen: (itemId: string) => void;
+
+  /** Opens in another pane, when the screen around this view offers one. */
+  readonly onOpenBeside?: ((itemId: string) => void) | undefined;
 }
 
-export function ContainerView({ container, view, onOpen }: ContainerViewProps): ReactNode {
+export function ContainerView({ container, view, onOpen, onOpenBeside }: ContainerViewProps): ReactNode {
   const openDialog = useItemDialog();
   const narrow = useNarrowViewport();
-  const open = narrow ? onOpen : (openDialog ?? onOpen);
+  const roomForPane = useRoomForAnotherPane();
+  // One policy decides how an activated row opens; see open-policy.ts.
+  const mode = resolveOpenMode({
+    view,
+    narrow,
+    canOpenBeside: roomForPane && onOpenBeside !== undefined,
+  });
+  const open =
+    mode === 'beside' && onOpenBeside !== undefined
+      ? onOpenBeside
+      : mode === 'dialog'
+        ? (openDialog ?? onOpen)
+        : onOpen;
   const [grid, setGrid] = useState(false);
   const viewState = useViewState();
   const descriptor = view === null ? null : findViewKind(view.kind);

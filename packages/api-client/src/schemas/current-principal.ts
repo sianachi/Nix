@@ -9,6 +9,8 @@ export const currentPrincipalSchema = z.object({
   displayName: z.string(),
   email: z.string().nullable(),
   isTenantAdministrator: z.boolean(),
+  /** Deployment features the shell may offer; defaulted so an older Core answers without them. */
+  features: z.object({ sites: z.boolean().default(false) }).default({ sites: false }),
 });
 
 export type CurrentPrincipal = z.infer<typeof currentPrincipalSchema>;

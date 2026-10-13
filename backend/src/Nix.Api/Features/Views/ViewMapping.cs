@@ -48,7 +48,8 @@ internal static class ViewMapping
             view.Layout,
             view.DoneProperty,
             view.RowBy,
-            ToContract(view.Chart));
+            ToContract(view.Chart),
+            view.Open);
     }
 
     /// <summary>
@@ -134,7 +135,8 @@ internal static class ViewMapping
                         : [.. view.Aggregates.Select(aggregate => new ViewAggregate(aggregate.Property, aggregate.Function))],
                     view.DoneProperty,
                     view.RowBy,
-                    ToDomain(view.Chart))));
+                    ToDomain(view.Chart),
+                    view.Open)));
         }
 
         views = mapped.ToImmutable();

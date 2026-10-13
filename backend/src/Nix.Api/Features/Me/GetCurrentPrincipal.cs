@@ -4,6 +4,7 @@ using Nix.Abstractions;
 using Nix.Domain.Identity;
 using Nix.Domain.Primitives;
 using Nix.Domain.Tenancy;
+using Nix.Features.Sites;
 using Nix.Messaging;
 
 namespace Nix.Features.CurrentUser;
@@ -123,7 +124,8 @@ internal static class GetCurrentPrincipalEndpoint
     /// <returns>The caller's profile, or a problem describing why it could not be read.</returns>
     internal static async Task<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>> Handle(
         HttpContext httpContext,
-        [FromServices] NixDispatcher dispatcher)
+        [FromServices] NixDispatcher dispatcher,
+        [FromServices] SiteOptions sites)
     {
         var result = await dispatcher
             .QueryAsync<GetCurrentPrincipal, Result<CurrentPrincipal>>(
@@ -138,7 +140,8 @@ internal static class GetCurrentPrincipalEndpoint
                     principal.TenantId.Value,
                     principal.DisplayName,
                     principal.Email,
-                    principal.IsTenantAdministrator)),
+                    principal.IsTenantAdministrator,
+                    new CurrentPrincipalFeatures(sites.IsEnabled))),
             error => TypedResults.Problem(MeEndpoints.Problem(httpContext, error)));
     }
 }

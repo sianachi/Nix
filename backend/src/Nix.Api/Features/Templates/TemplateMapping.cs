@@ -139,7 +139,8 @@ internal static class TemplateMapping
                 : view.GroupLimits.Select(limit => new ViewGroupLimitContract(limit.Group, limit.Limit)).ToArray(),
             view.Aggregates.IsDefaultOrEmpty
                 ? []
-                : view.Aggregates.Select(aggregate => new ViewAggregateContract(aggregate.Property, aggregate.Function)).ToArray());
+                : view.Aggregates.Select(aggregate => new ViewAggregateContract(aggregate.Property, aggregate.Function)).ToArray(),
+            view.Open);
 
     private static TemplateInteractiveFormResponse? InteractiveForm(InteractiveFormDefinition? form) =>
         form is null
