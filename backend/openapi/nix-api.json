@@ -5295,6 +5295,107 @@
         }
       }
     },
+    "/api/v1/me/pets/providers": {
+      "get": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "ListPetProviderKeys",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetProvidersResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/me/pets/providers/{provider}/key": {
+      "put": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "SavePetProviderKey",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePetProviderKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetProviderKeyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Pets"
+        ],
+        "operationId": "RemovePetProviderKey",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/pets/runtime": {
       "post": {
         "tags": [
@@ -17783,6 +17884,44 @@
           "applyWithoutAsking": {
             "type": "boolean",
             "default": false
+          },
+          "provider": {
+            "type": "string",
+            "default": "chatgpt"
+          }
+        }
+      },
+      "PetProviderKeyResponse": {
+        "required": [
+          "provider",
+          "keyHint",
+          "savedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "keyHint": {
+            "type": "string"
+          },
+          "savedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetProvidersResponse": {
+        "required": [
+          "keys"
+        ],
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetProviderKeyResponse"
+            }
           }
         }
       },
@@ -19205,6 +19344,17 @@
           },
           "showOnCalendar": {
             "type": "boolean"
+          }
+        }
+      },
+      "SavePetProviderKeyRequest": {
+        "required": [
+          "key"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
           }
         }
       },

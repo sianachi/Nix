@@ -1,12 +1,14 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
+using Nix.Domain.Pets;
 using Nix.Domain.Tenancy;
 using Nix.Features.Pets;
 using Nix.Features.Workspaces;
@@ -28,7 +30,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton(gateway)));
         using var client = host.CreateClient();
 
@@ -46,7 +48,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
         using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton(gateway)));
         using var client = host.CreateClient();
         var path = $"/api/v1/me/pets/runtime/note/watch?workspaceId={WorkspaceGuid}&petId={PetGuid}"
@@ -63,7 +65,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("status", Mode: "design"), Cancellation);
 
@@ -77,7 +79,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("read", WorkspaceGuid, PetGuid, RootItemId: Guid.Empty), Cancellation);
 
@@ -91,7 +93,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Explain this note",
             ItemId: Guid.NewGuid(), RootItemId: Guid.NewGuid()), Cancellation);
@@ -106,7 +108,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Design a habit tracker", Mode: "consult"), Cancellation);
 
@@ -121,7 +123,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("watch", WorkspaceGuid, PetGuid), Cancellation);
 
@@ -135,7 +137,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "chat", 42, Cancellation);
 
@@ -152,7 +154,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new DenyReadPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new DenyReadPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "chat", 0, Cancellation);
 
@@ -166,7 +168,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new StatusWorker(HttpStatusCode.TooManyRequests);
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteWatchAsync(WorkspaceGuid, PetGuid, "chat", 0, Cancellation);
 
@@ -179,7 +181,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new StatusWorker(HttpStatusCode.Conflict);
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Design a habit tracker"), Cancellation);
 
@@ -193,7 +195,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         using var handler = new StatusWorker(HttpStatusCode.ServiceUnavailable);
         using var http = new HttpClient(handler);
         var logger = new CapturingLogger<PetWorkerClient>();
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), logger);
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()), logger);
 
         var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "private message text"), Cancellation);
 
@@ -211,7 +213,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new OversizedWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("status"), Cancellation);
 
@@ -224,7 +226,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
         var container = Guid.NewGuid();
 
         var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "What is due?",
@@ -246,7 +248,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new LockedReadWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("tool_result", WorkspaceGuid, PetGuid, Guid.NewGuid(),
             ToolId: "read-1", ToolResult: "body", ToolSuccess: true, ToolLockedContent: true), Cancellation);
@@ -264,7 +266,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
         // nothing of it reaches the browser.
         using var handler = new LegacyActionsWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("read", WorkspaceGuid, PetGuid), Cancellation);
 
@@ -289,7 +291,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
         var map = mapEntries == 0 ? null : Enumerable.Range(0, mapEntries).Select(_ => new PetWorkspaceMapEntry(Guid.NewGuid(), "Tasks", "note")).ToList();
 
         var result = await gateway.ExecuteAsync(new("send", WorkspaceGuid, PetGuid, Guid.NewGuid(), "Hi",
@@ -305,7 +307,7 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         using var handler = new RecordingWorker();
         using var http = new HttpClient(handler);
-        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions());
+        var gateway = new PetWorkerClient(http, Configuration(), Session(), Dispatcher(), new StubPermissions(), new NoCredentials(), new PetProviderKeyProtector(new EphemeralDataProtectionProvider()));
 
         var result = await gateway.ExecuteAsync(new("read", WorkspaceGuid, PetGuid,
             WorkspaceMap: [new(Guid.NewGuid(), "Tasks", "note")]), Cancellation);
@@ -453,5 +455,16 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
             TState state,
             Exception? exception,
             Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, exception));
+    }
+
+    private sealed class NoCredentials : IPetProviderCredentialStore
+    {
+        public ValueTask<PetProviderCredential?> FindAsync(TenantId tenantId, PrincipalId principalId, string provider, CancellationToken cancellationToken) => ValueTask.FromResult<PetProviderCredential?>(null);
+
+        public ValueTask<IReadOnlyList<PetProviderCredential>> ListAsync(TenantId tenantId, PrincipalId principalId, CancellationToken cancellationToken) => ValueTask.FromResult<IReadOnlyList<PetProviderCredential>>([]);
+
+        public Task SaveAsync(PetProviderCredential credential, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<bool> RemoveAsync(TenantId tenantId, PrincipalId principalId, string provider, CancellationToken cancellationToken) => Task.FromResult(false);
     }
 }

@@ -9,7 +9,20 @@ export const petProfileSchema = z.object({
   instructions: z.string().max(2000),
   /** Default for the conversation's "Apply without asking" switch; stored pets without it read as off. */
   applyWithoutAsking: z.boolean().default(false),
+  /** Which model provider this pet speaks to; stored pets without it read as ChatGPT. */
+  provider: z.enum(['chatgpt', 'anthropic', 'openrouter']).default('chatgpt'),
 });
+
+export const petProviderSchema = petProfileSchema.shape.provider;
+
+/** One stored provider key as the owner may see it: never the key, only its last characters. */
+export const petProviderKeySchema = z.object({
+  provider: z.enum(['anthropic', 'openrouter']),
+  keyHint: z.string().max(8),
+  savedAt: z.iso.datetime({ offset: true }),
+});
+
+export const petProvidersResponseSchema = z.object({ keys: z.array(petProviderKeySchema) });
 
 export const petSettingsSchema = z
   .object({
@@ -42,7 +55,7 @@ export const petMessageSchema = z.object({
 });
 
 export const petConnectionSchema = z.object({
-  provider: z.literal('chatgpt'),
+  provider: z.enum(['chatgpt', 'anthropic', 'openrouter']).default('chatgpt'),
   status: z.enum(['unavailable', 'disconnected', 'connecting', 'connected', 'error']),
   reason: z.string(),
   canConnect: z.boolean(),
@@ -58,7 +71,15 @@ export const petConnectionSchema = z.object({
     .nullable()
     .default([]),
   models: z
-    .array(z.object({ id: z.string().max(160), name: z.string().max(200), default: z.boolean() }))
+    .array(
+      z.object({
+        id: z.string().max(160),
+        name: z.string().max(200),
+        default: z.boolean(),
+        /** False only for a provider model that cannot call tools; absent reads as true. */
+        supportsTools: z.boolean().default(true),
+      }),
+    )
     .max(100)
     .nullable()
     .default([]),
@@ -90,3 +111,7 @@ export type PetSettingsResponse = z.infer<typeof petSettingsResponseSchema>;
 export type PetConnection = z.infer<typeof petConnectionSchema>;
 export type PetMessage = z.infer<typeof petMessageSchema>;
 export type PetToolCall = NonNullable<z.infer<typeof petConnectionSchema>['tools']>[number];
+
+export type PetProvider = z.infer<typeof petProviderSchema>;
+export type PetProviderKey = z.infer<typeof petProviderKeySchema>;
+export type PetProvidersResponse = z.infer<typeof petProvidersResponseSchema>;

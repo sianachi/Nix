@@ -1361,6 +1361,38 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/pets/providers': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['ListPetProviderKeys'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/me/pets/providers/{provider}/key': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['SavePetProviderKey'];
+    post?: never;
+    delete: operations['RemovePetProviderKey'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/me/pets/runtime': {
     parameters: {
       query?: never;
@@ -4429,6 +4461,17 @@ export interface components {
       instructions: string;
       /** @default false */
       applyWithoutAsking: boolean;
+      /** @default chatgpt */
+      provider: string;
+    };
+    PetProviderKeyResponse: {
+      provider: string;
+      keyHint: string;
+      /** Format: date-time */
+      savedAt: string;
+    };
+    PetProvidersResponse: {
+      keys: components['schemas']['PetProviderKeyResponse'][];
     };
     PetRuntimeRequest: {
       operation: string;
@@ -4776,6 +4819,9 @@ export interface components {
       /** Format: int32 */
       rolloverHour: number | string;
       showOnCalendar: boolean;
+    };
+    SavePetProviderKeyRequest: {
+      key: string;
     };
     SavePetSettingsRequest: {
       /** Format: int64 */
@@ -9583,6 +9629,90 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['PetConnectionResponse'];
+        };
+      };
+    };
+  };
+  ListPetProviderKeys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetProvidersResponse'];
+        };
+      };
+    };
+  };
+  SavePetProviderKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        provider: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SavePetProviderKeyRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PetProviderKeyResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  RemovePetProviderKey: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        provider: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not Found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
         };
       };
     };
