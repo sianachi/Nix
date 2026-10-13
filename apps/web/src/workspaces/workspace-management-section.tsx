@@ -8,6 +8,7 @@ import { ErrorPanel, LoadingPanel, PartialNotice } from '../components/states/st
 import { DailyNotesSwitch } from '../settings/daily-notes-switch';
 import { useWorkspace } from './workspace-context';
 import { useWorkspaceAdministration } from './use-workspace-administration';
+import { WorkspaceGroupsSection } from './workspace-groups-section';
 
 type AssignableRole = 'owner' | 'editor' | 'viewer';
 
@@ -132,6 +133,8 @@ export function WorkspaceManagementSection(): ReactNode {
           <Text className="mt-1">{formatBytes(workspace.storageQuotaBytes)}</Text>
         </div>
       </Blueprint>
+
+      <WorkspaceGroupsSection />
 
       {administration.mutationError === null ? null : (
         <Text role="alert" tone="muted">

@@ -78,6 +78,7 @@ public static class AccessTokenScopePolicy
         // either remains Read through the shortcut below.
         if (!IsRead(method)
             && (path.StartsWithSegments("/api/v1/me/preferences", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWithSegments("/api/v1/me/workspace-arrangement", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWithSegments("/api/v1/me/push-subscriptions", StringComparison.OrdinalIgnoreCase)))
         {
             return Requirement.InteractiveOnly;
