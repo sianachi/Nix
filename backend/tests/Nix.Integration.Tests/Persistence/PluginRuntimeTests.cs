@@ -284,6 +284,49 @@ public sealed class PluginRuntimeTests(NixPostgresFixture fixture) : IAsyncLifet
             Cancellation));
     }
 
+    [Fact]
+    public async Task Host_reads_withhold_an_item_under_a_lock_but_not_the_locked_item_itself()
+    {
+        var child = Guid.NewGuid();
+        var connection = await fixture.OpenMigratorConnectionAsync();
+        await using (connection.ConfigureAwait(false))
+        {
+            await ExecuteAsync(
+                connection,
+                """
+                INSERT INTO item (id, tenant_id, workspace_id, type, parent_id, seq, properties,
+                                  lifecycle_state, created_by, last_modified_by, created_at, last_modified_at)
+                VALUES (@child, @tenant_id, @workspace_id, 'note', @parent, 99001,
+                        jsonb_build_object('title', 'Inside the lock'), 'active', @principal, @principal, now(), now());
+                INSERT INTO item_closure (tenant_id, workspace_id, ancestor_id, descendant_id, depth)
+                SELECT tenant_id, workspace_id, ancestor_id, @child, depth + 1
+                  FROM item_closure WHERE tenant_id = @tenant_id AND descendant_id = @parent
+                UNION ALL SELECT @tenant_id, @workspace_id, @child, @child, 0;
+                INSERT INTO item_lock (item_id, tenant_id, password_hash, locked_by, locked_at)
+                VALUES (@parent, @tenant_id,
+                        'pbkdf2-sha256$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+                        @principal, now())
+                ON CONFLICT DO NOTHING;
+                """,
+                new NpgsqlParameter("child", child),
+                new NpgsqlParameter("parent", M0SchemaSeed.Alpha.ItemId),
+                new NpgsqlParameter("tenant_id", M0SchemaSeed.Alpha.TenantId),
+                new NpgsqlParameter("workspace_id", M0SchemaSeed.Alpha.WorkspaceId),
+                new NpgsqlParameter("principal", M0SchemaSeed.Alpha.PrincipalId));
+        }
+
+        var eventId = Guid.NewGuid();
+        await InsertOutboxEventAsync(eventId, M0SchemaSeed.Alpha, aggregateVersion: 21);
+        var store = DispatchStore();
+        var plan = Assert.Single((await store.PrepareAsync(
+            Envelope(eventId, M0SchemaSeed.Alpha, aggregateVersion: 21), 60, Cancellation)).Plans);
+
+        // A plugin holds no unlock, so what the lock covers is not its to read; the lock's own
+        // item answers as it does in its parent's children.
+        Assert.NotNull(await store.ReadItemMetadataAsync(plan.InvocationId, M0SchemaSeed.Alpha.ItemId, Cancellation));
+        Assert.Null(await store.ReadItemMetadataAsync(plan.InvocationId, child, Cancellation));
+    }
+
     private async Task RegisterAndCommitAsync(
         Nix.Abstractions.NixSessionContext session,
         PluginComponentRegistration registration)

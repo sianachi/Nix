@@ -216,6 +216,51 @@ public sealed class ItemLockHttpTests : IAsyncLifetime
     }
 
     /// <summary>
+    /// Trashing marks only the trashed item, so trash must withhold one under a closed lock the
+    /// way the children listing does, rather than list its title to every reader.
+    /// </summary>
+    [Fact]
+    public async Task Trash_withholds_an_item_trashed_inside_a_lock_the_reader_has_not_opened()
+    {
+        var mine = await AccessTokenAsync("lock-http-trash-mine");
+        var other = await AccessTokenAsync("lock-http-trash-other");
+        var trashPath = $"/api/v1/workspaces/{M0SchemaSeed.Alpha.WorkspaceId:D}/items/trash";
+
+        string childId;
+        using (var created = await SendAsync(
+            HttpMethod.Post,
+            $"/api/v1/workspaces/{M0SchemaSeed.Alpha.WorkspaceId:D}/items",
+            mine,
+            new { type = "note", title = "Trashed inside", parentId = M0SchemaSeed.Alpha.ItemId }))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            using var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync(Cancellation));
+            childId = body.RootElement.GetProperty("id").GetString()!;
+        }
+
+        using (var locked = await SendAsync(HttpMethod.Put, $"{ItemPath}/lock", mine, new { password = "hunter22" }))
+        {
+            Assert.Equal(HttpStatusCode.NoContent, locked.StatusCode);
+        }
+
+        using (var deleted = await SendAsync(HttpMethod.Delete, $"/api/v1/items/{childId}", mine))
+        {
+            Assert.True(deleted.IsSuccessStatusCode, $"Delete answered {deleted.StatusCode}.");
+        }
+
+        Assert.Contains(childId, await TrashIdsAsync(mine));
+        Assert.DoesNotContain(childId, await TrashIdsAsync(other));
+
+        async Task<List<string>> TrashIdsAsync(string token)
+        {
+            using var response = await SendAsync(HttpMethod.Get, trashPath, token);
+            response.EnsureSuccessStatusCode();
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Cancellation));
+            return [.. body.RootElement.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetString()!)];
+        }
+    }
+
+    /// <summary>
     /// An export copies bodies out of Nix, and runs under a delegation that can hold no unlock, so
     /// one that would include a locked body is refused before a job exists.
     /// </summary>
