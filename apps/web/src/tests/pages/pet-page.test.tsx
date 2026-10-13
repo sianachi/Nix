@@ -27,6 +27,7 @@ vi.mock('../../pets/use-pet-settings', () => ({
             responseLength: 'balanced',
             instructions: '',
             applyWithoutAsking: false,
+            provider: 'chatgpt',
           },
         ],
       },

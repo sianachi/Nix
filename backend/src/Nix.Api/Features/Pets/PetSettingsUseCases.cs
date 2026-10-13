@@ -36,7 +36,8 @@ public static class PetSettingsValidation
                 || profile.Appearance is not ("owl" or "cat" or "fox" or "eye-of-ra" or "demiurge")
                 || profile.Personality is not ("calm" or "playful" or "encouraging" or "concise")
                 || profile.ResponseLength is not ("concise" or "balanced" or "detailed")
-                || profile.Instructions is null || profile.Instructions.Length > 2000)
+                || profile.Instructions is null || profile.Instructions.Length > 2000
+                || !PetProviders.IsValid(profile.Provider))
             {
                 return false;
             }

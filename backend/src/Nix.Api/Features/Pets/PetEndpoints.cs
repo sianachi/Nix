@@ -17,6 +17,16 @@ internal static class PetEndpoints
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName);
         group.MapGet("/connection", Connection)
             .WithName("GetPetConnection");
+        // Provider API keys: stored protected, shown as hints, never returned. Interactive only
+        // (AccessTokenScopePolicy): a personal access token must not be able to swap the key a
+        // person's pets bill to.
+        group.MapGet("/providers", ListProviderKeys).WithName("ListPetProviderKeys");
+        group.MapPut("/providers/{provider}/key", SaveProviderKey).WithName("SavePetProviderKey")
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+        group.MapDelete("/providers/{provider}/key", RemoveProviderKey).WithName("RemovePetProviderKey")
+            .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
+            .ProducesProblem(StatusCodes.Status404NotFound);
         group.MapPost("/runtime", Runtime).WithName("PetRuntime")
             .RequireRateLimiting(RateLimitRefusal.WritesPolicyName)
             .ProducesProblem(StatusCodes.Status409Conflict);
@@ -124,5 +134,32 @@ internal static class PetEndpoints
             error => TypedResults.Problem(ApiProblem.Create(context,
                 error.Code == "pets.settings_conflict" ? StatusCodes.Status409Conflict : StatusCodes.Status422UnprocessableEntity,
                 error.Code, "Pet settings could not be saved", error.Message)));
+    }
+
+    private static async Task<Ok<PetProvidersResponse>> ListProviderKeys(HttpContext context, [FromServices] NixDispatcher dispatcher) =>
+        TypedResults.Ok(await dispatcher.QueryAsync<ListPetProviderKeys, PetProvidersResponse>(new(), context.RequestAborted).ConfigureAwait(false));
+
+    private static async Task<Results<Ok<PetProviderKeyResponse>, ProblemHttpResult>> SaveProviderKey(
+        string provider, SavePetProviderKeyRequest request, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var result = await dispatcher.SendAsync<SavePetProviderKey, PetProviderKeyResponse>(new(provider, request.Key ?? string.Empty), context.RequestAborted).ConfigureAwait(false);
+        return result.Match<Results<Ok<PetProviderKeyResponse>, ProblemHttpResult>>(
+            saved => TypedResults.Ok(saved),
+            error => TypedResults.Problem(ApiProblem.Create(context, StatusCodes.Status422UnprocessableEntity, error.Code, "The key could not be saved", error.Message)));
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult>> RemoveProviderKey(
+        string provider, HttpContext context, [FromServices] NixDispatcher dispatcher)
+    {
+        var result = await dispatcher.SendAsync<RemovePetProviderKey, bool>(new(provider), context.RequestAborted).ConfigureAwait(false);
+        if (result.IsFailure)
+        {
+            return TypedResults.Problem(ApiProblem.Create(context, StatusCodes.Status422UnprocessableEntity, result.Error.Code, "The key could not be removed", result.Error.Message));
+        }
+
+        return result.Value
+            ? TypedResults.NoContent()
+            : TypedResults.Problem(ApiProblem.Create(context, StatusCodes.Status404NotFound, "pets.no_key", "No key is stored", "There is no key stored for that provider."));
     }
 }

@@ -215,7 +215,7 @@ func TestWatchIsNotBlockedWhileSendHoldsOp(t *testing.T) {
 	}
 	defer m.Close()
 	block := make(chan struct{})
-	m.launch = func(_ context.Context, _ string, home string, _ func(string, json.RawMessage)) (Transport, error) {
+	m.launch = func(_ context.Context, _ string, _ string, home string, _ string, _ func(string, json.RawMessage)) (Transport, error) {
 		if err := os.MkdirAll(home, 0700); err != nil {
 			return nil, err
 		}
@@ -267,7 +267,7 @@ func TestWatchCapsConcurrentWatchersPerAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Close()
-	m.launch = func(_ context.Context, _ string, home string, _ func(string, json.RawMessage)) (Transport, error) {
+	m.launch = func(_ context.Context, _ string, _ string, home string, _ string, _ func(string, json.RawMessage)) (Transport, error) {
 		if err := os.MkdirAll(home, 0700); err != nil {
 			return nil, err
 		}

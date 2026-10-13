@@ -2479,6 +2479,44 @@ namespace Nix.Persistence.Migrations.Generated
                         });
                 });
 
+            modelBuilder.Entity("Nix.Domain.Pets.PetProviderCredential", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<string>("Provider")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("provider");
+
+                    b.Property<string>("KeyHint")
+                        .IsRequired()
+                        .HasMaxLength(8)
+                        .HasColumnType("character varying(8)")
+                        .HasColumnName("key_hint");
+
+                    b.Property<byte[]>("ProtectedKey")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("protected_key");
+
+                    b.Property<DateTimeOffset>("SavedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("saved_at");
+
+                    b.HasKey("TenantId", "PrincipalId", "Provider");
+
+                    b.ToTable("pet_provider_credential", null, t =>
+                        {
+                            t.HasCheckConstraint("pet_provider_credential_bounded", "provider IN ('anthropic', 'openrouter') AND octet_length(protected_key) <= 4096 AND char_length(key_hint) <= 8");
+                        });
+                });
+
             modelBuilder.Entity("Nix.Domain.Plugins.PluginCapabilityGrant", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -5163,6 +5201,16 @@ namespace Nix.Persistence.Migrations.Generated
                 });
 
             modelBuilder.Entity("Nix.Domain.Notifications.PushSubscription", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Pets.PetProviderCredential", b =>
                 {
                     b.HasOne("Nix.Domain.Identity.Principal", null)
                         .WithMany()

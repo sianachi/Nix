@@ -281,8 +281,14 @@ export {
   petSettingsSchema,
   petSettingsResponseSchema,
   petConnectionSchema,
+  petProviderSchema,
+  petProviderKeySchema,
+  petProvidersResponseSchema,
 } from './schemas/pets.js';
 export type {
+  PetProvider,
+  PetProviderKey,
+  PetProvidersResponse,
   PetProfile,
   PetSettings,
   PetSettingsResponse,
