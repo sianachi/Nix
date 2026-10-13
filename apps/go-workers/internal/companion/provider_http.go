@@ -67,11 +67,12 @@ type providerToolResult struct {
 }
 
 type httpThread struct {
-	ID       string            `json:"id"`
-	Model    string            `json:"model"`
-	System   string            `json:"system"`
-	Tools    []json.RawMessage `json:"tools"`
-	Messages []providerMessage `json:"messages"`
+	ID        string            `json:"id"`
+	Model     string            `json:"model"`
+	System    string            `json:"system"`
+	Tools     []json.RawMessage `json:"tools"`
+	Messages  []providerMessage `json:"messages"`
+	Ephemeral bool              `json:"-"`
 }
 
 type toolReply struct {
@@ -173,7 +174,20 @@ func (t *httpTransport) Call(ctx context.Context, method string, params any) (js
 		return nil, err
 	}
 	switch method {
-	case "initialize", "initialized", "thread/unsubscribe", "account/logout", "account/login/cancel":
+	case "initialize", "initialized", "account/logout", "account/login/cancel":
+		return json.RawMessage(`{}`), nil
+	case "thread/unsubscribe":
+		var p struct {
+			ThreadID string `json:"threadId"`
+		}
+		if err := json.Unmarshal(encoded, &p); err != nil {
+			return nil, err
+		}
+		t.mu.Lock()
+		if thread := t.threads[p.ThreadID]; thread != nil && thread.Ephemeral {
+			delete(t.threads, p.ThreadID)
+		}
+		t.mu.Unlock()
 		return json.RawMessage(`{}`), nil
 	case "account/read":
 		if t.apiKey == "" {
@@ -189,7 +203,7 @@ func (t *httpTransport) Call(ctx context.Context, method string, params any) (js
 		}
 		return encodeModelList(models)
 	case "thread/start":
-		return t.startThread(encoded)
+		return t.startThread(ctx, encoded)
 	case "thread/resume":
 		var p struct {
 			ThreadID string `json:"threadId"`
@@ -235,26 +249,38 @@ func encodeModelList(models []Model) (json.RawMessage, error) {
 	return json.Marshal(map[string]any{"data": data})
 }
 
-func (t *httpTransport) startThread(params json.RawMessage) (json.RawMessage, error) {
+func (t *httpTransport) startThread(ctx context.Context, params json.RawMessage) (json.RawMessage, error) {
 	var p struct {
 		Model                 string            `json:"model"`
 		BaseInstructions      string            `json:"baseInstructions"`
 		DeveloperInstructions string            `json:"developerInstructions"`
 		DynamicTools          []json.RawMessage `json:"dynamicTools"`
+		Ephemeral             bool              `json:"ephemeral"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, err
+	}
+	if p.Model == "" {
+		models, err := t.wire.listModels(ctx, t.client, t.baseURL, t.apiKey)
+		if err != nil {
+			return nil, err
+		}
+		if len(models) == 0 {
+			return nil, errors.New("provider listed no models")
+		}
+		p.Model = defaultModel(models).ID
 	}
 	id, err := randomID()
 	if err != nil {
 		return nil, err
 	}
 	thread := &httpThread{
-		ID:       id,
-		Model:    p.Model,
-		System:   p.BaseInstructions + "\n\n" + p.DeveloperInstructions,
-		Tools:    p.DynamicTools,
-		Messages: []providerMessage{},
+		ID:        id,
+		Model:     p.Model,
+		System:    p.BaseInstructions + "\n\n" + p.DeveloperInstructions,
+		Tools:     p.DynamicTools,
+		Messages:  []providerMessage{},
+		Ephemeral: p.Ephemeral,
 	}
 	t.mu.Lock()
 	t.threads[id] = thread
@@ -288,6 +314,9 @@ func (t *httpTransport) threadPath(id string) string {
 }
 
 func (t *httpTransport) save(thread *httpThread) {
+	if thread.Ephemeral {
+		return
+	}
 	t.mu.Lock()
 	if len(thread.Messages) > maxThreadMessages {
 		thread.Messages = thread.Messages[len(thread.Messages)-maxThreadMessages:]
@@ -335,6 +364,9 @@ func (t *httpTransport) startTurn(params json.RawMessage) (json.RawMessage, erro
 func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID string) {
 	defer func() {
 		t.mu.Lock()
+		if thread.Ephemeral {
+			delete(t.threads, thread.ID)
+		}
 		if cancel := t.turns[turnID]; cancel != nil {
 			cancel()
 			delete(t.turns, turnID)

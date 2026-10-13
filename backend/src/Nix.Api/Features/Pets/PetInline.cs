@@ -272,6 +272,13 @@ internal static class PetInlineEndpoint
                 "Turn on the companion and inline writing in settings first.");
         }
 
+        var pet = settings.Profiles.FirstOrDefault(profile => profile.Id == petId);
+        if (pet is null)
+        {
+            return Refuse(context, StatusCodes.Status409Conflict, "pets.inline_disabled", "Inline writing is turned off",
+                "Choose a saved pet in settings first.");
+        }
+
         // (c) The caller can read the item, and it is in the workspace they named.
         var item = await dispatcher.QueryAsync<GetItem, Result<Item>>(new(new ItemId(request.ItemId)), aborted).ConfigureAwait(false);
         if (item.IsFailure || item.Value.WorkspaceId.Value != request.WorkspaceId)
@@ -304,7 +311,7 @@ internal static class PetInlineEndpoint
 
             deadline = CancellationTokenSource.CreateLinkedTokenSource(aborted);
             deadline.CancelAfter(PetInlineLimits.StreamDeadline);
-            var opened = await worker.OpenInlineAsync(request, petId, deadline.Token).ConfigureAwait(false);
+            var opened = await worker.OpenInlineAsync(request, pet, deadline.Token).ConfigureAwait(false);
             if (opened.IsFailure)
             {
                 var status = opened.Error.Code switch

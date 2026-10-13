@@ -53,7 +53,7 @@ export function PetCompanion(): ReactElement | null {
   if (zen || pathname === petPagePath || pathname.startsWith(`${petPagePath}/`)) return null;
   return (
     <Companion
-      key={`${workspaceId}:${pet.id}`}
+      key={`${workspaceId}:${pet.id}:${pet.provider}`}
       workspaceId={workspaceId}
       pet={pet}
       settings={saved.settings}

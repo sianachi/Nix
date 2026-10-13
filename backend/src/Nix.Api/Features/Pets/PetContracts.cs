@@ -41,7 +41,7 @@ public sealed record PetConnectionResponse(string Provider, string Status, strin
 public sealed record PetHistoryEntry(string Id, string Title, string CreatedAt);
 
 /// <summary>A model offered by the connected Codex runtime.</summary>
-public sealed record PetModel(string Id, string Name, bool Default);
+public sealed record PetModel(string Id, string Name, bool Default, bool SupportsTools = true);
 
 /// <summary>A bounded tool request and its private execution receipt.</summary>
 public sealed record PetToolCall(string Id, string Arguments, string Status, string Result, string ClaimId);
@@ -101,7 +101,9 @@ public sealed record PetInlineRequest(Guid WorkspaceId, Guid ItemId, Guid Reques
 /// <summary>The worker's inline operation. Unknown fields are refused by the worker, so this is exactly its shape.</summary>
 internal sealed record PetInlineWorkerRequest(string TenantId, string PrincipalId, string WorkspaceId,
     string PetId, string Operation, string RequestId, string Text, string SharedText, string ContextText,
-    string InlineKind, string Language, string Model);
+    string InlineKind, string Language, string Model,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Provider = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApiKey = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(PetSettings))]

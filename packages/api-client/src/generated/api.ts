@@ -4450,6 +4450,8 @@ export interface components {
       id: string;
       name: string;
       default: boolean;
+      /** @default true */
+      supportsTools: boolean;
     };
     PetProfile: {
       /** Format: uuid */

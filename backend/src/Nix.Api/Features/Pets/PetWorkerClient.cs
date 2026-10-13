@@ -95,10 +95,14 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         if (request.Operation is "status" or "connect" or "disconnect" or "models")
         {
             // A connection question about a particular pet is about that pet's provider.
-            if (request.PetId is { } askedPet && askedPet != Guid.Empty)
+            if (request.PetId is { } askedPet)
             {
                 var asked = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), cancellationToken).ConfigureAwait(false);
                 pet = asked.Settings.Profiles.FirstOrDefault(profile => profile.Id == askedPet);
+                if (pet is null)
+                {
+                    return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Choose a saved pet."));
+                }
             }
         }
         else
@@ -166,7 +170,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         {
             // A missing key is a settings state, not a worker failure: shown as a connection the
             // person can fix rather than a 4xx that reads as a broken pet.
-            return request.Operation is "status" or "connect" or "models"
+            return request.Operation is "status" or "connect" or "models" or "read" or "watch"
                 ? Result.Success(new PetConnectionResponse(pet?.Provider ?? PetProviders.ChatGpt, "disconnected", resolved.Error.Message, false, Messages: []))
                 : Result.Failure<PetConnectionResponse>(resolved.Error);
         }
@@ -216,7 +220,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
                     HttpStatusCode.Conflict => Result.Failure<PetConnectionResponse>(
                         new("pets.busy", "The companion is already handling another request.")),
                     _ => Result.Failure<PetConnectionResponse>(
-                        new("pets.unavailable", "The companion could not complete this request. Retry or reconnect ChatGPT.")),
+                        new("pets.unavailable", "The companion could not complete this request. Retry or check the selected provider in Settings > Pets.")),
                 };
             }
 
@@ -293,10 +297,18 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
     /// answers anything but a 200 event stream is turned into a coded failure here and its
     /// plain-text body is neither read nor forwarded. Nothing the person wrote is logged.
     /// </remarks>
-    internal async Task<Result<HttpResponseMessage>> OpenInlineAsync(PetInlineRequest request, Guid petId, CancellationToken cancellationToken)
+    internal async Task<Result<HttpResponseMessage>> OpenInlineAsync(PetInlineRequest request, PetProfile pet, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(pet);
         var context = session.Current ?? throw new InvalidOperationException("A session is required.");
+        var resolved = await ProviderFor(pet, context, cancellationToken).ConfigureAwait(false);
+        if (resolved.IsFailure)
+        {
+            return Result.Failure<HttpResponseMessage>(resolved.Error);
+        }
+
+        var (provider, apiKey) = resolved.Value;
         var address = configuration["Nix:Pets:WorkerUrl"];
         var secret = configuration["Nix:InternalSecret"];
         if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(secret)
@@ -313,9 +325,9 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
         {
             outgoing.Headers.Add("X-Nix-Internal-Secret", secret);
             outgoing.Content = JsonContent.Create(new PetInlineWorkerRequest(context.TenantId.Value.ToString(), context.PrincipalId.Value.ToString(),
-                request.WorkspaceId.ToString(), petId.ToString(), "inline", request.RequestId.ToString(), request.Instruction ?? "",
+                request.WorkspaceId.ToString(), pet.Id.ToString(), "inline", request.RequestId.ToString(), request.Instruction ?? "",
                 request.Selection ?? "", request.Context ?? "", request.Kind, request.Kind == "translate" ? request.Language ?? "" : "",
-                request.Model ?? ""), PetJsonContext.Default.PetInlineWorkerRequest);
+                request.Model ?? "", provider == PetProviders.ChatGpt ? null : provider, apiKey), PetJsonContext.Default.PetInlineWorkerRequest);
             response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.OK
                 && string.Equals(response.Content.Headers.ContentType?.MediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
@@ -329,7 +341,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             {
                 HttpStatusCode.UnprocessableEntity => new NixError("pets.invalid_request", "The companion refused this request. Check the text and try again."),
                 HttpStatusCode.TooManyRequests => new NixError("pets.inline_busy", "Too many writing requests are open. Wait for one to finish."),
-                _ => new NixError("pets.unavailable", "The companion could not complete this request. Retry or reconnect ChatGPT."),
+                _ => new NixError("pets.unavailable", "The companion could not complete this request. Retry or check the selected provider in Settings > Pets."),
             };
             ApiLog.PetWorkerFailed(log, "inline", $"worker returned HTTP {(int)response.StatusCode} {response.Content.Headers.ContentType?.MediaType}", failure.Code);
             return Result.Failure<HttpResponseMessage>(failure);

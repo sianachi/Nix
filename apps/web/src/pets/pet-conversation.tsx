@@ -46,6 +46,7 @@ import { PetHistory, exportPetMessages } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
 import { buildWorkspaceMap } from './turn-context';
+import { petProviderLabels } from './catalog';
 
 /** The composer's textarea grows with its content between one and six rows, rather than
  * scrolling internally past a fixed height. Counting hard line breaks is a close enough
@@ -181,7 +182,9 @@ export function Conversation({
   // conversation moving between the floating panel and its page.
   const [draft, setDraft] = usePetDraft(workspaceId, pet.id, noteScope?.rootItemId);
   const [shared, setShared] = useState<SharedContext | null>(null);
-  const [model, setModel] = useState(() => readConversationModel(workspaceId, pet.id));
+  const [model, setModel] = useState(() =>
+    readConversationModel(workspaceId, pet.id, pet.provider),
+  );
   const [workspaceAccessPreference, setWorkspaceAccess] = useState(() =>
     readWorkspaceAccess(workspaceId, pet.id),
   );
@@ -551,7 +554,7 @@ export function Conversation({
     {
       kind: 'link',
       label: 'Pet settings',
-      href: `/w/${workspaceId}/settings`,
+      href: `/w/${workspaceId}/settings?tab=pets`,
     },
   ];
 
@@ -692,7 +695,7 @@ export function Conversation({
           headingRef={panelHeading}
           onModelChange={(next) => {
             setModel(next);
-            writeConversationModel(workspaceId, pet.id, next);
+            writeConversationModel(workspaceId, pet.id, pet.provider, next);
           }}
           onReadWithoutAskingChange={(next) => {
             setReadWithoutAsking(next);
@@ -741,7 +744,19 @@ export function Conversation({
         </div>
       ) : !connected ? (
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          <PetConnectionPanel />
+          {pet.provider === 'chatgpt' ? (
+            <PetConnectionPanel />
+          ) : (
+            <div className="flex flex-col gap-3">
+              <Text role="alert">
+                {runtime.reason ||
+                  `Set up ${petProviderLabels[pet.provider]} in Pet settings to chat.`}
+              </Text>
+              <Link to={`/w/${workspaceId}/settings?tab=pets`} className={`underline ${focusRing}`}>
+                <Text as="span">Open Pet settings</Text>
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <>
@@ -1162,7 +1177,7 @@ function PetSettingsPanel({
             onModelChange(event.currentTarget.value);
           }}
         >
-          <option value="">Account default</option>
+          <option value="">Provider default</option>
           {model && !models.some((entry) => entry.id === model) ? (
             <option value={model}>{model} (checking availability)</option>
           ) : null}
@@ -1178,14 +1193,14 @@ function PetSettingsPanel({
         onChange={(event) => {
           onReadWithoutAskingChange(event.currentTarget.checked);
         }}
-        label={`Read without asking. When Workspace access is on, ${pet.name} can search and read your workspace without asking first. What it reads is sent to ChatGPT. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.`}
+        label={`Read without asking. When Workspace access is on, ${pet.name} can search and read your workspace without asking first. What it reads is sent to ${petProviderLabels[pet.provider]}. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.`}
       />
       {runtime?.reason && runtime.status === 'connected' ? (
         <Text variant="note" tone="muted">
           {runtime.reason}
         </Text>
       ) : null}
-      <Link to={`/w/${workspaceId}/settings`} className={`underline ${focusRing}`}>
+      <Link to={`/w/${workspaceId}/settings?tab=pets`} className={`underline ${focusRing}`}>
         <Text as="span" variant="note">
           Pet settings
         </Text>

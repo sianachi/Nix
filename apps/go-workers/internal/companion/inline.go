@@ -505,7 +505,7 @@ func (a *account) pumpInline(ctx context.Context, w http.ResponseWriter, flusher
 					case "interrupted":
 						return fail("cancelled", "inline.cancelled", "The writing request was cancelled.", false)
 					default:
-						return fail("provider_failed", "inline.provider_failed", "The model could not finish the text. Check the ChatGPT connection and try again.", false)
+						return fail("provider_failed", "inline.provider_failed", "The model could not finish the text. Check the selected provider in Settings > Pets and try again.", false)
 					}
 				}
 			}

@@ -9,7 +9,11 @@ import {
   type PetSurface,
 } from './device-preferences';
 
-export function PetDeviceSettings(): ReactElement {
+export function PetDeviceSettings({
+  inlineWriting,
+}: {
+  readonly inlineWriting: boolean;
+}): ReactElement {
   const [placement, setPlacement] = useState(() => readDevicePreference('placement') || 'right');
   const [inlineContext, setInlineContext] = useState(
     () => readDevicePreference('inlineContext') === 'true',
@@ -39,36 +43,40 @@ export function PetDeviceSettings(): ReactElement {
           </Select>
         )}
       </Field>
-      <div className="flex flex-col gap-1">
-        <Checkbox
-          label="Send note context with inline AI on this device"
-          checked={inlineContext}
-          onChange={(event) => {
-            setInlineContext(event.currentTarget.checked);
-            writeDevicePreference('inlineContext', String(event.currentTarget.checked));
-          }}
-        />
-        <Text variant="note" tone="muted">
-          When inline AI is enabled, also sends up to 32 KB of this note to your connected model.
-          Off by default; otherwise only the command's text is sent.
-        </Text>
-      </div>
-      <Field label="Companion position on this device">
-        {(control) => (
-          <Select
-            {...control}
-            value={placement}
+      {inlineWriting ? (
+        <div className="flex flex-col gap-1">
+          <Checkbox
+            label="Send note context with inline AI on this device"
+            checked={inlineContext}
             onChange={(event) => {
-              const value = event.currentTarget.value;
-              setPlacement(value);
-              writeDevicePreference('placement', value);
+              setInlineContext(event.currentTarget.checked);
+              writeDevicePreference('inlineContext', String(event.currentTarget.checked));
             }}
-          >
-            <option value="right">Bottom right</option>
-            <option value="left">Bottom left</option>
-          </Select>
-        )}
-      </Field>
+          />
+          <Text variant="note" tone="muted">
+            When inline AI is enabled, also sends up to 32 KB of this note to your connected model.
+            Off by default; otherwise only the command's text is sent.
+          </Text>
+        </div>
+      ) : null}
+      {surface !== 'page' ? (
+        <Field label="Companion position on this device">
+          {(control) => (
+            <Select
+              {...control}
+              value={placement}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setPlacement(value);
+                writeDevicePreference('placement', value);
+              }}
+            >
+              <option value="right">Bottom right</option>
+              <option value="left">Bottom left</option>
+            </Select>
+          )}
+        </Field>
+      ) : null}
     </div>
   );
 }
