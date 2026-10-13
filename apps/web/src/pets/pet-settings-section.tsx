@@ -292,6 +292,20 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
                 />
               )}
             </Field>
+            <div className="flex flex-col gap-1">
+              <Checkbox
+                label="Apply changes without asking by default"
+                checked={pet.applyWithoutAsking}
+                onChange={(event) => {
+                  updatePet({ applyWithoutAsking: event.currentTarget.checked });
+                }}
+              />
+              <Text variant="note" tone="muted">
+                Starts each conversation with the Apply without asking switch on, so clean changes
+                run as soon as their preview shows no problems. Moves, trash, template saves and
+                external links still ask, and you can turn the switch off in any conversation.
+              </Text>
+            </div>
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"

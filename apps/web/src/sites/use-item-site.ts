@@ -353,10 +353,12 @@ export function useItemSite(
  * shortcut: a cache-backed read, so a site made in the pane relabels the menu on the next visit;
  * share the pane's state if the stale label is reported.
  */
-export function useItemHasSite(itemId: string): boolean | null {
+export function useItemHasSite(itemId: string, enabled = true): boolean | null {
   const client = useApiClient();
   const [answer, setAnswer] = useState<{ itemId: string; hasSite: boolean } | null>(null);
   useEffect(() => {
+    // A deployment without sites answers 503 to every site route; there is nothing to ask.
+    if (!enabled) return;
     const controller = new AbortController();
     client
       .query(sites.getItemSite(itemId), { signal: controller.signal })
@@ -369,6 +371,6 @@ export function useItemHasSite(itemId: string): boolean | null {
     return () => {
       controller.abort();
     };
-  }, [client, itemId]);
+  }, [client, enabled, itemId]);
   return answer?.itemId === itemId ? answer.hasSite : null;
 }

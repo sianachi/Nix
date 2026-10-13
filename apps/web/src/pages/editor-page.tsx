@@ -86,6 +86,7 @@ import { LockDialog } from '../locks/lock-dialog';
 import { LockedBody } from '../locks/locked-body';
 import { useForgetLockedBody } from '../locks/use-forget-locked-body';
 import { useItemLock } from '../locks/use-item-lock';
+import { useCapabilities } from '../session/capabilities-context';
 import { focusSitePaneHeading } from '../sites/site-pane';
 import { useItemHasSite } from '../sites/use-item-site';
 import { historyPanelWidth } from '../layout/regions';
@@ -608,7 +609,8 @@ export function OpenItem({
     if (!panelOpen) togglePanel();
     focusSitePaneHeading();
   }
-  const hasSite = useItemHasSite(itemId);
+  const sitesEnabled = useCapabilities().sites;
+  const hasSite = useItemHasSite(itemId, sitesEnabled);
 
   const details = useItemProperties(itemId);
 
@@ -741,12 +743,16 @@ export function OpenItem({
         setExportOpen(true);
       },
     },
-    {
-      key: 'site',
-      label: hasSite === false ? 'Publish as a site…' : 'Site',
-      icon: Globe,
-      onSelect: openSitePane,
-    },
+    ...(sitesEnabled
+      ? [
+          {
+            key: 'site',
+            label: hasSite === false ? 'Publish as a site…' : 'Site',
+            icon: Globe,
+            onSelect: openSitePane,
+          },
+        ]
+      : []),
     {
       key: 'import',
       label: 'Import',

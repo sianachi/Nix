@@ -3,7 +3,13 @@ using System.Text.Json.Serialization;
 namespace Nix.Features.Pets;
 
 /// <summary>Independent appearance and communication preferences for one companion.</summary>
-public sealed record PetProfile(Guid Id, string Name, string Appearance, string Personality, string ResponseLength, string Instructions);
+/// <remarks>
+/// <c>ApplyWithoutAsking</c> is the pet's default for the conversation switch that runs clean
+/// changes without an approval click (moves, trash, template saves and external links still ask).
+/// It is a client-side convenience with no server authority: every change still runs under the
+/// owner's own permissions. Last and defaulted so stored profiles without it read as off.
+/// </remarks>
+public sealed record PetProfile(Guid Id, string Name, string Appearance, string Personality, string ResponseLength, string Instructions, bool ApplyWithoutAsking = false);
 
 /// <summary>Account preferences. Device placement is deliberately absent.</summary>
 /// <remarks>

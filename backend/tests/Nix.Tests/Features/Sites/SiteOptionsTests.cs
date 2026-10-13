@@ -43,6 +43,21 @@ public sealed class SiteOptionsTests
     }
 
     [Fact]
+    public void Sites_stay_off_until_the_deployment_switches_them_on_explicitly()
+    {
+        // A domain alone used to turn the feature on, which made every deployment that copied the
+        // production configuration a sites host. Local, test and preview deployments default to off.
+        var domainOnly = Bind(new() { ["Nix:Sites:Domain"] = "sites.example.net" });
+        var switchOnly = Bind(new() { ["Nix:Sites:Enabled"] = "true" });
+        var both = Bind(new() { ["Nix:Sites:Enabled"] = "true", ["Nix:Sites:Domain"] = "sites.example.net" });
+
+        Assert.False(Bind(new()).IsEnabled);
+        Assert.False(domainOnly.IsEnabled);
+        Assert.False(switchOnly.IsEnabled);
+        Assert.True(both.IsEnabled);
+    }
+
+    [Fact]
     public void A_shared_apex_deployment_starts_and_never_hands_out_an_infrastructure_or_unowned_reserved_slug()
     {
         var owner = Guid.NewGuid();
@@ -73,6 +88,7 @@ public sealed class SiteOptionsTests
     {
         var options = Bind(new()
         {
+            ["Nix:Sites:Enabled"] = "true",
             ["Nix:Sites:Domain"] = "nixsites.com",
             ["Nix:Sites:Bucket"] = "nix-sites",
             ["Nix:Sites:DefaultHostLabelSuffix"] = "-home",

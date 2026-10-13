@@ -201,19 +201,23 @@ export function Conversation({
   const messages = runtime?.messages ?? [];
   const running = runtime?.state === 'thinking';
   const approvalPending = needsDecisionIds.length > 0;
-  // Lane F: run clean changes without a click, for this conversation only. Plain React state on
-  // purpose - never stored, never sent to the worker - so closing the panel or reloading always
-  // comes back to asking. The stored scope makes a switch to another pet or workspace
-  // read as off without an effect: the choice belonged to the conversation it was made in.
-  // Writes already waiting when the switch goes on stay the owner's to decide: the switch only
-  // covers what arrives after it.
+  // Lane F: run clean changes without a click, for this conversation. Plain React state on
+  // purpose - never sent to the worker - starting from the pet's saved default, so closing the
+  // panel or reloading comes back to that default rather than to whatever was last pressed. The
+  // stored scope makes a switch to another pet or workspace read as the new pet's default without
+  // an effect: the choice belonged to the conversation it was made in. Writes already waiting when
+  // the switch goes on stay the owner's to decide: the switch only covers what arrives after it.
+  // A note-scoped conversation offers the same switch; the note scope still bounds what it may
+  // touch (packages/companion scope rules), and a read-only note offers no writes at all.
   const applyScope = `${workspaceId}:${pet.id}`;
   const [applySwitch, setApplySwitch] = useState<{
     scope: string;
     on: boolean;
     exempt: readonly string[];
-  }>({ scope: applyScope, on: false, exempt: [] });
-  const applyWithoutAsking = !noteScope && applySwitch.scope === applyScope && applySwitch.on;
+  }>({ scope: applyScope, on: pet.applyWithoutAsking, exempt: [] });
+  const applyWithoutAsking =
+    !(noteScope?.readOnly ?? false) &&
+    (applySwitch.scope === applyScope ? applySwitch.on : pet.applyWithoutAsking);
   const applyExemptToolIds = applyWithoutAsking ? applySwitch.exempt : [];
   const applyToggle = useRef<HTMLButtonElement>(null);
   const setApplyWithoutAsking = (on: boolean) => {
@@ -873,8 +877,8 @@ export function Conversation({
               // and a region that appears with its text already in it is read unreliably.
               <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-accent/15 px-3 py-2">
                 <Text variant="note">
-                  Applying changes without asking in this conversation until you close it. Moves,
-                  trash, template saves and external links still ask.
+                  Applying changes without asking in this conversation. Moves, trash, template saves
+                  and external links still ask.
                 </Text>
                 <Button
                   variant="secondary"
@@ -952,7 +956,7 @@ export function Conversation({
                 Lets {pet.name} find and read your notes for this message. Changes ask first unless
                 you turn on applying without asking.
               </Text>
-              {workspaceAccess && !noteScope ? (
+              {workspaceAccess && !(noteScope?.readOnly ?? false) ? (
                 <>
                   <Button
                     ref={applyToggle}
@@ -974,8 +978,8 @@ export function Conversation({
                   >
                     Runs {pet.name}'s changes in this conversation once their preview shows no
                     problems, using your Nix permissions. Trash, moves, template saves and external
-                    links still ask. Changes with problems go back to {pet.name} to fix. Turns off
-                    when you close this conversation.
+                    links still ask. Changes with problems go back to {pet.name} to fix. Each
+                    conversation starts from the pet's saved default in Settings.
                   </Text>
                 </>
               ) : null}

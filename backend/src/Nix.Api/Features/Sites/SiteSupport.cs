@@ -1,12 +1,41 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Nix.Abstractions;
 using Nix.Domain.Audit;
 using Nix.Domain.Identity;
 using Nix.Domain.Primitives;
 using Nix.Domain.Sites;
+using Nix.Errors;
 
 namespace Nix.Features.Sites;
+
+/// <summary>The deployment-level switch in front of every sites route.</summary>
+public static class SiteGate
+{
+    /// <summary>
+    /// Refuses every sites route with <c>sites.not_configured</c> (503) while the feature is off, reads
+    /// included, so a disabled deployment exposes no usable sites entry point. Stored sites are left
+    /// as they are.
+    /// </summary>
+    /// <param name="context">The invocation.</param>
+    /// <param name="next">The route, run only when sites are enabled.</param>
+    /// <returns>The route's result, or the refusal.</returns>
+    public static async ValueTask<object?> RequireEnabled(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(next);
+        var options = context.HttpContext.RequestServices.GetRequiredService<SiteOptions>();
+        if (options.IsEnabled)
+        {
+            return await next(context).ConfigureAwait(false);
+        }
+
+        var error = SiteErrors.NotConfigured();
+        return TypedResults.Problem(ApiProblem.Create(
+            context.HttpContext, SiteErrors.StatusFor(error.Code), error.Code, "Request refused", error.Message));
+    }
+}
 
 /// <summary>Stable failure codes for sites, and the status each is published with.</summary>
 public static class SiteErrors

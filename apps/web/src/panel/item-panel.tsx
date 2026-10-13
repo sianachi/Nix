@@ -6,6 +6,7 @@ import { ErrorPanel } from '../components/states/status-panels';
 import { settingsPanelWidth } from '../layout/regions';
 import { BacklinksPane } from '../links/backlinks-panel';
 import { PropertyPanel } from '../properties/property-panel';
+import { useCapabilities } from '../session/capabilities-context';
 import { SitePane } from '../sites/site-pane';
 import type { ItemProperties } from '../properties/use-item-properties';
 import type { ContainerData } from '../views/core/use-container';
@@ -61,6 +62,7 @@ export function ItemPanel({
   pane: steeredPane,
   onPaneChange,
 }: ItemPanelProps): ReactNode {
+  const sitesEnabled = useCapabilities().sites;
   const [ownPane, setOwnPane] = useState<Pane>('details');
   const pane = steeredPane ?? ownPane;
   const setPane = onPaneChange ?? setOwnPane;
@@ -82,7 +84,7 @@ export function ItemPanel({
       <div className="flex shrink-0 items-center gap-2 px-3 py-3">
         <Segmented
           label="What to configure"
-          options={PANES}
+          options={sitesEnabled ? PANES : PANES.filter((option) => option.value !== 'site')}
           value={pane}
           onChange={setPane}
           className="min-w-0 flex-1"

@@ -35,6 +35,7 @@ import {
   rememberOfflineAccount,
   setOfflineProgress,
 } from '../offline/offline-store';
+import { offlineEnabled } from '../offline/offline-preference';
 import { useSessionStore, type SessionProfile } from './session-store';
 
 /**
@@ -339,7 +340,9 @@ export function AuthProvider({ children }: AuthProviderProps): ReactNode {
             signInFailed('The account changed in another tab. Reload to restore its session.');
             return;
           }
-          const remembering = rememberOfflineAccount(profile);
+          const remembering = offlineEnabled()
+            ? rememberOfflineAccount(profile)
+            : Promise.resolve();
           admissionSubject = profile.subject;
           admissionEpoch = openedEpoch;
           const superseded = await remembering.then(

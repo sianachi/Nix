@@ -83,8 +83,15 @@ public sealed class SiteOptions
     /// <summary>Gets the operator's Cloudflare automation (<c>Nix:Sites:Cloudflare</c>).</summary>
     public SiteCloudflareOptions Cloudflare { get; } = new();
 
-    /// <summary>Gets whether sites are enabled on this deployment.</summary>
-    public bool IsEnabled => Domain.Length > 0;
+    /// <summary>
+    /// Gets or sets the explicit switch (<c>Nix:Sites:Enabled</c>). Off by default: a domain alone
+    /// no longer turns sites on, so local, test and preview deployments stay off until the operator
+    /// of the designated production deployment says otherwise in its trusted configuration.
+    /// </summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Gets whether sites are enabled on this deployment: the switch and a domain.</summary>
+    public bool IsEnabled => Enabled && Domain.Length > 0;
 
     /// <summary>Reads the section from <paramref name="configuration"/>.</summary>
     /// <param name="configuration">The host configuration.</param>
@@ -181,7 +188,9 @@ public sealed class SiteOptions
     /// <exception cref="InvalidOperationException">The configuration is unusable or unsafe.</exception>
     public void AssertValid(string? appHost, bool isDevelopment)
     {
-        if (!IsEnabled)
+        // Keyed on the domain, not the switch: a domain that is configured but switched off is
+        // still checked, so turning the switch on later cannot be the first time it is read.
+        if (Domain.Length == 0)
         {
             return;
         }

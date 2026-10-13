@@ -170,6 +170,12 @@
       "viewKind": "query"
     },
     {
+      "id": "chart",
+      "label": "Chart",
+      "detail": "Count or total items by a field, as bars, columns, a pie or a line over time.",
+      "viewKind": "chart"
+    },
+    {
       "id": "calendar",
       "label": "Calendar",
       "detail": "Place child items on a day, week, or month calendar.",
