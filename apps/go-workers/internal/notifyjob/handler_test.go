@@ -28,8 +28,10 @@ type fakeCore struct {
 	delivery workerapi.NotificationDelivery
 	results  []workerapi.NotificationDeliveryResult
 	reported bool
-	secret   string
-	notifyID string
+	// failReports answers this many result reports with 503 first.
+	failReports int
+	secret      string
+	notifyID    string
 }
 
 func newFakeCore(t *testing.T, notifyID, secret string, delivery workerapi.NotificationDelivery) *fakeCore {
@@ -61,6 +63,12 @@ func newFakeCore(t *testing.T, notifyID, secret string, delivery workerapi.Notif
 			return
 		}
 		fake.mu.Lock()
+		if fake.failReports > 0 {
+			fake.failReports--
+			fake.mu.Unlock()
+			response.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		fake.results = body.Results
 		fake.reported = true
 		fake.mu.Unlock()
@@ -244,5 +252,27 @@ func TestHandleRejectsAnInvalidPayload(t *testing.T) {
 	job := workerapi.Job{ID: "not-a-uuid", Kind: "notify.push", Payload: json.RawMessage(`{"notificationId":"not-a-uuid"}`)}
 	if _, err := handler.Handle(context.Background(), job); err == nil {
 		t.Fatal("expected an invalid notification id to be rejected")
+	}
+}
+
+func TestHandleRetriesAFailedReportWithoutPushingAgain(t *testing.T) {
+	notifyID := "11111111-1111-4111-8111-111111111111"
+	p256dh, auth := generateSubscriptionKeys(t)
+	endpoint := "https://fcm.googleapis.com/fcm/send/ok"
+	core := newFakeCore(t, notifyID, "test-secret", workerapi.NotificationDelivery{
+		Payload:       workerapi.NotificationDeliveryPayload{Title: "Reminder", Body: "Water the plants", URL: "/items/abc", Tag: "reminder:abc"},
+		Subscriptions: []workerapi.NotificationDeliverySubscription{{ID: "22222222-2222-4222-8222-222222222222", Endpoint: endpoint, P256dh: p256dh, Auth: auth}},
+	})
+	core.failReports = 1
+	transport := newFakeTransport()
+	transport.status[endpoint] = http.StatusCreated
+	handler := New(workerapi.New(core.server.URL, "test-secret", "worker-1", 5*time.Second), transport, generateVAPIDKey(t), "mailto:push@example.com")
+
+	// A job failure here would be retried from the top and push to every device again.
+	if _, err := handler.Handle(context.Background(), workerapi.Job{ID: notifyID, Kind: "notify.push", Payload: json.RawMessage(`{"notificationId":"` + notifyID + `"}`)}); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if _, reported := core.reportedResults(); !reported {
+		t.Fatal("the results were never reported")
 	}
 }

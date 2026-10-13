@@ -348,7 +348,10 @@ func googleEventBody(event PushEvent) map[string]any {
 	return body
 }
 
-func googleEventDateTimeBody(bound Bound, isEnd bool) googleEventDateTime {
+// googleEventDateTimeBody names the unused fields as null: PATCH merges nested objects, so an
+// event moving between all-day and timed would otherwise keep the old field and Google refuses
+// a start with both a date and a dateTime.
+func googleEventDateTimeBody(bound Bound, isEnd bool) map[string]any {
 	if bound.AllDay {
 		date := bound.Date
 		if isEnd {
@@ -356,9 +359,9 @@ func googleEventDateTimeBody(bound Bound, isEnd bool) googleEventDateTime {
 				date = exclusive
 			}
 		}
-		return googleEventDateTime{Date: date}
+		return map[string]any{"date": date, "dateTime": nil, "timeZone": nil}
 	}
-	return googleEventDateTime{DateTime: bound.Instant.In(mustLocation(bound.Zone)).Format(time.RFC3339), TimeZone: bound.Zone}
+	return map[string]any{"date": nil, "dateTime": bound.Instant.In(mustLocation(bound.Zone)).Format(time.RFC3339), "timeZone": bound.Zone}
 }
 
 func bearerHeaders(accessToken string) map[string]string {

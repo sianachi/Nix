@@ -320,7 +320,13 @@ func (t *httpTransport) save(thread *httpThread) {
 	}
 	t.mu.Lock()
 	if len(thread.Messages) > maxThreadMessages {
-		thread.Messages = thread.Messages[len(thread.Messages)-maxThreadMessages:]
+		// Cut back to a plain user message: a cut between a tool call and its results leaves an
+		// orphan that every provider rejects from then on. The cap gives way rather than the turn.
+		start := len(thread.Messages) - maxThreadMessages
+		for start > 0 && (thread.Messages[start].Role != "user" || len(thread.Messages[start].ToolResults) > 0) {
+			start--
+		}
+		thread.Messages = thread.Messages[start:]
 	}
 	raw, err := json.Marshal(thread)
 	t.mu.Unlock()
@@ -418,9 +424,18 @@ func (t *httpTransport) runTurn(ctx context.Context, thread *httpThread, turnID 
 			t.notify("item/completed", raw)
 		}
 		results := make([]providerToolResult, 0, len(calls))
-		for _, call := range calls {
+		for i, call := range calls {
 			reply, ok := t.askTool(ctx, thread.ID, call)
 			if !ok {
+				// Every call still gets an answer: an assistant tool call with no result after it
+				// makes the provider refuse the thread's next message.
+				for _, unanswered := range calls[i:] {
+					results = append(results, providerToolResult{CallID: unanswered.ID, Text: "The owner stopped the turn before this tool ran.", IsError: true})
+				}
+				t.mu.Lock()
+				thread.Messages = append(thread.Messages, providerMessage{Role: "user", ToolResults: results})
+				t.mu.Unlock()
+				t.save(thread)
 				finish("interrupted", nil)
 				return
 			}
