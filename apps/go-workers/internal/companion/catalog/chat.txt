@@ -34,6 +34,7 @@ sheet: Spreadsheet view - Edit child items in a property-backed grid.
 form: Quick form - Collect authenticated responses in one straightforward page.
 interactive-form: Interactive form - Build a multi-page form with branching and an optional public link.
 query: Smart list - Find matching items across the workspace with reusable rules.
+chart: Chart - Count or total items by a field, as bars, columns, a pie or a line over time.
 calendar: Calendar - Place child items on a day, week, or month calendar.
 list: List - Show child items and their fields in an ordered list.
 checklist: Checklist - Tick child items off one line at a time, with progress.

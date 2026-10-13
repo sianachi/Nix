@@ -17702,6 +17702,10 @@
           },
           "instructions": {
             "type": "string"
+          },
+          "applyWithoutAsking": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

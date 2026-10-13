@@ -230,7 +230,9 @@ services:
       Nix__Calendar__Microsoft__ClientId: ${NIX_CALENDAR_MICROSOFT_CLIENT_ID:-}
       Nix__Calendar__Microsoft__ClientSecret: ${NIX_CALENDAR_MICROSOFT_CLIENT_SECRET:-}
       Nix__Calendar__Microsoft__Tenant: ${NIX_CALENDAR_MICROSOFT_TENANT:-common}
-      # Sites (ADR-0063). An empty domain turns the feature off; see compose.prod.env.example.
+      # Sites (ADR-0063). Off unless NIX_SITES_ENABLED=true and a domain are set; see
+      # compose.prod.env.example.
+      Nix__Sites__Enabled: ${NIX_SITES_ENABLED:-false}
       Nix__Sites__Domain: ${NIX_SITES_DOMAIN:-}
       Nix__Sites__Bucket: ${NIX_SITES_BUCKET:-nix-sites}
       Nix__Sites__PublicScheme: https

@@ -54,6 +54,7 @@ internal sealed class SiteScenario : IAsyncDisposable
     /// <summary>Gets the settings that enable sites against a fake object store.</summary>
     public static Dictionary<string, string?> Settings => new()
     {
+        ["Nix:Sites:Enabled"] = "true",
         ["Nix:Sites:Domain"] = Domain,
         ["Nix:Sites:Bucket"] = "nix-sites",
         ["Nix:ObjectStorage:Endpoint"] = "http://127.0.0.1:7070",

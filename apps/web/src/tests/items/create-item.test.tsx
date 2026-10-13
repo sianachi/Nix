@@ -219,9 +219,13 @@ describe('the new-item menu', () => {
 
     await screen.findByRole('button', { name: 'Engineering' });
     const dialog = await openNew(user, 'Structured…', 'New structured item');
-    const list = within(dialog).getByRole('list', { name: 'Structured items' });
-    expect(within(list).getAllByRole('button').length).toBeGreaterThan(3);
-    expect(within(list).getByText(/columns defined by a select field/i)).toBeVisible();
+    // Every recipe, under the headings the registry declares, rather than the old subset.
+    const organise = within(dialog).getByRole('list', { name: 'Organise' });
+    expect(within(organise).getAllByRole('button').length).toBeGreaterThan(3);
+    expect(within(organise).getByText(/columns defined by a select field/i)).toBeVisible();
+    expect(within(dialog).getByRole('list', { name: 'Analyse' })).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: /^chart/i })).toBeVisible();
+    expect(within(dialog).getByRole('button', { name: /^calendar/i })).toBeVisible();
   });
 
   it('creates from a library template through a reviewable wizard', async () => {

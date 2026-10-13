@@ -26,6 +26,7 @@ import { flushLocalDraftsForAccount, flushLocalDraftsForScope } from '../editor/
 import { listDraftScopes, migrateLocalDrafts } from '../editor/draft-journal';
 import { cacheOfflineNoteAssets } from './offline-assets';
 import { synchronizeOfflineBody } from './offline-body';
+import { useOfflinePreference } from './offline-preference';
 import {
   getOfflineSnapshot,
   getPersistedOfflineNote,
@@ -750,6 +751,7 @@ export function OfflineRuntime(): null {
   const { getAccessToken } = useAuth();
   const status = useSessionStore((state) => state.status);
   const subject = useSessionStore((state) => state.profile?.subject);
+  const enabled = useOfflinePreference((state) => state.enabled);
   useEffect(
     () =>
       onBodyForgetting((forgetting) => {
@@ -759,6 +761,8 @@ export function OfflineRuntime(): null {
     [],
   );
   useEffect(() => {
+    // Device sync off: nothing is scheduled or fetched; the saved notes are left as they are.
+    if (!enabled) return;
     const browserFeatures: {
       readonly locks?: LockManager;
       readonly storage?: Partial<Pick<StorageManager, 'persist'>>;
@@ -887,6 +891,6 @@ export function OfflineRuntime(): null {
       window.removeEventListener(SYNC_EVENT, requested);
       window.removeEventListener('nix:offline-drafts-changed', updatePending);
     };
-  }, [client, getAccessToken, status, subject]);
+  }, [client, enabled, getAccessToken, status, subject]);
   return null;
 }

@@ -20,6 +20,7 @@ import {
   subscribeOfflineNotes,
   type OfflineNote,
 } from './offline-store';
+import { useOfflinePreference } from './offline-preference';
 import { OfflineStatus } from './offline-status';
 import { requestOfflineSync } from './offline-runtime';
 import { offlineRecoveryFile } from './offline-recovery';
@@ -28,6 +29,7 @@ import { usePendingSignOut } from './use-pending-sign-out';
 
 export function OfflineNotesPage(): ReactNode {
   const snapshot = useSyncExternalStore(subscribeOfflineNotes, getOfflineSnapshot);
+  const offlineOn = useOfflinePreference((state) => state.enabled);
   const profile = useSessionStore((state) => state.profile);
   const status = useSessionStore((state) => state.status);
   const online = useNetworkOnline();
@@ -165,6 +167,12 @@ export function OfflineNotesPage(): ReactNode {
           <Text as="h1" variant="h2">
             Notes on this device
           </Text>
+          {offlineOn ? null : (
+            <Text as="p" variant="note" role="status">
+              Keeping notes on this device is turned off in Settings, under Editor. What is listed
+              here stays until you clear it; nothing new is saved or synced.
+            </Text>
+          )}
           <Text as="p" variant="caption" tone="muted">
             {offline
               ? 'Working offline. Changes sync when Nix reconnects.'
