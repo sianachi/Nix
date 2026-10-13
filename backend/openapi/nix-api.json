@@ -1841,6 +1841,76 @@
         }
       }
     },
+    "/api/v1/me/workspace-arrangement": {
+      "get": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "The caller's own workspace groups and pins",
+        "operationId": "GetWorkspaceArrangement",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceArrangementResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Workspaces"
+        ],
+        "summary": "Replace the caller's own workspace groups and pins at the version they edited",
+        "operationId": "SaveWorkspaceArrangement",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveWorkspaceArrangementRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceArrangementResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workspaces/{workspaceId}/items/trash": {
       "get": {
         "tags": [
@@ -19171,6 +19241,26 @@
           }
         }
       },
+      "SaveWorkspaceArrangementRequest": {
+        "required": [
+          "expectedRevision",
+          "arrangement"
+        ],
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "arrangement": {
+            "$ref": "#/components/schemas/WorkspaceArrangementInput"
+          }
+        }
+      },
       "SearchHitResponse": {
         "required": [
           "id",
@@ -22489,6 +22579,59 @@
           }
         }
       },
+      "WorkspaceArrangementInput": {
+        "required": [
+          "groups",
+          "pinnedWorkspaceIds"
+        ],
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceGroupDto"
+            }
+          },
+          "pinnedWorkspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "WorkspaceArrangementResponse": {
+        "required": [
+          "revision",
+          "groups",
+          "pinnedWorkspaceIds"
+        ],
+        "type": "object",
+        "properties": {
+          "revision": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceGroupDto"
+            }
+          },
+          "pinnedWorkspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
       "WorkspaceCalendarLinkResponse": {
         "required": [
           "containerItemId",
@@ -22619,6 +22762,30 @@
           },
           "linksTruncated": {
             "type": "boolean"
+          }
+        }
+      },
+      "WorkspaceGroupDto": {
+        "required": [
+          "id",
+          "name",
+          "workspaceIds"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "workspaceIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },

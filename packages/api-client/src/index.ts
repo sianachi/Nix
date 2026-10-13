@@ -289,6 +289,17 @@ export type {
   PetConnection,
   PetMessage,
 } from './schemas/pets.js';
+export * as workspaceArrangement from './resources/workspace-arrangement.js';
+export {
+  workspaceGroupSchema,
+  workspaceArrangementInputSchema,
+  workspaceArrangementResponseSchema,
+} from './schemas/workspace-arrangement.js';
+export type {
+  WorkspaceGroup,
+  WorkspaceArrangementInput,
+  WorkspaceArrangementResponse,
+} from './schemas/workspace-arrangement.js';
 export * as notifications from './resources/notifications.js';
 export {
   preferencesInputSchema,

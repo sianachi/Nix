@@ -157,6 +157,8 @@ public sealed class AccessTokenScopePolicyTests
         // change where reminders are pushed or which devices receive them.
         ["GetPreferences"] = Requirement.Read,
         ["SavePreferences"] = Requirement.InteractiveOnly,
+        ["GetWorkspaceArrangement"] = Requirement.Read,
+        ["SaveWorkspaceArrangement"] = Requirement.InteractiveOnly,
         ["ListNotifications"] = Requirement.Read,
         ["MarkNotificationRead"] = Requirement.Write,
         ["MarkAllNotificationsRead"] = Requirement.Write,

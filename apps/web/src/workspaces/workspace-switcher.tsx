@@ -1,8 +1,11 @@
 import { Icon, Menu, Text, focusRing, type MenuEntry } from '@nix/ui';
-import { Archive, Check, ChevronDown, Plus, Settings } from 'lucide-react';
+import { Archive, Check, ChevronDown, Pin, PinOff, Plus, Settings } from 'lucide-react';
+import type { Workspace } from '@nix/api-client';
 import { type ReactNode } from 'react';
 import { Link } from 'react-router';
 
+import { arrangeWorkspaces, togglePin } from './arrangement';
+import { useWorkspaceArrangement } from './use-workspace-arrangement';
 import { useWorkspace } from './workspace-context';
 
 /**
@@ -23,6 +26,50 @@ export function WorkspaceSwitcher(): ReactNode {
   const { workspace, workspaces, listStatus, listWarning, reload } = useWorkspace();
   const activeWorkspaces = workspaces.filter((entry) => entry.lifecycleState === 'active');
   const archivedCount = workspaces.filter((entry) => entry.lifecycleState === 'archived').length;
+  // The person's own groups and pins (requirements 4 and 5), laid over what they can see now.
+  const { arrangement, save } = useWorkspaceArrangement();
+  const arranged = arrangeWorkspaces(activeWorkspaces, arrangement);
+  const pinnedIds = new Set(arrangement.pinnedWorkspaceIds);
+
+  const row = (entry: Workspace, close: () => void): ReactNode => (
+    <li
+      key={entry.id}
+      className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)"
+    >
+      <Link
+        to={`/w/${entry.id}`}
+        aria-current={entry.id === workspace.id ? 'page' : undefined}
+        onClick={close}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-3 text-md text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+      >
+        <Icon
+          icon={Check}
+          size="sm"
+          className={entry.id === workspace.id ? 'text-accent-text' : 'invisible'}
+        />
+        <span className="truncate">{entry.name}</span>
+      </Link>
+      <button
+        type="button"
+        aria-label={pinnedIds.has(entry.id) ? `Unpin ${entry.name}` : `Pin ${entry.name}`}
+        aria-pressed={pinnedIds.has(entry.id)}
+        onClick={() => {
+          void save(togglePin(arrangement, entry.id));
+        }}
+        className={`flex size-(--control-sm) shrink-0 items-center justify-center text-muted hover:bg-accent/10 hover:text-foreground pointer-coarse:size-(--control-lg) ${focusRing}`}
+      >
+        <Icon icon={pinnedIds.has(entry.id) ? PinOff : Pin} size="sm" />
+      </button>
+      <Link
+        to={`/w/${entry.id}/settings`}
+        aria-label={`Manage ${entry.name}`}
+        onClick={close}
+        className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent pointer-coarse:size-(--control-lg)"
+      >
+        <Icon icon={Settings} size="sm" />
+      </Link>
+    </li>
+  );
 
   const items: MenuEntry[] = [
     {
@@ -33,36 +80,51 @@ export function WorkspaceSwitcher(): ReactNode {
             <Text variant="bodySmall">Workspaces</Text>
           </div>
 
-          <ul aria-label="Your workspaces" className="max-h-72 overflow-y-auto py-1">
-            {activeWorkspaces.map((entry) => (
-              <li
-                key={entry.id}
-                className="flex items-center gap-1 px-1 pointer-coarse:min-h-(--control-lg)"
-              >
-                <Link
-                  to={`/w/${entry.id}`}
-                  aria-current={entry.id === workspace.id ? 'page' : undefined}
-                  onClick={close}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-3 text-md text-foreground no-underline hover:bg-accent/10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+          <div className="max-h-72 overflow-y-auto py-1">
+            {arranged.pinned.length > 0 ? (
+              <>
+                <Text as="h3" variant="kicker" tone="muted" className="px-3 pt-1" id="workspaces-pinned">
+                  Pinned
+                </Text>
+                <ul aria-labelledby="workspaces-pinned">
+                  {arranged.pinned.map((entry) => row(entry, close))}
+                </ul>
+              </>
+            ) : null}
+            {arranged.groups.map((group) => (
+              <section key={group.id} aria-labelledby={`workspaces-group-${group.id}`}>
+                <Text
+                  as="h3"
+                  variant="kicker"
+                  tone="muted"
+                  className="px-3 pt-1"
+                  id={`workspaces-group-${group.id}`}
                 >
-                  <Icon
-                    icon={Check}
-                    size="sm"
-                    className={entry.id === workspace.id ? 'text-accent-text' : 'invisible'}
-                  />
-                  <span className="truncate">{entry.name}</span>
-                </Link>
-                <Link
-                  to={`/w/${entry.id}/settings`}
-                  aria-label={`Manage ${entry.name}`}
-                  onClick={close}
-                  className="flex size-(--control-sm) shrink-0 items-center justify-center text-muted no-underline hover:bg-accent/10 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent pointer-coarse:size-(--control-lg)"
-                >
-                  <Icon icon={Settings} size="sm" />
-                </Link>
-              </li>
+                  {group.name}
+                </Text>
+                {group.workspaces.length === 0 ? (
+                  <Text as="p" variant="caption" tone="muted" className="px-3 py-2">
+                    No workspaces in this group yet.
+                  </Text>
+                ) : (
+                  <ul aria-labelledby={`workspaces-group-${group.id}`}>
+                    {group.workspaces.map((entry) => row(entry, close))}
+                  </ul>
+                )}
+              </section>
             ))}
-          </ul>
+            {arranged.groups.length > 0 && arranged.ungrouped.length > 0 ? (
+              <Text as="h3" variant="kicker" tone="muted" className="px-3 pt-1" id="workspaces-ungrouped">
+                Other workspaces
+              </Text>
+            ) : null}
+            <ul
+              aria-label={arranged.groups.length > 0 ? undefined : 'Your workspaces'}
+              aria-labelledby={arranged.groups.length > 0 ? 'workspaces-ungrouped' : undefined}
+            >
+              {arranged.ungrouped.map((entry) => row(entry, close))}
+            </ul>
+          </div>
 
           {listStatus === 'partial' ? (
             <div className="border-t border-divider px-3 py-2">

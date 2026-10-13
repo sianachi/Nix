@@ -16,6 +16,10 @@ namespace Nix.Serialization;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(WorkspaceResponse))]
+[JsonSerializable(typeof(WorkspaceArrangementResponse))]
+[JsonSerializable(typeof(WorkspaceArrangementInput))]
+[JsonSerializable(typeof(SaveWorkspaceArrangementRequest))]
+[JsonSerializable(typeof(IReadOnlyList<WorkspaceGroupDto>))]
 [JsonSerializable(typeof(CursorPage<WorkspaceResponse>))]
 [JsonSerializable(typeof(CreateWorkspaceRequest))]
 [JsonSerializable(typeof(RenameWorkspaceRequest))]

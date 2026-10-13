@@ -576,6 +576,7 @@ if (string.IsNullOrWhiteSpace(app.Configuration[Nix.Authentication.InternalBound
 }
 
 app.MapWorkspaceEndpoints();
+app.MapWorkspaceArrangementEndpoints();
 app.MapItemEndpoints();
 app.MapFileEndpoints();
 app.MapDocumentImportEndpoints();
