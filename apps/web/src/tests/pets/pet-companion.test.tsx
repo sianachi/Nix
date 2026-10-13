@@ -1,16 +1,22 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { PetCompanion } from '../../pets/pet-companion';
 import { PetConnectionPanel } from '../../pets/pet-connection-panel';
+import type { PetProfile } from '@nix/api-client';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
 vi.mock('../../workspaces/workspace-context', () => ({
   useWorkspace: () => ({ workspaceId: '33333333-3333-4333-8333-333333333333' }),
 }));
-const petSettings = vi.hoisted(() => ({ applyWithoutAsking: false }));
+const petSettings = vi.hoisted(
+  (): { applyWithoutAsking: boolean; provider: PetProfile['provider'] } => ({
+    applyWithoutAsking: false,
+    provider: 'chatgpt',
+  }),
+);
 vi.mock('../../pets/use-pet-settings', () => ({
   usePetSettings: () => ({
     saved: {
@@ -29,6 +35,9 @@ vi.mock('../../pets/use-pet-settings', () => ({
             instructions: '',
             get applyWithoutAsking() {
               return petSettings.applyWithoutAsking;
+            },
+            get provider() {
+              return petSettings.provider;
             },
           },
         ],
@@ -55,6 +64,8 @@ function OpenedPetPage() {
 describe('companion workflow', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    petSettings.provider = 'chatgpt';
+    petSettings.applyWithoutAsking = false;
     const stored = new Map<string, string>();
     vi.stubGlobal('localStorage', {
       clear: () => {
@@ -283,6 +294,151 @@ describe('companion workflow', () => {
         'nix.pet.model.33333333-3333-4333-8333-333333333333.44444444-4444-4444-8444-444444444444.chat',
       ),
     ).toBe('chat-model');
+  });
+
+  it.each([
+    { provider: 'anthropic', label: 'Claude' },
+    { provider: 'openrouter', label: 'OpenRouter' },
+  ] satisfies { provider: PetProfile['provider']; label: string }[])(
+    'shows $label setup instead of ChatGPT sign-in when its key is missing',
+    async ({ provider, label }) => {
+      petSettings.provider = provider;
+      client.query.mockResolvedValue({
+        ...connected,
+        provider,
+        status: 'disconnected',
+        reason: `Add a ${label} API key in Pet settings.`,
+      });
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter>
+          <PetCompanion />
+        </MemoryRouter>,
+      );
+      await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        `Add a ${label} API key in Pet settings.`,
+      );
+      expect(screen.getByRole('link', { name: 'Open Pet settings' })).toHaveAttribute(
+        'href',
+        '/w/33333333-3333-4333-8333-333333333333/settings?tab=pets',
+      );
+      expect(screen.queryByRole('button', { name: 'Connect ChatGPT' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Open ChatGPT sign-in' })).not.toBeInTheDocument();
+      for (const [request] of client.query.mock.calls)
+        expect(request).not.toHaveProperty('operation', 'pets.connection');
+    },
+  );
+
+  it('clears ChatGPT status and models when the same pet switches to Claude', async () => {
+    const gptModel = { id: 'gpt-model', name: 'GPT model', supportsTools: true };
+    const claudeModel = { id: 'claude-model', name: 'Claude model', supportsTools: true };
+    localStorage.setItem(
+      'nix.pet.model.33333333-3333-4333-8333-333333333333.44444444-4444-4444-8444-444444444444.chat',
+      'gpt-model',
+    );
+    client.execute.mockResolvedValue({ ...connected, models: [gptModel] });
+    client.query.mockResolvedValue({
+      ...connected,
+      revision: 25,
+      messages: [{ id: 'gpt-message', role: 'assistant', text: 'ChatGPT conversation' }],
+    });
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    expect(await screen.findByText('ChatGPT conversation')).toBeVisible();
+    await openSettings(user);
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-model');
+    expect(screen.getByRole('link', { name: 'Pet settings' })).toHaveAttribute(
+      'href',
+      '/w/33333333-3333-4333-8333-333333333333/settings?tab=pets',
+    );
+
+    petSettings.provider = 'anthropic';
+    client.execute.mockResolvedValue({
+      ...connected,
+      provider: 'anthropic',
+      models: [claudeModel],
+    });
+    let finishWatch: ((value: unknown) => void) | undefined;
+    client.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishWatch = resolve;
+        }),
+    );
+    rerender(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    expect(screen.queryByText('ChatGPT conversation')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Connecting');
+    finishWatch?.({
+      ...connected,
+      provider: 'anthropic',
+      revision: 1,
+      messages: [{ id: 'claude-message', role: 'assistant', text: 'Claude conversation' }],
+    });
+    expect(await screen.findByText('Claude conversation')).toBeVisible();
+    await openSettings(user);
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('');
+    expect(screen.getByRole('option', { name: 'Provider default' })).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /GPT model|gpt-model/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Claude model' })).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Read without asking/ })).toHaveAccessibleName(
+      'Read without asking. When Workspace access is on, Cat can search and read your workspace without asking first. What it reads is sent to Claude. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.',
+    );
+  });
+
+  it('replaces an established Claude conversation with key setup after removal', async () => {
+    petSettings.provider = 'anthropic';
+    let finishSetup: ((value: unknown) => void) | undefined;
+    const setup = new Promise((resolve) => {
+      finishSetup = resolve;
+    });
+    client.query
+      .mockResolvedValueOnce({
+        ...connected,
+        provider: 'anthropic',
+        revision: 25,
+        messages: [{ id: 'claude-message', role: 'assistant', text: 'Claude conversation' }],
+      })
+      .mockReturnValue(setup);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    expect(await screen.findByText('Claude conversation')).toBeVisible();
+    await act(async () => {
+      finishSetup?.({
+        ...connected,
+        provider: 'anthropic',
+        status: 'disconnected',
+        revision: 0,
+        messages: [],
+        reason: 'Add a Claude API key in Pet settings.',
+      });
+      await setup;
+    });
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Add a Claude API key in Pet settings.',
+    );
+    expect(screen.queryByText('Claude conversation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('textbox', { name: 'Message Cat' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open Pet settings' })).toHaveAttribute(
+      'href',
+      '/w/33333333-3333-4333-8333-333333333333/settings?tab=pets',
+    );
+    expect(screen.queryByRole('button', { name: 'Connect ChatGPT' })).not.toBeInTheDocument();
   });
 
   it('prioritises replies and keeps secondary controls tucked into the overflow menu', async () => {

@@ -35,7 +35,9 @@ function LongText({ card = false }: { card?: boolean }): ReactElement {
 }
 export const LongTextPanel = { render: (): ReactElement => <LongText /> };
 export const LongTextCard = { render: (): ReactElement => <LongText card /> };
-export const DevicePreferences = { render: (): ReactElement => <PetDeviceSettings /> };
+export const DevicePreferences = {
+  render: (): ReactElement => <PetDeviceSettings inlineWriting />,
+};
 export const AudioIdle = {
   render: (): ReactElement => (
     <AudioPlayer

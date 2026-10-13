@@ -43,7 +43,7 @@ export function PetPage(): ReactElement {
         title="The companion is switched off"
         detail="Turn it on in Settings to chat with it here."
         action={
-          <Link to={`/w/${workspaceId}/settings`} className={`underline ${focusRing}`}>
+          <Link to={`/w/${workspaceId}/settings?tab=pets`} className={`underline ${focusRing}`}>
             <Text as="span">Open Settings</Text>
           </Link>
         }
@@ -52,7 +52,7 @@ export function PetPage(): ReactElement {
   }
   return (
     <PetConversationPane
-      key={`${workspaceId}:${pet.id}:${rootItemId ?? ''}`}
+      key={`${workspaceId}:${pet.id}:${pet.provider}:${rootItemId ?? ''}`}
       workspaceId={workspaceId}
       pet={pet}
       settings={saved.settings}

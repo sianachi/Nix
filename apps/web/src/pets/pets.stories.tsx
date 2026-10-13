@@ -47,37 +47,101 @@ export const AnimationStates = {
   ),
 };
 
-export const Settings = {
-  render: (): ReactElement => (
-    <PetSettingsEditor
-      initial={{
-        revision: 1,
-        settings: {
-          enabled: true,
-          activePetId: '44444444-4444-4444-8444-444444444444',
-          motion: 'reduced',
-          profiles: [
-            {
-              id: '44444444-4444-4444-8444-444444444444',
-              name: 'Pip',
-              appearance: 'cat',
-              personality: 'calm',
-              responseLength: 'balanced',
-              instructions: '',
-              applyWithoutAsking: false,
-              provider: 'chatgpt',
-            },
-          ],
-          inlineWriting: false,
-        },
-      }}
-      saving={false}
-      onSave={() => Promise.resolve(true)}
-    />
-  ),
+const settingsClient: NixClient = {
+  ...createNixClient({
+    baseUrl: 'http://nix.invalid',
+    tokens: {
+      getAccessToken: () => Promise.resolve(null),
+      refreshAccessToken: () => Promise.resolve(null),
+    },
+  }),
+  query: (endpoint) => {
+    if (endpoint.operation === 'pets.connection')
+      return Promise.resolve(
+        endpoint.schema.parse({
+          provider: 'chatgpt',
+          status: 'disconnected',
+          reason: 'Connect ChatGPT to start a conversation.',
+          canConnect: true,
+        }),
+      );
+    if (endpoint.operation === 'pets.providers')
+      return Promise.resolve(endpoint.schema.parse({ keys: [] }));
+    return Promise.reject(new Error(`Unexpected settings story read: ${endpoint.operation}`));
+  },
+  execute: () => Promise.reject(new Error('This settings preview does not store credentials.')),
 };
 
+function settingsStory(provider: PetProfile['provider']): ReactElement {
+  return (
+    <ApiClientOverrideProvider client={settingsClient}>
+      <PetSettingsEditor
+        initial={{
+          revision: 1,
+          settings: {
+            enabled: true,
+            activePetId: '44444444-4444-4444-8444-444444444444',
+            motion: 'reduced',
+            profiles: [
+              {
+                id: '44444444-4444-4444-8444-444444444444',
+                name: 'Pip',
+                appearance: 'cat',
+                personality: 'calm',
+                responseLength: 'balanced',
+                instructions: '',
+                applyWithoutAsking: false,
+                provider,
+              },
+            ],
+            inlineWriting: false,
+          },
+        }}
+        saving={false}
+        onSave={() => Promise.resolve(true)}
+      />
+    </ApiClientOverrideProvider>
+  );
+}
+
+export const Settings = {
+  render: (): ReactElement => settingsStory('chatgpt'),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    canvas.getByRole('combobox', { name: 'Model provider' });
+    await canvas.findByRole('button', { name: 'Connect ChatGPT' });
+    canvas.getByRole('region', { name: 'ChatGPT connection' });
+    if (canvas.queryByLabelText(/API key/) !== null)
+      throw new Error('ChatGPT settings must not show API key controls.');
+  },
+};
+
+function keySettingsPlay(label: string, otherLabel: string) {
+  return async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    canvas.getByRole('combobox', { name: 'Model provider' });
+    const key = await canvas.findByLabelText(label);
+    if (key.getAttribute('type') !== 'password')
+      throw new Error('Provider API key fields must conceal their values.');
+    if (
+      canvas.queryByRole('region', { name: 'ChatGPT connection' }) !== null ||
+      canvas.queryByLabelText(otherLabel) !== null
+    )
+      throw new Error('Only the selected provider may show its connection controls.');
+  };
+}
+
+export const ClaudeSettings = {
+  render: (): ReactElement => settingsStory('anthropic'),
+  play: keySettingsPlay('Claude API key', 'OpenRouter API key'),
+};
+export const OpenRouterSettings = {
+  render: (): ReactElement => settingsStory('openrouter'),
+  play: keySettingsPlay('OpenRouter API key', 'Claude API key'),
+};
 export const DarkSettings = { ...Settings, globals: { ground: 'dark' } };
+export const DarkClaudeSettings = { ...ClaudeSettings, globals: { ground: 'dark' } };
+export const DarkOpenRouterSettings = { ...OpenRouterSettings, globals: { ground: 'dark' } };
 export const DarkAnimationStates = { ...AnimationStates, globals: { ground: 'dark' } };
 
 export const AnimatedCompanion = {
@@ -814,7 +878,7 @@ function routeQuery(
         })
       : endpoint.operation === 'locks.get'
         ? Promise.resolve({ locked: false, unlockedUntil: null })
-        : endpoint.operation === 'pets.watchRuntime'
+        : endpoint.operation === 'pets.watchRuntime' || endpoint.operation === 'pets.connection'
           ? Promise.resolve({ ...connection, revision: 1 })
           : Promise.resolve(settings);
 }
@@ -1047,7 +1111,19 @@ function desktopClient(connection: ReturnType<typeof petConnectionSchema.parse>)
         refreshAccessToken: () => Promise.resolve(null),
       },
     }),
-    query: routeQuery(phoneSettings, connection),
+    query: routeQuery(
+      {
+        ...phoneSettings,
+        settings: {
+          ...phoneSettings.settings,
+          profiles: phoneSettings.settings.profiles.map((profile) => ({
+            ...profile,
+            provider: connection.provider,
+          })),
+        },
+      },
+      connection,
+    ),
     execute: () => Promise.resolve(connection),
   } as NixClient;
 }
@@ -1429,6 +1505,59 @@ export const Disconnected = {
   ),
 };
 export const DarkDisconnected = { ...Disconnected, globals: { ground: 'dark' } };
+
+function keyDisconnectedPlay(reason: string) {
+  return async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    const canvas = within(canvasElement);
+    const alert = await canvas.findByRole('alert');
+    if (alert.textContent !== reason)
+      throw new Error('A disconnected pet must explain how to set up its selected provider.');
+    const settings = canvas.getByRole('link', { name: 'Open Pet settings' });
+    if (settings.getAttribute('href') !== `/w/${PHONE_WORKSPACE}/settings?tab=pets`)
+      throw new Error('Provider setup must open settings in the current workspace.');
+    if (
+      canvas.queryByRole('button', { name: 'Connect ChatGPT' }) !== null ||
+      canvas.queryByRole('link', { name: 'Open ChatGPT sign-in' }) !== null
+    )
+      throw new Error('API key providers must not ask for ChatGPT sign-in.');
+  };
+}
+
+export const ClaudeDisconnected = {
+  render: (): ReactElement => (
+    <DesktopFrame
+      connection={petConnectionSchema.parse({
+        provider: 'anthropic',
+        status: 'disconnected',
+        reason: 'Add a Claude API key in Pet settings.',
+        canConnect: false,
+      })}
+    >
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+  play: keyDisconnectedPlay('Add a Claude API key in Pet settings.'),
+};
+export const OpenRouterDisconnected = {
+  render: (): ReactElement => (
+    <DesktopFrame
+      connection={petConnectionSchema.parse({
+        provider: 'openrouter',
+        status: 'disconnected',
+        reason: 'Add an OpenRouter API key in Pet settings.',
+        canConnect: false,
+      })}
+    >
+      <AutoOpenCompanion />
+    </DesktopFrame>
+  ),
+  play: keyDisconnectedPlay('Add an OpenRouter API key in Pet settings.'),
+};
+export const DarkClaudeDisconnected = { ...ClaudeDisconnected, globals: { ground: 'dark' } };
+export const DarkOpenRouterDisconnected = {
+  ...OpenRouterDisconnected,
+  globals: { ground: 'dark' },
+};
 
 export const SettingsSheet = {
   render: (): ReactElement => (

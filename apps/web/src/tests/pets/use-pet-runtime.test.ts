@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { NixApiError, type PetConnection } from '@nix/api-client';
+import { NixApiError, petConnectionSchema, type PetConnection } from '@nix/api-client';
 import { usePetRuntime } from '../../pets/use-pet-runtime';
 
 const client = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn() }));
@@ -64,6 +64,41 @@ describe('usePetRuntime watch loop', () => {
     expect(watchQuery(laterCall).after).toBe(1);
   });
 
+  it('discovers models for the selected pet instead of the account default', async () => {
+    client.query.mockResolvedValue(connection());
+    renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(client.execute.mock.calls[0]?.[0]).toHaveProperty('body.operation', 'models');
+    expect(client.execute.mock.calls[0]?.[0]).toHaveProperty('body.workspaceId', WORKSPACE_ID);
+    expect(client.execute.mock.calls[0]?.[0]).toHaveProperty('body.petId', PET_ID);
+  });
+
+  it('clears model discovery from the previous pet while the new request is pending', async () => {
+    client.query.mockResolvedValue(connection());
+    client.execute
+      .mockResolvedValueOnce(connection({ models: [{ id: 'gpt-model', name: 'GPT model' }] }))
+      .mockImplementationOnce(() => new Promise(() => undefined));
+    const { result, rerender } = renderHook(
+      ({ petId }: { petId: string }) => usePetRuntime(WORKSPACE_ID, petId, true),
+      { initialProps: { petId: PET_ID } },
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.models.map((model) => model.id)).toEqual(['gpt-model']);
+    rerender({ petId: '99999999-9999-4999-8999-999999999999' });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.models).toEqual([]);
+    expect(client.execute.mock.calls.at(-1)?.[0]).toHaveProperty(
+      'body.petId',
+      '99999999-9999-4999-8999-999999999999',
+    );
+  });
+
   it('applies a newer revision but ignores a stale one that arrives after it', async () => {
     client.query
       .mockResolvedValueOnce(connection({ revision: 3, reason: 'third' }))
@@ -82,6 +117,304 @@ describe('usePetRuntime watch loop', () => {
     // state already applied from the first.
     expect(result.current.runtime?.revision).toBe(3);
     expect(result.current.runtime?.reason).toBe('third');
+  });
+
+  it.each(['anthropic', 'openrouter'])(
+    'accepts %s setup after an established conversation and rejects its late responses',
+    async (provider) => {
+      const connected = connection({ provider, revision: 10 });
+      const setup = connection({
+        provider,
+        status: 'disconnected',
+        revision: 0,
+        reason: 'Add an API key in Pet settings.',
+      });
+      client.query
+        .mockResolvedValueOnce(connected)
+        .mockResolvedValueOnce(setup)
+        .mockResolvedValue(connection({ provider, revision: 1, reason: 'Reconnected' }));
+      client.execute
+        .mockResolvedValueOnce(connection({ models: [{ id: 'old-model', name: 'Old model' }] }))
+        .mockResolvedValue(connection({ models: [{ id: 'new-model', name: 'New model' }] }));
+      const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.runtime?.status).toBe('connected');
+      const staleSetRuntime = result.current.setRuntime;
+      let finishCommand: ((value: PetConnection) => void) | undefined;
+      client.execute.mockImplementationOnce(
+        () =>
+          new Promise<PetConnection>((resolve) => {
+            finishCommand = resolve;
+          }),
+      );
+      let pendingCommand: Promise<void> | undefined;
+      act(() => {
+        pendingCommand = result.current.reload();
+      });
+      expect(result.current.busy).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(250);
+      });
+      expect(result.current.runtime?.status).toBe('disconnected');
+      expect(result.current.runtime?.reason).toBe('Add an API key in Pet settings.');
+      expect(result.current.models).toEqual([]);
+      expect(result.current.busy).toBe(false);
+      await act(async () => {
+        const stale = petConnectionSchema.parse({
+          ...connected,
+          revision: 99,
+          reason: 'Stale connected response',
+        });
+        staleSetRuntime(stale);
+        finishCommand?.(stale);
+        await pendingCommand;
+      });
+      expect(result.current.runtime?.status).toBe('disconnected');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(watchQuery(client.query.mock.calls.at(-1)?.[0]).after).toBe(0);
+      expect(result.current.runtime?.reason).toBe('Reconnected');
+      expect(result.current.runtime?.revision).toBe(1);
+      expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    },
+  );
+
+  it('discovers models once when a previously keyless provider connects', async () => {
+    const setup = connection({ provider: 'anthropic', status: 'disconnected' });
+    client.query
+      .mockResolvedValueOnce(setup)
+      .mockResolvedValue(connection({ provider: 'anthropic', revision: 1 }));
+    client.execute
+      .mockResolvedValueOnce(setup)
+      .mockResolvedValue(connection({ models: [{ id: 'claude-model', name: 'Claude model' }] }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.models).toEqual([]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1250);
+    });
+    expect(result.current.models.map((model) => model.id)).toEqual(['claude-model']);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(client.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('refreshes a replacement key while a watch is pending without accepting older models', async () => {
+    let finishModels: ((value: unknown) => void) | undefined;
+    const connected = connection({ provider: 'anthropic', revision: 10 });
+    client.query
+      .mockResolvedValueOnce(connected)
+      .mockImplementation(() => new Promise<never>(() => undefined));
+    client.execute
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishModels = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(connected)
+      .mockResolvedValueOnce(connection({ models: [{ id: 'new-model', name: 'New model' }] }));
+    const { result, unmount } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(client.query).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(client.execute.mock.calls[1]?.[0]).toHaveProperty('body.operation', 'read');
+    expect(client.execute.mock.calls[1]?.[0]).toHaveProperty('body.petId', PET_ID);
+    expect(client.execute.mock.calls[1]?.[0]).toHaveProperty('body.workspaceId', WORKSPACE_ID);
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    await act(async () => {
+      finishModels?.(connection({ models: [{ id: 'old-model', name: 'Old model' }] }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(client.execute).toHaveBeenCalledTimes(3);
+    unmount();
+    window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+    expect(client.execute).toHaveBeenCalledTimes(3);
+  });
+
+  it('shows key removal immediately and drops the older watch before reconnecting', async () => {
+    const connected = connection({ provider: 'anthropic', revision: 10 });
+    let finishWatch: ((value: unknown) => void) | undefined;
+    client.query
+      .mockResolvedValueOnce(connected)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishWatch = resolve;
+          }),
+      )
+      .mockResolvedValue(connection({ provider: 'anthropic', revision: 1, reason: 'Reconnected' }));
+    client.execute
+      .mockResolvedValueOnce(connection({ models: [{ id: 'old-model', name: 'Old model' }] }))
+      .mockResolvedValueOnce(
+        connection({
+          provider: 'anthropic',
+          status: 'disconnected',
+          revision: 0,
+          reason: 'Add a Claude API key in Pet settings.',
+        }),
+      )
+      .mockResolvedValue(connection({ models: [{ id: 'new-model', name: 'New model' }] }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.runtime?.status).toBe('disconnected');
+    expect(result.current.runtime?.reason).toBe('Add a Claude API key in Pet settings.');
+    expect(result.current.models).toEqual([]);
+    await act(async () => {
+      finishWatch?.(connection({ provider: 'anthropic', revision: 11, reason: 'Old watch' }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.runtime?.status).toBe('disconnected');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(250);
+    });
+    expect(watchQuery(client.query.mock.calls.at(-1)?.[0]).after).toBe(0);
+    expect(result.current.runtime?.reason).toBe('Reconnected');
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+  });
+
+  it('keeps a saved replacement connected when an older removal read finishes with the panel closed', async () => {
+    const connected = connection({ provider: 'anthropic', revision: 10 });
+    let finishRemoval: ((value: unknown) => void) | undefined;
+    let finishReplacement: ((value: unknown) => void) | undefined;
+    client.query.mockResolvedValue(connected);
+    client.execute
+      .mockResolvedValueOnce(connection({ models: [{ id: 'old-model', name: 'Old model' }] }))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRemoval = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishReplacement = resolve;
+          }),
+      )
+      .mockResolvedValue(connection({ models: [{ id: 'new-model', name: 'New model' }] }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, false));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    const staleSetRuntime = result.current.setRuntime;
+    act(() => {
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+    });
+    await act(async () => {
+      finishReplacement?.({ ...connected, reason: 'Replacement saved' });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.runtime?.reason).toBe('Replacement saved');
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    await act(async () => {
+      finishRemoval?.(connection({ provider: 'anthropic', status: 'disconnected', revision: 0 }));
+      staleSetRuntime(
+        petConnectionSchema.parse({ ...connected, revision: 99, reason: 'Stale tool' }),
+      );
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(result.current.runtime?.status).toBe('connected');
+    expect(result.current.runtime?.reason).toBe('Replacement saved');
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(client.execute).toHaveBeenCalledTimes(4);
+    act(() => {
+      result.current.setRuntime(
+        petConnectionSchema.parse({ ...connected, revision: 11, reason: 'Current tool' }),
+      );
+    });
+    expect(result.current.runtime?.reason).toBe('Current tool');
+  });
+
+  it('ignores an older keyless watch after a key event connects an initially closed panel', async () => {
+    let finishWatch: ((value: unknown) => void) | undefined;
+    client.query.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishWatch = resolve;
+        }),
+    );
+    client.execute
+      .mockResolvedValueOnce(connection({ provider: 'anthropic', status: 'disconnected' }))
+      .mockResolvedValueOnce(
+        connection({ provider: 'anthropic', revision: 10, reason: 'Key saved' }),
+      )
+      .mockResolvedValue(connection({ models: [{ id: 'new-model', name: 'New model' }] }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, false));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.runtime?.reason).toBe('Key saved');
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    await act(async () => {
+      finishWatch?.(connection({ provider: 'anthropic', status: 'disconnected', revision: 0 }));
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(result.current.runtime?.status).toBe('connected');
+    expect(result.current.runtime?.reason).toBe('Key saved');
+    expect(client.query).toHaveBeenCalledTimes(1);
+    expect(client.execute).toHaveBeenCalledTimes(3);
+    act(() => {
+      result.current.setRuntime(
+        petConnectionSchema.parse({
+          provider: 'anthropic',
+          revision: 11,
+          status: 'connected',
+          reason: 'Current tool',
+          canConnect: false,
+        }),
+      );
+    });
+    expect(result.current.runtime?.reason).toBe('Current tool');
+  });
+
+  it('keeps the new tool generation when a key event arrives before initial state is published', async () => {
+    const connected = connection({ provider: 'anthropic', revision: 10 });
+    client.query.mockResolvedValue(connected);
+    client.execute
+      .mockResolvedValueOnce(connection({ provider: 'anthropic', status: 'disconnected' }))
+      .mockResolvedValueOnce(connected)
+      .mockResolvedValue(connection({ models: [{ id: 'new-model', name: 'New model' }] }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, false));
+    await act(async () => {
+      window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(result.current.models.map((model) => model.id)).toEqual(['new-model']);
+    act(() => {
+      result.current.setRuntime(
+        petConnectionSchema.parse({ ...connected, revision: 11, reason: 'Current tool' }),
+      );
+    });
+    expect(result.current.runtime?.reason).toBe('Current tool');
+    expect(client.execute).toHaveBeenCalledTimes(3);
   });
 
   it('backs off 1s, 2s, 4s, then caps at 10s after consecutive watch failures', async () => {
