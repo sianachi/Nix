@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
-import { useRef, type ReactNode, type Ref } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
 
 import { cn } from '../lib/cn';
 import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
@@ -394,18 +394,35 @@ function ColumnResizeHandle({
   readonly onResize: (width: number) => void;
   readonly onReset: (() => void) | undefined;
 }): ReactNode {
+  const handle = useRef<HTMLDivElement>(null);
+  const [automaticWidth, setAutomaticWidth] = useState<number>(TABLE_COLUMN_WIDTH.min);
   const drag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
+  useLayoutEffect(() => {
+    const column = handle.current?.parentElement;
+    if (width !== undefined || column === undefined || column === null) return;
+    const update = () => {
+      setAutomaticWidth(Math.round(column.getBoundingClientRect().width));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(column);
+    return () => {
+      observer.disconnect();
+    };
+  }, [width]);
+  const currentWidth = width ?? automaticWidth;
   const measured = (element: HTMLElement): number =>
     width ?? element.parentElement?.getBoundingClientRect().width ?? TABLE_COLUMN_WIDTH.min;
   return (
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA's focusable separator with aria-valuenow is the window-splitter widget; jsx-a11y models separator only as a static divider.
     <div
+      ref={handle}
       role="separator"
       aria-orientation="vertical"
       aria-label={`Resize column ${label}`}
-      aria-valuenow={width}
-      aria-valuemin={TABLE_COLUMN_WIDTH.min}
-      aria-valuemax={TABLE_COLUMN_WIDTH.max}
+      aria-valuenow={currentWidth}
+      aria-valuemin={Math.min(TABLE_COLUMN_WIDTH.min, currentWidth)}
+      aria-valuemax={Math.max(TABLE_COLUMN_WIDTH.max, currentWidth)}
       aria-valuetext={width === undefined ? 'automatic width' : `${String(width)} pixels`}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
       tabIndex={0}
