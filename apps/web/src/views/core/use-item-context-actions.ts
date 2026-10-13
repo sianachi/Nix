@@ -1,7 +1,9 @@
 import type { MenuEntry } from '@nix/ui';
-import { Eye, EyeOff, FileText } from 'lucide-react';
+import { CheckSquare, Eye, EyeOff, FileText, FolderInput, Pencil, Square, Trash2 } from 'lucide-react';
 
 import { useAutomateEntry } from '../../automations/automate-entry';
+import { useOptionalItemCommands } from '../../items/item-commands-context';
+import { useOptionalItemSelection } from './item-selection-context';
 import { bookmarkEntry, copyLinkEntry } from '../../items/item-menu-entries';
 import { useMuteRemindersEntry } from '../../settings/mute-reminders-entry';
 import { useOptionalWorkspace } from '../../workspaces/workspace-context';
@@ -20,8 +22,77 @@ export function useItemContextActions(
   const automateEntry = useAutomateEntry(workspace?.workspaceId ?? null);
   const muteRemindersEntry = useMuteRemindersEntry();
   const visibility = useHiddenItems();
+  const commands = useOptionalItemCommands();
+  const selection = useOptionalItemSelection();
 
-  return (itemId, title, extra = []) => [
+  return (itemId, title, extra = []) => {
+    // What the view around this row allows (view-capabilities.ts); every entry below is also
+    // checked by Core when it runs, so an entry is an offer and never a permission.
+    const allows = selection?.capabilities;
+    const treeItem = commands?.tree.find(itemId) ?? null;
+    const deleteProtected = treeItem?.noDelete === true;
+    const shared: MenuEntry[] = [
+      ...(selection !== null && allows?.select === true
+        ? [
+            {
+              kind: 'action' as const,
+              label: selection.selected.has(itemId) ? 'Deselect' : 'Select',
+              icon: selection.selected.has(itemId) ? CheckSquare : Square,
+              onSelect: () => {
+                selection.toggle(itemId, []);
+              },
+            },
+          ]
+        : []),
+      ...(commands !== null && allows?.rename !== false
+        ? [
+            {
+              kind: 'action' as const,
+              label: 'Rename…',
+              icon: Pencil,
+              onSelect: () => {
+                commands.renameItem(itemId);
+              },
+            },
+          ]
+        : []),
+      ...(commands !== null && allows?.move !== false
+        ? [
+            {
+              kind: 'action' as const,
+              label: 'Move to…',
+              icon: FolderInput,
+              onSelect: () => {
+                // A selected row moves with the rest of the selection, the way a drag would.
+                commands.moveItems(
+                  selection?.selected.has(itemId) === true ? [...selection.selected] : [itemId],
+                );
+              },
+            },
+          ]
+        : []),
+    ];
+    const destructive: MenuEntry[] =
+      commands !== null && allows?.delete !== false
+        ? [
+            { kind: 'separator' as const },
+            {
+              kind: 'action' as const,
+              label: deleteProtected ? 'Delete (protected)' : 'Delete',
+              icon: Trash2,
+              destructive: true,
+              disabled: deleteProtected,
+              onSelect: () => {
+                commands.deleteItem({
+                  id: itemId,
+                  title,
+                  hasChildren: treeItem?.hasChildren ?? false,
+                });
+              },
+            },
+          ]
+        : [];
+    return [
     {
       kind: 'action',
       label: 'Open',
@@ -31,6 +102,7 @@ export function useItemContextActions(
       },
     },
     ...extra,
+    ...shared,
     ...(!visibility.enabled
       ? []
       : [
@@ -48,5 +120,7 @@ export function useItemContextActions(
     ...(workspace === null ? [] : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
     ...(automateEntry === null ? [] : [automateEntry(itemId)]),
     ...(muteRemindersEntry === null ? [] : [muteRemindersEntry(itemId, title)]),
-  ];
+    ...destructive,
+    ];
+  };
 }

@@ -1,5 +1,5 @@
 import { files as fileResources } from '@nix/api-client';
-import { Button, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Button, Checkbox, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { ImagePlus } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
@@ -17,6 +17,7 @@ import {
   type View,
 } from '../core/container-model';
 import { CoverImage } from './cover-image';
+import { useOptionalItemSelection } from '../core/item-selection-context';
 import { CoverPickerDialog } from './cover-picker-dialog';
 import { CreateItemControl } from '../core/create-item-control';
 import { useItemContextActions } from '../core/use-item-context-actions';
@@ -642,6 +643,8 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
     virtualIndex,
   } = props;
   const itemActions = useItemContextActions(onOpen);
+  const selection = useOptionalItemSelection();
+  const isSelected = selection?.selected.has(item.id) === true;
   const isFileCard = item.type === 'file' && !item.hasChildren;
   const coverValue = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
 
@@ -683,8 +686,23 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           className={cn(
             blueprintFrame,
             'relative flex min-w-0 flex-col gap-2 bg-surface p-3 shadow-sm',
+            isSelected && 'outline-2 -outline-offset-2 outline-accent',
           )}
         >
+          {/* The selection box, always on screen like the cover button beside it: a hover-only
+              box is invisible to a tap. `z-20` lifts it above the title's stretched hit area. */}
+          {selection === null ? null : (
+            <div className="absolute left-2 top-2 z-20 rounded-md bg-surface">
+              <Checkbox
+                aria-label={`Select ${item.title || 'Untitled'}`}
+                checked={isSelected}
+                onClick={(event) => {
+                  selection.toggle(item.id, [], event.shiftKey);
+                }}
+                onChange={() => undefined}
+              />
+            </div>
+          )}
           {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
           which item that was about - the status arriving ahead of its subject. `order-first` puts

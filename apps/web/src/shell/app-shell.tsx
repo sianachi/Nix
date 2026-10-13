@@ -1,6 +1,7 @@
 import { MobileNoteCapture } from '../items/mobile-note-capture';
 import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
 import { useBackDismiss } from '../layout/use-back-dismiss';
+import { ItemCommandsProvider } from '../items/item-commands-context';
 import { ItemDialogProvider } from '../items/item-dialog-provider';
 import { MobileNavigation } from './mobile-navigation';
 import { petAttentionText, usePetAttention } from '../pets/pet-attention';
@@ -291,7 +292,7 @@ export function AppShell(): ReactNode {
    * Lives here rather than on `<WorkspaceSidebar>` because the toast this shows is a shell-level
    * overlay, not a sidebar-scoped one - see `shell-toasts.tsx` for why that move mattered.
    */
-  async function requestDelete(item: TreeItem): Promise<void> {
+  async function requestDelete(item: Pick<TreeItem, 'id' | 'title' | 'hasChildren'>): Promise<void> {
     const title = item.title || 'Untitled';
     const { refusal } = await tree.remove(item.id);
     if (refusal !== null) {
@@ -640,9 +641,16 @@ export function AppShell(): ReactNode {
                   snapshot. */}
               <TemplateLibraryProvider library={templateLibrary}>
                 <CapabilitiesProvider value={principal.principal?.features}>
-                  <ItemDialogProvider tree={tree}>
-                    <Outlet context={{ tree, selectedId } satisfies ShellContext} />
-                  </ItemDialogProvider>
+                  <ItemCommandsProvider
+                    tree={tree}
+                    onDeleteItem={(item) => {
+                      void requestDelete(item);
+                    }}
+                  >
+                    <ItemDialogProvider tree={tree}>
+                      <Outlet context={{ tree, selectedId } satisfies ShellContext} />
+                    </ItemDialogProvider>
+                  </ItemCommandsProvider>
                 </CapabilitiesProvider>
               </TemplateLibraryProvider>
             </main>
