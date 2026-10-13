@@ -22,9 +22,9 @@
     },
     {
       "path": "docs/nix/nix-reference.nix",
-      "sha256": "9631072f1b65a49da4e5f78ca2c1ab981aa3dcc3c44a1a276961c1a42cbe22b9",
-      "bytes": 1025210,
-      "itemCount": 119,
+      "sha256": "ff71d3effe9b53ea56b9c420902bc1f548b966f66d93fa3ebb0db3ab192da856",
+      "bytes": 517724,
+      "itemCount": 59,
       "rootId": "cc38b350-5f54-5eeb-abaa-ac17ab083ba9"
     },
     {
@@ -1439,59 +1439,6 @@
   ],
   "documents": [
     {
-      "sourcePath": "AGENTS.md",
-      "sourceSha256": "090433f9cb905fb5a34b97fe38b256700899d30148e333f212ad5875ee135ced",
-      "sourceBytes": 3259,
-      "title": "Nix contributor routing",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "1dba9ec5-b382-5355-a9f0-37f1b25d7e37",
-      "sourceItemId": "ecbdf29e-93d7-5125-a100-ba9314ee6936",
-      "disposition": "retained-essential",
-      "retentionReason": "Contributor routing and invariants must be readable before tools or Nix start.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Contributor guide",
-        "disposition": "Retained essential",
-        "source_path": "AGENTS.md",
-        "original_bytes": 3259,
-        "original_sha256": "090433f9cb905fb5a34b97fe38b256700899d30148e333f212ad5875ee135ced"
-      },
-      "localProofItemId": "01a12244-4dfc-7f13-9bcf-eae9cfb7bad7",
-      "localProofSourceItemId": "01a12244-4dfc-7dd7-b367-40f66d12d382"
-    },
-    {
-      "sourcePath": "HANDOFF.md",
-      "sourceSha256": "537652cddab379a4ad81c45c655bfaafbb637715ec9bc237c6f61dec76c06534",
-      "sourceBytes": 23411,
-      "title": "Nix product UX program handoff",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "57ce9294-736a-582c-abb4-f49bb2405826",
-      "sourceItemId": "359269a7-735f-5d76-a5cc-c12d613fba1f",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "HANDOFF.md",
-        "original_bytes": 23411,
-        "original_sha256": "537652cddab379a4ad81c45c655bfaafbb637715ec9bc237c6f61dec76c06534"
-      },
-      "localProofItemId": "01a12244-4dfc-7033-97da-2ef49e3e28b8",
-      "localProofSourceItemId": "01a12244-4dfc-79b7-82cd-063650a34989"
-    },
-    {
       "sourcePath": "README.md",
       "sourceSha256": "1f3b85a967b65c6bece57418e9737951dd58434f7f374ae5a625788351366d3b",
       "sourceBytes": 25587,
@@ -1543,87 +1490,6 @@
       },
       "localProofItemId": "01a12244-4dfc-7496-be47-ef78fd53c37b",
       "localProofSourceItemId": "01a12244-4dfc-7bd5-9c50-880e19c9bb7e"
-    },
-    {
-      "sourcePath": "deploy/README.md",
-      "sourceSha256": "bfd10fcc72b4d0b016df9e213e29173b66789dcbd0aa7b898481b0549d4e7cae",
-      "sourceBytes": 25524,
-      "title": "Deploying Nix with Docker Compose",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "30d21b26-33e8-5ba9-a08a-d760d5a9191a",
-      "sourceItemId": "f03bac1b-f78d-5ddd-a5a4-2469b9cfdf88",
-      "disposition": "retained-essential",
-      "retentionReason": "Release and emergency recovery instructions must remain readable while Nix is down.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Operations",
-        "disposition": "Retained essential",
-        "source_path": "deploy/README.md",
-        "original_bytes": 25524,
-        "original_sha256": "bfd10fcc72b4d0b016df9e213e29173b66789dcbd0aa7b898481b0549d4e7cae"
-      },
-      "localProofItemId": "01a12244-4dfc-77fa-97d7-85349c421299",
-      "localProofSourceItemId": "01a12244-4dfc-7d6f-bf26-0ff10988f404"
-    },
-    {
-      "sourcePath": "deploy/backup/README.md",
-      "sourceSha256": "b7dd5f1543814478d10e222d50120974d1b54d6f48d57ff9809ce3ed074b100e",
-      "sourceBytes": 3659,
-      "title": "Local Nix backups to R2",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "b92dbe92-df84-540d-a6d1-2611e4a17f56",
-      "sourceItemId": "c25f3203-1cd9-5ce7-a158-ba385e2adda8",
-      "disposition": "retained-essential",
-      "retentionReason": "Offline local backup and credential/restore instructions.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Operations",
-        "disposition": "Retained essential",
-        "source_path": "deploy/backup/README.md",
-        "original_bytes": 3659,
-        "original_sha256": "b7dd5f1543814478d10e222d50120974d1b54d6f48d57ff9809ce3ed074b100e"
-      },
-      "localProofItemId": "01a12244-4dfc-7e32-9c17-885027dbaa88",
-      "localProofSourceItemId": "01a12244-4dfc-7dc5-850b-9dd85e35eafe"
-    },
-    {
-      "sourcePath": "deploy/backup/production.md",
-      "sourceSha256": "5a0f5ab9eca597021c17bcb8ed28570d5c1c58e68a497d4667209bb174f9352a",
-      "sourceBytes": 12133,
-      "title": "Production backups",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "ee9bd137-76b6-5165-a6c9-002f45691ab0",
-      "sourceItemId": "37f0525c-5c76-517f-a42b-58995601f842",
-      "disposition": "retained-essential",
-      "retentionReason": "Offline production backup/restore and disaster-recovery procedure.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Operations",
-        "disposition": "Retained essential",
-        "source_path": "deploy/backup/production.md",
-        "original_bytes": 12133,
-        "original_sha256": "5a0f5ab9eca597021c17bcb8ed28570d5c1c58e68a497d4667209bb174f9352a"
-      },
-      "localProofItemId": "01a12244-4dfc-7f8a-be17-4be3dfd8d0aa",
-      "localProofSourceItemId": "01a12244-4dfc-77e5-96e3-9d1c6012cc5d"
     },
     {
       "sourcePath": "docs/README.md",
@@ -2018,8 +1884,8 @@
     },
     {
       "sourcePath": "docs/adr/0059-speech-role-recording-transcription-and-voice.md",
-      "sourceSha256": "a5b9291ddf70e1721af7982d624146916fe40f68076ffffa72730cf21ab1ab6b",
-      "sourceBytes": 6732,
+      "sourceSha256": "cc4485ad1ad78ad3ebe7184427a6b5592a45714c2fecd5e7ae943e586fde98a7",
+      "sourceBytes": 6723,
       "title": "ADR-0059: A speech role for recording, transcription, voices and dictation",
       "archive": "docs/nix/nix-reference.nix",
       "itemId": "681a3e47-76ab-5f08-aa90-516a6a6f6b4a",
@@ -2036,8 +1902,8 @@
         "category": "Architecture decision",
         "disposition": "Migrated",
         "source_path": "docs/adr/0059-speech-role-recording-transcription-and-voice.md",
-        "original_bytes": 6732,
-        "original_sha256": "a5b9291ddf70e1721af7982d624146916fe40f68076ffffa72730cf21ab1ab6b",
+        "original_bytes": 6723,
+        "original_sha256": "cc4485ad1ad78ad3ebe7184427a6b5592a45714c2fecd5e7ae943e586fde98a7",
         "decision_status": "Proposed",
         "recorded_status": "Proposed 2026-10-05. Built on `main` in `deb29b68` (2026-10-05), with the `speech-worker` and\n`speech-worker-l4t` CI images following in `79de973a`. The open items below (host benchmark,\nvoice choice) and the [SEC] approval are not recorded as done.\nTakes up the audio half of the \"transcoding and general binary indexing\" decision that\nADR-0047 left open, and adds a role and a queue to ADR-0048's worker topology."
       },
@@ -2073,87 +1939,6 @@
       "localProofSourceItemId": "01a12244-4dfc-7d88-9371-79a8c39cab98"
     },
     {
-      "sourcePath": "docs/agent-guides/architecture-and-security.md",
-      "sourceSha256": "0fad4b630d6879ca08f8f3e00588393e05d46ab91824fae747600fd6778fc9f5",
-      "sourceBytes": 1036,
-      "title": "Architecture and security guide",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "325592be-b2b7-59a7-afd1-881dad1f3f0e",
-      "sourceItemId": "7f340a21-81d1-5e36-acf2-9e1400d442f7",
-      "disposition": "retained-essential",
-      "retentionReason": "Mandatory security/contributor routing before changes.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Contributor guide",
-        "disposition": "Retained essential",
-        "source_path": "docs/agent-guides/architecture-and-security.md",
-        "original_bytes": 1036,
-        "original_sha256": "0fad4b630d6879ca08f8f3e00588393e05d46ab91824fae747600fd6778fc9f5"
-      },
-      "localProofItemId": "01a12244-4dfc-7a1a-974c-d5add55c0680",
-      "localProofSourceItemId": "01a12244-4dfc-7d72-8282-af6192c9eae2"
-    },
-    {
-      "sourcePath": "docs/agent-guides/backend.md",
-      "sourceSha256": "645b1823a99a221db353516d4b74013fc780bbae1fe0e90dac3cafb9622ba99a",
-      "sourceBytes": 1310,
-      "title": "Backend guide",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "f2b48401-e42a-57ab-a085-3d9189cd61ab",
-      "sourceItemId": "4348b66d-cf7c-57a5-ad32-5fbd90bb1036",
-      "disposition": "retained-essential",
-      "retentionReason": "Mandatory backend contributor guide.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Contributor guide",
-        "disposition": "Retained essential",
-        "source_path": "docs/agent-guides/backend.md",
-        "original_bytes": 1310,
-        "original_sha256": "645b1823a99a221db353516d4b74013fc780bbae1fe0e90dac3cafb9622ba99a"
-      },
-      "localProofItemId": "01a12244-4dfc-7433-b022-22a92efa423c",
-      "localProofSourceItemId": "01a12244-4dfc-72b7-b4e9-f1eeddf1b980"
-    },
-    {
-      "sourcePath": "docs/agent-guides/frontend.md",
-      "sourceSha256": "1f97684f1a078e2a14304ac294a4e10730757118e7dba530d8e8e96f47d534c8",
-      "sourceBytes": 1243,
-      "title": "Frontend guide",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "6b46d580-230b-50d2-afe2-aa8b7ac600d3",
-      "sourceItemId": "2b07b64f-deed-5ae3-adf1-b0e183ba4f06",
-      "disposition": "retained-essential",
-      "retentionReason": "Mandatory frontend contributor guide.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Contributor guide",
-        "disposition": "Retained essential",
-        "source_path": "docs/agent-guides/frontend.md",
-        "original_bytes": 1243,
-        "original_sha256": "1f97684f1a078e2a14304ac294a4e10730757118e7dba530d8e8e96f47d534c8"
-      },
-      "localProofItemId": "01a12244-4dfc-7cbc-bb29-721e63cc91da",
-      "localProofSourceItemId": "01a12244-4dfc-7d73-8a83-2b7577910dda"
-    },
-    {
       "sourcePath": "docs/agent-guides/legacy-full-standards.md",
       "sourceSha256": "7b2aff91aa8b500bfae1bb419ad27d2ac708534bf186fcf7ab9eed97144ee349",
       "sourceBytes": 36030,
@@ -2178,60 +1963,6 @@
       },
       "localProofItemId": "01a12244-4dfc-78eb-8199-dd854aa3b278",
       "localProofSourceItemId": "01a12244-4dfc-75fd-a2d8-cb27fc3eb813"
-    },
-    {
-      "sourcePath": "docs/agent-guides/workers.md",
-      "sourceSha256": "569f5d41a45cbbf20956123569183d7eebbf3f531c8bb68e52e78177bbcf56c8",
-      "sourceBytes": 898,
-      "title": "Go worker guide",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "89c8c981-ac9f-56d2-ae40-39be0cbc1964",
-      "sourceItemId": "6944a68e-931c-504a-a910-8cce0b5753da",
-      "disposition": "retained-essential",
-      "retentionReason": "Mandatory worker contributor guide.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Contributor guide",
-        "disposition": "Retained essential",
-        "source_path": "docs/agent-guides/workers.md",
-        "original_bytes": 898,
-        "original_sha256": "569f5d41a45cbbf20956123569183d7eebbf3f531c8bb68e52e78177bbcf56c8"
-      },
-      "localProofItemId": "01a12244-4dfc-7148-9696-021b6362ea3a",
-      "localProofSourceItemId": "01a12244-4dfc-771c-af27-de5d7ac49899"
-    },
-    {
-      "sourcePath": "docs/agent-guides/workflow-and-validation.md",
-      "sourceSha256": "8afcf3ccf843c145fa45fe6798af84f1a2d4661e0b72745fe46d2520596bd06e",
-      "sourceBytes": 1215,
-      "title": "Workflow and validation guide",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "a9f4419d-a0d7-5196-af45-eceefc87a01d",
-      "sourceItemId": "27b88969-2bbc-59cd-a1a7-a0a13aa75338",
-      "disposition": "retained-essential",
-      "retentionReason": "Mandatory validation and workflow instructions.",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Contributor guide",
-        "disposition": "Retained essential",
-        "source_path": "docs/agent-guides/workflow-and-validation.md",
-        "original_bytes": 1215,
-        "original_sha256": "8afcf3ccf843c145fa45fe6798af84f1a2d4661e0b72745fe46d2520596bd06e"
-      },
-      "localProofItemId": "01a12244-4dfc-7cda-8f17-32d29f494a0f",
-      "localProofSourceItemId": "01a12244-4dfc-72e7-bf24-d8cc82d94a8a"
     },
     {
       "sourcePath": "docs/dev-signing-in.md",
@@ -2286,110 +2017,6 @@
       "localProofSourceItemId": "01a12244-4dfc-7f19-ad34-4e1d25a881d5"
     },
     {
-      "sourcePath": "docs/plans/graph-improvements.md",
-      "sourceSha256": "34d8ada8b9d2d30dce665b951017aafe19e551e1058e5ca7d766f5352ba3c699",
-      "sourceBytes": 19232,
-      "title": "Graph improvements plan",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "a3b754a3-298a-52aa-ade7-b8fd6e7882c5",
-      "sourceItemId": "ca796c68-cbb6-52be-a6e2-fa47fc08d6aa",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/graph-improvements.md",
-        "original_bytes": 19232,
-        "original_sha256": "34d8ada8b9d2d30dce665b951017aafe19e551e1058e5ca7d766f5352ba3c699"
-      },
-      "localProofItemId": "01a12244-4dfc-7c2c-83e0-30bc05624624",
-      "localProofSourceItemId": "01a12244-4dfc-71e9-9e3a-08f4de2b7430"
-    },
-    {
-      "sourcePath": "docs/plans/handover-2026-10-01-progressive-merge.md",
-      "sourceSha256": "67815b7612c0d9709a7fceb842cfbbe992875fc24ad01cf9ebf68d79c6a8af22",
-      "sourceBytes": 17709,
-      "title": "Handover: progressive merge of partial branches into main (2026-10-01)",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "18720e64-951f-5338-a84d-5ea6c620b9d8",
-      "sourceItemId": "c0417ea7-17c7-59a3-a9e3-ea29c347cc3d",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/handover-2026-10-01-progressive-merge.md",
-        "original_bytes": 17709,
-        "original_sha256": "67815b7612c0d9709a7fceb842cfbbe992875fc24ad01cf9ebf68d79c6a8af22"
-      },
-      "localProofItemId": "01a12244-4dfc-7240-ab4d-0401295b4c6c",
-      "localProofSourceItemId": "01a12244-4dfc-708e-8d27-970913a15764"
-    },
-    {
-      "sourcePath": "docs/plans/handover-2026-10-04-ui-ux-pass.md",
-      "sourceSha256": "282fd7e731c659597b66279932745a534234808ab343683e9a39807a405dd7a2",
-      "sourceBytes": 22305,
-      "title": "UI/UX pass: completion and verification (2026-10-04)",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "b849f898-163c-5359-aa28-4328adc274f8",
-      "sourceItemId": "644027bb-ce0a-54eb-af6e-3cf4ffa2d97d",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/handover-2026-10-04-ui-ux-pass.md",
-        "original_bytes": 22305,
-        "original_sha256": "282fd7e731c659597b66279932745a534234808ab343683e9a39807a405dd7a2"
-      },
-      "localProofItemId": "01a12244-4dfc-73c6-94ab-ceec417928e6",
-      "localProofSourceItemId": "01a12244-4dfc-7cf2-a76f-0e39a736b787"
-    },
-    {
-      "sourcePath": "docs/plans/handover-2026-10-09-queries-views-pets.md",
-      "sourceSha256": "30b5b3bdb9e33bb5e2db500c3b1996a3eaae2599acd5fd9bb99bb660a1051764",
-      "sourceBytes": 10319,
-      "title": "Handover 2026-10-09: pet tool use, queries, charts, views",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "32a3d0b7-1310-5933-af89-37d2177cc19b",
-      "sourceItemId": "e48190a8-4703-5782-a5ea-4e57379b28ed",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/handover-2026-10-09-queries-views-pets.md",
-        "original_bytes": 10319,
-        "original_sha256": "30b5b3bdb9e33bb5e2db500c3b1996a3eaae2599acd5fd9bb99bb660a1051764"
-      },
-      "localProofItemId": "01a12244-4dfc-777b-8f03-e746f5202eeb",
-      "localProofSourceItemId": "01a12244-4dfc-70d0-8bb6-8403c933d82b"
-    },
-    {
       "sourcePath": "docs/plans/life-os-direction.md",
       "sourceSha256": "62e1ce7ae2018be5c52fef3eb5ecb7da3123c50c7038edc23c8dbba80e9ecd20",
       "sourceBytes": 3686,
@@ -2417,8 +2044,8 @@
     },
     {
       "sourcePath": "docs/plans/life-os-scheduling-and-sync-plan.md",
-      "sourceSha256": "c0e47fcb51fe1de19fd11f16aca3499a10c9598b5dd88dd7d7bcf336c5fe6077",
-      "sourceBytes": 13419,
+      "sourceSha256": "40407d0884addd8748071f7e22888fd80af899875dbb66c05d84964c56dce928",
+      "sourceBytes": 13385,
       "title": "Life-OS scheduling, reminders, automations and calendar sync: implementation plan",
       "archive": "docs/nix/nix-reference.nix",
       "itemId": "56842b98-2cb1-5551-a254-f215160c5bd1",
@@ -2435,94 +2062,16 @@
         "category": "Plan",
         "disposition": "Migrated",
         "source_path": "docs/plans/life-os-scheduling-and-sync-plan.md",
-        "original_bytes": 13419,
-        "original_sha256": "c0e47fcb51fe1de19fd11f16aca3499a10c9598b5dd88dd7d7bcf336c5fe6077"
+        "original_bytes": 13385,
+        "original_sha256": "40407d0884addd8748071f7e22888fd80af899875dbb66c05d84964c56dce928"
       },
       "localProofItemId": "01a12244-4dfc-77f9-b60d-b04a5ca3eb43",
       "localProofSourceItemId": "01a12244-4dfc-7aee-a1d7-ffb5ccbd0d73"
     },
     {
-      "sourcePath": "docs/plans/meeting-recording-and-voice.md",
-      "sourceSha256": "e5a5c47d29b44c55f230ca8a3437edfecfcfafbb4438b1964e838d06b06e4093",
-      "sourceBytes": 21670,
-      "title": "Meeting recording and voice plan",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "227bb65d-07e1-5eed-afc6-4e388e8c963c",
-      "sourceItemId": "4bf955d3-90c4-5799-a1cf-4ef0b00d8186",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/meeting-recording-and-voice.md",
-        "original_bytes": 21670,
-        "original_sha256": "e5a5c47d29b44c55f230ca8a3437edfecfcfafbb4438b1964e838d06b06e4093"
-      },
-      "localProofItemId": "01a12244-4dfc-7e84-9a74-6769eaa2b69a",
-      "localProofSourceItemId": "01a12244-4dfc-755e-809e-44278fcf7df8"
-    },
-    {
-      "sourcePath": "docs/plans/mobile-view-quality.md",
-      "sourceSha256": "757327d6a1f544b6eae5f78dc5f32fb2f0e494d4a8459d7142fa3f0d41fd6e21",
-      "sourceBytes": 6092,
-      "title": "Nix view quality and mobile implementation plan",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "7b361468-4ece-5a31-abba-bc9261f93c2a",
-      "sourceItemId": "6878e2b2-87d5-5657-a822-3c1a7a54490e",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/mobile-view-quality.md",
-        "original_bytes": 6092,
-        "original_sha256": "757327d6a1f544b6eae5f78dc5f32fb2f0e494d4a8459d7142fa3f0d41fd6e21"
-      },
-      "localProofItemId": "01a12244-4dfc-7c36-9fd5-8bdf1a499ac2",
-      "localProofSourceItemId": "01a12244-4dfc-7295-b9ce-59acc62f7937"
-    },
-    {
-      "sourcePath": "docs/plans/pet-improvements.md",
-      "sourceSha256": "1acce960ccde6c4905a7a5661d3cc28c8f65ac69e4f4b52408e6af620449e2c8",
-      "sourceBytes": 11824,
-      "title": "Pet improvements backlog",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "86407fdb-80f8-540a-abe4-6a84583e7f1d",
-      "sourceItemId": "fb5db503-a523-5c17-a056-25bd959973a6",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/pet-improvements.md",
-        "original_bytes": 11824,
-        "original_sha256": "1acce960ccde6c4905a7a5661d3cc28c8f65ac69e4f4b52408e6af620449e2c8"
-      },
-      "localProofItemId": "01a12244-4dfc-72e1-bce2-890fb4c1bd89",
-      "localProofSourceItemId": "01a12244-4dfc-7583-b6c1-cace92675f78"
-    },
-    {
       "sourcePath": "docs/plans/pet-speed-accuracy-plan.md",
-      "sourceSha256": "a73da37509c5bcb933ebc6f1dc3f5c3876bf9e47fa0e8c1542fa60100251a75c",
-      "sourceBytes": 32084,
+      "sourceSha256": "42b4d0460cbca4db109568b7c0d64581faf896b9058f560593467aa51e2d3854",
+      "sourceBytes": 31999,
       "title": "Pet speed, accuracy and chat UX: implementation plan",
       "archive": "docs/nix/nix-reference.nix",
       "itemId": "8deb1310-ba72-5e43-a257-4e56042ba396",
@@ -2539,8 +2088,8 @@
         "category": "Plan",
         "disposition": "Migrated",
         "source_path": "docs/plans/pet-speed-accuracy-plan.md",
-        "original_bytes": 32084,
-        "original_sha256": "a73da37509c5bcb933ebc6f1dc3f5c3876bf9e47fa0e8c1542fa60100251a75c"
+        "original_bytes": 31999,
+        "original_sha256": "42b4d0460cbca4db109568b7c0d64581faf896b9058f560593467aa51e2d3854"
       },
       "localProofItemId": "01a12244-4dfc-71d6-b2f5-6b3c4cd0645f",
       "localProofSourceItemId": "01a12244-4dfc-79d6-98cb-ef7da9c8b730"
@@ -2598,136 +2147,6 @@
       "localProofSourceItemId": "01a12244-4dfc-751f-b5fe-f2c482d34d28"
     },
     {
-      "sourcePath": "docs/plans/pet-structure-consult-research/A-go-runtime.md",
-      "sourceSha256": "076c38345abe05b36b55a275ad65b779426eb09e69904f94f34f2a30592e42ce",
-      "sourceBytes": 27787,
-      "title": "Nix \"pet\" companion — Go worker runtime research",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "d9b058b7-2b5b-52f3-a37a-8f664c272b1f",
-      "sourceItemId": "79c45085-db5b-551e-afe1-37208b3db524",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/pet-structure-consult-research/A-go-runtime.md",
-        "original_bytes": 27787,
-        "original_sha256": "076c38345abe05b36b55a275ad65b779426eb09e69904f94f34f2a30592e42ce"
-      },
-      "localProofItemId": "01a12244-4dfc-7d3a-a9ea-88ce321bb43e",
-      "localProofSourceItemId": "01a12244-4dfc-78d1-8f67-4616d7df4c61"
-    },
-    {
-      "sourcePath": "docs/plans/pet-structure-consult-research/B-web-tools.md",
-      "sourceSha256": "e661b85dc0cff143c09e19da6587791bbf6f2c04319b11142ec5db8c00e1cfc4",
-      "sourceBytes": 25078,
-      "title": "B — Web/api-client execution side for pet workspace tools",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "bc08dd6e-d5c6-5988-aff7-3ce7b1ffb699",
-      "sourceItemId": "4799b9de-b4dd-551d-ad5a-fb70e05b26a2",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/pet-structure-consult-research/B-web-tools.md",
-        "original_bytes": 25078,
-        "original_sha256": "e661b85dc0cff143c09e19da6587791bbf6f2c04319b11142ec5db8c00e1cfc4"
-      },
-      "localProofItemId": "01a12244-4dfc-7739-8878-45b1ac7e90e0",
-      "localProofSourceItemId": "01a12244-4dfc-7e12-b9bd-69350bd4dc0e"
-    },
-    {
-      "sourcePath": "docs/plans/pet-structure-consult-research/C-structure.md",
-      "sourceSha256": "45920473c53a292537076bcd6a11a9e54c2381b9808c4ed4112afc7aa9ecf71d",
-      "sourceBytes": 47521,
-      "title": "C — Structural building blocks: property schemas, formulas/rollups, views, structured creation",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "477e3f3a-0d3b-5952-aeb4-b2c27461d189",
-      "sourceItemId": "15e5bc31-20dc-5d08-acb9-31582c0b4f7b",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/pet-structure-consult-research/C-structure.md",
-        "original_bytes": 47521,
-        "original_sha256": "45920473c53a292537076bcd6a11a9e54c2381b9808c4ed4112afc7aa9ecf71d"
-      },
-      "localProofItemId": "01a12244-4dfc-76da-bc27-bfdf7042152e",
-      "localProofSourceItemId": "01a12244-4dfc-73ee-aeca-70f0c8ec68b2"
-    },
-    {
-      "sourcePath": "docs/plans/pet-structure-consult-research/D-templates-standards.md",
-      "sourceSha256": "624ae321d753bedf311f900078cb09fb55bb999ab345d4004d50a8d4ede589f6",
-      "sourceBytes": 33143,
-      "title": "D: Nix template system + engineering standards for the pet \"consult\" plan",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "ec73e139-41ca-5245-a68a-a0b1c2f717bf",
-      "sourceItemId": "6b36c5a7-ca01-5979-a139-e1c766320290",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/pet-structure-consult-research/D-templates-standards.md",
-        "original_bytes": 33143,
-        "original_sha256": "624ae321d753bedf311f900078cb09fb55bb999ab345d4004d50a8d4ede589f6"
-      },
-      "localProofItemId": "01a12244-4dfc-7fad-a41b-c4aa0a221e02",
-      "localProofSourceItemId": "01a12244-4dfc-7d09-8d7f-215223d37d55"
-    },
-    {
-      "sourcePath": "docs/plans/pet-structure-consult-research/gate-log.md",
-      "sourceSha256": "1a644034c75d1afc5b6af1c3c5b0fdeb101715985e48b0ca5bd6d4448a1b88b9",
-      "sourceBytes": 47224,
-      "title": "Orchestrator gate log (pet structure + consult)",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "a2fc2aaf-3177-5020-a913-7d33590c1de9",
-      "sourceItemId": "b3a96426-0961-5238-ab49-abcd94544292",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/pet-structure-consult-research/gate-log.md",
-        "original_bytes": 47224,
-        "original_sha256": "1a644034c75d1afc5b6af1c3c5b0fdeb101715985e48b0ca5bd6d4448a1b88b9"
-      },
-      "localProofItemId": "01a12244-4dfc-7575-bc16-01a43eb1e434",
-      "localProofSourceItemId": "01a12244-4dfc-727b-9a9b-737587874f09"
-    },
-    {
       "sourcePath": "docs/plans/pet-tool-use-plan.md",
       "sourceSha256": "8abf1805f475e78ea5e912f0834472875e30edce5062573fc11c646fd8fce586",
       "sourceBytes": 20913,
@@ -2754,58 +2173,6 @@
       "localProofSourceItemId": "01a12244-4dfc-756e-8d57-c02d3fb4fe2a"
     },
     {
-      "sourcePath": "docs/plans/queries-charts-views-plan.md",
-      "sourceSha256": "49e9d9a5b9bd39201d0209e0537de083d2c0fd4ebf8465725bb551ba024fd34a",
-      "sourceBytes": 17870,
-      "title": "Queries, charts and views: implementation plan",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "ac2c1ef3-9ab0-5d3a-ac41-adae4ec15aea",
-      "sourceItemId": "085dcbda-9416-51c9-ad2a-d47fd9e417d9",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/queries-charts-views-plan.md",
-        "original_bytes": 17870,
-        "original_sha256": "49e9d9a5b9bd39201d0209e0537de083d2c0fd4ebf8465725bb551ba024fd34a"
-      },
-      "localProofItemId": "01a12244-4dfc-7102-9d48-4d59c1ab21a8",
-      "localProofSourceItemId": "01a12244-4dfc-7527-b4f0-3d5a9873c417"
-    },
-    {
-      "sourcePath": "docs/plans/ui-ux-pass.md",
-      "sourceSha256": "361d84761e5c2610955db06027de91dad8ec1930510478a24142b75bf41e4d4a",
-      "sourceBytes": 21121,
-      "title": "UI/UX pass",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "4eb99f68-a5ef-5bc7-aa36-c55c4c637486",
-      "sourceItemId": "56fd6721-3a32-5837-a6eb-f43317ed832f",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Plan",
-        "disposition": "Migrated",
-        "source_path": "docs/plans/ui-ux-pass.md",
-        "original_bytes": 21121,
-        "original_sha256": "361d84761e5c2610955db06027de91dad8ec1930510478a24142b75bf41e4d4a"
-      },
-      "localProofItemId": "01a12244-4dfc-7c6c-996b-af0fd33d79c8",
-      "localProofSourceItemId": "01a12244-4dfc-7ddc-8a8e-8287562e29f6"
-    },
-    {
       "sourcePath": "docs/plans/version-history.md",
       "sourceSha256": "465396b77c490a6de51706db392c83ad6d91de8e927204de7d24b5b5d5010b80",
       "sourceBytes": 7060,
@@ -2830,162 +2197,6 @@
       },
       "localProofItemId": "01a12244-4dfc-786a-9ae7-047e421950d4",
       "localProofSourceItemId": "01a12244-4dfc-77db-ad72-0ea7399000c7"
-    },
-    {
-      "sourcePath": "docs/production/issues/29-template-library-closure-comment.md",
-      "sourceSha256": "7b4f94d06544f511d035553c0309f53cd1c9caa99e39c489d2e1b36aa92388f6",
-      "sourceBytes": 2135,
-      "title": "Expand the built-in template library",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "f93870bb-6a47-55ed-a380-f6fd5c12a2b0",
-      "sourceItemId": "004e2d75-8825-593b-a6aa-56d26f547172",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/production/issues/29-template-library-closure-comment.md",
-        "original_bytes": 2135,
-        "original_sha256": "7b4f94d06544f511d035553c0309f53cd1c9caa99e39c489d2e1b36aa92388f6"
-      },
-      "localProofItemId": "01a12244-4dfc-7903-8cf8-d47a2ce1c7bc",
-      "localProofSourceItemId": "01a12244-4dfc-7712-a823-a753d1dcce82"
-    },
-    {
-      "sourcePath": "docs/production/issues/47-template-catalog-reproducible.md",
-      "sourceSha256": "86c281eb09fcebfccd10e7f89f0fc7ff93c171b9bc9c7dd07c36c71207ac172d",
-      "sourceBytes": 1040,
-      "title": "Make template catalog archive generation reproducible across platforms",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "21c00622-843d-5f82-ae37-903cac524d41",
-      "sourceItemId": "829365a3-f795-53d3-a646-d4e8e7d75eb8",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/production/issues/47-template-catalog-reproducible.md",
-        "original_bytes": 1040,
-        "original_sha256": "86c281eb09fcebfccd10e7f89f0fc7ff93c171b9bc9c7dd07c36c71207ac172d"
-      },
-      "localProofItemId": "01a12244-4dfc-77ac-bf24-f3bca2523513",
-      "localProofSourceItemId": "01a12244-4dfc-715f-8544-c8e9bff1d28f"
-    },
-    {
-      "sourcePath": "docs/production/issues/89-enable-whisper-speech-worker.md",
-      "sourceSha256": "4382389168efd1edf0d5d793e21c0d6aca3b84ac8fd6312e9ee3e51649328bf3",
-      "sourceBytes": 5692,
-      "title": "Enable the Whisper speech worker in production",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "bd49e904-57f8-5a3e-a891-5281c3860903",
-      "sourceItemId": "e220af1c-b058-5155-ab92-9360872d6bc7",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/production/issues/89-enable-whisper-speech-worker.md",
-        "original_bytes": 5692,
-        "original_sha256": "4382389168efd1edf0d5d793e21c0d6aca3b84ac8fd6312e9ee3e51649328bf3"
-      },
-      "localProofItemId": "01a12244-4dfc-744d-874d-7f7f33cf2755",
-      "localProofSourceItemId": "01a12244-4dfc-7f1b-9afb-148737fea834"
-    },
-    {
-      "sourcePath": "docs/production/issues/90-meeting-listener-speakers.md",
-      "sourceSha256": "7bac785ce44f9b328d9178679e6034fddb27623320516bb43904223955e0e39d",
-      "sourceBytes": 2512,
-      "title": "Meeting listener: tell speakers apart and keep per-person context",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "31de1e19-5aa9-5e95-a56a-1b1f71bf0543",
-      "sourceItemId": "76f6d643-8ee9-54df-a280-123e234c6032",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "docs/production/issues/90-meeting-listener-speakers.md",
-        "original_bytes": 2512,
-        "original_sha256": "7bac785ce44f9b328d9178679e6034fddb27623320516bb43904223955e0e39d"
-      },
-      "localProofItemId": "01a12244-4dfc-71f2-92f7-787595575f61",
-      "localProofSourceItemId": "01a12244-4dfc-7521-be71-785b5928c745"
-    },
-    {
-      "sourcePath": "todo.md",
-      "sourceSha256": "9c8f37a379845aa4b661cb9a0f52b7ef1f52a62c161ecb94eacf9c10b39f95b6",
-      "sourceBytes": 29487,
-      "title": "Nix — TODO, easiest to hardest",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "ff4d01ff-36d4-5986-a4cc-6ae3c0a9cd2c",
-      "sourceItemId": "4b97a183-9a56-52c4-a515-0b3906ac0413",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "todo.md",
-        "original_bytes": 29487,
-        "original_sha256": "9c8f37a379845aa4b661cb9a0f52b7ef1f52a62c161ecb94eacf9c10b39f95b6"
-      },
-      "localProofItemId": "01a12244-4dfc-75d6-82c1-e3843e7797e7",
-      "localProofSourceItemId": "01a12244-4dfc-7e3c-a8be-ed0ef383be94"
-    },
-    {
-      "sourcePath": "worklist.md",
-      "sourceSha256": "bbde25bfbca8623aa96b9e68fcae32f98de894213ce73cbf77bfd7bde7959529",
-      "sourceBytes": 12235,
-      "title": "Worklist",
-      "archive": "docs/nix/nix-reference.nix",
-      "itemId": "9a56af12-aafb-5d9b-a32d-049efd69808f",
-      "sourceItemId": "4c68b758-4ec6-5a0c-aecb-01afaca18bcc",
-      "disposition": "migrated",
-      "conversion": {
-        "unresolvedWikiLinks": 0,
-        "unresolvedObsidianEmbeds": 0,
-        "unresolvedLocalImages": 0,
-        "unsupportedImageAddresses": 0,
-        "inlineImagesFlattened": 0
-      },
-      "properties": {
-        "category": "Historical record",
-        "disposition": "Migrated",
-        "source_path": "worklist.md",
-        "original_bytes": 12235,
-        "original_sha256": "bbde25bfbca8623aa96b9e68fcae32f98de894213ce73cbf77bfd7bde7959529"
-      },
-      "localProofItemId": "01a12244-4dfc-7748-a4bf-25146c7031ef",
-      "localProofSourceItemId": "01a12244-4dfc-70c4-a2ec-60f40c916d3b"
     },
     {
       "sourcePath": "docs/adr/0061-mermaid-source-canvas-and-shared-components.md",
@@ -3180,8 +2391,8 @@
         "reference Document view explicitly separates preserved snapshot from current main"
       ],
       "screenshots": [
-        "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-current-main-service-catalog.jpg",
-        "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-current-main-architecture.jpg"
+        "nix-current-main-service-catalog.jpg",
+        "nix-current-main-architecture.jpg"
       ]
     },
     "repositoryValidation": {
@@ -3191,8 +2402,8 @@
         "./scripts/validate-changed.sh --working-tree"
       ],
       "checkedWorktrees": [
-        "/Users/osinachinwagboso/projects/nix-lanes/native-architecture-docs",
-        "/Users/osinachinwagboso/projects/Nix"
+        "primary checkout",
+        "feature/native-architecture-docs worktree"
       ],
       "checks": [
         "gofmt",
@@ -3389,8 +2600,8 @@
           "Reference note: document and Original source views, exact byte count and SHA256"
         ],
         "screenshots": [
-          "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-native-service-catalog.jpg",
-          "/Users/osinachinwagboso/.codex/visualizations/2026/10/09/01a121be-7b9b-7153-b514-ef662fa6c9df/nix-native-decision-board.jpg"
+          "nix-native-service-catalog.jpg",
+          "nix-native-decision-board.jpg"
         ]
       }
     },
@@ -3993,5 +3204,48 @@
       "apps/go-workers/internal/docsbrowser"
     ],
     "sourceScope": "main baseline plus documentation/TUI additions from feature/native-architecture-docs"
+  },
+  "publicScrub": {
+    "completedAt": "2026-10-11",
+    "archive": "docs/nix/nix-reference.nix",
+    "reason": "Handovers, session logs, production issues, internal plans and backlogs, and archive copies of plaintext runbooks and contributor guides are not part of the public reference archive. Host, hardware and personal path details were replaced with placeholders.",
+    "removedDocuments": [
+      "AGENTS.md",
+      "HANDOFF.md",
+      "deploy/README.md",
+      "deploy/backup/README.md",
+      "deploy/backup/production.md",
+      "docs/agent-guides/architecture-and-security.md",
+      "docs/agent-guides/backend.md",
+      "docs/agent-guides/frontend.md",
+      "docs/agent-guides/workers.md",
+      "docs/agent-guides/workflow-and-validation.md",
+      "docs/plans/graph-improvements.md",
+      "docs/plans/handover-2026-10-01-progressive-merge.md",
+      "docs/plans/handover-2026-10-04-ui-ux-pass.md",
+      "docs/plans/handover-2026-10-09-queries-views-pets.md",
+      "docs/plans/meeting-recording-and-voice.md",
+      "docs/plans/mobile-view-quality.md",
+      "docs/plans/pet-improvements.md",
+      "docs/plans/pet-structure-consult-research/A-go-runtime.md",
+      "docs/plans/pet-structure-consult-research/B-web-tools.md",
+      "docs/plans/pet-structure-consult-research/C-structure.md",
+      "docs/plans/pet-structure-consult-research/D-templates-standards.md",
+      "docs/plans/pet-structure-consult-research/gate-log.md",
+      "docs/plans/queries-charts-views-plan.md",
+      "docs/plans/ui-ux-pass.md",
+      "docs/production/issues/29-template-library-closure-comment.md",
+      "docs/production/issues/47-template-catalog-reproducible.md",
+      "docs/production/issues/89-enable-whisper-speech-worker.md",
+      "docs/production/issues/90-meeting-listener-speakers.md",
+      "todo.md",
+      "worklist.md"
+    ],
+    "redactedDocuments": [
+      "docs/adr/0059-speech-role-recording-transcription-and-voice.md",
+      "docs/plans/life-os-scheduling-and-sync-plan.md",
+      "docs/plans/pet-speed-accuracy-plan.md"
+    ],
+    "note": "Earlier liveImportExport receipts describe the pre-scrub archive."
   }
 }
