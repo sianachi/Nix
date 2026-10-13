@@ -144,7 +144,7 @@ func TestProviderDefaultUsesAnAdvertisedModelForChatAndInline(t *testing.T) {
 					seen <- body.Model
 					w.Header().Set("Content-Type", "text/event-stream")
 					if provider == "anthropic" {
-						_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\n")
+						_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 					} else {
 						_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Done\"}}]}\n\ndata: [DONE]\n\n")
 					}
@@ -308,14 +308,14 @@ func TestAnthropicToolCallRoundTripsThroughTheHandlerAndReply(t *testing.T) {
 		if calls == 1 {
 			_, _ = fmt.Fprint(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"nix_read_note\"}}\n\n")
 			_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"itemId\\\":\\\"abc\\\"}\"}}\n\n")
-			_, _ = fmt.Fprint(w, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n")
+			_, _ = fmt.Fprint(w, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 			return
 		}
 		// The second request must carry the tool result the handler replied with.
 		if !strings.Contains(string(body), `"tool_result"`) || !strings.Contains(string(body), `Note says hello`) {
 			t.Errorf("second request lacks the tool result: %s", body)
 		}
-		_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\n")
+		_, _ = fmt.Fprint(w, "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Done\"}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 	}))
 	defer server.Close()
 	n := newNotifications()
@@ -399,6 +399,46 @@ func TestInterruptEndsTheTurnAsInterrupted(t *testing.T) {
 	}
 }
 
+func TestAnIncompleteResponseFailsTheTurnAndNeverRunsItsToolCall(t *testing.T) {
+	toolStart := "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-1\",\"name\":\"nix_draft\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"title\\\":\\\"Show\"}}\n\n"
+	cases := []struct {
+		name, kind, reason string
+		frames             []string
+	}{
+		{"anthropic max_tokens", "anthropic", "length limit", []string{toolStart,
+			"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\"}}\n\n",
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"}},
+		{"anthropic stream cut", "anthropic", "ended the response early", []string{toolStart}},
+		{"anthropic empty answer", "anthropic", "without an answer", []string{
+			"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n\n",
+			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"}},
+		{"openrouter length", "openrouter", "length limit", []string{
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"nix_draft\",\"arguments\":\"{\\\"title\\\"\"}}]},\"finish_reason\":\"length\"}]}\n\n",
+			"data: [DONE]\n\n"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			server := sseServer(t, http.StatusOK, c.frames, nil)
+			defer server.Close()
+			n := newNotifications()
+			transport := testTransport(t, c.kind, server.URL, n.notify)
+			handled := false
+			transport.(toolTransport).SetRequestHandler(func(json.RawMessage, string, json.RawMessage) bool { handled = true; return false })
+			tools := []any{map[string]any{"name": "nix_draft", "description": "d", "inputSchema": map[string]any{"type": "object"}}}
+			startThreadAndTurn(t, transport, tools, "Build it")
+			joined := strings.Join(n.wait(t), "\n")
+			if !strings.Contains(joined, `"status":"failed"`) || !strings.Contains(joined, c.reason) {
+				t.Fatalf("expected a failed turn naming %q:\n%s", c.reason, joined)
+			}
+			if handled {
+				t.Fatal("a truncated tool call reached the handler")
+			}
+		})
+	}
+}
+
 func TestARejectedKeyFailsTheTurnWithAnActionableReason(t *testing.T) {
 	server := sseServer(t, http.StatusUnauthorized, nil, nil)
 	defer server.Close()
@@ -472,7 +512,7 @@ func TestOpenRouterModelListMarksToolSupport(t *testing.T) {
 }
 
 func TestAThreadSurvivesATransportRestart(t *testing.T) {
-	server := sseServer(t, http.StatusOK, []string{"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n"}, nil)
+	server := sseServer(t, http.StatusOK, []string{"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n", "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"}, nil)
 	defer server.Close()
 	home := t.TempDir()
 	n := newNotifications()

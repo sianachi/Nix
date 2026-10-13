@@ -580,6 +580,187 @@ describe('usePetRuntime errorKind and retryWatch', () => {
     expect(result.current.errorKind).toBe('send');
   });
 
+  it('keeps a safe provider credit problem visible and retries the untouched request', async () => {
+    const problem = NixApiError.fromProblemDetails(402, {
+      code: 'pets.provider_credit_balance',
+      detail:
+        'Claude reports that this API key has insufficient credit. Check API billing for the key, then try again.',
+    });
+    client.query.mockResolvedValue(connection({ revision: 1 }));
+    client.execute
+      .mockResolvedValueOnce(connection())
+      .mockRejectedValueOnce(problem)
+      .mockResolvedValue(connection({ revision: 2 }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        await result.current.send({ text: 'Plan my notes', model: '', workspaceAccess: false }),
+      ).toBe(false);
+    });
+    expect(result.current.error).toBe(
+      'Claude reports that this API key has insufficient credit. Check API billing for the key, then try again. Your draft is preserved.',
+    );
+    expect(result.current.errorKind).toBe('send');
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(client.query.mock.calls.length).toBeGreaterThan(1);
+    expect(result.current.error).toBe(
+      'Claude reports that this API key has insufficient credit. Check API billing for the key, then try again. Your draft is preserved.',
+    );
+    await act(async () => {
+      expect(
+        await result.current.send({ text: 'Plan my notes', model: '', workspaceAccess: false }),
+      ).toBe(true);
+    });
+    expect(client.execute.mock.calls[2]?.[0]).toEqual(client.execute.mock.calls[1]?.[0]);
+  });
+
+  it.each([
+    { name: 'plain error', cause: new Error('Internal request diagnostics') },
+    {
+      name: 'network failure',
+      cause: NixApiError.network(new Error('Internal request diagnostics')),
+    },
+    { name: 'response validation', cause: NixApiError.responseValidation('pets.runtime', [], 200) },
+    {
+      name: 'unstructured HTTP',
+      cause: NixApiError.fromStatus(502, 'Internal request diagnostics'),
+    },
+    {
+      name: 'other Core problem',
+      cause: NixApiError.fromProblemDetails(500, {
+        code: 'internal.error',
+        detail: 'Internal request diagnostics',
+      }),
+    },
+    {
+      name: 'empty pet problem',
+      cause: NixApiError.fromProblemDetails(503, { code: 'pets.unavailable', detail: '   ' }),
+    },
+  ])('keeps the generic send copy for $name', async ({ cause }) => {
+    client.query.mockResolvedValue(connection());
+    client.execute.mockResolvedValueOnce(connection()).mockRejectedValueOnce(cause);
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(
+        await result.current.send({ text: 'Plan my notes', model: '', workspaceAccess: false }),
+      ).toBe(false);
+    });
+    expect(result.current.error).toBe(
+      'The request could not be confirmed. Try again; your draft is preserved.',
+    );
+    expect(result.current.errorKind).toBe('send');
+  });
+
+  it.each(['reload', 'key event'])(
+    'recovers provider model discovery through one %s',
+    async (recovery) => {
+      const problem = NixApiError.fromProblemDetails(400, {
+        code: 'pets.provider_models_rejected',
+        detail:
+          'Claude rejected model discovery for this API key. Check its API access and billing, then try again.',
+      });
+      client.query.mockResolvedValue(connection({ provider: 'anthropic', revision: 10 }));
+      client.execute
+        .mockRejectedValueOnce(problem)
+        .mockResolvedValueOnce(connection({ provider: 'anthropic', revision: 10 }))
+        .mockResolvedValue(connection({ models: [{ id: 'claude-model', name: 'Claude model' }] }));
+      const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
+      expect(result.current.error).toBe(
+        'Claude rejected model discovery for this API key. Check its API access and billing, then try again.',
+      );
+      expect(result.current.errorKind).toBe('command');
+      expect(client.execute).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        if (recovery === 'reload') await result.current.reload();
+        else window.dispatchEvent(new Event('nix-pet-provider-keys-changed'));
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.models.map((model) => model.id)).toEqual(['claude-model']);
+      expect(result.current.error).toBe('');
+      expect(result.current.errorKind).toBeNull();
+      expect(client.execute.mock.calls[1]?.[0]).toHaveProperty('body.operation', 'read');
+      expect(client.execute.mock.calls[2]?.[0]).toHaveProperty('body.operation', 'models');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(client.execute).toHaveBeenCalledTimes(3);
+    },
+  );
+
+  it('does not discover models twice when reload reconnects a keyless provider', async () => {
+    const setup = connection({ provider: 'anthropic', status: 'disconnected' });
+    const connected = connection({ provider: 'anthropic', revision: 1 });
+    client.query.mockResolvedValueOnce(setup).mockResolvedValue(connected);
+    client.execute
+      .mockResolvedValueOnce(setup)
+      .mockResolvedValueOnce(connected)
+      .mockResolvedValue(connection({ models: [{ id: 'claude-model', name: 'Claude model' }] }));
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await result.current.reload();
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(result.current.models.map((model) => model.id)).toEqual(['claude-model']);
+    expect(client.execute).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not overwrite a send error with a later provider discovery failure', async () => {
+    let refuseModels: ((cause: unknown) => void) | undefined;
+    client.query.mockResolvedValue(connection({ revision: 1 }));
+    client.execute
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            refuseModels = reject;
+          }),
+      )
+      .mockRejectedValueOnce(
+        NixApiError.fromProblemDetails(402, {
+          code: 'pets.provider_credit_balance',
+          detail: 'Claude reports insufficient credit.',
+        }),
+      );
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      await result.current.send({ text: 'Plan my notes', model: '', workspaceAccess: false });
+      refuseModels?.(
+        NixApiError.fromProblemDetails(400, {
+          code: 'pets.provider_models_rejected',
+          detail: 'Claude rejected model discovery.',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(result.current.error).toBe(
+      'Claude reports insufficient credit. Your draft is preserved.',
+    );
+    expect(result.current.errorKind).toBe('send');
+  });
+
+  it('keeps provider-default behavior for a transient model discovery failure', async () => {
+    client.query.mockResolvedValue(connection({ revision: 1 }));
+    client.execute.mockRejectedValueOnce(
+      NixApiError.network(new Error('Internal request diagnostics')),
+    );
+    const { result } = renderHook(() => usePetRuntime(WORKSPACE_ID, PET_ID, true));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(result.current.models).toEqual([]);
+    expect(result.current.error).toBe('');
+    expect(result.current.errorKind).toBeNull();
+    expect(client.execute).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps a failed send visible across later successful watches', async () => {
     client.query.mockResolvedValue(connection({ revision: 1 }));
     client.execute.mockImplementation((endpoint: unknown) => {

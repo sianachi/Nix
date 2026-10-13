@@ -29,6 +29,109 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     private static CancellationToken Cancellation => TestContext.Current.CancellationToken;
 
     [Theory]
+    [InlineData("anthropic", "credit_balance.400", "pets.provider_credit_balance")]
+    [InlineData("anthropic", "authentication.401", "pets.provider_authentication")]
+    [InlineData("anthropic", "permission.403", "pets.provider_permission")]
+    [InlineData("anthropic", "models_rejected.400", "pets.provider_models_rejected")]
+    [InlineData("openrouter", "credit_balance.402", "pets.provider_credit_balance")]
+    [InlineData("openrouter", "rate_limited.429", "pets.provider_rate_limited")]
+    public async Task Known_provider_failures_reach_models_and_send_as_safe_503_problems(string provider, string token, string code)
+    {
+        using var handler = new ProviderErrorWorker(HttpStatusCode.BadGateway, [$"{provider}.{token}"]);
+        using var http = new HttpClient(handler);
+        var logger = new CapturingLogger<PetWorkerClient>();
+        var gateway = KeyedGateway(http, provider, logger);
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services => services.AddSingleton(gateway)));
+        using var client = host.CreateClient();
+
+        foreach (var operation in new[] { "models", "send" })
+        {
+            using var response = await client.PostAsJsonAsync(new Uri("/api/v1/me/pets/runtime", UriKind.Relative),
+                new PetRuntimeRequest(operation, WorkspaceGuid, PetGuid, Guid.NewGuid(), "Private draft text"), Cancellation);
+
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var text = await response.Content.ReadAsStringAsync(Cancellation);
+            using var problem = JsonDocument.Parse(text);
+            Assert.Equal(code, problem.RootElement.GetProperty("code").GetString());
+            Assert.StartsWith(provider == "anthropic" ? "Claude " : "OpenRouter ", problem.RootElement.GetProperty("detail").GetString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("private-worker-response", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("Private draft text", text, StringComparison.Ordinal);
+        }
+
+        Assert.All(logger.Messages, message =>
+        {
+            Assert.Contains(code, message, StringComparison.Ordinal);
+            Assert.DoesNotContain("private-worker-response", message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Private draft text", message, StringComparison.Ordinal);
+        });
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadGateway, "openrouter.credit_balance.402")]
+    [InlineData(HttpStatusCode.BadGateway, "anthropic.credit_balance.401")]
+    [InlineData(HttpStatusCode.BadGateway, "anthropic.unknown.400")]
+    [InlineData(HttpStatusCode.BadGateway, "credit_balance.400")]
+    [InlineData(HttpStatusCode.BadGateway, "anthropic.credit_balance.400,anthropic.permission.403")]
+    [InlineData(HttpStatusCode.BadGateway, "anthropic.credit_balance.400", true)]
+    [InlineData(HttpStatusCode.Unauthorized, "anthropic.authentication.401")]
+    public async Task Unrecognized_mismatched_or_repeated_worker_error_metadata_retains_generic_failure(HttpStatusCode status, string token, bool repeated = false)
+    {
+        using var handler = new ProviderErrorWorker(status, repeated ? [token, token] : [token]);
+        using var http = new HttpClient(handler);
+        var gateway = KeyedGateway(http, "anthropic");
+
+        var result = await gateway.ExecuteAsync(new("models", PetId: PetGuid), Cancellation);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("pets.unavailable", result.Error.Code);
+        Assert.DoesNotContain("private-worker-response", result.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Inline_provider_credit_rejection_is_a_safe_503_problem()
+    {
+        using var handler = new ProviderErrorWorker(HttpStatusCode.BadGateway, ["anthropic.credit_balance.400"]);
+        using var http = new HttpClient(handler);
+        var gateway = KeyedGateway(http, "anthropic");
+        using var host = factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton(gateway);
+            services.AddSingleton(Dispatcher("anthropic", inlineWriting: true));
+            services.AddSingleton<INixSessionContextAccessor>(Session());
+            services.AddSingleton<IItemLocks>(new OpenLocks());
+        }));
+        using var client = host.CreateClient();
+
+        using var response = await client.PostAsJsonAsync(new Uri("/api/v1/me/pets/inline", UriKind.Relative),
+            new PetInlineRequest(WorkspaceGuid, Guid.NewGuid(), Guid.NewGuid(), "improve", "Private inline text"), Cancellation);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        var text = await response.Content.ReadAsStringAsync(Cancellation);
+        using var problem = JsonDocument.Parse(text);
+        Assert.Equal("pets.provider_credit_balance", problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal("Claude reports that this API key has insufficient credit. Check API billing for the key, then try again.", problem.RootElement.GetProperty("detail").GetString());
+        Assert.DoesNotContain("private-worker-response", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Private inline text", text, StringComparison.Ordinal);
+    }
+
+    private static PetWorkerClient KeyedGateway(HttpClient http, string provider, ILogger<PetWorkerClient>? logger = null)
+    {
+        var session = Session();
+        var context = session.Current!.Value;
+        var protector = new PetProviderKeyProtector(new EphemeralDataProtectionProvider());
+        var credentials = new SavedCredentials(new PetProviderCredential
+        {
+            TenantId = context.TenantId,
+            PrincipalId = context.PrincipalId,
+            Provider = provider,
+            ProtectedKey = protector.Protect("test-provider-key-not-real"),
+            KeyHint = "real",
+            SavedAt = DateTimeOffset.UtcNow,
+        });
+        return new(http, Configuration(), session, Dispatcher(provider, inlineWriting: true), new StubPermissions(), credentials, protector, logger);
+    }
+
+    [Theory]
     [InlineData("anthropic", false, true)]
     [InlineData("anthropic", true, true)]
     [InlineData("openrouter", false, true)]
@@ -640,6 +743,19 @@ public sealed class PetWorkerClientModeTests(ContractHostFactory factory) : ICla
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(statusCode));
+    }
+
+    private sealed class ProviderErrorWorker(HttpStatusCode status, string[] tokens) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(status)
+            {
+                Content = new StringContent("private-worker-response"),
+            };
+            response.Headers.TryAddWithoutValidation("X-Nix-Provider-Error", tokens);
+            return Task.FromResult(response);
+        }
     }
 
     /// <summary>Answers 200 with a body one byte over <see cref="PetWorkerClient"/>'s four

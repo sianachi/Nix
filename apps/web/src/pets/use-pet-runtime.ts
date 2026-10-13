@@ -144,9 +144,8 @@ export function usePetRuntime(
   const [models, setModels] = useState<NonNullable<PetConnection['models']>>([]);
   const [error, setError] = useState('');
   const [errorKind, setErrorKind] = useState<PetRuntimeErrorKind | null>(null);
-  // Mirrors errorKind for the watch loop, which must clear only its own "load" error: a send or
-  // command failure has to survive the next successful watch, or its Try again vanishes at once.
-  const errorKindRef = useRef<PetRuntimeErrorKind | null>(null);
+  // Keeps model failures separate from other commands so only model recovery clears them.
+  const errorKindRef = useRef<PetRuntimeErrorKind | 'models' | null>(null);
   const reportError = useCallback((message: string, kind: PetRuntimeErrorKind | null) => {
     errorKindRef.current = kind;
     setError(message);
@@ -196,13 +195,31 @@ export function usePetRuntime(
           !controller.signal.aborted &&
           myGeneration === generation.current &&
           request === modelRequest.current
-        )
+        ) {
           setModels(value.models ?? []);
+          if (errorKindRef.current === 'models') reportError('', null);
+        }
       })
-      .catch(() => {
-        /* The provider default remains available if model discovery fails. */
+      .catch((cause: unknown) => {
+        const detail =
+          isNixApiError(cause) &&
+          cause.kind === 'problem' &&
+          cause.code.startsWith('pets.provider_')
+            ? cause.detail?.trim()
+            : undefined;
+        if (
+          detail &&
+          !controller.signal.aborted &&
+          myGeneration === generation.current &&
+          request === modelRequest.current &&
+          errorKindRef.current !== 'send'
+        ) {
+          setModels([]);
+          reportError(detail, 'command');
+          errorKindRef.current = 'models';
+        }
       });
-  }, [client, workspaceId, petId]);
+  }, [client, workspaceId, petId, reportError]);
 
   /** Core's keyless setup state has no worker revision. Entering it retires older conversation
    * responses; ordinary conversation snapshots still have to advance their revision. */
@@ -428,7 +445,9 @@ export function usePetRuntime(
           { signal: controller.signal },
         );
         if (isAborted(controller.signal) || myGeneration !== generation.current) return false;
+        const wasConnected = runtimeRef.current?.status === 'connected';
         applyRaw(result);
+        if (operation === 'read' && wasConnected && result.status === 'connected') discoverModels();
         if (operation === 'send') requestId.current = crypto.randomUUID();
         return true;
       } catch (cause) {
@@ -441,10 +460,16 @@ export function usePetRuntime(
             refuseNoteScope();
             return false;
           }
+          const detail =
+            isNixApiError(cause) && cause.kind === 'problem' && cause.code.startsWith('pets.')
+              ? cause.detail?.trim()
+              : undefined;
           reportError(
-            operation === 'send'
-              ? 'The request could not be confirmed. Try again; your draft is preserved.'
-              : 'The request could not be confirmed. Try again.',
+            detail
+              ? `${detail}${operation === 'send' ? ' Your draft is preserved.' : ''}`
+              : operation === 'send'
+                ? 'The request could not be confirmed. Try again; your draft is preserved.'
+                : 'The request could not be confirmed. Try again.',
             operation === 'send' ? 'send' : 'command',
           );
         }
@@ -453,7 +478,17 @@ export function usePetRuntime(
         if (!isAborted(controller.signal) && myGeneration === generation.current) setBusy(false);
       }
     },
-    [busy, client, workspaceId, petId, rootItemId, applyRaw, reportError, refuseNoteScope],
+    [
+      busy,
+      client,
+      workspaceId,
+      petId,
+      rootItemId,
+      applyRaw,
+      discoverModels,
+      reportError,
+      refuseNoteScope,
+    ],
   );
 
   return {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { PetCompanion } from '../../pets/pet-companion';
 import { PetConnectionPanel } from '../../pets/pet-connection-panel';
-import type { PetProfile } from '@nix/api-client';
+import { NixApiError, type PetProfile } from '@nix/api-client';
 
 const client = vi.hoisted(() => ({ execute: vi.fn(), query: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => client }));
@@ -507,6 +507,41 @@ describe('companion workflow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Talk with Cat' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('The response could not finish.');
     expect(screen.getByRole('alert')).toBeVisible();
+  });
+
+  it('shows safe provider credit guidance and preserves the composer for an untouched retry', async () => {
+    petSettings.provider = 'anthropic';
+    const runtime = { ...connected, provider: 'anthropic', revision: 1 };
+    client.query.mockResolvedValue(runtime);
+    client.execute
+      .mockResolvedValueOnce(runtime)
+      .mockRejectedValueOnce(
+        NixApiError.fromProblemDetails(402, {
+          code: 'pets.provider_credit_balance',
+          detail:
+            'Claude reports that this API key has insufficient credit. Check API billing for the key, then try again.',
+        }),
+      )
+      .mockResolvedValue({ ...runtime, revision: 2 });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'Talk with Cat' }));
+    const composer = await screen.findByRole('textbox', { name: 'Message Cat' });
+    await user.type(composer, 'Plan my notes');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Claude reports that this API key has insufficient credit. Check API billing for the key, then try again. Your draft is preserved.',
+    );
+    expect(composer).toHaveValue('Plan my notes');
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => {
+      expect(composer).toHaveValue('');
+    });
+    expect(client.execute.mock.calls[2]?.[0]).toEqual(client.execute.mock.calls[1]?.[0]);
   });
 
   it('renders a system notice without an author or approval controls', async () => {

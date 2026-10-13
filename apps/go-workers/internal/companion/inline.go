@@ -159,9 +159,10 @@ func inlineInput(r Request) (string, error) {
 // inlineEvent is one thing the notification path hands the stream: a delta, a finished turn, or a
 // refusal.
 type inlineEvent struct {
-	kind   string // "delta", "completed", "refused"
-	text   string
-	status string
+	kind    string // "delta", "completed", "refused"
+	text    string
+	status  string
+	failure string
 }
 
 // inlineRun is the routing target for one inline thread. notify and toolRequest run on the
@@ -228,7 +229,7 @@ func (a *account) inlineRunFor(thread string) *inlineRun {
 // routeInlineLocked sends a notification for an inline thread to its stream. It reports whether
 // the thread was an inline one, in which case the caller must not look at conversations at all.
 // Called with a.mu held.
-func (a *account) routeInlineLocked(thread, method string, itemType, itemPhase, delta string, turnStatus string) bool {
+func (a *account) routeInlineLocked(thread, method string, itemType, itemPhase, delta string, turnStatus string, failure string) bool {
 	run := a.inlineRunFor(thread)
 	if run == nil {
 		return false
@@ -241,7 +242,7 @@ func (a *account) routeInlineLocked(thread, method string, itemType, itemPhase, 
 	case (method == "item/started" || method == "item/completed") && isToolItem(itemType):
 		run.deliver(inlineEvent{kind: "refused"})
 	case method == "turn/completed":
-		run.deliver(inlineEvent{kind: "completed", status: turnStatus})
+		run.deliver(inlineEvent{kind: "completed", status: turnStatus, failure: failure})
 	}
 	return true
 }
@@ -388,7 +389,7 @@ func (m *Manager) serveInline(w http.ResponseWriter, r *http.Request, request Re
 	}
 	input, err := inlineInput(request)
 	if err != nil {
-		http.Error(w, "Companion request failed; reconnect or retry", http.StatusBadGateway)
+		writeProviderFailure(w, err)
 		return
 	}
 	started := time.Now()
@@ -416,9 +417,9 @@ func (m *Manager) serveInline(w http.ResponseWriter, r *http.Request, request Re
 	thread, turn, err := a.inlineStart(setupCtx, request, input, run)
 	if err != nil {
 		a.mu.Lock()
-		a.record("", slog.LevelWarn, "inline.failed", []any{"request_id", request.RequestID, "stage", "start", "duration_ms", time.Since(started).Milliseconds(), "error", logSafeError(err)}, nil)
+		a.record("", slog.LevelWarn, "inline.failed", []any{"operation", "inline", "request_id", request.RequestID, "stage", "start", "duration_ms", time.Since(started).Milliseconds(), "error", logSafeError(err)}, nil)
 		a.mu.Unlock()
-		http.Error(w, "Companion request failed; reconnect or retry", http.StatusBadGateway)
+		writeProviderFailure(w, err)
 		return
 	}
 	defer func() {
@@ -505,6 +506,9 @@ func (a *account) pumpInline(ctx context.Context, w http.ResponseWriter, flusher
 					case "interrupted":
 						return fail("cancelled", "inline.cancelled", "The writing request was cancelled.", false)
 					default:
+						if e.failure != "" {
+							return fail("provider_failed", "inline.provider_failed", e.failure, false)
+						}
 						return fail("provider_failed", "inline.provider_failed", "The model could not finish the text. Check the selected provider in Settings > Pets and try again.", false)
 					}
 				}
