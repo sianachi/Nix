@@ -125,7 +125,8 @@ internal static class GetCurrentPrincipalEndpoint
     internal static async Task<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>> Handle(
         HttpContext httpContext,
         [FromServices] NixDispatcher dispatcher,
-        [FromServices] SiteOptions sites)
+        [FromServices] SiteOptions sites,
+        [FromServices] IConfiguration configuration)
     {
         var result = await dispatcher
             .QueryAsync<GetCurrentPrincipal, Result<CurrentPrincipal>>(
@@ -141,7 +142,11 @@ internal static class GetCurrentPrincipalEndpoint
                     principal.DisplayName,
                     principal.Email,
                     principal.IsTenantAdministrator,
-                    new CurrentPrincipalFeatures(sites.IsEnabled))),
+                    new CurrentPrincipalFeatures(
+                        sites.IsEnabled,
+                        // Display only: the address people paste into an MCP client. Absent means
+                        // the deployment serves MCP on stdio through nixctl alone.
+                        Uri.TryCreate(configuration["Nix:Mcp:PublicUrl"], UriKind.Absolute, out var mcp) ? mcp.ToString() : null))),
             error => TypedResults.Problem(MeEndpoints.Problem(httpContext, error)));
     }
 }
