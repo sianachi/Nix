@@ -15,6 +15,7 @@ export const SettingsTabSchema = z.enum([
   'pets',
   'integrations',
   'access-tokens',
+  'mcp',
 ]);
 
 export type SettingsTab = z.infer<typeof SettingsTabSchema>;

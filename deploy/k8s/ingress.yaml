@@ -32,6 +32,11 @@ spec:
     - host: "${DOMAIN}"
       http:
         paths:
+          # Remote MCP (deploy/k8s/mcp.yaml); an exact path wins over the app's prefix.
+          - path: /mcp
+            pathType: Exact
+            backend:
+              service: { name: nix-mcp, port: { number: 8500 } }
           - path: /
             pathType: Prefix
             backend:

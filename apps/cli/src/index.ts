@@ -649,11 +649,36 @@ export function buildProgram(): Command {
 
   program
     .command('mcp')
-    .description('Serve Nix workspace tools over MCP on stdio.')
-    .action(async (_options: unknown, command: Command) => {
-      const flags = globalFlags(command);
-      await run(() => runWorkspaceMcpServer(flags.profile));
-    });
+    .description(
+      'Serve Nix workspace tools over MCP: on stdio for this profile, or over HTTP with --listen, ' +
+        'where every request carries its own personal access token.',
+    )
+    .option('--listen <host:port>', 'serve Streamable HTTP instead of stdio (or NIX_MCP_LISTEN)')
+    .option('--api-url <url>', "Core's origin for HTTP mode (or NIX_API_URL)")
+    .option('--collab-url <url>', 'the collaboration service for HTTP mode (or NIX_COLLAB_URL)')
+    .action(
+      async (
+        options: { listen?: string; apiUrl?: string; collabUrl?: string },
+        command: Command,
+      ) => {
+        const flags = globalFlags(command);
+        const listen = options.listen ?? process.env.NIX_MCP_LISTEN;
+        if (listen === undefined) {
+          await run(() => runWorkspaceMcpServer(flags.profile));
+          return;
+        }
+        const apiUrl = options.apiUrl ?? process.env.NIX_API_URL;
+        if (apiUrl === undefined) {
+          throw new Error('HTTP mode needs --api-url or NIX_API_URL.');
+        }
+        const collabUrl = options.collabUrl ?? process.env.NIX_COLLAB_URL;
+        const { startMcpHttpServer } = await import('./mcp-http.ts');
+        await run(async () => {
+          await startMcpHttpServer({ listen, apiUrl, collabUrl });
+          await new Promise<never>(() => undefined);
+        });
+      },
+    );
 
   const template = program
     .command('template')

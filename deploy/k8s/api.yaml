@@ -131,6 +131,9 @@ spec:
               valueFrom: { secretKeyRef: { name: nix-calendar, key: microsoft-tenant, optional: true } }
             # Sites (ADR-0063): the app at the apex, sites one label below it. Core signs the
             # sites bucket with the object store's write key; serve reads it with its own read key.
+            # The remote MCP endpoint (deploy/k8s/mcp.yaml) the settings page shows people.
+            - name: Nix__Mcp__PublicUrl
+              value: "https://${DOMAIN}/mcp"
             # The explicit switch: only this designated production deployment turns sites on.
             - name: Nix__Sites__Enabled
               value: "true"

@@ -7,8 +7,10 @@ import {
   files,
   finance,
   habits,
+  items,
   notifications,
   operations,
+  search,
   workspaces,
   templates as templateResources,
   templateInitializationSchema,
@@ -40,7 +42,8 @@ import {
 import { executePetRuntime, executePetToolRun, petSessionFor } from './commands/pets.ts';
 import { readStructureForSession } from './commands/structure.ts';
 import { evaluateBlueprint, executeBlueprintBuild } from './commands/blueprint.ts';
-import { resolveSession, type SessionDeps } from './commands/shared.ts';
+import { requireAccessToken, resolveSession, type SessionDeps } from './commands/shared.ts';
+import { readBodyMarkdown, writeBodyMarkdown } from './body.ts';
 import {
   executeListNotifications,
   executeReadAllNotifications,
@@ -1750,6 +1753,101 @@ export async function createWorkspaceMcpServer(
     },
     ({ ruleId, itemId }) =>
       toolResult(async () => executeTestAutomation(await session(), ruleId, itemId)),
+  );
+
+  // Notes and items (requirement 9): the general read/write surface a remote client needs, through
+  // the same Core and Collab paths the CLI's `item` and `note` commands use. Core authorizes each
+  // call; a locked or invisible note is refused with Core's words, never read around.
+  server.registerTool(
+    'list_items',
+    {
+      description:
+        'List the children of an item, or the roots of a workspace when no parent is given, up to `limit` (default 200); `truncated` says when there were more.',
+      inputSchema: {
+        workspaceId: identifier,
+        parentId: identifier.optional(),
+        limit: z.number().int().min(1).max(500).optional(),
+      },
+    },
+    ({ workspaceId, parentId, limit }) =>
+      toolResult(async () => {
+        const current = await session();
+        const ceiling = limit ?? 200;
+        const rows: unknown[] = [];
+        let truncated = false;
+        for await (const item of current.client.paginate(
+          items.listItems(workspaceId, {
+            ...(parentId === undefined ? {} : { parentId }),
+            pageSize: Math.min(ceiling, 100),
+          }),
+        )) {
+          if (rows.length >= ceiling) {
+            truncated = true;
+            break;
+          }
+          rows.push(item);
+        }
+        return { items: rows, count: rows.length, truncated };
+      }),
+  );
+  server.registerTool(
+    'get_item',
+    { description: 'Read one item: title, type, parent, properties and protections.', inputSchema: { itemId: identifier } },
+    ({ itemId }) => toolResult(async () => (await session()).client.query(items.itemById(itemId))),
+  );
+  server.registerTool(
+    'create_item',
+    {
+      description: 'Create an item (a note by default) under a parent, or at the workspace root.',
+      inputSchema: {
+        workspaceId: identifier,
+        title: z.string().min(1).max(500),
+        type: z.string().min(1).max(40).optional(),
+        parentId: identifier.optional(),
+      },
+    },
+    ({ workspaceId, title, type, parentId }) =>
+      toolResult(async () =>
+        (await session()).client.execute(
+          items.createItem(workspaceId, { type: type ?? 'note', title, parentId: parentId ?? null }),
+        ),
+      ),
+  );
+  server.registerTool(
+    'search_items',
+    {
+      description: 'Full-text search over the items you may read.',
+      inputSchema: { query: z.string().min(1).max(500), limit: z.number().int().min(1).max(100).optional() },
+    },
+    ({ query, limit }) =>
+      toolResult(async () => (await session()).client.query(search.searchItems(query, limit))),
+  );
+  server.registerTool(
+    'read_note',
+    {
+      description: 'Read a note body as Markdown, with the list of what Markdown could not carry.',
+      inputSchema: { itemId: identifier },
+    },
+    ({ itemId }) =>
+      toolResult(async () => {
+        const current = await session();
+        const token = await requireAccessToken(current);
+        return readBodyMarkdown({ collabUrl: current.endpoints.collabUrl, itemId, token });
+      }),
+  );
+  server.registerTool(
+    'write_note',
+    {
+      description:
+        'Replace a note body with Markdown (up to 200,000 characters). The Markdown must parse into a valid note.',
+      inputSchema: { itemId: identifier, markdown: z.string().max(200_000) },
+    },
+    ({ itemId, markdown }) =>
+      toolResult(async () => {
+        const current = await session();
+        const token = await requireAccessToken(current);
+        return writeBodyMarkdown({ collabUrl: current.endpoints.collabUrl, itemId, token, markdown });
+      }),
   );
 
   return server;
