@@ -3457,6 +3457,9 @@ export interface components {
     CreateWorkspaceRequest: {
       name: string;
     };
+    CurrentPrincipalFeatures: {
+      sites: boolean;
+    };
     CurrentPrincipalResponse: {
       /** Format: uuid */
       id: string;
@@ -3465,6 +3468,7 @@ export interface components {
       displayName: string;
       email: null | string;
       isTenantAdministrator: boolean;
+      features: components['schemas']['CurrentPrincipalFeatures'];
     };
     CursorPageOfItemResponse: {
       items: components['schemas']['ItemResponse'][];
@@ -5287,6 +5291,7 @@ export interface components {
       collapsedGroups?: null | string[];
       groupLimits?: null | components['schemas']['ViewGroupLimitContract'][];
       aggregates?: null | components['schemas']['ViewAggregateContract'][];
+      open?: null | string;
     };
     TokenExchangeRequest: {
       token: null | string;
@@ -5401,6 +5406,7 @@ export interface components {
       doneProperty?: null | string;
       rowBy?: null | string;
       chart?: null | components['schemas']['ChartOptionsContract'];
+      open?: null | string;
     };
     ViewResponse: {
       id: string;
@@ -5431,6 +5437,7 @@ export interface components {
       doneProperty?: null | string;
       rowBy?: null | string;
       chart?: null | components['schemas']['ChartOptionsContract'];
+      open?: null | string;
     };
     ViewSortContract: {
       property: string;

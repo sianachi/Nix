@@ -328,7 +328,7 @@ function PaneContents({
   canManageTemplates,
   canApplyTemplates,
 }: PaneContentsProps): ReactNode {
-  const { openPreview } = useOpenItem();
+  const { openPreview, openBeside } = useOpenItem();
   const tabPinned = useTabStore((state) => state.tabPinned);
   const narrow = useNarrowViewport();
   const orientation = useTabOrientationStore((state) => state.orientation);
@@ -396,6 +396,9 @@ function PaneContents({
               canManageTemplates={canManageTemplates}
               canApplyTemplates={canApplyTemplates}
               onOpen={openPreview}
+              onOpenBeside={(target) => {
+                openBeside(target);
+              }}
               onClose={onClose}
               onCommit={() => {
                 tabPinned(pane.index, item.id);
@@ -480,6 +483,9 @@ interface OpenItemProps {
   readonly canApplyTemplates: boolean;
   readonly onOpen: (itemId: string) => void;
 
+  /** Opens an item in another pane, for views set to open beside. */
+  readonly onOpenBeside?: ((itemId: string) => void) | undefined;
+
   /** Closes this pane, or absent when it is the only one and there is nothing to close to. */
   readonly onClose: (() => void) | undefined;
 
@@ -497,6 +503,7 @@ export function OpenItem({
   canManageTemplates,
   canApplyTemplates,
   onOpen,
+  onOpenBeside,
   onClose,
   onCommit,
   onNavigateAway,
@@ -1035,6 +1042,7 @@ export function OpenItem({
                     container={container}
                     view={showChildren ? null : active}
                     onOpen={onOpen}
+                    onOpenBeside={onOpenBeside}
                   />
                 ) : (
                   <CompanionViewPair
@@ -1047,7 +1055,14 @@ export function OpenItem({
                       views.find((candidate) => candidate.id === active.companionViewId)?.name ??
                       'Companion view'
                     }
-                    primary={<ContainerView container={container} view={active} onOpen={onOpen} />}
+                    primary={
+                      <ContainerView
+                        container={container}
+                        view={active}
+                        onOpen={onOpen}
+                        onOpenBeside={onOpenBeside}
+                      />
+                    }
                     companion={
                       <PaneProvider index={paneIndex + 3}>
                         <ContainerView
@@ -1057,6 +1072,7 @@ export function OpenItem({
                             null
                           }
                           onOpen={onOpen}
+                          onOpenBeside={onOpenBeside}
                         />
                       </PaneProvider>
                     }

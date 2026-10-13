@@ -27,4 +27,13 @@ internal sealed record CurrentPrincipalResponse(
     Guid TenantId,
     string DisplayName,
     string? Email,
-    bool IsTenantAdministrator);
+    bool IsTenantAdministrator,
+    CurrentPrincipalFeatures Features);
+
+/// <summary>
+/// Which optional features this deployment has switched on, as display hints with the same standing
+/// as <see cref="CurrentPrincipalResponse.IsTenantAdministrator"/>: they decide what the shell
+/// offers, and every route behind an entry refuses for itself when the feature is off.
+/// </summary>
+/// <param name="Sites">Whether publishing items as sites is configured and enabled here.</param>
+internal sealed record CurrentPrincipalFeatures(bool Sites);

@@ -1,0 +1,27 @@
+import { createContext, useContext, type ReactNode } from 'react';
+
+/** Deployment features the shell may offer, from `GET /api/v1/me`. Display hints, never permission. */
+export interface Capabilities {
+  readonly sites: boolean;
+}
+
+/** Everything off until Core has answered: an entry that may not exist is not drawn first. */
+export const NO_CAPABILITIES: Capabilities = { sites: false };
+
+const CapabilitiesContext = createContext<Capabilities>(NO_CAPABILITIES);
+
+export function CapabilitiesProvider({
+  value,
+  children,
+}: {
+  readonly value: Capabilities | null | undefined;
+  readonly children: ReactNode;
+}): ReactNode {
+  return (
+    <CapabilitiesContext.Provider value={value ?? NO_CAPABILITIES}>{children}</CapabilitiesContext.Provider>
+  );
+}
+
+export function useCapabilities(): Capabilities {
+  return useContext(CapabilitiesContext);
+}

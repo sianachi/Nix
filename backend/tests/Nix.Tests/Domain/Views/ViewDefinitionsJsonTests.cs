@@ -314,6 +314,46 @@ public sealed class ViewDefinitionsJsonTests
         Assert.Equal(size, Assert.Single(ReadViews(ViewDefinitionsJson.Write([gallery]))).CardSize);
     }
 
+    [Theory]
+    [InlineData("page")]
+    [InlineData("dialog")]
+    [InlineData("beside")]
+    public void Every_open_mode_this_build_defines_survives_being_written_and_read_back(string open)
+    {
+        var list = new ViewDefinition("v1", "Everything", ViewKind.List, [], null, [], null, null, false, Open: open);
+
+        var read = Assert.Single(ReadViews(ViewDefinitionsJson.Write([list])));
+
+        Assert.Equal(open, read.Open);
+        Assert.Null(ViewDefinitionRules.Refuse(ImmutableArray.Create(list), null));
+    }
+
+    [Theory]
+    [InlineData("popup")]
+    [InlineData("Page")]
+    [InlineData("")]
+    public void An_open_mode_this_build_does_not_define_reads_as_auto_and_is_refused_on_write(string open)
+    {
+        // Null is Auto: the client's own context-aware default, which every view stored before the
+        // field existed already had. A stray token costs that choice, never the view.
+        var read = ReadViews($$"""{"views":[{"id":"v1","name":"Everything","kind":"list","open":"{{open}}"}]}""");
+
+        Assert.Null(Assert.Single(read).Open);
+
+        var requested = new ViewDefinition("v1", "Everything", ViewKind.List, [], null, [], null, null, false, Open: open);
+        Assert.Contains("is not an open mode", ViewDefinitionRules.Refuse(ImmutableArray.Create(requested), null), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_view_that_names_no_open_mode_stores_no_key_for_it()
+    {
+        var list = new ViewDefinition("v1", "Everything", ViewKind.List, [], null, [], null, null, false);
+        var entry = Assert.IsType<JsonObject>(Assert.Single(Assert.IsType<JsonArray>(JsonNode.Parse(ViewDefinitionsJson.Write([list])!)!["views"])!));
+
+        Assert.False(entry.ContainsKey("open"));
+        Assert.Null(Assert.Single(ReadViews(ViewDefinitionsJson.Write([list]))).Open);
+    }
+
     [Fact]
     public void A_gallery_that_names_no_cover_property_is_read_and_kept()
     {

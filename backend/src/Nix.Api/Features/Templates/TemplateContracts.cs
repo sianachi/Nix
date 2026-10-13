@@ -138,7 +138,8 @@ internal sealed record TemplateViewResponse(
     IReadOnlyList<ViewSortContract>? Sorts = null,
     IReadOnlyList<string>? CollapsedGroups = null,
     IReadOnlyList<ViewGroupLimitContract>? GroupLimits = null,
-    IReadOnlyList<ViewAggregateContract>? Aggregates = null);
+    IReadOnlyList<ViewAggregateContract>? Aggregates = null,
+    string? Open = null);
 
 internal sealed record TemplateStoredViewsResponse(
     IReadOnlyList<TemplateViewResponse> Views,

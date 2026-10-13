@@ -42,6 +42,7 @@ const principal: CurrentPrincipalState = {
     displayName: 'Ada Person',
     email: 'ada@example.test',
     isTenantAdministrator: false,
+    features: { sites: false },
   },
   error: null,
   reload: () => Promise.resolve(),
