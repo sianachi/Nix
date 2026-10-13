@@ -547,3 +547,58 @@ func testTransportIn(t *testing.T, kind, base, home string, notify func(string, 
 	transport.(*httpTransport).baseURL = base
 	return transport
 }
+
+func TestThreadTrimNeverStartsOnAToolResult(t *testing.T) {
+	transport := testTransport(t, "anthropic", "http://unused", func(string, json.RawMessage) {}).(*httpTransport)
+	thread := &httpThread{ID: "trim-thread", Messages: []providerMessage{{Role: "user", Text: "Go"}}}
+	// One turn of 17 tool rounds: a plain cut at 32 would start on round 2's results.
+	for i := range 17 {
+		id := fmt.Sprintf("call-%d", i)
+		thread.Messages = append(thread.Messages,
+			providerMessage{Role: "assistant", ToolCalls: []providerToolCall{{ID: id, Name: "nix_read_note"}}},
+			providerMessage{Role: "user", ToolResults: []providerToolResult{{CallID: id, Text: "ok"}}})
+	}
+	thread.Messages = append(thread.Messages, providerMessage{Role: "assistant", Text: "Done"})
+	transport.save(thread)
+	first := thread.Messages[0]
+	if first.Role != "user" || len(first.ToolResults) > 0 {
+		t.Fatalf("trimmed thread starts on %+v", first)
+	}
+}
+
+func TestInterruptWhileAToolWaitsAnswersEveryCall(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for i, id := range []string{"call-1", "call-2"} {
+			_, _ = fmt.Fprintf(w, "event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":%d,\"content_block\":{\"type\":\"tool_use\",\"id\":\"%s\",\"name\":\"nix_trash\"}}\n\n", i, id)
+			_, _ = fmt.Fprintf(w, "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":%d}\n\n", i)
+		}
+		_, _ = fmt.Fprint(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	}))
+	defer server.Close()
+	n := newNotifications()
+	transport := testTransport(t, "anthropic", server.URL, n.notify)
+	asked := make(chan struct{}, 2)
+	// The handler takes the call and never replies, as an approval card the owner leaves open.
+	transport.(toolTransport).SetRequestHandler(func(json.RawMessage, string, json.RawMessage) bool {
+		asked <- struct{}{}
+		return true
+	})
+	tools := []any{map[string]any{"name": "nix_trash", "description": "t", "inputSchema": map[string]any{"type": "object"}}}
+	threadID, turn := startThreadAndTurn(t, transport, tools, "Trash both")
+	<-asked
+	if _, err := transport.Call(context.Background(), "turn/interrupt", map[string]string{"turnId": turn}); err != nil {
+		t.Fatal(err)
+	}
+	if events := n.wait(t); !strings.Contains(strings.Join(events, "\n"), `"status":"interrupted"`) {
+		t.Fatalf("expected interrupted: %v", events)
+	}
+	ht := transport.(*httpTransport)
+	ht.mu.Lock()
+	messages := ht.threads[threadID].Messages
+	ht.mu.Unlock()
+	last := messages[len(messages)-1]
+	if len(last.ToolResults) != 2 || !last.ToolResults[0].IsError || last.ToolResults[1].CallID != "call-2" {
+		t.Fatalf("the stopped tool calls were left unanswered: %+v", last)
+	}
+}

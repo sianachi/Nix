@@ -103,11 +103,30 @@ func (handler *Handler) Handle(ctx context.Context, job workerapi.Job) (any, err
 		})
 	}
 	if len(results) > 0 {
-		if err := handler.api.ReportNotificationDeliveryResults(ctx, payload.NotificationID, results); err != nil {
+		if err := handler.report(ctx, payload.NotificationID, results); err != nil {
 			return nil, transient("notify_results_unavailable", err)
 		}
 	}
 	return result, nil
+}
+
+// report retries the results itself before failing the job: a failed job is retried from the
+// top, and the retry would push to every device again.
+func (handler *Handler) report(ctx context.Context, notificationID string, results []workerapi.NotificationDeliveryResult) error {
+	var err error
+	for attempt := range 3 {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return err
+			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			}
+		}
+		if err = handler.api.ReportNotificationDeliveryResults(ctx, notificationID, results); err == nil {
+			return nil
+		}
+	}
+	return err
 }
 
 // deliver encrypts and sends one subscription's push message. Failures here

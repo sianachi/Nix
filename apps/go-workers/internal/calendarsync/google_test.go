@@ -147,6 +147,28 @@ func TestGoogleClientUpdateEventReportsGoneOn404(t *testing.T) {
 	}
 }
 
+func TestGoogleClientUpdateEventClearsTheFieldTheOtherKindUsed(t *testing.T) {
+	// PATCH merges start and end, so switching kinds must null the old field explicitly.
+	var start map[string]json.RawMessage
+	client := newGoogleFakeClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.Unmarshal(body["start"], &start)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": "evt-1", "etag": `"e-2"`})
+	})
+	if _, err := client.UpdateEvent(context.Background(), "t", "primary", "evt-1", "", PushEvent{
+		Title: "Now all day", Start: Bound{AllDay: true, Date: "2026-10-01"},
+	}); err != nil {
+		t.Fatalf("UpdateEvent: %v", err)
+	}
+	if string(start["dateTime"]) != "null" || string(start["timeZone"]) != "null" || string(start["date"]) != `"2026-10-01"` {
+		t.Fatalf("all-day start = %s %s %s", start["date"], start["dateTime"], start["timeZone"])
+	}
+}
+
 func TestGoogleClientCreateEventSendsAllDayBodyExclusiveEnd(t *testing.T) {
 	client := newGoogleFakeClient(t, func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
