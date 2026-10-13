@@ -5,12 +5,17 @@ import {
   type QueryEndpoint,
 } from '../endpoints.js';
 import type { components } from '../generated/api.js';
+import { noContentSchema } from '../schemas/index.js';
 import {
   petConnectionSchema,
   petSettingsResponseSchema,
   type PetSettings,
   type PetSettingsResponse,
   type PetConnection,
+  petProvidersResponseSchema,
+  petProviderKeySchema,
+  type PetProvidersResponse,
+  type PetProviderKey,
 } from '../schemas/pets.js';
 
 const settingsKey = ['me', 'pets', 'settings'] as const;
@@ -37,6 +42,42 @@ export const saveSettings = (
       settings: value,
     } satisfies components['schemas']['SavePetSettingsRequest'],
     invalidates: [settingsKey],
+  });
+
+const providersKey = ['me', 'pets', 'providers'] as const;
+
+/** The owner's stored provider keys, hints only. */
+export const providers = (): QueryEndpoint<PetProvidersResponse> =>
+  defineQuery({
+    operation: 'pets.providers',
+    path: '/api/v1/me/pets/providers',
+    schema: petProvidersResponseSchema,
+    cacheKey: providersKey,
+  });
+
+/** Stores or replaces the owner's key for a provider; the key is never returned. */
+export const saveProviderKey = (
+  provider: 'anthropic' | 'openrouter',
+  key: string,
+): CommandEndpoint<PetProviderKey> =>
+  defineCommand({
+    operation: 'pets.saveProviderKey',
+    method: 'PUT',
+    path: `/api/v1/me/pets/providers/${provider}/key`,
+    schema: petProviderKeySchema,
+    body: { key } satisfies components['schemas']['SavePetProviderKeyRequest'],
+    invalidates: [providersKey],
+  });
+
+export const removeProviderKey = (
+  provider: 'anthropic' | 'openrouter',
+): CommandEndpoint<undefined> =>
+  defineCommand({
+    operation: 'pets.removeProviderKey',
+    method: 'DELETE',
+    path: `/api/v1/me/pets/providers/${provider}/key`,
+    schema: noContentSchema,
+    invalidates: [providersKey],
   });
 
 export const connection = (): QueryEndpoint<PetConnection> =>

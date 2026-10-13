@@ -205,7 +205,7 @@ func TestFailedHistoryReadLogsNoIdentifiers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Close()
-	m.launch = func(_ context.Context, _ string, home string, _ func(string, json.RawMessage)) (Transport, error) {
+	m.launch = func(_ context.Context, _ string, _ string, home string, _ string, _ func(string, json.RawMessage)) (Transport, error) {
 		if err := os.MkdirAll(home, 0700); err != nil {
 			return nil, err
 		}
@@ -290,7 +290,7 @@ func TestRuntimeUnavailableIsLoggedWithTheCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer m.Close()
-	m.launch = func(context.Context, string, string, func(string, json.RawMessage)) (Transport, error) {
+	m.launch = func(context.Context, string, string, string, string, func(string, json.RawMessage)) (Transport, error) {
 		return nil, errors.New(`exec: "codex": executable file not found in $PATH`)
 	}
 	body, _ := json.Marshal(Request{TenantID: request().TenantID, PrincipalID: request().PrincipalID, Operation: "status"})

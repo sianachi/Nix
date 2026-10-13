@@ -65,6 +65,7 @@ export const Settings = {
               responseLength: 'balanced',
               instructions: '',
               applyWithoutAsking: false,
+              provider: 'chatgpt',
             },
           ],
           inlineWriting: false,

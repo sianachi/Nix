@@ -1168,7 +1168,7 @@ function PetSettingsPanel({
           ) : null}
           {models.map((value) => (
             <option key={value.id} value={value.id}>
-              {value.name}
+              {value.supportsTools ? value.name : `${value.name} (cannot use tools)`}
             </option>
           ))}
         </Select>
