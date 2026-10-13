@@ -92,11 +92,8 @@ and ADR status.
 - Revocable, opaque Interactive Form links. Sanitized public forms turn responses into ordinary child
   items without exposing the workspace or existing responses.
 
-### Speech and companion
+### Companion
 
-- Meeting recording, transcription and dictation, plus spoken replies in local voices, through an
-  optional speech worker role that runs whisper.cpp and Piper on your own host (ADR-0059). The
-  browser's own dictation and voices are the fallback when the role is not deployed.
 - A ChatGPT companion connected through the Codex device login, with account-scoped character,
   personality, response-length and instruction settings, model selection, per-workspace
   conversations and saved history.
@@ -129,8 +126,8 @@ and ADR status.
   habits, document import, files, the companion, structure and blueprints, notifications,
   reminders, item protection, calendar links and automations. Item CRUD and search stay `nixctl`
   commands.
-- One Go worker binary with roles for import, export, indexing, signed WebAssembly plugin
-  execution, calendar sync, notifications and speech, driven by RabbitMQ; workers use internal
+- One Go worker binary with roles for import, export, signed WebAssembly plugin
+  execution, calendar sync and notifications, driven by RabbitMQ; workers use internal
   APIs and object capabilities without database credentials.
 - Uploads are inspected by the worker before they are published: size and expiry checks, SHA-256,
   media type from magic bytes, preview and thumbnail generation. Files are not malware-scanned.
@@ -153,8 +150,7 @@ accessibility, query plans, export fidelity or production operations until those
 - **Frontend:** React 19, TypeScript strict, Tailwind CSS v4, Zod, Zustand,
   axios (only inside `packages/api-client`).
 - **Services:** Collaboration is Node 22/TypeScript on Fastify. Go 1.26 workers handle asynchronous
-  jobs through RabbitMQ; OpenSearch is a rebuildable derived index. The optional speech role bundles
-  whisper.cpp and Piper. Workers never receive DB credentials.
+  jobs through RabbitMQ. Core searches PostgreSQL directly. Workers never receive DB credentials.
 - **Auth:** OIDC (Zitadel first, multi-issuer by design). Roles live in the
   database, never in tokens.
 
@@ -164,17 +160,15 @@ accessibility, query plans, export fidelity or production operations until those
 apps/
   web/        React frontend (installable PWA)
   collab/     Collaboration service (CRDT/WebSocket, history, .nix export)
-  go-workers/ Unified Go worker: import, export, index, plugin-events, calendar, notify, speech
+  go-workers/ Unified Go worker: import, export, plugin-events, calendar, notify
   cli/        nixctl CLI and MCP server
 packages/
   api-client/       Generated HTTP client, contract types
   companion/        Companion workspace-tool executor shared by web and nixctl
   design-tokens/    Colors, fonts, spacing, radii, shadows
-  docx-export/      DOCX mapper
   editor-schema/    Shared document/schema types
   export/           .nix archive manifest, writer and reader
   markdown/         Markdown import/export mapping
-  pdf-export/       PDF mapper
   sheet/            Spreadsheet formula engine
   structure-spec/   Declarative structure vocabulary and blueprints
   template-catalog/ Managed template presets
@@ -192,9 +186,8 @@ backend/
                           frontend; never hand-edit
 deploy/
   compose.prod.yml, compose/   Production Compose manifest and release scripts
-  docker/                      Image Dockerfiles, including the speech worker
+  docker/                      Image Dockerfiles
   k8s/                         Retained Kubernetes manifests
-  speech/                      Speech model manifest
 ```
 
 ## Production deployment
@@ -203,7 +196,7 @@ Docker Compose is the default production target until an explicit decision to re
 Images are built by CI for every `main` commit and published to `ghcr.io/sianachi/nix`, tagged
 with the full commit SHA; a release is `deploy/compose/release.sh <sha>` on the host. Use the
 [Compose deployment runbook](deploy/README.md) for configuration, migrations, Versity storage,
-the optional speech role, rollback and mandatory import/export verification. Kubernetes tooling
+rollback and mandatory import/export verification. Kubernetes tooling
 is retained but is not part of the default release workflow.
 
 ## Local development
@@ -276,24 +269,19 @@ terminal after stack-up:
 ```sh
 bash scripts/dev-api.sh                     # :5014 by default, BFF and service configuration
 bash scripts/dev-collab.sh                  # :8100 by default
-bash scripts/dev-worker.sh                  # :8301, roles import,export,index,plugin-events
+bash scripts/dev-worker.sh                  # :8301, roles import,export,plugin-events
 pnpm --filter @nix/web dev                  # :5173 by default
 ```
 
-The dev worker runs the four default roles. The `calendar` and `notify` roles are opt-in through
+The dev worker runs the three default roles. The `calendar` and `notify` roles are opt-in through
 `NIX_WORKER_ROLES` (calendar needs fake provider origins, notify needs VAPID keys; see the
-comments in `scripts/dev-worker.sh`). The `speech` role runs as its own process beside the
-default one, `NIX_WORKER_ROLES=speech NIX_WORKER_ADDRESS=:8303 bash scripts/dev-worker.sh`, and
-needs `whisper-server`, `piper`, `ffmpeg` and `ffprobe` on PATH plus a ggml model; the web dev
-server proxies `/speech` to it.
+comments in `scripts/dev-worker.sh`).
 
 Open <http://localhost:5173> and sign in as `dev@nix.localhost` with `NixDev-Password1!`
 when using the default seed settings. Generated machine-specific configuration is under
 `deploy/.zitadel/`; do not copy its IDs into documentation or source.
 
-The dev API defaults to Postgres search (`Nix__Search__OpenSearchEnabled=false`) even though
-stack-up starts OpenSearch and the worker indexes events. Enable the API flag explicitly when
-exercising OpenSearch. A running web/API pair alone does not run asynchronous jobs.
+Core search uses PostgreSQL. A running web/API pair alone does not run asynchronous jobs.
 
 The companion is available from the workspace UI after it is enabled under Settings. Connect a
 ChatGPT account from the companion settings before starting a conversation. The local Go worker
