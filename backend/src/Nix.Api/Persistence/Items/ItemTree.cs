@@ -3,6 +3,7 @@ using Nix.Abstractions;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
 using Nix.Domain.Tenancy;
+using Nix.Persistence.Locks;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Sql.Statements;
 using Npgsql;
@@ -35,6 +36,8 @@ public sealed partial class ItemTree : IItemTree
     private readonly NixDbContext _dbContext;
     private readonly NixSqlExecutor _sql;
     private readonly INixSessionContextAccessor _session;
+    private readonly CredentialSessionContext _credential;
+    private readonly TimeProvider _clock;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ItemTree"/> class.
@@ -42,18 +45,26 @@ public sealed partial class ItemTree : IItemTree
     /// <param name="dbContext">The context owning the connection and transaction.</param>
     /// <param name="sql">The executor for the closure statements.</param>
     /// <param name="session">The tenant scope this unit of work runs under.</param>
+    /// <param name="credential">The credential this request authenticated with, whose unlocks decide what trash lists.</param>
+    /// <param name="clock">Judges unlock expiry.</param>
     public ItemTree(
         NixDbContext dbContext,
         NixSqlExecutor sql,
-        INixSessionContextAccessor session)
+        INixSessionContextAccessor session,
+        CredentialSessionContext credential,
+        TimeProvider clock)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
         ArgumentNullException.ThrowIfNull(sql);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(credential);
+        ArgumentNullException.ThrowIfNull(clock);
 
         _dbContext = dbContext;
         _sql = sql;
         _session = session;
+        _credential = credential;
+        _clock = clock;
     }
 
     private TenantId Tenant => _session.Current?.TenantId
@@ -235,8 +246,17 @@ public sealed partial class ItemTree : IItemTree
         int limit,
         CancellationToken cancellationToken)
     {
+        // Trashing marks only the item itself, so one under a closed lock would otherwise list its
+        // title and properties to every reader; every other listing withholds it the same way.
+        var closedLockParameter = await LockFilterParameters
+            .ClosedLocksAsync(_sql, Tenant, _credential, _clock, cancellationToken)
+            .ConfigureAwait(false);
+        var closedLocks = ((Guid[])closedLockParameter.Value!).Select(ItemId.From).ToList();
         var query = _dbContext.Items.Where(item =>
-            item.WorkspaceId == workspaceId && item.LifecycleState == ItemLifecycleState.Deleted);
+            item.WorkspaceId == workspaceId
+            && item.LifecycleState == ItemLifecycleState.Deleted
+            && (closedLocks.Count == 0 || !_dbContext.ItemClosure.Any(edge =>
+                edge.DescendantId == item.Id && edge.Depth > 0 && closedLocks.Contains(edge.AncestorId))));
 
         if (before is { } cursor && beforeId is { } id)
         {
