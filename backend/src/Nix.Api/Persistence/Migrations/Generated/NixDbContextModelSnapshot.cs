@@ -4574,6 +4574,39 @@ namespace Nix.Persistence.Migrations.Generated
                     b.ToTable("worker_outbox_event", (string)null);
                 });
 
+            modelBuilder.Entity("Nix.Domain.Workspaces.WorkspaceArrangement", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<string>("GroupsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("groups_json");
+
+                    b.Property<Guid[]>("PinnedWorkspaceIds")
+                        .IsRequired()
+                        .HasColumnType("uuid[]")
+                        .HasColumnName("pinned_workspace_ids");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.HasKey("TenantId", "PrincipalId");
+
+                    b.ToTable("workspace_arrangement", null, t =>
+                        {
+                            t.HasCheckConstraint("workspace_arrangement_bounded", "(array_length(pinned_workspace_ids, 1) IS NULL OR array_length(pinned_workspace_ids, 1) <= 200) AND octet_length(groups_json::text) <= 65536");
+                        });
+                });
+
             modelBuilder.Entity("Nix.Domain.Audit.AuditEvent", b =>
                 {
                     b.HasOne("Nix.Domain.Tenancy.Tenant", null)
@@ -5555,6 +5588,16 @@ namespace Nix.Persistence.Migrations.Generated
                         .HasForeignKey("TenantId", "WorkspaceId")
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Nix.Domain.Workspaces.WorkspaceArrangement", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

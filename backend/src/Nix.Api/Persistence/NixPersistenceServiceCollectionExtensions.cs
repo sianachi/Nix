@@ -251,6 +251,9 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<IQueryHandler<GetPetSettings, PetSettingsResponse>, GetPetSettingsHandler>();
         services.AddScoped<ICommandHandler<SavePetSettings, PetSettingsResponse>, SavePetSettingsHandler>();
         services.AddScoped<IPrincipalPreferencesStore, PrincipalPreferencesStore>();
+        services.AddScoped<IWorkspaceArrangementStore, WorkspaceArrangementStore>();
+        services.AddScoped<IQueryHandler<GetWorkspaceArrangement, WorkspaceArrangementResponse>, GetWorkspaceArrangementHandler>();
+        services.AddScoped<ICommandHandler<SaveWorkspaceArrangement, WorkspaceArrangementResponse>, SaveWorkspaceArrangementHandler>();
         services.AddScoped<IQueryHandler<GetPreferences, PrincipalPreferencesResponse>, GetPreferencesHandler>();
         services.AddScoped<ICommandHandler<SavePreferences, PrincipalPreferencesResponse>, SavePreferencesHandler>();
         services.AddScoped<NotificationStore>();

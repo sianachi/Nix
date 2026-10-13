@@ -141,6 +141,8 @@ export interface StubOptions {
   /** Makes the profile request fail, for tests about what the menu does then. */
   readonly profileFails?: boolean;
 
+  /** The caller's saved workspace groups and pins; empty at revision 0 when never saved. */
+  readonly workspaceArrangement?: StubWorkspaceArrangement;
   /** The caller's saved notification/reminder preferences. Defaults to the server's own default
    * document for a principal who has never saved one - `Etc/UTC`, revision 0. */
   readonly preferences?: StubPreferences;
@@ -402,6 +404,23 @@ export interface StubMember {
   readonly assignableRoles?: readonly ('owner' | 'editor' | 'viewer')[];
 }
 
+/** As `GET/PUT /api/v1/me/workspace-arrangement` reports the document. */
+export interface StubWorkspaceArrangement {
+  readonly revision: number;
+  readonly groups: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly workspaceIds: readonly string[];
+  }[];
+  readonly pinnedWorkspaceIds: readonly string[];
+}
+
+export const STUB_EMPTY_ARRANGEMENT: StubWorkspaceArrangement = {
+  revision: 0,
+  groups: [],
+  pinnedWorkspaceIds: [],
+};
+
 /** As `GET/PUT /api/v1/me/preferences` reports the document. */
 export interface StubPreferences {
   readonly revision: number;
@@ -553,6 +572,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     items = [],
     profileFails = false,
     preferences = STUB_DEFAULT_PREFERENCES,
+    workspaceArrangement = STUB_EMPTY_ARRANGEMENT,
     preferencesFail = false,
     preferencesConflict = false,
     preferencesInvalid,
@@ -621,6 +641,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   const known = [...items];
   let knownWorkspaces = [...workspaces];
   let heldPreferences = preferences;
+  let heldArrangement = workspaceArrangement;
   const preferencesWrites: { expectedRevision: number; preferences: Record<string, unknown> }[] =
     [];
   let heldNotifications = notificationInbox.map((entry) => ({ ...entry }));
@@ -1277,6 +1298,27 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
 
       // Notifications, preferences and push routes - every one of them ordered before the /me
       // route below, which matches by `includes` and would otherwise swallow them all.
+      if (parsedUrl.pathname === '/api/v1/me/workspace-arrangement') {
+        if (method === 'GET') return Promise.resolve(json(heldArrangement));
+        if (method === 'PUT') {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+            expectedRevision?: number;
+            arrangement?: Omit<StubWorkspaceArrangement, 'revision'>;
+          };
+          if ((body.expectedRevision ?? -1) !== heldArrangement.revision) {
+            return Promise.resolve(
+              json({ code: 'workspaces.arrangement_conflict', detail: 'Changed elsewhere.' }, 409),
+            );
+          }
+          heldArrangement = {
+            groups: body.arrangement?.groups ?? [],
+            pinnedWorkspaceIds: body.arrangement?.pinnedWorkspaceIds ?? [],
+            revision: heldArrangement.revision + 1,
+          };
+          return Promise.resolve(json(heldArrangement));
+        }
+      }
+
       if (parsedUrl.pathname === '/api/v1/me/preferences') {
         if (method === 'GET') {
           return Promise.resolve(
