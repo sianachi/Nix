@@ -156,6 +156,7 @@ export function usePetRuntime(
   const requestId = useRef(crypto.randomUUID());
   const lifetime = useRef<AbortController | null>(null);
   const revision = useRef(0);
+  const modelRequest = useRef(0);
   const runtimeRef = useRef<PetConnection | null>(null);
   const panelOpenRef = useRef(panelOpen);
   const wake = useRef(new EventTarget());
@@ -181,15 +182,52 @@ export function usePetRuntime(
     if (panelOpen) wake.current.dispatchEvent(new Event('wake'));
   }, [panelOpen]);
 
-  /** Applies a snapshot (from a watch or a mutation) only if its revision is not older than the
-   * one already applied - a stale response, arriving after a newer one, must never overwrite it. */
-  const applyRaw = useCallback((value: PetConnection) => {
-    if (value.revision < revision.current) return false;
-    revision.current = value.revision;
-    runtimeRef.current = value;
-    setRuntimeState(value);
-    return true;
-  }, []);
+  const discoverModels = useCallback(() => {
+    const controller = lifetime.current;
+    const myGeneration = generation.current;
+    if (!controller || controller.signal.aborted) return;
+    const request = ++modelRequest.current;
+    void client
+      .execute(pets.runtime({ operation: 'models', workspaceId, petId }), {
+        signal: controller.signal,
+      })
+      .then((value) => {
+        if (
+          !controller.signal.aborted &&
+          myGeneration === generation.current &&
+          request === modelRequest.current
+        )
+          setModels(value.models ?? []);
+      })
+      .catch(() => {
+        /* The provider default remains available if model discovery fails. */
+      });
+  }, [client, workspaceId, petId]);
+
+  /** Core's keyless setup state has no worker revision. Entering it retires older conversation
+   * responses; ordinary conversation snapshots still have to advance their revision. */
+  const applyRaw = useCallback(
+    (value: PetConnection) => {
+      const setup =
+        value.provider !== 'chatgpt' && value.status === 'disconnected' && value.revision === 0;
+      if (!setup && value.revision < revision.current) return false;
+      const previous = runtimeRef.current;
+      if (setup && (previous?.status !== 'disconnected' || previous.revision !== 0)) {
+        generation.current += 1;
+        setExposedGeneration(generation.current);
+        setModels([]);
+        setBusy(false);
+        reportError('', null);
+      }
+      revision.current = value.revision;
+      runtimeRef.current = value;
+      setRuntimeState(value);
+      if (previous && previous.status !== 'connected' && value.status === 'connected')
+        discoverModels();
+      return true;
+    },
+    [discoverModels, reportError],
+  );
 
   // Bound to whichever generation is current at the moment this identity is handed out; a
   // caller that received it earlier (a `PetWorkTools` instance whose in-flight `tool_result`
@@ -220,19 +258,13 @@ export function usePetRuntime(
     // `react-hooks/set-state-in-effect` exists to stop.
     let cancelled = false;
     queueMicrotask(() => {
-      if (cancelled) return;
+      if (cancelled || myGeneration !== generation.current) return;
       setRuntimeState(null);
+      setModels([]);
       reportError('', null);
       setExposedGeneration(myGeneration);
     });
-    void client
-      .execute(pets.runtime({ operation: 'models' }), { signal: controller.signal })
-      .then((value) => {
-        if (!controller.signal.aborted) setModels(value.models ?? []);
-      })
-      .catch(() => {
-        /* The provider default remains available if model discovery fails. */
-      });
+    discoverModels();
 
     let failures = 0;
     let nextEarliestStart = 0;
@@ -261,6 +293,7 @@ export function usePetRuntime(
         if (isAborted(controller.signal)) break;
         const requestStart = Date.now();
         nextEarliestStart = requestStart + MIN_REQUEST_GAP_MS;
+        const watchGeneration = generation.current;
         try {
           // `forceRefresh` is what keeps this an actual long poll rather than a cache read: two
           // watches in a row commonly carry the *same* `after` (nothing changed yet), and the
@@ -275,7 +308,8 @@ export function usePetRuntime(
             }),
             { signal: controller.signal, forceRefresh: true },
           );
-          if (isAborted(controller.signal) || myGeneration !== generation.current) break;
+          if (isAborted(controller.signal)) break;
+          if (watchGeneration !== generation.current) continue;
           const elapsed = Date.now() - requestStart;
           const unchanged = result.revision <= revision.current;
           applyRaw(result);
@@ -285,7 +319,7 @@ export function usePetRuntime(
             nextEarliestStart = Date.now() + IMMEDIATE_UNCHANGED_DELAY_MS;
         } catch (cause) {
           if (isCanceledError(cause) || isAborted(controller.signal)) break;
-          if (myGeneration !== generation.current) break;
+          if (watchGeneration !== generation.current) continue;
           if (rootItemId && isNixApiError(cause) && [403, 404, 409].includes(cause.status ?? 0)) {
             refuseNoteScope();
             break;
@@ -303,12 +337,64 @@ export function usePetRuntime(
         }
       }
     };
+
+    const refreshProvider = async () => {
+      const requestGeneration = generation.current;
+      try {
+        const result = await client.execute(
+          pets.runtime({
+            operation: 'read',
+            workspaceId,
+            petId,
+            ...(rootItemId ? { rootItemId } : {}),
+          }),
+          { signal: controller.signal },
+        );
+        if (controller.signal.aborted || requestGeneration !== generation.current) return;
+        const needsModels =
+          runtimeRef.current === null || runtimeRef.current.status === 'connected';
+        if (applyRaw(result) && needsModels && result.status === 'connected') discoverModels();
+      } catch (cause) {
+        if (
+          controller.signal.aborted ||
+          isCanceledError(cause) ||
+          requestGeneration !== generation.current
+        )
+          return;
+        if (rootItemId && isNixApiError(cause) && [403, 404, 409].includes(cause.status ?? 0)) {
+          refuseNoteScope();
+          return;
+        }
+        if (errorKindRef.current === null || errorKindRef.current === 'load')
+          reportError(
+            'Conversation could not be loaded. Check your connection and try again.',
+            'load',
+          );
+      }
+    };
+    const providerKeysChanged = () => {
+      generation.current += 1;
+      setExposedGeneration(generation.current);
+      setBusy(false);
+      void refreshProvider();
+    };
+    window.addEventListener('nix-pet-provider-keys-changed', providerKeysChanged);
     void watch();
     return () => {
       cancelled = true;
       controller.abort();
+      window.removeEventListener('nix-pet-provider-keys-changed', providerKeysChanged);
     };
-  }, [client, workspaceId, petId, rootItemId, applyRaw, reportError, refuseNoteScope]);
+  }, [
+    client,
+    workspaceId,
+    petId,
+    rootItemId,
+    applyRaw,
+    discoverModels,
+    reportError,
+    refuseNoteScope,
+  ]);
 
   const command = useCallback(
     async (operation: 'send' | 'interrupt' | 'reset' | 'read', input?: PetSendInput) => {

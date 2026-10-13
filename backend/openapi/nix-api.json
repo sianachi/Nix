@@ -17848,6 +17848,10 @@
           },
           "default": {
             "type": "boolean"
+          },
+          "supportsTools": {
+            "type": "boolean",
+            "default": true
           }
         }
       },

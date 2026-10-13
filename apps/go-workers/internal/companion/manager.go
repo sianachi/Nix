@@ -716,15 +716,19 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	}
 	a.mu.Unlock()
 	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": instructions() + noteScopeRules(r), "developerInstructions": r.Instructions}
-	if r.Model != "" {
+	supportsTools := true
+	if r.Model != "" || a.provider != "" && a.provider != "chatgpt" {
 		if err := a.listModels(ctx); err != nil {
 			return err
 		}
 		a.mu.Lock()
+		selectedModel := r.Model
+		if selectedModel == "" {
+			selectedModel = defaultModel(a.models).ID
+		}
 		found := false
-		supportsTools := true
 		for _, model := range a.models {
-			if model.ID == r.Model {
+			if model.ID == selectedModel {
 				found = true
 				supportsTools = model.SupportsTools
 			}
@@ -744,10 +748,10 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 			a.mu.Unlock()
 			return errors.New("model does not support tools")
 		}
-		params["model"] = r.Model
+		params["model"] = selectedModel
 	}
 	method := "thread/start"
-	if thread == "" {
+	if thread == "" && supportsTools {
 		params["dynamicTools"] = workspaceToolsForRequest(r)
 	}
 	if thread != "" {

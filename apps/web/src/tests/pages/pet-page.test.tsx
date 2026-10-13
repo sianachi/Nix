@@ -3,9 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PetPage } from '../../pages/pet-page';
+import type { PetProfile } from '@nix/api-client';
 
 const WORKSPACE = '33333333-3333-4333-8333-333333333333';
 const ROOT = '66666666-6666-4666-8666-666666666666';
+const petSettings = vi.hoisted((): { provider: PetProfile['provider']; enabled: boolean } => ({
+  provider: 'chatgpt',
+  enabled: true,
+}));
 const mock = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn(), send: vi.fn(), hook: vi.fn() }));
 vi.mock('../../api/api-client-provider', () => ({ useApiClient: () => mock }));
 vi.mock('../../workspaces/workspace-context', () => ({
@@ -15,7 +20,9 @@ vi.mock('../../pets/use-pet-settings', () => ({
   usePetSettings: () => ({
     saved: {
       settings: {
-        enabled: true,
+        get enabled() {
+          return petSettings.enabled;
+        },
         activePetId: '44444444-4444-4444-8444-444444444444',
         motion: 'reduced',
         profiles: [
@@ -27,7 +34,9 @@ vi.mock('../../pets/use-pet-settings', () => ({
             responseLength: 'balanced',
             instructions: '',
             applyWithoutAsking: false,
-            provider: 'chatgpt',
+            get provider() {
+              return petSettings.provider;
+            },
           },
         ],
       },
@@ -65,6 +74,10 @@ function renderNote(root = ROOT) {
 describe('note chat page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    petSettings.provider = 'chatgpt';
+    petSettings.enabled = true;
+    localStorage.clear();
+    sessionStorage.clear();
     mock.send.mockResolvedValue(true);
     mock.query.mockImplementation((endpoint: { operation: string }) =>
       Promise.resolve(
@@ -137,5 +150,49 @@ describe('note chat page', () => {
       expect(request).toHaveProperty('body.operation', 'history');
       expect(request).toHaveProperty('body.rootItemId', ROOT);
     });
+  });
+
+  it('resets the page model when the same pet changes providers', async () => {
+    localStorage.setItem(
+      `nix.pet.model.${WORKSPACE}.44444444-4444-4444-8444-444444444444.chat`,
+      'gpt-model',
+    );
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <MemoryRouter initialEntries={[`/w/${WORKSPACE}/pet`]}>
+        <PetPage />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('gpt-model');
+
+    petSettings.provider = 'openrouter';
+    rerender(
+      <MemoryRouter initialEntries={[`/w/${WORKSPACE}/pet`]}>
+        <PetPage />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Chat settings' }));
+    expect(screen.getByRole('combobox', { name: 'Model' })).toHaveValue('');
+    expect(screen.queryByRole('option', { name: /gpt-model/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: /Read without asking/ })).toHaveAccessibleName(
+      'Read without asking. When Workspace access is on, Pip can search and read your workspace without asking first. What it reads is sent to OpenRouter. Changes ask first unless you turn on Apply without asking in a conversation. Applies on this device.',
+    );
+  });
+
+  it('opens the Pets settings tab when the companion is switched off', () => {
+    petSettings.enabled = false;
+    render(
+      <MemoryRouter initialEntries={[`/w/${WORKSPACE}/pet`]}>
+        <PetPage />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Open Settings' })).toHaveAttribute(
+      'href',
+      '/w/33333333-3333-4333-8333-333333333333/settings?tab=pets',
+    );
+    expect(mock.hook).not.toHaveBeenCalled();
   });
 });
