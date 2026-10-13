@@ -80,8 +80,9 @@ func writeArchive(dir string, c *conversation) error {
 // foldDesign moves what the retired Design conversation left on disk for key (its live
 // conversation and its archived threads, kept under key+"-consult") into key's own history,
 // where it stays readable but takes no new messages. It is a no-op once nothing is left.
-// shortcut: moved entries are not held to the 32-entry history cap, so a pet that had a full
-// history in both conversations lists only 32 of them until some are deleted.
+// Moved entries are not held to the 32-entry cap; nothing is dropped. Fixed: history now lists
+// the newest 32 rather than an arbitrary 32, and archiveLocked refuses new entries until deletes
+// bring the count back under the cap, so the overflow drains through the user's own deletes.
 func (a *account) foldDesign(key string) error {
 	old := key + "-consult"
 	livePath := filepath.Join(a.home, old+".json")
@@ -191,9 +192,6 @@ func (a *account) history(key string, r Request) (Response, error) {
 		if entry.IsDir() || !uuid.MatchString(id) {
 			continue
 		}
-		if len(result.History) >= 32 {
-			break
-		}
 		f, err := os.Open(filepath.Join(dir, entry.Name()))
 		if err != nil {
 			return Response{}, err
@@ -207,5 +205,9 @@ func (a *account) history(key string, r Request) (Response, error) {
 		result.History = append(result.History, value.HistoryEntry)
 	}
 	sort.Slice(result.History, func(i, j int) bool { return result.History[i].CreatedAt > result.History[j].CreatedAt })
+	// Sorted before the cap, so a folded history over 32 entries shows its newest.
+	if len(result.History) > 32 {
+		result.History = result.History[:32]
+	}
 	return result, nil
 }

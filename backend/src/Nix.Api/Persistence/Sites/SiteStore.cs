@@ -35,6 +35,13 @@ public sealed class SiteStore(NixDbContext database, NixSqlExecutor sql, INixSes
             cancellationToken).ConfigureAwait(false);
 
     /// <inheritdoc />
+    public async ValueTask LockTenantCreatesAsync(CancellationToken cancellationToken) =>
+        _ = await sql.ScalarOrDefaultAsync<int>(
+            "SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtextextended('site.create:' || @tenant_id::text, 0))) AS held",
+            [TenantParameter()],
+            cancellationToken).ConfigureAwait(false);
+
+    /// <inheritdoc />
     public async ValueTask<int> CountAsync(CancellationToken cancellationToken) =>
         await database.Sites.AsNoTracking().CountAsync(cancellationToken).ConfigureAwait(false);
 

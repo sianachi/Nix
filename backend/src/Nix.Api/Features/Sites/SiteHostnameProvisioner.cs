@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 using Nix.Abstractions;
 using Nix.Domain.Sites;
 
@@ -22,7 +23,8 @@ public sealed record SiteProvisioning(string? Error, bool Changed);
 /// default hostnames carry a label suffix (no wildcard covers them). Idempotent: a repeat finds its own tagged records
 /// and corrects them in place. It never overwrites or deletes a record it did not create.
 /// </summary>
-public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunnelLock tunnelLock, SiteOptions options)
+public sealed class SiteHostnameProvisioner(
+    ICloudflareDns cloudflare, ISiteTunnelLock tunnelLock, SiteOptions options, ILogger<SiteHostnameProvisioner> logger)
 {
     /// <summary>Whether Nix manages DNS for <paramref name="hostname"/> of a site in <paramref name="workspaceId"/>.</summary>
     public bool Manages(string hostname, Guid workspaceId) => options.Cloudflare.ZoneFor(hostname, workspaceId) is not null;
@@ -308,8 +310,9 @@ public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunn
         }
         catch (CloudflareApiException)
         {
-            // shortcut: a record left behind here is still tagged with the site id; sweep tagged
-            // records by hand if this ever fails, or add a reconciler.
+            // Fixed: the leftover is no longer silent. The warning names what to sweep; the records
+            // are still tagged with the site id, and a repeat run finds and reuses them.
+            SiteHostnameLog.UndoFailed(logger, hostname, zoneId, string.Join(',', created), addedRule);
         }
     }
 
@@ -370,4 +373,10 @@ public sealed class SiteHostnameProvisioner(ICloudflareDns cloudflare, ISiteTunn
         && name == hostname;
 
     private readonly record struct Ensured(string? OwnedId, bool Created, bool Wrote, bool Blocked);
+}
+
+internal static partial class SiteHostnameLog
+{
+    [LoggerMessage(5500, LogLevel.Warning, "Could not undo a failed provisioning of {Hostname}: records {RecordIds} in zone {ZoneId} (tunnel rule added: {TunnelRule}) may be left behind")]
+    internal static partial void UndoFailed(ILogger logger, string hostname, string zoneId, string recordIds, bool tunnelRule);
 }

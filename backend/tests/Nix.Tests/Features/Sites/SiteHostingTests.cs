@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
 using Nix.Abstractions;
 using Nix.Domain.Identity;
 using Nix.Domain.Items;
@@ -115,7 +116,7 @@ public sealed class SiteHostingTests
         var cloudflare = new InMemoryCloudflare();
         var foreign = await cloudflare.CreateRecordAsync(
             "zone-1", new CloudflareDnsRecordInput("TXT", "_nix-site.osinachi.nwagboso.com", "someone-else", false, "theirs"), Ct);
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true), NullLogger<SiteHostnameProvisioner>.Instance);
         var site = NewSite();
         var host = Custom("osinachi.nwagboso.com", verified: false);
 
@@ -145,7 +146,7 @@ public sealed class SiteHostingTests
     {
         var cloudflare = new InMemoryCloudflare();
         await cloudflare.CreateRecordAsync("zone-1", new CloudflareDnsRecordInput("A", "osinachi.nwagboso.com", "192.0.2.1", true, string.Empty), Ct);
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: false));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: false), NullLogger<SiteHostnameProvisioner>.Instance);
         var host = Custom("osinachi.nwagboso.com", verified: false);
 
         Assert.Equal("routing_record_foreign", (await provisioner.ProvisionAsync(NewSite(), host, Ct)).Error);
@@ -160,7 +161,7 @@ public sealed class SiteHostingTests
     {
         var cloudflare = new InMemoryCloudflare();
         await cloudflare.CreateRecordAsync("zone-1", new CloudflareDnsRecordInput("CNAME", "*.nwagboso.com", "elsewhere.example.net", true, string.Empty), Ct);
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: false));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: false), NullLogger<SiteHostnameProvisioner>.Instance);
 
         Assert.Equal("routing_record_foreign", (await provisioner.ProvisionAsync(NewSite(), Custom("a.b.nwagboso.com", verified: false), Ct)).Error);
         Assert.Single(cloudflare.Records);
@@ -173,7 +174,7 @@ public sealed class SiteHostingTests
     public async Task A_failure_part_way_deletes_what_the_run_created_and_a_switched_off_token_keeps_the_ids()
     {
         var cloudflare = new InMemoryCloudflare { FailTunnelWrites = true };
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true), NullLogger<SiteHostnameProvisioner>.Instance);
         var host = Custom("osinachi.nwagboso.com", verified: false);
 
         Assert.StartsWith("cloudflare_", (await provisioner.ProvisionAsync(NewSite(), host, Ct)).Error, StringComparison.Ordinal);
@@ -181,7 +182,7 @@ public sealed class SiteHostingTests
         Assert.Null(host.ManagedRecords);
 
         host.ManagedRecords = "{\"zoneId\":\"zone-1\",\"records\":[\"r9\"],\"tunnel\":false}";
-        var off = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, new SiteOptions { Domain = "sites.example.net" });
+        var off = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, new SiteOptions { Domain = "sites.example.net" }, NullLogger<SiteHostnameProvisioner>.Instance);
         Assert.Equal("cloudflare_not_configured", await off.RemoveAsync(host, Ct));
         Assert.NotNull(host.ManagedRecords);
     }
@@ -190,7 +191,7 @@ public sealed class SiteHostingTests
     public async Task A_tunnel_configuration_without_an_ingress_list_is_never_rewritten()
     {
         var cloudflare = new InMemoryCloudflare { Tunnel = new JsonObject { ["warp-routing"] = new JsonObject() } };
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true), NullLogger<SiteHostnameProvisioner>.Instance);
         var host = Custom("osinachi.nwagboso.com", verified: false);
 
         Assert.Equal("cloudflare_malformed", (await provisioner.ProvisionAsync(NewSite(), host, Ct)).Error);
@@ -211,7 +212,7 @@ public sealed class SiteHostingTests
                     new JsonObject { ["service"] = "http_status:404" }),
             },
         };
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true), NullLogger<SiteHostnameProvisioner>.Instance);
         var host = Custom("osinachi.nwagboso.com", verified: false);
 
         Assert.Null((await provisioner.ProvisionAsync(NewSite(), host, Ct)).Error);
@@ -228,7 +229,7 @@ public sealed class SiteHostingTests
         var wildcard = await cloudflare.CreateRecordAsync(
             "other", new CloudflareDnsRecordInput("CNAME", "*.nixsites.com", "elsewhere.example.net", true, string.Empty), Ct);
         cloudflare.WrittenZones.Clear();
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, SuffixedOptions());
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, SuffixedOptions(), NullLogger<SiteHostnameProvisioner>.Instance);
         var site = NewSite();
         var host = Default("demo-home.nixsites.com");
 
@@ -267,7 +268,7 @@ public sealed class SiteHostingTests
     public async Task Only_a_default_hostname_of_the_instance_shape_is_ever_written_in_the_default_zone(string name, string kind)
     {
         var cloudflare = new InMemoryCloudflare();
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, SuffixedOptions());
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, SuffixedOptions(), NullLogger<SiteHostnameProvisioner>.Instance);
         var host = kind == SiteRules.DefaultHost ? Default(name) : Custom(name, verified: false);
 
         Assert.Equal(new SiteProvisioning(null, false), await provisioner.EnsureDefaultAsync(NewSite(), host, Ct));
@@ -281,7 +282,7 @@ public sealed class SiteHostingTests
     public async Task An_unsuffixed_instance_never_writes_a_default_hostname_record()
     {
         var cloudflare = new InMemoryCloudflare();
-        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true));
+        var provisioner = new SiteHostnameProvisioner(cloudflare, NoLock.Instance, Options(tunnel: true), NullLogger<SiteHostnameProvisioner>.Instance);
 
         Assert.False((await provisioner.EnsureDefaultAsync(NewSite(), Default("demo.sites.example.net"), Ct)).Changed);
         Assert.Empty(cloudflare.Records);

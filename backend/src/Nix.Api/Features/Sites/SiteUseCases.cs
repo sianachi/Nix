@@ -133,7 +133,9 @@ public sealed class CreateSiteHandler(
             return Result.Failure<SiteResponse>(new(SiteErrors.SlugReservedCode, "That slug is reserved on this deployment."));
         }
 
-        // shortcut: two concurrent creates can both pass the count; upgrade to a tenant lock if the cap must be exact.
+        // Fixed: the tenant's create lock (taken after the tunnel lock, the order every path keeps)
+        // makes the count exact, so two concurrent creates can no longer both pass the cap.
+        await sites.LockTenantCreatesAsync(cancellationToken).ConfigureAwait(false);
         if (await sites.CountAsync(cancellationToken).ConfigureAwait(false) >= options.MaximumSitesPerTenant)
         {
             return Result.Failure<SiteResponse>(new(
