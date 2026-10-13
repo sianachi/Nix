@@ -358,6 +358,7 @@ public sealed class NixDbContext : DbContext
         modelBuilder.ApplyConfiguration(new PetPreferencesConfiguration());
         modelBuilder.ApplyConfiguration(new PrincipalPreferencesConfiguration());
         modelBuilder.ApplyConfiguration(new WorkspaceArrangementConfiguration());
+        modelBuilder.ApplyConfiguration(new PetProviderCredentialConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationConfiguration());
         modelBuilder.ApplyConfiguration(new PushSubscriptionConfiguration());
         modelBuilder.ApplyConfiguration(new NotificationInboxConfiguration());

@@ -106,6 +106,9 @@ public static class NixTables
     /// <summary>One person's workspace groups and pins; a convenience, never a permission.</summary>
     public const string WorkspaceArrangement = "workspace_arrangement";
 
+    /// <summary>One person's protected API key per model provider for their pets.</summary>
+    public const string PetProviderCredential = "pet_provider_credential";
+
     /// <summary>One entry in a principal's private inbox.</summary>
     public const string Notification = "notification";
 
@@ -257,6 +260,7 @@ public static class NixTables
         PetPreferences,
         PrincipalPreferences,
         WorkspaceArrangement,
+        PetProviderCredential,
         Notification,
         PushSubscription,
         NotificationInbox,
@@ -447,6 +451,7 @@ public static class NixTables
             // written by Core alone, the same reasoning as pet_preferences and canvas_library.
             [PrincipalPreferences] = FullDml,
             [WorkspaceArrangement] = FullDml,
+            [PetProviderCredential] = FullDml,
             [Notification] = FullDml,
             [PushSubscription] = FullDml,
             [NotificationInbox] = FullDml,

@@ -10,6 +10,7 @@ import { newPet, petCatalog, personalityDescriptions } from './catalog';
 import { usePetSettings } from './use-pet-settings';
 import { PetAvatar } from './pet-avatar';
 import { PetConnectionPanel } from './pet-connection-panel';
+import { PetProviderKeys } from './pet-provider-keys';
 import { PetDeviceSettings } from './pet-device-settings';
 
 export function PetSettingsSection(): ReactElement {
@@ -35,6 +36,7 @@ export function PetSettingsSection(): ReactElement {
         </div>
       ) : null}
       <PetConnectionPanel />
+      <PetProviderKeys />
       {state.saved ? (
         <PetSettingsEditor
           initial={state.saved}
@@ -290,6 +292,24 @@ export function PetSettingsEditor({ initial, saving, onSave }: EditorProps): Rea
                     updatePet({ instructions: event.currentTarget.value });
                   }}
                 />
+              )}
+            </Field>
+            <Field
+              label="Model provider"
+              hint="ChatGPT uses the Codex connection below. Claude and OpenRouter use the API key you save under Provider keys; messages are billed to that key."
+            >
+              {(control) => (
+                <Select
+                  {...control}
+                  value={pet.provider}
+                  onChange={(event) => {
+                    updatePet({ provider: event.currentTarget.value as PetProfile['provider'] });
+                  }}
+                >
+                  <option value="chatgpt">ChatGPT (Codex)</option>
+                  <option value="anthropic">Claude (Anthropic API key)</option>
+                  <option value="openrouter">OpenRouter (API key)</option>
+                </Select>
               )}
             </Field>
             <div className="flex flex-col gap-1">

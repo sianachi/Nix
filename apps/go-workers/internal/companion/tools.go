@@ -17,6 +17,9 @@ type Model struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
 	Default bool   `json:"default"`
+	// SupportsTools is false only for a provider model that cannot call tools (some OpenRouter
+	// models). Codex and Anthropic models all can; an absent value in a catalog reads as true.
+	SupportsTools bool `json:"supportsTools"`
 	// supportedEfforts and defaultEffort come from model/list's own
 	// supportedReasoningEfforts[].reasoningEffort and defaultReasoningEffort (Codex 0.153.4);
 	// json:"-" keeps the wire Model shape (what the web client already reads) unchanged.
@@ -249,6 +252,7 @@ func (a *account) listModels(ctx context.Context) error {
 				ReasoningEffort string `json:"reasoningEffort"`
 			} `json:"supportedReasoningEfforts"`
 			DefaultReasoningEffort string `json:"defaultReasoningEffort"`
+			SupportsTools          *bool  `json:"supportsTools"`
 		} `json:"data"`
 	}
 	if len(raw) > 256<<10 || json.Unmarshal(raw, &page) != nil || len(page.Data) > 100 {
@@ -267,6 +271,7 @@ func (a *account) listModels(ctx context.Context) error {
 				ID:               entry.Model,
 				Name:             entry.DisplayName,
 				Default:          entry.IsDefault,
+				SupportsTools:    entry.SupportsTools == nil || *entry.SupportsTools,
 				supportedEfforts: efforts,
 				defaultEffort:    entry.DefaultReasoningEffort,
 			})

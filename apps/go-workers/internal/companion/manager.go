@@ -25,11 +25,16 @@ var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-
 const toolVersion = 9
 
 type Request struct {
-	TenantID        string `json:"tenantId"`
-	PrincipalID     string `json:"principalId"`
-	WorkspaceID     string `json:"workspaceId"`
-	PetID           string `json:"petId"`
-	Operation       string `json:"operation"`
+	TenantID    string `json:"tenantId"`
+	PrincipalID string `json:"principalId"`
+	WorkspaceID string `json:"workspaceId"`
+	PetID       string `json:"petId"`
+	Operation   string `json:"operation"`
+	// Provider names the model provider for this pet: "chatgpt" (the Codex app-server, the
+	// default when empty), "anthropic" or "openrouter". ApiKey carries the owner's own key for
+	// the HTTP providers on every request; it lives in memory for the account's life only.
+	Provider        string `json:"provider,omitempty"`
+	ApiKey          string `json:"apiKey,omitempty"`
 	RequestID       string `json:"requestId"`
 	Text            string `json:"text"`
 	Instructions    string `json:"instructions"`
@@ -132,6 +137,8 @@ type conversation struct {
 
 type account struct {
 	mu sync.Mutex
+	// provider is the model provider this account speaks to (see Request.Provider).
+	provider string
 	// op serializes state transitions while notifications continue to use mu.
 	op            sync.Mutex
 	transport     Transport
@@ -173,7 +180,7 @@ type Manager struct {
 	binary   string
 	ctx      context.Context
 	accounts map[string]*account
-	launch   func(context.Context, string, string, func(string, json.RawMessage)) (Transport, error)
+	launch   func(context.Context, string, string, string, string, func(string, json.RawMessage)) (Transport, error)
 	// chatEffort is handed to each account this manager creates; see the matching account
 	// field.
 	chatEffort string
@@ -203,9 +210,12 @@ func New(ctx context.Context, opts Options) (*Manager, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launch, chatEffort: opts.ChatEffort, logger: logger, trace: opts.Trace}
+	m := &Manager{root: opts.Root, binary: opts.Binary, ctx: ctx, accounts: map[string]*account{}, launch: launchProvider, chatEffort: opts.ChatEffort, logger: logger, trace: opts.Trace}
 	if opts.Trace {
-		m.launch = func(ctx context.Context, binary, home string, notify func(string, json.RawMessage)) (Transport, error) {
+		m.launch = func(ctx context.Context, provider, binary, home, apiKey string, notify func(string, json.RawMessage)) (Transport, error) {
+			if provider != "" && provider != "chatgpt" {
+				return newHTTPTransport(provider, apiKey, home, notify)
+			}
 			return launchWith(ctx, binary, home, notify, true)
 		}
 	}
@@ -249,11 +259,39 @@ func (m *Manager) Close() {
 	}
 }
 
+// launchProvider picks the process behind the seam: the Codex app-server for ChatGPT accounts, an
+// in-process HTTPS transport for the key providers. Same vocabulary either side.
+func launchProvider(ctx context.Context, provider, binary, home, apiKey string, notify func(string, json.RawMessage)) (Transport, error) {
+	if provider != "" && provider != "chatgpt" {
+		return newHTTPTransport(provider, apiKey, home, notify)
+	}
+	return launch(ctx, binary, home, notify)
+}
+
+func providerOf(r Request) string {
+	if r.Provider == "" {
+		return "chatgpt"
+	}
+	return r.Provider
+}
+
 func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// One account per provider: conversation files share the principal's home (they are
+	// provider-neutral), but the process behind the seam is the provider's own.
 	key := r.TenantID + "-" + r.PrincipalID
+	if provider := providerOf(r); provider != "chatgpt" {
+		key += "-" + provider
+	}
 	if a := m.accounts[key]; a != nil {
+		if a.provider != "chatgpt" && a.transport != nil {
+			if keyed, ok := a.transport.(*httpTransport); ok {
+				keyed.mu.Lock()
+				keyed.apiKey = r.ApiKey
+				keyed.mu.Unlock()
+			}
+		}
 		if live, ok := a.transport.(interface{ Alive() bool }); ok && !live.Alive() {
 			delete(m.accounts, key)
 		} else {
@@ -266,8 +304,8 @@ func (m *Manager) account(ctx context.Context, r Request) (*account, error) {
 	if len(m.accounts) >= 4 {
 		return nil, errors.New("companion capacity reached")
 	}
-	a := &account{home: filepath.Join(m.root, key), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), chatEffort: m.chatEffort, logger: m.logger, trace: m.trace}
-	transport, err := m.launch(m.ctx, m.binary, a.home, a.notify)
+	a := &account{provider: providerOf(r), home: filepath.Join(m.root, r.TenantID+"-"+r.PrincipalID), status: "disconnected", conversations: map[string]*conversation{}, last: time.Now(), chatEffort: m.chatEffort, logger: m.logger, trace: m.trace}
+	transport, err := m.launch(m.ctx, a.provider, m.binary, a.home, r.ApiKey, a.notify)
 	if err != nil {
 		return nil, err
 	}
@@ -413,6 +451,19 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 		if err := a.listModels(ctx); err != nil {
 			return Response{}, err
 		}
+	} else if r.Operation == "connect" && a.provider != "chatgpt" {
+		// A key provider "connects" by proving the key: one model listing, nothing stored here.
+		if err := a.listModels(ctx); err != nil {
+			a.mu.Lock()
+			a.status = "error"
+			a.reason = err.Error()
+			a.mu.Unlock()
+			return a.snapshot(""), nil
+		}
+		a.mu.Lock()
+		a.status = "connected"
+		a.reason = "API key accepted."
+		a.mu.Unlock()
 	} else if r.Operation == "connect" {
 		a.mu.Lock()
 		pending := a.loginID != ""
@@ -490,6 +541,12 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 			a.loginID = ""
 			a.url = ""
 			a.code = ""
+		} else if status.Account != nil && status.Account.Type == "apiKey" {
+			a.status = "connected"
+			a.reason = "API key saved. Messages are billed to that key."
+		} else if a.provider != "chatgpt" {
+			a.status = "disconnected"
+			a.reason = "Add an API key for this provider in Settings > Pets."
 		} else if a.loginID == "" {
 			a.status = "disconnected"
 			a.reason = "Connect your ChatGPT account to talk with your companion."
@@ -573,7 +630,7 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 func (a *account) snapshot(key string) Response {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	r := Response{Provider: "chatgpt", Status: a.status, CanConnect: a.status != "connected", Reason: a.reason, VerificationURL: a.url, UserCode: a.code, State: "idle", Messages: []Message{}}
+	r := Response{Provider: a.provider, Status: a.status, CanConnect: a.status != "connected", Reason: a.reason, VerificationURL: a.url, UserCode: a.code, State: "idle", Messages: []Message{}}
 	r.Models = append([]Model{}, a.models...)
 	r.Tools = []ToolCall{}
 	r.History = []HistoryEntry{}
@@ -665,14 +722,27 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		}
 		a.mu.Lock()
 		found := false
+		supportsTools := true
 		for _, model := range a.models {
 			if model.ID == r.Model {
 				found = true
+				supportsTools = model.SupportsTools
 			}
 		}
 		a.mu.Unlock()
 		if !found {
 			return errors.New("model is unavailable")
+		}
+		if !supportsTools && r.WorkspaceAccess {
+			// Said rather than silently dropping the tools: a model that cannot call tools
+			// cannot act on the workspace, and pretending otherwise would be a reply that never
+			// reads or writes anything while claiming it did.
+			a.mu.Lock()
+			c.State = "error"
+			c.Reason = "This model cannot use tools. Pick another model, or turn Workspace access off for this message."
+			a.bumpLocked(c)
+			a.mu.Unlock()
+			return errors.New("model does not support tools")
 		}
 		params["model"] = r.Model
 	}

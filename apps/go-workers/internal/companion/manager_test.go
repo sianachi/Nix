@@ -234,7 +234,7 @@ func TestIdentitiesAreSeparatedAndMalformedJSONRefused(t *testing.T) {
 	}
 	defer m.Close()
 	var homes []string
-	m.launch = func(_ context.Context, _ string, home string, _ func(string, json.RawMessage)) (Transport, error) {
+	m.launch = func(_ context.Context, _ string, _ string, home string, _ string, _ func(string, json.RawMessage)) (Transport, error) {
 		homes = append(homes, home)
 		return &fakeTransport{}, nil
 	}

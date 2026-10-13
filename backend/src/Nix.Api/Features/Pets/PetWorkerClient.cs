@@ -18,9 +18,40 @@ namespace Nix.Features.Pets;
 /// <summary>Core's bounded, authenticated gateway to the companion in the existing Go worker.</summary>
 public sealed class PetWorkerClient(HttpClient http, IConfiguration configuration,
     INixSessionContextAccessor session, NixDispatcher dispatcher, IPermissionResolver permissions,
+    IPetProviderCredentialStore credentials, PetProviderKeyProtector protector,
     ILogger<PetWorkerClient>? logger = null)
 {
     private readonly ILogger log = logger ?? NullLogger<PetWorkerClient>.Instance;
+
+    /// <summary>
+    /// The pet's provider and, for a key provider, the owner's key recovered from storage. The key
+    /// crosses to the worker over the internal channel only and is held there in memory; Core never
+    /// logs it. A key provider without a stored key is refused here with the fix, before the worker.
+    /// </summary>
+    private async Task<Result<(string Provider, string? ApiKey)>> ProviderFor(PetProfile? pet, NixSessionContext context, CancellationToken cancellationToken)
+    {
+        var provider = pet?.Provider ?? PetProviders.ChatGpt;
+        if (!PetProviders.NeedsKey(provider))
+        {
+            return Result.Success<(string, string?)>((provider, null));
+        }
+
+        var credential = await credentials.FindAsync(context.TenantId, context.PrincipalId, provider, cancellationToken).ConfigureAwait(false);
+        if (credential is null)
+        {
+            return Result.Failure<(string, string?)>(new("pets.no_provider_key",
+                $"No API key is saved for {(provider == PetProviders.Anthropic ? "Claude" : "OpenRouter")}. Add one in Settings > Pets."));
+        }
+
+        try
+        {
+            return Result.Success<(string, string?)>((provider, protector.Unprotect(credential.ProtectedKey)));
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            return Result.Failure<(string, string?)>(new("pets.no_provider_key", "The saved API key could not be read. Save it again in Settings > Pets."));
+        }
+    }
 
     /// <summary>Validates the caller's scope before forwarding a bounded companion operation.
     /// POST /runtime never accepts "watch": only <see cref="ExecuteWatchAsync"/> reaches the
@@ -60,7 +91,17 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
 
         var instructions = string.Empty;
         var title = string.Empty;
-        if (request.Operation is not ("status" or "connect" or "disconnect" or "models"))
+        PetProfile? pet = null;
+        if (request.Operation is "status" or "connect" or "disconnect" or "models")
+        {
+            // A connection question about a particular pet is about that pet's provider.
+            if (request.PetId is { } askedPet && askedPet != Guid.Empty)
+            {
+                var asked = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), cancellationToken).ConfigureAwait(false);
+                pet = asked.Settings.Profiles.FirstOrDefault(profile => profile.Id == askedPet);
+            }
+        }
+        else
         {
             if (request.WorkspaceId is null || request.WorkspaceId == Guid.Empty || request.PetId is null || request.PetId == Guid.Empty)
             {
@@ -92,7 +133,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             }
 
             var settings = await dispatcher.QueryAsync<GetPetSettings, PetSettingsResponse>(new(), cancellationToken).ConfigureAwait(false);
-            var pet = settings.Settings.Profiles.FirstOrDefault(profile => profile.Id == request.PetId);
+            pet = settings.Settings.Profiles.FirstOrDefault(profile => profile.Id == request.PetId);
             if (pet is null || request.Operation == "send" && !settings.Settings.Enabled)
             {
                 return Result.Failure<PetConnectionResponse>(new("pets.invalid_request", "Enable a saved pet before starting a conversation."));
@@ -120,11 +161,22 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             }
         }
 
+        var resolved = await ProviderFor(pet, context, cancellationToken).ConfigureAwait(false);
+        if (resolved.IsFailure)
+        {
+            // A missing key is a settings state, not a worker failure: shown as a connection the
+            // person can fix rather than a 4xx that reads as a broken pet.
+            return request.Operation is "status" or "connect" or "models"
+                ? Result.Success(new PetConnectionResponse(pet?.Provider ?? PetProviders.ChatGpt, "disconnected", resolved.Error.Message, false, Messages: []))
+                : Result.Failure<PetConnectionResponse>(resolved.Error);
+        }
+
+        var (provider, apiKey) = resolved.Value;
         var address = configuration["Nix:Pets:WorkerUrl"];
         var secret = configuration["Nix:InternalSecret"];
         if (string.IsNullOrWhiteSpace(address) || string.IsNullOrWhiteSpace(secret))
         {
-            return Result.Success(new PetConnectionResponse("chatgpt", "unavailable", "The companion is not enabled on this server. Configure the existing Go worker's companion data directory and Core's worker URL.", false, Messages: []));
+            return Result.Success(new PetConnectionResponse(provider, "unavailable", "The companion is not enabled on this server. Configure the existing Go worker's companion data directory and Core's worker URL.", false, Messages: []));
         }
 
         if (!Uri.TryCreate(address, UriKind.Absolute, out var origin) || origin.Scheme is not ("http" or "https")
@@ -142,7 +194,7 @@ public sealed class PetWorkerClient(HttpClient http, IConfiguration configuratio
             request.RequestId?.ToString() ?? "", request.Text, instructions, request.ItemId?.ToString() ?? "", title, request.SharedText,
             request.Model, request.WorkspaceAccess, request.ToolId, request.ToolResult, request.ToolSuccess, request.HistoryId?.ToString() ?? "",
             request.Mode, after, request.Today, request.TimeZone, request.RootItemId is null ? request.WorkspaceMap : null, request.ToolLockedContent,
-            request.RootItemId?.ToString(), request.ReadOnly), PetJsonContext.Default.PetWorkerRequest);
+            request.RootItemId?.ToString(), request.ReadOnly, provider == PetProviders.ChatGpt ? null : provider, apiKey), PetJsonContext.Default.PetWorkerRequest);
         try
         {
             using var response = await http.SendAsync(outgoing, HttpCompletionOption.ResponseHeadersRead, timeout.Token).ConfigureAwait(false);

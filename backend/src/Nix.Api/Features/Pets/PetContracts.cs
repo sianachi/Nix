@@ -9,7 +9,7 @@ namespace Nix.Features.Pets;
 /// It is a client-side convenience with no server authority: every change still runs under the
 /// owner's own permissions. Last and defaulted so stored profiles without it read as off.
 /// </remarks>
-public sealed record PetProfile(Guid Id, string Name, string Appearance, string Personality, string ResponseLength, string Instructions, bool ApplyWithoutAsking = false);
+public sealed record PetProfile(Guid Id, string Name, string Appearance, string Personality, string ResponseLength, string Instructions, bool ApplyWithoutAsking = false, string Provider = PetProviders.ChatGpt);
 
 /// <summary>Account preferences. Device placement is deliberately absent.</summary>
 /// <remarks>
@@ -79,7 +79,11 @@ internal sealed record PetWorkerRequest(string TenantId, string PrincipalId, str
     string ToolId, string ToolResult, bool ToolSuccess, string HistoryId, string Mode, long After,
     string Today, string TimeZone, IReadOnlyList<PetWorkspaceMapEntry>? WorkspaceMap, bool ToolLockedContent,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? RootItemId,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ReadOnly);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool ReadOnly,
+    // The pet's provider and, for a key provider, the owner's key: forwarded on every request
+    // over the internal channel and held by the worker in memory only. Never logged.
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Provider = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ApiKey = null);
 
 /// <summary>One inline writing request from the editor: the person's selection and what to do with it.</summary>
 /// <param name="WorkspaceId">The workspace the item is in.</param>
@@ -104,6 +108,9 @@ internal sealed record PetInlineWorkerRequest(string TenantId, string PrincipalI
 [JsonSerializable(typeof(PetSettingsResponse))]
 [JsonSerializable(typeof(SavePetSettingsRequest))]
 [JsonSerializable(typeof(PetConnectionResponse))]
+[JsonSerializable(typeof(PetProvidersResponse))]
+[JsonSerializable(typeof(PetProviderKeyResponse))]
+[JsonSerializable(typeof(SavePetProviderKeyRequest))]
 [JsonSerializable(typeof(PetRuntimeRequest))]
 [JsonSerializable(typeof(PetInlineRequest))]
 [JsonSerializable(typeof(PetWorkerRequest))]

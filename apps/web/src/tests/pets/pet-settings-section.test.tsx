@@ -102,4 +102,38 @@ describe('pet configuration', () => {
     expect(screen.getByText('Pet settings saved.')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Save pet settings' })).toBeDisabled();
   });
+
+  it('lets a pet choose its model provider and keeps the choice in the saved document', async () => {
+    const save = vi.fn().mockResolvedValue(true);
+    const user = userEvent.setup();
+    const initial: PetSettingsResponse = {
+      revision: 1,
+      settings: {
+        enabled: true,
+        activePetId: '44444444-4444-4444-8444-444444444444',
+        motion: 'system',
+        inlineWriting: false,
+        profiles: [
+          {
+            id: '44444444-4444-4444-8444-444444444444',
+            name: 'Pip',
+            appearance: 'owl',
+            personality: 'calm',
+            responseLength: 'balanced',
+            instructions: '',
+            applyWithoutAsking: false,
+            provider: 'chatgpt',
+          },
+        ],
+      },
+    };
+    render(<PetSettingsEditor initial={initial} saving={false} onSave={save} />);
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Model provider' }), 'anthropic');
+    await user.click(screen.getByRole('button', { name: /save pet settings/i }));
+    await waitFor(() => {
+      expect(save).toHaveBeenCalled();
+    });
+    const saved = save.mock.calls.at(-1)?.[0] as PetSettingsResponse['settings'];
+    expect(saved.profiles[0]?.provider).toBe('anthropic');
+  });
 });

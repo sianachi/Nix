@@ -50,5 +50,6 @@ export function newPet(): PetProfile {
     responseLength: 'balanced',
     instructions: '',
     applyWithoutAsking: false,
+    provider: 'chatgpt',
   };
 }
