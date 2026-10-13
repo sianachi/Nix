@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -196,6 +196,7 @@ describe('the sidebar row context menu', () => {
     expect(menu).toBeInTheDocument();
     expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
       'Open',
+      expect.stringContaining('Select'),
       'Open in a new tab',
       expect.stringContaining('Open beside'),
       'Hide children from tree',
@@ -290,6 +291,31 @@ describe('the sidebar row context menu', () => {
     expect(beside).toBeEnabled();
     expect(beside).toHaveTextContent(/Click/);
   });
+  it('selects several rows with Shift+click or the row menu and offers one bar for them', async () => {
+    const user = userEvent.setup();
+    renderSidebar(treeOf(vi.fn()));
+    const row = (title: string): HTMLElement => {
+      const element = screen.getByRole('button', { name: title }).closest('[role="treeitem"]');
+      if (!(element instanceof HTMLElement)) throw new Error(`no row for ${title}`);
+      return element;
+    };
+    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
+
+    await user.keyboard('{Shift>}');
+    await user.click(screen.getByRole('button', { name: 'First' }));
+    await user.click(screen.getByRole('button', { name: 'Third' }));
+    await user.keyboard('{/Shift}');
+    expect(screen.getByText('3 selected')).toBeVisible();
+    expect(row('Second')).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.contextMenu(within(row('Second')).getByRole('button', { name: 'Second' }));
+    await user.click(await screen.findByRole('menuitem', { name: 'Deselect' }));
+    expect(screen.getByText('2 selected')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
+  });
+
 });
 
 it.each(['desktop', 'mobile'] as const)(

@@ -33,6 +33,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
+  useEffect,
   useRef,
   useState,
   type DragEvent,
@@ -58,6 +59,11 @@ import { useHiddenItems } from './use-hidden-items';
 import { NewItemDialog, type NewItemDialogMode } from './new-item-dialog';
 import { HiddenItemsPanel } from './hidden-items-panel';
 import { siblingMoveTarget } from './sibling-move-target';
+import { useOptionalItemCommands } from './item-commands-context';
+import { ItemSelectionContext, useOptionalItemSelection } from '../views/core/item-selection-context';
+import { SelectionBar } from '../views/core/selection-bar';
+import { useItemSelection } from '../views/core/use-item-selection';
+import { capabilitiesOf } from '../views/core/view-capabilities';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 import { useItemLandmarks } from './use-item-landmarks';
 import { ItemLandmarkDialog, ItemLandmarkIcon } from './item-landmark-dialog';
@@ -147,6 +153,20 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
   } = props;
   const [dragged, setDragged] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  // Several rows at once (requirement 7): Shift+click or the row menu's Select, then one move.
+  const selection = useItemSelection();
+  const commands = useOptionalItemCommands();
+  const treeItemIds = tree.items.map((item) => item.id).join('\u0000');
+  useEffect(() => {
+    selection.prune(treeItemIds.length === 0 ? [] : treeItemIds.split('\u0000'));
+    // `prune` is stable; the joined ids are what change when the tree does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treeItemIds]);
+  const selectionValue = {
+    selected: selection.selected,
+    toggle: selection.toggle,
+    capabilities: capabilitiesOf('list'),
+  };
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadParentRef = useRef<string | null>(null);
@@ -291,8 +311,24 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       {/* `tabIndex={-1}`: not in the tab order on its own, but a legitimate script-focusable
           landing spot - see `treeRegionRef`'s own comment on why the delete toast returns focus
           here rather than to the row it deleted, which is gone by the time that matters. */}
+      {selection.selected.size === 0 ? null : (
+        <div className="mx-2 mb-2">
+          <SelectionBar
+            count={selection.selected.size}
+            onMove={
+              commands === null
+                ? undefined
+                : () => {
+                    commands.moveItems([...selection.selected]);
+                  }
+            }
+            onClear={selection.clear}
+          />
+        </div>
+      )}
       <div ref={treeRegionRef} tabIndex={-1} className="min-h-0 flex-1 overflow-y-auto">
         <SidebarPins onSelect={onSelect} selectedId={selectedId} landmarks={landmarks.landmarks} />
+        <ItemSelectionContext value={selectionValue}>
         <TreeBody
           tree={tree}
           selectedId={selectedId}
@@ -318,6 +354,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
               : undefined
           }
         />
+        </ItemSelectionContext>
       </div>
 
       {/* The error lives at the foot rather than replacing the tree: a failed rename must not take
@@ -770,6 +807,8 @@ function TreeNode(props: TreeNodeProps): ReactNode {
    */
   const deleteProtected = item.noDelete === true;
   const managed = item.managedBy !== undefined && item.managedBy !== null;
+  const rowSelection = useOptionalItemSelection();
+  const inSelection = rowSelection?.selected.has(item.id) === true;
 
   function contextItems(): MenuEntry[] {
     return [
@@ -781,6 +820,18 @@ function TreeNode(props: TreeNodeProps): ReactNode {
           onSelect(item.id);
         },
       },
+      ...(rowSelection === null
+        ? []
+        : [
+            {
+              kind: 'action' as const,
+              label: inSelection ? 'Deselect' : 'Select',
+              shortcut: 'Shift+Click',
+              onSelect: () => {
+                rowSelection.toggle(item.id, siblings.map((sibling) => sibling.id));
+              },
+            },
+          ]),
       {
         kind: 'action',
         label: 'Open in a new tab',
@@ -882,7 +933,11 @@ function TreeNode(props: TreeNodeProps): ReactNode {
   }
 
   return (
-    <li role="treeitem" aria-expanded={expandable ? expanded : undefined} aria-selected={selected}>
+    <li
+      role="treeitem"
+      aria-expanded={expandable ? expanded : undefined}
+      aria-selected={selected || inSelection}
+    >
       <ContextMenu label={`${title} actions`} items={contextItems}>
         {(contextTarget) => (
           <div
@@ -905,7 +960,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             className={[
               'group relative flex items-center gap-1 rounded-md pr-1',
               indentAt(ROW_INDENT, depth),
-              selected ? 'bg-accent/14' : 'hover:bg-accent/8',
+              selected ? 'bg-accent/14' : inSelection ? 'bg-accent/10' : 'hover:bg-accent/8',
               dropping && zone === 'inside' ? 'outline-2 -outline-offset-2 outline-accent' : '',
             ].join(' ')}
           >
@@ -956,6 +1011,16 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               ref={openButtonRef}
               type="button"
               onClick={(event) => {
+                // Shift+click selects rather than opens: a range from the last clicked sibling, or
+                // one more row. Selecting never opens and never drags.
+                if (event.shiftKey && rowSelection !== null) {
+                  rowSelection.toggle(
+                    item.id,
+                    siblings.map((sibling) => sibling.id),
+                    true,
+                  );
+                  return;
+                }
                 // The accelerator everybody already has from a browser and an editor. Gated on the
                 // platform's own modifier: Ctrl+click on a Mac is the *secondary* click, so accepting
                 // it there would turn every attempt to open a context menu into a new pane.
