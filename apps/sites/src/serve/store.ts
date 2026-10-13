@@ -32,12 +32,23 @@ export function createS3Reader(
         secretKey: config.secretKey,
         now: new Date(),
       });
-      const response = await fetchImpl(url, {
-        method,
-        headers,
-        redirect: 'manual',
-        signal: AbortSignal.timeout(10_000),
-      });
+      // The deadline covers storage answering, not the body: a visitor on a slow link may take
+      // longer than 10 s to read a large download, and the stream must not be cut under them.
+      const deadline = new AbortController();
+      const timer = setTimeout(() => {
+        deadline.abort(new Error('Object storage did not answer in time.'));
+      }, 10_000);
+      let response: Response;
+      try {
+        response = await fetchImpl(url, {
+          method,
+          headers,
+          redirect: 'manual',
+          signal: deadline.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
       if (response.status === 404) {
         await response.body?.cancel();
         return null;

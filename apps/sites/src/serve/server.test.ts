@@ -361,6 +361,11 @@ describe('the sites server', () => {
     const moved = await get(port, '/guide/?q=1&x=y', 'old.sites.test');
     expect(moved.status).toBe(308);
     expect(moved.headers.location).toBe('https://docs.example.com/guide/?q=1&x=y');
+    // The decoded path is encoded again: a %3F stays in the path, and a non-Latin-1 name redirects
+    // instead of failing.
+    const encoded = await get(port, '/a%3Fb/%E4%B8%AD', 'old.sites.test');
+    expect(encoded.status).toBe(308);
+    expect(encoded.headers.location).toBe('https://docs.example.com/a%3Fb/%E4%B8%AD');
     expect((await get(port, '/', 'bad.sites.test')).status).toBe(404);
   });
 
@@ -383,6 +388,33 @@ describe('the sites server', () => {
       buildPrefix: other,
     });
     expect((await get(port, '/', 'docs.sites.test')).body).toBe('<h1>older</h1>');
+  });
+
+  it('survives a stored body that fails mid-stream and answers the next request', async () => {
+    const reader = memory(published);
+    server = createSiteServer({
+      reader: {
+        async open(key, method) {
+          if (!key.endsWith('guide/index.html')) return reader.open(key, method);
+          await Promise.resolve();
+          return {
+            length: 1000,
+            body: new ReadableStream<Uint8Array>({
+              pull(controller) {
+                controller.enqueue(new TextEncoder().encode('<h1>par'));
+                controller.error(new Error('storage reset'));
+              },
+            }),
+          };
+        },
+      },
+      allowedSuffix: 'sites.test',
+      manifestTtlMs: 0,
+    });
+    await new Promise<void>((resolve) => server?.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    await get(port, '/guide/', 'docs.sites.test').catch(() => undefined);
+    expect((await get(port, '/', 'docs.sites.test')).body).toBe('<h1>home</h1>');
   });
 
   it('bounds the host cache, so a flood of unknown hosts cannot grow it without limit', async () => {
