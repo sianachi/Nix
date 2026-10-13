@@ -117,6 +117,7 @@ public static class ViewDefinitionsJson
     private const string CoverPropertyKey = "coverProperty";
     private const string CardSizeKey = "cardSize";
     private const string LayoutKey = "layout";
+    private const string OpenKey = "open";
     private const string DonePropertyKey = "doneProperty";
     private const string RowByKey = "rowBy";
     private const string MeasureKey = "measure";
@@ -292,6 +293,11 @@ public static class ViewDefinitionsJson
             if (view.Layout is not null)
             {
                 entry[LayoutKey] = view.Layout;
+            }
+
+            if (view.Open is not null)
+            {
+                entry[OpenKey] = view.Open;
             }
 
             if (view.DoneProperty is not null)
@@ -492,7 +498,8 @@ public static class ViewDefinitionsJson
             ReadAggregates(view[AggregatesKey]),
             ReadString(view[DonePropertyKey]),
             ReadString(view[RowByKey]),
-            ChartOptionsJson.Read(view[ChartOptionsJson.Key])));
+            ChartOptionsJson.Read(view[ChartOptionsJson.Key]),
+            ReadOpen(view[OpenKey])));
     }
 
     /// <summary>
@@ -708,6 +715,9 @@ public static class ViewDefinitionsJson
 
     private static string? ReadCardSize(JsonNode? node) =>
         ReadString(node) is { } size && GalleryCardSizes.IsValid(size) ? size : null;
+
+    private static string? ReadOpen(JsonNode? node) =>
+        ReadString(node) is { } open && ViewOpenModes.IsValid(open) ? open : null;
 
     private static string? ReadLayout(JsonNode? node) =>
         ReadString(node) is { } layout && DriveLayouts.IsValid(layout) ? layout : null;

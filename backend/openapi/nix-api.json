@@ -13822,13 +13822,25 @@
           }
         }
       },
+      "CurrentPrincipalFeatures": {
+        "required": [
+          "sites"
+        ],
+        "type": "object",
+        "properties": {
+          "sites": {
+            "type": "boolean"
+          }
+        }
+      },
       "CurrentPrincipalResponse": {
         "required": [
           "id",
           "tenantId",
           "displayName",
           "email",
-          "isTenantAdministrator"
+          "isTenantAdministrator",
+          "features"
         ],
         "type": "object",
         "properties": {
@@ -13851,6 +13863,9 @@
           },
           "isTenantAdministrator": {
             "type": "boolean"
+          },
+          "features": {
+            "$ref": "#/components/schemas/CurrentPrincipalFeatures"
           }
         }
       },
@@ -21454,6 +21469,12 @@
             "items": {
               "$ref": "#/components/schemas/ViewAggregateContract"
             }
+          },
+          "open": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -22038,6 +22059,12 @@
                 "$ref": "#/components/schemas/ChartOptionsContract"
               }
             ]
+          },
+          "open": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -22234,6 +22261,12 @@
               {
                 "$ref": "#/components/schemas/ChartOptionsContract"
               }
+            ]
+          },
+          "open": {
+            "type": [
+              "null",
+              "string"
             ]
           }
         }

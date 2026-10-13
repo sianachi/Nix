@@ -256,6 +256,7 @@ describe('the guided creation studio', () => {
       doneProperty: null,
       rowBy: null,
       chart: null,
+      open: null,
     };
     expect(body.views[0]).toEqual({ ...arranged, ...primary });
     expect(body.views[1]).toEqual({ ...arranged, ...companion });

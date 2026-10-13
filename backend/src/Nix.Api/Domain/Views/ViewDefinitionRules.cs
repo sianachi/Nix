@@ -99,6 +99,12 @@ public static class ViewDefinitionRules
                     + $"use '{GalleryCardSizes.Small}', '{GalleryCardSizes.Medium}' or '{GalleryCardSizes.Large}'.";
             }
 
+            if (view.Open is { } open && !ViewOpenModes.IsValid(open))
+            {
+                return $"'{view.Name}': '{open}' is not an open mode; "
+                    + $"use '{ViewOpenModes.Page}', '{ViewOpenModes.Dialog}' or '{ViewOpenModes.Beside}'.";
+            }
+
             if (view.Layout is { } layout && !DriveLayouts.IsValid(layout))
             {
                 return $"'{view.Name}': '{layout}' is not a layout; "

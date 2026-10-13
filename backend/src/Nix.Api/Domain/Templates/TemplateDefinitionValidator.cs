@@ -404,7 +404,7 @@ public sealed class TemplateDefinitionValidator
     private static readonly string[] ViewStringKeys =
     [
         "name", "groupBy", "dateProperty", "endDateProperty", "coverProperty", "cardSize",
-        "mode", "sortBy", "companionViewId", "companionPlacement",
+        "mode", "sortBy", "companionViewId", "companionPlacement", "open",
     ];
 
     private static readonly string[] ViewStringArrayKeys = ["columns", "groupOrder"];
