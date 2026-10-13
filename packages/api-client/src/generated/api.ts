@@ -465,6 +465,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/workspace-arrangement': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The caller's own workspace groups and pins */
+    get: operations['GetWorkspaceArrangement'];
+    /** Replace the caller's own workspace groups and pins at the version they edited */
+    put: operations['SaveWorkspaceArrangement'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/workspaces/{workspaceId}/items/trash': {
     parameters: {
       query?: never;
@@ -4768,6 +4786,11 @@ export interface components {
       expectedRevision: number | string;
       preferences: components['schemas']['PreferencesInput'];
     };
+    SaveWorkspaceArrangementRequest: {
+      /** Format: int64 */
+      expectedRevision: number | string;
+      arrangement: components['schemas']['WorkspaceArrangementInput'];
+    };
     SearchHitResponse: {
       /** Format: uuid */
       id: string;
@@ -5483,6 +5506,16 @@ export interface components {
       groupCount: number | string;
       truncated: boolean;
     };
+    WorkspaceArrangementInput: {
+      groups: components['schemas']['WorkspaceGroupDto'][];
+      pinnedWorkspaceIds: string[];
+    };
+    WorkspaceArrangementResponse: {
+      /** Format: int64 */
+      revision: number | string;
+      groups: components['schemas']['WorkspaceGroupDto'][];
+      pinnedWorkspaceIds: string[];
+    };
     WorkspaceCalendarLinkResponse: {
       /** Format: uuid */
       containerItemId: string;
@@ -5514,6 +5547,12 @@ export interface components {
       linkLimit: number | string;
       nodesTruncated: boolean;
       linksTruncated: boolean;
+    };
+    WorkspaceGroupDto: {
+      /** Format: uuid */
+      id: string;
+      name: string;
+      workspaceIds: string[];
     };
     WorkspaceInvitationResponse: {
       /** Format: uuid */
@@ -6937,6 +6976,68 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetWorkspaceArrangement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceArrangementResponse'];
+        };
+      };
+    };
+  };
+  SaveWorkspaceArrangement: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SaveWorkspaceArrangementRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['WorkspaceArrangementResponse'];
+        };
+      };
+      /** @description Conflict */
+      409: {
         headers: {
           [name: string]: unknown;
         };
