@@ -228,6 +228,18 @@ describe('the preview card', () => {
     expect(Buffer.from(second).equals(Buffer.from(first))).toBe(true);
   });
 
+  it('drops characters XML forbids, so a stray control character cannot fail the build', async () => {
+    const rasterize = await loadPreviewRasterizer();
+    const svg = previewSvg({
+      siteName: 'S',
+      title: 'Bad\u0001 title\uffff',
+      caption: '',
+      accent: 'red',
+    });
+    expect(svg).toContain('Bad title');
+    expect(rasterize(svg).length).toBeGreaterThan(0);
+  });
+
   it('wraps a title to at most three lines and escapes it', () => {
     const lines = wrapTitle('word '.repeat(80));
     expect(lines).toHaveLength(3);

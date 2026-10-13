@@ -100,7 +100,17 @@ function clip(text: string, size: number, limit: number): string {
   return out === text ? text : `${out.trimEnd()}\u2026`;
 }
 
-export function previewSvg(card: PreviewCard): string {
+/** Characters XML 1.0 forbids; one in a title would make resvg refuse the card and fail the build. */
+// eslint-disable-next-line no-control-regex -- Justification: removing control characters is the point.
+const NOT_XML = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g;
+
+export function previewSvg(input: PreviewCard): string {
+  const card = {
+    ...input,
+    siteName: input.siteName.replace(NOT_XML, ''),
+    title: input.title.replace(NOT_XML, ''),
+    caption: input.caption.replace(NOT_XML, ''),
+  };
   const { ground, text, muted, border } = SITE_PALETTE.light;
   const accent = /^#[0-9a-fA-F]{6}$/.test(card.accent) ? card.accent : text;
   const lines = wrapTitle(card.title.length > 0 ? card.title : card.siteName);
