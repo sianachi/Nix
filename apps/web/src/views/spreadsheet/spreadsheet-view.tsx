@@ -21,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  Fragment,
   useEffect,
   useId,
   useReducer,
@@ -41,6 +42,13 @@ import { FillSeriesOffer } from './fill-series-offer';
 import { suggestSourceOf } from '../suggest/suggest-source';
 import type { ContainerData, PlanOutcome, PlanWrite } from '../core/use-container';
 import { drawable, useViewChrome } from '../core/view-chrome';
+import {
+  COLUMN_WIDTH,
+  clampWidth,
+  resetColumnWidth,
+  setColumnWidth,
+  useColumnWidths,
+} from '../core/column-widths';
 import { useViewState, type SortDirection } from '../core/view-state';
 import { CellEditor } from '../sheet/cell-editor';
 import { parseTsv, rangeToTsv } from '../sheet/clipboard';
@@ -165,6 +173,7 @@ export function SpreadsheetView(props: SpreadsheetViewProps): ReactNode {
         onWrite={(itemId, bag) => container.setProperties(itemId, bag)}
         onWriteMany={(writes) => container.setPropertiesMany(writes)}
         onOpen={onOpen}
+        viewId={view.id}
       />
 
       <CreateItemControl
@@ -192,11 +201,28 @@ interface SpreadsheetGridProps {
   readonly onWriteMany: (writes: readonly PlanWrite[]) => Promise<PlanOutcome>;
 
   readonly onOpen: (itemId: string) => void;
+
+  /** The view whose dragged column widths are kept per device (column-widths.ts). */
+  readonly viewId: string;
 }
 
 function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
-  const { items, columns, properties, sortBy, direction, onSort, onWrite, onWriteMany, onOpen } =
-    props;
+  const {
+    items,
+    columns,
+    properties,
+    sortBy,
+    direction,
+    onSort,
+    onWrite,
+    onWriteMany,
+    onOpen,
+    viewId,
+  } = props;
+  const storedWidths = useColumnWidths(viewId);
+  const resizeDrag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(
+    null,
+  );
 
   const [selection, dispatch] = useReducer(selectionReducer, INITIAL_SELECTION);
 
@@ -324,7 +350,8 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
   // Derived per render, deliberately unmemoized - the body grid's argument holds here too:
   // nothing depends on these arrays' identity, the reveal effect keys on scalars, and the work is
   // O(columns), noise beside the cell window it feeds.
-  const widths = columns.map(columnWidth);
+  // A dragged width wins over the type's default; nothing stored draws the defaults.
+  const widths = columns.map((column) => storedWidths[column.key] ?? columnWidth(column));
   const offsets = columnOffsets(widths);
   const totalWidth = offsets[columns.length] ?? 0;
   const totalHeight = items.length * ROW_HEIGHT;
@@ -911,9 +938,12 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
               width: `${String(widths[col] ?? 0)}px`,
               height: `${String(ROW_HEIGHT)}px`,
             };
+            const width = widths[col] ?? 0;
+            // design-token-exempt: the handle sits on the column's right edge, grid geometry
+            const handleStyle = { left: `${String((offsets[col] ?? 0) + width)}px` };
             return (
+              <Fragment key={column.key}>
               <button
-                key={column.key}
                 type="button"
                 aria-label={`Sort by ${column.label}${sorted ? `, currently ${direction}` : ''}`}
                 onClick={() => {
@@ -941,6 +971,73 @@ function SpreadsheetGrid(props: SpreadsheetGridProps): ReactNode {
                   />
                 </span>
               </button>
+              {/* A focusable window-splitter on the column's edge (requirement 2): drag it, or
+                  focus it and use the arrows; Home forgets the dragged width. The drag never
+                  reaches the sort button behind it. */}
+              {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA's focusable separator with aria-valuenow is the window-splitter widget; jsx-a11y models separator only as a static divider. */}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={`Resize column ${column.label}`}
+                aria-valuenow={width}
+                aria-valuemin={COLUMN_WIDTH.min}
+                aria-valuemax={COLUMN_WIDTH.max}
+                aria-valuetext={`${String(width)} pixels`}
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
+                tabIndex={0}
+                className={cn(
+                  'absolute top-0 z-10 h-8 w-3 -translate-x-1/2 cursor-col-resize touch-none',
+                  focusRingInset,
+                )}
+                style={handleStyle}
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  resizeDrag.current = {
+                    pointerId: event.pointerId,
+                    startX: event.clientX,
+                    startWidth: width,
+                  };
+                }}
+                onPointerMove={(event) => {
+                  const drag = resizeDrag.current;
+                  if (drag?.pointerId !== event.pointerId) return;
+                  setColumnWidth(
+                    viewId,
+                    column.key,
+                    clampWidth(drag.startWidth + event.clientX - drag.startX),
+                  );
+                }}
+                onPointerUp={() => {
+                  resizeDrag.current = null;
+                }}
+                onPointerCancel={() => {
+                  resizeDrag.current = null;
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+                    event.preventDefault();
+                    setColumnWidth(viewId, column.key, clampWidth(width - COLUMN_WIDTH.step));
+                  } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+                    event.preventDefault();
+                    setColumnWidth(viewId, column.key, clampWidth(width + COLUMN_WIDTH.step));
+                  } else if (event.key === 'Home') {
+                    event.preventDefault();
+                    resetColumnWidth(viewId, column.key);
+                  } else if (event.key === 'Escape' && resizeDrag.current !== null) {
+                    event.preventDefault();
+                    setColumnWidth(viewId, column.key, resizeDrag.current.startWidth);
+                    resizeDrag.current = null;
+                  }
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-divider"
+                />
+              </div>
+              </Fragment>
             );
           })}
         </div>

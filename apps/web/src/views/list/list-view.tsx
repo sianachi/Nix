@@ -1,6 +1,7 @@
 import { useNarrowViewport } from '../../layout/viewport';
 import {
   Button,
+  Checkbox,
   ContextMenu,
   Icon,
   Text,
@@ -32,6 +33,8 @@ import {
 import { CreateItemControl } from '../core/create-item-control';
 import { suggestSourceOf } from '../suggest/suggest-source';
 import { useItemContextActions } from '../core/use-item-context-actions';
+import { resetColumnWidth, setColumnWidth, useColumnWidths } from '../core/column-widths';
+import { useOptionalItemSelection } from '../core/item-selection-context';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
@@ -101,6 +104,9 @@ export function ListView(props: ListViewProps): ReactNode {
   const [refusals, setRefusals] = useState<ReadonlyMap<string, string>>(() => new Map());
   const itemActions = useItemContextActions(onOpen);
   const rowContextMenu = (item: Item): MenuEntry[] => itemActions(item.id, item.title);
+  const selection = useOptionalItemSelection();
+  const viewId = view?.id ?? null;
+  const columnWidths = useColumnWidths(viewId);
 
   // Which sections are folded away. Seeded from the view's stored `collapsedGroups` (ADR-0054) and
   // then held here: folding a section is somebody reading, not somebody rearranging the view for
@@ -165,7 +171,29 @@ export function ListView(props: ListViewProps): ReactNode {
       });
     },
   };
-  const columns = buildColumns(view, container.schema, onOpen, write, refusalStore);
+  const orderIds = chrome.items.map((item) => item.id);
+  const columns = [
+    // A box per row while the container selects (requirement 7): a plain toggle, Shift extends.
+    ...(selection === null
+      ? []
+      : [
+          {
+            key: SELECT_COLUMN_KEY,
+            header: 'Select',
+            cell: (item: Item) => (
+              <Checkbox
+                aria-label={`Select ${item.title || 'Untitled'}`}
+                checked={selection.selected.has(item.id)}
+                onClick={(event) => {
+                  selection.toggle(item.id, orderIds, event.shiftKey);
+                }}
+                onChange={() => undefined}
+              />
+            ),
+          } satisfies TableColumn<Item>,
+        ]),
+    ...buildColumns(view, container.schema, onOpen, write, refusalStore),
+  ];
   const sort = sortBy === null ? undefined : { columnKey: sortBy, direction };
   const onSortChange = (next: TableSort): void => {
     viewState.setSort(next.columnKey, next.direction);
@@ -219,6 +247,19 @@ export function ListView(props: ListViewProps): ReactNode {
         onSortChange={onSortChange}
         rowContextMenu={rowContextMenu}
         caption={caption}
+        widths={
+          viewId === null
+            ? undefined
+            : {
+                columnWidths,
+                onColumnResize: (columnKey, width) => {
+                  setColumnWidth(viewId, columnKey, width);
+                },
+                onColumnWidthReset: (columnKey) => {
+                  resetColumnWidth(viewId, columnKey);
+                },
+              }
+        }
       />
     );
 
@@ -293,6 +334,9 @@ export function ListView(props: ListViewProps): ReactNode {
 /** What an ungrouped list's table is called; a section's table is called after its heading. */
 const ITEMS_CAPTION = 'Items in this one';
 
+/** The selection column's key; never a property, so it cannot collide with one. */
+const SELECT_COLUMN_KEY = '\u0000select';
+
 interface ListSectionsProps {
   readonly sections: readonly AxisGroup[];
   readonly collapsed: ReadonlySet<string>;
@@ -363,6 +407,15 @@ interface ListRowsProps {
 
   /** The table's accessible name: the list's, or the section's heading when it is grouped. */
   readonly caption: string;
+
+  /** Dragged widths, kept per device (column-widths.ts), and where a drag writes them. */
+  readonly widths?: WidthControl | undefined;
+}
+
+interface WidthControl {
+  readonly columnWidths: Readonly<Record<string, number>>;
+  readonly onColumnResize: (columnKey: string, width: number) => void;
+  readonly onColumnWidthReset: (columnKey: string) => void;
 }
 
 /** Which row a list row's menu acts on, for the name a screen reader hears. */
@@ -371,7 +424,7 @@ function rowMenuLabel(item: Item): string {
 }
 
 function ListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange, rowContextMenu, caption } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu, caption, widths } = props;
   if (items.length <= VIRTUALIZATION_THRESHOLD) {
     return (
       <Table<Item>
@@ -381,6 +434,7 @@ function ListRows(props: ListRowsProps): ReactNode {
         rowKey={(item) => item.id}
         emptyMessage="Nothing in here yet."
         {...(sort === undefined ? {} : { sort })}
+        {...(widths ?? {})}
         onSortChange={onSortChange}
         {...(rowContextMenu === undefined
           ? {}
