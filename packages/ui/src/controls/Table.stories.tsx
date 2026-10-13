@@ -236,3 +236,19 @@ export const WithRowContextMenu: Story = {
     ).toBeInTheDocument();
   },
 };
+
+/** Resizable columns: a window-splitter on every header's edge, dragged or moved with the arrows. */
+export const ResizableColumns: Story = {
+  args: {
+    columnWidths: { title: 260, owner: 160 },
+    onColumnResize: fn(),
+    onColumnWidthReset: fn(),
+  },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    const handle = canvas.getByRole('separator', { name: 'Resize column Title' });
+    handle.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    await expect(args.onColumnResize).toHaveBeenCalledWith('title', 276);
+  },
+};

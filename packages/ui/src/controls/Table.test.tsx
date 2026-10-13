@@ -203,4 +203,41 @@ describe('Table', () => {
     expect(opened).toBe(false);
     expect(onSelect).toHaveBeenCalledOnce();
   });
+
+  it('draws no resize handles unless somebody is listening for a width', () => {
+    renderTable();
+    expect(screen.queryByRole('separator')).not.toBeInTheDocument();
+  });
+
+  it('resizes a column from the keyboard, one step at a time, and resets from Home', async () => {
+    const onColumnResize = vi.fn();
+    const onColumnWidthReset = vi.fn();
+    renderTable({ columnWidths: { title: 240 }, onColumnResize, onColumnWidthReset });
+    const handle = screen.getByRole('separator', { name: 'Resize column Title' });
+    expect(handle).toHaveAttribute('aria-valuenow', '240');
+    expect(screen.getByRole('columnheader', { name: /title/i })).toHaveStyle({ width: '240px' });
+
+    handle.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 256);
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 224);
+    await userEvent.keyboard('{Home}');
+    expect(onColumnWidthReset).toHaveBeenCalledWith('title');
+  });
+
+  it('keeps a drag on the handle from sorting the column behind it', () => {
+    const onSortChange = vi.fn();
+    const onColumnResize = vi.fn();
+    renderTable({ onSortChange, onColumnResize, columnWidths: { title: 200 } });
+    const handle = screen.getByRole('separator', { name: 'Resize column Title' });
+    // jsdom has no pointer capture; the handle asks for it so a fast drag stays on the handle.
+    handle.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 140 });
+    fireEvent.pointerUp(handle, { pointerId: 1 });
+    fireEvent.click(handle);
+    expect(onColumnResize).toHaveBeenLastCalledWith('title', 240);
+    expect(onSortChange).not.toHaveBeenCalled();
+  });
 });

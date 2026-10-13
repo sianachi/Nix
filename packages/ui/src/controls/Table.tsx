@@ -1,12 +1,12 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
-import { type ReactNode, type Ref } from 'react';
+import { useRef, type ReactNode, type Ref } from 'react';
 
 import { cn } from '../lib/cn';
 import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
 import { type MenuEntry } from './Menu';
 import { Icon } from '../primitives/Icon';
 import { Text } from '../primitives/Text';
-import { focusRing, inkWashStates } from '../primitives/interaction';
+import { dragHandleLineStates, focusRing, focusRingInset, inkWashStates } from '../primitives/interaction';
 
 /**
  * <Table> - rows of data, with the four things a data table owes the reader.
@@ -118,6 +118,23 @@ export interface TableProps<Row> {
 
   /** The semantic table element, used by pane-aware virtualizers as their measured root. */
   readonly tableRef?: Ref<HTMLTableElement>;
+
+  /** Pixel widths per column key; a column without one keeps the browser's own layout. */
+  readonly columnWidths?: Readonly<Record<string, number>>;
+
+  /**
+   * Offers a resize handle on every header. Called with the clamped width as a drag or an arrow
+   * key moves it; `onColumnWidthReset` answers the handle's Home key. Absent, no handle is drawn.
+   */
+  readonly onColumnResize?: (columnKey: string, width: number) => void;
+  readonly onColumnWidthReset?: (columnKey: string) => void;
+}
+
+/** The widths a header handle may reach, and how far one arrow keypress moves it. */
+export const TABLE_COLUMN_WIDTH = { min: 64, max: 800, step: 16 } as const;
+
+function clampTableWidth(width: number): number {
+  return Math.min(TABLE_COLUMN_WIDTH.max, Math.max(TABLE_COLUMN_WIDTH.min, Math.round(width)));
 }
 
 const cellPadding = 'px-3 py-2';
@@ -172,6 +189,9 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     rowContextMenu,
     rowContextMenuLabel,
     tableRef,
+    columnWidths,
+    onColumnResize,
+    onColumnWidthReset,
   } = props;
 
   // One row, with the context-menu marker when the caller offers row actions. A plain row when it
@@ -230,6 +250,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
             const sorted = sort?.columnKey === column.key ? sort.direction : undefined;
             const alignEnd = column.align === 'end';
 
+            const width = columnWidths?.[column.key];
             return (
               <th
                 key={column.key}
@@ -243,7 +264,10 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   headerText,
                   sortable ? 'p-0' : cellPadding,
                   alignEnd ? 'text-right' : 'text-left',
+                  onColumnResize === undefined ? '' : 'relative',
                 )}
+                // design-token-exempt: a dragged column width is runtime geometry, not a design value
+                style={width === undefined ? undefined : { width: `${String(width)}px`, minWidth: `${String(width)}px` }}
               >
                 {sortable ? (
                   <button
@@ -264,6 +288,22 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
                   </button>
                 ) : (
                   column.header
+                )}
+                {onColumnResize === undefined ? null : (
+                  <ColumnResizeHandle
+                    label={column.header}
+                    width={width}
+                    onResize={(next) => {
+                      onColumnResize(column.key, next);
+                    }}
+                    onReset={
+                      onColumnWidthReset === undefined
+                        ? undefined
+                        : () => {
+                            onColumnWidthReset(column.key);
+                          }
+                    }
+                  />
                 )}
               </th>
             );
@@ -326,5 +366,92 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
         )}
       </tbody>
     </table>
+  );
+}
+
+
+/**
+ * A window-splitter separator on a header's right edge: drag it, or focus it and use the arrow
+ * keys, so a resize is never a pointer-only act. Pointer capture keeps the drag on the handle, and
+ * the width is committed as it moves so the table follows the pointer; Escape puts the start back.
+ */
+function ColumnResizeHandle({
+  label,
+  width,
+  onResize,
+  onReset,
+}: {
+  readonly label: string;
+  readonly width: number | undefined;
+  readonly onResize: (width: number) => void;
+  readonly onReset: (() => void) | undefined;
+}): ReactNode {
+  const drag = useRef<{ pointerId: number; startX: number; startWidth: number } | null>(null);
+  const measured = (element: HTMLElement): number =>
+    width ?? element.parentElement?.getBoundingClientRect().width ?? TABLE_COLUMN_WIDTH.min;
+  return (
+    // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- ARIA's focusable separator with aria-valuenow is the window-splitter widget; jsx-a11y models separator only as a static divider.
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={`Resize column ${label}`}
+      aria-valuenow={width}
+      aria-valuemin={TABLE_COLUMN_WIDTH.min}
+      aria-valuemax={TABLE_COLUMN_WIDTH.max}
+      aria-valuetext={width === undefined ? 'automatic width' : `${String(width)} pixels`}
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a window-splitter separator is focusable by its ARIA definition
+      tabIndex={0}
+      className={cn(
+        'group absolute inset-y-0 right-0 z-10 w-3 translate-x-1/2 cursor-col-resize touch-none',
+        focusRingInset,
+      )}
+      onPointerDown={(event) => {
+        // The header behind this is a sort button; a drag must not also sort.
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        drag.current = {
+          pointerId: event.pointerId,
+          startX: event.clientX,
+          startWidth: measured(event.currentTarget),
+        };
+      }}
+      onPointerMove={(event) => {
+        const current = drag.current;
+        if (current?.pointerId !== event.pointerId) return;
+        onResize(clampTableWidth(current.startWidth + event.clientX - current.startX));
+      }}
+      onPointerUp={(event) => {
+        if (drag.current?.pointerId === event.pointerId) drag.current = null;
+      }}
+      onPointerCancel={() => {
+        drag.current = null;
+      }}
+      onClick={(event) => {
+        event.stopPropagation();
+      }}
+      onKeyDown={(event) => {
+        const current = measured(event.currentTarget);
+        if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+          event.preventDefault();
+          onResize(clampTableWidth(current - TABLE_COLUMN_WIDTH.step));
+        } else if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          onResize(clampTableWidth(current + TABLE_COLUMN_WIDTH.step));
+        } else if (event.key === 'Home' && onReset !== undefined) {
+          event.preventDefault();
+          onReset();
+        } else if (event.key === 'Escape' && drag.current !== null) {
+          event.preventDefault();
+          onResize(drag.current.startWidth);
+          drag.current = null;
+        }
+      }}
+    >
+      <span
+        aria-hidden="true"
+        className={cn('pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2', dragHandleLineStates)}
+      />
+    </div>
   );
 }

@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
-import { Button } from '@nix/ui';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Button, Text } from '@nix/ui';
 import { useNarrowViewport, useRoomForAnotherPane } from '../../layout/viewport';
+import { useOptionalItemCommands } from '../../items/item-commands-context';
 import { useItemDialog } from '../../items/item-dialog-context';
 
 import { EmptyPanel, ErrorPanel } from '../../components/states/status-panels';
@@ -8,7 +9,11 @@ import type { View } from './container-model';
 import { ListView } from '../list/list-view';
 import type { ContainerData } from './use-container';
 import { VIEW_GUTTER } from './view-gutter';
+import { ItemSelectionContext } from './item-selection-context';
 import { resolveOpenMode } from './open-policy';
+import { SelectionBar } from './selection-bar';
+import { useItemSelection } from './use-item-selection';
+import { capabilitiesOf, DRAG_EFFECT_COPY } from './view-capabilities';
 import { findViewKind } from './view-kinds';
 import { ViewItemVisibility } from './view-item-visibility';
 import { ViewTools } from './view-tools';
@@ -53,6 +58,41 @@ export function ContainerView({ container, view, onOpen, onOpenBeside }: Contain
   const [grid, setGrid] = useState(false);
   const viewState = useViewState();
   const descriptor = view === null ? null : findViewKind(view.kind);
+
+  // One selection for whatever the view draws (requirement 7). Rows that leave the container -
+  // moved, deleted, filtered by somebody else - leave the selection with them.
+  const capabilities = capabilitiesOf(view?.kind ?? 'list');
+  const selection = useItemSelection();
+  const commands = useOptionalItemCommands();
+  const childIds = container.children.map((child) => child.id);
+  const childKey = childIds.join('\u0000');
+  useEffect(() => {
+    selection.prune(childKey.length === 0 ? [] : childKey.split('\u0000'));
+    // `prune` is stable; the join is what changes when the children do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [childKey]);
+  const selecting = capabilities.select && !container.locked;
+  const selectionBar = selecting ? (
+    <SelectionBar
+      count={selection.selected.size}
+      onMove={
+        commands === null || !capabilities.move
+          ? undefined
+          : () => {
+              commands.moveItems([...selection.selected]);
+            }
+      }
+      onClear={selection.clear}
+    />
+  ) : null;
+  // What a drop does here, said before it happens rather than discovered afterwards.
+  const dragHint =
+    capabilities.drag === null || container.locked ? null : (
+      <Text as="p" variant="caption" tone="muted">
+        {DRAG_EFFECT_COPY[capabilities.drag]}
+      </Text>
+    );
+  const selectionValue = { selected: selection.selected, toggle: selection.toggle, capabilities };
   const tools =
     container.status === 'ready' &&
     !container.locked &&
@@ -100,12 +140,16 @@ export function ContainerView({ container, view, onOpen, onOpenBeside }: Contain
       </div>
     );
   return (
-    <div className={VIEW_GUTTER}>
-      {tools}
-      <ViewItemVisibility container={container} view={view}>
-        {(visible) => renderContent(visible, view, open)}
-      </ViewItemVisibility>
-    </div>
+    <ItemSelectionContext value={selecting ? selectionValue : null}>
+      <div className={VIEW_GUTTER}>
+        {tools}
+        {dragHint}
+        {selectionBar}
+        <ViewItemVisibility container={container} view={view}>
+          {(visible) => renderContent(visible, view, open)}
+        </ViewItemVisibility>
+      </div>
+    </ItemSelectionContext>
   );
 }
 
