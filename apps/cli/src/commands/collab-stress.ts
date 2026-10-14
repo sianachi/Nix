@@ -15,6 +15,7 @@ import WebSocket from 'ws';
 import * as syncProtocol from 'y-protocols/sync';
 import * as Y from 'yjs';
 import { items } from '@nix/api-client';
+import { SCHEMA_VERSION } from '@nix/editor-schema';
 import { requireAccessToken, resolveSession, type SessionDeps } from './shared.ts';
 import { percentile } from './stress.ts';
 import { printResult, type OutputOptions } from '../output.ts';
@@ -24,7 +25,6 @@ import type { SessionEndpoints } from '../session.ts';
 const MESSAGE_SYNC = 0;
 const MESSAGE_NOTICE = 2;
 const MESSAGE_PERSISTED = 3;
-const SCHEMA_VERSION = 1;
 /** The Yjs fragment a note's prose binds to; the same one `body.ts` reads. */
 const FRAGMENT = 'default';
 const STEP_TIMEOUT_MS = 10_000;
@@ -213,7 +213,12 @@ export function connect(wsUrl: string, token: string, tally: Tally): Promise<Pee
         pending.delete(id);
       } else if (type === MESSAGE_NOTICE) {
         const notice = JSON.parse(decoding.readVarString(decoder)) as { code?: unknown };
-        bump(tally.notices, typeof notice.code === 'string' ? notice.code : 'unknown');
+        const code = typeof notice.code === 'string' ? notice.code : 'unknown';
+        bump(tally.notices, code);
+        // A notice refuses the update in flight, and the server drops it; its barrier is still
+        // acknowledged, so without this a refused edit would count as confirmed and then as lost.
+        for (const entry of pending.values()) entry.fail(new Error(`Refused (${code}).`));
+        pending.clear();
       }
     });
   });
