@@ -3004,6 +3004,36 @@ namespace Nix.Persistence.Migrations.Generated
                         });
                 });
 
+            modelBuilder.Entity("Nix.Domain.Settings.PrincipalUiSettings", b =>
+                {
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("PrincipalId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("principal_id");
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("SettingsJson")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("settings")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
+                    b.HasKey("TenantId", "PrincipalId");
+
+                    b.ToTable("principal_ui_settings", null, t =>
+                        {
+                            t.HasCheckConstraint("principal_ui_settings_bounded", "jsonb_typeof(settings) = 'object' AND octet_length(settings::text) <= 16384");
+                        });
+                });
+
             modelBuilder.Entity("Nix.Domain.Sites.Site", b =>
                 {
                     b.Property<Guid>("TenantId")
@@ -5291,6 +5321,16 @@ namespace Nix.Persistence.Migrations.Generated
                 });
 
             modelBuilder.Entity("Nix.Domain.Scheduling.ScheduledTrigger", b =>
+                {
+                    b.HasOne("Nix.Domain.Identity.Principal", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "PrincipalId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Nix.Domain.Settings.PrincipalUiSettings", b =>
                 {
                     b.HasOne("Nix.Domain.Identity.Principal", null)
                         .WithMany()

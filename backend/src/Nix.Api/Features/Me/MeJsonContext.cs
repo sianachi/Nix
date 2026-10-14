@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using Nix.Features.CurrentUser;
 
@@ -14,4 +15,7 @@ namespace Nix.Serialization;
 /// </remarks>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(CurrentPrincipalResponse))]
+[JsonSerializable(typeof(UiSettingsResponse))]
+[JsonSerializable(typeof(PatchUiSettingsRequest))]
+[JsonSerializable(typeof(Dictionary<string, JsonElement>))]
 internal sealed partial class MeJsonContext : JsonSerializerContext;

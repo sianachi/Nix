@@ -246,6 +246,9 @@ internal static class M0SchemaSeed
                     (tenant_id, principal_id, groups_json, pinned_workspace_ids, revision)
                 VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, '[]'::jsonb, ARRAY[]::uuid[], 1);
 
+                INSERT INTO principal_ui_settings (tenant_id, principal_id, settings, revision)
+                VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, jsonb_build_object(), 1);
+
                 INSERT INTO pet_provider_credential
                     (tenant_id, principal_id, provider, protected_key, key_hint, saved_at)
                 VALUES ({Literal(rows.TenantId)}, {Literal(rows.PrincipalId)}, 'anthropic',

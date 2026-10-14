@@ -306,6 +306,13 @@ export type {
   WorkspaceArrangementInput,
   WorkspaceArrangementResponse,
 } from './schemas/workspace-arrangement.js';
+export * as uiSettings from './resources/ui-settings.js';
+export {
+  uiSettingsSchema,
+  uiSettingsPatchSchema,
+  uiSettingsResponseSchema,
+} from './schemas/ui-settings.js';
+export type { UiSettings, UiSettingsPatch, UiSettingsResponse } from './schemas/ui-settings.js';
 export * as notifications from './resources/notifications.js';
 export {
   preferencesInputSchema,
