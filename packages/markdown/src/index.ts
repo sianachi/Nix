@@ -25,6 +25,6 @@ export {
   isPersistableImageTarget,
   type MarkdownImportScan,
 } from './scan.js';
-export { documentToMarkdown } from './to-markdown.js';
+export { documentToMarkdown, escapeInline } from './to-markdown.js';
 export { markdownToDocument, type FromMarkdownResult } from './from-markdown.js';
 export { MARKDOWN_LOSSES, type MarkdownLoss, type ToMarkdownResult } from './losses.js';

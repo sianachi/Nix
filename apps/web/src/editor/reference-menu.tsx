@@ -54,10 +54,10 @@ import {
 export const MAX_QUERY = 64;
 
 /** How long to wait after the last keystroke before asking the server. */
-const DEBOUNCE_MS = 150;
+export const DEBOUNCE_MS = 150;
 
 /** The most candidates to offer. A picker is scanned, not read. */
-const RESULT_LIMIT = 8;
+export const RESULT_LIMIT = 8;
 
 /**
  * How many candidates to ask the server for, of which `RESULT_LIMIT` are shown.
@@ -117,7 +117,7 @@ export function linkedTargets(
  * Below three characters there is no trigram to look up and the server falls back to reading every
  * item the caller can reach. The picker opens on the trigger and offers a prompt until then.
  */
-const MINIMUM_QUERY = 3;
+export const MINIMUM_QUERY = 3;
 
 type SearchHit = SearchResults['results'][number];
 

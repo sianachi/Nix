@@ -1,5 +1,10 @@
 import { nixSchema } from '@nix/editor-schema';
-import { documentToMarkdown, markdownToDocument, type MarkdownLoss } from '@nix/markdown';
+import {
+  documentToMarkdown,
+  escapeInline,
+  markdownToDocument,
+  type MarkdownLoss,
+} from '@nix/markdown';
 import { prosemirrorJSONToYXmlFragment, yXmlFragmentToProseMirrorRootNode } from 'y-prosemirror';
 import * as Y from 'yjs';
 
@@ -86,5 +91,22 @@ export function watchRemoteChanges(fragment: Y.XmlFragment, onRemote: () => void
   fragment.observeDeep(observer);
   return () => {
     fragment.unobserveDeep(observer);
+  };
+}
+
+/**
+ * Replaces the open `[[query` (from `triggerStart` to the caret) with a link to the item, in the
+ * spelling `documentToMarkdown` gives a reference, and says where the caret goes: just after it.
+ */
+export function insertNoteLink(
+  text: string,
+  caret: number,
+  triggerStart: number,
+  target: { readonly id: string; readonly title: string },
+): { readonly text: string; readonly caret: number } {
+  const link = `[${escapeInline(target.title)}](nix://item/${target.id})`;
+  return {
+    text: text.slice(0, triggerStart) + link + text.slice(caret),
+    caret: triggerStart + link.length,
   };
 }

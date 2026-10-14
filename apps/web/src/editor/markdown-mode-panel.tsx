@@ -1,14 +1,17 @@
-import { Button, Dialog, Text, Textarea } from '@nix/ui';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { Button, Dialog, Listbox, Text, Textarea, useListbox } from '@nix/ui';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type * as Y from 'yjs';
 
 import { announce } from '../a11y/announcer';
+import { useNoteLinkSearch } from './markdown-link-search';
 import {
   applyMarkdown,
+  insertNoteLink,
   snapshotMarkdown,
   watchRemoteChanges,
   type MarkdownSnapshot,
 } from './markdown-mode';
+import { findTrigger } from './reference-menu';
 
 export interface MarkdownModePanelProps {
   readonly doc: Y.Doc;
@@ -36,6 +39,27 @@ export function MarkdownModePanel({
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hintId = useId();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [dismissed, setDismissed] = useState<number | null>(null);
+
+  // `[[query` before the caret opens the note-link picker; `@` (people) is not offered here.
+  const found = findTrigger(text.slice(0, caret));
+  const trigger = found?.kind === 'item' && found.start !== dismissed ? found : null;
+  const { hits, options, emptyMessage } = useNoteLinkSearch(trigger?.query ?? null);
+  const listbox = useListbox(options, (_option, index) => {
+    const hit = hits[index];
+    if (hit === undefined || trigger === null) return;
+    const next = insertNoteLink(text, caret, trigger.start, {
+      id: hit.id,
+      title: hit.title ?? 'Untitled',
+    });
+    setText(next.text);
+    setCaret(next.caret);
+    requestAnimationFrame(() => {
+      textareaRef.current?.setSelectionRange(next.caret, next.caret);
+    });
+  });
 
   useEffect(
     () =>
@@ -80,32 +104,68 @@ export function MarkdownModePanel({
       <Text as="p" id={hintId} variant="caption" tone="muted">
         Nothing is saved until you apply. Closing without applying discards this text.
       </Text>
-      <Textarea
-        aria-label="Note as Markdown"
-        aria-describedby={hintId}
-        value={text}
-        spellCheck={false}
-        rows={24}
-        resize="vertical"
-        className="min-h-0 flex-1 font-mono text-sm"
-        onChange={(event) => {
-          setText(event.currentTarget.value);
-          setError(null);
-        }}
-        onKeyDown={(event) => {
-          // Tab indents inside the text, the way a Markdown editor is expected to behave.
-          if (event.key === 'Tab' && !event.shiftKey) {
-            event.preventDefault();
-            const target = event.currentTarget;
-            const { selectionStart, selectionEnd } = target;
-            const next = `${text.slice(0, selectionStart)}  ${text.slice(selectionEnd)}`;
-            setText(next);
-            requestAnimationFrame(() => {
-              target.setSelectionRange(selectionStart + 2, selectionStart + 2);
-            });
-          }
-        }}
-      />
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <Textarea
+          ref={textareaRef}
+          aria-label="Note as Markdown"
+          aria-describedby={hintId}
+          aria-controls={trigger === null ? undefined : listbox.id}
+          aria-activedescendant={trigger === null ? undefined : listbox.activeOptionId}
+          value={text}
+          spellCheck={false}
+          rows={24}
+          resize="vertical"
+          className="min-h-0 flex-1 font-mono text-sm"
+          onChange={(event) => {
+            setText(event.currentTarget.value);
+            setCaret(event.currentTarget.selectionStart);
+            setError(null);
+          }}
+          onSelect={(event) => {
+            const { selectionStart, selectionEnd } = event.currentTarget;
+            // A range selection is not a caret, so it never opens the picker.
+            setCaret(selectionStart === selectionEnd ? selectionStart : 0);
+          }}
+          onBlur={() => {
+            if (trigger !== null) setDismissed(trigger.start);
+          }}
+          onKeyDown={(event) => {
+            if (trigger !== null) {
+              // The innermost open layer takes Escape, so it does not also close the dialog behind.
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.stopPropagation();
+                setDismissed(trigger.start);
+                return;
+              }
+              listbox.onKeyDown(event);
+              if (event.defaultPrevented) return;
+            }
+            // Tab indents inside the text, the way a Markdown editor is expected to behave.
+            if (event.key === 'Tab' && !event.shiftKey) {
+              event.preventDefault();
+              const target = event.currentTarget;
+              const { selectionStart, selectionEnd } = target;
+              const next = `${text.slice(0, selectionStart)}  ${text.slice(selectionEnd)}`;
+              setText(next);
+              requestAnimationFrame(() => {
+                target.setSelectionRange(selectionStart + 2, selectionStart + 2);
+              });
+            }
+          }}
+        />
+        {trigger === null ? null : (
+          // shortcut: pinned to the bottom of the textarea, not at the caret (textareas have no caret rect); upgrade if users find it far from the cursor
+          <div className="absolute inset-x-2 bottom-2 z-20 flex max-h-64 flex-col overflow-y-auto border border-divider bg-background shadow-md">
+            <Listbox
+              label="Items to link to"
+              options={options}
+              controller={listbox}
+              emptyMessage={emptyMessage}
+            />
+          </div>
+        )}
+      </div>
       {error === null ? null : (
         <Text as="p" variant="note" role="alert">
           {error}
