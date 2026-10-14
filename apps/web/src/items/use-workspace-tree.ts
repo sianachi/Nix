@@ -823,6 +823,12 @@ export function useWorkspaceTree(): WorkspaceTree {
         if (controller.signal.aborted || !mounted.current) return { refusal: null };
         setItems((current) => current.map((item) => (item.id === itemId ? moved : item)));
 
+        // Container views read their own children, so both lists they may be showing are told;
+        // an unloaded source falls back to a workspace-wide refresh.
+        const from = items.find((item) => item.id === itemId);
+        notifyItemChildrenChanged(workspaceId, parentId);
+        notifyItemChildrenChanged(workspaceId, from === undefined ? null : from.parentId);
+
         // The destination's order changed for every sibling, not just the moved item, so its
         // children are re-read rather than patched.
         const revision = readRevision.current;
@@ -855,7 +861,7 @@ export function useWorkspaceTree(): WorkspaceTree {
         if (mounted.current) setIsSaving(false);
       }
     },
-    [absorb, client, fetchChildren, workspaceId],
+    [absorb, client, fetchChildren, items, workspaceId],
   );
 
   const remove = useCallback(
