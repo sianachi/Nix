@@ -1,4 +1,3 @@
-import { isCanceledError, search, type SearchResults } from '@nix/api-client';
 import {
   Listbox,
   placeFloatingMenu,
@@ -7,7 +6,7 @@ import {
   type ListboxOption,
 } from '@nix/ui';
 import { FileText } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import type { Editor } from '@tiptap/react';
 
@@ -16,11 +15,21 @@ import { frecencyScores, recordPick } from '../lib/frecency';
 import { choiceOrderOn } from '../settings/suggestion-preferences';
 import { rankReferences } from '../lib/suggest/rank-references';
 import {
+  fetchCandidates,
+  itemSearchEmptyMessage,
+  RESULT_LIMIT,
+  useItemSearch,
+  type SearchHit,
+} from './item-search';
+import {
   coCitationSource,
   RELATED_WAIT_MS,
   withinWait,
   type CoCitationSource,
 } from './related-items';
+
+// Where the pool size used to live; the ranking test and other callers still import it from here.
+export { CANDIDATE_POOL } from './item-search';
 
 /**
  * The reference picker: `[[` and `@`, an item search, and a `reference` node.
@@ -52,23 +61,6 @@ import {
  * deferral to this picker only works if it can see every trigger this picker can.
  */
 export const MAX_QUERY = 64;
-
-/** How long to wait after the last keystroke before asking the server. */
-export const DEBOUNCE_MS = 150;
-
-/** The most candidates to offer. A picker is scanned, not read. */
-export const RESULT_LIMIT = 8;
-
-/**
- * How many candidates to ask the server for, of which `RESULT_LIMIT` are shown.
- *
- * The pool is what gives the re-rank (`rank-references.ts`) something to choose between: an item
- * the person links to every day but which the server ranked eleventh can only be promoted if the
- * eleventh result was fetched. Twenty-five is half the server's ceiling
- * (`SearchItemsHandler.MaximumLimit`), enough to reach past a page of near-identical title matches
- * without asking for rows nobody will see.
- */
-export const CANDIDATE_POOL = 25;
 
 /**
  * The most nodes read when collecting what this note already links to.
@@ -110,26 +102,6 @@ export function linkedTargets(
   });
   return targets;
 }
-
-/**
- * The shortest query sent to the server, matching `SearchItemsHandler.MinimumQueryLength`.
- *
- * Below three characters there is no trigram to look up and the server falls back to reading every
- * item the caller can reach. The picker opens on the trigger and offers a prompt until then.
- */
-export const MINIMUM_QUERY = 3;
-
-type SearchHit = SearchResults['results'][number];
-
-/** One completed search, tagged with the query it answers. */
-interface SearchAnswer {
-  readonly query: string;
-  readonly hits: readonly SearchHit[];
-  readonly failed: boolean;
-}
-
-/** One empty array, so "no results" does not change identity on every render. */
-const EMPTY_HITS: readonly SearchHit[] = [];
 
 /** An open trigger: where its text starts, what has been typed into it, and which kind it is. */
 export interface FoundTrigger {
@@ -225,7 +197,6 @@ export function ReferenceMenu({
     };
   }, [client, itemId]);
   const [trigger, setTrigger] = useState<OpenTrigger | null>(null);
-  const [answer, setAnswer] = useState<SearchAnswer | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
 
   // Read from the document on every transaction, because the document is where the trigger lives.
@@ -289,13 +260,6 @@ export function ReferenceMenu({
   const open = trigger !== null && trigger.from !== dismissed;
   const query = trigger?.query ?? '';
 
-  // The answer carries the query it answers, and anything else is ignored. That is what keeps the
-  // previous trigger's results off the screen while this one is still being debounced - and it is
-  // why closing the picker sets no state at all: there is nothing to clear.
-  const current = answer !== null && answer.query === query ? answer : null;
-  const hits = current?.hits ?? EMPTY_HITS;
-  const failed = current?.failed ?? false;
-
   // Opening the picker is when co-citations are first worth having; the request starts now, so it
   // has usually landed by the time enough has been typed to search.
   useEffect(() => {
@@ -304,72 +268,42 @@ export function ReferenceMenu({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    if (query.length < MINIMUM_QUERY) {
-      return;
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const related = withinWait(
-            coCitations.current?.get() ?? Promise.resolve(undefined),
-            RELATED_WAIT_MS,
-          );
-          const response = await client.query(search.searchItems(query, CANDIDATE_POOL), {
-            signal: controller.signal,
-          });
-          const coCited = await related;
-          if (controller.signal.aborted) {
-            return;
-          }
-          // Ranked once, here, against the document and the pick history as they stand when the
-          // answer arrives - not on every render. The order then holds still while somebody
-          // arrows through it, which a ranking recomputed per transaction could not promise.
-          const ranked = rankReferences(
-            response.results,
-            {
-              query,
-              frecency:
-                workspaceId === undefined || !choiceOrderOn()
-                  ? undefined
-                  : frecencyScores(linkFrecencyNamespace(workspaceId)),
-              linkedHere: linkedTargets(editor.state.doc),
-              currentItemId: itemId,
-              currentParentId: parentId,
-              coCited,
-            },
-            RESULT_LIMIT,
-          );
-          setAnswer({
-            query,
-            hits: ranked.map((entry) => entry.candidate),
-            failed: false,
-          });
-        } catch (cause) {
-          if (controller.signal.aborted || isCanceledError(cause)) {
-            return;
-          }
-
-          // Said out loud rather than shown as "no matches". A picker that reports an empty
-          // workspace when the request failed sends somebody off to create a document they
-          // already have.
-          console.warn('The reference search failed.', cause);
-          setAnswer({ query, hits: EMPTY_HITS, failed: true });
-        }
-      })();
-    }, DEBOUNCE_MS);
-
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [client, editor, itemId, open, parentId, query, workspaceId]);
+  // The ranking step on top of the shared search. Its identity is an effect dependency of
+  // `useItemSearch`, so it changes only with the inputs it ranks against.
+  const find = useCallback(
+    async (text: string, signal: AbortSignal): Promise<readonly SearchHit[]> => {
+      const related = withinWait(
+        coCitations.current?.get() ?? Promise.resolve(undefined),
+        RELATED_WAIT_MS,
+      );
+      const candidates = await fetchCandidates(client, text, signal);
+      const coCited = await related;
+      if (signal.aborted) {
+        return [];
+      }
+      // Ranked once, here, against the document and the pick history as they stand when the
+      // answer arrives - not on every render. The order then holds still while somebody
+      // arrows through it, which a ranking recomputed per transaction could not promise.
+      const ranked = rankReferences(
+        candidates,
+        {
+          query: text,
+          frecency:
+            workspaceId === undefined || !choiceOrderOn()
+              ? undefined
+              : frecencyScores(linkFrecencyNamespace(workspaceId)),
+          linkedHere: linkedTargets(editor.state.doc),
+          currentItemId: itemId,
+          currentParentId: parentId,
+          coCited,
+        },
+        RESULT_LIMIT,
+      );
+      return ranked.map((entry) => entry.candidate);
+    },
+    [client, editor, itemId, parentId, workspaceId],
+  );
+  const { hits, failed, answered } = useItemSearch(open ? query : null, find);
 
   const options: readonly ListboxOption[] = hits.map((hit) => ({
     id: hit.id,
@@ -491,15 +425,7 @@ export function ReferenceMenu({
         label={trigger.kind === 'principal' ? 'Items and people to link to' : 'Items to link to'}
         options={options}
         controller={listbox}
-        emptyMessage={
-          failed
-            ? 'Could not search just now. Check your connection and try again.'
-            : query.length < MINIMUM_QUERY
-              ? `Type ${String(MINIMUM_QUERY)} letters or more to find an item.`
-              : current === null
-                ? 'Searching…'
-                : 'No item matches that.'
-        }
+        emptyMessage={itemSearchEmptyMessage(query, { failed, answered })}
       />
     </div>
   );

@@ -40,19 +40,23 @@ export function MarkdownModePanel({
   const [error, setError] = useState<string | null>(null);
   const hintId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [caret, setCaret] = useState(0);
+  // Where the caret is; null while a range is selected, which never opens the picker.
+  const [caret, setCaret] = useState<number | null>(0);
   const [dismissed, setDismissed] = useState<number | null>(null);
 
   // `[[query` before the caret opens the note-link picker; `@` (people) is not offered here.
-  const found = findTrigger(text.slice(0, caret));
-  const trigger = found?.kind === 'item' && found.start !== dismissed ? found : null;
-  const { hits, options, emptyMessage } = useNoteLinkSearch(trigger?.query ?? null);
-  const listbox = useListbox(options, (_option, index) => {
-    const hit = hits[index];
-    if (hit === undefined || trigger === null) return;
+  const found = caret === null ? null : findTrigger(text.slice(0, caret));
+  const itemTrigger = found?.kind === 'item' ? found : null;
+  const trigger = itemTrigger !== null && itemTrigger.start !== dismissed ? itemTrigger : null;
+  // Escape dismisses one trigger, not the feature: once it is gone, typing `[[` again reopens.
+  if (itemTrigger === null && dismissed !== null) setDismissed(null);
+
+  const { options, emptyMessage } = useNoteLinkSearch(trigger?.query ?? null);
+  const listbox = useListbox(options, (option) => {
+    if (trigger === null || caret === null) return;
     const next = insertNoteLink(text, caret, trigger.start, {
-      id: hit.id,
-      title: hit.title ?? 'Untitled',
+      id: option.id,
+      title: option.label,
     });
     setText(next.text);
     setCaret(next.caret);
@@ -104,7 +108,7 @@ export function MarkdownModePanel({
       <Text as="p" id={hintId} variant="caption" tone="muted">
         Nothing is saved until you apply. Closing without applying discards this text.
       </Text>
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col gap-1">
         <Textarea
           ref={textareaRef}
           aria-label="Note as Markdown"
@@ -124,7 +128,7 @@ export function MarkdownModePanel({
           onSelect={(event) => {
             const { selectionStart, selectionEnd } = event.currentTarget;
             // A range selection is not a caret, so it never opens the picker.
-            setCaret(selectionStart === selectionEnd ? selectionStart : 0);
+            setCaret(selectionStart === selectionEnd ? selectionStart : null);
           }}
           onBlur={() => {
             if (trigger !== null) setDismissed(trigger.start);
@@ -155,8 +159,8 @@ export function MarkdownModePanel({
           }}
         />
         {trigger === null ? null : (
-          // shortcut: pinned to the bottom of the textarea, not at the caret (textareas have no caret rect); upgrade if users find it far from the cursor
-          <div className="absolute inset-x-2 bottom-2 z-20 flex max-h-64 flex-col overflow-y-auto border border-divider bg-background shadow-md">
+          // shortcut: the list sits under the textarea, not at the caret (textareas have no caret rect); upgrade if users find it far from the cursor
+          <div className="flex max-h-64 shrink-0 flex-col overflow-y-auto border border-divider bg-background">
             <Listbox
               label="Items to link to"
               options={options}
