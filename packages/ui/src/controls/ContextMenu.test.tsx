@@ -10,13 +10,19 @@ function Row({
   items,
   onClick = vi.fn(),
   onMouseDown = vi.fn(),
+  onLongPress,
 }: {
   readonly items: readonly MenuEntry[] | (() => readonly MenuEntry[]);
+  readonly onLongPress?: () => boolean;
   readonly onClick?: () => void;
   readonly onMouseDown?: () => void;
 }) {
   return (
-    <ContextMenu label="Page actions" items={items}>
+    <ContextMenu
+      label="Page actions"
+      items={items}
+      {...(onLongPress === undefined ? {} : { onLongPress })}
+    >
       {(target) => (
         <div {...target}>
           <button type="button" onClick={onClick} onMouseDown={onMouseDown}>
@@ -188,6 +194,50 @@ describe('ContextMenu', () => {
     expect(onClick).not.toHaveBeenCalled();
     expect(onMouseDown).not.toHaveBeenCalled();
     vi.useRealTimers();
+  });
+
+  it('lets the caller claim a held touch instead of opening the menu', () => {
+    vi.useFakeTimers();
+    const onLongPress = vi.fn(() => true);
+    const onClick = vi.fn();
+    render(
+      <Row
+        items={[{ kind: 'action', label: 'Open beside', onSelect: vi.fn() }]}
+        onClick={onClick}
+        onLongPress={onLongPress}
+      />,
+    );
+    const row = screen.getByRole('button', { name: 'Quarterly plan' });
+
+    fireEvent.pointerDown(row, { pointerType: 'touch', clientX: 10, clientY: 10 });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    fireEvent.pointerUp(row, { pointerType: 'touch' });
+    fireEvent.click(row);
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it('opens the menu when the caller declines a held touch', () => {
+    vi.useFakeTimers();
+    render(
+      <Row
+        items={[{ kind: 'action', label: 'Open beside', onSelect: vi.fn() }]}
+        onLongPress={() => false}
+      />,
+    );
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Quarterly plan' }), {
+      pointerType: 'touch',
+      clientX: 10,
+      clientY: 10,
+    });
+    act(() => {
+      vi.advanceTimersByTime(LONG_PRESS_MS);
+    });
+    expect(screen.getByRole('menu', { name: 'Page actions' })).toBeInTheDocument();
   });
 
   it('treats a touch that moves as a scroll, not a press', () => {

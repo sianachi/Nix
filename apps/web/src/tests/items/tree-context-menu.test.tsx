@@ -312,7 +312,43 @@ describe('the sidebar row context menu', () => {
     await user.click(await screen.findByRole('menuitem', { name: 'Deselect' }));
     expect(screen.getByText('2 selected')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: 'Clear selection' }));
+    await user.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
+  });
+
+  it('toggles a row with Ctrl-click and opens beside with Alt-click', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const onOpenBeside = vi.fn();
+    renderSidebar(treeOf(vi.fn()), null, { onSelect, onOpenBeside });
+
+    await user.keyboard('{Control>}');
+    await user.click(screen.getByRole('button', { name: 'First' }));
+    await user.keyboard('{/Control}');
+    expect(screen.getByText('1 selected')).toBeVisible();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onOpenBeside).not.toHaveBeenCalled();
+
+    await user.keyboard('{Alt>}');
+    await user.click(screen.getByRole('button', { name: 'Second' }));
+    await user.keyboard('{/Alt}');
+    expect(onOpenBeside).toHaveBeenCalledWith(ROOT_B.id);
+    expect(screen.getByText('1 selected')).toBeVisible();
+  });
+
+  it('selects every shown row with Ctrl-A and clears with Escape', async () => {
+    const user = userEvent.setup();
+    renderSidebar(treeOf(vi.fn()));
+    screen.getByRole('button', { name: 'First' }).focus();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
+
+    await user.keyboard('{Control>}a{/Control}');
+    expect(screen.getByText('3 selected')).toBeVisible();
+    // Everything shown is selected, so there is nothing left to select.
+    expect(screen.queryByRole('button', { name: /^Select all/ })).not.toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
     expect(screen.queryByRole('toolbar', { name: 'Selected items' })).not.toBeInTheDocument();
   });
 });
