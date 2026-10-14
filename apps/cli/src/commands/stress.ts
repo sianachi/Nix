@@ -275,7 +275,6 @@ export async function stressRun(
         clients: 2,
         edits: 50,
         intervalMs: 20,
-        allowRemote: false,
         ...options.collab,
         workspaceId: options.workspaceId,
       },

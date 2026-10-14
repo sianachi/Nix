@@ -50,24 +50,21 @@ describe('checkMarkers', () => {
 
 describe('guardTarget', () => {
   it('allows loopback targets silently', () => {
-    expect(guardTarget(endpoints('http://localhost:5014', 'http://127.0.0.1:8100'), false)).toBe(
-      undefined,
-    );
+    expect(() =>
+      guardTarget(endpoints('http://localhost:5014', 'http://127.0.0.1:8100')),
+    ).not.toThrow();
   });
 
-  it('refuses a remote api or collab host without --allow-remote', () => {
+  it('refuses a remote api or collab host', () => {
     expect(() =>
-      guardTarget(endpoints('https://nix.example.com', 'http://localhost:8100'), false),
-    ).toThrow(/--allow-remote/);
+      guardTarget(endpoints('https://nix.example.com', 'http://localhost:8100')),
+    ).toThrow(/local stack/);
     expect(() =>
-      guardTarget(endpoints('http://localhost:5014', 'https://nix.example.com/collab'), false),
-    ).toThrow(/--allow-remote/);
-  });
-
-  it('warns but proceeds when remote is allowed', () => {
-    expect(
-      guardTarget(endpoints('https://nix.example.com', 'https://nix.example.com'), true),
-    ).toMatch(/remote target/);
+      guardTarget(endpoints('http://localhost:5014', 'https://nix.example.com/collab')),
+    ).toThrow(/local stack/);
+    expect(() =>
+      guardTarget(endpoints('http://localhost.:5014', 'http://localhost.:8100')),
+    ).toThrow(/local stack/);
   });
 });
 
@@ -164,6 +161,13 @@ describe('collab-edit client against a minimal in-process collab server', () => 
     const peer = await connect(url, 't', tally);
     await expect(peer.edit('m-refused')).rejects.toThrow('rate_limited');
     expect(tally.notices).toEqual({ rate_limited: 1 });
+
+    // Once the server closes the socket, an edit fails at once instead of waiting out its timeout.
+    for (const client of wss.clients) client.close(1013);
+    await new Promise((done) => setTimeout(done, 50));
+    const started = performance.now();
+    await expect(peer.edit('m-after-close')).rejects.toThrow('Closed');
+    expect(performance.now() - started).toBeLessThan(1000);
 
     peer.close();
     wss.close();
