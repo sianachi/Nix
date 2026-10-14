@@ -19,10 +19,11 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// toolVersion 9 combines one conversation with note scopes, formula guidance and calculation-only forms.
+// toolVersion 10 adds the rule to read the open note, search before answering and cite sources, on top of
+// toolVersion 9's one conversation with note scopes, formula guidance and calculation-only forms.
 // Older provider threads restart on their next send to receive the current catalog and rules;
 // visible conversation history and its protected-read hold are retained.
-const toolVersion = 9
+const toolVersion = 10
 
 type Request struct {
 	TenantID    string `json:"tenantId"`
