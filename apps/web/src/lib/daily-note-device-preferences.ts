@@ -1,10 +1,11 @@
 import { browserStorage } from './browser-storage';
+import { registerSyncedSetting, settingChanged } from './ui-settings-sync';
 
 /**
- * Whether this browser opens today's daily note when Nix starts.
+ * Whether Nix opens today's daily note on start.
  *
- * A device preference rather than a workspace setting: one person wants it on their desk machine
- * and off on their phone, and the workspace's settings are shared by everyone in it. It is stored
+ * A personal preference rather than a workspace setting, synced to the account
+ * (`dailyNotes.openTodayOnStart`); the workspace's settings are shared by everyone in it. It is stored
  * as `'1'` or absent, so turning it off removes the key instead of leaving a `'0'` to be parsed.
  * Storage that is missing or throws reads as off, the quiet default.
  */
@@ -37,4 +38,11 @@ export function writeOpenDailyOnLaunch(value: boolean): void {
     // Quota or policy. The preference then lasts only until the page reloads, which is
     // acceptable for a convenience that has no data behind it.
   }
+  settingChanged('dailyNotes.openTodayOnStart', value);
 }
+
+registerSyncedSetting('dailyNotes.openTodayOnStart', {
+  get: readOpenDailyOnLaunch,
+  set: writeOpenDailyOnLaunch,
+  defaultValue: false,
+});

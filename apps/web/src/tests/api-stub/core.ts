@@ -145,6 +145,8 @@ export interface StubOptions {
 
   /** The caller's saved workspace groups and pins; empty at revision 0 when never saved. */
   readonly workspaceArrangement?: StubWorkspaceArrangement;
+  /** The caller's synced interface settings (`GET/PATCH /api/v1/me/ui-settings`); empty by default. */
+  readonly uiSettings?: Record<string, unknown>;
   /** The caller's saved notification/reminder preferences. Defaults to the server's own default
    * document for a principal who has never saved one - `Etc/UTC`, revision 0. */
   readonly preferences?: StubPreferences;
@@ -574,6 +576,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
     email = 'test@example.test',
     items = [],
     profileFails = false,
+    uiSettings = {},
     preferences = STUB_DEFAULT_PREFERENCES,
     workspaceArrangement = STUB_EMPTY_ARRANGEMENT,
     preferencesFail = false,
@@ -643,6 +646,7 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
   // opposite of what a creation test means to.
   const known = [...items];
   let knownWorkspaces = [...workspaces];
+  let heldUiSettings = uiSettings;
   let heldPreferences = preferences;
   let heldArrangement = workspaceArrangement;
   const preferencesWrites: { expectedRevision: number; preferences: Record<string, unknown> }[] =
@@ -1320,6 +1324,18 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
           };
           return Promise.resolve(json(heldArrangement));
         }
+      }
+
+      if (parsedUrl.pathname === '/api/v1/me/ui-settings') {
+        if (method === 'PATCH') {
+          const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+            settings?: Record<string, unknown>;
+          };
+          heldUiSettings = Object.fromEntries(
+            Object.entries({ ...heldUiSettings, ...body.settings }).filter(([, v]) => v !== null),
+          );
+        }
+        return Promise.resolve(json({ settings: heldUiSettings, revision: 0 }));
       }
 
       if (parsedUrl.pathname === '/api/v1/me/preferences') {
