@@ -1583,5 +1583,82 @@
     },
     "templateSource": "meeting-note",
     "approvedOperations": ["save_as_template"]
+  },
+  {
+    "id": "context-current-note",
+    "currentItem": "meeting-note",
+    "prompt": "What did we decide here?",
+    "tools": {
+      "requireSuccessful": ["read_note"],
+      "max": 8
+    },
+    "answerChecks": {
+      "all": ["mobile navigation", "importer"],
+      "cites": ["meeting-note"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "context-current-irrelevant",
+    "currentItem": "books-note",
+    "prompt": "Which of my tasks in {node:tasks} are overdue?",
+    "tools": {
+      "require": ["list_items|search|read_item"],
+      "forbid": ["set_properties", "create_entries"],
+      "max": 8
+    },
+    "answer": "Pay rent",
+    "answerNot": "Write report",
+    "answerChecks": {
+      "absent": ["Piranesi"]
+    }
+  },
+  {
+    "id": "context-search",
+    "prompt": "What did we agree to do about the vendor proposal?",
+    "tools": {
+      "requireSuccessful": ["search", "read_note"],
+      "max": 8
+    },
+    "answerChecks": {
+      "all": ["proposal"],
+      "any": ["before deciding", "receive"],
+      "cites": ["meeting-note"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "context-backlinks",
+    "currentItem": "meeting-note",
+    "prompt": "Which of my notes link to this one?",
+    "tools": {
+      "max": 8
+    },
+    "answerChecks": {
+      "references": ["hub-note"],
+      "cites": ["hub-note"]
+    },
+    "noWrites": true
+  },
+  {
+    "id": "context-multi-step",
+    "currentItem": "meeting-note",
+    "prompt": "Turn each decision in this note into a task in {node:tasks}, then read the tasks back.",
+    "tools": {
+      "requireSuccessful": ["read_note", "create_entries"],
+      "max": 10
+    },
+    "asserts": [
+      {
+        "kind": "child",
+        "parent": "tasks",
+        "title": "mobile navigation"
+      },
+      {
+        "kind": "child",
+        "parent": "tasks",
+        "title": "importer"
+      }
+    ]
   }
 ]

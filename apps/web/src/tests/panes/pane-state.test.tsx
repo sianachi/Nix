@@ -273,6 +273,44 @@ describe('the pane ratio', () => {
   });
 });
 
+describe('a pane showing the conversation', () => {
+  const first = '00000000-0000-4000-8000-000000000001';
+  const second = '00000000-0000-4000-8000-000000000002';
+
+  it('reads a workspace or note scope per pane', () => {
+    const { panes } = parsePanes(
+      new URLSearchParams(`item=${first}&chat=workspace&item2=${second}&chat2=${first}`),
+    );
+
+    expect(panes).toEqual([
+      { index: 0, itemId: first, chat: 'workspace' },
+      { index: 1, itemId: second, chat: first },
+    ]);
+  });
+
+  it('drops a scope that is neither, and ignores one with no item beside it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const { panes } = parsePanes(new URLSearchParams(`item=${first}&chat=../x&chat2=workspace`));
+
+    expect(panes).toEqual([{ index: 0, itemId: first }]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('moves down with its pane when an earlier one closes, and goes with its own', () => {
+    const params = new URLSearchParams(
+      `item=${first}&item2=${second}&chat2=workspace&item3=${first}&chat3=${second}`,
+    );
+
+    closePaneParams(params, 1, 3);
+
+    expect(params.get('chat2')).toBe(second);
+    expect(params.get('chat3')).toBeNull();
+    expect(params.get('chat')).toBeNull();
+  });
+});
+
 describe('closing a pane', () => {
   const first = '00000000-0000-4000-8000-000000000001';
   const second = '00000000-0000-4000-8000-000000000002';

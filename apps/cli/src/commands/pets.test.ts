@@ -156,6 +156,49 @@ describe('pet commands', () => {
       ),
     ).rejects.toThrow('Provide --tool-id and --tool-result.');
   });
+  it('sends rename and resume_history with their title and archive, and refuses them incomplete', async () => {
+    const payloads: unknown[] = [];
+    server.use(
+      http.post(`${CORE}/api/v1/me/pets/runtime`, async ({ request }) => {
+        payloads.push(await request.json());
+        return HttpResponse.json({
+          provider: 'chatgpt',
+          status: 'connected',
+          reason: 'Connected',
+          canConnect: false,
+          title: 'Sprint review',
+        });
+      }),
+    );
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const base = { apiUrl: CORE, workspace: WORKSPACE, pet: PET };
+    const deps = { env: { NIX_SESSION_TOKEN: 'ephemeral-session' } };
+    const archive = '44444444-4444-4444-8444-444444444444';
+    await petCommand(
+      undefined,
+      'rename',
+      { ...base, title: 'Sprint review' },
+      { json: true, isTty: false },
+      deps,
+    );
+    await petCommand(
+      undefined,
+      'resume_history',
+      { ...base, historyId: archive },
+      { json: true, isTty: false },
+      deps,
+    );
+    expect(payloads[0]).toMatchObject({ operation: 'rename', text: 'Sprint review' });
+    expect(payloads[0]).not.toHaveProperty('historyId');
+    expect(payloads[1]).toMatchObject({ operation: 'resume_history', historyId: archive });
+    await expect(
+      petCommand(undefined, 'rename', base, { json: true, isTty: false }, deps),
+    ).rejects.toThrow('Provide --title.');
+    await expect(
+      petCommand(undefined, 'resume_history', base, { json: true, isTty: false }, deps),
+    ).rejects.toThrow('Provide --history-id.');
+    expect(payloads).toHaveLength(2);
+  });
   it('drives watch through a GET long-poll and prints the revision', async () => {
     let query: URLSearchParams | undefined;
     server.use(

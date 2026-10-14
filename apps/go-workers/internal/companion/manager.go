@@ -19,10 +19,11 @@ import (
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// toolVersion 9 combines one conversation with note scopes, formula guidance and calculation-only forms.
+// toolVersion 10 adds the rule to read the open note, search before answering and cite sources, on top of
+// toolVersion 9's one conversation with note scopes, formula guidance and calculation-only forms.
 // Older provider threads restart on their next send to receive the current catalog and rules;
 // visible conversation history and its protected-read hold are retained.
-const toolVersion = 9
+const toolVersion = 10
 
 type Request struct {
 	TenantID    string `json:"tenantId"`
@@ -134,6 +135,8 @@ type Response struct {
 	// LockedRead says this conversation has received a protected tool result. The web client
 	// holds every later write for the owner until an explicit conversation reset.
 	LockedRead bool `json:"lockedRead"`
+	// Title names the live conversation: the owner's rename, else the default (defaultTitle).
+	Title string `json:"title"`
 }
 
 type conversation struct {
@@ -148,6 +151,8 @@ type conversation struct {
 	RootItemID      string     `json:"rootItemId,omitempty"`
 	ReadOnly        bool       `json:"readOnly,omitempty"`
 	Tools           []ToolCall `json:"tools"`
+	// Title is the owner's name for this conversation, or the one set at its first send.
+	Title string `json:"title,omitempty"`
 	// LockedRead is set once a protected tool result reaches this conversation. Later turns
 	// may quote that result, including visible history after an internal provider-thread restart.
 	// Only an explicit conversation reset clears it; tool-version changes preserve it.
@@ -428,8 +433,8 @@ func validRequest(r Request) bool {
 	switch r.Operation {
 	case "status", "connect", "disconnect", "models":
 		return true
-	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history":
-		return uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && (r.RootItemID == "" || uuid.MatchString(r.RootItemID)) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
+	case "read", "watch", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history", "rename", "resume_history":
+		return validHistoryOp(r) && uuid.MatchString(r.WorkspaceID) && uuid.MatchString(r.PetID) && (r.RootItemID == "" || uuid.MatchString(r.RootItemID)) && validTurnContext(r) && utf16Len(r.Text) <= 8000 && utf16Len(r.SharedText) <= 16000 && utf16Len(r.Instructions) <= 4000 && len(r.Model) <= 160 && utf16Len(r.ToolResult) <= 32000 && len(r.ToolID) <= 200 && (r.Mode == "" || r.Mode == "chat" || r.Mode == "consult") && (r.Operation != "send" || (uuid.MatchString(r.RequestID) && strings.TrimSpace(r.Text) != "")) && (!strings.HasPrefix(r.Operation, "tool_") || (uuid.MatchString(r.RequestID) && r.ToolID != ""))
 	default:
 		return false
 	}
@@ -598,7 +603,7 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 		if err := a.foldDesign(key); err != nil {
 			return Response{}, err
 		}
-		if r.Operation == "history" || r.Operation == "read_history" || r.Operation == "delete_history" {
+		if r.Operation == "history" || r.Operation == "read_history" || r.Operation == "delete_history" || r.Operation == "rename" && r.HistoryID != "" {
 			return a.history(key, r)
 		}
 		if err := a.load(key); err != nil {
@@ -660,6 +665,14 @@ func (a *account) handle(ctx context.Context, r Request) (Response, error) {
 			if err != nil {
 				return Response{}, err
 			}
+		} else if r.Operation == "resume_history" {
+			if err := a.resume(key, r); err != nil {
+				return Response{}, err
+			}
+		} else if r.Operation == "rename" {
+			if err := a.renameLive(key, r); err != nil {
+				return Response{}, err
+			}
 		} else if r.Operation == "watch" {
 			// Never touches the transport before this; only waits for bumpLocked to close
 			// a.changed, the request context to end, or its own timeout, whichever comes
@@ -695,6 +708,10 @@ func (a *account) snapshot(key string) Response {
 		r.Tools = append([]ToolCall{}, c.Tools...)
 		r.Revision = c.Revision
 		r.LockedRead = c.LockedRead
+		r.Title = c.Title
+		if r.Title == "" {
+			r.Title = defaultTitle(c.Messages)
+		}
 	}
 	return r
 }
@@ -771,6 +788,9 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 		// is given the visible messages that stay.
 		thread = ""
 		r.earlier = earlierTranscript(c.Messages[:max(replaceIndex(c.Messages, r.ReplaceFromMessageID), 0)])
+	} else if c.ThreadID == "" && len(c.Messages) > 0 {
+		// A resumed archive has its messages but no provider thread (resume, history.go).
+		r.earlier = earlierTranscript(c.Messages)
 	}
 	a.mu.Unlock()
 	params := map[string]any{"cwd": filepath.Join(a.home, "empty"), "sandbox": "read-only", "approvalPolicy": "on-request", "baseInstructions": instructions() + noteScopeRules(r), "developerInstructions": r.Instructions}
@@ -862,6 +882,9 @@ func (a *account) send(ctx context.Context, key string, r Request) error {
 	}
 	c.Messages = append(c.Messages, Message{ID: r.RequestID, Role: "user", Text: r.Text})
 	c.Messages = trimMessages(c.Messages, 16)
+	if c.Title == "" {
+		c.Title = defaultTitle(c.Messages)
+	}
 	err = a.saveLocked(key)
 	a.mu.Unlock()
 	if err != nil {

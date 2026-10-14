@@ -368,11 +368,11 @@ func TestToolVersionChangeStartsFreshThreadAndKeepsMessages(t *testing.T) {
 // nix_save_as_template offered to every conversation, nix_validate_blueprint removed) must
 // restart any thread that still carries the old schema.
 // TestToolVersionChangeStartsFreshThreadAndKeepsMessages proves the mechanism generically,
-// relative to toolVersion; this pins the constant to 9, so a future bump that forgets to change
+// relative to toolVersion; this pins the constant to 10, so a future bump that forgets to change
 // it would not silently pass either test.
-func TestToolVersionNineRestartsThreads(t *testing.T) {
-	if toolVersion != 9 {
-		t.Fatalf("one conversation expects toolVersion 9, got %d", toolVersion)
+func TestToolVersionTenRestartsThreads(t *testing.T) {
+	if toolVersion != 10 {
+		t.Fatalf("context and citation rules expect toolVersion 10, got %d", toolVersion)
 	}
 	r := request()
 	key := r.WorkspaceID + "-" + r.PetID
@@ -383,17 +383,17 @@ func TestToolVersionNineRestartsThreads(t *testing.T) {
 		t.Fatal(err)
 	}
 	if f.calls[0] != "thread/start" {
-		t.Fatalf("a ToolVersion 7 conversation should start a fresh thread on the version 9 bump: %v", f.calls)
+		t.Fatalf("a ToolVersion 7 conversation should start a fresh thread on the version 10 bump: %v", f.calls)
 	}
 	got := a.snapshot(key)
 	if !got.LockedRead {
 		t.Fatal("tool migration cleared the visible conversation read hold")
 	}
 	if len(got.Messages) != 3 || got.Messages[1].Role != "system" {
-		t.Fatalf("no system notice appended on the version 9 bump: %+v", got.Messages)
+		t.Fatalf("no system notice appended on the version 10 bump: %+v", got.Messages)
 	}
-	if a.conversations[key].ToolVersion != 9 {
-		t.Fatalf("conversation not recorded at tool version 9: %d", a.conversations[key].ToolVersion)
+	if a.conversations[key].ToolVersion != 10 {
+		t.Fatalf("conversation not recorded at tool version 10: %d", a.conversations[key].ToolVersion)
 	}
 }
 

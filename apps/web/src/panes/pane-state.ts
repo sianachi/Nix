@@ -6,12 +6,14 @@ import { useRoomForAnotherPane } from '../layout/viewport';
 import { parseSelectedItem, selectedItemParam } from '../routing/selected-item';
 import { clearViewState, SEARCH_PARAM } from '../views/core/view-state';
 import {
+  CHAT_PARAM,
   PANE_LIMIT,
   SIZES_PARAM,
   SPLIT_PARAM,
   focusPane,
   paneFilterPrefix,
   paneParam,
+  parseChatScope,
   parseSizes,
   parseSplit,
   sizesToParam,
@@ -35,6 +37,9 @@ export interface PaneState {
   /** Zero-based, and the coordinate every other parameter in this pane is suffixed with. */
   readonly index: number;
   readonly itemId: string;
+
+  /** The conversation scope this pane shows in place of its item, when it does. */
+  readonly chat?: string;
 }
 
 export interface PaneArrangement {
@@ -66,7 +71,8 @@ export function parsePanes(params: URLSearchParams): PaneArrangement {
     if (itemId === null) {
       break;
     }
-    panes.push({ index, itemId });
+    const chat = parseChatScope(params.get(paneParam(CHAT_PARAM, index)), index);
+    panes.push(chat === null ? { index, itemId } : { index, itemId, chat });
   }
 
   if (params.get(selectedItemParam(PANE_LIMIT)) !== null) {
@@ -86,6 +92,7 @@ export function parsePanes(params: URLSearchParams): PaneArrangement {
 /** Every parameter belonging to one pane, so closing it leaves nothing of it behind. */
 export function deletePane(params: URLSearchParams, index: number): void {
   params.delete(selectedItemParam(index));
+  params.delete(paneParam(CHAT_PARAM, index));
   clearViewState(params, index);
 }
 
@@ -96,7 +103,7 @@ export function deletePane(params: URLSearchParams, index: number): void {
  * that {@link parsePanes} refuses to read - and the pane a person did not close would vanish.
  */
 export function shiftPane(params: URLSearchParams, from: number, to: number): void {
-  const bases = ['view', 'mode', 'sort', 'dir', SEARCH_PARAM];
+  const bases = ['view', 'mode', 'sort', 'dir', SEARCH_PARAM, CHAT_PARAM];
 
   const itemId = params.get(selectedItemParam(from));
   const carried = bases.map((base) => params.get(paneParam(base, from)));

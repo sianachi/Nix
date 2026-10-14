@@ -10,6 +10,8 @@ import { useBackDismiss } from '../layout/use-back-dismiss';
 import { openPanelPosition } from './panel-position';
 import { PetAvatar } from './pet-avatar';
 import { publishPetAttention } from './pet-attention';
+import { useOpenChat } from '../tabs/use-open-chat';
+import { usePanes } from '../panes/pane-state';
 import { usePetSettings } from './use-pet-settings';
 import { usePetRuntime } from './use-pet-runtime';
 import { readDevicePreference, readPetPosition, writePetPosition } from './device-preferences';
@@ -40,6 +42,7 @@ export function PetCompanion(): ReactElement | null {
   const { saved } = usePetSettings();
   const { pathname } = useLocation();
   const zen = useZenActive();
+  const { panes } = usePanes();
   const pet = saved?.settings.profiles.find((profile) => profile.id === saved.settings.activePetId);
   if (!saved?.settings.enabled || !pet) return null;
   // Zen is the item alone in the window: the launcher is part of the chrome it takes away, so it
@@ -51,6 +54,8 @@ export function PetCompanion(): ReactElement | null {
   // path.
   const petPagePath = petPageHref(workspaceId);
   if (zen || pathname === petPagePath || pathname.startsWith(`${petPagePath}/`)) return null;
+  // A workspace conversation open as a tab runs its own runtime; this panel would be a second one.
+  if (panes.some((pane) => pane.chat === 'workspace')) return null;
   return (
     <Companion
       key={`${workspaceId}:${pet.id}:${pet.provider}`}
@@ -129,8 +134,10 @@ function Companion({
   const narrow = useNarrowViewport();
   const surface = usePetSurface();
   const opensAsPage = chatOpensAsPage(surface, narrow);
+  // A tab in the open pane where tabs are drawn, the companion page elsewhere.
+  const openChat = useOpenChat();
   const openPage = () => {
-    void navigate(petPageHref(workspaceId));
+    openChat(null);
   };
   useBackDismiss(open && narrow, () => {
     setOpen(false);
