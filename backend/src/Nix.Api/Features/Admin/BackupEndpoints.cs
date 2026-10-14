@@ -50,7 +50,7 @@ public sealed class ListBackupRunsHandler(SiteOperators operators, IBackupRunSto
     public async ValueTask<Result<BackupRunListResponse>> HandleAsync(ListBackupRuns query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
-        if (!await operators.IsInstanceOperatorAsync().ConfigureAwait(false))
+        if (!operators.IsInstanceOperator())
         {
             return Result.Failure<BackupRunListResponse>(new(OperatorRequiredCode, "Only an operator of this deployment may read backup status."));
         }
