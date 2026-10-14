@@ -103,6 +103,8 @@ export const petConnectionSchema = z.object({
    * Defaulted, so a server from before the field parses as unmarked.
    */
   lockedRead: z.boolean().default(false),
+  /** The live conversation's name: the owner's rename, else its first message. */
+  title: z.string().default(''),
 });
 
 export type PetProfile = z.infer<typeof petProfileSchema>;

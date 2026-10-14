@@ -102,7 +102,9 @@ export interface RuntimeInput {
     | 'tool_result'
     | 'history'
     | 'read_history'
-    | 'delete_history';
+    | 'delete_history'
+    | 'rename'
+    | 'resume_history';
   readonly workspaceId?: string;
   readonly petId?: string;
   readonly requestId?: string;
@@ -124,6 +126,7 @@ export interface RuntimeInput {
   readonly toolSuccess?: boolean;
   /** With a tool result: the result came from an item under a lock (marks the conversation). */
   readonly toolLockedContent?: boolean;
+  /** The archive a `read_history`, `delete_history`, `resume_history` or archived `rename` names. */
   readonly historyId?: string;
   readonly mode?: 'chat' | 'consult';
   /** The owner's own day, `yyyy-MM-dd` in `timeZone`, so the model can resolve relative dates. */

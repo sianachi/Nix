@@ -4480,6 +4480,8 @@ export interface components {
       revision: number | string;
       /** @default false */
       lockedRead: boolean;
+      /** @default  */
+      title: string;
     };
     PetHistoryEntry: {
       id: string;

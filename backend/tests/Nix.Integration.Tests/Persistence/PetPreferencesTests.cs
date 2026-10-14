@@ -273,7 +273,7 @@ public sealed class PetPreferencesTests(NixPostgresFixture fixture) : IAsyncLife
 
     private static async Task AssertScopedOperationsRefusedAsync(PetWorkerClient gateway, Guid petId, Guid root)
     {
-        foreach (var operation in new[] { "read", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history" })
+        foreach (var operation in new[] { "read", "send", "interrupt", "reset", "tool_claim", "tool_result", "history", "read_history", "delete_history", "rename", "resume_history" })
         {
             var result = await gateway.ExecuteAsync(new(operation, TestTenants.AlphaWorkspace, petId, Guid.NewGuid(), "Test",
                 ToolId: "tool-one", HistoryId: Guid.NewGuid(), RootItemId: root), Cancellation);

@@ -35,6 +35,8 @@ const RUNTIME_OPERATIONS = [
   'history',
   'read_history',
   'delete_history',
+  'rename',
+  'resume_history',
 ] as const;
 type RuntimeOperation = (typeof RUNTIME_OPERATIONS)[number];
 
@@ -48,6 +50,8 @@ export interface PetOptions {
   readonly rootItem?: string;
   readonly allowEdits?: boolean;
   readonly historyId?: string;
+  /** `rename` only: the new title, sent as the request's text. */
+  readonly title?: string;
   readonly toolId?: string;
   readonly requestId?: string;
   readonly toolResult?: string;
@@ -134,7 +138,7 @@ export async function executePetRuntime(
       operation: operation as Exclude<RuntimeOperation, 'settings' | 'watch'>,
       ...(options.workspace ? { workspaceId: options.workspace } : {}),
       ...(options.pet ? { petId: options.pet } : {}),
-      text: options.message ?? '',
+      text: options.message ?? options.title ?? '',
       model: options.model ?? '',
       workspaceAccess: options.rootItem !== undefined || (options.workspaceTools ?? false),
       ...(options.rootItem
@@ -164,8 +168,12 @@ function validatePetRuntimeRequest(operation: string, options: PetOptions): void
     throw new Error('--root-item must be an item UUID.');
   if (options.allowEdits && !options.rootItem)
     throw new Error('--allow-edits requires --root-item.');
-  if (['read_history', 'delete_history'].includes(operation) && !options.historyId)
+  if (
+    ['read_history', 'delete_history', 'resume_history'].includes(operation) &&
+    !options.historyId
+  )
     throw new Error('Provide --history-id.');
+  if (operation === 'rename' && !options.title?.trim()) throw new Error('Provide --title.');
   if (operation === 'send' && !options.message?.trim()) throw new Error('Provide --message.');
   if (
     [
@@ -179,6 +187,8 @@ function validatePetRuntimeRequest(operation: string, options: PetOptions): void
       'history',
       'read_history',
       'delete_history',
+      'rename',
+      'resume_history',
     ].includes(operation) &&
     (!options.workspace || !options.pet)
   )
