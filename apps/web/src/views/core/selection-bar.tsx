@@ -7,6 +7,7 @@ export interface SelectionBarProps {
   readonly shownCount?: number | undefined;
   readonly onSelectAll?: (() => void) | undefined;
   readonly onMove?: (() => void) | undefined;
+  readonly onDelete?: (() => void) | undefined;
   readonly onClear: () => void;
   /** Extra per-view actions, drawn after Move and before the divider. */
   readonly children?: ReactNode;
@@ -21,7 +22,7 @@ export interface SelectionBarProps {
 const FALL_MS = 150;
 
 /**
- * The tray a pane shows while items are selected: the live count, "Select all N", Move, the
+ * The tray a pane shows while items are selected: the live count, "Select all N", Move, Delete, the
  * per-view actions, a divider, then Clear with its Esc hint.
  *
  * Floating (the default) it rides the bottom of the pane that owns the selection: a zero-height
@@ -69,7 +70,16 @@ export function SelectionBar(props: SelectionBarProps): ReactNode {
 }
 
 function Tray(props: SelectionBarProps): ReactNode {
-  const { count, shownCount = 0, onSelectAll, onMove, onClear, children, compact = false } = props;
+  const {
+    count,
+    shownCount = 0,
+    onSelectAll,
+    onMove,
+    onDelete,
+    onClear,
+    children,
+    compact = false,
+  } = props;
   const bar = useRef<HTMLDivElement>(null);
 
   // The toolbar's arrow keys: left and right walk its buttons, Home and End jump to the ends.
@@ -116,6 +126,11 @@ function Tray(props: SelectionBarProps): ReactNode {
       {onMove ? (
         <Button variant="secondary" onClick={onMove}>
           Move to…
+        </Button>
+      ) : null}
+      {onDelete ? (
+        <Button variant="secondary" onClick={onDelete}>
+          Delete
         </Button>
       ) : null}
       {children}

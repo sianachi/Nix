@@ -48,7 +48,11 @@ it('offers rename, move and delete on a list row, and runs them through the shel
   const move = vi.fn(() => Promise.resolve({ refusal: null }));
   const tree = fakeTree(move);
   renderAt(
-    <ItemCommandsProvider tree={tree} onDeleteItem={onDelete}>
+    <ItemCommandsProvider
+      tree={tree}
+      onDeleteItem={onDelete}
+      onDeleteItems={() => Promise.resolve([])}
+    >
       <ContainerView
         container={aContainer({ children: [NOTE, PROTECTED] })}
         view={aView({ kind: 'list' })}
