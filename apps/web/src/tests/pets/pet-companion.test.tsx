@@ -754,6 +754,39 @@ describe('companion workflow', () => {
     });
   });
 
+  it('shows the live conversation title and renames it from the actions menu', async () => {
+    const named = {
+      ...connected,
+      title: 'Weekly plan',
+      messages: [{ id: 'first', role: 'user', text: 'What is due?' }],
+    };
+    client.query.mockResolvedValue(named);
+    client.execute.mockResolvedValue({ ...named, title: 'Sprint review' });
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    expect(await screen.findByText('Weekly plan')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'More conversation actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Rename conversation' }));
+    const field = screen.getByRole('textbox', { name: 'Conversation title' });
+    await user.clear(field);
+    await user.type(field, 'Sprint review{Enter}');
+    await waitFor(() => {
+      const bodies = client.execute.mock.calls.map(
+        ([endpoint]) => (endpoint as { body?: unknown }).body,
+      );
+      expect(bodies).toContainEqual(
+        expect.objectContaining({ operation: 'rename', text: 'Sprint review' }),
+      );
+    });
+    expect(await screen.findByText('Sprint review')).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: 'Conversation title' })).not.toBeInTheDocument();
+  });
+
   it('offers device sign-in and cancellation without handling credentials in the browser', async () => {
     client.query.mockResolvedValue({ ...connected, status: 'disconnected', canConnect: true });
     client.execute.mockResolvedValue({

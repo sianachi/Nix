@@ -24,6 +24,7 @@ function connection(overrides: Record<string, unknown> = {}) {
     tools: [],
     revision: 0,
     lockedRead: false,
+    title: '',
     ...overrides,
   };
 }
