@@ -883,12 +883,6 @@ function GraphDrawing({
       clearTimeout(timer);
     };
   }, [arrangementId, offsets, collapsed, chosen, pull]);
-  // Labels keep one size on screen, so which fit depends on zoom; re-picked only per power of two.
-  const labels = useMemo(
-    () => pickLabels(layout.nodes, layout.width / 2, labelZoom),
-    [layout, labelZoom],
-  );
-
   // The camera's zoom for the stylesheet: labels divide their font size by it (see NODE_LABEL).
   // Written to the element rather than rendered, so a zoom tick re-renders no node.
   useLayoutEffect(() => {
@@ -977,6 +971,15 @@ function GraphDrawing({
   // The item last opened from here. Opening shows it in a dialog over the graph, so the drawing
   // stays on screen behind it and should say which disc the dialog belongs to.
   const [openedId, setOpenedId] = useState<string | null>(null);
+
+  // Labels keep one size on screen, so which fit depends on zoom; re-picked per zoom step. The
+  // focused, selected and opened nodes are always named, so the others make room for them.
+  const pinnedFocusId = representation === 'focused' ? focusId : null;
+  const labels = useMemo(
+    () =>
+      pickLabels(layout.nodes, layout.width / 2, labelZoom, [pinnedFocusId, selectedId, openedId]),
+    [layout, labelZoom, pinnedFocusId, selectedId, openedId],
+  );
 
   // The node under a mouse. React state rather than CSS because the neighbours have to know, and
   // discrete - it changes on entering and leaving a node, not on every pointer move.

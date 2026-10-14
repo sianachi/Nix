@@ -8,7 +8,7 @@ import { nodeTitle, type PositionedNode } from './graph-layout';
  * - and a name is written only where it does not land on one already written. Labels are drawn in
  * a constant size on screen (the drawing divides the font size by the camera's zoom), so whether
  * two overlap depends on zoom: zoomed out, the same label covers more of the drawing. The check is
- * therefore made in screen pixels at a bucketed zoom (a power of two, see `labelZoomBucket`), and
+ * therefore made in screen pixels at a bucketed zoom (a quarter-octave step, see `labelZoomBucket`), and
  * is worked out again only when the camera crosses to another bucket. Zooming in frees room, so
  * more names appear; the bucket rounds down, so the real spacing is never tighter than the one
  * checked.
@@ -18,7 +18,7 @@ import { nodeTitle, type PositionedNode } from './graph-layout';
  */
 
 /** A label's width per character, in screen pixels, for the label text size (`text-base`, 13px). */
-const CHARACTER_WIDTH = 7.2;
+const CHARACTER_WIDTH = 6.6;
 
 /** A label's height, with the breathing room that keeps two lines from touching. */
 const LABEL_HEIGHT = 18;
@@ -50,9 +50,14 @@ export function labelPlacement(node: PositionedNode, centreX: number): LabelPlac
   };
 }
 
-/** The zoom a camera scale is checked at: the power of two at or below it. */
+/**
+ * The zoom a camera scale is checked at: the quarter-octave step at or below it.
+ *
+ * Rounding down keeps the check conservative, but a whole octave is too coarse: at 0.63 it would
+ * check at 0.5, where nodes look 21% closer than they are, and skip labels that have room.
+ */
 export function labelZoomBucket(scale: number): number {
-  return 2 ** Math.floor(Math.log2(scale));
+  return 2 ** (Math.floor(Math.log2(scale) * 4) / 4);
 }
 
 /** A label's box in screen pixels at this zoom (label size is fixed on screen, positions scale). */
@@ -73,6 +78,7 @@ export function pickLabels(
   nodes: readonly PositionedNode[],
   drawingCentreX?: number,
   zoom = 1,
+  pinned: readonly (string | null)[] = [],
 ): ReadonlySet<string> {
   if (nodes.length === 0) {
     return new Set();
@@ -81,8 +87,12 @@ export function pickLabels(
   const minX = Math.min(...nodes.map((node) => node.x));
   const maxX = Math.max(...nodes.map((node) => node.x));
   const centreX = drawingCentreX ?? (minX + maxX) / 2;
+  // Pinned nodes (the focused, selected or opened one) are always named, so they go first and
+  // claim their boxes before anyone else; a neighbour then yields to them rather than printing over.
+  const isPinned = (node: PositionedNode): boolean => pinned.includes(node.id);
   const ordered = [...nodes].sort(
     (a, b) =>
+      Number(!isPinned(a)) - Number(!isPinned(b)) ||
       Number(a.depth !== 0) - Number(b.depth !== 0) ||
       b.degree - a.degree ||
       a.depth - b.depth ||
@@ -111,7 +121,7 @@ export function pickLabels(
       }
     }
 
-    if (!free) {
+    if (!free && !isPinned(node)) {
       continue;
     }
 
