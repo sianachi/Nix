@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { browserStorage } from '../lib/browser-storage';
+import { registerSyncedSetting, settingChanged } from '../lib/ui-settings-sync';
 
 /**
  * Whether the note editor underlines item titles written in the text but not linked: a
@@ -46,5 +47,14 @@ export const useMentionPreference = create<{
       /* The choice still works for this session. */
     }
     set({ setting, saved });
+    settingChanged('editor.unlinkedMentionUnderline', setting === 'on');
   },
 }));
+
+registerSyncedSetting('editor.unlinkedMentionUnderline', {
+  get: () => useMentionPreference.getState().setting === 'on',
+  set: (on) => {
+    useMentionPreference.getState().setSetting(on ? 'on' : 'off');
+  },
+  defaultValue: true,
+});
