@@ -62,6 +62,21 @@ export function isInsideSelection(
   return target !== null && ancestorsOf(target, find).some((ancestor) => ids.has(ancestor));
 }
 
+/** Why a drop of `ids` onto `targetId` is refused before anything is written, or null. */
+export function dropRefusal(
+  ids: readonly string[],
+  targetId: string,
+  find: (id: string) => TreeItem | null,
+): string | null {
+  if (isInsideSelection(targetId, new Set(ids), find)) {
+    return 'An item cannot be moved inside itself.';
+  }
+  const target = find(targetId);
+  return target?.noChildren === true
+    ? `${target.title || 'Untitled'} does not accept new children.`
+    : null;
+}
+
 export interface BulkMoveOutcome {
   readonly moved: readonly string[];
   readonly refused: readonly { readonly id: string; readonly reason: string }[];
