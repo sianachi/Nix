@@ -6,6 +6,8 @@ import { item, stubCoreApi } from '../api-stub';
 import { renderAt, signedIn } from '../render-with-router';
 import { stubViewport } from '../stub-viewport';
 import { App } from '../../app';
+import { useGraphOpenPreference } from '../../graph/graph-open-preference';
+import { useTabStore } from '../../tabs/tab-store';
 
 /**
  * The graph destination.
@@ -35,6 +37,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  useGraphOpenPreference.setState({ mode: 'dialog' });
   if (originalScroll === undefined) Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
   else Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', originalScroll);
 });
@@ -705,5 +708,69 @@ describe('touching a node on a coarse pointer', () => {
     expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue(
       'Specifications',
     );
+  });
+});
+
+describe('where a graph node opens', () => {
+  async function clickRoadmap(path = '/graph'): Promise<void> {
+    stubCoreApi({ items: [ROOT, OTHER] });
+    renderAt(<App />, path);
+    await screen.findByRole('tree', { name: /workspace graph/i });
+    const roadmap = within(graphTree()).getByRole('treeitem', { name: /Roadmap/i });
+    await userEvent.click(within(roadmap).getByRole('button'));
+  }
+
+  const pinnedFlag = (): boolean | undefined =>
+    useTabStore.getState().byPane[0]?.find((tab) => tab.itemId === OTHER.id)?.pinned;
+
+  it('offers the choice, defaulting to the dialog', async () => {
+    stubCoreApi({ items: [OTHER] });
+    renderAt(<App />, '/graph');
+    await screen.findByRole('tree', { name: /workspace graph/i });
+    const control = screen.getByRole('combobox', { name: 'Open items in' });
+    expect(control).toHaveValue('dialog');
+    expect(
+      within(control)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Page', 'Dialog', 'Beside', 'New tab']);
+  });
+
+  it('stores the chosen mode in the preference', async () => {
+    stubCoreApi({ items: [OTHER] });
+    renderAt(<App />, '/graph');
+    await screen.findByRole('tree', { name: /workspace graph/i });
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Open items in' }), 'tab');
+    expect(useGraphOpenPreference.getState().mode).toBe('tab');
+  });
+
+  it('navigates to the item as a preview in page mode, with no dialog', async () => {
+    useGraphOpenPreference.setState({ mode: 'page' });
+    await clickRoadmap();
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Roadmap');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(pinnedFlag()).toBe(false);
+  });
+
+  it('opens the item as a pinned tab in tab mode', async () => {
+    useGraphOpenPreference.setState({ mode: 'tab' });
+    await clickRoadmap();
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Roadmap');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(pinnedFlag()).toBe(true);
+  });
+
+  it('falls back to the dialog in beside mode, since the graph has no pane to open beside', async () => {
+    useGraphOpenPreference.setState({ mode: 'beside' });
+    await clickRoadmap();
+    expect(await screen.findByRole('dialog', { name: 'Roadmap' })).toBeInTheDocument();
+  });
+
+  it('opens a page on a phone whatever the mode', async () => {
+    stubViewport(false);
+    useGraphOpenPreference.setState({ mode: 'dialog' });
+    await clickRoadmap(`/w/00000000-0000-4000-8000-000000000001/graph?focus=${OTHER.id}`);
+    expect(await screen.findByRole('textbox', { name: /note title/i })).toHaveValue('Roadmap');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
