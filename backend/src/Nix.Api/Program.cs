@@ -585,6 +585,7 @@ app.MapExportEndpoints();
 app.MapPluginEndpoints();
 app.MapOperationEndpoints();
 app.MapMeEndpoints();
+app.MapUiSettingsEndpoints();
 app.MapStructureEndpoints();
 app.MapPermissionEndpoints();
 app.MapRoleEndpoints();

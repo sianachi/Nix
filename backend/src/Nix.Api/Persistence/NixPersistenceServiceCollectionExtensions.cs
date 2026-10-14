@@ -59,6 +59,7 @@ using Nix.Persistence.Query;
 using Nix.Persistence.Recurrence;
 using Nix.Persistence.Rls;
 using Nix.Persistence.Search;
+using Nix.Persistence.Settings;
 using Nix.Persistence.Sites;
 using Nix.Persistence.Sql;
 using Nix.Persistence.Templates;
@@ -257,6 +258,9 @@ public static class NixPersistenceServiceCollectionExtensions
         services.AddScoped<ICommandHandler<SavePetProviderKey, PetProviderKeyResponse>, SavePetProviderKeyHandler>();
         services.AddScoped<ICommandHandler<RemovePetProviderKey, bool>, RemovePetProviderKeyHandler>();
         services.AddScoped<IPrincipalPreferencesStore, PrincipalPreferencesStore>();
+        services.AddScoped<IPrincipalUiSettingsStore, PrincipalUiSettingsStore>();
+        services.AddScoped<IQueryHandler<GetUiSettings, UiSettingsResponse>, GetUiSettingsHandler>();
+        services.AddScoped<ICommandHandler<PatchUiSettings, UiSettingsResponse>, PatchUiSettingsHandler>();
         services.AddScoped<IWorkspaceArrangementStore, WorkspaceArrangementStore>();
         services.AddScoped<IQueryHandler<GetWorkspaceArrangement, WorkspaceArrangementResponse>, GetWorkspaceArrangementHandler>();
         services.AddScoped<ICommandHandler<SaveWorkspaceArrangement, WorkspaceArrangementResponse>, SaveWorkspaceArrangementHandler>();
