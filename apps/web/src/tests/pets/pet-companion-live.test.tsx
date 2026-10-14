@@ -340,4 +340,25 @@ describe('companion live wiring', () => {
     await user.click(screen.getByRole('button', { name: /^Remove This page/ }));
     expect(screen.queryByRole('list', { name: 'Notes sent with your message' })).toBeNull();
   });
+
+  it('opens the suggestion actions from a leading slash and picks one by keyboard', async () => {
+    client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
+    client.execute.mockResolvedValue(base);
+    const user = await openCompanion();
+    const composer = await screen.findByRole('textbox', { name: 'Message Cat' });
+
+    await user.type(composer, '/');
+    expect(screen.getAllByRole('option')).toHaveLength(3);
+    await user.type(composer, 'plan');
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    await user.keyboard('{Enter}');
+    expect(composer).toHaveValue('Plan my reading');
+    expect(screen.queryByRole('option')).toBeNull();
+
+    await user.clear(composer);
+    await user.type(composer, '/{ArrowDown}{Escape}');
+    expect(screen.queryByRole('option')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
+    expect(composer).toHaveValue('/');
+  });
 });
