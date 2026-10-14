@@ -7,6 +7,8 @@ import { useId, useState, type ChangeEvent, type ReactElement } from 'react';
 
 import { announce } from '../a11y/announcer';
 import { useSessionStore } from '../auth/session-store';
+import { useCapabilities } from '../session/capabilities-context';
+import { usePublishingPreference } from './publishing-preference';
 import { useOfflinePreference } from '../offline/offline-preference';
 import { requestOfflineSync } from '../offline/offline-runtime';
 import { rememberOfflineAccount } from '../offline/offline-store';
@@ -46,6 +48,9 @@ export function EditorPreferencesSection(): ReactElement {
   const choiceSetting = useChoiceOrderPreference((state) => state.setting);
   const choiceSaved = useChoiceOrderPreference((state) => state.saved);
   const setChoiceSetting = useChoiceOrderPreference((state) => state.setSetting);
+  const sitesOffered = useCapabilities().sites;
+  const publishing = usePublishingPreference((state) => state.enabled);
+  const setPublishing = usePublishingPreference((state) => state.setEnabled);
   const mode = useKeyboardModeStore((state) => state.mode);
   const persistence = useKeyboardModeStore((state) => state.persistence);
   const keyboardModeSelected = useKeyboardModeStore((state) => state.keyboardModeSelected);
@@ -189,6 +194,15 @@ export function EditorPreferencesSection(): ReactElement {
             : 'The choice order preference applies to this session; browser storage is unavailable.'
         }
       />
+      {sitesOffered ? (
+        <PreferenceToggle
+          label="Publishing"
+          checked={publishing}
+          onChange={setPublishing}
+          description="Show site publishing for pages you own."
+          unsaved={null}
+        />
+      ) : null}
       <ClearDismissedSuggestions />
     </section>
   );

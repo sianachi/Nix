@@ -86,7 +86,7 @@ import { LockDialog } from '../locks/lock-dialog';
 import { LockedBody } from '../locks/locked-body';
 import { useForgetLockedBody } from '../locks/use-forget-locked-body';
 import { useItemLock } from '../locks/use-item-lock';
-import { useCapabilities } from '../session/capabilities-context';
+import { useSitesVisible } from '../settings/publishing-preference';
 import { focusSitePaneHeading } from '../sites/site-pane';
 import { useItemHasSite } from '../sites/use-item-site';
 import { historyPanelWidth } from '../layout/regions';
@@ -614,7 +614,7 @@ export function OpenItem({
     if (!panelOpen) togglePanel();
     focusSitePaneHeading();
   }
-  const sitesEnabled = useCapabilities().sites;
+  const sitesEnabled = useSitesVisible();
   const hasSite = useItemHasSite(itemId, sitesEnabled);
 
   const details = useItemProperties(itemId);
