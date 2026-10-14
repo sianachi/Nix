@@ -41,9 +41,16 @@ export interface LabelPlacement {
   readonly textAnchor: 'start' | 'end';
 }
 
-/** Place labels away from the graph's outer edge, where the SVG would otherwise clip them. */
-export function labelPlacement(node: PositionedNode, centreX: number): LabelPlacement {
-  const onRight = node.x > centreX;
+/**
+ * Place labels away from the graph's outer edge, where the SVG would otherwise clip them. `flipped`
+ * puts the label on the node's other side, which `pickLabels` does when the usual side is taken.
+ */
+export function labelPlacement(
+  node: PositionedNode,
+  centreX: number,
+  flipped = false,
+): LabelPlacement {
+  const onRight = node.x > centreX !== flipped;
   return {
     x: node.x + (onRight ? -node.radius * 2 : node.radius * 2),
     textAnchor: onRight ? 'end' : 'start',
@@ -61,8 +68,8 @@ export function labelZoomBucket(scale: number): number {
 }
 
 /** A label's box in screen pixels at this zoom (label size is fixed on screen, positions scale). */
-function labelBox(node: PositionedNode, centreX: number, zoom: number): Box {
-  const placement = labelPlacement(node, centreX);
+function labelBox(node: PositionedNode, centreX: number, zoom: number, flipped: boolean): Box {
+  const placement = labelPlacement(node, centreX, flipped);
   const width = Math.min(nodeTitle(node).length, MEASURED_CHARACTERS) * CHARACTER_WIDTH;
   const x = placement.x * zoom;
   const y = node.y * zoom;
@@ -79,9 +86,9 @@ export function pickLabels(
   drawingCentreX?: number,
   zoom = 1,
   pinned: readonly (string | null)[] = [],
-): ReadonlySet<string> {
+): ReadonlyMap<string, boolean> {
   if (nodes.length === 0) {
-    return new Set();
+    return new Map();
   }
 
   const minX = Math.min(...nodes.map((node) => node.x));
@@ -100,38 +107,44 @@ export function pickLabels(
   );
 
   const grid = new Map<string, Box[]>();
-  const chosen = new Set<string>();
+  // Each named node maps to whether its label sits on the side opposite the usual one.
+  const chosen = new Map<string, boolean>();
 
   for (const node of ordered) {
-    const box = labelBox(node, centreX, zoom);
-    const cells: string[] = [];
-    let free = true;
+    // The usual side first; the other only if the usual one is taken. Both taken: a pinned node
+    // is named on the usual side anyway, any other is dropped.
+    const placed = [false, true].map((flipped) => {
+      const box = labelBox(node, centreX, zoom, flipped);
+      const cells: string[] = [];
+      let free = true;
 
-    for (
-      let column = Math.floor(box.left / CELL);
-      column <= Math.floor(box.right / CELL);
-      column++
-    ) {
-      for (let row = Math.floor(box.top / CELL); row <= Math.floor(box.bottom / CELL); row++) {
-        const key = `${String(column)}:${String(row)}`;
-        cells.push(key);
-        if (free && (grid.get(key) ?? []).some((taken) => overlaps(taken, box))) {
-          free = false;
+      for (
+        let column = Math.floor(box.left / CELL);
+        column <= Math.floor(box.right / CELL);
+        column++
+      ) {
+        for (let row = Math.floor(box.top / CELL); row <= Math.floor(box.bottom / CELL); row++) {
+          const key = `${String(column)}:${String(row)}`;
+          cells.push(key);
+          if (free && (grid.get(key) ?? []).some((taken) => overlaps(taken, box))) {
+            free = false;
+          }
         }
       }
-    }
-
-    if (!free && !isPinned(node)) {
+      return { flipped, box, cells, free };
+    });
+    const side = placed.find((candidate) => candidate.free) ?? (isPinned(node) ? placed[0] : null);
+    if (side === undefined || side === null) {
       continue;
     }
 
-    chosen.add(node.id);
-    for (const key of cells) {
+    chosen.set(node.id, side.flipped);
+    for (const key of side.cells) {
       const taken = grid.get(key);
       if (taken === undefined) {
-        grid.set(key, [box]);
+        grid.set(key, [side.box]);
       } else {
-        taken.push(box);
+        taken.push(side.box);
       }
     }
   }

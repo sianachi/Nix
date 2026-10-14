@@ -32,8 +32,26 @@ describe('graph label placement', () => {
       { ...node, id: 'middle', x: 100 },
       { ...node, id: 'last', x: 300 },
     ];
-    expect(pickLabels(nodes).has('middle')).toBe(true);
-    expect(pickLabels(nodes, 50).has('middle')).toBe(false);
+    expect(pickLabels(nodes).get('middle')).toBe(false);
+    // Anchored inward from the right of centre it meets the first label, so it takes the other side.
+    expect(pickLabels(nodes, 50).get('middle')).toBe(true);
+  });
+});
+
+describe('graph label flipping', () => {
+  // Left of the centre, so the usual side is to the right of the node.
+  const at = (id: string, x: number): PositionedNode => ({ ...node, id, title: 'Neighbour', x });
+
+  it("puts a colliding label on the node's other side before dropping it", () => {
+    const named = pickLabels([at('a', 300), at('b', 320)], 500);
+    expect(named.get('a')).toBe(false);
+    expect(named.get('b')).toBe(true);
+    expect(labelPlacement(at('b', 320), 500, true)).toEqual({ x: 304, textAnchor: 'end' });
+  });
+
+  it('drops a label that collides on both sides', () => {
+    const named = pickLabels([at('a', 300), at('b', 320), at('c', 312)], 500);
+    expect([...named.keys()]).toEqual(['a', 'b']);
   });
 });
 
@@ -89,7 +107,7 @@ describe('graph label room', () => {
 
   it('names nodes that have clear room beside them at a fitted zoom', () => {
     const named = pickLabels(fitted, 790, labelZoomBucket(0.633));
-    expect([...named].sort()).toEqual(['checklist', 'competitor', 'project']);
+    expect([...named.keys()].sort()).toEqual(['checklist', 'competitor', 'project']);
   });
 
   it('keeps a pinned node named and clear of every other placed label', () => {
@@ -100,7 +118,7 @@ describe('graph label room', () => {
     ];
     const named = pickLabels(crowd, 500, 1, ['focus']);
     // "a" would print over the focus label, so it yields; "far" has room.
-    expect([...named].sort()).toEqual(['far', 'focus']);
-    expect([...pickLabels(crowd, 500, 1)]).toContain('a');
+    expect([...named.keys()].sort()).toEqual(['far', 'focus']);
+    expect([...pickLabels(crowd, 500, 1).keys()]).toContain('a');
   });
 });
