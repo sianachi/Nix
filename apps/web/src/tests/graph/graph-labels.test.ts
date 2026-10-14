@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { labelPlacement, pickLabels } from '../../graph/graph-labels';
+import { labelPlacement, labelZoomBucket, pickLabels } from '../../graph/graph-labels';
 import type { PositionedNode } from '../../graph/graph-layout';
 
 const node: PositionedNode = {
@@ -34,5 +34,37 @@ describe('graph label placement', () => {
     ];
     expect(pickLabels(nodes).has('middle')).toBe(true);
     expect(pickLabels(nodes, 50).has('middle')).toBe(false);
+  });
+});
+
+describe('graph label placement by zoom', () => {
+  // Nodes 40 units apart: their labels collide when zoomed out and clear each other zoomed in.
+  const row = Array.from({ length: 12 }, (_, index) => ({
+    ...node,
+    id: `n${String(index).padStart(2, '0')}`,
+    title: 'Neighbour',
+    x: index * 40,
+    y: 0,
+  }));
+
+  it('buckets the camera scale down to a power of two', () => {
+    expect(labelZoomBucket(1)).toBe(1);
+    expect(labelZoomBucket(1.9)).toBe(1);
+    expect(labelZoomBucket(0.3)).toBe(0.25);
+    expect(labelZoomBucket(3)).toBe(2);
+  });
+
+  it('fits more labels at a higher zoom', () => {
+    const far = pickLabels(row, 0, 0.25).size;
+    const mid = pickLabels(row, 0, 1).size;
+    const near = pickLabels(row, 0, 4).size;
+    expect(far).toBeLessThan(mid);
+    expect(mid).toBeLessThan(near);
+  });
+
+  it('picks the same labels for the same bucket', () => {
+    expect([...pickLabels(row, 0, labelZoomBucket(1.2))]).toEqual([
+      ...pickLabels(row, 0, labelZoomBucket(1.9)),
+    ]);
   });
 });

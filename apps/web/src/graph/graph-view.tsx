@@ -4,6 +4,7 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -37,7 +38,7 @@ import {
   NO_FILTER,
   type GraphFilter,
 } from './graph-emphasis';
-import { labelPlacement, pickLabels } from './graph-labels';
+import { labelPlacement, labelZoomBucket, pickLabels } from './graph-labels';
 import {
   applyOffsets,
   moveEdges,
@@ -99,6 +100,16 @@ import type { GraphLink, GraphNode } from '@nix/api-client';
  * event rather than continuously.
  */
 const LABEL_REVEAL = 'opacity-0 transition-opacity group-hover:opacity-100';
+
+/**
+ * A node's name: constant on-screen size, with a halo so it reads over edges and other discs.
+ *
+ * The drawing is scaled by the camera, so the font size is divided by `--zoom` (set on the `<svg>`
+ * from the camera) to come out at `text-base` on screen at every zoom. `paint-order: stroke` draws
+ * the background-coloured outline under the glyphs. Dimmed nodes fall back to muted text.
+ */
+const NODE_LABEL =
+  'fill-current text-foreground text-[length:calc(var(--text-base)/var(--zoom,1))] [paint-order:stroke] stroke-background stroke-[length:calc(3/var(--zoom,1))] [stroke-linejoin:round]';
 
 /**
  * The disc outline against the drawing's ground.
@@ -433,8 +444,9 @@ const NodeMark = memo(function NodeMark({
         <NodeShape type={node.type} x={node.x} y={node.y} radius={node.radius} recency={recency} />
         <text
           {...labelPlacement(node, centreX)}
-          y={node.y + 4}
-          className={`fill-current text-xs text-muted ${named ? '' : LABEL_REVEAL}`}
+          y={node.y}
+          dy="0.35em"
+          className={`${NODE_LABEL} ${lit ? '' : 'group-data-[dimming]/graph:text-muted'} ${named ? '' : LABEL_REVEAL}`}
         >
           {nodeTitle(node)}
         </text>
@@ -829,6 +841,7 @@ function GraphDrawing({
    */
   const [chosen, setChosen] = useState<View | null>(stored.view);
   const camera = chosen === null ? fitCamera(layout, pane) : cameraOf(chosen, pane);
+  const labelZoom = labelZoomBucket(camera.scale);
 
   const [offsets, setOffsets] = useState<ReadonlyMap<string, Offset>>(stored.offsets);
   const dragRef = useRef<Drag | null>(null);
@@ -870,7 +883,17 @@ function GraphDrawing({
       clearTimeout(timer);
     };
   }, [arrangementId, offsets, collapsed, chosen, pull]);
-  const labels = useMemo(() => pickLabels(layout.nodes, layout.width / 2), [layout]);
+  // Labels keep one size on screen, so which fit depends on zoom; re-picked only per power of two.
+  const labels = useMemo(
+    () => pickLabels(layout.nodes, layout.width / 2, labelZoom),
+    [layout, labelZoom],
+  );
+
+  // The camera's zoom for the stylesheet: labels divide their font size by it (see NODE_LABEL).
+  // Written to the element rather than rendered, so a zoom tick re-renders no node.
+  useLayoutEffect(() => {
+    svgRef.current?.style.setProperty('--zoom', String(camera.scale));
+  }, [camera.scale]);
 
   // Where each nudged node is heading: the reader's own nudges, plus - while a node is in the hand
   // - a share of its travel for each neighbour, so the links visibly stretch. The share is dropped
