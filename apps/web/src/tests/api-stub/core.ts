@@ -2374,6 +2374,20 @@ export function stubCoreApi(options: StubOptions = {}): StubWrites {
         return Promise.resolve(found === undefined ? json({}, 404) : json(found));
       }
 
+      // Moving re-parents the item in `known`, so the listings that follow show where it went.
+      const moveFor = /\/api\/v1\/items\/([0-9a-f-]{36})\/move$/.exec(url);
+      if (moveFor !== null && method === 'POST') {
+        const at = known.findIndex((candidate) => candidate.id === moveFor[1]);
+        const target = known[at];
+        if (target === undefined) return Promise.resolve(json({}, 404));
+        const body = JSON.parse(typeof requestBody === 'string' ? requestBody : '{}') as {
+          parentId?: string | null;
+        };
+        const moved = { ...target, parentId: body.parentId ?? null };
+        known[at] = moved;
+        return Promise.resolve(json(moved));
+      }
+
       // A single item by id, which is what revealing a deep link walks up through and what a
       // delete or a plain read both address.
       const single = /\/api\/v1\/items\/([0-9a-f-]{36})$/.exec(url);
