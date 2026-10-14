@@ -337,6 +337,9 @@ interface NodeMarkProps {
   /** Whether the label is written permanently rather than waiting for a hover. */
   readonly named: boolean;
 
+  /** Whether the label sits on the node's other side because the usual one was taken. */
+  readonly flipped: boolean;
+
   /** Whether a coarse-pointer tap has picked this node and it is offering its "Open" button. */
   readonly selected: boolean;
 
@@ -387,6 +390,7 @@ const NodeMark = memo(function NodeMark({
   node,
   centreX,
   named,
+  flipped,
   selected,
   lit,
   recency,
@@ -443,7 +447,7 @@ const NodeMark = memo(function NodeMark({
             raw lengths in it. */}
         <NodeShape type={node.type} x={node.x} y={node.y} radius={node.radius} recency={recency} />
         <text
-          {...labelPlacement(node, centreX)}
+          {...labelPlacement(node, centreX, flipped)}
           y={node.y}
           dy="0.35em"
           className={`${NODE_LABEL} ${lit ? '' : 'group-data-[dimming]/graph:text-muted'} ${named ? '' : LABEL_REVEAL}`}
@@ -1851,6 +1855,7 @@ function GraphDrawing({
                     node.id === openedId ||
                     (activeId !== null && lit?.has(node.id) === true)
                   }
+                  flipped={labels.get(node.id) === true}
                   selected={node.id === selectedId}
                   lit={lit?.has(node.id) === true}
                   recency={recencyOf(node.lastModifiedAt, now)}
