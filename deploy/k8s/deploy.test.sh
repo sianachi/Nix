@@ -501,6 +501,9 @@ grep -Fq 'secretRef: { name: nix-backup-offsite, optional: true }' "$RENDERED_BA
 grep -Eq 'image: restic/restic:[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$' "$RENDERED_BACKUP"
 grep -Fq 'readOnlyRootFilesystem: true' "$RENDERED_BACKUP"
 grep -Fq '{ name: backup, mountPath: /backup, readOnly: true }' "$RENDERED_BACKUP"
+# Step outcomes travel in an emptyDir: dump and offsite are init containers, record is the main container.
+grep -Fq 'emptyDir: { sizeLimit: 1Mi }' "$RENDERED_BACKUP"
+awk '/^ +initContainers:/ { init = 1 } /^ +containers:/ { init = 0; main = 1 } init && /- name: (dump|offsite)$/ { n++ } main && /- name: record$/ { m++ } END { exit !(n == 2 && m == 1) }' "$RENDERED_BACKUP"
 if grep -Fq 'nix-backup-offsite' "$KUBECTL_LOG"; then
   echo 'Deployment looked up the offsite secret without NIX_BACKUP_OFFSITE=true.' >&2
   exit 1
@@ -521,53 +524,123 @@ fi
 OFFSITE_SECRET=1 NIX_BACKUP_OFFSITE=true run_deploy
 grep -Fq 'name: OFFSITE_REQUIRED, value: "true"' "$RENDERED_BACKUP"
 
-# The offsite container's script, run against a stub restic and a temporary /backup.
-offsite_root="$test_root/offsite"
-mkdir -p "$offsite_root/bin" "$offsite_root/backup/2026-01-04"
-awk '/- name: offsite/ { inside = 1 } inside && /^ *- \|$/ { script = 1; next }
-  script && /^ *securityContext:/ { exit } script { sub(/^ {18}/, ""); print }' "$RENDERED_BACKUP" \
-  | sed "s#/backup#$offsite_root/backup#g" > "$offsite_root/offsite.sh"
-grep -Fq 'restic backup --host nix-k8s --tag kind=nightly' "$offsite_root/offsite.sh"
-printf 'dump\n' > "$offsite_root/backup/2026-01-04/nix.dump"
-(cd "$offsite_root/backup/2026-01-04" && sha256sum ./* > SHA256SUMS)
-printf '2026-01-04\n' > "$offsite_root/backup/LATEST"
-printf '%s\n' '#!/bin/sh' 'echo "restic $*" >> "$RESTIC_LOG"' 'case "$1" in' \
-  '  cat) exit "${RESTIC_CAT_STATUS:-0}" ;;' '  backup) exit "${RESTIC_BACKUP_STATUS:-0}" ;;' 'esac' \
-  > "$offsite_root/bin/restic"
-chmod +x "$offsite_root/bin/restic"
-export RESTIC_LOG="$offsite_root/restic.log"
-run_offsite() {
-  : > "$RESTIC_LOG"
-  env -u RESTIC_REPOSITORY PATH="$offsite_root/bin:$PATH" OFFSITE_REQUIRED=false "$@" \
-    /bin/sh -ec "$(cat "$offsite_root/offsite.sh")" >/dev/null 2>&1
+# The three backup scripts (dump, offsite, record), run against stub tools with /backup, /objects,
+# /status and /tmp moved under a temporary root. They always exit 0 after leaving their outcome in
+# /status, except record, which fails the Job when a step failed.
+bk="$test_root/backup-scripts"
+mkdir -p "$bk/bin" "$bk/backup" "$bk/objects" "$bk/status" "$bk/tmp"
+extract_backup_script() {
+  awk -v name="$1" '$0 ~ "- name: " name "$" { inside = 1 } inside && /^ *- \|$/ { script = 1; next }
+    script && !/^ {18}/ { exit } script { sub(/^ {18}/, ""); print }' "$RENDERED_BACKUP" \
+    | ROOT="$bk" perl -pe 's{(?<![\w.-])/(backup|objects|status|tmp)\b}{$ENV{ROOT}/$1}g' > "$bk/$1.sh"
+  test -s "$bk/$1.sh"
 }
+for script in dump offsite record; do extract_backup_script "$script"; done
+grep -Fq 'restic backup --json --host nix-k8s --tag kind=nightly' "$bk/offsite.sh"
+printf '%s\n' '#!/bin/sh' 'echo roles' > "$bk/bin/pg_dumpall"
+printf '%s\n' '#!/bin/sh' '[ -z "${FAIL_PGDUMP:-}" ] || exit 3' 'echo dump' > "$bk/bin/pg_dump"
+printf '%s\n' '#!/bin/sh' 'while [ $# -gt 0 ]; do [ "$1" != -czf ] || { : > "$2"; exit 0; }; shift; done' > "$bk/bin/tar"
+printf '%s\n' '#!/bin/sh' 'echo "restic $*" >> "$RESTIC_LOG"' 'case "$1" in' \
+  '  cat) exit "${RESTIC_CAT_STATUS:-0}" ;;' \
+  '  backup)' \
+  '    if [ "${RESTIC_BACKUP_STATUS:-0}" != 0 ]; then' \
+  '      echo "s3:https://SECRET-ACCOUNT.r2.example.test/bucket AWSAccessKeyId SECRET" >&2' \
+  '      exit "$RESTIC_BACKUP_STATUS"' \
+  '    fi' \
+  '    echo "{\"message_type\":\"status\",\"percent_done\":0.5}"' \
+  '    echo "{\"message_type\":\"summary\",\"files_new\":1,\"snapshot_id\":\"0123abcd4567\"}" ;;' \
+  'esac' > "$bk/bin/restic"
+printf '%s\n' '#!/bin/sh' 'for arg in "$@"; do printf "ARG %s\n" "$arg" >> "$PSQL_LOG"; done' 'cat >> "$PSQL_LOG"' \
+  '[ -z "${FAIL_PSQL:-}" ]' > "$bk/bin/psql"
+chmod +x "$bk/bin/"*
+export RESTIC_LOG="$bk/restic.log" PSQL_LOG="$bk/psql.log"
+run_script() { # run_script <shell> <script> [VAR=value ...]
+  local shell=$1 script=$2
+  shift 2
+  env -u RESTIC_REPOSITORY PATH="$bk/bin:$PATH" OFFSITE_REQUIRED=false KEEP_DAYS=14 "$@" \
+    "$shell" -ec "$(cat "$bk/$script.sh")" >"$bk/out" 2>&1
+}
+
+# dump: a success leaves status=succeeded and LATEST; a failure leaves the exit code and no new LATEST.
+: > "$bk/status/local"
+run_script /bin/bash dump
+grep -qx 'status=succeeded' "$bk/status/local"
+grep -Eqx 'bytes=[0-9]+' "$bk/status/local"
+grep -Eqx 'started_at=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z' "$bk/status/local"
+test "$(cat "$bk/backup/LATEST")" = "$(date +%F)"
+cp "$bk/backup/LATEST" "$bk/latest.before"
+run_script /bin/bash dump FAIL_PGDUMP=1
+grep -qx 'status=failed' "$bk/status/local"
+grep -qx 'error=local dump failed (exit 3)' "$bk/status/local"
+cmp -s "$bk/backup/LATEST" "$bk/latest.before"
+
+# offsite: against a stub restic and a hand-made backup directory.
+mkdir -p "$bk/backup/2026-01-04"
+printf 'dump\n' > "$bk/backup/2026-01-04/nix.dump"
+(cd "$bk/backup/2026-01-04" && sha256sum ./* > SHA256SUMS)
+printf '2026-01-04\n' > "$bk/backup/LATEST"
+write_local() { printf 'started_at=2026-01-04T02:00:00Z\nfinished_at=2026-01-04T02:01:00Z\nstatus=%s\nbytes=2048\nerror=\n' "$1" > "$bk/status/local"; }
+run_offsite() { rm -f "$bk/status/offsite"; : > "$RESTIC_LOG"; run_script /bin/sh offsite "$@"; }
 configured=(RESTIC_REPOSITORY=s3:https://r2.example.test/bucket RESTIC_PASSWORD=p
   AWS_ACCESS_KEY_ID=k AWS_SECRET_ACCESS_KEY=s AWS_DEFAULT_REGION=auto)
+expect_offsite_failure() { # expect_offsite_failure <error text> [VAR=value ...]
+  local error=$1
+  shift
+  run_offsite "$@"
+  grep -qx 'status=failed' "$bk/status/offsite"
+  grep -Fqx "error=$error" "$bk/status/offsite"
+  if grep -q SECRET "$bk/status/offsite"; then echo 'Tool output reached the offsite status.' >&2; exit 1; fi
+  if grep -q '^restic forget' "$RESTIC_LOG"; then echo "The offsite step applied retention after: $error" >&2; exit 1; fi
+}
+write_local failed
+run_offsite "${configured[@]}"
+test ! -s "$RESTIC_LOG" && test ! -e "$bk/status/offsite"
+write_local succeeded
 run_offsite
-test ! -s "$RESTIC_LOG"
-if run_offsite OFFSITE_REQUIRED=true; then
-  echo 'The offsite step passed with the secret required but missing.' >&2
-  exit 1
-fi
+test ! -s "$RESTIC_LOG" && test ! -e "$bk/status/offsite"
+expect_offsite_failure 'offsite secret missing' OFFSITE_REQUIRED=true
 run_offsite "${configured[@]}"
 test "$(cut -d' ' -f2 "$RESTIC_LOG" | paste -sd' ' -)" = 'cat backup forget check'
-grep -Fq "restic backup --host nix-k8s --tag kind=nightly $offsite_root/backup/2026-01-04" "$RESTIC_LOG"
+grep -Fq "restic backup --json --host nix-k8s --tag kind=nightly $bk/backup/2026-01-04" "$RESTIC_LOG"
 grep -Fq 'restic forget --host nix-k8s --tag kind=nightly --group-by host --keep-daily 7 --keep-weekly 4 --keep-monthly 6 --prune' "$RESTIC_LOG"
-for failure in RESTIC_BACKUP_STATUS=1 RESTIC_CAT_STATUS=10 AWS_DEFAULT_REGION=; do
-  if run_offsite "${configured[@]}" "$failure"; then
-    echo "The offsite step passed with $failure." >&2
-    exit 1
-  fi
-  if grep -q '^restic forget' "$RESTIC_LOG"; then
-    echo "The offsite step applied retention after $failure." >&2
-    exit 1
-  fi
-done
-printf 'tampered\n' > "$offsite_root/backup/2026-01-04/nix.dump"
-if run_offsite "${configured[@]}"; then
-  echo 'The offsite step pushed a directory that fails its checksums.' >&2
-  exit 1
-fi
+grep -qx 'status=succeeded' "$bk/status/offsite"
+grep -qx 'snapshot_id=0123abcd4567' "$bk/status/offsite"
+grep -qx 'bytes=2048' "$bk/status/offsite"
+grep -qx 'error=' "$bk/status/offsite"
+expect_offsite_failure "restic backup of $bk/backup/2026-01-04 failed" "${configured[@]}" RESTIC_BACKUP_STATUS=1
+expect_offsite_failure 'the repository does not exist; initialize it once with deploy/compose/offsite.sh init' "${configured[@]}" RESTIC_CAT_STATUS=10
+expect_offsite_failure 'could not open the repository (restic exit 4)' "${configured[@]}" RESTIC_CAT_STATUS=4
+expect_offsite_failure 'nix-backup-offsite does not set AWS_DEFAULT_REGION' "${configured[@]}" AWS_DEFAULT_REGION=
+printf 'tampered\n' > "$bk/backup/2026-01-04/nix.dump"
+expect_offsite_failure "$bk/backup/2026-01-04 does not match its SHA256SUMS" "${configured[@]}"
+printf '../etc\n' > "$bk/backup/LATEST"
+expect_offsite_failure 'unexpected backup directory name' "${configured[@]}"
+
+# record: one psql session per step, values only through -v, and the Job fails when a step failed.
+write_record_status() { # write_record_status <step> <status> <error>
+  printf 'started_at=2026-01-04T02:00:00Z\nfinished_at=2026-01-04T02:01:00Z\nstatus=%s\nsnapshot_id=\nbytes=2048\nerror=%s\n' "$2" "$3" > "$bk/status/$1"
+}
+reset_record() { rm -f "$bk/status/local" "$bk/status/offsite"; : > "$PSQL_LOG"; }
+reset_record
+write_record_status local succeeded ''
+write_record_status offsite failed "it's \"quoted\"; DROP TABLE backup_runs; --"
+if run_script /bin/sh record; then echo 'record passed with a failed step.' >&2; exit 1; fi
+test "$(grep -c '^ARG b_step=' "$PSQL_LOG")" = 2
+grep -Fqx 'ARG b_step=local' "$PSQL_LOG"
+grep -Fqx 'ARG b_status=failed' "$PSQL_LOG"
+grep -Fqx "ARG b_error=it's \"quoted\"; DROP TABLE backup_runs; --" "$PSQL_LOG"
+grep -Fq "SET LOCAL ROLE nix_backup; SELECT nix_record_backup_run(:'b_started'" "$PSQL_LOG"
+if grep -vx 'ARG b_error=.*' "$PSQL_LOG" | grep -q 'DROP TABLE'; then echo 'A recorded value reached the SQL text.' >&2; exit 1; fi
+reset_record
+write_record_status local succeeded ''
+run_script /bin/sh record
+test "$(grep -c '^ARG b_step=' "$PSQL_LOG")" = 1
+reset_record
+run_script /bin/sh record
+test ! -s "$PSQL_LOG"
+write_record_status local succeeded ''
+run_script /bin/sh record FAIL_PSQL=1
+grep -Fq 'record: backup status not recorded: local succeeded' "$bk/out"
 
 # create-secrets.sh --backup-offsite-only reads values from the environment and never prints them.
 : > "$KUBECTL_LOG"
