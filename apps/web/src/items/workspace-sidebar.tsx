@@ -65,7 +65,11 @@ import {
   useOptionalItemSelection,
 } from '../views/core/item-selection-context';
 import { SelectionBar } from '../views/core/selection-bar';
-import { useItemSelection } from '../views/core/use-item-selection';
+import {
+  rowGestures,
+  useItemSelection,
+  useSelectionShortcuts,
+} from '../views/core/use-item-selection';
 import { capabilitiesOf } from '../views/core/view-capabilities';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
 import { useItemLandmarks } from './use-item-landmarks';
@@ -74,6 +78,9 @@ import type { ItemLandmarks } from '../lib/item-landmarks';
 
 /** Whether this is an Apple platform, for the one gesture whose modifier differs. */
 const APPLE = isApplePlatform();
+
+const NO_ROWS: readonly string[] = [];
+const noRows = (): void => undefined;
 
 /**
  * The workspace tree, in the sidebar, always on screen.
@@ -169,7 +176,26 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     selected: selection.selected,
     toggle: selection.toggle,
     capabilities: capabilitiesOf('list'),
+    // The sidebar reads what it shows from its rows (below) rather than from a view.
+    shown: NO_ROWS,
+    show: noRows,
   };
+  // Cmd/Ctrl-A and Escape, heard while focus is anywhere in the sidebar. What is shown is whatever
+  // rows are drawn right now, in the order they are drawn: collapsed branches are not there.
+  const asideRef = useRef<HTMLElement>(null);
+  const shownRows = (): readonly string[] =>
+    [...(asideRef.current?.querySelectorAll<HTMLElement>('[data-tree-item-id]') ?? [])].map(
+      (row) => row.dataset.treeItemId ?? '',
+    );
+  const [shownCount, setShownCount] = useState(0);
+  // After every render, but only while something is selected: the count feeds "Select all N", and
+  // the drawn rows are DOM state that any render may have changed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (selection.selected.size > 0) setShownCount(shownRows().length);
+  });
+  useSelectionShortcuts(asideRef, selection, shownRows);
   const [uploading, setUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadParentRef = useRef<string | null>(null);
@@ -256,6 +282,7 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
     // The width belongs to the shell, which sizes and resizes the region this fills; a width
     // here as well would be two owners for one dimension.
     <aside
+      ref={asideRef}
       aria-label="Workspace"
       className={cn('flex w-full flex-col overflow-hidden bg-surface', chromeSurface)}
     >
@@ -317,7 +344,12 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
       {selection.selected.size === 0 ? null : (
         <div className="mx-2 mb-2">
           <SelectionBar
+            compact
             count={selection.selected.size}
+            shownCount={selection.selected.size < shownCount ? shownCount : 0}
+            onSelectAll={() => {
+              selection.setAll(shownRows());
+            }}
             onMove={
               commands === null
                 ? undefined
@@ -813,6 +845,22 @@ function TreeNode(props: TreeNodeProps): ReactNode {
   const rowSelection = useOptionalItemSelection();
   const inSelection = rowSelection?.selected.has(item.id) === true;
 
+  // The same gestures as every view: click opens, Cmd/Ctrl-click toggles, Shift-click ranges across
+  // the siblings, Alt-click opens beside, Space toggles. `openBeside` is deliberately not gated
+  // here: it refuses on its own - announcing the reason and writing nothing - which is the only
+  // place the check can live and still be true of every caller.
+  const gestures = rowGestures(
+    rowSelection,
+    item.id,
+    siblings.map((sibling) => sibling.id),
+    () => {
+      onSelect(item.id);
+    },
+    () => {
+      onOpenBeside(item.id);
+    },
+  );
+
   function contextItems(): MenuEntry[] {
     return [
       {
@@ -829,7 +877,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             {
               kind: 'action' as const,
               label: inSelection ? 'Deselect' : 'Select',
-              shortcut: 'Shift+Click',
+              shortcut: APPLE ? '⌘ Click' : 'Ctrl+Click',
               onSelect: () => {
                 rowSelection.toggle(
                   item.id,
@@ -853,7 +901,7 @@ function TreeNode(props: TreeNodeProps): ReactNode {
               kind: 'action' as const,
               label: 'Open beside',
               icon: Columns2,
-              shortcut: APPLE ? '⌘ Click' : 'Ctrl+Click',
+              shortcut: APPLE ? '⌥ Click' : 'Alt+Click',
               disabled: !canOpenBeside,
               onSelect: () => {
                 onOpenBeside(item.id);
@@ -943,8 +991,21 @@ function TreeNode(props: TreeNodeProps): ReactNode {
       role="treeitem"
       aria-expanded={expandable ? expanded : undefined}
       aria-selected={selected || inSelection}
+      data-tree-item-id={item.id}
     >
-      <ContextMenu label={`${title} actions`} items={contextItems}>
+      <ContextMenu
+        label={`${title} actions`}
+        items={contextItems}
+        // A touch long-press starts a selection; once one exists it opens the row menu as before.
+        onLongPress={() => {
+          if (rowSelection === null || rowSelection.selected.size > 0) return false;
+          rowSelection.toggle(
+            item.id,
+            siblings.map((sibling) => sibling.id),
+          );
+          return true;
+        }}
+      >
         {(contextTarget) => (
           <div
             {...contextTarget}
@@ -1016,37 +1077,18 @@ function TreeNode(props: TreeNodeProps): ReactNode {
             <button
               ref={openButtonRef}
               type="button"
-              onClick={(event) => {
-                // Shift+click selects rather than opens: a range from the last clicked sibling, or
-                // one more row. Selecting never opens and never drags.
-                if (event.shiftKey && rowSelection !== null) {
-                  rowSelection.toggle(
-                    item.id,
-                    siblings.map((sibling) => sibling.id),
-                    true,
-                  );
-                  return;
-                }
-                // The accelerator everybody already has from a browser and an editor. Gated on the
-                // platform's own modifier: Ctrl+click on a Mac is the *secondary* click, so accepting
-                // it there would turn every attempt to open a context menu into a new pane.
-                if (APPLE ? event.metaKey : event.ctrlKey) {
-                  // Deliberately not gated here. `openBeside` refuses on its own - it announces the
-                  // reason and writes nothing - which is the only place the check can live and still
-                  // be true of every caller. An earlier cut gated the controls instead, and this
-                  // branch routed around it.
-                  onOpenBeside(item.id);
-                  return;
-                }
-                onSelect(item.id);
-              }}
+              onClick={gestures.onClick}
               onDoubleClick={() => {
                 onOpenPinned(item.id);
               }}
               // On the row's own control rather than on the wrapper: this is the element that takes
               // focus, so it is the one whose keys mean anything, and a div carrying key handlers is a
               // control that only looks like one.
-              onKeyDown={onKeyDown}
+              onKeyDown={(event) => {
+                gestures.onKeyDown(event);
+                onKeyDown(event);
+              }}
+              onKeyUp={gestures.onKeyUp}
               className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
             >
               <ItemLandmarkIcon landmark={props.landmarks[item.id]} />

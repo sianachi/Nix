@@ -1,4 +1,5 @@
-import { useCallback, useState } from 'react';
+import { isEditableTarget } from '@nix/ui';
+import { useCallback, useEffect, useState, type RefObject } from 'react';
 
 /**
  * Multi-selection over an ordered list of item ids, shared by every view that offers it.
@@ -70,4 +71,109 @@ export function isSelectGesture(event: {
   shiftKey: boolean;
 }): boolean {
   return event.metaKey || event.ctrlKey || event.shiftKey;
+}
+
+/** What a row's click or key needs from the selection to decide between opening and selecting. */
+interface RowSelection {
+  readonly selected: ReadonlySet<string>;
+  readonly toggle: (itemId: string, order: readonly string[], shiftKey?: boolean) => void;
+}
+
+interface RowClickEvent {
+  readonly metaKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly shiftKey: boolean;
+  readonly altKey: boolean;
+  readonly preventDefault: () => void;
+  readonly nativeEvent: Event;
+}
+
+interface RowKeyEvent {
+  readonly key: string;
+  readonly metaKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly preventDefault: () => void;
+}
+
+/**
+ * The one gesture model for a row that both opens and selects: click opens, Cmd/Ctrl-click
+ * toggles, Shift-click ranges across `order`, Alt-click opens beside (when the surface can), and
+ * Space on the focused control toggles. After a touch long-press has started a selection, a tap
+ * toggles too. With no selection (a view drawn alone) a click just opens.
+ */
+export function rowGestures(
+  selection: RowSelection | null,
+  itemId: string,
+  order: readonly string[],
+  open: () => void,
+  openBeside?: () => void,
+): {
+  readonly onClick: (event: RowClickEvent) => void;
+  readonly onKeyDown: (event: RowKeyEvent) => void;
+  readonly onKeyUp: (event: RowKeyEvent) => void;
+} {
+  return {
+    onClick: (event) => {
+      if (selection !== null && isSelectGesture(event)) {
+        event.preventDefault();
+        selection.toggle(itemId, order, event.shiftKey);
+      } else if (event.altKey && openBeside !== undefined) {
+        openBeside();
+      } else if (
+        selection !== null &&
+        selection.selected.size > 0 &&
+        (event.nativeEvent as { pointerType?: string }).pointerType === 'touch'
+      ) {
+        selection.toggle(itemId, order);
+      } else {
+        open();
+      }
+    },
+    onKeyDown: (event) => {
+      if (selection === null || event.key !== ' ' || event.metaKey || event.ctrlKey || event.altKey)
+        return;
+      // Space would otherwise activate the row's button and open it.
+      event.preventDefault();
+      selection.toggle(itemId, order);
+    },
+    // Some browsers click a button on Space's keyup whatever keydown did.
+    onKeyUp: (event) => {
+      if (selection !== null && event.key === ' ') event.preventDefault();
+    },
+  };
+}
+
+/**
+ * Keyboard shortcuts for the pane that owns a selection, heard while focus is inside `ref`:
+ * Cmd/Ctrl-A selects everything `shown` returns, Escape clears. Escape is only claimed when
+ * something is selected, so an empty selection leaves it to whatever it meant before. Text fields
+ * keep both keys.
+ */
+export function useSelectionShortcuts(
+  ref: RefObject<HTMLElement | null>,
+  selection: Pick<ItemSelection, 'selected' | 'setAll' | 'clear'>,
+  shown: () => readonly string[],
+): void {
+  const { selected, setAll, clear } = selection;
+  useEffect(() => {
+    const element = ref.current;
+    if (element === null) return;
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.defaultPrevented || isEditableTarget(event.target)) return;
+      if (event.key === 'Escape' && selected.size > 0) {
+        event.preventDefault();
+        clear();
+      } else if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key === 'a') {
+        const ids = shown();
+        if (ids.length === 0) return;
+        event.preventDefault();
+        setAll(ids);
+      }
+    };
+    element.addEventListener('keydown', onKeyDown);
+    return () => {
+      element.removeEventListener('keydown', onKeyDown);
+    };
+  }, [ref, selected, setAll, clear, shown]);
 }
