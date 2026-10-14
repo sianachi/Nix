@@ -9,6 +9,8 @@ export interface BackupStepFacts {
   readonly lastSuccess: BackupRun | null;
   /** The newest failure in the loaded runs, or null. */
   readonly lastError: BackupRun | null;
+  /** How many of the loaded runs belong to this step. */
+  readonly runCount: number;
   /** No success in the window, or the newest one is older than {@link BACKUP_STALE_AFTER_MS}. */
   readonly stale: boolean;
 }
@@ -30,5 +32,5 @@ export function backupStepFacts(
   const stale =
     lastSuccess === null ||
     now.getTime() - Date.parse(lastSuccess.finishedAt) > BACKUP_STALE_AFTER_MS;
-  return { step, lastSuccess, lastError, stale };
+  return { step, lastSuccess, lastError, runCount: mine.length, stale };
 }

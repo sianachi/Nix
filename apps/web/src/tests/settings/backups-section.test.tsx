@@ -1,5 +1,5 @@
-import { screen, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { act, screen, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../../app';
 import { stubCoreApi } from '../api-stub';
@@ -7,6 +7,10 @@ import { renderAt, signedIn } from '../render-with-router';
 
 beforeEach(() => {
   signedIn();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const hoursAgo = (hours: number): string => new Date(Date.now() - hours * 3_600_000).toISOString();
@@ -70,9 +74,58 @@ describe('Settings > Backups', () => {
     renderAt(<App />, '/settings?tab=backups');
 
     const local = await screen.findByRole('group', { name: 'Local' });
-    expect(within(local).getByText('None in the last 2 runs')).toBeVisible();
+    expect(within(local).getByText('None in the last 1 run')).toBeVisible();
     expect(within(local).getByText(/<b>local backup failed<\/b> \(exit 1\)/)).toBeVisible();
     expect(within(local).queryByRole('strong')).not.toBeInTheDocument();
+    expect(within(local).getByText('Overdue')).toBeVisible();
+  });
+
+  it('shows off-site as never, without a warning, when it has no rows, but still flags a local step with none', async () => {
+    stubCoreApi({ operator: true, backupRuns: [run('local', 'succeeded', 3)] });
+    const first = renderAt(<App />, '/settings?tab=backups');
+    const offsite = await screen.findByRole('group', { name: 'Off-site' });
+    expect(within(offsite).getByText('Never', { selector: 'span' })).toBeVisible();
+    expect(within(offsite).getAllByText('Never')).toHaveLength(2);
+    expect(within(offsite).queryByText('Overdue')).not.toBeInTheDocument();
+    first.unmount();
+
+    stubCoreApi({ operator: true, backupRuns: [run('offsite', 'succeeded', 3)] });
+    renderAt(<App />, '/settings?tab=backups');
+    const local = await screen.findByRole('group', { name: 'Local' });
+    expect(within(local).getByText('Overdue')).toBeVisible();
+    expect(within(local).getByText('Never')).toBeVisible();
+  });
+
+  it("counts only the step's own runs in the none-in-window sentence", async () => {
+    stubCoreApi({
+      operator: true,
+      backupRuns: [
+        run('local', 'failed', 5, 'local backup failed (exit 1)'),
+        run('local', 'failed', 4, 'local backup failed (exit 1)'),
+        run('local', 'failed', 3, 'local backup failed (exit 1)'),
+        run('offsite', 'succeeded', 3),
+        run('offsite', 'succeeded', 2),
+      ],
+    });
+    renderAt(<App />, '/settings?tab=backups');
+
+    const local = await screen.findByRole('group', { name: 'Local' });
+    expect(within(local).getByText('None in the last 3 runs')).toBeVisible();
+  });
+
+  it('flips an open tab to overdue as time passes, without a reload', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'], shouldAdvanceTime: true });
+    stubCoreApi({
+      operator: true,
+      backupRuns: [run('local', 'succeeded', 25.9), run('offsite', 'succeeded', 25.9)],
+    });
+    renderAt(<App />, '/settings?tab=backups');
+
+    const local = await screen.findByRole('group', { name: 'Local' });
+    expect(within(local).getByText('On schedule')).toBeVisible();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+    });
     expect(within(local).getByText('Overdue')).toBeVisible();
   });
 
