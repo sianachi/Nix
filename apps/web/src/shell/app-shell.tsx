@@ -1,6 +1,7 @@
 import { MobileNoteCapture } from '../items/mobile-note-capture';
 import { useMobileKeyboard } from '../layout/use-mobile-keyboard';
 import { useBackDismiss } from '../layout/use-back-dismiss';
+import { describeBulkDelete, executeBulkDelete } from '../items/bulk-delete';
 import { ItemCommandsProvider } from '../items/item-commands-context';
 import { ItemDialogProvider } from '../items/item-dialog-provider';
 import { MobileNavigation } from './mobile-navigation';
@@ -316,6 +317,46 @@ export function AppShell(): ReactNode {
   }
 
   /**
+   * The bulk counterpart of `requestDelete`: one summary toast for the whole batch, and one Undo
+   * that restores every item that was deleted. The confirm dialog and the plan live with the
+   * item commands; this only runs the deletes and says what happened.
+   */
+  async function requestDeleteMany(items: readonly TreeItem[]): Promise<readonly string[]> {
+    const outcome = await executeBulkDelete(tree, items);
+    if (outcome.deleted.length === 0 && outcome.failed.length === 0) return [];
+    shellToasts.push({
+      key: `bulk-delete-${items.map((item) => item.id).join('-')}`,
+      message: describeBulkDelete(outcome),
+      ...(outcome.deleted.length === 0
+        ? {}
+        : {
+            action: {
+              label: 'Undo',
+              onAction: () => {
+                void undoBulkDeletion(outcome.deleted);
+              },
+            },
+          }),
+    });
+    return outcome.deleted.map((item) => item.id);
+  }
+
+  async function undoBulkDeletion(deleted: readonly TreeItem[]): Promise<void> {
+    const failed: string[] = [];
+    for (const item of deleted) {
+      const { refusal } = await tree.restore(item.id);
+      if (refusal !== null) failed.push(item.title || 'Untitled');
+    }
+    if (failed.length > 0) {
+      shellToasts.push({
+        key: `bulk-restore-failed-${deleted[0]?.id ?? ''}`,
+        message: `Restored ${String(deleted.length - failed.length)} of ${String(deleted.length)} items. "${failed[0] ?? ''}" could not be restored.`,
+        autoFocus: false,
+      });
+    }
+  }
+
+  /**
    * What Undo actually does, and what it says when it fails.
    *
    * `<Toast>` dismisses itself the instant its action is pressed, whatever that action does - so by
@@ -570,47 +611,56 @@ export function AppShell(): ReactNode {
               own toggle button is what closes the drawer, and covering it would take away the way
               back. */}
           <div className={`relative flex flex-1 ${paneClip}`}>
-            {zen ? null : (
-              <ShellSidebar
-                key={workspaceId}
-                narrow={narrow}
-                mobileDestinations={
-                  <NavRail
-                    compact
-                    onImport={() => {
-                      // Keep one Back entry while the drawer hands off to Import.
-                      sidebarToggleRef.current?.focus();
-                      flushSync(() => {
+            {/* Around the sidebar as well as the panes: both draw the selection tray, and both
+                run move and delete through these commands. */}
+            <ItemCommandsProvider
+              tree={tree}
+              onDeleteItem={(item) => {
+                void requestDelete(item);
+              }}
+              onDeleteItems={requestDeleteMany}
+            >
+              {zen ? null : (
+                <ShellSidebar
+                  key={workspaceId}
+                  narrow={narrow}
+                  mobileDestinations={
+                    <NavRail
+                      compact
+                      onImport={() => {
+                        // Keep one Back entry while the drawer hands off to Import.
+                        sidebarToggleRef.current?.focus();
+                        flushSync(() => {
+                          sidebar.toggle();
+                          setWorkspaceImportOpen(true);
+                        });
+                      }}
+                      onNavigate={() => {
                         sidebar.toggle();
-                        setWorkspaceImportOpen(true);
-                      });
-                    }}
-                    onNavigate={() => {
-                      sidebar.toggle();
-                      focusPane(0);
-                    }}
-                  />
-                }
-                sidebar={sidebar}
-                tree={tree}
-                selectedId={selectedId}
-                openItem={{ openPreview, openPinned, openBeside, canOpenBeside, besideRefusal }}
-                onDeleteItem={(item) => {
-                  void requestDelete(item);
-                }}
-                onStartStructured={startStructured}
-                templates={templateLibrary.templates.filter(
-                  (template) => template.capabilities.canApply,
-                )}
-                templateStatus={templateLibrary.status}
-                onStartTemplate={startTemplate}
-                onBrowseTemplates={browseTemplates}
-                treeRegionRef={treeRegionRef}
-                sidebarToggleRef={sidebarToggleRef}
-              />
-            )}
+                        focusPane(0);
+                      }}
+                    />
+                  }
+                  sidebar={sidebar}
+                  tree={tree}
+                  selectedId={selectedId}
+                  openItem={{ openPreview, openPinned, openBeside, canOpenBeside, besideRefusal }}
+                  onDeleteItem={(item) => {
+                    void requestDelete(item);
+                  }}
+                  onStartStructured={startStructured}
+                  templates={templateLibrary.templates.filter(
+                    (template) => template.capabilities.canApply,
+                  )}
+                  templateStatus={templateLibrary.status}
+                  onStartTemplate={startTemplate}
+                  onBrowseTemplates={browseTemplates}
+                  treeRegionRef={treeRegionRef}
+                  sidebarToggleRef={sidebarToggleRef}
+                />
+              )}
 
-            {/* The shell owns the main landmark so every screen has exactly one, and a screen that
+              {/* The shell owns the main landmark so every screen has exactly one, and a screen that
                 renders panels side by side does not have to nest them inside another.
 
                 `inert` while the drawer is open: the native (React 19) way of making this region
@@ -630,32 +680,26 @@ export function AppShell(): ReactNode {
                 block for `position: fixed`, so a fixed drag overlay still covers the viewport
                 geometrically - this only stops it from painting above chrome that lives outside
                 `<main>`. */}
-            <main
-              ref={mainRef}
-              id="main"
-              tabIndex={-1}
-              inert={narrow && sidebar.visible && !zen}
-              className={`isolate flex flex-1 ${paneClip}`}
-            >
-              {/* Mutable server-owned template state has its own subscribed context. Router
+              <main
+                ref={mainRef}
+                id="main"
+                tabIndex={-1}
+                inert={narrow && sidebar.visible && !zen}
+                className={`isolate flex flex-1 ${paneClip}`}
+              >
+                {/* Mutable server-owned template state has its own subscribed context. Router
                   Outlet context is retained for shell-owned navigation state only, so an async
                   catalog response cannot leave a mounted screen holding the initial capability
                   snapshot. */}
-              <TemplateLibraryProvider library={templateLibrary}>
-                <CapabilitiesProvider value={principal.principal?.features}>
-                  <ItemCommandsProvider
-                    tree={tree}
-                    onDeleteItem={(item) => {
-                      void requestDelete(item);
-                    }}
-                  >
+                <TemplateLibraryProvider library={templateLibrary}>
+                  <CapabilitiesProvider value={principal.principal?.features}>
                     <ItemDialogProvider tree={tree}>
                       <Outlet context={{ tree, selectedId } satisfies ShellContext} />
                     </ItemDialogProvider>
-                  </ItemCommandsProvider>
-                </CapabilitiesProvider>
-              </TemplateLibraryProvider>
-            </main>
+                  </CapabilitiesProvider>
+                </TemplateLibraryProvider>
+              </main>
+            </ItemCommandsProvider>
           </div>
         </div>
       </div>
