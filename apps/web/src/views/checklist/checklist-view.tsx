@@ -2,6 +2,8 @@ import { Button, Checkbox, ContextMenu, Input, Text, cn, focusRing } from '@nix/
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { useItemOpenProps } from '../core/item-open-click';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { SelectCheckbox } from '../core/select-checkbox';
 import {
   readPropertyText,
   type Item,
@@ -170,6 +172,7 @@ export function ChecklistView(props: ChecklistViewProps): ReactNode {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-3">
+      <ShownItems ids={shown.map((line) => line.id)} />
       {notice}
 
       {items.length === 0 ? (
@@ -289,6 +292,7 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
   const { item, done, boxRef, secondary, refusal, onTick, onOpen } = props;
   const itemActions = useItemContextActions(onOpen);
   const openProps = useItemOpenProps(onOpen);
+  const isSelected = useOptionalItemSelection()?.selected.has(item.id) === true;
   const title = item.title.length > 0 ? item.title : 'Untitled';
   const detail = secondary === null ? '' : readPropertyText(item, secondary.key);
 
@@ -308,8 +312,12 @@ function ChecklistLine(props: ChecklistLineProps): ReactNode {
       }
     >
       {(contextTarget) => (
-        <li {...contextTarget} className="flex flex-col gap-1 py-1">
+        <li
+          {...contextTarget}
+          className={cn('group flex flex-col gap-1 py-1', isSelected && 'bg-accent/10')}
+        >
           <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <SelectCheckbox item={item} />
             {/* Named by the line's title: the box is what a person reaches for, and "Buy milk,
                 checkbox, not checked" is the sentence a screen reader should say about it. */}
             <Checkbox

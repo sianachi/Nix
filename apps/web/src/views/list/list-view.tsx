@@ -1,7 +1,6 @@
 import { useNarrowViewport } from '../../layout/viewport';
 import {
   Button,
-  Checkbox,
   ContextMenu,
   Icon,
   Text,
@@ -40,6 +39,7 @@ import { useItemContextActions } from '../core/use-item-context-actions';
 import { resetColumnWidth, setColumnWidth, useColumnWidths } from '../core/column-widths';
 import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
 import { useClickSelects } from '../core/item-open-click';
+import { SelectCheckbox } from '../core/select-checkbox';
 import { rowGestures } from '../core/use-item-selection';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
@@ -265,24 +265,7 @@ export function ListView(props: ListViewProps): ReactNode {
             key: SELECT_COLUMN_KEY,
             header: 'Select',
             gutter: true,
-            cell: (item: Item) => (
-              <span
-                className={cn(
-                  'flex',
-                  selection.selected.size === 0 &&
-                    'opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100',
-                )}
-              >
-                <Checkbox
-                  aria-label={`Select ${item.title || 'Untitled'}`}
-                  checked={selection.selected.has(item.id)}
-                  onClick={(event) => {
-                    selection.toggle(item.id, orderIds, event.shiftKey);
-                  }}
-                  onChange={() => undefined}
-                />
-              </span>
-            ),
+            cell: (item: Item) => <SelectCheckbox item={item} />,
           } satisfies TableColumn<Item>,
         ]),
     ...buildColumns(view, container.schema, gesturesFor, write, refusalStore),

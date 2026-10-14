@@ -1,5 +1,5 @@
 import { files as fileResources } from '@nix/api-client';
-import { Button, Checkbox, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
+import { Button, ContextMenu, Icon, Text, blueprintFrame, cn, focusRing } from '@nix/ui';
 import { ImagePlus } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
@@ -19,6 +19,7 @@ import {
 import { CoverImage } from './cover-image';
 import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
 import { useClickSelects } from '../core/item-open-click';
+import { SelectCheckbox } from '../core/select-checkbox';
 import { rowGestures } from '../core/use-item-selection';
 import { CoverPickerDialog } from './cover-picker-dialog';
 import { CreateItemControl } from '../core/create-item-control';
@@ -702,24 +703,10 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
           {/* The selection box, in the card's corner: drawn on hover or focus until something is
               selected, then on every card. Touch starts a selection with a long press, so the box
               is not the only way in. `z-20` lifts it above the title's stretched hit area. */}
-          {selection === null ? null : (
-            <div
-              className={cn(
-                'absolute left-2 top-2 z-20 rounded-md bg-surface',
-                selection.selected.size === 0 &&
-                  'opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100',
-              )}
-            >
-              <Checkbox
-                aria-label={`Select ${item.title || 'Untitled'}`}
-                checked={isSelected}
-                onClick={(event) => {
-                  selection.toggle(item.id, selection.shown, event.shiftKey);
-                }}
-                onChange={() => undefined}
-              />
-            </div>
-          )}
+          <SelectCheckbox
+            item={item}
+            className="absolute left-2 top-2 z-20 rounded-md bg-surface"
+          />
           {/* **The title comes first in the DOM and the picture is moved above it visually.** A screen
           reader reading in source order would otherwise meet "No cover" before it had been told
           which item that was about - the status arriving ahead of its subject. `order-first` puts
