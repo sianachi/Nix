@@ -37,7 +37,6 @@ export interface CollabEditOptions {
   readonly clients: number;
   readonly edits: number;
   readonly intervalMs: number;
-  readonly allowRemote: boolean;
 }
 
 export function encodePersisted(barrierId: string): Uint8Array {
@@ -64,18 +63,12 @@ function isLoopback(url: string): boolean {
   return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
 }
 
-/**
- * Refuses a non-loopback Core or collab host unless remote runs were asked for, so a stress run
- * cannot hit production by accident. Returns a warning to print when remote was allowed.
- */
-export function guardTarget(endpoints: SessionEndpoints, allowRemote: boolean): string | undefined {
-  if (isLoopback(endpoints.apiUrl) && isLoopback(endpoints.collabUrl)) return undefined;
-  if (!allowRemote) {
-    throw new Error(
-      `collab-edit writes to a live note and refuses non-local targets (${endpoints.apiUrl}, ${endpoints.collabUrl}). Pass --allow-remote to run it anyway.`,
-    );
-  }
-  return `Warning: running a write stress against a remote target (${endpoints.apiUrl}).`;
+/** Refuses a non-loopback Core or collab host, so a write stress cannot hit production. */
+export function guardTarget(endpoints: SessionEndpoints): void {
+  if (isLoopback(endpoints.apiUrl) && isLoopback(endpoints.collabUrl)) return;
+  throw new Error(
+    `collab-edit writes to a live note and runs only against a local stack (got ${endpoints.apiUrl}, ${endpoints.collabUrl}).`,
+  );
 }
 
 /**
@@ -154,6 +147,16 @@ export function connect(wsUrl: string, token: string, tally: Tally): Promise<Pee
       pending.clear();
     });
     ws.on('message', (data: Buffer, isBinary: boolean) => {
+      try {
+        onMessage(data, isBinary);
+      } catch {
+        // A frame this client cannot read fails the peer (the close handler fails its edits),
+        // not the whole run.
+        ws.terminate();
+      }
+    });
+
+    const onMessage = (data: Buffer, isBinary: boolean): void => {
       if (!isBinary) {
         const frame = JSON.parse(data.toString('utf8')) as { type?: unknown };
         if (frame.type === 'ready') {
@@ -178,6 +181,10 @@ export function connect(wsUrl: string, token: string, tally: Tally): Promise<Pee
             doc,
             edit: (id) =>
               new Promise<void>((ok, fail) => {
+                if (ws.readyState !== WebSocket.OPEN) {
+                  fail(new Error('Closed.'));
+                  return;
+                }
                 // One paragraph per marker: schema-valid, and each marker stays a separate token.
                 doc.transact(() => {
                   const paragraph = new Y.XmlElement('paragraph');
@@ -220,7 +227,7 @@ export function connect(wsUrl: string, token: string, tally: Tally): Promise<Pee
         for (const entry of pending.values()) entry.fail(new Error(`Refused (${code}).`));
         pending.clear();
       }
-    });
+    };
   });
 }
 
@@ -244,15 +251,14 @@ export async function collabEdit(
     throw new Error('--interval-ms must be zero or more.');
   }
   if (options.create === (options.docId !== undefined)) {
-    throw new Error('collab-edit needs exactly one of --doc <itemId> or --create.');
+    throw new Error('collab-edit needs exactly one of --item <itemId> or --create.');
   }
   if (options.create && options.workspaceId === undefined) {
     throw new Error('--create needs --workspace <id>.');
   }
 
   const session = await resolveSession(profileName, deps);
-  const warning = guardTarget(session.endpoints, options.allowRemote);
-  if (warning !== undefined) process.stderr.write(`${warning}\n`);
+  guardTarget(session.endpoints);
 
   const docId =
     options.docId ??
@@ -288,7 +294,10 @@ export async function collabEdit(
           latencies.push(performance.now() - begin);
           confirmed.push(marker);
         } catch {
-          failedEdits += 1;
+          // Later edits build on the failed one, which the server may not hold, so they would
+          // be parked unpersisted and then read as lost. Stop this peer and count the rest failed.
+          failedEdits += options.edits - edit;
+          break;
         }
         await sleep(options.intervalMs);
       }
