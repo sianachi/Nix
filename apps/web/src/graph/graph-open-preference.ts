@@ -1,0 +1,57 @@
+import { z } from 'zod';
+import { create } from 'zustand';
+
+import { browserStorage } from '../lib/browser-storage';
+import { registerSyncedSetting, settingChanged } from '../lib/ui-settings-sync';
+
+/**
+ * How a node opened from the graph is presented: synced to the account as `graph.openMode`. The
+ * graph is not a saved view, so this stands in for a view's `open`; the default is the dialog the
+ * graph has always used. `none` is a view-only mode and is not offered here.
+ */
+export const GraphOpenModeSchema = z.enum(['page', 'dialog', 'beside', 'tab']);
+export type GraphOpenMode = z.infer<typeof GraphOpenModeSchema>;
+
+export const GRAPH_OPEN_MODE_LABELS: Readonly<Record<GraphOpenMode, string>> = {
+  page: 'Page',
+  dialog: 'Dialog',
+  beside: 'Beside',
+  tab: 'New tab',
+};
+
+export const DEFAULT_GRAPH_OPEN_MODE: GraphOpenMode = 'dialog';
+const KEY = 'nix.graph-open-mode';
+
+function read(): GraphOpenMode {
+  try {
+    const parsed = GraphOpenModeSchema.safeParse(browserStorage()?.getItem(KEY));
+    return parsed.success ? parsed.data : DEFAULT_GRAPH_OPEN_MODE;
+  } catch {
+    return DEFAULT_GRAPH_OPEN_MODE;
+  }
+}
+
+export const useGraphOpenPreference = create<{
+  readonly mode: GraphOpenMode;
+  readonly setMode: (mode: GraphOpenMode) => void;
+}>((set) => ({
+  mode: read(),
+  setMode: (mode) => {
+    try {
+      if (mode === DEFAULT_GRAPH_OPEN_MODE) browserStorage()?.removeItem(KEY);
+      else browserStorage()?.setItem(KEY, mode);
+    } catch {
+      // Blocked storage still lets the choice hold for this session.
+    }
+    set({ mode });
+    settingChanged('graph.openMode', mode);
+  },
+}));
+
+registerSyncedSetting('graph.openMode', {
+  get: () => useGraphOpenPreference.getState().mode,
+  set: (mode) => {
+    useGraphOpenPreference.getState().setMode(mode);
+  },
+  defaultValue: DEFAULT_GRAPH_OPEN_MODE,
+});

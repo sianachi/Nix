@@ -19,7 +19,8 @@ export const OPEN_MODE_LABELS: Readonly<Record<OpenMode | 'auto', string>> = {
 const HIERARCHY_KINDS: ReadonlySet<string> = new Set(['outline']);
 
 export interface OpenContext {
-  readonly view: View | null;
+  /** Only the kind and stored choice matter, so a surface that is not a saved view can pass its own. */
+  readonly view: Pick<View, 'kind' | 'open'> | null;
   /** Phone-sized: every mode becomes a page. */
   readonly narrow: boolean;
   /** Whether a second pane fits and a handler exists to open one. */
