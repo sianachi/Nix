@@ -450,6 +450,8 @@ export {
   exportStatusSchema,
 } from './schemas/exports.js';
 export * as companionBodies from './resources/companion-bodies.js';
+export * as backups from './resources/backups.js';
+export type { BackupRun, BackupRunList, BackupStep } from './schemas/backups.js';
 export * as sites from './resources/sites.js';
 export type {
   CreateSiteInput,
