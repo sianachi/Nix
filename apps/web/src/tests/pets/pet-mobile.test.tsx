@@ -136,8 +136,8 @@ describe('companion on a phone', () => {
     await user.click(await screen.findByRole('button', { name: 'Open Cat' }));
     expect(await screen.findByRole('dialog', { name: 'Conversation with Cat' })).toBeVisible();
     expect(await screen.findByText(/Choose one priority for each day/)).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Message Cat' })).toBeVisible();
-    expect(screen.getByRole('combobox', { name: 'Message Cat' })).not.toHaveFocus();
+    expect(screen.getByRole('textbox', { name: 'Message Cat' })).toBeVisible();
+    expect(screen.getByRole('textbox', { name: 'Message Cat' })).not.toHaveFocus();
     expect(screen.queryByRole('button', { name: 'Open Cat' })).not.toBeInTheDocument();
   });
 
@@ -198,7 +198,7 @@ describe('companion on a phone', () => {
           <PetPage />
         </MemoryRouter>,
       );
-      expect(await screen.findByRole('combobox', { name: 'Message Cat' })).not.toHaveFocus();
+      expect(await screen.findByRole('textbox', { name: 'Message Cat' })).not.toHaveFocus();
     } finally {
       touchMedia.mockRestore();
     }

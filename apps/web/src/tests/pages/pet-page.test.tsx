@@ -103,7 +103,7 @@ describe('note chat page', () => {
     expect(screen.queryByRole('button', { name: 'Apply without asking' })).not.toBeInTheDocument();
     expect(screen.getByText(/Search and results can be partial/)).toBeVisible();
     await user.type(
-      screen.getByRole('combobox', { name: 'Message Pip' }),
+      screen.getByRole('textbox', { name: 'Message Pip' }),
       'Explain this documentation',
     );
     await user.click(screen.getByRole('button', { name: 'Send' }));
@@ -117,7 +117,7 @@ describe('note chat page', () => {
       'aria-pressed',
       'false',
     );
-    await user.type(screen.getByRole('combobox', { name: 'Message Pip' }), 'Append a summary');
+    await user.type(screen.getByRole('textbox', { name: 'Message Pip' }), 'Append a summary');
     await user.click(screen.getByRole('button', { name: 'Send' }));
     expect(mock.send).toHaveBeenLastCalledWith(
       expect.objectContaining({ itemId: ROOT, readOnly: false }),
