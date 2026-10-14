@@ -1,0 +1,54 @@
+import { useId, type ReactElement } from 'react';
+
+import { Text } from '@nix/ui';
+
+/** Caption for a setting that never leaves this browser. */
+export function DeviceOnlyNote(): ReactElement {
+  return (
+    <Text as="p" variant="caption" tone="muted">
+      This device only
+    </Text>
+  );
+}
+
+/**
+ * One on/off preference: a checkbox named by its label and described by the note under it, so a
+ * screen reader hears what the switch covers when it lands on it, not only after reading on.
+ */
+export function PreferenceToggle(props: {
+  readonly label: string;
+  readonly checked: boolean;
+  readonly onChange: (checked: boolean) => void;
+  readonly description: string;
+  readonly unsaved: string | null;
+  /** True for a setting that never leaves this browser. */
+  readonly deviceOnly?: boolean;
+}): ReactElement {
+  const descriptionId = useId();
+  return (
+    <>
+      <label className="flex min-h-11 items-center gap-3">
+        <input
+          type="checkbox"
+          checked={props.checked}
+          aria-describedby={descriptionId}
+          onChange={(event) => {
+            props.onChange(event.target.checked);
+          }}
+        />
+        <Text as="span" variant="bodySmall">
+          {props.label}
+        </Text>
+      </label>
+      <Text as="p" id={descriptionId} variant="note" tone="muted">
+        {props.description}
+      </Text>
+      {props.deviceOnly === true ? <DeviceOnlyNote /> : null}
+      {props.unsaved === null ? null : (
+        <Text as="p" variant="note" role="alert">
+          {props.unsaved}
+        </Text>
+      )}
+    </>
+  );
+}
