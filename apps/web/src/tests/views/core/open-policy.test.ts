@@ -5,7 +5,7 @@ import { aView } from '../../view-fixture';
 
 describe('resolveOpenMode', () => {
   it('always opens a page on narrow screens, whatever the view says', () => {
-    for (const open of [null, 'page', 'dialog', 'beside', 'tab', 'nonsense']) {
+    for (const open of [null, 'page', 'dialog', 'beside', 'tab', 'none', 'nonsense']) {
       expect(resolveOpenMode({ view: aView({ open }), narrow: true, canOpenBeside: true })).toBe(
         'page',
       );
@@ -33,6 +33,14 @@ describe('resolveOpenMode', () => {
     expect(
       resolveOpenMode({ view: aView({ open: 'tab' }), narrow: false, canOpenBeside: false }),
     ).toBe('tab');
+  });
+
+  it('keeps none on wide screens, with or without room for a second pane', () => {
+    for (const canOpenBeside of [true, false]) {
+      expect(resolveOpenMode({ view: aView({ open: 'none' }), narrow: false, canOpenBeside })).toBe(
+        'none',
+      );
+    }
   });
 
   it('degrades beside to a dialog when no second pane can open', () => {

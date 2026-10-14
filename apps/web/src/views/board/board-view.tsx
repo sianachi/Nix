@@ -4,6 +4,7 @@ import { CircleAlert } from 'lucide-react';
 import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 
 import { PartialNotice } from '../../components/states/status-panels';
+import { useItemOpenProps } from '../core/item-open-click';
 import {
   UNSET_LABEL,
   UNSET_VALUE,
@@ -578,6 +579,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
     onDismissStale,
   } = props;
   const itemActions = useItemContextActions(onOpen);
+  const openProps = useItemOpenProps(onOpen);
 
   const current = readSelectValue(item, property.key);
   const titleRef = useRef<HTMLButtonElement>(null);
@@ -623,9 +625,7 @@ function BoardCard(props: BoardCardProps): ReactNode {
               <button
                 ref={titleRef}
                 type="button"
-                onClick={() => {
-                  onOpen(item.id);
-                }}
+                {...openProps(item.id)}
                 className={cn('w-full text-left', focusRing)}
               >
                 <Text variant="h5" as="span" lines={2}>

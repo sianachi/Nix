@@ -112,9 +112,23 @@ describe('the settings panel', () => {
     expect(within(panel).queryByRole('button', { name: 'Site' })).not.toBeInTheDocument();
   });
 
-  it('opens on the Site pane from the item actions', async () => {
+  it('hides the Site entry when the deployment has sites but the person has not turned publishing on', async () => {
     const user = userEvent.setup();
     stubCoreApi({ items: [NOTE], siteFeature: true });
+    renderAt(<App />, `/?item=${NOTE.id}`);
+
+    await user.click(await screen.findByRole('button', { name: /item actions/i }));
+    expect(await screen.findByRole('menuitem', { name: 'Export' })).toBeVisible();
+    expect(screen.queryByRole('menuitem', { name: /site/i })).not.toBeInTheDocument();
+  });
+
+  it('opens on the Site pane from the item actions', async () => {
+    const user = userEvent.setup();
+    stubCoreApi({
+      items: [NOTE],
+      siteFeature: true,
+      uiSettings: { 'sites.publishingEnabled': true },
+    });
     renderAt(<App />, `/?item=${NOTE.id}`);
 
     await user.click(await screen.findByRole('button', { name: /item actions/i }));

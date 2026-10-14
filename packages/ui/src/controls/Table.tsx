@@ -1,5 +1,12 @@
 import { ArrowDown, ArrowUp, ChevronsUpDown } from 'lucide-react';
-import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from 'react';
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+  type Ref,
+} from 'react';
 
 import { cn } from '../lib/cn';
 import { ContextMenu, type ContextMenuTargetProps } from './ContextMenu';
@@ -123,6 +130,11 @@ export interface TableProps<Row> {
   readonly rowLongPress?: (row: Row) => boolean;
   /** Marks a row selected: a tint and `aria-selected`. Colour is never the only signal. */
   readonly rowSelected?: (row: Row) => boolean;
+  /**
+   * Drag-and-drop on a row, for a caller that lets rows be dragged onto each other. `dropTarget`
+   * outlines the row a drop would land on; the handlers are the browser's own.
+   */
+  readonly rowDrag?: (row: Row) => TableRowDrag;
 
   /** Sparse row geometry when the caller renders only a measured window of a larger table. */
   readonly virtualization?: {
@@ -188,6 +200,13 @@ function nextSort(columnKey: string, current: TableSort | undefined): TableSort 
   return { columnKey, direction: 'ascending' };
 }
 
+export interface TableRowDrag extends Pick<
+  HTMLAttributes<HTMLTableRowElement>,
+  'draggable' | 'onDragStart' | 'onDragOver' | 'onDragLeave' | 'onDragEnd' | 'onDrop'
+> {
+  readonly dropTarget?: boolean;
+}
+
 export function Table<Row>(props: TableProps<Row>): ReactNode {
   const {
     caption,
@@ -205,6 +224,7 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     rowContextMenuLabel,
     rowLongPress,
     rowSelected,
+    rowDrag,
     tableRef,
     columnWidths,
     onColumnResize,
@@ -217,36 +237,44 @@ export function Table<Row>(props: TableProps<Row>): ReactNode {
     row: Row,
     dataIndex: number,
     contextTarget?: ContextMenuTargetProps,
-  ): ReactNode => (
-    <tr
-      key={rowKey(row)}
-      {...contextTarget}
-      // `group` lets a cell reveal something on row hover or focus (the list's selection box).
-      className={cn('group', rowSelected?.(row) === true && 'bg-accent/10')}
-      aria-selected={rowSelected === undefined ? undefined : rowSelected(row)}
-      aria-rowindex={virtualization === undefined ? undefined : dataIndex + 2}
-      data-virtual-index={virtualization === undefined ? undefined : dataIndex}
-    >
-      {columns.map((column) => {
-        const cellClass = cn(
-          'border-b border-divider font-body text-md text-foreground',
-          cellPadding,
-          column.gutter === true && 'w-px pr-0',
-          column.align === 'end' ? 'text-right' : 'text-left',
-        );
+  ): ReactNode => {
+    const { dropTarget = false, ...dragProps } = rowDrag?.(row) ?? {};
+    return (
+      <tr
+        key={rowKey(row)}
+        {...contextTarget}
+        {...dragProps}
+        // `group` lets a cell reveal something on row hover or focus (the list's selection box).
+        className={cn(
+          'group',
+          rowSelected?.(row) === true && 'bg-accent/10',
+          dropTarget && 'outline-2 -outline-offset-2 outline-accent',
+        )}
+        aria-selected={rowSelected === undefined ? undefined : rowSelected(row)}
+        aria-rowindex={virtualization === undefined ? undefined : dataIndex + 2}
+        data-virtual-index={virtualization === undefined ? undefined : dataIndex}
+      >
+        {columns.map((column) => {
+          const cellClass = cn(
+            'border-b border-divider font-body text-md text-foreground',
+            cellPadding,
+            column.gutter === true && 'w-px pr-0',
+            column.align === 'end' ? 'text-right' : 'text-left',
+          );
 
-        return column.rowHeader === true ? (
-          <th key={column.key} scope="row" className={cn(cellClass, 'font-medium')}>
-            {column.cell(row)}
-          </th>
-        ) : (
-          <td key={column.key} className={cellClass}>
-            {column.cell(row)}
-          </td>
-        );
-      })}
-    </tr>
-  );
+          return column.rowHeader === true ? (
+            <th key={column.key} scope="row" className={cn(cellClass, 'font-medium')}>
+              {column.cell(row)}
+            </th>
+          ) : (
+            <td key={column.key} className={cellClass}>
+              {column.cell(row)}
+            </td>
+          );
+        })}
+      </tr>
+    );
+  };
 
   const message = loading ? loadingMessage : rows.length === 0 ? emptyMessage : null;
 

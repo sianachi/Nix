@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   describeBulkMove,
+  dropRefusal,
   executeBulkMove,
   isInsideSelection,
   planBulkMove,
@@ -73,5 +74,19 @@ describe('executeBulkMove', () => {
       '1 of 2 items moved; 1 refused: That would make a cycle. 1 selected item moved with their parent.',
     );
     expect(describeBulkMove({ moved: ['a'], refused: [] }, 0)).toBe('1 item moved.');
+  });
+});
+
+describe('dropRefusal', () => {
+  it('refuses a drop onto the dragged item or anything beneath it', () => {
+    expect(dropRefusal(['a'], 'a', find)).toBe('An item cannot be moved inside itself.');
+    expect(dropRefusal(['a'], 'c', find)).toBe('An item cannot be moved inside itself.');
+  });
+
+  it('allows a sibling and refuses a target that takes no children', () => {
+    expect(dropRefusal(['a'], 'd', find)).toBeNull();
+    items.set('d', { ...node('d', null), noChildren: true });
+    expect(dropRefusal(['a'], 'd', find)).toBe('d does not accept new children.');
+    items.set('d', node('d', null));
   });
 });

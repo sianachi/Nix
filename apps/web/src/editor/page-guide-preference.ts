@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 
 import { browserStorage } from '../lib/browser-storage';
+import { registerSyncedSetting, settingChanged } from '../lib/ui-settings-sync';
 
 /**
  * Whether the page guides are drawn: a browser-local preference, like the mobile toolbar's.
@@ -43,5 +44,14 @@ export const usePageGuidePreference = create<{
       /* The choice still works for this session. */
     }
     set({ visibility, saved });
+    settingChanged('editor.pageGuides', visibility === 'shown');
   },
 }));
+
+registerSyncedSetting('editor.pageGuides', {
+  get: () => usePageGuidePreference.getState().visibility === 'shown',
+  set: (shown) => {
+    usePageGuidePreference.getState().setVisibility(shown ? 'shown' : 'hidden');
+  },
+  defaultValue: true,
+});
