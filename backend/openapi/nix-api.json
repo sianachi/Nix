@@ -18110,6 +18110,23 @@
           "readOnly": {
             "type": "boolean",
             "default": false
+          },
+          "itemIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "replaceFromMessageId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
