@@ -103,6 +103,9 @@ public static class NixTables
     /// <summary>A principal's reminder, quiet-hours and mute settings.</summary>
     public const string PrincipalPreferences = "principal_preferences";
 
+    /// <summary>A principal's synced interface settings.</summary>
+    public const string PrincipalUiSettings = "principal_ui_settings";
+
     /// <summary>One person's workspace groups and pins; a convenience, never a permission.</summary>
     public const string WorkspaceArrangement = "workspace_arrangement";
 
@@ -259,6 +262,7 @@ public static class NixTables
         CanvasLibrary,
         PetPreferences,
         PrincipalPreferences,
+        PrincipalUiSettings,
         WorkspaceArrangement,
         PetProviderCredential,
         Notification,
@@ -450,6 +454,7 @@ public static class NixTables
             // A principal's own reminder settings, inbox and registered devices - read and
             // written by Core alone, the same reasoning as pet_preferences and canvas_library.
             [PrincipalPreferences] = FullDml,
+            [PrincipalUiSettings] = FullDml,
             [WorkspaceArrangement] = FullDml,
             [PetProviderCredential] = FullDml,
             [Notification] = FullDml,

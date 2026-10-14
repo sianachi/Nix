@@ -4272,6 +4272,66 @@
         }
       }
     },
+    "/api/v1/me/ui-settings": {
+      "get": {
+        "tags": [
+          "Me"
+        ],
+        "summary": "The caller's own synced interface settings",
+        "operationId": "GetUiSettings",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "Me"
+        ],
+        "summary": "Merge settings into the caller's own; a null value deletes that key",
+        "operationId": "PatchUiSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchUiSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UiSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{itemId}/view-setups": {
       "post": {
         "tags": [
@@ -17656,6 +17716,20 @@
           }
         }
       },
+      "PatchUiSettingsRequest": {
+        "required": [
+          "settings"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": [
+              "null",
+              "object"
+            ]
+          }
+        }
+      },
       "PetConnectionResponse": {
         "required": [
           "provider",
@@ -21762,6 +21836,26 @@
             "type": "string"
           },
           "expiresInSeconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "UiSettingsResponse": {
+        "required": [
+          "settings",
+          "revision"
+        ],
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": "object"
+          },
+          "revision": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
               "integer",

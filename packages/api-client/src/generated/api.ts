@@ -1049,6 +1049,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/me/ui-settings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The caller's own synced interface settings */
+    get: operations['GetUiSettings'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Merge settings into the caller's own; a null value deletes that key */
+    patch: operations['PatchUiSettings'];
+    trace?: never;
+  };
   '/api/v1/items/{itemId}/view-setups': {
     parameters: {
       query?: never;
@@ -4399,6 +4417,9 @@ export interface components {
       /** Format: date-time */
       completedAt: null | string;
     };
+    PatchUiSettingsRequest: {
+      settings: null | Record<string, never>;
+    };
     PetConnectionResponse: {
       provider: string;
       status: string;
@@ -5375,6 +5396,11 @@ export interface components {
       tokenType: string;
       /** Format: int64 */
       expiresInSeconds: number | string;
+    };
+    UiSettingsResponse: {
+      settings: Record<string, never>;
+      /** Format: int64 */
+      revision: number | string;
     };
     UnlockItemResponse: {
       /** Format: date-time */
@@ -8890,6 +8916,59 @@ export interface operations {
       };
       /** @description Not Found */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['ProblemDetails'];
+        };
+      };
+    };
+  };
+  GetUiSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UiSettingsResponse'];
+        };
+      };
+    };
+  };
+  PatchUiSettings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PatchUiSettingsRequest'];
+      };
+    };
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['UiSettingsResponse'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
         headers: {
           [name: string]: unknown;
         };

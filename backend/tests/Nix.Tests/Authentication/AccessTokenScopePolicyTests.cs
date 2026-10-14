@@ -162,6 +162,8 @@ public sealed class AccessTokenScopePolicyTests
         ["SavePreferences"] = Requirement.InteractiveOnly,
         ["GetWorkspaceArrangement"] = Requirement.Read,
         ["SaveWorkspaceArrangement"] = Requirement.InteractiveOnly,
+        ["GetUiSettings"] = Requirement.Read,
+        ["PatchUiSettings"] = Requirement.InteractiveOnly,
         ["ListNotifications"] = Requirement.Read,
         ["MarkNotificationRead"] = Requirement.Write,
         ["MarkAllNotificationsRead"] = Requirement.Write,

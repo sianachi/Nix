@@ -80,6 +80,7 @@ public static class AccessTokenScopePolicy
             && (path.StartsWithSegments("/api/v1/me/preferences", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWithSegments("/api/v1/me/pets/providers", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWithSegments("/api/v1/me/workspace-arrangement", StringComparison.OrdinalIgnoreCase)
+                || path.StartsWithSegments("/api/v1/me/ui-settings", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWithSegments("/api/v1/me/push-subscriptions", StringComparison.OrdinalIgnoreCase)))
         {
             return Requirement.InteractiveOnly;
