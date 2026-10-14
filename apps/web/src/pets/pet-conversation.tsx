@@ -8,11 +8,13 @@ import {
   Checkbox,
   ContextMenu,
   Icon,
+  Listbox,
   Menu,
   Select,
   Text,
   Textarea,
   focusRing,
+  useListbox,
   type MenuEntry,
 } from '@nix/ui';
 import {
@@ -536,6 +538,17 @@ export function Conversation({
   const loadErrorMessage = `Lost connection to ${pet.name}. Retrying…`;
 
   function onComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
+    if (slashOptions.length > 0) {
+      if (event.key === 'Escape') {
+        // The menu is the innermost layer, so the conversation behind it stays open.
+        event.preventDefault();
+        event.stopPropagation();
+        setSlashDismissed(true);
+        return;
+      }
+      slashListbox.onKeyDown(event);
+      if (event.defaultPrevented) return;
+    }
     // Must-fix 18: an IME composition's confirming Enter arrives as `keyCode === 229` on some
     // browsers without `isComposing` also being set - both are checked so it is never mistaken
     // for a real submit.
@@ -597,6 +610,31 @@ export function Conversation({
   const suggestions = currentItem
     ? ['Summarize this page', 'Find my notes about...', 'Add a status field to this list']
     : ['Find my notes about...', 'Plan my reading', 'Track a job hunt'];
+
+  // Typing `/` at the start of the composer offers the same actions as the empty state's
+  // buttons, filtered by what follows the slash. Escape or leaving the field hides it until the
+  // draft stops being a slash command.
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1]?.toLowerCase();
+  if (slashQuery === undefined && slashDismissed) setSlashDismissed(false);
+  const slashOptions =
+    slashQuery === undefined || slashDismissed
+      ? []
+      : suggestions
+          .filter((suggestion) => suggestion.toLowerCase().includes(slashQuery))
+          .map((suggestion) => ({ id: suggestion, label: suggestion }));
+  const slashListbox = useListbox(slashOptions, (option) => {
+    pickSuggestion(option.id);
+  });
+
+  /** An action from the empty state or the slash menu: it fills the composer, and "Summarize
+   * this page" also attaches the open page. */
+  function pickSuggestion(suggestion: string) {
+    setDraft(suggestion);
+    if (suggestion === 'Summarize this page') attachPageContext();
+    regenerateRequestId();
+    input.current?.focus();
+  }
 
   const dialogClass =
     layout === 'fullscreen'
@@ -813,12 +851,7 @@ export function Conversation({
                   petName={pet.name}
                   workspaceAccess={workspaceAccess}
                   suggestions={suggestions}
-                  onPick={(suggestion) => {
-                    setDraft(suggestion);
-                    if (suggestion === 'Summarize this page') attachPageContext();
-                    regenerateRequestId();
-                    input.current?.focus();
-                  }}
+                  onPick={pickSuggestion}
                 />
                 <PetWorkTools
                   client={client}
@@ -1005,6 +1038,16 @@ export function Conversation({
                 </Button>
               </div>
             ) : null}
+            {slashOptions.length > 0 ? (
+              <div className="flex max-h-48 shrink-0 flex-col overflow-y-auto rounded border border-divider bg-background">
+                <Listbox
+                  label="Actions"
+                  options={slashOptions}
+                  controller={slashListbox}
+                  emptyMessage="No matching actions"
+                />
+              </div>
+            ) : null}
             <label htmlFor="pet-message" className="sr-only">
               Message {pet.name}
             </label>
@@ -1022,6 +1065,13 @@ export function Conversation({
                 onChange={(event) => {
                   setDraft(event.currentTarget.value);
                   regenerateRequestId();
+                }}
+                aria-controls={slashOptions.length > 0 ? slashListbox.id : undefined}
+                aria-activedescendant={
+                  slashOptions.length > 0 ? slashListbox.activeOptionId : undefined
+                }
+                onBlur={() => {
+                  if (slashOptions.length > 0) setSlashDismissed(true);
                 }}
                 onKeyDown={onComposerKeyDown}
               />
