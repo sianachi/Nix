@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
 
 import { announce } from '../a11y/announcer';
+import { planBulkDelete, type BulkDeletePlan } from './bulk-delete';
 import { describeBulkMove, executeBulkMove, planBulkMove } from './bulk-move';
+import { DeleteItemsDialog } from './delete-items-dialog';
 import { MoveItemsDialog } from './move-items-dialog';
 import { RenameItemDialog } from './rename-item-dialog';
 import type { TreeItem, WorkspaceTree } from './use-workspace-tree';
@@ -18,6 +20,11 @@ export interface ItemCommands {
   readonly renameItem: (itemId: string) => void;
   /** Deletes with the shell's undo window. */
   readonly deleteItem: (item: Pick<TreeItem, 'id' | 'title' | 'hasChildren'>) => void;
+  /**
+   * Confirms once, then deletes the top-level selected items with one summary toast. Settles with
+   * the ids that were deleted (empty when cancelled or refused), so a selection can drop them.
+   */
+  readonly deleteItems: (ids: readonly string[]) => Promise<readonly string[]>;
 }
 
 const ItemCommandsContext = createContext<ItemCommands | null>(null);
@@ -29,16 +36,23 @@ export function useOptionalItemCommands(): ItemCommands | null {
 export function ItemCommandsProvider({
   tree,
   onDeleteItem,
+  onDeleteItems,
   onMoved,
   children,
 }: {
   readonly tree: WorkspaceTree;
   readonly onDeleteItem: (item: Pick<TreeItem, 'id' | 'title' | 'hasChildren'>) => void;
+  /** Deletes these items (already planned and confirmed) and answers with the ids that went. */
+  readonly onDeleteItems: (items: BulkDeletePlan['items']) => Promise<readonly string[]>;
   /** Told which ids moved, so a selection can drop them. */
   readonly onMoved?: ((ids: readonly string[]) => void) | undefined;
   readonly children: ReactNode;
 }): ReactNode {
   const [moving, setMoving] = useState<readonly string[] | null>(null);
+  const [deleting, setDeleting] = useState<{
+    readonly plan: BulkDeletePlan;
+    readonly settle: (deleted: readonly string[]) => void;
+  } | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const renamed = renaming === null ? null : tree.find(renaming);
 
@@ -49,6 +63,12 @@ export function ItemCommandsProvider({
     },
     renameItem: setRenaming,
     deleteItem: onDeleteItem,
+    deleteItems: (ids) =>
+      new Promise((settle) => {
+        const plan = planBulkDelete(ids, tree);
+        if (plan.items.length === 0 && plan.blocked.length === 0) settle([]);
+        else setDeleting({ plan, settle });
+      }),
   };
 
   return (
@@ -71,6 +91,18 @@ export function ItemCommandsProvider({
             return outcome.refused.length === 0 && plan.carried.length === 0 && moving.length === 1
               ? null
               : sentence;
+          }}
+        />
+      )}
+      {deleting === null ? null : (
+        <DeleteItemsDialog
+          plan={deleting.plan}
+          onClose={() => {
+            deleting.settle([]);
+            setDeleting(null);
+          }}
+          onConfirm={async () => {
+            deleting.settle(await onDeleteItems(deleting.plan.items));
           }}
         />
       )}

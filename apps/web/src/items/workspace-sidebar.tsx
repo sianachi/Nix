@@ -357,6 +357,16 @@ export function WorkspaceSidebar(props: WorkspaceSidebarProps): ReactNode {
                     commands.moveItems([...selection.selected]);
                   }
             }
+            onDelete={
+              commands === null
+                ? undefined
+                : () => {
+                    void commands.deleteItems([...selection.selected]).then((deleted) => {
+                      const gone = new Set(deleted);
+                      selection.setAll([...selection.selected].filter((id) => !gone.has(id)));
+                    });
+                  }
+            }
             onClear={selection.clear}
           />
         </div>

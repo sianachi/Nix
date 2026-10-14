@@ -9,13 +9,14 @@ it('draws nothing while nothing is selected', () => {
   expect(screen.queryByRole('toolbar')).not.toBeInTheDocument();
 });
 
-it('reads count, Select all, Move, the view actions, then Clear with its Esc hint', () => {
+it('reads count, Select all, Move, Delete, the view actions, then Clear with its Esc hint', () => {
   render(
     <SelectionBar
       count={3}
       shownCount={42}
       onSelectAll={vi.fn()}
       onMove={vi.fn()}
+      onDelete={vi.fn()}
       onClear={vi.fn()}
     >
       <button type="button">Archive</button>
@@ -26,7 +27,7 @@ it('reads count, Select all, Move, the view actions, then Clear with its Esc hin
     within(bar)
       .getAllByRole('button')
       .map((button) => button.textContent),
-  ).toEqual(['Select all 42', 'Move to…', 'Archive', 'ClearEsc']);
+  ).toEqual(['Select all 42', 'Move to…', 'Delete', 'Archive', 'ClearEsc']);
   expect(within(bar).getByText('3 selected')).toHaveAttribute('aria-live', 'polite');
   expect(within(bar).getByRole('button', { name: 'Clear' })).toBeVisible();
 });
