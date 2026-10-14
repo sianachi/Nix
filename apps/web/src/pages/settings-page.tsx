@@ -8,31 +8,37 @@ import { McpSection } from '../settings/mcp-section';
 import { CalendarsSection } from '../settings/calendars-section';
 import { DailyNotesSection } from '../settings/daily-notes-section';
 import { EditorPreferencesSection } from '../settings/editor-preferences-section';
+import { PublishingSection } from '../settings/publishing-section';
 import { NotificationsSection } from '../settings/notifications-section';
 import { WorkspaceManagementSection } from '../workspaces/workspace-management-section';
 import { PetSettingsSection } from '../pets/pet-settings-section';
 import { useCapabilities } from '../session/capabilities-context';
 import { DEFAULT_SETTINGS_TAB, useSettingsTab, type SettingsTab } from './settings-tab';
 
-const settingsTabs: readonly { id: SettingsTab; label: string; closable: false }[] = [
+type Gate = 'sites' | 'operator';
+
+// Personal and place first, then connections, then the operator's own: each tab keeps its id so
+// every `?tab=` link still lands where it did.
+const settingsTabs: readonly { id: SettingsTab; label: string; closable: false; gate?: Gate }[] = [
   { id: 'workspace', label: 'Workspace', closable: false },
-  { id: 'editor', label: 'Editor', closable: false },
-  { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'daily-notes', label: 'Daily notes', closable: false },
+  { id: 'editor', label: 'Editor', closable: false },
   { id: 'pets', label: 'Pets', closable: false },
+  { id: 'notifications', label: 'Notifications', closable: false },
   { id: 'integrations', label: 'Calendars', closable: false },
+  { id: 'publishing', label: 'Publishing', closable: false, gate: 'sites' },
   { id: 'access-tokens', label: 'Access tokens', closable: false },
   { id: 'mcp', label: 'MCP', closable: false },
-  { id: 'backups', label: 'Backups', closable: false },
+  { id: 'backups', label: 'Backups', closable: false, gate: 'operator' },
 ];
 
 /** Settings grouped by the thing being managed, with workspace management first. Addressable by
  * `?tab=` so a link to a specific section survives a refresh or gets shared. */
 export function SettingsPage(): ReactElement {
   const { tab: requestedTab, setTab: setActiveTab } = useSettingsTab();
-  // A display hint: Core refuses the backups route to anyone who is not an operator.
-  const { operator } = useCapabilities();
-  const tabs = operator ? settingsTabs : settingsTabs.filter((tab) => tab.id !== 'backups');
+  // Display hints: Core refuses the backups route to anyone who is not an operator.
+  const capabilities = useCapabilities();
+  const tabs = settingsTabs.filter((tab) => tab.gate === undefined || capabilities[tab.gate]);
   const activeTab = tabs.some((tab) => tab.id === requestedTab)
     ? requestedTab
     : DEFAULT_SETTINGS_TAB;
@@ -44,8 +50,8 @@ export function SettingsPage(): ReactElement {
           Settings
         </Text>
         <Text variant="note" tone="muted" className="mt-1 hidden max-w-2xl sm:block">
-          Manage the place you work, how the editor behaves, and the credentials connected to your
-          account.
+          Manage the place you work, how the editor behaves, what you publish, and the credentials
+          connected to your account.
         </Text>
       </header>
 
@@ -75,6 +81,7 @@ export function SettingsPage(): ReactElement {
         {activeTab === 'integrations' ? <CalendarsSection /> : null}
         {activeTab === 'access-tokens' ? <AccessTokensSection /> : null}
         {activeTab === 'mcp' ? <McpSection /> : null}
+        {activeTab === 'publishing' ? <PublishingSection /> : null}
         {activeTab === 'backups' ? <BackupsSection /> : null}
       </main>
     </div>
