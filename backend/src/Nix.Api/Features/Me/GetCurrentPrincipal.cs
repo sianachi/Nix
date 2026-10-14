@@ -136,7 +136,7 @@ internal static class GetCurrentPrincipalEndpoint
             .ConfigureAwait(false);
 
         // Display only; the backups route checks the same list for itself.
-        var isOperator = await operators.IsInstanceOperatorAsync().ConfigureAwait(false);
+        var isOperator = operators.IsInstanceOperator();
         return result.Match<Results<Ok<CurrentPrincipalResponse>, ProblemHttpResult>>(
             principal => TypedResults.Ok(
                 new CurrentPrincipalResponse(

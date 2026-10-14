@@ -47,10 +47,10 @@ public sealed class SiteOperators(SiteOptions options, IPermissionResolver permi
     /// owns (backup status) the tenant-administrator fallback must not apply, so an empty list
     /// means nobody.
     /// </summary>
-    public ValueTask<bool> IsInstanceOperatorAsync()
+    public bool IsInstanceOperator()
     {
         var context = session.Current ?? throw new InvalidOperationException("No session context; the pipeline must establish one.");
-        return ValueTask.FromResult(options.Operators.Contains(context.PrincipalId.Value));
+        return options.Operators.Contains(context.PrincipalId.Value);
     }
 }
 
