@@ -2,7 +2,13 @@
 // sub-panels - kept apart from the floating launcher in `pet-companion.tsx` so a page can render
 // the same conversation without the launcher, the drag handling or the panel positioning. How it
 // sits on screen is the caller's `layout`; everything inside is the same in all of them.
-import { items, type PetConnection, type PetProfile, type PetSettings } from '@nix/api-client';
+import {
+  items,
+  pets,
+  type PetConnection,
+  type PetProfile,
+  type PetSettings,
+} from '@nix/api-client';
 import {
   Button,
   Checkbox,
@@ -56,7 +62,7 @@ import {
 import { usePetDraft } from './pet-drafts';
 import { PetWorkTools } from './pet-work-tools';
 import { PetConnectionPanel } from './pet-connection-panel';
-import { PetHistory, exportPetMessages } from './pet-history';
+import { PetHistory, TitleEditor, exportPetMessages } from './pet-history';
 import { PetChatViewport } from './pet-chat-viewport';
 import { PetMessageText } from './pet-message-text';
 import { buildWorkspaceMap } from './turn-context';
@@ -210,6 +216,10 @@ export function Conversation({
   const [readWithoutAsking, setReadWithoutAsking] = useState(() => readReadWithoutAsking());
   const [needsDecisionIds, setNeedsDecisionIds] = useState<readonly string[]>([]);
   const [currentItemTitle, setCurrentItemTitle] = useState<string | null>(null);
+  // Editing the live conversation title, and why a save failed.
+  const [renaming, setRenaming] = useState(false);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState('');
   const [hasSelection, setHasSelection] = useState(false);
   // The last user message, being edited in place: its id pins the edit to that message.
   const [editing, setEditing] = useState<{ readonly id: string; readonly text: string } | null>(
@@ -272,6 +282,28 @@ export function Conversation({
     },
     [onNeedsDecisionChange],
   );
+
+  async function renameConversation(title: string) {
+    setRenameBusy(true);
+    setRenameError('');
+    try {
+      const result = await client.execute(
+        pets.runtime({
+          operation: 'rename',
+          workspaceId,
+          petId: pet.id,
+          text: title,
+          ...(noteScope ? { rootItemId: noteScope.rootItemId } : {}),
+        }),
+      );
+      setRuntime(result);
+      setRenaming(false);
+    } catch {
+      setRenameError('The conversation could not be renamed. Try again.');
+    } finally {
+      setRenameBusy(false);
+    }
+  }
 
   function goBackFromPanel() {
     setPanel('chat');
@@ -592,6 +624,15 @@ export function Conversation({
       },
     },
     {
+      label: 'Rename conversation',
+      disabled: busy || running || !messages.length,
+      onSelect: () => {
+        setPanel('chat');
+        setRenameError('');
+        setRenaming(true);
+      },
+    },
+    {
       label: 'Past conversations',
       onSelect: () => {
         setPanel('history');
@@ -721,6 +762,11 @@ export function Conversation({
                       running,
                     })}
                   </Text>
+                  {runtime?.title && !renaming ? (
+                    <Text variant="note" truncate title={runtime.title}>
+                      {runtime.title}
+                    </Text>
+                  ) : null}
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -746,6 +792,21 @@ export function Conversation({
                 ) : null}
               </div>
             </div>
+            {renaming ? (
+              <div data-context-menu-ignore className="flex min-w-0 flex-col gap-1">
+                <TitleEditor
+                  initial={runtime?.title ?? ''}
+                  busy={renameBusy}
+                  onSave={(title) => {
+                    void renameConversation(title);
+                  }}
+                  onCancel={() => {
+                    setRenaming(false);
+                  }}
+                />
+                {renameError ? <Text role="alert">{renameError}</Text> : null}
+              </div>
+            ) : null}
             {noteScope ? (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <Link
@@ -816,6 +877,11 @@ export function Conversation({
             name={pet.name}
             client={client}
             rootItemId={noteScope?.rootItemId}
+            running={running || busy}
+            onResumed={(resumed) => {
+              setRuntime(resumed);
+              goBackFromPanel();
+            }}
           />
         </div>
       ) : !runtime ? (

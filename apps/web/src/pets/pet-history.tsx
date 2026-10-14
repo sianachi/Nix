@@ -1,5 +1,5 @@
 import { pets, type PetConnection, type PetMessage, type NixClient } from '@nix/api-client';
-import { Button, Select, Text } from '@nix/ui';
+import { Button, Input, Text } from '@nix/ui';
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 
 export function exportPetMessages(messages: readonly PetMessage[], name: string): void {
@@ -15,18 +15,88 @@ export function exportPetMessages(messages: readonly PetMessage[], name: string)
   URL.revokeObjectURL(url);
 }
 
+/** The title a conversation may be given: the same bounds Core and the worker enforce. */
+function validTitle(value: string): boolean {
+  const title = value.trim();
+  return title.length > 0 && title.length <= 120 && !/\p{Cc}/u.test(title);
+}
+
+/** One line to rename a conversation: Enter saves, Escape cancels. Escape is kept from reaching the
+ * conversation behind it, which would otherwise treat it as "back out of this panel". */
+export function TitleEditor({
+  initial,
+  busy,
+  onSave,
+  onCancel,
+}: {
+  readonly initial: string;
+  readonly busy: boolean;
+  readonly onSave: (title: string) => void;
+  readonly onCancel: () => void;
+}): ReactElement {
+  const [value, setValue] = useState(initial);
+  const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    field.current?.focus();
+  }, []);
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <Input
+        ref={field}
+        aria-label="Conversation title"
+        value={value}
+        maxLength={120}
+        disabled={busy}
+        className="min-w-0 flex-1"
+        onChange={(event) => {
+          setValue(event.currentTarget.value);
+        }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return;
+          if (event.key === 'Enter' && validTitle(value)) {
+            event.preventDefault();
+            onSave(value.trim());
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+      <Button
+        variant="secondary"
+        disabled={busy || !validTitle(value)}
+        onClick={() => {
+          onSave(value.trim());
+        }}
+      >
+        Save title
+      </Button>
+      <Button variant="ghost" onClick={onCancel}>
+        Cancel
+      </Button>
+    </div>
+  );
+}
+
 export function PetHistory({
   workspaceId,
   petId,
   name,
   client,
   rootItemId,
+  running = false,
+  onResumed,
 }: {
   readonly workspaceId: string;
   readonly petId: string;
   readonly name: string;
   readonly client: Pick<NixClient, 'execute'>;
   readonly rootItemId?: string | undefined;
+  /** A turn is running in the live conversation: it cannot be swapped out until it stops. */
+  readonly running?: boolean;
+  /** Called with the worker's answer once an archive has become the live conversation. */
+  readonly onResumed?: (connection: PetConnection) => void;
 }): ReactElement {
   const [history, setHistory] = useState<NonNullable<PetConnection['history']>>([]);
   const [selected, setSelected] = useState('');
@@ -34,6 +104,8 @@ export function PetHistory({
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [query, setQuery] = useState('');
   const [error, setError] = useState('');
   const lifetime = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -43,7 +115,11 @@ export function PetHistory({
       controller.abort();
     };
   }, []);
-  async function load(operation: 'history' | 'read_history' | 'delete_history', historyId = '') {
+  async function load(
+    operation: 'history' | 'read_history' | 'delete_history' | 'rename' | 'resume_history',
+    historyId = '',
+    text = '',
+  ) {
     setBusy(true);
     setError('');
     try {
@@ -56,18 +132,25 @@ export function PetHistory({
           petId,
           ...(rootItemId ? { rootItemId } : {}),
           ...(historyId ? { historyId } : {}),
+          ...(text ? { text } : {}),
         }),
         { signal },
       );
       if (isAborted(signal)) return;
-      if (operation === 'read_history') {
+      if (operation === 'resume_history') {
+        onResumed?.(result);
+      } else if (operation === 'read_history') {
         setMessages(result.messages ?? []);
+      } else if (operation === 'rename') {
+        setHistory(result.history ?? []);
+        setRenaming(false);
       } else {
         setHistory(result.history ?? []);
         setLoaded(true);
         setMessages([]);
         setSelected('');
         setConfirm(false);
+        setRenaming(false);
       }
     } catch {
       setError('History could not be loaded or changed. Try again.');
@@ -75,6 +158,11 @@ export function PetHistory({
       setBusy(false);
     }
   }
+  const needle = query.trim().toLowerCase();
+  const shown = needle
+    ? history.filter((entry) => entry.title.toLowerCase().includes(needle))
+    : history;
+  const current = history.find((entry) => entry.id === selected);
   return (
     <section aria-label="Companion history" className="flex min-w-0 flex-col gap-2">
       <Button
@@ -92,27 +180,89 @@ export function PetHistory({
             Previous conversations are saved when you start a new one. Up to 32 are kept for this
             pet {rootItemId ? 'about this note' : 'in this workspace'}.
           </Text>
-          <Select
-            aria-label="Saved conversation"
-            value={selected}
-            disabled={busy}
-            onChange={(event) => {
-              const id = event.currentTarget.value;
-              setSelected(id);
-              setMessages([]);
-              setConfirm(false);
-              if (id) void load('read_history', id);
-            }}
-          >
-            <option value="">
-              {history.length ? 'Choose a conversation' : 'No previous conversations'}
-            </option>
-            {history.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {new Date(entry.createdAt).toLocaleDateString()} — {entry.title}
-              </option>
-            ))}
-          </Select>
+          {history.length ? (
+            <Input
+              type="search"
+              aria-label="Search saved conversations"
+              placeholder="Search by title"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.currentTarget.value);
+              }}
+            />
+          ) : null}
+          {shown.length ? (
+            <ul aria-label="Saved conversations" className="flex min-w-0 flex-col gap-1">
+              {shown.map((entry) => (
+                <li key={entry.id} className="min-w-0">
+                  <Button
+                    variant={entry.id === selected ? 'secondary' : 'ghost'}
+                    aria-current={entry.id === selected ? 'true' : undefined}
+                    disabled={busy}
+                    className="w-full min-w-0 justify-start"
+                    onClick={() => {
+                      setSelected(entry.id);
+                      setMessages([]);
+                      setConfirm(false);
+                      setRenaming(false);
+                      void load('read_history', entry.id);
+                    }}
+                  >
+                    <span className="min-w-0 truncate">
+                      {new Date(entry.createdAt).toLocaleDateString()} —{' '}
+                      {entry.title || 'Untitled conversation'}
+                    </span>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Text variant="note" tone="muted">
+              {history.length ? 'No conversation matches that title.' : 'No previous conversations'}
+            </Text>
+          )}
+          {current ? (
+            <>
+              {renaming ? (
+                <TitleEditor
+                  initial={current.title}
+                  busy={busy}
+                  onSave={(title) => {
+                    void load('rename', current.id, title);
+                  }}
+                  onCancel={() => {
+                    setRenaming(false);
+                  }}
+                />
+              ) : (
+                <Button
+                  variant="ghost"
+                  aria-label="Rename saved conversation"
+                  disabled={busy}
+                  onClick={() => {
+                    setRenaming(true);
+                  }}
+                >
+                  Rename conversation
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                aria-label="Continue this conversation"
+                disabled={busy || running}
+                onClick={() => {
+                  void load('resume_history', current.id);
+                }}
+              >
+                Continue this conversation
+              </Button>
+              <Text variant="note" tone="muted">
+                {running
+                  ? 'Stop the running turn to continue another conversation.'
+                  : 'Your current conversation is saved to history.'}
+              </Text>
+            </>
+          ) : null}
           {messages.length ? (
             <>
               <div className="flex min-w-0 max-h-60 flex-col gap-2 overflow-y-auto overscroll-contain">
