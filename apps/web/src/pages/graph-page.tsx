@@ -1,5 +1,5 @@
 import { isNixApiError, items as coreItems, type GraphNode } from '@nix/api-client';
-import { Button, Text } from '@nix/ui';
+import { Button, Select, Text } from '@nix/ui';
 import type { ReactElement, ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
 
@@ -12,13 +12,20 @@ import {
   PartialNotice,
 } from '../components/states/status-panels';
 import { GraphExplorer } from '../graph/graph-explorer';
+import {
+  GRAPH_OPEN_MODE_LABELS,
+  GraphOpenModeSchema,
+  useGraphOpenPreference,
+} from '../graph/graph-open-preference';
 import { useItemDialog } from '../items/item-dialog-context';
 import { useWorkspaceGraph } from '../graph/use-workspace-graph';
 import { paneScroller } from '../layout/regions';
+import { useNarrowViewport } from '../layout/viewport';
 import { notifyItemChildrenChanged } from '../lib/item-children-changed';
 import { publishNotice } from '../lib/notices';
 import { offerReference } from '../lib/pending-reference';
 import { useOpenItem } from '../tabs/use-open-item';
+import { resolveOpenMode } from '../views/core/open-policy';
 
 /**
  * The graph destination: the workspace as items and the references between them.
@@ -29,8 +36,8 @@ import { useOpenItem } from '../tabs/use-open-item';
  * conclude two clusters are unconnected, which is a wrong answer rather than a missing one - so
  * whenever a flag is set this page says so above the drawing, and says which ceiling was hit.
  *
- * Opening a node presents the full item in a dialog while the graph stays mounted. Only the
- * explicit Open as page action changes the workspace destination.
+ * Opening a node follows the "Open items in" setting: by default the full item appears in a dialog
+ * while the graph stays mounted, and the other modes change the workspace destination.
  */
 /**
  * The destination's frame: its heading, and whatever state it is in.
@@ -75,8 +82,21 @@ function moveRefusal(reason: unknown): string {
 export function GraphPage(): ReactElement {
   const [searchParams] = useSearchParams();
   const { status, graph, error, reload, refresh } = useWorkspaceGraph();
-  const { openPreview } = useOpenItem();
+  const { openPreview, openPinned } = useOpenItem();
   const openDialog = useItemDialog();
+  const narrow = useNarrowViewport();
+  const openMode = useGraphOpenPreference((state) => state.mode);
+  const setOpenMode = useGraphOpenPreference((state) => state.setMode);
+  // The same policy a saved view uses. The graph route has no pane to open beside, so that mode
+  // is not offered and resolves to a dialog here.
+  const dialogOrPage = openDialog ?? openPreview;
+  const open = {
+    page: openPreview,
+    dialog: dialogOrPage,
+    beside: dialogOrPage,
+    tab: openPinned,
+    none: dialogOrPage,
+  }[resolveOpenMode({ view: { kind: 'graph', open: openMode }, narrow, canOpenBeside: false })];
   const client = useApiClient();
 
   /**
@@ -203,6 +223,25 @@ export function GraphPage(): ReactElement {
         />
       )}
 
+      <label className="flex min-w-0 max-w-full flex-col gap-1 self-start">
+        <Text as="span" variant="caption">
+          Open items in
+        </Text>
+        <Select
+          value={openMode}
+          onChange={(event) => {
+            const parsed = GraphOpenModeSchema.safeParse(event.target.value);
+            if (parsed.success) setOpenMode(parsed.data);
+          }}
+        >
+          {GraphOpenModeSchema.options.map((mode) => (
+            <option key={mode} value={mode}>
+              {GRAPH_OPEN_MODE_LABELS[mode]}
+            </option>
+          ))}
+        </Select>
+      </label>
+
       <GraphExplorer
         initialFocusId={searchParams.get('focus')}
         workspaceId={graph.workspaceId}
@@ -212,7 +251,7 @@ export function GraphPage(): ReactElement {
         onLink={link}
         nodes={graph.nodes}
         links={graph.links}
-        onOpen={openDialog ?? openPreview}
+        onOpen={open}
         partial={graph.nodesTruncated || graph.linksTruncated}
       />
     </GraphFrame>

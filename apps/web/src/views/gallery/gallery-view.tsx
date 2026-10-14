@@ -18,6 +18,7 @@ import {
 } from '../core/container-model';
 import { CoverImage } from './cover-image';
 import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { useClickSelects } from '../core/item-open-click';
 import { rowGestures } from '../core/use-item-selection';
 import { CoverPickerDialog } from './cover-picker-dialog';
 import { CreateItemControl } from '../core/create-item-control';
@@ -646,6 +647,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
   } = props;
   const itemActions = useItemContextActions(onOpen);
   const selection = useOptionalItemSelection();
+  const clickSelects = useClickSelects();
   const isSelected = selection?.selected.has(item.id) === true;
   const isFileCard = item.type === 'file' && !item.hasChildren;
   const coverValue = cover.kind === 'ready' ? readPropertyText(item, cover.property.key) : '';
@@ -742,6 +744,7 @@ function GalleryCard(props: GalleryCardProps): ReactNode {
                   : () => {
                       selection.openBeside?.(item.id);
                     },
+                clickSelects,
               )}
               // The card is mostly picture, and in a gallery the picture *is* the affordance - it is
               // why somebody chose this view. A stretched pseudo-element makes the whole card clickable

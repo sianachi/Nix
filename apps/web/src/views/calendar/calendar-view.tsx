@@ -4,6 +4,7 @@ import { publishNotice } from '../../lib/notices';
 import { CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useId, useState, type DragEvent, type ReactNode } from 'react';
 
+import { useItemOpenProps } from '../core/item-open-click';
 import {
   readDateValue,
   type ContainerViews,
@@ -1043,6 +1044,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
     dateProperty,
     zone,
   } = props.card;
+  const openProps = useItemOpenProps(onOpen);
 
   const startDrag = (event: DragEvent<HTMLDivElement>): void => {
     setDragged(item.id, occurrenceDate);
@@ -1075,9 +1077,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
           >
             <button
               type="button"
-              onClick={() => {
-                onOpen(item.id);
-              }}
+              {...openProps(item.id)}
               className={cn(
                 focusRing,
                 'min-w-0 flex-1 truncate rounded-sm px-1.5 py-0.5 text-left text-xs',
@@ -1133,9 +1133,7 @@ function ItemCard(props: ItemCardProps): ReactNode {
             <Button
               variant="ghost"
               className="relative min-w-0 justify-start px-0 py-0.5 text-left text-sm before:absolute before:inset-y-0 before:-inset-x-0.5"
-              onClick={() => {
-                onOpen(item.id);
-              }}
+              {...openProps(item.id)}
             >
               <span className="truncate">{item.title || 'Untitled'}</span>
             </Button>
