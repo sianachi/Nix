@@ -34,6 +34,42 @@ describe('reaching the settings screen', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('keeps an old tab address on the section it always named', async () => {
+    renderAt(<App />, '/settings?tab=integrations');
+
+    expect(await screen.findByRole('tab', { name: 'Calendars' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(await screen.findByRole('heading', { level: 2, name: 'Calendars' })).toBeVisible();
+  });
+
+  it('lists the tabs in group order without the gated ones for an ordinary account', async () => {
+    renderAt(<App />, '/settings');
+
+    await screen.findByRole('tablist', { name: 'Settings sections' });
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Workspace',
+      'Daily notes',
+      'Editor',
+      'Pets',
+      'Notifications',
+      'Calendars',
+      'Access tokens',
+      'MCP',
+    ]);
+  });
+
+  it('falls back to the default tab for a gated tab the account cannot see', async () => {
+    renderAt(<App />, '/settings?tab=publishing');
+
+    expect(await screen.findByRole('tab', { name: 'Workspace' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.queryByRole('tab', { name: 'Publishing' })).not.toBeInTheDocument();
+  });
+
   it('is reachable from the profile menu as a real link', async () => {
     const user = userEvent.setup();
     renderAt(<App />, '/');
