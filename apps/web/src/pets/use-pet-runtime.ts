@@ -24,7 +24,11 @@ export interface PetSendInput {
   readonly workspaceAccess: boolean;
   readonly readOnly?: boolean;
   readonly itemId?: string;
+  /** The notes attached to this message; the server accepts five at most. */
+  readonly itemIds?: readonly string[];
   readonly sharedText?: string;
+  /** The user message this send replaces, with every message after it. */
+  readonly replaceFromMessageId?: string;
   /** The workspace's main containers, for a conversation's first message only (plan B.2). */
   readonly workspaceMap?: readonly pets.PetWorkspaceMapEntry[];
 }
@@ -438,6 +442,12 @@ export function usePetRuntime(
                   ...(input.workspaceMap ? { workspaceMap: input.workspaceMap } : {}),
                   ...(input.itemId
                     ? { itemId: input.itemId, sharedText: input.sharedText ?? '' }
+                    : {}),
+                  ...(input.itemIds?.length
+                    ? { itemIds: input.itemIds, sharedText: input.sharedText ?? '' }
+                    : {}),
+                  ...(input.replaceFromMessageId
+                    ? { replaceFromMessageId: input.replaceFromMessageId }
                     : {}),
                 }
               : {}),

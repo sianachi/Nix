@@ -1,6 +1,7 @@
 import { Checkbox, Field, Select, Text } from '@nix/ui';
 import { useState, type ReactElement } from 'react';
 
+import { DeviceOnlyNote } from '../settings/preference-toggle';
 import {
   PET_SURFACE_OPTIONS,
   readDevicePreference,
@@ -21,6 +22,7 @@ export function PetDeviceSettings({
   const [surface, setSurface] = useState<PetSurface>(() => readPetSurface());
   return (
     <div className="flex min-w-0 flex-col gap-4">
+      <DeviceOnlyNote />
       <Field label="Where the chat opens">
         {(control) => (
           <Select

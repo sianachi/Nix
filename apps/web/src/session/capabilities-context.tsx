@@ -5,10 +5,12 @@ export interface Capabilities {
   readonly sites: boolean;
   /** The remote MCP endpoint, or null when only stdio through nixctl is available. */
   readonly mcpUrl: string | null;
+  /** Listed as a deployment operator: may read instance-wide data such as backup status. */
+  readonly operator: boolean;
 }
 
 /** Everything off until Core has answered: an entry that may not exist is not drawn first. */
-export const NO_CAPABILITIES: Capabilities = { sites: false, mcpUrl: null };
+export const NO_CAPABILITIES: Capabilities = { sites: false, mcpUrl: null, operator: false };
 
 const CapabilitiesContext = createContext<Capabilities>(NO_CAPABILITIES);
 

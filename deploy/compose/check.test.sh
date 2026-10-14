@@ -218,6 +218,9 @@ assert calls.index('pull --quiet '+tools) < smokes[0] < stop < start < smokes[1]
 # Writers stop before the infrastructure `up`, so a RabbitMQ recreate never meets a publisher.
 infra=next(i for i,s in enumerate(calls) if ' up ' in s and s.endswith('postgres rabbitmq nix-versitygw'))
 assert stop < infra < migrate
+# The BackupRuns migration needs the nix_backup role; it is created idempotently before the migrator runs.
+role=next(i for i,s in enumerate(calls) if 'exec -T postgres psql' in s and 'CREATE ROLE nix_backup NOLOGIN' in s and 'IF NOT EXISTS' in s and 'ALTER ROLE nix_backup NOLOGIN NOINHERIT NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE' in s)
+assert infra < role < migrate
 bind_check=next(i for i,s in enumerate(calls) if 'run --rm --no-deps --entrypoint /bin/sh rabbitmq -c ' in s)
 for service in ['nix-speech-worker', 'nix-indexer', 'nix-opensearch', 'grafana', 'alloy', 'loki', 'docker-socket-proxy']:
  retired=calls.index('stop retired-'+service)
