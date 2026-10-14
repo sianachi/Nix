@@ -2,7 +2,7 @@ import { useCallback } from 'react';
 import { useSearchParams } from 'react-router';
 
 import { usePaneIndex } from '../panes/pane-context';
-import { paneParam } from '../panes/pane-params';
+import { CHAT_PARAM, paneParam } from '../panes/pane-params';
 import { clearViewState } from '../views/core/view-state';
 
 /**
@@ -66,8 +66,10 @@ export function selectedItemSearch(itemId: string): string {
  * names the pane the calling component is rendered inside.
  */
 export function writeSelectedItem(params: URLSearchParams, pane: number, itemId: string): void {
-  // See `select`, below, for why the view state is cleared alongside the item.
+  // See `select`, below, for why the view state is cleared alongside the item. The pane's chat goes
+  // too: choosing an item in a pane that shows the conversation means showing that item.
   clearViewState(params, pane);
+  params.delete(paneParam(CHAT_PARAM, pane));
   params.set(selectedItemParam(pane), itemId);
 }
 

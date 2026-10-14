@@ -10,11 +10,13 @@ import {
   type TabItem,
 } from '@nix/ui';
 import { PanelLeft, PanelTop, Pin, X } from 'lucide-react';
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 
 import { useMediaQuery } from '../layout/viewport';
 import { copyLinkEntry } from '../items/item-menu-entries';
 import { publishNotice } from '../lib/notices';
+import { CHAT_PARAM, paneParam } from '../panes/pane-params';
 import type { PaneState } from '../panes/pane-state';
 import type { ShellContext } from '../shell/shell-context';
 import { useSelectedItem } from '../routing/selected-item';
@@ -26,8 +28,9 @@ import {
   type TabTransferPayload,
 } from './tab-transfer';
 import { useTabOrientationStore } from './tab-orientation-store';
-import { useTabStore } from './tab-store';
+import { chatScopeOfTab, chatTabId, isChatTabId, useTabStore } from './tab-store';
 import { useDocumentTabs } from './use-document-tabs';
+import { useOpenChat } from './use-open-chat';
 import { useOpenItem } from './use-open-item';
 
 /**
@@ -56,6 +59,9 @@ export interface DocumentTabStripProps {
   readonly paneIndex: number;
   readonly tree: ShellContext['tree'];
   readonly activeItemId: string;
+
+  /** The conversation scope this pane shows instead of its item, when it does. */
+  readonly activeChat: string | undefined;
   readonly visiblePanes: readonly PaneState[];
   readonly draggedTab: TabTransferPayload | null;
   readonly onTabDragStarted: (payload: TabTransferPayload) => void;
@@ -74,6 +80,7 @@ export function DocumentTabStrip({
   paneIndex,
   tree,
   activeItemId,
+  activeChat,
   visiblePanes,
   draggedTab,
   onTabDragStarted,
@@ -84,8 +91,23 @@ export function DocumentTabStrip({
   const { tabs } = useDocumentTabs(paneIndex, activeItemId);
   const { clear } = useSelectedItem();
   const { activateTab } = useOpenItem();
-  const tabClosed = useTabStore((state) => state.tabClosed);
+  const openChat = useOpenChat();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The tab showing: the conversation when the pane has one open, else its item.
+  const activeId = activeChat === undefined ? activeItemId : chatTabId(activeChat);
+  // A conversation opened by a link is only in the address; keep it as a tab once the pane moves
+  // on to a note, the way one opened from the menu already is.
+  const chatRecorded = useTabStore((state) =>
+    (state.byPane[paneIndex] ?? []).some((tab) => tab.itemId === activeId),
+  );
   const tabPinned = useTabStore((state) => state.tabPinned);
+  // Set when the conversation is closed, so the record is not made again before the address follows.
+  const dismissedChat = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeChat === undefined) dismissedChat.current = null;
+    else if (!chatRecorded && dismissedChat.current !== activeId) tabPinned(paneIndex, activeId);
+  }, [activeChat, activeId, chatRecorded, tabPinned, paneIndex]);
+  const tabClosed = useTabStore((state) => state.tabClosed);
   const workspace = useOptionalWorkspace();
   const orientation = useTabOrientationStore((state) => state.orientation);
   const orientationToggled = useTabOrientationStore((state) => state.orientationToggled);
@@ -96,6 +118,15 @@ export function DocumentTabStrip({
   const [dropTarget, setDropTarget] = useState<TabTransferPayload | null>(null);
 
   const items: TabItem[] = tabs.map((tab) => {
+    const scope = chatScopeOfTab(tab.itemId);
+    if (scope !== null) {
+      const noteTitle = scope === 'workspace' ? undefined : tree.find(scope)?.title;
+      return {
+        id: tab.itemId,
+        label: noteTitle !== undefined && noteTitle.length > 0 ? `Chat: ${noteTitle}` : 'Chat',
+        pinned: true,
+      };
+    }
     const title = tree.find(tab.itemId)?.title;
 
     return {
@@ -107,7 +138,7 @@ export function DocumentTabStrip({
     };
   });
 
-  const activeTitle = items.find((item) => item.id === activeItemId)?.label ?? 'Untitled';
+  const activeTitle = items.find((item) => item.id === activeId)?.label ?? 'Untitled';
   const destinations = visiblePanes.filter((pane) => pane.index !== paneIndex);
   const canReceive =
     draggedTab !== null &&
@@ -146,13 +177,31 @@ export function DocumentTabStrip({
     onTabDragEnded();
   }
 
+  /** The pane goes back to its item. Replaces, so Back does not reopen a conversation just closed. */
+  function leaveChat(): void {
+    const next = new URLSearchParams(searchParams);
+    next.delete(paneParam(CHAT_PARAM, paneIndex));
+    setSearchParams(next, { replace: true });
+  }
+
   function handleClose(itemId: string): void {
-    const index = tabs.findIndex((tab) => tab.itemId === itemId);
-    const remaining = tabs.filter((tab) => tab.itemId !== itemId);
+    // Closing a conversation never empties the pane: its item is still open beneath it.
+    if (isChatTabId(itemId)) {
+      dismissedChat.current = itemId;
+      tabClosed(itemId);
+      if (itemId === activeId) leaveChat();
+      return;
+    }
+
+    // Conversations are not documents: a pane whose last document closes closes with them.
+    const documents = tabs.filter((tab) => !isChatTabId(tab.itemId));
+    const index = documents.findIndex((tab) => tab.itemId === itemId);
+    const remaining = documents.filter((tab) => tab.itemId !== itemId);
 
     tabClosed(itemId);
 
     if (remaining.length === 0) {
+      for (const tab of tabs) if (isChatTabId(tab.itemId)) tabClosed(tab.itemId);
       if (onClosePane === undefined) {
         clear();
       } else {
@@ -171,13 +220,22 @@ export function DocumentTabStrip({
     }
   }
 
+  function activate(id: string): void {
+    const scope = chatScopeOfTab(id);
+    if (scope !== null) openChat(scope === 'workspace' ? null : scope);
+    else activateTab(id);
+  }
+
   /**
    * Closes several tabs at once, keeping `keep` open and showing it if the showing tab is among
    * those closed - the editor-group convention for "Close Others" and "Close to the Right".
    */
-  function closeAllBut(keep: string, closing: readonly string[]): void {
+  function closeAllBut(keep: string, requested: readonly string[]): void {
+    // Keeping a conversation keeps the item it sits on: that item is the pane's address.
+    const closing = isChatTabId(keep) ? requested.filter((id) => id !== activeItemId) : requested;
     if (closing.length === 0) return;
-    if (closing.includes(activeItemId)) activateTab(keep);
+    if (closing.includes(activeId)) activate(keep);
+    if (closing.includes(activeId)) dismissedChat.current = activeId;
     for (const itemId of closing) tabClosed(itemId);
     publishNotice({
       key: 'tabs-closed',
@@ -218,8 +276,9 @@ export function DocumentTabStrip({
           closeAllBut(itemId, toTheRight);
         },
       },
-      { kind: 'separator' },
-      ...(tab.pinned
+      // A conversation is always kept and has no document link to copy.
+      ...(isChatTabId(itemId) ? [] : [{ kind: 'separator' as const }]),
+      ...(tab.pinned || isChatTabId(itemId)
         ? []
         : [
             {
@@ -231,7 +290,9 @@ export function DocumentTabStrip({
               },
             },
           ]),
-      ...(workspace === null ? [] : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
+      ...(workspace === null || isChatTabId(itemId)
+        ? []
+        : [copyLinkEntry(workspace.workspaceId, itemId, title)]),
     ];
   }
 
@@ -256,11 +317,11 @@ export function DocumentTabStrip({
       <Tabs
         label="Open documents"
         items={items}
-        activeId={activeItemId}
+        activeId={activeId}
         orientation={orientation}
         onActivate={(itemId) => {
-          if (itemId !== activeItemId) {
-            activateTab(itemId);
+          if (itemId !== activeId) {
+            activate(itemId);
           }
         }}
         onClose={handleClose}
@@ -269,6 +330,11 @@ export function DocumentTabStrip({
           ? {
               drag: {
                 onStart: (itemId: string, event: DragEvent<HTMLElement>) => {
+                  // A conversation is bound to its pane's runtime; it is not moved between panes.
+                  if (isChatTabId(itemId)) {
+                    event.preventDefault();
+                    return;
+                  }
                   const payload: TabTransferPayload = {
                     version: 1,
                     itemId,
@@ -293,7 +359,7 @@ export function DocumentTabStrip({
           orientation === 'vertical' ? 'flex-col items-stretch' : 'flex-row items-center',
         )}
       >
-        {destinations.length > 0 ? (
+        {destinations.length > 0 && activeChat === undefined ? (
           <Select
             value=""
             aria-label={`Move active tab, ${activeTitle}, to another pane`}

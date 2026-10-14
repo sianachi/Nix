@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { browserSessionStorage } from '../../lib/browser-storage';
-import { useTabStore } from '../../tabs/tab-store';
+import { chatTabId, useTabStore } from '../../tabs/tab-store';
 
 function tabs(pane: number): readonly { itemId: string; pinned: boolean }[] {
   return useTabStore.getState().byPane[pane] ?? [];
@@ -261,5 +261,50 @@ describe('sessionStorage persistence', () => {
     useTabStore.getState().workspaceChanged('workspace-a');
 
     expect(useTabStore.getState().byPane).toEqual({});
+  });
+});
+
+describe('chat tabs', () => {
+  const note = '00000000-0000-4000-8000-000000000001';
+
+  it('reads a payload from before chat tabs as plain document tabs', () => {
+    browserSessionStorage()?.setItem(
+      'nix.open-tabs',
+      JSON.stringify({ workspaceId: 'w', byPane: { 0: [{ itemId: note, pinned: true }] } }),
+    );
+    useTabStore.getState().workspaceChanged('w');
+
+    expect(tabs(0)).toEqual([{ itemId: note, pinned: true }]);
+  });
+
+  it('restores a well-formed chat tab and drops a payload with a malformed one', () => {
+    const store = (id: string) =>
+      browserSessionStorage()?.setItem(
+        'nix.open-tabs',
+        JSON.stringify({ workspaceId: 'w', byPane: { 0: [{ itemId: id, pinned: true }] } }),
+      );
+    store(chatTabId('workspace'));
+    useTabStore.getState().workspaceChanged('w');
+    expect(tabs(0)).toEqual([{ itemId: 'chat:workspace', pinned: true }]);
+
+    useTabStore.setState({ workspaceId: null, byPane: {} });
+    store('chat:../../x');
+    useTabStore.getState().workspaceChanged('w');
+    expect(useTabStore.getState().byPane).toEqual({});
+  });
+
+  it('closing a note chat leaves the note tab with the same id open', () => {
+    useTabStore.setState({
+      byPane: {
+        0: [
+          { itemId: note, pinned: true },
+          { itemId: chatTabId(note), pinned: true },
+        ],
+      },
+    });
+
+    useTabStore.getState().tabClosed(chatTabId(note));
+
+    expect(tabs(0)).toEqual([{ itemId: note, pinned: true }]);
   });
 });
