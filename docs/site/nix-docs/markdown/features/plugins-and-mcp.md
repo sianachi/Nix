@@ -48,3 +48,68 @@ General item reading and editing, note bodies and search stay as `nixctl` comman
 
 Tool results are data. Note contents and filenames that come back from a tool never grant an agent new authority.
 
+## HTTP and other clients
+
+By default `nixctl mcp` speaks stdio and uses your saved CLI profile. To run it against a different account without a profile, set `NIX_SESSION_TOKEN` and `NIX_API_URL` in the client's environment.
+
+`nixctl mcp` can also serve the same tools over HTTP, for clients that cannot start a local process:
+
+```sh
+nixctl mcp --listen 127.0.0.1:8765 --api-url https://<your-nix-host>
+```
+
+- **Flags.** `--listen <host:port>` (or `NIX_MCP_LISTEN`) turns HTTP on. `--api-url` (or `NIX_API_URL`) is required and names your Nix server. `--collab-url` (or `NIX_COLLAB_URL`) is optional and names the collaboration service.
+- **Endpoint.** The server is stateless Streamable HTTP at the path `/mcp`.
+- **Authentication.** Every request needs `Authorization: Bearer nixpat_...`, a personal access token. Requests without one get a 401. The server keeps no profile, so each call runs with that token's scopes and nothing more.
+- **Fewer tools.** Six tools that read or write files on the machine running `nixctl` are not offered over HTTP: document import, file upload, file replace, file download, template archive import preview and template archive export. Use stdio for those.
+
+Some deployments already serve MCP at a public address. If yours does, Settings, MCP shows the URL and a ready-made command, and lets you create a token for it.
+
+### Claude Code
+
+Over stdio, with your saved profile:
+
+```sh
+claude mcp add nix -- nixctl mcp
+```
+
+Over HTTP:
+
+```sh
+claude mcp add --transport http nix https://<your-nix-host>/mcp --header "Authorization: Bearer <token>"
+```
+
+### Codex CLI
+
+Add the server to `~/.codex/config.toml`. For stdio:
+
+```toml
+[mcp_servers.nix]
+command = "nixctl"
+args = ["mcp"]
+```
+
+For HTTP, keep the token in an environment variable rather than in the file:
+
+```toml
+[mcp_servers.nix]
+url = "https://<your-nix-host>/mcp"
+bearer_token_env_var = "NIX_MCP_TOKEN"
+```
+
+### Other clients
+
+A client that launches local servers takes the stdio form shown above. A client that connects by URL needs the address and the bearer header:
+
+```json
+{
+  "mcpServers": {
+    "nix": {
+      "url": "https://<your-nix-host>/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+The exact key names differ between clients, so check yours. Clients that can only connect through an OAuth sign-in are not supported yet; the server accepts personal access tokens only.
