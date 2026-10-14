@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router';
@@ -293,5 +293,51 @@ describe('companion live wiring', () => {
       .filter((body) => body?.operation === 'send')
       .map((body) => body?.text);
     expect(sent).toEqual(['Second request', 'Better request']);
+  });
+
+  it('lists the attached page once, sends it as the message context, and lets it be removed', async () => {
+    const item = '55555555-5555-4555-8555-555555555555';
+    client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
+    client.execute.mockResolvedValue(base);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={[`/?item=${item}`]}>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    await screen.findByRole('dialog', { name: 'Conversation with Cat' });
+
+    const add = await screen.findByRole('button', { name: 'Add this page to the message' });
+    await user.click(add);
+    await user.click(add);
+    const list = screen.getByRole('list', { name: 'Notes sent with your message' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(1);
+
+    await user.type(screen.getByRole('textbox', { name: 'Message Cat' }), 'Summarize');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => {
+      expect(client.execute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          body: expect.objectContaining({ operation: 'send', itemId: item }) as unknown,
+        }),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('removes an attached note from the list', async () => {
+    client.query.mockResolvedValue({ ...base, state: 'success', messages: [], tools: [] });
+    client.execute.mockResolvedValue(base);
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/?item=55555555-5555-4555-8555-555555555555']}>
+        <PetCompanion />
+      </MemoryRouter>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Talk with Cat' }));
+    await user.click(await screen.findByRole('button', { name: 'Add this page to the message' }));
+    await user.click(screen.getByRole('button', { name: /^Remove This page/ }));
+    expect(screen.queryByRole('list', { name: 'Notes sent with your message' })).toBeNull();
   });
 });

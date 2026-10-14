@@ -18,6 +18,7 @@ import {
 import {
   ArrowLeft,
   ArrowUp,
+  FilePlus,
   Maximize2,
   MoreHorizontal,
   Pencil,
@@ -192,7 +193,9 @@ export function Conversation({
   // The draft lives in a small in-memory store rather than here so it survives the
   // conversation moving between the floating panel and its page.
   const [draft, setDraft] = usePetDraft(workspaceId, pet.id, noteScope?.rootItemId);
-  const [shared, setShared] = useState<SharedContext | null>(null);
+  // The notes attached to the next message. The request carries one item for now, so only the
+  // first is sent (see `contextFields`).
+  const [contexts, setContexts] = useState<readonly SharedContext[]>([]);
   const [model, setModel] = useState(() =>
     readConversationModel(workspaceId, pet.id, pet.provider),
   );
@@ -432,7 +435,15 @@ export function Conversation({
     const text = window.getSelection()?.toString().trim() ?? '';
     if (!currentItem || !text) return;
     const trimmed = text.slice(0, 16000);
-    setShared({ itemId: currentItem, sharedText: trimmed, label: trimmed.slice(0, 120) });
+    addContext({ itemId: currentItem, sharedText: trimmed, label: trimmed.slice(0, 120) });
+  }
+
+  /** Adds `entry` to the attached notes; the same note or selection twice stays one entry. */
+  function addContext(entry: SharedContext) {
+    setContexts((list) => [
+      ...list.filter((c) => c.itemId !== entry.itemId || c.sharedText !== entry.sharedText),
+      entry,
+    ]);
   }
 
   /** Must-fix 5: "Summarize this page" attaches the open item as a removable chip, sent as
@@ -440,11 +451,22 @@ export function Conversation({
    * `currentItemId` in its prompt, so nothing here re-sends the page's text itself. */
   function attachPageContext() {
     if (!currentItem) return;
-    setShared({
+    addContext({
       itemId: currentItem,
       sharedText: '',
       label: `This page: ${currentItemTitle ?? 'Untitled'}`,
     });
+  }
+
+  /** What a turn sends as its context. shortcut: the request has one `itemId`/`sharedText`
+   * pair, so only the first attached note goes; lift this when the API accepts a list. */
+  function contextFields() {
+    const first = contexts[0];
+    return noteScope
+      ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
+      : first
+        ? { itemId: first.itemId, sharedText: first.sharedText }
+        : {};
   }
 
   async function submit() {
@@ -467,16 +489,12 @@ export function Conversation({
       text: draft,
       model,
       workspaceAccess,
-      ...(noteScope
-        ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
-        : shared
-          ? { itemId: shared.itemId, sharedText: shared.sharedText }
-          : {}),
+      ...contextFields(),
       ...(workspaceMap?.length ? { workspaceMap } : {}),
     });
     if (ok) {
       setDraft('');
-      setShared(null);
+      setContexts([]);
     }
   }
 
@@ -489,11 +507,7 @@ export function Conversation({
       text,
       model,
       workspaceAccess,
-      ...(noteScope
-        ? { itemId: noteScope.rootItemId, readOnly: noteScope.readOnly }
-        : shared
-          ? { itemId: shared.itemId, sharedText: shared.sharedText }
-          : {}),
+      ...contextFields(),
     });
   }
 
@@ -591,7 +605,7 @@ export function Conversation({
         ? '@container flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden bg-background text-foreground outline-none'
         : '@container flex h-[calc(100dvh-var(--spacing)*36)] max-h-192 min-w-0 w-128 max-w-full flex-col overflow-hidden rounded-lg border border-divider bg-background text-foreground shadow-lg outline-none';
 
-  const needsWorkspaceAccessForChip = Boolean(shared) && !workspaceAccess;
+  const needsWorkspaceAccessForChip = contexts.length > 0 && !workspaceAccess;
 
   if (noteScope && !runtime && error) {
     return (
@@ -929,21 +943,33 @@ export function Conversation({
             </div>
           ) : null}
           <div className="mx-auto flex min-w-0 w-full max-h-[50%] max-w-4xl shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain border-t border-divider p-3">
-            {shared ? (
-              <div className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
-                <Text variant="note" className="truncate">
-                  {shared.label}
-                </Text>
-                <Button
-                  variant="icon"
-                  aria-label="Remove shared selection"
-                  onClick={() => {
-                    setShared(null);
-                  }}
-                >
-                  <Icon icon={X} size="sm" />
-                </Button>
-              </div>
+            {contexts.length > 0 ? (
+              <ul aria-label="Notes sent with your message" className="flex min-w-0 flex-col gap-2">
+                {contexts.map((context, index) => (
+                  <li
+                    key={`${context.itemId}:${context.sharedText}`}
+                    className="flex min-w-0 items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2"
+                  >
+                    <Text variant="note" className="truncate">
+                      {context.label}
+                    </Text>
+                    {index > 0 ? (
+                      <Text variant="note" tone="muted" className="shrink-0">
+                        Not sent yet
+                      </Text>
+                    ) : null}
+                    <Button
+                      variant="icon"
+                      aria-label={`Remove ${context.label}`}
+                      onClick={() => {
+                        setContexts((list) => list.filter((c) => c !== context));
+                      }}
+                    >
+                      <Icon icon={X} size="sm" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
             ) : null}
             {needsWorkspaceAccessForChip ? (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-divider bg-surface px-3 py-2">
@@ -1070,6 +1096,15 @@ export function Conversation({
                   </Text>
                 </>
               ) : null}
+              <Button
+                variant="icon"
+                className="shrink-0"
+                aria-label="Add this page to the message"
+                disabled={!currentItem}
+                onClick={attachPageContext}
+              >
+                <Icon icon={FilePlus} size="sm" />
+              </Button>
               <Button
                 variant="icon"
                 className="shrink-0"
