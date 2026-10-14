@@ -29,6 +29,8 @@ if [[ $1 == push ]]; then
   echo "offsite: snapshot ${SNAPSHOT:-0123abcd4567}"
 fi
 SH
+real_du=$(command -v du) # resolved before the stub dir leads PATH
+printf '#!/usr/bin/env bash\n[[ -z ${FAIL_DU:-} ]] || exit 1\nexec %s "$@"\n' "$real_du" > "$work/bin/du"
 if ! command -v flock >/dev/null; then printf '#!/usr/bin/env bash\nexit 0\n' > "$work/bin/flock"; fi
 cat > "$work/bin/docker" <<'SH'
 #!/usr/bin/env bash
@@ -120,6 +122,12 @@ grep -q 'backup status not recorded: offsite succeeded' "$work/out" || fail 'rec
 sleep 1
 if FAIL_PUSH=1 FAIL_RECORD=1 bash "$tools/nightly.sh" > "$work/out" 2>&1; then fail 'accepted a failed push'; fi
 grep -q 'FAILED during off-host push (exit 1)' "$work/out" || fail 'a failing recorder hid the original exit status'
+
+# Sizing the backup is best effort: a du failure records zero bytes and the backup still succeeds.
+sleep 1
+: > "$TEST_LOG"; : > "$DOCKER_LOG"
+FAIL_DU=1 bash "$tools/nightly.sh" > "$work/out" 2>&1 || fail 'a failing du failed the backup'
+grep -q 'b_step=local -v b_status=succeeded -v b_snapshot= -v b_bytes=0 ' "$DOCKER_LOG" || fail 'unsizable backup not recorded with zero bytes'
 
 # Success: backup, push of the new directory, forget, then local retention.
 sleep 1 # a distinct stamp from the directories the failed runs left behind

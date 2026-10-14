@@ -636,7 +636,7 @@ write_record_status local succeeded ''
 run_script /bin/sh record
 test "$(grep -c '^ARG b_step=' "$PSQL_LOG")" = 1
 reset_record
-run_script /bin/sh record
+if run_script /bin/sh record; then echo 'record passed with no local status.' >&2; exit 1; fi
 test ! -s "$PSQL_LOG"
 write_record_status local succeeded ''
 run_script /bin/sh record FAIL_PSQL=1

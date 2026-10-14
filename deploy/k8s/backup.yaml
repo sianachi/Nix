@@ -158,7 +158,11 @@ spec:
                   failed=0
                   for step in local offsite; do
                     file="/status/$step"
-                    [ -f "$file" ] || continue
+                    # A missing local status means the dump container never reported: a failure. Off-site may be unconfigured.
+                    if [ ! -f "$file" ]; then
+                      [ "$step" != local ] || { echo 'record: no local status was written' >&2; failed=1; }
+                      continue
+                    fi
                     get() { sed -n "s/^$1=//p" "$file"; }
                     status="$(get status)"
                     [ "$status" = succeeded ] || failed=1
