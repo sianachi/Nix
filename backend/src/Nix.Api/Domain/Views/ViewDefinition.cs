@@ -423,8 +423,11 @@ public static class ViewOpenModes
     /// <summary>The item opens as its own pinned document tab.</summary>
     public const string Tab = "tab";
 
+    /// <summary>A click selects (or does nothing); double-click, Enter and the menu still open.</summary>
+    public const string None = "none";
+
     /// <summary>Every mode this build defines; a new mode is one more entry here.</summary>
-    public static readonly IReadOnlyList<string> All = [Page, Dialog, Beside, Tab];
+    public static readonly IReadOnlyList<string> All = [Page, Dialog, Beside, Tab, None];
 
     /// <summary>Whether a stored or requested value names a mode this build defines.</summary>
     /// <param name="value">The value.</param>
@@ -640,7 +643,7 @@ public sealed record ViewDefinition(
     ChartOptions? Chart = null,
 
     // Last and defaulted like every field added since the record was cut. For every kind: how an
-    // item activated from this view opens - `page`, `dialog`, `beside` or `tab`. Null means the client's
+    // item activated from this view opens - `page`, `dialog`, `beside`, `tab` or `none`. Null means the client's
     // own context-aware default, which is what every view stored before the field existed did; the
     // set is closed and policed on write, see ViewOpenModes.
     string? Open = null)

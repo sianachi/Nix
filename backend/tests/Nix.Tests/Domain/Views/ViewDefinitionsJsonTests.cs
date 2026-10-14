@@ -319,6 +319,7 @@ public sealed class ViewDefinitionsJsonTests
     [InlineData("dialog")]
     [InlineData("beside")]
     [InlineData("tab")]
+    [InlineData("none")]
     public void Every_open_mode_this_build_defines_survives_being_written_and_read_back(string open)
     {
         var list = new ViewDefinition("v1", "Everything", ViewKind.List, [], null, [], null, null, false, Open: open);
