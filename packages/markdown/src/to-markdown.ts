@@ -49,7 +49,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * text; block-level starters (`#`, `-`, `>`) only bite at the start of a line, which the block
  * handlers control.
  */
-function escapeInline(text: string): string {
+export function escapeInline(text: string): string {
   return text.replace(/[\\`*[\]]/g, (match) => `\\${match}`);
 }
 
