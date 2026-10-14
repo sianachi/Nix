@@ -9,6 +9,11 @@ import { readDismissals, rememberDismissal } from '../../lib/suggestion-dismissa
 import { memoryStorage } from '../views/suggest/suggest-fixtures';
 import { EditorPreferencesSection } from '../../settings/editor-preferences-section';
 import {
+  usePublishingPreference,
+  useSitesVisible,
+} from '../../settings/publishing-preference';
+import { CapabilitiesProvider } from '../../session/capabilities-context';
+import {
   readChoiceOrderSetting,
   readViewSuggestionSetting,
   useChoiceOrderPreference,
@@ -93,6 +98,58 @@ describe('editor preferences', () => {
     render(<EditorPreferencesSection />);
 
     expect(screen.getByRole('status')).toHaveTextContent(/Vim basics may reset/i);
+  });
+});
+
+function SiteEntryProbe() {
+  return useSitesVisible() ? <button type="button">Publish as a site</button> : null;
+}
+
+describe('publishing', () => {
+  beforeEach(() => {
+    usePublishingPreference.setState({ enabled: false });
+  });
+
+  it('has no row on a deployment without sites', () => {
+    render(
+      <CapabilitiesProvider value={{ sites: false, mcpUrl: null }}>
+        <EditorPreferencesSection />
+      </CapabilitiesProvider>,
+    );
+
+    expect(screen.queryByRole('checkbox', { name: 'Publishing' })).not.toBeInTheDocument();
+  });
+
+  it('is off by default, and switching it on and off shows and hides the site entry', async () => {
+    const user = userEvent.setup();
+    render(
+      <CapabilitiesProvider value={{ sites: true, mcpUrl: null }}>
+        <EditorPreferencesSection />
+        <SiteEntryProbe />
+      </CapabilitiesProvider>,
+    );
+
+    const toggle = screen.getByRole('checkbox', { name: 'Publishing' });
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText('Show site publishing for pages you own.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Publish as a site' })).not.toBeInTheDocument();
+
+    await user.click(toggle);
+    expect(screen.getByRole('button', { name: 'Publish as a site' })).toBeVisible();
+
+    await user.click(toggle);
+    expect(screen.queryByRole('button', { name: 'Publish as a site' })).not.toBeInTheDocument();
+  });
+
+  it('shows nothing when publishing is on but the deployment has no sites', () => {
+    usePublishingPreference.setState({ enabled: true });
+    render(
+      <CapabilitiesProvider value={{ sites: false, mcpUrl: null }}>
+        <SiteEntryProbe />
+      </CapabilitiesProvider>,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Publish as a site' })).not.toBeInTheDocument();
   });
 });
 
