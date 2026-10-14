@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect, type ReactNode } from 'react';
 
 import type { ViewCapabilities } from './view-capabilities';
 
@@ -11,6 +11,12 @@ export interface ItemSelectionContextValue {
   /** Toggles one item; with `shiftKey` extends from the last clicked id across `order`. */
   readonly toggle: (itemId: string, order: readonly string[], shiftKey?: boolean) => void;
   readonly capabilities: ViewCapabilities;
+  /** Every item the view currently shows, in order: what Select all and Shift-click range over. */
+  readonly shown: readonly string[];
+  /** The view reports what it shows; the selection cannot know, because filters live in the view. */
+  readonly show: (ids: readonly string[]) => void;
+  /** Opens beside, when the surface around the view can; an Alt-click does this. */
+  readonly openBeside?: ((itemId: string) => void) | undefined;
 }
 
 export const ItemSelectionContext = createContext<ItemSelectionContextValue | null>(null);
@@ -18,4 +24,17 @@ export const ItemSelectionContext = createContext<ItemSelectionContextValue | nu
 /** Null outside a selecting container, so a view drawn alone (a story, a dialog) offers no boxes. */
 export function useOptionalItemSelection(): ItemSelectionContextValue | null {
   return useContext(ItemSelectionContext);
+}
+
+/** Draws nothing; tells the selection which items its view currently shows, and when it stops. */
+export function ShownItems({ ids }: { readonly ids: readonly string[] }): ReactNode {
+  const show = useOptionalItemSelection()?.show;
+  const key = ids.join('\u0000');
+  useEffect(() => {
+    show?.(key.length === 0 ? [] : key.split('\u0000'));
+    return () => {
+      show?.([]);
+    };
+  }, [show, key]);
+  return null;
 }

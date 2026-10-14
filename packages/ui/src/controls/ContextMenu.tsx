@@ -54,6 +54,11 @@ export interface ContextMenuProps {
    */
   readonly children: (target: ContextMenuTargetProps) => ReactNode;
   readonly renderLink?: (props: MenuLinkRenderProps) => ReactNode;
+  /**
+   * Offered the first claim on a touch long-press. Returning true means the caller used the press
+   * (to start a selection, say) and no menu opens; false falls through to the menu as usual.
+   */
+  readonly onLongPress?: () => boolean;
   /** Layout only - the panel's own position, never a restyle of the frame. */
   readonly className?: string;
 }
@@ -82,13 +87,15 @@ interface OpenMenu {
 }
 
 export function ContextMenu(props: ContextMenuProps): ReactNode {
-  const { label, items, children, renderLink, className } = props;
+  const { label, items, children, renderLink, className, onLongPress } = props;
   const [open, setOpen] = useState<OpenMenu | null>(null);
   const marker = useId();
   // Read by the listeners below, which are attached once rather than per render.
   const itemsRef = useRef(items);
+  const longPressRef = useRef(onLongPress);
   useEffect(() => {
     itemsRef.current = items;
+    longPressRef.current = onLongPress;
   });
   // Found by its marker rather than held in a ref or in state: state rendered every row a second
   // time as it mounted, which a long table paid for in full.
@@ -119,6 +126,9 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
       });
       return true;
     };
+    // A touch long-press: the caller may claim it, otherwise it opens the menu.
+    const showForPress = (anchor: MenuPanelAnchor): boolean =>
+      longPressRef.current?.() === true || show(anchor);
     const elementAnchor = (): MenuPanelAnchor => {
       const focused = document.activeElement;
       const rect = (
@@ -171,7 +181,7 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
       const anchor = keyboard
         ? elementAnchor()
         : { left: event.clientX, top: event.clientY, bottom: event.clientY };
-      if (show(anchor)) {
+      if (touch ? showForPress(anchor) : show(anchor)) {
         if (touch) {
           swallowClick = true;
           openedByPress = true;
@@ -222,7 +232,7 @@ export function ContextMenu(props: ContextMenuProps): ReactNode {
         timer: setTimeout(() => {
           cancelPress();
           if (hasSelectionWithin(element)) return;
-          if (show({ left: x, top: y, bottom: y })) {
+          if (showForPress({ left: x, top: y, bottom: y })) {
             swallowClick = true;
             openedByPress = true;
           }

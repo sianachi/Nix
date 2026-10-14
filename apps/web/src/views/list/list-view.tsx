@@ -34,7 +34,8 @@ import { CreateItemControl } from '../core/create-item-control';
 import { suggestSourceOf } from '../suggest/suggest-source';
 import { useItemContextActions } from '../core/use-item-context-actions';
 import { resetColumnWidth, setColumnWidth, useColumnWidths } from '../core/column-widths';
-import { useOptionalItemSelection } from '../core/item-selection-context';
+import { ShownItems, useOptionalItemSelection } from '../core/item-selection-context';
+import { rowGestures } from '../core/use-item-selection';
 import { cellFor, isCellMoveKey, moveFocusedCell } from './cell-nav';
 import { ListCell } from './list-cell';
 import type { ContainerData } from '../core/use-container';
@@ -172,27 +173,64 @@ export function ListView(props: ListViewProps): ReactNode {
     },
   };
   const orderIds = chrome.items.map((item) => item.id);
+  const besideOf = selection?.openBeside;
+  const gesturesFor = (item: Item): RowGestures =>
+    rowGestures(
+      selection,
+      item.id,
+      orderIds,
+      () => {
+        onOpen(item.id);
+      },
+      besideOf === undefined
+        ? undefined
+        : () => {
+            besideOf(item.id);
+          },
+    );
+  // A touch long-press starts a selection; once one exists it opens the row menu as before.
+  const longPress = (item: Item): boolean => {
+    if (selection === null || selection.selected.size > 0) return false;
+    selection.toggle(item.id, orderIds);
+    return true;
+  };
+  const rowSelection: RowSelection = {
+    selected: (item) => selection?.selected.has(item.id) === true,
+    longPress: selection === null ? undefined : longPress,
+  };
   const columns = [
     // A box per row while the container selects (requirement 7): a plain toggle, Shift extends.
+    // It sits in a fixed gutter and is only drawn on row hover or focus until something is selected,
+    // so the 95% of visits that never select see no column of boxes - and nothing shifts when one
+    // appears.
     ...(selection === null
       ? []
       : [
           {
             key: SELECT_COLUMN_KEY,
             header: 'Select',
+            gutter: true,
             cell: (item: Item) => (
-              <Checkbox
-                aria-label={`Select ${item.title || 'Untitled'}`}
-                checked={selection.selected.has(item.id)}
-                onClick={(event) => {
-                  selection.toggle(item.id, orderIds, event.shiftKey);
-                }}
-                onChange={() => undefined}
-              />
+              <span
+                className={cn(
+                  'flex',
+                  selection.selected.size === 0 &&
+                    'opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100',
+                )}
+              >
+                <Checkbox
+                  aria-label={`Select ${item.title || 'Untitled'}`}
+                  checked={selection.selected.has(item.id)}
+                  onClick={(event) => {
+                    selection.toggle(item.id, orderIds, event.shiftKey);
+                  }}
+                  onChange={() => undefined}
+                />
+              </span>
             ),
           } satisfies TableColumn<Item>,
         ]),
-    ...buildColumns(view, container.schema, onOpen, write, refusalStore),
+    ...buildColumns(view, container.schema, gesturesFor, write, refusalStore),
   ];
   const sort = sortBy === null ? undefined : { columnKey: sortBy, direction };
   const onSortChange = (next: TableSort): void => {
@@ -236,6 +274,7 @@ export function ListView(props: ListViewProps): ReactNode {
         sort={sort}
         onSortChange={onSortChange}
         rowContextMenu={rowContextMenu}
+        rowSelection={rowSelection}
         caption={caption}
         showSort={showSort}
       />
@@ -246,6 +285,7 @@ export function ListView(props: ListViewProps): ReactNode {
         sort={sort}
         onSortChange={onSortChange}
         rowContextMenu={rowContextMenu}
+        rowSelection={rowSelection}
         caption={caption}
         widths={
           viewId === null
@@ -299,6 +339,7 @@ export function ListView(props: ListViewProps): ReactNode {
         moveFocusedCell(cell, event.key);
       }}
     >
+      {selection === null ? null : <ShownItems ids={orderIds} />}
       {chrome.notice}
       {sectionNotice}
 
@@ -307,7 +348,11 @@ export function ListView(props: ListViewProps): ReactNode {
       ) : (
         <>
           {narrow ? (
-            <MobileSortBar columns={columns} sort={sort} onSortChange={onSortChange} />
+            <MobileSortBar
+              columns={columns.filter((column) => column.key !== SELECT_COLUMN_KEY)}
+              sort={sort}
+              onSortChange={onSortChange}
+            />
           ) : null}
           <ListSections
             sections={sections}
@@ -405,12 +450,22 @@ interface ListRowsProps {
   readonly onSortChange: (sort: TableSort) => void;
   readonly rowContextMenu?: (item: Item) => MenuEntry[];
 
+  /** Which rows are selected and what a touch long-press on one does. */
+  readonly rowSelection: RowSelection;
+
   /** The table's accessible name: the list's, or the section's heading when it is grouped. */
   readonly caption: string;
 
   /** Dragged widths, kept per device (column-widths.ts), and where a drag writes them. */
   readonly widths?: WidthControl | undefined;
 }
+
+interface RowSelection {
+  readonly selected: (item: Item) => boolean;
+  readonly longPress: ((item: Item) => boolean) | undefined;
+}
+
+type RowGestures = ReturnType<typeof rowGestures>;
 
 interface WidthControl {
   readonly columnWidths: Readonly<Record<string, number>>;
@@ -424,7 +479,8 @@ function rowMenuLabel(item: Item): string {
 }
 
 function ListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange, rowContextMenu, caption, widths } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu, rowSelection, caption, widths } =
+    props;
   if (items.length <= VIRTUALIZATION_THRESHOLD) {
     return (
       <Table<Item>
@@ -436,6 +492,8 @@ function ListRows(props: ListRowsProps): ReactNode {
         {...(sort === undefined ? {} : { sort })}
         {...(widths ?? {})}
         onSortChange={onSortChange}
+        rowSelected={rowSelection.selected}
+        {...(rowSelection.longPress === undefined ? {} : { rowLongPress: rowSelection.longPress })}
         {...(rowContextMenu === undefined
           ? {}
           : { rowContextMenu, rowContextMenuLabel: rowMenuLabel })}
@@ -447,7 +505,7 @@ function ListRows(props: ListRowsProps): ReactNode {
 }
 
 function VirtualListRows(props: ListRowsProps): ReactNode {
-  const { items, columns, sort, onSortChange, rowContextMenu, caption } = props;
+  const { items, columns, sort, onSortChange, rowContextMenu, rowSelection, caption } = props;
   const rootRef = useRef<HTMLTableElement>(null);
   // Stable identity keeps the virtualizer's measurement subscriptions intact between renders.
   const keys = useMemo(() => items.map((item) => item.id), [items]);
@@ -471,6 +529,8 @@ function VirtualListRows(props: ListRowsProps): ReactNode {
       emptyMessage="Nothing in here yet."
       {...(sort === undefined ? {} : { sort })}
       onSortChange={onSortChange}
+      rowSelected={rowSelection.selected}
+      {...(rowSelection.longPress === undefined ? {} : { rowLongPress: rowSelection.longPress })}
       {...(rowContextMenu === undefined
         ? {}
         : { rowContextMenu, rowContextMenuLabel: rowMenuLabel })}
@@ -511,7 +571,7 @@ function hiddenByFilters(total: number): string {
 function buildColumns(
   view: View | null,
   schema: EffectiveSchema | null,
-  onOpen: (itemId: string) => void,
+  gestures: (item: Item) => RowGestures,
   write: (itemId: string, key: string, value: PropertyValue) => Promise<string | null>,
   refusals: CellRefusalStore,
 ): readonly TableColumn<Item>[] {
@@ -533,9 +593,7 @@ function buildColumns(
         // on the one thing in the row that already names the destination.
         <button
           type="button"
-          onClick={() => {
-            onOpen(item.id);
-          }}
+          {...gestures(item)}
           className={cn(
             'cursor-default text-left hover:text-accent-text pointer-coarse:min-h-(--control-lg)',
             focusRing,
@@ -609,14 +667,19 @@ function cellRefusalKey(itemId: string, key: string): string {
 
 function MobileListRows({
   items,
-  columns,
+  columns: allColumns,
   sort,
   onSortChange,
   rowContextMenu,
+  rowSelection,
   caption,
   showSort,
 }: ListRowsProps & { readonly showSort: boolean }): ReactNode {
   const [limit, setLimit] = useState(40);
+  // The selection gutter is not a field: it is drawn beside the row, and only while selecting.
+  const columns = allColumns.filter((column) => column.key !== SELECT_COLUMN_KEY);
+  const selectColumn = allColumns.find((column) => column.key === SELECT_COLUMN_KEY);
+  const selecting = items.some(rowSelection.selected);
   return (
     <section aria-label={caption} className="flex min-w-0 flex-col gap-3">
       {showSort ? (
@@ -627,15 +690,30 @@ function MobileListRows({
           // A long press is the phone's right-click: the same actions the desktop rows offer, so a
           // row on a phone is not the one place an item cannot be moved, pinned or deleted from.
           rowContextMenu === undefined ? (
-            <MobileRow key={item.id} item={item} columns={columns} />
+            <MobileRow
+              key={item.id}
+              item={item}
+              columns={columns}
+              selectColumn={selecting ? selectColumn : undefined}
+              selected={rowSelection.selected(item)}
+            />
           ) : (
             <ContextMenu
               key={item.id}
               label={`${item.title || 'Untitled'} actions`}
               items={() => rowContextMenu(item)}
+              {...(rowSelection.longPress === undefined
+                ? {}
+                : { onLongPress: () => rowSelection.longPress?.(item) === true })}
             >
               {(contextTarget) => (
-                <MobileRow item={item} columns={columns} target={contextTarget} />
+                <MobileRow
+                  item={item}
+                  columns={columns}
+                  target={contextTarget}
+                  selectColumn={selecting ? selectColumn : undefined}
+                  selected={rowSelection.selected(item)}
+                />
               )}
             </ContextMenu>
           ),
@@ -713,12 +791,17 @@ function MobileRow(props: {
   readonly item: Item;
   readonly columns: ListRowsProps['columns'];
   readonly target?: ContextMenuTargetProps;
+  readonly selectColumn?: TableColumn<Item> | undefined;
+  readonly selected: boolean;
 }): ReactNode {
-  const { item, columns, target } = props;
+  const { item, columns, target, selectColumn, selected } = props;
 
   return (
-    <li {...target} className="min-w-0 py-3">
-      <div className="py-2">{columns[0]?.cell(item)}</div>
+    <li {...target} className={cn('min-w-0 py-3', selected && 'bg-accent/10')}>
+      <div className="flex items-center gap-2 py-2">
+        {selectColumn?.cell(item)}
+        {columns[0]?.cell(item)}
+      </div>
       {columns.length > 1 ? (
         <details>
           <summary className="cursor-default py-2">Fields</summary>
