@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type HistoryEntry struct {
@@ -22,6 +23,37 @@ type archivedConversation struct {
 	HistoryEntry
 	Messages []Message  `json:"messages"`
 	Tools    []ToolCall `json:"tools"`
+	// LockedRead carries the conversation's protected-read hold into the archive and back out on
+	// resume. A pointer so an archive from before this field reads as absent, not as false.
+	LockedRead *bool `json:"lockedRead,omitempty"`
+}
+
+// defaultTitle names a conversation after its first user message: whitespace collapsed, cut to
+// 120 runes. The first message of a trimmed conversation need not be a user message.
+func defaultTitle(messages []Message) string {
+	for _, m := range messages {
+		if m.Role == "user" {
+			title := []rune(strings.Join(strings.Fields(m.Text), " "))
+			if len(title) > 120 {
+				title = title[:120]
+			}
+			return string(title)
+		}
+	}
+	return ""
+}
+
+// validHistoryOp checks what rename and resume_history carry beyond a plain request: a title of
+// 1 to 120 UTF-16 units once trimmed with no control characters, and the archive each names.
+func validHistoryOp(r Request) bool {
+	switch r.Operation {
+	case "rename":
+		title := strings.TrimSpace(r.Text)
+		return title != "" && utf16Len(title) <= 120 && !strings.ContainsFunc(title, unicode.IsControl) && (r.HistoryID == "" || uuid.MatchString(r.HistoryID))
+	case "resume_history":
+		return uuid.MatchString(r.HistoryID)
+	}
+	return true
 }
 
 func (a *account) archiveLocked(key string) error {
@@ -43,7 +75,7 @@ func (a *account) archiveLocked(key string) error {
 	return writeArchive(dir, c)
 }
 
-// writeArchive stores c as one new read-only history entry in dir.
+// writeArchive stores c as one new history entry in dir.
 func writeArchive(dir string, c *conversation) error {
 	var bytes [16]byte
 	if _, err := rand.Read(bytes[:]); err != nil {
@@ -52,12 +84,18 @@ func writeArchive(dir string, c *conversation) error {
 	bytes[6] = (bytes[6] & 15) | 64
 	bytes[8] = (bytes[8] & 63) | 128
 	id := fmt.Sprintf("%x-%x-%x-%x-%x", bytes[:4], bytes[4:6], bytes[6:8], bytes[8:10], bytes[10:])
-	title := []rune(c.Messages[0].Text)
-	if len(title) > 120 {
-		title = title[:120]
+	title := c.Title
+	if title == "" {
+		title = defaultTitle(c.Messages)
 	}
-	value := archivedConversation{HistoryEntry: HistoryEntry{id, string(title), time.Now().UTC().Format(time.RFC3339)}, Messages: c.Messages, Tools: c.Tools}
-	path := filepath.Join(dir, id+".json")
+	locked := c.LockedRead
+	return writeArchiveFile(dir, archivedConversation{HistoryEntry: HistoryEntry{id, title, time.Now().UTC().Format(time.RFC3339)}, Messages: c.Messages, Tools: c.Tools, LockedRead: &locked})
+}
+
+// writeArchiveFile writes value to dir/<its id>.json through a synced temp file and a rename, so
+// a crash leaves the old entry or the new one, never half of either.
+func writeArchiveFile(dir string, value archivedConversation) error {
+	path := filepath.Join(dir, value.ID+".json")
 	f, err := os.CreateTemp(dir, ".archive-")
 	if err != nil {
 		return err
@@ -148,9 +186,86 @@ func (a *account) foldDesign(key string) error {
 	return nil
 }
 
+// readArchive loads one archive, bounded like every conversation file.
+func readArchive(path string) (archivedConversation, error) {
+	var value archivedConversation
+	f, err := os.Open(path)
+	if err != nil {
+		return value, err
+	}
+	defer f.Close()
+	if json.NewDecoder(io.LimitReader(f, 4<<20)).Decode(&value) != nil {
+		return value, errors.New("history could not be loaded")
+	}
+	return value, nil
+}
+
+// resume swaps the archive r.HistoryID in as key's live conversation. The live one (when it has
+// messages) is archived in its place, so the archive count never changes and the 32-entry cap
+// cannot refuse a resume. The archive has no provider thread and no approval cards; the next
+// send starts a fresh thread seeded with the visible messages (send). A legacy archive without
+// a recorded hold resumes held, since its transcript may quote protected content.
+func (a *account) resume(key string, r Request) error {
+	dir := filepath.Join(a.home, key+"-history")
+	path := filepath.Join(dir, r.HistoryID+".json")
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	old := a.conversations[key]
+	if old.State == "thinking" {
+		return errors.New("stop the running turn first")
+	}
+	value, err := readArchive(path)
+	if err != nil {
+		return err
+	}
+	if len(old.Messages) > 0 {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return err
+		}
+		if err := writeArchive(dir, old); err != nil {
+			return err
+		}
+	}
+	a.conversations[key] = &conversation{Messages: value.Messages, Tools: []ToolCall{}, State: "idle", Title: value.Title, RootItemID: r.RootItemID, LockedRead: value.LockedRead == nil || *value.LockedRead, Revision: old.Revision}
+	if err := a.saveLocked(key); err != nil {
+		return err
+	}
+	// Removed only after the live save: a crash between the two leaves a duplicate, not a loss.
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	a.removeTraceLocked(key)
+	return nil
+}
+
+// renameLive sets the live conversation's title.
+func (a *account) renameLive(key string, r Request) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.conversations[key]
+	if c.State == "thinking" {
+		return errors.New("stop the running turn first")
+	}
+	c.Title = strings.TrimSpace(r.Text)
+	return a.saveLocked(key)
+}
+
 func (a *account) history(key string, r Request) (Response, error) {
 	dir := filepath.Join(a.home, key+"-history")
 	result := a.snapshot("")
+	if r.Operation == "rename" {
+		if !uuid.MatchString(r.HistoryID) {
+			return Response{}, errors.New("invalid history identity")
+		}
+		value, err := readArchive(filepath.Join(dir, r.HistoryID+".json"))
+		if err != nil {
+			return Response{}, err
+		}
+		value.Title = strings.TrimSpace(r.Text)
+		if err := writeArchiveFile(dir, value); err != nil {
+			return Response{}, err
+		}
+	}
 	if r.Operation == "read_history" || r.Operation == "delete_history" {
 		if !uuid.MatchString(r.HistoryID) {
 			return Response{}, errors.New("invalid history identity")
@@ -166,14 +281,9 @@ func (a *account) history(key string, r Request) (Response, error) {
 			a.removeTraceLocked(key)
 			a.mu.Unlock()
 		} else {
-			f, err := os.Open(path)
+			value, err := readArchive(path)
 			if err != nil {
 				return Response{}, err
-			}
-			defer f.Close()
-			var value archivedConversation
-			if json.NewDecoder(io.LimitReader(f, 4<<20)).Decode(&value) != nil {
-				return Response{}, errors.New("history could not be loaded")
 			}
 			result.Messages = value.Messages
 			result.Tools = value.Tools
