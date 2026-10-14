@@ -1,3 +1,4 @@
+import { browserStorage } from './browser-storage';
 import { uiSettings, type NixClient, type UiSettings, type UiSettingsPatch } from '@nix/api-client';
 
 /**
@@ -9,7 +10,13 @@ import { uiSettings, type NixClient, type UiSettings, type UiSettingsPatch } fro
  * server has never seen is uploaded from this device if it holds a non-default value, so the
  * first device to sign in seeds the account. Nothing here blocks the UI or throws; a failed
  * request is a warning and the local value stands.
+ *
+ * Browser storage belongs to the browser, not the account, so the id of the person who last
+ * hydrated is remembered. When somebody else signs in, their server values still apply but this
+ * browser's leftover values are never uploaded into their account.
  */
+
+const OWNER_KEY = 'nix.ui-settings-owner';
 
 type Key = keyof UiSettings;
 type Value = NonNullable<UiSettings[Key]>;
@@ -31,6 +38,22 @@ let applying = false;
 
 export function registerSyncedSetting<K extends Key>(key: K, registration: Registration<K>): void {
   registry.set(key, registration as unknown as Registration<Key>);
+}
+
+function readOwner(): string | null {
+  try {
+    return browserStorage()?.getItem(OWNER_KEY) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function writeOwner(principalId: string): void {
+  try {
+    browserStorage()?.setItem(OWNER_KEY, principalId);
+  } catch {
+    // Without storage there is no leftover to protect against either.
+  }
 }
 
 function send(patch: UiSettingsPatch): void {
@@ -55,12 +78,15 @@ export function settingChanged(key: Key, value: Value): void {
 }
 
 /** Reads the server's values once and reconciles each registered store with them. */
-export async function hydrateUiSettings(next: NixClient): Promise<void> {
+export async function hydrateUiSettings(next: NixClient, principalId: string): Promise<void> {
   client = next;
   changedSinceHydrate.clear();
   try {
     const { settings } = await next.query(uiSettings.settings());
     const upload: Record<string, Value> = {};
+    const owner = readOwner();
+    const mayUpload = owner === null || owner === principalId;
+    writeOwner(principalId);
     applying = true;
     try {
       for (const [key, registration] of registry) {
@@ -68,7 +94,8 @@ export async function hydrateUiSettings(next: NixClient): Promise<void> {
         if (changedSinceHydrate.has(key)) continue;
         const remote = settings[key];
         if (remote !== undefined) registration.set(remote);
-        else if (registration.get() !== registration.defaultValue) upload[key] = registration.get();
+        else if (mayUpload && registration.get() !== registration.defaultValue)
+          upload[key] = registration.get();
       }
     } finally {
       applying = false;
